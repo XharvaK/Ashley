@@ -17,7 +17,7 @@ personhood, production autonomy, or self-improvement authority.
 
 ## What is Ashley?
 
-Ashley is a personal, single-owner companion project exploring how a digital
+Ashley is a persistent autonomous cognitive entity, exploring how a digital
 identity can persist across conversations without relying on fabricated memory
 or a personality prompt alone. Her behavior is intended to arise from stored
 history, grounded evidence, current state, curiosity, initiative, uncertainty,
