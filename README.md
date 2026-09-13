@@ -245,39 +245,6 @@ planes; historical research is preserved as history and is not current law
 because it is older or more detailed.
 Observability is not evaluation, and evaluation is not promotion.
 
-## Quick start
-
-Prerequisites: Node.js 22. Production Discord runs on Linux Mint; Windows is
-for development. Copy [`config/env.example`](config/env.example) to
-`~/.composer-assistant/.env` and fill in provider credentials (never commit
-real keys). Commands below are from the repository root `package.json`.
-
-```powershell
-npm ci --prefix apps/agent-service   # install agent-service dependencies
-npm ci --prefix apps/discord-bot     # install Discord gateway dependencies
-
-npm run build --prefix apps/agent-service   # typecheck + build (tsc)
-npm test                                    # agent-service focused test run
-npm run test:current-release                # current release gate (product + sandbox-v2 + deployment)
-```
-
-```powershell
-npm run dev:agent      # agent-service only (http://127.0.0.1:3710)
-npm run dev:discord    # agent + Discord bot (conflicts with Mint)
-npm run start:ashley   # SSH to Mint: checkout + coherent stop/build/start
-npm run stop:ashley    # stop accidental Windows pids only
-```
-
-`npm run start:ashley:windows` exists for rare local smoke tests. Do not use it
-while Mint owns the Discord token. CI (`.github/workflows/test.yml`) builds the
-sandbox file packages, installs, builds, and runs the current release gate on
-Node 22. More operations: [`AGENTS.md`](AGENTS.md).
-
-Verification is selected by the claim being made, not by ritual. More tests are
-not automatically more evidence. Lifecycle: `ITERATION` → `SETTLEMENT` →
-`CANDIDATE FREEZE` → `PHYSICAL QUALIFICATION` → `PRODUCTION`. Semantics:
-[`docs/Wave_Acceptance_Protocol.md`](docs/Wave_Acceptance_Protocol.md). Worker
-selection matrix: [`AGENTS.md`](AGENTS.md).
 
 ## Diagnostics and control
 
@@ -293,17 +260,6 @@ Project Ashley keeps inspection separate from mutation:
 - Logs and future traces are mechanical telemetry. They do not become Recall,
   qualification, authorization, or an Effect Witness. Observability is not
   evaluation; evaluation is not qualification; qualification is not promotion.
-
-## Research philosophy
-
-Architecture research is preserved as research. Frozen architecture is current
-law. Named later phases are planned work, not current delivery. Owner-selected
-implementation order is delivery, not semantic parenthood.
-
-External projects may inspire mechanisms for existing owners. They do not add
-kernels, faculties, boundaries, or primitives. Historical phrases such as
-“Event Fabric” are dated; current terms are the Operational Continuity inbox
-and a future typed Event Spine.
 
 ## Project status
 
