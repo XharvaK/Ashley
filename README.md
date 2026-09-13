@@ -31,7 +31,10 @@ increasingly perceive, inspect, think, experiment privately, verify, author,
 operate, and eventually perform controlled effects. That workshop is not the
 product.
 
-## Artificial cognitive architecture
+## Core cognitive turn and effect path
+
+This first view is the compact reactive/executive path for one admitted turn. It
+is not the complete persistence or future-entry cycle; that view follows.
 
 ```mermaid
 flowchart LR
@@ -63,6 +66,40 @@ Expression realizes an authorized intent as language. Rendering and delivery
 handle platform mechanics and truthful downstream receipts. Reflection
 interprets completed outcomes for bounded future calibration, not current-turn
 authority.
+
+## Persistent cognitive cycle and future entry
+
+```mermaid
+flowchart LR
+    M[Admitted message / event] --> O[Cognitive opportunity]
+    P[Periodic cognition<br/>sparse opportunity, not a mandate] --> O
+    C[Continuity<br/>persistence, change, recovery] --> R[Recovery / continuation<br/>pending interaction]
+    R --> O
+
+    I[Identity] --> T[Thought<br/>sole semantic author]
+    S[Mind State] --> T
+    L[Relationship] --> T
+    Q[Curiosity] --> T
+    C -->|preserved context| T
+    E[Memory / Evidence<br/>persistent evidence and assertions] --> X[Recall<br/>retrieval surface]
+    X -->|relevant retrieved evidence| T
+    O --> T
+
+    T --> U[Completed outcome]
+    U --> F[Reflection<br/>post-outcome interpretation]
+    F --> K[Bounded future calibration<br/>not current-turn authority]
+    K -.->|later influence| T
+```
+
+Cognition can begin with an admitted message or event, a sparse periodic opportunity,
+or continuity/recovery of an unanswered interaction. Continuity and Memory /
+Evidence carry attributable material across cycles; Recall retrieves relevant
+evidence for Thought. Reflection interprets outcomes and can support bounded
+calibration for later opportunities, but it never becomes current-turn semantic
+authority. Periodic cognition is an opportunity, not continuous consciousness or
+a mandate. Recovery is operational continuation, not periodic cognition. Not
+every owner or control plane is shown; the frozen owner map below remains
+canonical.
 
 | System | Responsibility |
 |---|---|
