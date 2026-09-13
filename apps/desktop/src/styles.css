@@ -1,0 +1,94 @@
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body {
+  background: transparent;
+  overflow: hidden;
+  font-family: "Segoe UI", system-ui, sans-serif;
+  user-select: none;
+}
+
+#app {
+  width: 220px;
+  height: 280px;
+  position: relative;
+}
+
+#avatar {
+  width: 200px;
+  height: 220px;
+  margin: 8px auto 0;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  cursor: grab;
+}
+
+#avatar.position-locked {
+  cursor: default;
+}
+
+#avatar:active:not(.position-locked) {
+  cursor: grabbing;
+}
+
+#avatar-canvas {
+  width: 200px;
+  height: 200px;
+  display: block;
+  pointer-events: none;
+}
+
+#status-label {
+  text-align: center;
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 12px;
+  margin-top: 4px;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.8);
+  pointer-events: none;
+}
+
+.state-booting #avatar-canvas {
+  opacity: 0.85;
+}
+
+.state-dormant #avatar-canvas {
+  opacity: 0.55;
+}
+
+#context-menu {
+  position: fixed;
+  z-index: 100;
+  min-width: 160px;
+  padding: 4px;
+  list-style: none;
+  background: rgba(18, 22, 32, 0.94);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+
+#context-menu[hidden] {
+  display: none;
+}
+
+#lock-position {
+  width: 100%;
+  padding: 8px 12px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: #eef2ff;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+#lock-position:hover {
+  background: rgba(255, 255, 255, 0.08);
+}

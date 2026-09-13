@@ -1,0 +1,20 @@
+[Unit]
+Description=Ashley observer read-only field bundle export (disabled candidate)
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/ashley-observer-tools/apps/observer-exporter
+NoNewPrivileges=yes
+PrivateNetwork=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ReadOnlyPaths=%h/.composer-assistant
+ReadOnlyPaths=%h/project-ashley
+ReadOnlyPaths=%h/ashley-observer-tools
+ReadWritePaths=%h/.ashley-field-observer-bundles
+# This candidate does not load Ashley .env and carries no credential.
+# It selects the previous local Istanbul calendar date at the 04:05 run.
+ExecStart=/bin/sh -c 'field_day=$$(TZ=Europe/Istanbul date -d yesterday +%%F); exec /usr/bin/node dist/cli/export.js --data-root %h/.composer-assistant --out-root %h/.ashley-field-observer-bundles --ashley-checkout %h/project-ashley --field-day "$$field_day"'
+
+[Install]
+WantedBy=default.target

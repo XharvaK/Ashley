@@ -1,0 +1,20 @@
+[Unit]
+Description=Ashley agent-service (Mistral + SQLite memory)
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=60s
+StartLimitBurst=5
+
+[Service]
+Type=simple
+WorkingDirectory=%h/project-ashley/apps/agent-service
+EnvironmentFile=%h/.composer-assistant/.env
+ExecStart=/usr/bin/node dist/index.js
+Restart=on-failure
+RestartSec=5
+RestartPreventExitStatus=75 78
+# Soft cap for 4GB hosts
+MemoryMax=512M
+
+[Install]
+WantedBy=default.target

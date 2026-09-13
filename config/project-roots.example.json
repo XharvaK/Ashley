@@ -1,0 +1,14 @@
+[
+  {
+    "projectId": "project-ashley",
+    "canonicalRoot": "/home/<user>/project-ashley",
+    "displayName": "Project Ashley (live)",
+    "enabled": true,
+    "readAllowed": true,
+    "candidateWorkspaceAllowed": true,
+    "engineeringAllowed": true,
+    "verificationAllowed": false,
+    "allowedRecipeIds": [],
+    "_comment": "Host/operator-owned allowlist for the Autonomous Engineering Workstation. Ashley may READ this to decide where she may engineer; she can NEVER create or widen a project root. canonicalRoot must be a canonical absolute POSIX path and must NOT be a broad system root (/, /home, /Users, /root, or the live production checkout). The file is a top-level array; copy to ~/.composer-assistant/project-roots.json and set ASHLEY_SANDBOX_PROJECT_REGISTRY to its path."
+  }
+]

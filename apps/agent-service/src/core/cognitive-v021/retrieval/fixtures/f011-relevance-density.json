@@ -1,0 +1,250 @@
+[
+  {
+    "assertionKey": "density:relevant:00",
+    "statement": "Synthetic density contract relevant: the owner is committed to the migration rehearsal in the target window on 2030-10-14; workstream alpha.",
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "owner_utterance",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "owner_supplied"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": 1,
+    "live": false
+  },
+  {
+    "assertionKey": "density:relevant:01",
+    "statement": "Synthetic density contract relevant: the owner is committed to the migration rehearsal in the target window on 2030-10-14; workstream beta.",
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "owner_utterance",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "owner_supplied"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": 1,
+    "live": false
+  },
+  {
+    "assertionKey": "density:relevant:02",
+    "statement": "Synthetic density contract relevant: the owner is committed to the migration rehearsal in the target window on 2030-10-14; workstream gamma.",
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "owner_utterance",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "owner_supplied"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": 1,
+    "live": false
+  },
+  {
+    "assertionKey": "density:relevant:03",
+    "statement": "Synthetic density contract relevant: the owner is committed to the migration rehearsal in the target window on 2030-10-14; workstream delta.",
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "owner_utterance",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "owner_supplied"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": 1,
+    "live": false
+  },
+  {
+    "assertionKey": "density:relevant:04",
+    "statement": "Synthetic density contract relevant: the owner is committed to the migration rehearsal in the target window on 2030-10-14; workstream epsilon.",
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "owner_utterance",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "owner_supplied"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": 1,
+    "live": false
+  },
+  {
+    "assertionKey": "density:relevant:05",
+    "statement": "Synthetic density contract relevant: the owner is committed to the migration rehearsal in the target window on 2030-10-14; workstream zeta.",
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "owner_utterance",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "owner_supplied"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": 1,
+    "live": false
+  },
+  {
+    "assertionKey": "density:relevant:06",
+    "statement": "Synthetic density contract relevant: the owner is committed to the migration rehearsal in the target window on 2030-10-14; workstream eta.",
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "owner_utterance",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "owner_supplied"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": 1,
+    "live": false
+  },
+  {
+    "assertionKey": "density:relevant:07",
+    "statement": "Synthetic density contract relevant: the owner is committed to the migration rehearsal in the target window on 2030-10-14; workstream theta.",
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "owner_utterance",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "owner_supplied"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": 1,
+    "live": false
+  },
+  {
+    "assertionKey": "density:irrelevant:00",
+    "statement": "Synthetic density contract irrelevant: the owner has an unrelated migration rehearsal record for a different window on 2030-10-15; archive alpha.",
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "owner_utterance",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "owner_supplied"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": 1,
+    "live": false
+  },
+  {
+    "assertionKey": "density:irrelevant:01",
+    "statement": "Synthetic density contract irrelevant: the owner has an unrelated migration rehearsal record for a different window on 2030-10-16; archive beta.",
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "owner_utterance",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "owner_supplied"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": 1,
+    "live": false
+  },
+  {
+    "assertionKey": "density:irrelevant:02",
+    "statement": "Synthetic density contract irrelevant: the owner has an unrelated migration rehearsal record for a different window on 2030-10-17; archive gamma.",
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "owner_utterance",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "owner_supplied"
+    },
+    "dataClassification": "never_public",
+    "admittedGeneration": 1,
+    "live": false
+  },
+  {
+    "assertionKey": "density:irrelevant:03",
+    "statement": "Synthetic density contract irrelevant: the owner has an unrelated migration rehearsal record for a different window on 2030-10-18; archive delta.",
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "owner_utterance",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "owner_supplied"
+    },
+    "dataClassification": "never_public",
+    "admittedGeneration": 1,
+    "live": false
+  },
+  {
+    "assertionKey": "density:irrelevant:04",
+    "statement": "Synthetic density contract irrelevant: the owner has an unrelated migration rehearsal record for a different window on 2030-10-19; archive epsilon.",
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "owner_utterance",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "owner_supplied"
+    },
+    "dataClassification": "never_public",
+    "admittedGeneration": 1,
+    "live": false
+  },
+  {
+    "assertionKey": "density:irrelevant:05",
+    "statement": "Synthetic density contract irrelevant: the owner has an unrelated migration rehearsal record for a different window on 2030-10-20; archive zeta.",
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "owner_utterance",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "owner_supplied"
+    },
+    "dataClassification": "never_public",
+    "admittedGeneration": 1,
+    "live": false
+  },
+  {
+    "assertionKey": "density:irrelevant:06",
+    "statement": "Synthetic density contract irrelevant: the owner has an unrelated migration rehearsal record for a different window on 2030-10-21; archive eta.",
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "owner_utterance",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "owner_supplied"
+    },
+    "dataClassification": "never_public",
+    "admittedGeneration": 1,
+    "live": false
+  },
+  {
+    "assertionKey": "density:irrelevant:07",
+    "statement": "Synthetic density contract irrelevant: the owner has an unrelated migration rehearsal record for a different window on 2030-10-22; archive theta.",
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "owner_utterance",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "owner_supplied"
+    },
+    "dataClassification": "never_public",
+    "admittedGeneration": 1,
+    "live": false
+  },
+  {
+    "assertionKey": "density:irrelevant:08",
+    "statement": "Synthetic density contract irrelevant: the owner has an unrelated migration rehearsal record for a different window on 2030-10-23; archive iota.",
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "owner_utterance",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "owner_supplied"
+    },
+    "dataClassification": "never_public",
+    "admittedGeneration": 1,
+    "live": false
+  }
+]

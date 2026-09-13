@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "commands": [
+    "remember",
+    "memory",
+    "new",
+    "forget",
+    "proactive",
+    "identity",
+    "commitments",
+    "continuity",
+    "status"
+  ]
+}

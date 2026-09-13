@@ -1,0 +1,14 @@
+{
+  "schema": "ashley.f011.relevance-density.rubric.v1",
+  "rubricId": "f011-relevance-density-rubric-v1",
+  "informationNeed": "Identify synthetic owner commitments that explicitly confirm the migration rehearsal in the target window on 2030-10-14.",
+  "relevantStatementPrefix": "Synthetic density contract relevant: the owner is committed to the migration rehearsal in the target window on 2030-10-14;",
+  "irrelevantStatementPrefix": "Synthetic density contract irrelevant: the owner has an unrelated migration rehearsal record for a different window on",
+  "relevanceRule": "A judgment is relevant only when the statement explicitly confirms the owner commitment, the migration rehearsal, the target window, and the exact target date 2030-10-14.",
+  "irrelevanceRule": "A judgment is irrelevant when it describes a different-window or unrelated record and does not confirm the exact target commitment.",
+  "labelConstruction": {
+    "method": "deterministic_statement_template",
+    "candidateResultsUsed": false,
+    "postResultRelabeling": false
+  }
+}

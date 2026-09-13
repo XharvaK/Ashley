@@ -1,0 +1,84 @@
+{
+  "schema": "ashley.model_fabric.portfolio_revision.v1",
+  "portfolioRevisionId": "mfp_target_12_9_v2",
+  "kind": "candidate_target",
+  "status": "declared",
+  "replacesPortfolioRevisionId": "mfp_target_12_9_v1",
+  "incompleteFixture": false,
+  "notes": "Declared candidate after owner token-envelope and utility-occupant reconciliation. Historical mfp_target_12_9_v1 is preserved and not mutated. Never loaded by current dispatch. Lightning is a deferred utility candidate, not an intended occupant.",
+  "rows": [
+    {
+      "schema": "ashley.model_fabric.policy_row.v1", "policyRowId": "mfr_thought_interactive_target_v1", "portfolioRevisionId": "mfp_target_12_9_v2", "logicalRole": "thought", "occupancyKey": "interactive", "seat": null, "purposes": ["thought"], "latencyClass": "interactive", "reliabilityClass": "explicit_fallback", "privacyPolicyId": "owner_private", "contextPolicyId": "thought_summary", "quotaCouplingIds": ["qc_groq_gpt_oss_120b", "qc_nim_gpt_oss_120b"], "reasoningPolicy": "high", "structuredOutput": "json_schema", "deadlineMs": 6000, "maxOutputTokens": 2048, "failoverRemainingMsFloor": 2500, "failClosed": "role_existing", "unorderedCandidates": [], "notes": "Declared §12.9 120B thought occupants remain historical candidate data. Live interactive Thought stays CURRENT NIM gpt-oss-20b economical/low at 2048. This row is not production-routed.",
+      "occupants": [
+        { "occupantId": "mfo_groq_openai_gpt_oss_120b_high", "ordinal": 1, "provider": "groq", "backend": "groq", "configuredModelId": "openai/gpt-oss-120b", "independenceGroup": "openai_gpt_oss", "reasoningPolicy": "high", "effectiveReasoning": "high", "privacyEligibility": ["owner_private"] },
+        { "occupantId": "mfo_nim_openai_gpt_oss_120b_high", "ordinal": 2, "provider": "nim", "backend": "nim", "configuredModelId": "openai/gpt-oss-120b", "independenceGroup": "openai_gpt_oss", "reasoningPolicy": "high", "effectiveReasoning": "high", "privacyEligibility": ["owner_private"], "fallbackClassFromPrevious": "transport_failover" }
+      ]
+    },
+    {
+      "schema": "ashley.model_fabric.policy_row.v1", "policyRowId": "mfr_thought_durable_proactive_target_v1", "portfolioRevisionId": "mfp_target_12_9_v2", "logicalRole": "thought", "occupancyKey": "durable_proactive", "seat": null, "purposes": ["thought"], "latencyClass": "background", "reliabilityClass": "explicit_fallback", "privacyPolicyId": "owner_private", "contextPolicyId": "thought_summary", "quotaCouplingIds": ["qc_groq_gpt_oss_120b", "qc_nim_gpt_oss_120b"], "reasoningPolicy": "high", "structuredOutput": "json_schema", "deadlineMs": null, "maxOutputTokens": 2048, "failoverRemainingMsFloor": 2500, "failClosed": "role_existing", "unorderedCandidates": [],
+      "occupants": [
+        { "occupantId": "mfo_groq_openai_gpt_oss_120b_high", "ordinal": 1, "provider": "groq", "backend": "groq", "configuredModelId": "openai/gpt-oss-120b", "independenceGroup": "openai_gpt_oss", "reasoningPolicy": "high", "effectiveReasoning": "high", "privacyEligibility": ["owner_private"] },
+        { "occupantId": "mfo_nim_openai_gpt_oss_120b_high", "ordinal": 2, "provider": "nim", "backend": "nim", "configuredModelId": "openai/gpt-oss-120b", "independenceGroup": "openai_gpt_oss", "reasoningPolicy": "high", "effectiveReasoning": "high", "privacyEligibility": ["owner_private"], "fallbackClassFromPrevious": "transport_failover" }
+      ]
+    },
+    {
+      "schema": "ashley.model_fabric.policy_row.v1", "policyRowId": "mfr_thought_observation_target_v1", "portfolioRevisionId": "mfp_target_12_9_v2", "logicalRole": "thought_observation", "occupancyKey": "default", "seat": null, "purposes": ["thought_observation"], "configuredRouteId": "utility_bulk", "dispatchedRouteId": "thought", "latencyClass": "background", "reliabilityClass": "explicit_fallback", "privacyPolicyId": "owner_private", "contextPolicyId": "thought_summary", "quotaCouplingIds": ["qc_nim_gpt_oss_120b", "qc_groq_gpt_oss_120b"], "reasoningPolicy": "max_supported", "structuredOutput": "json_schema", "deadlineMs": null, "maxOutputTokens": 4096, "failoverRemainingMsFloor": null, "failClosed": "role_existing", "unorderedCandidates": [],
+      "occupants": [
+        { "occupantId": "mfo_nim_nemotron_3_ultra_max", "ordinal": 1, "provider": "nim", "backend": "nim", "configuredModelId": "nvidia/nemotron-3-ultra-550b-a55b", "independenceGroup": "nvidia_nemotron", "reasoningPolicy": "max_supported", "effectiveReasoning": "max_supported", "privacyEligibility": ["owner_private"] },
+        { "occupantId": "mfo_groq_openai_gpt_oss_120b_high_observation", "ordinal": 2, "provider": "groq", "backend": "groq", "configuredModelId": "openai/gpt-oss-120b", "independenceGroup": "openai_gpt_oss", "reasoningPolicy": "high", "effectiveReasoning": "high", "privacyEligibility": ["owner_private"], "fallbackClassFromPrevious": "transport_failover" }
+      ]
+    },
+    {
+      "schema": "ashley.model_fabric.policy_row.v1", "policyRowId": "mfr_reflection_initiative_target_v1", "portfolioRevisionId": "mfp_target_12_9_v2", "logicalRole": "reflection_initiative", "occupancyKey": "default", "seat": null, "purposes": ["thought_observation"], "configuredRouteId": "utility_bulk", "dispatchedRouteId": "thought", "latencyClass": "background", "reliabilityClass": "explicit_fallback", "privacyPolicyId": "owner_private", "contextPolicyId": "thought_summary", "quotaCouplingIds": ["qc_nim_gpt_oss_120b", "qc_groq_gpt_oss_120b"], "reasoningPolicy": "max_supported", "structuredOutput": "json_schema", "deadlineMs": null, "maxOutputTokens": 4096, "failoverRemainingMsFloor": null, "failClosed": "role_existing", "unorderedCandidates": [],
+      "occupants": [
+        { "occupantId": "mfo_nim_nemotron_3_ultra_max_reflection", "ordinal": 1, "provider": "nim", "backend": "nim", "configuredModelId": "nvidia/nemotron-3-ultra-550b-a55b", "independenceGroup": "nvidia_nemotron", "reasoningPolicy": "max_supported", "effectiveReasoning": "max_supported", "privacyEligibility": ["owner_private"] },
+        { "occupantId": "mfo_groq_openai_gpt_oss_120b_high_reflection", "ordinal": 2, "provider": "groq", "backend": "groq", "configuredModelId": "openai/gpt-oss-120b", "independenceGroup": "openai_gpt_oss", "reasoningPolicy": "high", "effectiveReasoning": "high", "privacyEligibility": ["owner_private"], "fallbackClassFromPrevious": "transport_failover" }
+      ]
+    },
+    {
+      "schema": "ashley.model_fabric.policy_row.v1", "policyRowId": "mfr_expression_target_v1", "portfolioRevisionId": "mfp_target_12_9_v2", "logicalRole": "expression", "occupancyKey": "default", "seat": null, "purposes": ["expression"], "latencyClass": "interactive", "reliabilityClass": "explicit_fallback", "privacyPolicyId": "owner_private", "contextPolicyId": "full_expression", "quotaCouplingIds": ["qc_groq_qwen_27b", "qc_mistral_medium"], "reasoningPolicy": "standard", "structuredOutput": "none", "deadlineMs": 4000, "maxOutputTokens": 2048, "failoverRemainingMsFloor": null, "failClosed": "role_existing", "unorderedCandidates": [], "notes": "Declared §12.9 Expression occupants remain historical candidate data. Live Expression stays CURRENT Mistral medium with Qwen caller-owned fallback at 2048. This row is not production-routed.",
+      "occupants": [
+        { "occupantId": "mfo_groq_qwen_3_6_27b_default", "ordinal": 1, "provider": "groq", "backend": "groq", "configuredModelId": "qwen/qwen3.6-27b", "independenceGroup": "alibaba_qwen", "reasoningPolicy": "standard", "effectiveReasoning": "default", "privacyEligibility": ["owner_private"] },
+        { "occupantId": "mfo_mistral_medium_target_fallback", "ordinal": 2, "provider": "mistral", "backend": "mistral_direct", "configuredModelId": "mistral-medium-latest", "independenceGroup": "mistral", "reasoningPolicy": "economical", "effectiveReasoning": null, "privacyEligibility": ["owner_private"], "fallbackClassFromPrevious": "model_substitution", "invocationMode": "caller_owned_chain" }
+      ]
+    },
+    {
+      "schema": "ashley.model_fabric.policy_row.v1", "policyRowId": "mfr_exchange_cognition_target_v1", "portfolioRevisionId": "mfp_target_12_9_v2", "logicalRole": "exchange_cognition", "occupancyKey": "default", "seat": null, "purposes": ["exchange_cognition"], "latencyClass": "background", "reliabilityClass": "explicit_fallback", "privacyPolicyId": "utility_redacted", "contextPolicyId": "utility_redacted", "quotaCouplingIds": ["qc_nim_gpt_oss_120b", "qc_groq_gpt_oss_120b"], "reasoningPolicy": "high", "structuredOutput": "json", "deadlineMs": null, "maxOutputTokens": 4096, "failoverRemainingMsFloor": null, "failClosed": "role_existing", "unorderedCandidates": [],
+      "occupants": [
+        { "occupantId": "mfo_nim_nemotron_3_super_high", "ordinal": 1, "provider": "nim", "backend": "nim", "configuredModelId": "nvidia/nemotron-3-super-120b-a12b", "independenceGroup": "nvidia_nemotron", "reasoningPolicy": "high", "effectiveReasoning": "high", "privacyEligibility": ["utility_redacted"] },
+        { "occupantId": "mfo_groq_openai_gpt_oss_120b_high_exchange", "ordinal": 2, "provider": "groq", "backend": "groq", "configuredModelId": "openai/gpt-oss-120b", "independenceGroup": "openai_gpt_oss", "reasoningPolicy": "high", "effectiveReasoning": "high", "privacyEligibility": ["utility_redacted"], "fallbackClassFromPrevious": "model_substitution" }
+      ]
+    },
+    {
+      "schema": "ashley.model_fabric.policy_row.v1", "policyRowId": "mfr_curiosity_consolidation_target_v1", "portfolioRevisionId": "mfp_target_12_9_v2", "logicalRole": "curiosity_consolidation", "occupancyKey": "default", "seat": null, "purposes": ["curiosity_consolidation"], "latencyClass": "background", "reliabilityClass": "single_attempt", "privacyPolicyId": "utility_redacted", "contextPolicyId": "utility_redacted", "quotaCouplingIds": ["qc_nim_gpt_oss_120b", "qc_groq_gpt_oss_120b"], "reasoningPolicy": "high", "structuredOutput": "json", "deadlineMs": null, "maxOutputTokens": 4096, "failoverRemainingMsFloor": null, "failClosed": "role_existing",
+      "occupants": [
+        { "occupantId": "mfo_nim_nemotron_3_super_high_curiosity", "ordinal": 1, "provider": "nim", "backend": "nim", "configuredModelId": "nvidia/nemotron-3-super-120b-a12b", "independenceGroup": "nvidia_nemotron", "reasoningPolicy": "high", "effectiveReasoning": "high", "privacyEligibility": ["utility_redacted"] }
+      ],
+      "unorderedCandidates": [
+        { "occupantId": "mfo_zen_minimax_m3_candidate", "provider": "opencode_zen", "backend": "opencode_zen_http", "configuredModelId": "minimax-m3", "independenceGroup": "minimax", "privacyEligibility": ["utility_redacted"] },
+        { "occupantId": "mfo_groq_openai_gpt_oss_120b_high_curiosity_candidate", "provider": "groq", "backend": "groq", "configuredModelId": "openai/gpt-oss-120b", "independenceGroup": "openai_gpt_oss", "privacyEligibility": ["utility_redacted"] }
+      ]
+    },
+    {
+      "schema": "ashley.model_fabric.policy_row.v1", "policyRowId": "mfr_engineering_direct_cognition_target_v1", "portfolioRevisionId": "mfp_target_12_9_v2", "logicalRole": "engineering", "occupancyKey": "direct_cognition", "seat": null, "purposes": ["expression"], "latencyClass": "background", "reliabilityClass": "explicit_fallback", "privacyPolicyId": "owner_private", "contextPolicyId": "sandbox_project_only", "quotaCouplingIds": ["qc_nim_gpt_oss_120b"], "reasoningPolicy": "max_supported", "structuredOutput": "json", "deadlineMs": null, "maxOutputTokens": 2048, "failoverRemainingMsFloor": null, "failClosed": "role_existing", "unorderedCandidates": [],
+      "occupants": [
+        { "occupantId": "mfo_nim_nemotron_3_ultra_max_engineering", "ordinal": 1, "provider": "nim", "backend": "nim", "configuredModelId": "nvidia/nemotron-3-ultra-550b-a55b", "independenceGroup": "nvidia_nemotron", "reasoningPolicy": "max_supported", "effectiveReasoning": "max_supported", "privacyEligibility": ["owner_private"] },
+        { "occupantId": "mfo_nim_nemotron_3_super_high_engineering", "ordinal": 2, "provider": "nim", "backend": "nim", "configuredModelId": "nvidia/nemotron-3-super-120b-a12b", "independenceGroup": "nvidia_nemotron", "reasoningPolicy": "high", "effectiveReasoning": "high", "privacyEligibility": ["owner_private"] }
+      ]
+    },
+    {
+      "schema": "ashley.model_fabric.policy_row.v1", "policyRowId": "mfr_maintenance_target_v1", "portfolioRevisionId": "mfp_target_12_9_v2", "logicalRole": "maintenance", "occupancyKey": "default", "seat": null, "purposes": ["maintenance"], "latencyClass": "background", "reliabilityClass": "explicit_fallback", "privacyPolicyId": "utility_redacted", "contextPolicyId": "utility_redacted", "quotaCouplingIds": ["qc_nim_nemotron_super", "qc_groq_gpt_oss_20b"], "reasoningPolicy": "economical", "structuredOutput": "json", "deadlineMs": null, "maxOutputTokens": 2048, "failoverRemainingMsFloor": null, "failClosed": "role_existing", "unorderedCandidates": [], "notes": "Intended occupant is Super economical. Lightning is deferred and is not selected by this row. Envelope is the existing bounded maintenance ceiling; not raised to 4096.",
+      "occupants": [
+        { "occupantId": "mfo_nim_nemotron_3_super_economical_maintenance", "ordinal": 1, "provider": "nim", "backend": "nim", "configuredModelId": "nvidia/nemotron-3-super-120b-a12b", "independenceGroup": "nvidia_nemotron", "reasoningPolicy": "economical", "effectiveReasoning": "economical", "privacyEligibility": ["utility_redacted"] },
+        { "occupantId": "mfo_groq_openai_gpt_oss_20b_standard_maintenance", "ordinal": 2, "provider": "groq", "backend": "groq", "configuredModelId": "openai/gpt-oss-20b", "independenceGroup": "openai_gpt_oss", "reasoningPolicy": "standard", "effectiveReasoning": "medium", "privacyEligibility": ["utility_redacted"], "fallbackClassFromPrevious": "model_substitution" }
+      ]
+    },
+    {
+      "schema": "ashley.model_fabric.policy_row.v1", "policyRowId": "mfr_routine_validation_target_v1", "portfolioRevisionId": "mfp_target_12_9_v2", "logicalRole": "engineering", "occupancyKey": "routine_validation", "seat": "routine_validation", "purposes": ["execution.verify"], "latencyClass": "background", "reliabilityClass": "explicit_fallback", "privacyPolicyId": "utility_redacted", "contextPolicyId": "utility_redacted", "quotaCouplingIds": ["qc_nim_nemotron_super"], "reasoningPolicy": "economical", "structuredOutput": "json_schema", "deadlineMs": null, "maxOutputTokens": 1000, "failoverRemainingMsFloor": null, "failClosed": "role_existing", "unorderedCandidates": [], "notes": "MF-M6 first vertical candidate. Super economical is the intended occupant. Lightning is deferred. Only specialist-seat resolution may select this row. Envelope is the existing short structured ceiling; not raised to 2048/4096.",
+      "occupants": [
+        { "occupantId": "mfo_nim_nemotron_3_super_economical_validation", "ordinal": 1, "provider": "nim", "backend": "nim", "configuredModelId": "nvidia/nemotron-3-super-120b-a12b", "independenceGroup": "nvidia_nemotron", "reasoningPolicy": "economical", "effectiveReasoning": "economical", "privacyEligibility": ["utility_redacted"] },
+        { "occupantId": "mfo_groq_openai_gpt_oss_20b_economical_validation", "ordinal": 2, "provider": "groq", "backend": "groq", "configuredModelId": "openai/gpt-oss-20b", "independenceGroup": "openai_gpt_oss", "reasoningPolicy": "economical", "effectiveReasoning": "low", "privacyEligibility": ["utility_redacted"], "fallbackClassFromPrevious": "model_substitution" }
+      ]
+    }
+  ]
+}

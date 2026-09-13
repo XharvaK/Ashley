@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="tr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Ashley</title>
+    <link rel="stylesheet" href="/src/styles.css" />
+  </head>
+  <body>
+    <div id="app">
+      <div id="avatar" class="state-idle" aria-label="Ashley assistant">
+        <canvas id="avatar-canvas" width="200" height="200"></canvas>
+        <p id="status-label">Booting...</p>
+      </div>
+      <menu id="context-menu" hidden>
+        <button type="button" id="lock-position">Konumu kilitle</button>
+      </menu>
+    </div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

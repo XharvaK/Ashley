@@ -1,0 +1,49 @@
+name: test
+
+on:
+  push:
+    paths:
+      - ".github/workflows/test.yml"
+      - "apps/agent-service/**"
+      - "apps/sandbox-policy/**"
+      - "apps/sandbox-tree/**"
+      - "apps/sandbox-m1/**"
+      - "apps/sandbox-v2/**"
+      - "scripts/ci/**"
+      - "scripts/phase0/**"
+      - "workspace/prompts/**"
+  pull_request:
+    paths:
+      - ".github/workflows/test.yml"
+      - "apps/agent-service/**"
+      - "apps/discord-bot/**"
+      - "apps/sandbox-policy/**"
+      - "apps/sandbox-tree/**"
+      - "apps/sandbox-m1/**"
+      - "apps/sandbox-v2/**"
+      - "scripts/ci/**"
+      - "scripts/phase0/**"
+      - "workspace/prompts/**"
+
+# Offline CI builds the current Sandbox V2 file packages, then runs the
+# explicit current release gate. Physical Linux qualification remains separate.
+jobs:
+  offline:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Build sandbox file packages
+        run: bash scripts/ci/build-sandbox-file-packages.sh
+      - name: Install agent-service deps
+        working-directory: apps/agent-service
+        run: npm ci
+      - name: Build
+        working-directory: apps/agent-service
+        run: npm run build
+      - name: Install Discord deps
+        run: npm ci --prefix apps/discord-bot
+      - name: Current release gate
+        run: npm run test:current-release

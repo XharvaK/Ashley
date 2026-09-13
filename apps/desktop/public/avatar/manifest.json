@@ -1,0 +1,15 @@
+{
+  "character": "Ashley",
+  "frames": {
+    "idle": "idle.png",
+    "speak_medium": "speak-medium.png",
+    "blink": "blink.png",
+    "listening": "listening.png",
+    "thinking": "thinking.png",
+    "speak_wide": "speak-wide.png",
+    "error": "error.png",
+    "three_quarter": "three-quarter.png",
+    "booting": "booting.png",
+    "dormant": "dormant.png"
+  }
+}

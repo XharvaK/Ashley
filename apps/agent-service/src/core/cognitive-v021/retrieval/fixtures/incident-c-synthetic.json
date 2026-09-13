@@ -1,0 +1,2145 @@
+[
+  {
+    "assertionKey": "synthetic:000:legacy_assertion_07f1896c-72c4-436e-976a-213760adfb8b",
+    "originalKey": "legacy:assertion:07f1896c-72c4-436e-976a-213760adfb8b",
+    "statement": "i to sleep soon s xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "originalLength": 112,
+    "syntheticLength": 112,
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "ashley_interpretation",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "inferred"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": null,
+    "live": false,
+    "matchedTerms": [
+      "i",
+      "to",
+      "sleep",
+      "soon",
+      "s"
+    ]
+  },
+  {
+    "assertionKey": "synthetic:001:legacy_assertion_dd890660-8ee1-4889-83ce-de08631d1115",
+    "originalKey": "legacy:assertion:dd890660-8ee1-4889-83ce-de08631d1115",
+    "statement": "i s xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "originalLength": 81,
+    "syntheticLength": 81,
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "ashley_interpretation",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "inferred"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": null,
+    "live": false,
+    "matchedTerms": [
+      "i",
+      "s"
+    ]
+  },
+  {
+    "assertionKey": "synthetic:002:legacy_assertion_b71a8723-9c2f-4617-85f8-8701affe73fe",
+    "originalKey": "legacy:assertion:b71a8723-9c2f-4617-85f8-8701affe73fe",
+    "statement": "i s xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "originalLength": 60,
+    "syntheticLength": 60,
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "ashley_interpretation",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "inferred"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": null,
+    "live": false,
+    "matchedTerms": [
+      "i",
+      "s"
+    ]
+  },
+  {
+    "assertionKey": "synthetic:003:legacy_assertion_beb6107e-10bd-4695-8486-40a52dcb1394",
+    "originalKey": "legacy:assertion:beb6107e-10bd-4695-8486-40a52dcb1394",
+    "statement": "i to s xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "originalLength": 273,
+    "syntheticLength": 273,
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "ashley_interpretation",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "inferred"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": null,
+    "live": false,
+    "matchedTerms": [
+      "i",
+      "to",
+      "s"
+    ]
+  },
+  {
+    "assertionKey": "synthetic:004:legacy_assertion_b9a2ea14-0aaf-41eb-a73e-d84d71d2b791",
+    "originalKey": "legacy:assertion:b9a2ea14-0aaf-41eb-a73e-d84d71d2b791",
+    "statement": "i to s xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "originalLength": 248,
+    "syntheticLength": 248,
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "ashley_interpretation",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "inferred"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": null,
+    "live": false,
+    "matchedTerms": [
+      "i",
+      "to",
+      "s"
+    ]
+  },
+  {
+    "assertionKey": "synthetic:005:legacy_assertion_b68a11e6-0cee-4d91-ac80-dfb79eb1162d",
+    "originalKey": "legacy:assertion:b68a11e6-0cee-4d91-ac80-dfb79eb1162d",
+    "statement": "i to s xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "originalLength": 246,
+    "syntheticLength": 246,
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "ashley_interpretation",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "inferred"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": null,
+    "live": false,
+    "matchedTerms": [
+      "i",
+      "to",
+      "s"
+    ]
+  },
+  {
+    "assertionKey": "synthetic:006:legacy_assertion_cc8b5f99-4b86-4468-ba88-7c1403dc6bb7",
+    "originalKey": "legacy:assertion:cc8b5f99-4b86-4468-ba88-7c1403dc6bb7",
+    "statement": "i to sleep let s xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "originalLength": 197,
+    "syntheticLength": 197,
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "ashley_interpretation",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "inferred"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": null,
+    "live": false,
+    "matchedTerms": [
+      "i",
+      "to",
+      "sleep",
+      "let",
+      "s"
+    ]
+  },
+  {
+    "assertionKey": "synthetic:007:legacy_assertion_0055aa6e-9b0e-492b-97da-f103276cec8c",
+    "originalKey": "legacy:assertion:0055aa6e-9b0e-492b-97da-f103276cec8c",
+    "statement": "i to s xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "originalLength": 102,
+    "syntheticLength": 102,
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "ashley_interpretation",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "inferred"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": null,
+    "live": false,
+    "matchedTerms": [
+      "i",
+      "to",
+      "s"
+    ]
+  },
+  {
+    "assertionKey": "synthetic:008:legacy_assertion_d41f5392-aefd-4897-a02b-fdae867d5ee5",
+    "originalKey": "legacy:assertion:d41f5392-aefd-4897-a02b-fdae867d5ee5",
+    "statement": "i s ok xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "originalLength": 166,
+    "syntheticLength": 166,
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "ashley_interpretation",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "inferred"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": null,
+    "live": false,
+    "matchedTerms": [
+      "i",
+      "s",
+      "ok"
+    ]
+  },
+  {
+    "assertionKey": "synthetic:009:legacy_assertion_3e181537-62ba-4424-b034-1817b6b095bb",
+    "originalKey": "legacy:assertion:3e181537-62ba-4424-b034-1817b6b095bb",
+    "statement": "i to sleep s xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "originalLength": 155,
+    "syntheticLength": 155,
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "ashley_interpretation",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "inferred"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": null,
+    "live": false,
+    "matchedTerms": [
+      "i",
+      "to",
+      "sleep",
+      "s"
+    ]
+  },
+  {
+    "assertionKey": "synthetic:010:legacy_assertion_988972e3-7be8-4e9b-b7e3-769bc7b25409",
+    "originalKey": "legacy:assertion:988972e3-7be8-4e9b-b7e3-769bc7b25409",
+    "statement": "i s xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "originalLength": 227,
+    "syntheticLength": 227,
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "ashley_interpretation",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "inferred"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": null,
+    "live": false,
+    "matchedTerms": [
+      "i",
+      "s"
+    ]
+  },
+  {
+    "assertionKey": "synthetic:011:legacy_assertion_c9ef8831-c0b7-44bc-88c3-b6ad72045db8",
+    "originalKey": "legacy:assertion:c9ef8831-c0b7-44bc-88c3-b6ad72045db8",
+    "statement": "i need s xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "originalLength": 143,
+    "syntheticLength": 143,
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "ashley_interpretation",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "inferred"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": null,
+    "live": false,
+    "matchedTerms": [
+      "i",
+      "need",
+      "s"
+    ]
+  },
+  {
+    "assertionKey": "synthetic:012:legacy_assertion_36c9f996-7c92-4c17-b7c1-f93d6db6f32c",
+    "originalKey": "legacy:assertion:36c9f996-7c92-4c17-b7c1-f93d6db6f32c",
+    "statement": "i to s xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "originalLength": 185,
+    "syntheticLength": 185,
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "ashley_interpretation",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "inferred"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": null,
+    "live": false,
+    "matchedTerms": [
+      "i",
+      "to",
+      "s"
+    ]
+  },
+  {
+    "assertionKey": "synthetic:013:legacy_assertion_dbca00b2-ae63-4b86-b4e5-e9a7785422ae",
+    "originalKey": "legacy:assertion:dbca00b2-ae63-4b86-b4e5-e9a7785422ae",
+    "statement": "i s xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "originalLength": 209,
+    "syntheticLength": 209,
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "ashley_interpretation",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "inferred"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": null,
+    "live": false,
+    "matchedTerms": [
+      "i",
+      "s"
+    ]
+  },
+  {
+    "assertionKey": "synthetic:014:legacy_assertion_27b007e1-d34a-4b53-a271-4165632e202d",
+    "originalKey": "legacy:assertion:27b007e1-d34a-4b53-a271-4165632e202d",
+    "statement": "i to s xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "originalLength": 136,
+    "syntheticLength": 136,
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "ashley_interpretation",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "inferred"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": null,
+    "live": false,
+    "matchedTerms": [
+      "i",
+      "to",
+      "s"
+    ]
+  },
+  {
+    "assertionKey": "synthetic:015:legacy_assertion_dfa65bd1-1b97-49d4-ba48-1440e74444ec",
+    "originalKey": "legacy:assertion:dfa65bd1-1b97-49d4-ba48-1440e74444ec",
+    "statement": "i to s xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "originalLength": 157,
+    "syntheticLength": 157,
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "ashley_interpretation",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "inferred"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": null,
+    "live": false,
+    "matchedTerms": [
+      "i",
+      "to",
+      "s"
+    ]
+  },
+  {
+    "assertionKey": "synthetic:016:legacy_assertion_e2d7d9ad-08cc-4723-9686-9d571addf4a5",
+    "originalKey": "legacy:assertion:e2d7d9ad-08cc-4723-9686-9d571addf4a5",
+    "statement": "i s xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "originalLength": 157,
+    "syntheticLength": 157,
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "ashley_interpretation",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "inferred"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": null,
+    "live": false,
+    "matchedTerms": [
+      "i",
+      "s"
+    ]
+  },
+  {
+    "assertionKey": "synthetic:017:legacy_assertion_ebade479-f09e-4764-9b26-9b2538196a0f",
+    "originalKey": "legacy:assertion:ebade479-f09e-4764-9b26-9b2538196a0f",
+    "statement": "i to s xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "originalLength": 216,
+    "syntheticLength": 216,
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "ashley_interpretation",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "inferred"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": null,
+    "live": false,
+    "matchedTerms": [
+      "i",
+      "to",
+      "s"
+    ]
+  },
+  {
+    "assertionKey": "synthetic:018:legacy_assertion_b0555e15-1a9c-41df-8e3b-454549ae87bc",
+    "originalKey": "legacy:assertion:b0555e15-1a9c-41df-8e3b-454549ae87bc",
+    "statement": "i to s xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "originalLength": 533,
+    "syntheticLength": 533,
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "ashley_interpretation",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "inferred"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": null,
+    "live": false,
+    "matchedTerms": [
+      "i",
+      "to",
+      "s"
+    ]
+  },
+  {
+    "assertionKey": "synthetic:019:legacy_assertion_4520ba35-0e11-4a91-b00d-8ef57f46b018",
+    "originalKey": "legacy:assertion:4520ba35-0e11-4a91-b00d-8ef57f46b018",
+    "statement": "i to let s tomorrow xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "originalLength": 415,
+    "syntheticLength": 415,
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "ashley_interpretation",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "inferred"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": null,
+    "live": false,
+    "matchedTerms": [
+      "i",
+      "to",
+      "let",
+      "s",
+      "tomorrow"
+    ]
+  },
+  {
+    "assertionKey": "synthetic:020:legacy_assertion_31c9be6f-4155-4ae1-ab76-30d46c9069f7",
+    "originalKey": "legacy:assertion:31c9be6f-4155-4ae1-ab76-30d46c9069f7",
+    "statement": "i to sleep s tomorrow xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "originalLength": 294,
+    "syntheticLength": 294,
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "ashley_interpretation",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "inferred"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": null,
+    "live": false,
+    "matchedTerms": [
+      "i",
+      "to",
+      "sleep",
+      "s",
+      "tomorrow"
+    ]
+  },
+  {
+    "assertionKey": "synthetic:021:legacy_assertion_477dfd95-cecb-4c7e-91ec-1dd0609c60e6",
+    "originalKey": "legacy:assertion:477dfd95-cecb-4c7e-91ec-1dd0609c60e6",
+    "statement": "i to let s xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "originalLength": 417,
+    "syntheticLength": 417,
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "ashley_interpretation",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "inferred"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": null,
+    "live": false,
+    "matchedTerms": [
+      "i",
+      "to",
+      "let",
+      "s"
+    ]
+  },
+  {
+    "assertionKey": "synthetic:022:legacy_assertion_e213c8ce-fb50-4cee-b81a-9b1ced4d5672",
+    "originalKey": "legacy:assertion:e213c8ce-fb50-4cee-b81a-9b1ced4d5672",
+    "statement": "i to s xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "originalLength": 269,
+    "syntheticLength": 269,
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "ashley_interpretation",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "inferred"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": null,
+    "live": false,
+    "matchedTerms": [
+      "i",
+      "to",
+      "s"
+    ]
+  },
+  {
+    "assertionKey": "synthetic:023:legacy_assertion_27727433-b604-451b-8d5b-db47a0fd80ed",
+    "originalKey": "legacy:assertion:27727433-b604-451b-8d5b-db47a0fd80ed",
+    "statement": "i s xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "originalLength": 105,
+    "syntheticLength": 105,
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "ashley_interpretation",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "inferred"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": null,
+    "live": false,
+    "matchedTerms": [
+      "i",
+      "s"
+    ]
+  },
+  {
+    "assertionKey": "synthetic:024:legacy_assertion_067c6c34-996c-4bd9-8426-5150b22be46a",
+    "originalKey": "legacy:assertion:067c6c34-996c-4bd9-8426-5150b22be46a",
+    "statement": "i s ok xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "originalLength": 364,
+    "syntheticLength": 364,
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "ashley_interpretation",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "inferred"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": null,
+    "live": false,
+    "matchedTerms": [
+      "i",
+      "s",
+      "ok"
+    ]
+  },
+  {
+    "assertionKey": "synthetic:025:legacy_assertion_d8bb3e10-eb1e-447e-91e8-a5f852986299",
+    "originalKey": "legacy:assertion:d8bb3e10-eb1e-447e-91e8-a5f852986299",
+    "statement": "i to s ok xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "originalLength": 700,
+    "syntheticLength": 700,
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "ashley_interpretation",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "inferred"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": null,
+    "live": false,
+    "matchedTerms": [
+      "i",
+      "to",
+      "s",
+      "ok"
+    ]
+  },
+  {
+    "assertionKey": "synthetic:026:legacy_assertion_f61b9fd1-b878-4d2a-ac82-7659dee0c6bb",
+    "originalKey": "legacy:assertion:f61b9fd1-b878-4d2a-ac82-7659dee0c6bb",
+    "statement": "i to let s xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "originalLength": 233,
+    "syntheticLength": 233,
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "ashley_interpretation",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "inferred"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": null,
+    "live": false,
+    "matchedTerms": [
+      "i",
+      "to",
+      "let",
+      "s"
+    ]
+  },
+  {
+    "assertionKey": "synthetic:027:legacy_assertion_9eea970a-eca6-4947-9f82-7b2e98fb1663",
+    "originalKey": "legacy:assertion:9eea970a-eca6-4947-9f82-7b2e98fb1663",
+    "statement": "i to let s xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "originalLength": 700,
+    "syntheticLength": 700,
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "ashley_interpretation",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "inferred"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": null,
+    "live": false,
+    "matchedTerms": [
+      "i",
+      "to",
+      "let",
+      "s"
+    ]
+  },
+  {
+    "assertionKey": "synthetic:028:legacy_assertion_1e411a1c-c21c-4bc1-b02d-0af8f5427318",
+    "originalKey": "legacy:assertion:1e411a1c-c21c-4bc1-b02d-0af8f5427318",
+    "statement": "i to s xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "originalLength": 487,
+    "syntheticLength": 487,
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "ashley_interpretation",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "inferred"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": null,
+    "live": false,
+    "matchedTerms": [
+      "i",
+      "to",
+      "s"
+    ]
+  },
+  {
+    "assertionKey": "synthetic:029:legacy_assertion_ec8ccbe8-b7a9-4e6b-a8bf-c0c7bafe059e",
+    "originalKey": "legacy:assertion:ec8ccbe8-b7a9-4e6b-a8bf-c0c7bafe059e",
+    "statement": "i let s xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "originalLength": 347,
+    "syntheticLength": 347,
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "ashley_interpretation",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "inferred"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": null,
+    "live": false,
+    "matchedTerms": [
+      "i",
+      "let",
+      "s"
+    ]
+  },
+  {
+    "assertionKey": "synthetic:030:legacy_assertion_efd716ad-ab32-432e-8fdc-0f7a4f53fcd2",
+    "originalKey": "legacy:assertion:efd716ad-ab32-432e-8fdc-0f7a4f53fcd2",
+    "statement": "i to s ok xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "originalLength": 302,
+    "syntheticLength": 302,
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "ashley_interpretation",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "inferred"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": null,
+    "live": false,
+    "matchedTerms": [
+      "i",
+      "to",
+      "s",
+      "ok"
+    ]
+  },
+  {
+    "assertionKey": "synthetic:031:legacy_assertion_6a0bcdaf-8b3d-40d7-b3cf-a8f7afabd5d1",
+    "originalKey": "legacy:assertion:6a0bcdaf-8b3d-40d7-b3cf-a8f7afabd5d1",
+    "statement": "i s ok xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "originalLength": 162,
+    "syntheticLength": 162,
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "ashley_interpretation",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "inferred"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": null,
+    "live": false,
+    "matchedTerms": [
+      "i",
+      "s",
+      "ok"
+    ]
+  },
+  {
+    "assertionKey": "synthetic:032:legacy_assertion_815c0a5a-78e9-4b32-83f8-d7ac63d742ce",
+    "originalKey": "legacy:assertion:815c0a5a-78e9-4b32-83f8-d7ac63d742ce",
+    "statement": "i s ok xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "originalLength": 325,
+    "syntheticLength": 325,
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "ashley_interpretation",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "inferred"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": null,
+    "live": false,
+    "matchedTerms": [
+      "i",
+      "s",
+      "ok"
+    ]
+  },
+  {
+    "assertionKey": "synthetic:033:legacy_assertion_b311433b-6dc2-40bd-8ddb-d79783a5a883",
+    "originalKey": "legacy:assertion:b311433b-6dc2-40bd-8ddb-d79783a5a883",
+    "statement": "i s ok xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "originalLength": 157,
+    "syntheticLength": 157,
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "ashley_interpretation",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "inferred"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": null,
+    "live": false,
+    "matchedTerms": [
+      "i",
+      "s",
+      "ok"
+    ]
+  },
+  {
+    "assertionKey": "synthetic:034:legacy_assertion_d8e84031-6fa7-4e29-8411-a80d75ecb9e1",
+    "originalKey": "legacy:assertion:d8e84031-6fa7-4e29-8411-a80d75ecb9e1",
+    "statement": "i s ok xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "originalLength": 255,
+    "syntheticLength": 255,
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "ashley_interpretation",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "inferred"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": null,
+    "live": false,
+    "matchedTerms": [
+      "i",
+      "s",
+      "ok"
+    ]
+  },
+  {
+    "assertionKey": "synthetic:035:legacy_assertion_30bedb5a-7cb5-4fec-952b-97eb61e238e1",
+    "originalKey": "legacy:assertion:30bedb5a-7cb5-4fec-952b-97eb61e238e1",
+    "statement": "i s ok xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "originalLength": 174,
+    "syntheticLength": 174,
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "ashley_interpretation",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "inferred"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": null,
+    "live": false,
+    "matchedTerms": [
+      "i",
+      "s",
+      "ok"
+    ]
+  },
+  {
+    "assertionKey": "synthetic:036:legacy_assertion_ae69755d-0d12-4016-92a0-4734d94b87d5",
+    "originalKey": "legacy:assertion:ae69755d-0d12-4016-92a0-4734d94b87d5",
+    "statement": "i s ok xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "originalLength": 185,
+    "syntheticLength": 185,
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "ashley_interpretation",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "inferred"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": null,
+    "live": false,
+    "matchedTerms": [
+      "i",
+      "s",
+      "ok"
+    ]
+  },
+  {
+    "assertionKey": "synthetic:037:legacy_assertion_32354777-35c4-4c16-8357-79667229af8d",
+    "originalKey": "legacy:assertion:32354777-35c4-4c16-8357-79667229af8d",
+    "statement": "i to let s xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "originalLength": 325,
+    "syntheticLength": 325,
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "ashley_interpretation",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "inferred"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": null,
+    "live": false,
+    "matchedTerms": [
+      "i",
+      "to",
+      "let",
+      "s"
+    ]
+  },
+  {
+    "assertionKey": "synthetic:038:legacy_assertion_a5467c6e-3e70-4a0d-bff9-1765fdca5a3f",
+    "originalKey": "legacy:assertion:a5467c6e-3e70-4a0d-bff9-1765fdca5a3f",
+    "statement": "i let s xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "originalLength": 180,
+    "syntheticLength": 180,
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "ashley_interpretation",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "inferred"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": null,
+    "live": false,
+    "matchedTerms": [
+      "i",
+      "let",
+      "s"
+    ]
+  },
+  {
+    "assertionKey": "synthetic:039:legacy_assertion_e3af90f8-614f-4bfe-9cda-9340a936ba79",
+    "originalKey": "legacy:assertion:e3af90f8-614f-4bfe-9cda-9340a936ba79",
+    "statement": "i to let s ok xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "originalLength": 385,
+    "syntheticLength": 385,
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "ashley_interpretation",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "inferred"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": null,
+    "live": false,
+    "matchedTerms": [
+      "i",
+      "to",
+      "let",
+      "s",
+      "ok"
+    ]
+  },
+  {
+    "assertionKey": "synthetic:040:legacy_assertion_74c6c42d-eed2-4fea-a6be-3be4ef31a68a",
+    "originalKey": "legacy:assertion:74c6c42d-eed2-4fea-a6be-3be4ef31a68a",
+    "statement": "i to s xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "originalLength": 274,
+    "syntheticLength": 274,
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "ashley_interpretation",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "inferred"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": null,
+    "live": false,
+    "matchedTerms": [
+      "i",
+      "to",
+      "s"
+    ]
+  },
+  {
+    "assertionKey": "synthetic:041:legacy_assertion_f28a7400-89b9-4a90-b82a-10be6650685d",
+    "originalKey": "legacy:assertion:f28a7400-89b9-4a90-b82a-10be6650685d",
+    "statement": "i to s xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "originalLength": 221,
+    "syntheticLength": 221,
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "ashley_interpretation",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "inferred"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": null,
+    "live": false,
+    "matchedTerms": [
+      "i",
+      "to",
+      "s"
+    ]
+  },
+  {
+    "assertionKey": "synthetic:042:legacy_assertion_6450746d-4dab-4248-a1d1-a776245cb952",
+    "originalKey": "legacy:assertion:6450746d-4dab-4248-a1d1-a776245cb952",
+    "statement": "i to s xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "originalLength": 110,
+    "syntheticLength": 110,
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "ashley_interpretation",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "inferred"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": null,
+    "live": false,
+    "matchedTerms": [
+      "i",
+      "to",
+      "s"
+    ]
+  },
+  {
+    "assertionKey": "synthetic:043:legacy_assertion_639aac04-636a-4e00-97f9-9b7f9e7da27a",
+    "originalKey": "legacy:assertion:639aac04-636a-4e00-97f9-9b7f9e7da27a",
+    "statement": "i to s ok xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "originalLength": 293,
+    "syntheticLength": 293,
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "ashley_interpretation",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "inferred"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": null,
+    "live": false,
+    "matchedTerms": [
+      "i",
+      "to",
+      "s",
+      "ok"
+    ]
+  },
+  {
+    "assertionKey": "synthetic:044:legacy_assertion_44fce536-58a6-495f-9b59-c1dbc5fadaa3",
+    "originalKey": "legacy:assertion:44fce536-58a6-495f-9b59-c1dbc5fadaa3",
+    "statement": "i to s xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "originalLength": 98,
+    "syntheticLength": 98,
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "ashley_interpretation",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "inferred"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": null,
+    "live": false,
+    "matchedTerms": [
+      "i",
+      "to",
+      "s"
+    ]
+  },
+  {
+    "assertionKey": "synthetic:045:legacy_assertion_84b139ec-8240-425a-8341-17339921ef06",
+    "originalKey": "legacy:assertion:84b139ec-8240-425a-8341-17339921ef06",
+    "statement": "i to s xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "originalLength": 98,
+    "syntheticLength": 98,
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "ashley_interpretation",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "inferred"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": null,
+    "live": false,
+    "matchedTerms": [
+      "i",
+      "to",
+      "s"
+    ]
+  },
+  {
+    "assertionKey": "synthetic:046:legacy_assertion_b0e862ea-ba35-470c-880c-4e1de85bcf6f",
+    "originalKey": "legacy:assertion:b0e862ea-ba35-470c-880c-4e1de85bcf6f",
+    "statement": "i to s xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "originalLength": 150,
+    "syntheticLength": 150,
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "ashley_interpretation",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "inferred"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": null,
+    "live": false,
+    "matchedTerms": [
+      "i",
+      "to",
+      "s"
+    ]
+  },
+  {
+    "assertionKey": "synthetic:047:legacy_assertion_74a77037-8680-4b33-ba2a-a83d5b5de2d4",
+    "originalKey": "legacy:assertion:74a77037-8680-4b33-ba2a-a83d5b5de2d4",
+    "statement": "i s xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "originalLength": 78,
+    "syntheticLength": 78,
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "ashley_interpretation",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "inferred"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": null,
+    "live": false,
+    "matchedTerms": [
+      "i",
+      "s"
+    ]
+  },
+  {
+    "assertionKey": "synthetic:048:legacy_assertion_33b0b2de-8729-47f9-b7b2-588809b58f28",
+    "originalKey": "legacy:assertion:33b0b2de-8729-47f9-b7b2-588809b58f28",
+    "statement": "i to let s ok xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "originalLength": 522,
+    "syntheticLength": 522,
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "ashley_interpretation",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "inferred"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": null,
+    "live": false,
+    "matchedTerms": [
+      "i",
+      "to",
+      "let",
+      "s",
+      "ok"
+    ]
+  },
+  {
+    "assertionKey": "synthetic:049:legacy_assertion_417b5fac-2ac2-4e80-8009-78093f23f871",
+    "originalKey": "legacy:assertion:417b5fac-2ac2-4e80-8009-78093f23f871",
+    "statement": "i s ok xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "originalLength": 240,
+    "syntheticLength": 240,
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "ashley_interpretation",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "inferred"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": null,
+    "live": false,
+    "matchedTerms": [
+      "i",
+      "s",
+      "ok"
+    ]
+  },
+  {
+    "assertionKey": "synthetic:050:legacy_assertion_33d5fb18-ef48-4d88-85d0-440f264f208e",
+    "originalKey": "legacy:assertion:33d5fb18-ef48-4d88-85d0-440f264f208e",
+    "statement": "i to s ok xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "originalLength": 288,
+    "syntheticLength": 288,
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "ashley_interpretation",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "inferred"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": null,
+    "live": false,
+    "matchedTerms": [
+      "i",
+      "to",
+      "s",
+      "ok"
+    ]
+  },
+  {
+    "assertionKey": "synthetic:051:legacy_assertion_f0e4cf0e-765d-4e64-adec-9223d3b67a2e",
+    "originalKey": "legacy:assertion:f0e4cf0e-765d-4e64-adec-9223d3b67a2e",
+    "statement": "i s ok xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "originalLength": 280,
+    "syntheticLength": 280,
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "ashley_interpretation",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "inferred"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": null,
+    "live": false,
+    "matchedTerms": [
+      "i",
+      "s",
+      "ok"
+    ]
+  },
+  {
+    "assertionKey": "synthetic:052:legacy_assertion_21075cab-1371-4949-905f-925d2d31ad16",
+    "originalKey": "legacy:assertion:21075cab-1371-4949-905f-925d2d31ad16",
+    "statement": "i to s ok xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "originalLength": 393,
+    "syntheticLength": 393,
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "ashley_interpretation",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "inferred"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": null,
+    "live": false,
+    "matchedTerms": [
+      "i",
+      "to",
+      "s",
+      "ok"
+    ]
+  },
+  {
+    "assertionKey": "synthetic:053:legacy_assertion_ce2cfa35-8b98-4bc7-bdb0-292b329ff6a0",
+    "originalKey": "legacy:assertion:ce2cfa35-8b98-4bc7-bdb0-292b329ff6a0",
+    "statement": "i to s ok xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "originalLength": 384,
+    "syntheticLength": 384,
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "ashley_interpretation",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "inferred"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": null,
+    "live": false,
+    "matchedTerms": [
+      "i",
+      "to",
+      "s",
+      "ok"
+    ]
+  },
+  {
+    "assertionKey": "synthetic:054:legacy_assertion_6c1df979-878a-4d26-9b73-3ddb04a4d51e",
+    "originalKey": "legacy:assertion:6c1df979-878a-4d26-9b73-3ddb04a4d51e",
+    "statement": "i to s ok xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "originalLength": 401,
+    "syntheticLength": 401,
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "ashley_interpretation",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "inferred"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": null,
+    "live": false,
+    "matchedTerms": [
+      "i",
+      "to",
+      "s",
+      "ok"
+    ]
+  },
+  {
+    "assertionKey": "synthetic:055:legacy_assertion_0a2dcb46-0c8c-4da2-adfa-86e73a504ff3",
+    "originalKey": "legacy:assertion:0a2dcb46-0c8c-4da2-adfa-86e73a504ff3",
+    "statement": "i to s xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "originalLength": 429,
+    "syntheticLength": 429,
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "ashley_interpretation",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "inferred"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": null,
+    "live": false,
+    "matchedTerms": [
+      "i",
+      "to",
+      "s"
+    ]
+  },
+  {
+    "assertionKey": "synthetic:056:legacy_assertion_68d17098-d192-4af9-bae7-c3f42c6d2745",
+    "originalKey": "legacy:assertion:68d17098-d192-4af9-bae7-c3f42c6d2745",
+    "statement": "i to s xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "originalLength": 313,
+    "syntheticLength": 313,
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "ashley_interpretation",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "inferred"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": null,
+    "live": false,
+    "matchedTerms": [
+      "i",
+      "to",
+      "s"
+    ]
+  },
+  {
+    "assertionKey": "synthetic:057:legacy_assertion_ed7f538a-3300-478b-a7b2-a6fcdaf86492",
+    "originalKey": "legacy:assertion:ed7f538a-3300-478b-a7b2-a6fcdaf86492",
+    "statement": "i to s xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "originalLength": 279,
+    "syntheticLength": 279,
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "ashley_interpretation",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "inferred"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": null,
+    "live": false,
+    "matchedTerms": [
+      "i",
+      "to",
+      "s"
+    ]
+  },
+  {
+    "assertionKey": "synthetic:058:legacy_assertion_48e952b4-19ea-4b21-8e5d-176d28d44f26",
+    "originalKey": "legacy:assertion:48e952b4-19ea-4b21-8e5d-176d28d44f26",
+    "statement": "i to s xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "originalLength": 190,
+    "syntheticLength": 190,
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "ashley_interpretation",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "inferred"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": null,
+    "live": false,
+    "matchedTerms": [
+      "i",
+      "to",
+      "s"
+    ]
+  },
+  {
+    "assertionKey": "synthetic:059:legacy_assertion_8c139419-18f6-4fd7-9a13-b0075fcba002",
+    "originalKey": "legacy:assertion:8c139419-18f6-4fd7-9a13-b0075fcba002",
+    "statement": "i to s xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "originalLength": 196,
+    "syntheticLength": 196,
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "ashley_interpretation",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "inferred"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": null,
+    "live": false,
+    "matchedTerms": [
+      "i",
+      "to",
+      "s"
+    ]
+  },
+  {
+    "assertionKey": "synthetic:060:legacy_assertion_a0c7c513-1b04-4897-be9d-08d248fcbd27",
+    "originalKey": "legacy:assertion:a0c7c513-1b04-4897-be9d-08d248fcbd27",
+    "statement": "i s xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "originalLength": 78,
+    "syntheticLength": 78,
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "ashley_interpretation",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "inferred"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": null,
+    "live": false,
+    "matchedTerms": [
+      "i",
+      "s"
+    ]
+  },
+  {
+    "assertionKey": "synthetic:061:legacy_assertion_9a01d4ed-1c7d-46e4-8286-33024647a493",
+    "originalKey": "legacy:assertion:9a01d4ed-1c7d-46e4-8286-33024647a493",
+    "statement": "i to let s xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "originalLength": 700,
+    "syntheticLength": 700,
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "ashley_interpretation",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "inferred"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": null,
+    "live": false,
+    "matchedTerms": [
+      "i",
+      "to",
+      "let",
+      "s"
+    ]
+  },
+  {
+    "assertionKey": "synthetic:062:legacy_assertion_02c3aa34-d412-4db4-b70b-2a469b28fb31",
+    "originalKey": "legacy:assertion:02c3aa34-d412-4db4-b70b-2a469b28fb31",
+    "statement": "i s ok xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "originalLength": 700,
+    "syntheticLength": 700,
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "ashley_interpretation",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "inferred"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": null,
+    "live": false,
+    "matchedTerms": [
+      "i",
+      "s",
+      "ok"
+    ]
+  },
+  {
+    "assertionKey": "synthetic:063:legacy_assertion_f49d650b-e340-41ae-a303-ebf6497ac370",
+    "originalKey": "legacy:assertion:f49d650b-e340-41ae-a303-ebf6497ac370",
+    "statement": "i to s ok xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "originalLength": 699,
+    "syntheticLength": 699,
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "ashley_interpretation",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "inferred"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": null,
+    "live": false,
+    "matchedTerms": [
+      "i",
+      "to",
+      "s",
+      "ok"
+    ]
+  },
+  {
+    "assertionKey": "synthetic:064:legacy_assertion_a43d8fb6-e482-4146-9886-81e2d14d955a",
+    "originalKey": "legacy:assertion:a43d8fb6-e482-4146-9886-81e2d14d955a",
+    "statement": "i to s xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "originalLength": 295,
+    "syntheticLength": 295,
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "ashley_interpretation",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "inferred"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": null,
+    "live": false,
+    "matchedTerms": [
+      "i",
+      "to",
+      "s"
+    ]
+  },
+  {
+    "assertionKey": "synthetic:065:legacy_assertion_0aaab8f8-2279-4ee8-b760-7ac7d7a43b6d",
+    "originalKey": "legacy:assertion:0aaab8f8-2279-4ee8-b760-7ac7d7a43b6d",
+    "statement": "i to s ok xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "originalLength": 699,
+    "syntheticLength": 699,
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "ashley_interpretation",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "inferred"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": null,
+    "live": false,
+    "matchedTerms": [
+      "i",
+      "to",
+      "s",
+      "ok"
+    ]
+  },
+  {
+    "assertionKey": "synthetic:066:legacy_assertion_036dd4e0-5b51-426c-ab9b-9c52a3779fa3",
+    "originalKey": "legacy:assertion:036dd4e0-5b51-426c-ab9b-9c52a3779fa3",
+    "statement": "i need to s xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "originalLength": 349,
+    "syntheticLength": 349,
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "ashley_interpretation",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "inferred"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": null,
+    "live": false,
+    "matchedTerms": [
+      "i",
+      "need",
+      "to",
+      "s"
+    ]
+  },
+  {
+    "assertionKey": "synthetic:067:legacy_assertion_cb4faccf-7d40-4c79-8f14-166e7aa2ff8b",
+    "originalKey": "legacy:assertion:cb4faccf-7d40-4c79-8f14-166e7aa2ff8b",
+    "statement": "i to s xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "originalLength": 307,
+    "syntheticLength": 307,
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "ashley_interpretation",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "inferred"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": null,
+    "live": false,
+    "matchedTerms": [
+      "i",
+      "to",
+      "s"
+    ]
+  },
+  {
+    "assertionKey": "synthetic:068:legacy_assertion_a4be7652-6115-4016-b857-6863a21a1816",
+    "originalKey": "legacy:assertion:a4be7652-6115-4016-b857-6863a21a1816",
+    "statement": "i to s xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "originalLength": 122,
+    "syntheticLength": 122,
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "ashley_interpretation",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "inferred"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": null,
+    "live": false,
+    "matchedTerms": [
+      "i",
+      "to",
+      "s"
+    ]
+  },
+  {
+    "assertionKey": "synthetic:069:legacy_assertion_d84c4f08-8bc5-4351-9357-cbfc21f6fb1e",
+    "originalKey": "legacy:assertion:d84c4f08-8bc5-4351-9357-cbfc21f6fb1e",
+    "statement": "i to s xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "originalLength": 307,
+    "syntheticLength": 307,
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "ashley_interpretation",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "inferred"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": null,
+    "live": false,
+    "matchedTerms": [
+      "i",
+      "to",
+      "s"
+    ]
+  },
+  {
+    "assertionKey": "synthetic:070:legacy_assertion_fad564fc-de79-415f-8e0c-b2e1435422cf",
+    "originalKey": "legacy:assertion:fad564fc-de79-415f-8e0c-b2e1435422cf",
+    "statement": "i to s xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "originalLength": 700,
+    "syntheticLength": 700,
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "ashley_interpretation",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "inferred"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": null,
+    "live": false,
+    "matchedTerms": [
+      "i",
+      "to",
+      "s"
+    ]
+  },
+  {
+    "assertionKey": "synthetic:071:legacy_assertion_3b46121c-a835-4397-bd56-01d2aaee5670",
+    "originalKey": "legacy:assertion:3b46121c-a835-4397-bd56-01d2aaee5670",
+    "statement": "i s xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "originalLength": 341,
+    "syntheticLength": 341,
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "ashley_interpretation",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "inferred"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": null,
+    "live": false,
+    "matchedTerms": [
+      "i",
+      "s"
+    ]
+  },
+  {
+    "assertionKey": "synthetic:072:legacy_assertion_7d74934e-b9de-4d89-8355-103cff250a9d",
+    "originalKey": "legacy:assertion:7d74934e-b9de-4d89-8355-103cff250a9d",
+    "statement": "i to s ok xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "originalLength": 695,
+    "syntheticLength": 695,
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "ashley_interpretation",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "inferred"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": null,
+    "live": false,
+    "matchedTerms": [
+      "i",
+      "to",
+      "s",
+      "ok"
+    ]
+  },
+  {
+    "assertionKey": "synthetic:073:legacy_assertion_b09c0b8d-ece8-42f4-88c7-8c051201b4c1",
+    "originalKey": "legacy:assertion:b09c0b8d-ece8-42f4-88c7-8c051201b4c1",
+    "statement": "i to s ok xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "originalLength": 700,
+    "syntheticLength": 700,
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "ashley_interpretation",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "inferred"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": null,
+    "live": false,
+    "matchedTerms": [
+      "i",
+      "to",
+      "s",
+      "ok"
+    ]
+  },
+  {
+    "assertionKey": "synthetic:074:legacy_assertion_bc1800ee-5ecd-44f5-93f7-500164450f2d",
+    "originalKey": "legacy:assertion:bc1800ee-5ecd-44f5-93f7-500164450f2d",
+    "statement": "i to s ok xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "originalLength": 700,
+    "syntheticLength": 700,
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "ashley_interpretation",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "inferred"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": null,
+    "live": false,
+    "matchedTerms": [
+      "i",
+      "to",
+      "s",
+      "ok"
+    ]
+  },
+  {
+    "assertionKey": "synthetic:075:legacy_assertion_c7964237-bb76-4968-89d1-e7af3a5817ee",
+    "originalKey": "legacy:assertion:c7964237-bb76-4968-89d1-e7af3a5817ee",
+    "statement": "i to let s ok xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "originalLength": 700,
+    "syntheticLength": 700,
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "ashley_interpretation",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "inferred"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": null,
+    "live": false,
+    "matchedTerms": [
+      "i",
+      "to",
+      "let",
+      "s",
+      "ok"
+    ]
+  },
+  {
+    "assertionKey": "synthetic:076:legacy_assertion_799bb1b8-9c34-4417-96eb-45a8729f708f",
+    "originalKey": "legacy:assertion:799bb1b8-9c34-4417-96eb-45a8729f708f",
+    "statement": "i to s xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "originalLength": 610,
+    "syntheticLength": 610,
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "ashley_interpretation",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "inferred"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": null,
+    "live": false,
+    "matchedTerms": [
+      "i",
+      "to",
+      "s"
+    ]
+  },
+  {
+    "assertionKey": "synthetic:077:legacy_assertion_78494488-672d-4566-9be2-8ccb3c9440c1",
+    "originalKey": "legacy:assertion:78494488-672d-4566-9be2-8ccb3c9440c1",
+    "statement": "i to s xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "originalLength": 686,
+    "syntheticLength": 686,
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "ashley_interpretation",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "inferred"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": null,
+    "live": false,
+    "matchedTerms": [
+      "i",
+      "to",
+      "s"
+    ]
+  },
+  {
+    "assertionKey": "synthetic:078:legacy_assertion_4101b2a2-968a-431b-98e2-e7714444462e",
+    "originalKey": "legacy:assertion:4101b2a2-968a-431b-98e2-e7714444462e",
+    "statement": "i to s ok xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "originalLength": 699,
+    "syntheticLength": 699,
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "ashley_interpretation",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "inferred"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": null,
+    "live": false,
+    "matchedTerms": [
+      "i",
+      "to",
+      "s",
+      "ok"
+    ]
+  },
+  {
+    "assertionKey": "synthetic:079:legacy_assertion_1a867439-0ebb-4bfa-a698-d7d60c8e53aa",
+    "originalKey": "legacy:assertion:1a867439-0ebb-4bfa-a698-d7d60c8e53aa",
+    "statement": "i to s ok xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "originalLength": 700,
+    "syntheticLength": 700,
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "ashley_interpretation",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "inferred"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": null,
+    "live": false,
+    "matchedTerms": [
+      "i",
+      "to",
+      "s",
+      "ok"
+    ]
+  },
+  {
+    "assertionKey": "synthetic:080:legacy_assertion_ee1c8bdc-64b8-4477-9281-1b9749405294",
+    "originalKey": "legacy:assertion:ee1c8bdc-64b8-4477-9281-1b9749405294",
+    "statement": "i to s xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "originalLength": 699,
+    "syntheticLength": 699,
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "ashley_interpretation",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "inferred"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": null,
+    "live": false,
+    "matchedTerms": [
+      "i",
+      "to",
+      "s"
+    ]
+  },
+  {
+    "assertionKey": "synthetic:081:legacy_assertion_618f41b1-9658-4829-988a-39ffb79db8db",
+    "originalKey": "legacy:assertion:618f41b1-9658-4829-988a-39ffb79db8db",
+    "statement": "i to s xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "originalLength": 700,
+    "syntheticLength": 700,
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "ashley_interpretation",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "inferred"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": null,
+    "live": false,
+    "matchedTerms": [
+      "i",
+      "to",
+      "s"
+    ]
+  },
+  {
+    "assertionKey": "synthetic:082:legacy_assertion_f5556c6c-3715-4b13-beed-a1a01031e421",
+    "originalKey": "legacy:assertion:f5556c6c-3715-4b13-beed-a1a01031e421",
+    "statement": "i to s xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "originalLength": 91,
+    "syntheticLength": 91,
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "ashley_interpretation",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "inferred"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": null,
+    "live": false,
+    "matchedTerms": [
+      "i",
+      "to",
+      "s"
+    ]
+  },
+  {
+    "assertionKey": "synthetic:083:legacy_assertion_6dc8bfd8-9419-49cc-9a42-a3ebdcd6cae4",
+    "originalKey": "legacy:assertion:6dc8bfd8-9419-49cc-9a42-a3ebdcd6cae4",
+    "statement": "i to s xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "originalLength": 244,
+    "syntheticLength": 244,
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "ashley_interpretation",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "inferred"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": null,
+    "live": false,
+    "matchedTerms": [
+      "i",
+      "to",
+      "s"
+    ]
+  },
+  {
+    "assertionKey": "synthetic:084:legacy_assertion_ebf036d8-5932-49f8-a7f4-1d59e2452ae9",
+    "originalKey": "legacy:assertion:ebf036d8-5932-49f8-a7f4-1d59e2452ae9",
+    "statement": "i to s xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "originalLength": 700,
+    "syntheticLength": 700,
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "ashley_interpretation",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "inferred"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": null,
+    "live": false,
+    "matchedTerms": [
+      "i",
+      "to",
+      "s"
+    ]
+  },
+  {
+    "assertionKey": "synthetic:085:legacy_assertion_9caf2730-7428-4ada-a7ec-1fe2d03c51af",
+    "originalKey": "legacy:assertion:9caf2730-7428-4ada-a7ec-1fe2d03c51af",
+    "statement": "i to s xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "originalLength": 700,
+    "syntheticLength": 700,
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "ashley_interpretation",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "inferred"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": null,
+    "live": false,
+    "matchedTerms": [
+      "i",
+      "to",
+      "s"
+    ]
+  },
+  {
+    "assertionKey": "synthetic:086:legacy_assertion_66e45fb8-d180-4d95-9403-dd8b8b25373f",
+    "originalKey": "legacy:assertion:66e45fb8-d180-4d95-9403-dd8b8b25373f",
+    "statement": "i need s xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "originalLength": 615,
+    "syntheticLength": 615,
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "ashley_interpretation",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "inferred"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": null,
+    "live": false,
+    "matchedTerms": [
+      "i",
+      "need",
+      "s"
+    ]
+  },
+  {
+    "assertionKey": "synthetic:087:legacy_assertion_bf233c80-8513-493f-94b3-3862c98ee99f",
+    "originalKey": "legacy:assertion:bf233c80-8513-493f-94b3-3862c98ee99f",
+    "statement": "i to sleep s ok xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "originalLength": 699,
+    "syntheticLength": 699,
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "ashley_interpretation",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "inferred"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": null,
+    "live": false,
+    "matchedTerms": [
+      "i",
+      "to",
+      "sleep",
+      "s",
+      "ok"
+    ]
+  },
+  {
+    "assertionKey": "synthetic:088:legacy_assertion_648d45bb-9df4-458a-bc7a-a14d16bf0069",
+    "originalKey": "legacy:assertion:648d45bb-9df4-458a-bc7a-a14d16bf0069",
+    "statement": "i to soon s xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "originalLength": 502,
+    "syntheticLength": 502,
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "ashley_interpretation",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "inferred"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": null,
+    "live": false,
+    "matchedTerms": [
+      "i",
+      "to",
+      "soon",
+      "s"
+    ]
+  },
+  {
+    "assertionKey": "synthetic:089:legacy_assertion_27f0758a-9cdb-45fb-bccb-ee12bc6fcacc",
+    "originalKey": "legacy:assertion:27f0758a-9cdb-45fb-bccb-ee12bc6fcacc",
+    "statement": "i s ok xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "originalLength": 301,
+    "syntheticLength": 301,
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "ashley_interpretation",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "inferred"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": null,
+    "live": false,
+    "matchedTerms": [
+      "i",
+      "s",
+      "ok"
+    ]
+  },
+  {
+    "assertionKey": "synthetic:090:legacy_assertion_4f0b7bb9-1d35-4898-a939-890fb682ec4e",
+    "originalKey": "legacy:assertion:4f0b7bb9-1d35-4898-a939-890fb682ec4e",
+    "statement": "i s xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "originalLength": 97,
+    "syntheticLength": 97,
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "ashley_interpretation",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "inferred"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": null,
+    "live": false,
+    "matchedTerms": [
+      "i",
+      "s"
+    ]
+  },
+  {
+    "assertionKey": "synthetic:091:legacy_assertion_de862931-e2f0-45c6-a996-98d0bd5a873d",
+    "originalKey": "legacy:assertion:de862931-e2f0-45c6-a996-98d0bd5a873d",
+    "statement": "i s xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "originalLength": 467,
+    "syntheticLength": 467,
+    "memoryKind": "owner_world_claim",
+    "dimensions": {
+      "source": "ashley_interpretation",
+      "status": "asserted",
+      "time": "historical",
+      "reliability": "inferred"
+    },
+    "dataClassification": "never_public",
+    "lineageParentKey": null,
+    "admittedGeneration": null,
+    "live": false,
+    "matchedTerms": [
+      "i",
+      "s"
+    ]
+  }
+]

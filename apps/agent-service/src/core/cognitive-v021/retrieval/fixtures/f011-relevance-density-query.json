@@ -1,0 +1,22 @@
+[
+  {
+    "queryId": "relevance-density-primary",
+    "terms": [
+      "migration",
+      "rehearsal",
+      "target"
+    ],
+    "k": 16,
+    "relevanceLabel": "relevant",
+    "relevantKeys": [
+      "density:relevant:00",
+      "density:relevant:01",
+      "density:relevant:02",
+      "density:relevant:03",
+      "density:relevant:04",
+      "density:relevant:05",
+      "density:relevant:06",
+      "density:relevant:07"
+    ]
+  }
+]

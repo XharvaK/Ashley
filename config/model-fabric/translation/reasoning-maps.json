@@ -1,0 +1,102 @@
+{
+  "schema": "ashley.model_fabric.reasoning_maps.v2",
+  "families": [
+    {
+      "familyId": "mistral_small",
+      "match": {
+        "provider": "mistral",
+        "configuredModelId": "mistral-small-2603"
+      },
+      "staleAliases": {},
+      "policies": {
+        "disabled": { "kind": "reasoning_effort", "value": "none" },
+        "economical": { "kind": "reasoning_effort", "value": "none" },
+        "standard": { "kind": "unsupported", "code": "unsupported_reasoning_mapping" },
+        "high": { "kind": "reasoning_effort", "value": "high" },
+        "max_supported": { "kind": "reasoning_effort", "value": "high" }
+      }
+    },
+    {
+      "familyId": "nim_nemotron_ultra",
+      "match": {
+        "provider": "nim",
+        "configuredModelId": "nvidia/nemotron-3-ultra-550b-a55b"
+      },
+      "staleAliases": {},
+      "policies": {
+        "disabled": { "kind": "reasoning_effort", "value": "none" },
+        "economical": { "kind": "reasoning_effort", "value": "medium" },
+        "standard": { "kind": "reasoning_effort", "value": "medium" },
+        "high": { "kind": "reasoning_effort", "value": "high" },
+        "max_supported": { "kind": "reasoning_effort", "value": "high" }
+      }
+    },
+    {
+      "familyId": "nim_nemotron_super",
+      "match": {
+        "provider": "nim",
+        "configuredModelId": "nvidia/nemotron-3-super-120b-a12b"
+      },
+      "staleAliases": {
+        "thinking_on": "high"
+      },
+      "policies": {
+        "disabled": { "kind": "reasoning_effort", "value": "none" },
+        "economical": { "kind": "reasoning_effort", "value": "low" },
+        "standard": { "kind": "unsupported", "code": "unsupported_reasoning_mapping" },
+        "high": { "kind": "reasoning_effort", "value": "high" },
+        "max_supported": { "kind": "reasoning_effort", "value": "high" }
+      }
+    },
+    {
+      "familyId": "cloudflare_nemotron_super",
+      "match": {
+        "provider": "cloudflare",
+        "configuredModelId": "@cf/nvidia/nemotron-3-120b-a12b"
+      },
+      "staleAliases": {
+        "thinking_on": "high"
+      },
+      "policies": {
+        "disabled": { "kind": "reasoning_effort", "value": "none" },
+        "economical": { "kind": "reasoning_effort", "value": "low" },
+        "standard": { "kind": "unsupported", "code": "unsupported_reasoning_mapping" },
+        "high": { "kind": "reasoning_effort", "value": "high" },
+        "max_supported": { "kind": "reasoning_effort", "value": "high" }
+      }
+    },
+    {
+      "familyId": "cloudflare_deepseek_v4_flash",
+      "match": {
+        "provider": "cloudflare",
+        "configuredModelId": "@cf/deepseek-ai/deepseek-v4-flash-0731"
+      },
+      "staleAliases": {},
+      "policies": {
+        "disabled": { "kind": "reasoning_effort", "value": "none" },
+        "economical": { "kind": "reasoning_effort", "value": "low" },
+        "standard": { "kind": "reasoning_effort", "value": "medium" },
+        "high": { "kind": "reasoning_effort", "value": "high" },
+        "max_supported": { "kind": "reasoning_effort", "value": "high" }
+      }
+    },
+    {
+      "familyId": "nim_nemotron_lightning",
+      "match": {
+        "provider": "nim",
+        "configuredModelId": "nvidia/nemotron-3.5-lightning-30b-a3b"
+      },
+      "staleAliases": {
+        "provider_minimum": "economical",
+        "provider_default": "standard"
+      },
+      "policies": {
+        "disabled": { "kind": "chat_template_thinking", "enableThinking": false },
+        "economical": { "kind": "chat_template_thinking", "enableThinking": false },
+        "standard": { "kind": "unsupported", "code": "lightning_standard_policy_unresolved" },
+        "high": { "kind": "unsupported", "code": "unsupported_reasoning_mapping" },
+        "max_supported": { "kind": "unsupported", "code": "unsupported_reasoning_mapping" }
+      }
+    }
+  ]
+}

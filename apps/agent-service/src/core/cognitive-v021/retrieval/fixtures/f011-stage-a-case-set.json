@@ -1,0 +1,172 @@
+{
+  "schema": "ashley.f011.stage-a.case-set.v1",
+  "caseSetId": "f011-stage-a-case-set-v1",
+  "requiredMetrics": [
+    "precisionAtK",
+    "recallAtK",
+    "mrr",
+    "requiredQueryCoverage",
+    "falseCurrentEvidenceCount"
+  ],
+  "thresholds": {
+    "precisionAtK": 0.5,
+    "recallAtK": 0.5,
+    "mrr": 0.5,
+    "requiredQueryCoverage": 1,
+    "falseCurrentEvidenceCount": 0
+  },
+  "freeze": {
+    "status": "FROZEN",
+    "labelsFrozenBeforeCandidateEvaluation": true,
+    "candidateResultsAvailableAtFreeze": false,
+    "candidateRanksOrScoresInspectedAtFreeze": false,
+    "runtimeRetrievalBehaviorChanged": false,
+    "denominator": "K",
+    "precisionK": 16
+  },
+  "cases": [
+    {
+      "caseId": "incident-c-primary",
+      "informationNeed": "Identify corpus statements that directly address the owner's near-term sleep and tomorrow conversation plan.",
+      "rubric": {
+        "kind": "owner_blind_adjudication",
+        "source": "work/phase5-final-convergence/incident-c-blind-label-packet.json",
+        "labels": ["relevant", "irrelevant"]
+      },
+      "dataset": {
+        "datasetId": "incident-c-synthetic",
+        "sourceSchemaIdentity": "sidecar_memory_assertions.v1",
+        "generatorIdentity": "scripts/snapshot-incident-c.mjs.v2",
+        "labelPolicy": "frozen adjudicated relevant or irrelevant labels; no post-result tuning",
+        "corpusPath": "apps/agent-service/src/core/cognitive-v021/retrieval/fixtures/incident-c-synthetic.json",
+        "labelsPath": "apps/agent-service/src/core/cognitive-v021/retrieval/fixtures/incident-c-labels.json",
+        "corpusDigest": "sha256:0aeb44e6f5a3556a2518594e0ae909c0693c97e6e69b0eb6be9ffc1b93503499",
+        "labelsDigest": "sha256:0dc5152d206cfce8938d04f3b4c857de801e8a5f0694b28249b03339bdfad4c2",
+        "queryDigest": "sha256:e548c226bcdd2076a63d74e4a358324ff2b882c3d83b5b5792937d0b45773547",
+        "itemCount": 92,
+        "queryCount": 1
+      },
+      "querySet": [
+        {
+          "queryId": "incident-c-primary",
+          "terms": ["sleep", "soon", "tomorrow"],
+          "k": 16,
+          "relevanceLabel": "relevant"
+        }
+      ],
+      "licensedMetrics": [
+        "recallAtK",
+        "mrr",
+        "requiredQueryCoverage",
+        "falseCurrentEvidenceCount"
+      ],
+      "recordedMetrics": [
+        "precisionAtK",
+        "recallAtK",
+        "mrr",
+        "requiredQueryCoverage",
+        "falseCurrentEvidenceCount"
+      ],
+      "thresholds": {
+        "precisionAtK": 0.5,
+        "recallAtK": 0.5,
+        "mrr": 0.5,
+        "requiredQueryCoverage": 1,
+        "falseCurrentEvidenceCount": 0
+      },
+      "theoreticalMaximum": {
+        "precisionAtK": 0.0625,
+        "recallAtK": 1,
+        "mrr": 1,
+        "requiredQueryCoverage": 1,
+        "falseCurrentEvidenceCount": null
+      },
+      "applicabilityPrecondition": {
+        "precisionAtK": {
+          "status": "NOT_APPLICABLE",
+          "reason": "CONTRACT_UNREACHABLE"
+        },
+        "recallAtK": {"status": "APPLICABLE", "reason": null},
+        "mrr": {"status": "APPLICABLE", "reason": null},
+        "requiredQueryCoverage": {"status": "APPLICABLE", "reason": null},
+        "falseCurrentEvidenceCount": {"status": "APPLICABLE", "reason": null}
+      }
+    },
+    {
+      "caseId": "relevance-density-primary",
+      "informationNeed": "Identify synthetic owner commitments that explicitly confirm the migration rehearsal in the target window on 2030-10-14.",
+      "rubric": {
+        "kind": "deterministic_synthetic_contract",
+        "source": "apps/agent-service/src/core/cognitive-v021/retrieval/fixtures/f011-relevance-density-rubric.json",
+        "rubricId": "f011-relevance-density-rubric-v1",
+        "rubricDigest": "sha256:4071ce8f807fb75ad686a2e563d86bad4e349bb0ec538f86d1ef37d1d8170177",
+        "labels": ["relevant", "irrelevant"],
+        "candidateResultsUsed": false
+      },
+      "dataset": {
+        "datasetId": "f011-relevance-density-v1",
+        "sourceSchemaIdentity": "sidecar_memory_assertions.v1",
+        "generatorIdentity": "f011-relevance-density-contract.v1",
+        "labelPolicy": "deterministic synthetic rubric labels frozen before candidate evaluation",
+        "corpusPath": "apps/agent-service/src/core/cognitive-v021/retrieval/fixtures/f011-relevance-density.json",
+        "labelsPath": "apps/agent-service/src/core/cognitive-v021/retrieval/fixtures/f011-relevance-density-labels.json",
+        "queryPath": "apps/agent-service/src/core/cognitive-v021/retrieval/fixtures/f011-relevance-density-query.json",
+        "rubricPath": "apps/agent-service/src/core/cognitive-v021/retrieval/fixtures/f011-relevance-density-rubric.json",
+        "corpusDigest": "sha256:e45ed6727b960ca604ce9e59288ccbe7e4376c2afc9d70b12b78145406f228e3",
+        "labelsDigest": "sha256:764609f37bf970cc581003f1ef56afede6b7253da3756a38669284976630b799",
+        "queryDigest": "sha256:784fe6eeee2e9695050f30ff5338d8f287ce7a8fd39c1508ded61e7256003bd7",
+        "rubricDigest": "sha256:4071ce8f807fb75ad686a2e563d86bad4e349bb0ec538f86d1ef37d1d8170177",
+        "itemCount": 17,
+        "queryCount": 1,
+        "relevantJudgmentCount": 8
+      },
+      "querySet": [
+        {
+          "queryId": "relevance-density-primary",
+          "terms": ["migration", "rehearsal", "target"],
+          "k": 16,
+          "relevanceLabel": "relevant",
+          "relevantKeys": [
+            "density:relevant:00",
+            "density:relevant:01",
+            "density:relevant:02",
+            "density:relevant:03",
+            "density:relevant:04",
+            "density:relevant:05",
+            "density:relevant:06",
+            "density:relevant:07"
+          ]
+        }
+      ],
+      "licensedMetrics": ["precisionAtK"],
+      "recordedMetrics": [
+        "precisionAtK",
+        "recallAtK",
+        "mrr",
+        "requiredQueryCoverage",
+        "falseCurrentEvidenceCount"
+      ],
+      "thresholds": {
+        "precisionAtK": 0.5,
+        "recallAtK": 0.5,
+        "mrr": 0.5,
+        "requiredQueryCoverage": 1,
+        "falseCurrentEvidenceCount": 0
+      },
+      "theoreticalMaximum": {
+        "precisionAtK": 0.5,
+        "recallAtK": 1,
+        "mrr": 1,
+        "requiredQueryCoverage": 1,
+        "falseCurrentEvidenceCount": null
+      },
+      "applicabilityPrecondition": {
+        "precisionAtK": {"status": "APPLICABLE", "reason": null},
+        "recallAtK": {"status": "NOT_LICENSED", "reason": null},
+        "mrr": {"status": "NOT_LICENSED", "reason": null},
+        "requiredQueryCoverage": {"status": "NOT_LICENSED", "reason": null},
+        "falseCurrentEvidenceCount": {"status": "NOT_LICENSED", "reason": null}
+      }
+    }
+  ]
+}

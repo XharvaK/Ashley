@@ -1,0 +1,10 @@
+{
+  "schema": "ashley.model_fabric.seats.v1",
+  "seats": [
+    { "seat": "routine_validation", "userVisibleProductionRole": false, "candidateOnly": true, "firstVertical": true, "targetOccupant": "nvidia/nemotron-3.5-lightning-30b-a3b", "independenceConstraint": null },
+    { "seat": "architecture_critique", "userVisibleProductionRole": false, "candidateOnly": true, "requiresIndependentDualReview": true },
+    { "seat": "adversarial_audit", "userVisibleProductionRole": false, "candidateOnly": true, "requiresIndependentDualReview": true },
+    { "seat": "evaluation_independent_judge", "userVisibleProductionRole": false, "candidateOnly": true, "ownedBy": "Evaluation", "targetOccupant": "thinkingmachines/inkling" },
+    { "seat": "evaluation_adversarial_second_judge", "userVisibleProductionRole": false, "candidateOnly": true, "ownedBy": "Evaluation", "targetOccupant": "meta/muse-glimmer-30b" }
+  ]
+}

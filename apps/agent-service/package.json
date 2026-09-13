@@ -1,0 +1,68 @@
+{
+
+  "name": "@composer-assistant/agent-service",
+
+  "version": "0.1.0",
+
+  "private": true,
+
+  "type": "module",
+
+  "scripts": {
+
+    "build": "tsc",
+
+    "start": "node dist/index.js",
+
+    "dev": "tsx watch src/index.ts",
+
+    "test": "vitest run",
+    "test:current": "vitest run --config vitest.current.config.ts",
+    "test:cognitive-v021": "vitest run src/core/cognitive-v021",
+    "test:scale": "vitest run src/core/cognitive-v021/acceptance/scale.test.ts",
+    "test:offline": "vitest run --config vitest.offline.config.ts",
+    "test:watch": "vitest"
+
+  },
+
+  "dependencies": {
+
+    "@composer-assistant/privacy-core": "file:../../packages/privacy-core",
+
+    "@composer-assistant/sandbox-m1": "file:../sandbox-m1",
+
+    "@composer-assistant/sandbox-policy": "file:../sandbox-policy",
+
+    "@composer-assistant/sandbox-v2": "file:../sandbox-v2",
+
+    "@mistralai/mistralai": "^1.7.0",
+
+    "cors": "^2.8.5",
+
+    "express": "^4.21.2"
+
+  },
+
+  "devDependencies": {
+
+    "@types/cors": "^2.8.17",
+
+    "@types/express": "^5.0.0",
+
+    "@types/node": "^22.10.5",
+
+    "tsx": "^4.19.2",
+
+    "typescript": "^5.7.3",
+
+    "vitest": "^3.0.5"
+
+  },
+
+  "overrides": {
+
+    "esbuild": "0.28.1"
+
+  }
+
+}

@@ -1,0 +1,10 @@
+[Unit]
+Description=Ashley observer daily field export timer (disabled candidate)
+
+[Timer]
+OnCalendar=*-*-* 04:05:00 Europe/Istanbul
+Persistent=false
+Unit=ashley-observer-export.service
+
+[Install]
+WantedBy=timers.target
