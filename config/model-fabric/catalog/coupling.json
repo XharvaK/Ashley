@@ -8,7 +8,7 @@
     { "id": "qc_groq_qwen_27b", "provider": "groq", "configuredModelId": "qwen/qwen3.6-27b", "members": ["expression Qwen"] },
     { "id": "qc_groq_qwen_38_27b", "provider": "groq", "configuredModelId": "qwen/qwen3.8-27b", "members": ["current Expression Qwen 3.8"] },
     { "id": "qc_mistral_medium", "provider": "mistral", "configuredModelId": "mistral-medium-latest", "members": ["expression Mistral"] },
-    { "id": "qc_nim_lightning", "provider": "nim", "configuredModelId": "nvidia/nemotron-3.5-lightning-30b-a3b", "members": ["deferred utility candidate; not an intended TARGET occupant after mfp_target_12_9_v2"] },
+    { "id": "qc_nim_lightning", "provider": "nim", "configuredModelId": "nvidia/nemotron-3.5-lightning-30b-a3b", "members": ["current Expression fallback", "current utility/bulk routes", "deferred utility candidate; not an intended TARGET occupant after mfp_target_12_9_v2"] },
     { "id": "qc_nim_nemotron_super", "provider": "nim", "configuredModelId": "nvidia/nemotron-3-super-120b-a12b", "members": ["intended maintenance", "intended routine_validation", "exchange_cognition", "curiosity_consolidation"] },
     { "id": "qc_cloudflare_nemotron_super", "provider": "cloudflare", "configuredModelId": "@cf/nvidia/nemotron-3-120b-a12b", "members": ["historical current Thought interactive", "historical current Thought durable_proactive", "historical current Thought observation", "historical current Reflection"] },
     { "id": "qc_cloudflare_deepseek_v4_flash", "provider": "cloudflare", "configuredModelId": "@cf/deepseek-ai/deepseek-v4-flash-0731", "members": ["current Thought interactive", "current Thought durable_proactive", "current Thought observation", "current Reflection"] }
