@@ -2,15 +2,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { DatabaseSync } from "node:sqlite";
 import { env } from "../../env.js";
 import { openNuclearDb } from "../db.js";
-import { createGroqAdapter } from "../model-routing/adapters/groq-adapter.js";
 import { createNimAdapter } from "../model-routing/adapters/nim-adapter.js";
 import { selectAndRender } from "./render.js";
 
-const originalGroqKey = env.groqApiKey;
 const originalNimKey = env.nimApiKey;
 
 afterEach(() => {
-  env.groqApiKey = originalGroqKey;
   env.nimApiKey = originalNimKey;
   vi.restoreAllMocks();
 });
@@ -54,10 +51,10 @@ function allocation(routeId: "thought" | "ashley_expression_fallback") {
 }
 
 describe("C2 provider-bound role preservation", () => {
-  it("passes the bounded C2 messages to Groq without changing role labels", async () => {
-    env.groqApiKey = "fixture";
+  it("passes the bounded C2 messages to NIM without changing role labels", async () => {
+    env.nimApiKey = "fixture";
     let body: Record<string, unknown> | undefined;
-    const adapter = createGroqAdapter(async (_url, init) => {
+    const adapter = createNimAdapter(async (_url, init) => {
       body = JSON.parse(String(init?.body));
       return response();
     });
@@ -65,7 +62,7 @@ describe("C2 provider-bound role preservation", () => {
     try {
       await adapter.dispatch({
         messages: result.messages,
-        modelId: "qwen/qwen3.6-27b",
+        modelId: "nvidia/nemotron-3.5-lightning-30b-a3b",
         options: {},
       });
       expect(body?.messages).toEqual(result.messages);

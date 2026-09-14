@@ -23,6 +23,7 @@ export * from "./cycle/inbox-consumer.js";
 export * from "./speech/outbox.js";
 export * from "./speech/fidelity.js";
 export * from "./speech/expression-adapter.js";
+export * from "./speech/live-expression.js";
 export * from "./speech/send.js";
 export * from "./speech/infrastructure-notice.js";
 export { OutboxDeliveryProjector, createOutboxProjector } from "./delivery/outbox-projector.js";

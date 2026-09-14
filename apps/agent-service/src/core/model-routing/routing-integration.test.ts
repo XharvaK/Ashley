@@ -43,11 +43,11 @@ function rowCount(db: DatabaseSync, table: string): number {
 }
 
 describe("route-to-provider mapping", () => {
-  it("expression routes to the NIM Lightning primary", () => {
+  it("expression routes to the Groq Qwen 3.8 primary", () => {
     const b = resolveRoute("expression");
     expect(b.route).toBe("ashley_expression");
-    expect(b.provider).toBe("nim");
-    expect(b.configuredModelId).toBe("nvidia/nemotron-3.5-lightning-30b-a3b");
+    expect(b.provider).toBe("groq");
+    expect(b.configuredModelId).toBe("qwen/qwen3.8-27b");
   });
 
   it("thought routes to the Cloudflare DeepSeek V4 Flash primary", () => {
@@ -161,10 +161,10 @@ describe("unknown routes fail closed", () => {
 });
 
 describe("provider-aware missing key gating", () => {
-  it("NIM Expression route fails before reservation when NIM_API_KEY is absent", async () => {
+  it("Groq Expression route fails before reservation when GROQ_API_KEY is absent", async () => {
     env.mistralApiKey = "present";
-    env.groqApiKey = "present";
-    env.nimApiKey = "";
+    env.groqApiKey = "";
+    env.nimApiKey = "present";
     const db = freshDb();
     await expect(
       withOfflineAppGateDisabled(() => completeChat(
@@ -238,10 +238,10 @@ describe("shared NIM Lightning quota bucket at the dispatch layer", () => {
     db.close();
   });
 
-  describe("Wave 2: Cloudflare Thought failure isolates the NIM Expression lane", () => {
+  describe("Wave 2: Cloudflare Thought failure isolates the Expression lane", () => {
     it("Thought failure leaves Expression independently dispatchable in its own bucket", async () => {
       env.mistralApiKey = "";
-      env.groqApiKey = "";
+      env.groqApiKey = "test";
       env.nimApiKey = "test";
       env.cloudflareApiToken = "test-cloudflare-token";
       env.cloudflareAccountId = "test-account";
@@ -268,7 +268,7 @@ describe("shared NIM Lightning quota bucket at the dispatch layer", () => {
       );
       expect(thoughtCompletedRows).toBe(0);
 
-      // Expression (NIM Lightning lane) is untouched and still dispatches.
+      // Expression (Groq Qwen 3.8 lane) is untouched and still dispatches.
       const b = resolveRoute("expression");
       let called = false;
       const res = await runAttentiveDispatch<{ echo: string }>(db, {
@@ -287,14 +287,14 @@ describe("shared NIM Lightning quota bucket at the dispatch layer", () => {
         },
       });
       expect(called).toBe(true);
-      const lightningRows = Number(
+      const expressionRows = Number(
         (
           db.prepare(
-            `SELECT COUNT(*) AS c FROM attention_requests WHERE quota_bucket = 'nim:nvidia/nemotron-3.5-lightning-30b-a3b'`,
+            `SELECT COUNT(*) AS c FROM attention_requests WHERE quota_bucket = 'groq:qwen/qwen3.8-27b'`,
           ).get() as { c: number }
         ).c,
       );
-      expect(lightningRows).toBe(1);
+      expect(expressionRows).toBe(1);
       expect(res.result.echo).toBe("ok");
       db.close();
     });

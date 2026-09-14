@@ -6,6 +6,7 @@
     { "id": "qc_groq_gpt_oss_120b", "provider": "groq", "configuredModelId": "openai/gpt-oss-120b", "members": ["target thought interactive", "target thought durable_proactive", "various §12.9 secondaries"] },
     { "id": "qc_nim_gpt_oss_120b", "provider": "nim", "configuredModelId": "openai/gpt-oss-120b", "members": ["target thought NIM 120B failover"] },
     { "id": "qc_groq_qwen_27b", "provider": "groq", "configuredModelId": "qwen/qwen3.6-27b", "members": ["expression Qwen"] },
+    { "id": "qc_groq_qwen_38_27b", "provider": "groq", "configuredModelId": "qwen/qwen3.8-27b", "members": ["current Expression Qwen 3.8"] },
     { "id": "qc_mistral_medium", "provider": "mistral", "configuredModelId": "mistral-medium-latest", "members": ["expression Mistral"] },
     { "id": "qc_nim_lightning", "provider": "nim", "configuredModelId": "nvidia/nemotron-3.5-lightning-30b-a3b", "members": ["deferred utility candidate; not an intended TARGET occupant after mfp_target_12_9_v2"] },
     { "id": "qc_nim_nemotron_super", "provider": "nim", "configuredModelId": "nvidia/nemotron-3-super-120b-a12b", "members": ["intended maintenance", "intended routine_validation", "exchange_cognition", "curiosity_consolidation"] },

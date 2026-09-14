@@ -240,10 +240,10 @@ describe("expression fallback (Wave 3)", () => {
 
     expect(fake.calls.length).toBe(2);
     expect(fake.calls[1].options?.route).toBe("ashley_expression_fallback");
-    expect(fake.calls[1].options?.model).toBe("qwen/qwen3.6-27b");
+    expect(fake.calls[1].options?.model).toBe("nvidia/nemotron-3.5-lightning-30b-a3b");
     expect(fake.calls[1].options?.maxTokens).toBe(4096);
-    expect(fake.calls[1].options?.reasoningEffort).toBe("none");
-    expect(result.model).toBe("qwen/qwen3.6-27b");
+    expect(fake.calls[1].options?.reasoningEffort).toBeUndefined();
+    expect(result.model).toBe("nvidia/nemotron-3.5-lightning-30b-a3b");
     const row = db
       .prepare(
         "SELECT expression_fallback_policy FROM decision_log WHERE id = ?",
@@ -490,11 +490,11 @@ describe("expression fallback (Wave 3)", () => {
     expect(result.model).toBe(fallbackBinding.configuredModelId);
   });
 
-  it("fallback route metadata is groq-managed with the correct quota bucket", () => {
+  it("fallback route metadata is NIM-managed with the correct quota bucket", () => {
     const route = "ashley_expression_fallback" as RouteId;
     const binding = routeBinding(route);
     expect(bucketForRoute(route)).toBe(`${binding.provider}:${binding.configuredModelId}`);
-    expect(binding.provider).toBe("groq");
+    expect(binding.provider).toBe("nim");
     expect(binding.route).toBe("ashley_expression_fallback");
   });
 });

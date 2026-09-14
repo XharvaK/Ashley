@@ -25,8 +25,8 @@ describe("model-routing router", () => {
   it("resolves expression and maintenance purposes to their routes", () => {
     expect(resolveRoute("expression")).toMatchObject({
       route: "ashley_expression",
-      provider: "nim",
-      configuredModelId: "nvidia/nemotron-3.5-lightning-30b-a3b",
+      provider: "groq",
+      configuredModelId: "qwen/qwen3.8-27b",
     });
     expect(resolveRoute("maintenance")).toMatchObject({
       route: "utility_bulk",

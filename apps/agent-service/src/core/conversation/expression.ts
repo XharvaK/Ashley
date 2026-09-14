@@ -235,8 +235,8 @@ export async function expressSpeak(
   const dispatch: ExpressionComplete = (messagesToSend, callOptions) =>
     complete(messagesToSend, { ...callOptions, attentionDb });
 
-  // Expression fallback context is assembled below; the primary (NIM Lightning)
-  // dispatch uses the full turn messages.
+  // Expression fallback context is assembled below; the primary dispatch uses
+  // the full turn messages.
   let response: { text: string; model: string; modelFabric?: ModelFabricDispatchMetadata };
   const fallbackChainId = newCorrelationId();
   const primaryFallbackChain = createModelFallbackChain({

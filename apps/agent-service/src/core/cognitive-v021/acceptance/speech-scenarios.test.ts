@@ -99,6 +99,91 @@ describe("v0.2.1 speech and failure scenarios", () => {
     attentionDb.close();
   });
 
+  it("invokes the bound Expression adapter exactly once for eligible draft speech", async () => {
+    const sidecar = openTestSidecar();
+    const attentionDb = openTestSidecar();
+    const completeChat = vi.fn(async () => ({
+      text: JSON.stringify(validThought("hello")),
+      model: "fake",
+      modelAlias: "fake",
+      resolvedModelId: null,
+    }));
+    const adaptExpression: NonNullable<KernelDeps["adaptExpression"]> = vi.fn(
+      async (input) => input.draft,
+    );
+    const result = await runCognitiveCycle(
+      sidecar,
+      attentionDb,
+      eventFixture(sidecar),
+      baseDeps({
+        attentionDb,
+        completeChat,
+        adaptExpression,
+        expressionEnabled: true,
+      }),
+    );
+    expect(result).toMatchObject({ published: true, acceptedSettlements: 1 });
+    expect(adaptExpression).toHaveBeenCalledTimes(1);
+    expect(adaptExpression).toHaveBeenCalledWith(expect.objectContaining({
+      draft: "hello",
+      profile: "default",
+      medium: "discord",
+    }));
+    sidecar.close();
+    attentionDb.close();
+  });
+
+  it("bypasses Expression for silent or non-draft speech", async () => {
+    const sidecar = openTestSidecar();
+    const attentionDb = openTestSidecar();
+    const completeChat = vi.fn(async () => ({
+      text: JSON.stringify(makeSemanticSettlement({ speech: { mode: "none" } })),
+      model: "fake",
+      modelAlias: "fake",
+      resolvedModelId: null,
+    }));
+    const adaptExpression: NonNullable<KernelDeps["adaptExpression"]> = vi.fn(
+      async (input) => input.draft,
+    );
+    const result = await runCognitiveCycle(
+      sidecar,
+      attentionDb,
+      eventFixture(sidecar),
+      baseDeps({ attentionDb, completeChat, adaptExpression, expressionEnabled: true }),
+    );
+    expect(result).toMatchObject({ published: true, acceptedSettlements: 1 });
+    expect(adaptExpression).not.toHaveBeenCalled();
+    expect(sidecar.prepare("SELECT COUNT(*) AS count FROM speech_outbox").get()).toMatchObject({ count: 0 });
+    sidecar.close();
+    attentionDb.close();
+  });
+
+  it("restores Thought speech when Expression adaptation fails", async () => {
+    const sidecar = openTestSidecar();
+    const attentionDb = openTestSidecar();
+    const completeChat = vi.fn(async () => ({
+      text: JSON.stringify(validThought("hello")),
+      model: "fake",
+      modelAlias: "fake",
+      resolvedModelId: null,
+    }));
+    const adaptExpression: NonNullable<KernelDeps["adaptExpression"]> = vi.fn(
+      async () => { throw new Error("expression_down"); },
+    );
+    const result = await runCognitiveCycle(
+      sidecar,
+      attentionDb,
+      eventFixture(sidecar),
+      baseDeps({ attentionDb, completeChat, adaptExpression, expressionEnabled: true }),
+    );
+    expect(result).toMatchObject({ published: true, acceptedSettlements: 1 });
+    expect(adaptExpression).toHaveBeenCalledTimes(1);
+    expect(sidecar.prepare("SELECT licensed_text FROM speech_outbox").get()).toMatchObject({ licensed_text: "hello" });
+    expect(sidecar.prepare("SELECT json_extract(payload_json, '$.speech.finalLicensedText') AS text FROM settlements").get()).toMatchObject({ text: "hello" });
+    sidecar.close();
+    attentionDb.close();
+  });
+
   it("uses a persisted system notice for unavailable Thought", async () => {
     const sidecar = openTestSidecar();
     const attentionDb = openTestSidecar();

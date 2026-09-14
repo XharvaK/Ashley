@@ -372,10 +372,16 @@ export type WireDispatchEvidence = Readonly<{
 
 /**
  * Trusted Model Fabric translation only. Callers must not populate this with
- * raw provider extras; the NIM adapter applies it as already-resolved wire.
+ * raw provider extras; the provider adapter applies it as already-resolved
+ * wire.
  */
 export type TrustedReasoningControl =
   | { kind: "reasoning_effort"; value: "none" | "low" | "medium" | "high" }
+  | {
+      kind: "groq_reasoning_effort";
+      value: "default" | "medium";
+      reasoningFormat: "hidden";
+    }
   | {
       kind: "chat_template_thinking";
       enableThinking: boolean;

@@ -132,7 +132,7 @@ export type ModelReasoningCapabilities =
   | { mode: "fixed" }
   | {
       mode: "configurable";
-      efforts: readonly ("none" | "low" | "medium" | "high")[];
+      efforts: readonly ("none" | "low" | "medium" | "high" | "default")[];
     };
 
 export type ModelCapabilityProfileDefinition = {
@@ -181,6 +181,11 @@ export type ReasoningPolicy =
 
 export type TranslatedWireControl =
   | { kind: "reasoning_effort"; value: "none" | "low" | "medium" | "high" }
+  | {
+      kind: "groq_reasoning_effort";
+      value: "default" | "medium";
+      reasoningFormat: "hidden";
+    }
   | {
       kind: "chat_template_thinking";
       enableThinking: boolean;

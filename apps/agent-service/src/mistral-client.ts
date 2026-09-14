@@ -339,7 +339,7 @@ function fallbackTopologyFor(
   routeId: RouteId,
 ): string {
   if (purpose === "expression" || routeId.startsWith("ashley_expression")) {
-    return "expression_mistral_to_qwen_caller_fallback";
+    return "expression_qwen_3_8_to_lightning_caller_fallback";
   }
   if (purpose === "thought" || routeId === "thought") {
     return "thought_single_attempt";
@@ -614,7 +614,8 @@ export async function completeChat(
         requestedWireReasoning = occupantWire;
         fingerprintTranslated = translatedWireControl ?? undefined;
         fingerprintReasoning =
-          translated.control.kind === "reasoning_effort"
+          translated.control.kind === "reasoning_effort" ||
+          translated.control.kind === "groq_reasoning_effort"
             ? translated.control.value
             : null;
       } else if (translated.status === "unsupported") {

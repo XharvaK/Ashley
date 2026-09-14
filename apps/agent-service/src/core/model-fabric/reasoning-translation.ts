@@ -35,6 +35,11 @@ type FamilyMatch = {
 type FamilyPolicyEntry =
   | { kind: "reasoning_effort"; value: "none" | "low" | "medium" | "high" }
   | {
+      kind: "groq_reasoning_effort";
+      value: "default" | "medium";
+      reasoningFormat: "hidden";
+    }
+  | {
       kind: "chat_template_thinking";
       enableThinking: boolean;
       reasoningBudgetTokens?: number;
@@ -87,6 +92,19 @@ function parsePolicyEntry(
       throw new Error(`invalid_reasoning_maps:${familyId}:${policy}:effort`);
     }
     return { kind: "reasoning_effort", value: entry.value };
+  }
+  if (entry.kind === "groq_reasoning_effort") {
+    if (
+      (entry.value !== "default" && entry.value !== "medium") ||
+      entry.reasoningFormat !== "hidden"
+    ) {
+      throw new Error(`invalid_reasoning_maps:${familyId}:${policy}:groq`);
+    }
+    return {
+      kind: "groq_reasoning_effort",
+      value: entry.value,
+      reasoningFormat: "hidden",
+    };
   }
   if (entry.kind === "chat_template_thinking") {
     if (typeof entry.enableThinking !== "boolean") {
@@ -270,6 +288,17 @@ export function translateReasoningPolicy(input: {
       control: { kind: "reasoning_effort", value: entry.value },
     };
   }
+  if (entry.kind === "groq_reasoning_effort") {
+    return {
+      status: "translated",
+      familyId: family.familyId,
+      control: {
+        kind: "groq_reasoning_effort",
+        value: entry.value,
+        reasoningFormat: entry.reasoningFormat,
+      },
+    };
+  }
   return {
     status: "translated",
     familyId: family.familyId,
@@ -290,6 +319,9 @@ export function formatTranslatedWireControl(
   if (control.kind === "reasoning_effort") {
     return `reasoning_effort=${control.value}`;
   }
+  if (control.kind === "groq_reasoning_effort") {
+    return `reasoning_effort=${control.value};reasoning_format=${control.reasoningFormat}`;
+  }
   return [
     `chat_template_kwargs.enable_thinking=${control.enableThinking ? "true" : "false"}`,
     ...(control.reasoningBudgetTokens !== undefined
@@ -303,6 +335,13 @@ export function toTrustedReasoningControl(
 ): TrustedReasoningControl {
   if (control.kind === "reasoning_effort") {
     return { kind: "reasoning_effort", value: control.value };
+  }
+  if (control.kind === "groq_reasoning_effort") {
+    return {
+      kind: "groq_reasoning_effort",
+      value: control.value,
+      reasoningFormat: control.reasoningFormat,
+    };
   }
   return {
     kind: "chat_template_thinking",
@@ -383,6 +422,9 @@ export function applyTranslatedControlToNimBody(
       body.reasoning_budget = control.reasoningBudgetTokens;
     }
     return;
+  }
+  if (control.kind === "groq_reasoning_effort") {
+    throw new Error("nim_reasoning_control_mismatch");
   }
   if (configuredModelId === ULTRA_ID && control.value === "low") {
     throw new Error("ultra_rejects_reasoning_effort_low");

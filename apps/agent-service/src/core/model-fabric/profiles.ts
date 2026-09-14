@@ -29,6 +29,7 @@ const MODEL_OUTPUT_CEILINGS: Readonly<Record<string, number>> = {
   "nim:nvidia/nemotron-3-super-120b-a12b": 8192,
   "nim:nvidia/nemotron-3.5-lightning-30b-a3b": 4096,
   "groq:qwen/qwen3.6-27b": 4096,
+  "groq:qwen/qwen3.8-27b": 4096,
   "cloudflare:@cf/nvidia/nemotron-3-120b-a12b": 8192,
   "cloudflare:@cf/deepseek-ai/deepseek-v4-flash-0731": 16384,
 };
@@ -38,6 +39,8 @@ const MODEL_CONTEXT_LIMITS: Readonly<Record<string, number>> = {
 };
 
 const MISTRAL_SMALL = "mistral-small-2603";
+const GROQ_QWEN_3_6 = "qwen/qwen3.6-27b";
+const GROQ_QWEN_3_8 = "qwen/qwen3.8-27b";
 
 function maxOutputTokensFor(provider: string, configuredModelId: string): number {
   return MODEL_OUTPUT_CEILINGS[`${provider}:${configuredModelId}`] ?? 2048;
@@ -90,7 +93,11 @@ function mechanicalDefinition(
       efforts:
         provider === "mistral" && configuredModelId === MISTRAL_SMALL
           ? ["none", "high"]
-          : ["low", "medium", "high"],
+          : provider === "groq" && configuredModelId === GROQ_QWEN_3_6
+            ? ["none", "default"]
+            : provider === "groq" && configuredModelId === GROQ_QWEN_3_8
+              ? ["none", "medium"]
+              : ["low", "medium", "high"],
     },
     cancellation: "abort_signal",
     limits: {

@@ -310,7 +310,7 @@ describe("MF-ACT dispatch authority", () => {
     expect(expression.source).toBe("current_compatibility");
     expect(expression.policyRow.policyRowId).toBe("mfr_expression_compat_v1");
     expect(expression.occupant.configuredModelId).toBe(
-      "nvidia/nemotron-3.5-lightning-30b-a3b",
+      "qwen/qwen3.8-27b",
     );
   });
 
@@ -398,11 +398,11 @@ describe("MF-ACT dispatch authority", () => {
     database.close();
   });
 
-  it("G: no activation keeps CURRENT Cloudflare Thought and Expression fallback pins", async () => {
+  it("G: no activation keeps CURRENT Cloudflare Thought and Groq Qwen 3.8 Expression pins", async () => {
     const root = controlRoot();
     env.cloudflareApiToken = "test-cloudflare-token";
     env.cloudflareAccountId = "test-account";
-    env.nimApiKey = "test";
+    env.groqApiKey = "test";
     const cloudflareDispatch = vi.fn(async (args: {
       modelId: string;
       fabricReasoning?: unknown;
@@ -421,11 +421,11 @@ describe("MF-ACT dispatch authority", () => {
       }
       throw new Error(`unexpected Cloudflare model ${args.modelId}`);
     });
-    const nimDispatch = vi.fn(async (args: { modelId: string }) => {
-      expect(args.modelId).toBe("nvidia/nemotron-3.5-lightning-30b-a3b");
+    const groqDispatch = vi.fn(async (args: { modelId: string }) => {
+      expect(args.modelId).toBe("qwen/qwen3.8-27b");
       return {
         text: "hi",
-        providerModel: "nvidia/nemotron-3.5-lightning-30b-a3b",
+        providerModel: "qwen/qwen3.8-27b",
         usage: { promptTokens: 1, completionTokens: 1 },
         finishReason: "stop",
       };
@@ -434,9 +434,9 @@ describe("MF-ACT dispatch authority", () => {
       provider: "cloudflare",
       dispatch: cloudflareDispatch,
     });
-    vi.spyOn(nimAdapterModule, "createNimAdapter").mockReturnValue({
-      provider: "nim",
-      dispatch: nimDispatch,
+    vi.spyOn(groqAdapterModule, "createGroqAdapter").mockReturnValue({
+      provider: "groq",
+      dispatch: groqDispatch,
     });
     const thoughtDb = db();
     const thought = await withOfflineAppGateDisabled(() => completeChat([{ role: "user", content: "think" }], {
@@ -465,13 +465,11 @@ describe("MF-ACT dispatch authority", () => {
       modelFabricControlDir: root,
       modelFabricControlRootMode: "fixture",
     }));
-    expect(expression.modelAlias).toBe(
-      "nvidia/nemotron-3.5-lightning-30b-a3b",
-    );
+    expect(expression.modelAlias).toBe("qwen/qwen3.8-27b");
     expect(expression.modelFabric?.resolvedRoute).toMatchObject({
       policyRowId: "mfr_expression_compat_v1",
-      occupantId: "mfo_nim_nemotron_3_5_lightning",
-      provider: "nim",
+      occupantId: "mfo_groq_qwen_3_8_27b_medium",
+      provider: "groq",
     });
     expressionDb.close();
   });

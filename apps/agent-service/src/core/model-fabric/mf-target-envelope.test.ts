@@ -45,17 +45,21 @@ describe("TARGET portfolio + token envelope reconciliation", () => {
     expect(thought.maxOutputTokens).toBe(16384);
     expect(durable.maxOutputTokens).toBe(16384);
     expect(expression.occupants[0]).toMatchObject({
-      provider: "nim",
-      configuredModelId: "nvidia/nemotron-3.5-lightning-30b-a3b",
+      provider: "groq",
+      configuredModelId: "qwen/qwen3.8-27b",
       reasoningPolicy: "standard",
-      effectiveReasoning: "standard",
+      effectiveReasoning: "medium",
     });
     expect(expression.occupants[1]).toMatchObject({
-      provider: "groq",
-      configuredModelId: "qwen/qwen3.6-27b",
+      occupantId: "mfo_nim_nemotron_3_5_lightning",
+      provider: "nim",
+      configuredModelId: "nvidia/nemotron-3.5-lightning-30b-a3b",
       invocationMode: "caller_owned_chain",
-      reasoningPolicy: "disabled",
-      effectiveReasoning: "none",
+      reasoningPolicy: "standard",
+      effectiveReasoning: "standard",
+      admissionBasis: {
+        compatibilityBindingId: "compat_expression_nim_lightning_v2",
+      },
     });
     expect(expression.deadlineMs).toBe(20000);
     expect(expression.maxOutputTokens).toBe(4096);
@@ -65,12 +69,20 @@ describe("TARGET portfolio + token envelope reconciliation", () => {
       "nim",
       "nvidia/nemotron-3.5-lightning-30b-a3b",
     ).limits.maxOutputTokens).toBe(4096);
-    expect(capabilityProfileFor("groq", "qwen/qwen3.6-27b").limits.maxOutputTokens).toBe(4096);
+    expect(capabilityProfileFor("groq", "qwen/qwen3.8-27b").limits.maxOutputTokens).toBe(4096);
+    expect(capabilityProfileFor("groq", "qwen/qwen3.8-27b").reasoning).toMatchObject({
+      mode: "configurable",
+      efforts: ["none", "medium"],
+    });
     expect(current.routeBindings.thought).toMatchObject({
       provider: "cloudflare",
       configuredModelId: "@cf/deepseek-ai/deepseek-v4-flash-0731",
     });
     expect(current.routeBindings.ashley_expression).toMatchObject({
+      provider: "groq",
+      configuredModelId: "qwen/qwen3.8-27b",
+    });
+    expect(current.routeBindings.ashley_expression_fallback).toMatchObject({
       provider: "nim",
       configuredModelId: "nvidia/nemotron-3.5-lightning-30b-a3b",
     });
@@ -90,6 +102,7 @@ describe("TARGET portfolio + token envelope reconciliation", () => {
   });
 
   it("keeps utility and engineering Lightning occupants reasoning-disabled", () => {
+    expect(current.routeBindings.utility_bulk.enabled).toBe(true);
     for (const policyRowId of [
       "mfr_exchange_cognition_compat_v1",
       "mfr_curiosity_consolidation_compat_v1",

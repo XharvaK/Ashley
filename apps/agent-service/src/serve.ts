@@ -34,6 +34,7 @@ import {
 import { DatabaseSync } from "node:sqlite";
 import { reconcileAuthorityBarrierOnStartup } from "./core/cognitive-v021/authority/barrier.js";
 import { reconsiderPendingSpeechOutbox } from "./core/cognitive-v021/sidecar/recovery.js";
+import { createLiveExpressionBinding } from "./core/cognitive-v021/speech/live-expression.js";
 
 export function createAgentInboxConsumerHandler(
   manager: Pick<AgentManager, "dispatchCognitiveEvent">,
@@ -96,6 +97,10 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
       nowMs: () => Date.now(),
       attentionDb: nuclear,
       completeChat,
+      ...createLiveExpressionBinding({
+        attentionDb: nuclear,
+        completeChat,
+      }),
       runPerception: async (input): Promise<Observation[]> => runPerceptionBeforeThought({
         ...input,
         runPerception: async () => [],
@@ -108,7 +113,6 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
       authorityDb: nuclear,
       receiptLimit: 256,
     }),
-      expressionEnabled: false,
       projectOutbox: (outboxId) => projector.project(outboxId),
       projectSystemNotice: (noticeId) => projector.projectSystem(noticeId),
       constitution: readIdentitySlice(nuclear, ownerId),

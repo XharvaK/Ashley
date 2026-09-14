@@ -16,15 +16,15 @@ import { AppError } from "../../errors.js";
 export const ROUTE_BINDINGS: readonly RouteBinding[] = [
   {
     route: "ashley_expression",
-    provider: "nim",
-    configuredModelId: "nvidia/nemotron-3.5-lightning-30b-a3b",
+    provider: "groq",
+    configuredModelId: "qwen/qwen3.8-27b",
     contextProfile: "full_expression",
     enabled: true,
   },
   {
     route: "ashley_expression_fallback",
-    provider: "groq",
-    configuredModelId: "qwen/qwen3.6-27b",
+    provider: "nim",
+    configuredModelId: "nvidia/nemotron-3.5-lightning-30b-a3b",
     contextProfile: "minimal_expression_identity",
     enabled: true,
   },

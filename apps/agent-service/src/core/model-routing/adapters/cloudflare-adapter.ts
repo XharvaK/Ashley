@@ -424,6 +424,13 @@ function buildRequestBody(
       400,
     );
   }
+  if (reasoning && reasoning.kind !== "reasoning_effort") {
+    throw new AppError(
+      "capability_mismatch",
+      "Cloudflare reasoning control is not supported for this model",
+      400,
+    );
+  }
   if (reasoning?.kind === "reasoning_effort") {
     body.reasoning_effort = reasoning.value;
     if (model === CLOUDFLARE_MODEL && reasoning.value === "high") {

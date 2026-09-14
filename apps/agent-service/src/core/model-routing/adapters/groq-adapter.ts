@@ -11,6 +11,7 @@ import type {
 } from "../types.js";
 import type { TrustedStructuredOutputControl } from "../../model-fabric/types.js";
 import { wireEvidenceFor } from "../../model-fabric/wire-evidence.js";
+import type { TrustedReasoningControl } from "../types.js";
 
 type GroqErrorResponse = {
   error?: { type?: string; message?: string };
@@ -42,6 +43,9 @@ type GroqResponse = {
   usage?: GroqUsage;
   model?: string;
 };
+
+const QWEN_3_6_MODEL = "qwen/qwen3.6-27b";
+const QWEN_3_8_MODEL = "qwen/qwen3.8-27b";
 
 function toTokenUsage(raw: unknown): TokenUsage | undefined {
   if (!raw || typeof raw !== "object") return undefined;
@@ -76,6 +80,7 @@ function buildRequestBody(
   options: CompletionOptions,
   model: string,
   fabricStructuredOutput?: TrustedStructuredOutputControl,
+  fabricReasoning?: TrustedReasoningControl,
 ): Record<string, unknown> {
   const body: Record<string, unknown> = {
     model,
@@ -100,10 +105,53 @@ function buildRequestBody(
   if (options.presencePenalty !== undefined) {
     body.presence_penalty = options.presencePenalty;
   }
-  if (options.reasoningEffort !== undefined) {
-    const effort = groqReasoningEffortForModel(model, options.reasoningEffort);
-    if (effort !== undefined) {
+  if (fabricReasoning) {
+    if (fabricReasoning.kind === "groq_reasoning_effort") {
+      const expectedEffort =
+        model === QWEN_3_6_MODEL
+          ? "default"
+          : model === QWEN_3_8_MODEL
+            ? "medium"
+            : undefined;
+      if (
+        expectedEffort === undefined ||
+        fabricReasoning.value !== expectedEffort ||
+        fabricReasoning.reasoningFormat !== "hidden"
+      ) {
+        throw Object.assign(new Error("groq_reasoning_control_mismatch"), {
+          code: "groq_reasoning_control_mismatch",
+        });
+      }
+      body.reasoning_effort = expectedEffort;
+      body.reasoning_format = "hidden";
+    } else if (fabricReasoning.kind === "reasoning_effort") {
+      if (model === QWEN_3_8_MODEL && fabricReasoning.value !== "none") {
+        throw Object.assign(new Error("groq_reasoning_control_mismatch"), {
+          code: "groq_reasoning_control_mismatch",
+        });
+      }
+      const effort = groqReasoningEffortForModel(model, fabricReasoning.value);
+      if (effort === undefined) {
+        throw Object.assign(new Error("groq_reasoning_effort_unsupported"), {
+          code: "groq_reasoning_effort_unsupported",
+        });
+      }
       body.reasoning_effort = effort;
+    } else {
+      throw Object.assign(new Error("groq_reasoning_control_mismatch"), {
+        code: "groq_reasoning_control_mismatch",
+      });
+    }
+  } else if (options.reasoningEffort !== undefined) {
+    const effort = groqReasoningEffortForModel(model, options.reasoningEffort);
+    if (effort === undefined) {
+      throw Object.assign(new Error("groq_reasoning_effort_unsupported"), {
+        code: "groq_reasoning_effort_unsupported",
+      });
+    }
+    body.reasoning_effort = effort;
+    if (model === QWEN_3_8_MODEL && effort === "medium") {
+      body.reasoning_format = "hidden";
     }
   }
   if (fabricStructuredOutput) {
@@ -155,13 +203,21 @@ function statusCode(err: unknown): number | undefined {
 }
 
 /**
- * gpt-oss accepts only low|medium|high. `none`/`default` are Qwen-only and
- * Groq returns HTTP 400 for openai/gpt-oss-120b (`98ec359` live smoke).
+ * gpt-oss accepts only low|medium|high. Qwen 3.6 accepts only none/default,
+ * while Qwen 3.8 accepts only none/medium. The caller-facing
+ * CompletionOptions type intentionally does not admit the Qwen 3.6-only
+ * default value.
  */
 export function groqReasoningEffortForModel(
   modelId: string,
   requested: NonNullable<CompletionOptions["reasoningEffort"]>,
-): "none" | "low" | "medium" | "high" {
+): "none" | "low" | "medium" | "high" | undefined {
+  if (modelId === QWEN_3_6_MODEL) {
+    return requested === "none" ? "none" : undefined;
+  }
+  if (modelId === QWEN_3_8_MODEL) {
+    return requested === "none" || requested === "medium" ? requested : undefined;
+  }
   if (modelId.startsWith("openai/gpt-oss")) {
     if (requested === "none") return "low";
     return requested;
@@ -206,19 +262,24 @@ export function mapGroqError(err: unknown): AppError {
   return new AppError("internal_error", "Groq request failed", 500);
 }
 
-function extractText(content: unknown): string {
-  if (typeof content === "string") return content;
-  if (Array.isArray(content)) {
-    return content
+function stripHiddenReasoning(text: string): string {
+  return text.replace(/<think\b[^>]*>[\s\S]*?(?:<\/think>|$)/gi, "");
+}
+
+function extractText(content: unknown, hiddenReasoning = false): string {
+  const text = typeof content === "string"
+    ? content
+    : Array.isArray(content)
+      ? content
       .filter(
         (c): c is { type?: string; text?: string } =>
           typeof c === "object" && c !== null,
       )
       .filter((c) => c.type === "text" || !c.type)
       .map((c) => (typeof c.text === "string" ? c.text : ""))
-      .join("");
-  }
-  return "";
+      .join("")
+      : "";
+  return hiddenReasoning ? stripHiddenReasoning(text) : text;
 }
 
 function parseToolCalls(
@@ -271,6 +332,7 @@ export function createGroqAdapter(
         args.options,
         args.modelId,
         args.fabricStructuredOutput,
+        args.fabricReasoning,
       );
       const wireEvidence = wireEvidenceFor({
         adapterId: "ashley.adapter.groq.v1",
@@ -306,7 +368,13 @@ export function createGroqAdapter(
       const json = (await res.json()) as GroqResponse;
       const choice = json.choices?.[0];
       const msg = choice?.message;
-      const text = msg?.content ? extractText(msg.content) : "";
+      const text = msg?.content
+        ? extractText(
+            msg.content,
+            args.fabricReasoning?.kind === "groq_reasoning_effort" &&
+              args.fabricReasoning.reasoningFormat === "hidden",
+          )
+        : "";
       const completion: ProviderCompletion = {
         text,
         toolCalls: parseToolCalls(msg),

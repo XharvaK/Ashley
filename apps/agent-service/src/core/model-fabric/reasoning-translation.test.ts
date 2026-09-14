@@ -19,6 +19,8 @@ const CLOUDFLARE_SUPER = "@cf/nvidia/nemotron-3-120b-a12b";
 const LIGHTNING = "nvidia/nemotron-3.5-lightning-30b-a3b";
 const GPT_OSS = "openai/gpt-oss-20b";
 const MISTRAL_SMALL = "mistral-small-2603";
+const QWEN_3_6 = "qwen/qwen3.6-27b";
+const QWEN_3_8 = "qwen/qwen3.8-27b";
 
 describe("Nemotron reasoning maps", () => {
   it("loads v2 maps as runtime configuration", () => {
@@ -30,6 +32,8 @@ describe("Nemotron reasoning maps", () => {
       "nim_nemotron_ultra",
       "cloudflare_nemotron_super",
       "cloudflare_deepseek_v4_flash",
+      "groq_qwen_3_6",
+      "groq_qwen_3_8",
       "mistral_small",
     ].sort());
   });
@@ -251,6 +255,102 @@ describe("Lightning translation", () => {
   );
 });
 
+describe("Groq Qwen 3.6 translation", () => {
+  it("maps standard to provider default reasoning with hidden output", () => {
+    const translated = translateReasoningPolicy({
+      provider: "groq",
+      configuredModelId: QWEN_3_6,
+      semanticPolicy: "standard",
+    });
+    expect(translated).toEqual({
+      status: "translated",
+      familyId: "groq_qwen_3_6",
+      control: {
+        kind: "groq_reasoning_effort",
+        value: "default",
+        reasoningFormat: "hidden",
+      },
+    });
+    expect(
+      translated.status === "translated"
+        ? formatTranslatedWireControl(translated.control)
+        : null,
+    ).toBe("reasoning_effort=default;reasoning_format=hidden");
+  });
+
+  it("keeps disabled and economical at none and rejects unsupported higher policies", () => {
+    for (const semanticPolicy of ["disabled", "economical"] as const) {
+      expect(translateReasoningPolicy({
+        provider: "groq",
+        configuredModelId: QWEN_3_6,
+        semanticPolicy,
+      })).toEqual({
+        status: "translated",
+        familyId: "groq_qwen_3_6",
+        control: { kind: "reasoning_effort", value: "none" },
+      });
+    }
+    for (const semanticPolicy of ["high", "max_supported"] as const) {
+      expect(translateReasoningPolicy({
+        provider: "groq",
+        configuredModelId: QWEN_3_6,
+        semanticPolicy,
+      })).toEqual({
+        status: "unsupported",
+        code: "unsupported_reasoning_mapping",
+      });
+    }
+  });
+});
+
+describe("Groq Qwen 3.8 translation", () => {
+  it("maps standard to medium reasoning with hidden output", () => {
+    const translated = translateReasoningPolicy({
+      provider: "groq",
+      configuredModelId: QWEN_3_8,
+      semanticPolicy: "standard",
+    });
+    expect(translated).toEqual({
+      status: "translated",
+      familyId: "groq_qwen_3_8",
+      control: {
+        kind: "groq_reasoning_effort",
+        value: "medium",
+        reasoningFormat: "hidden",
+      },
+    });
+    expect(
+      translated.status === "translated"
+        ? formatTranslatedWireControl(translated.control)
+        : null,
+    ).toBe("reasoning_effort=medium;reasoning_format=hidden");
+  });
+
+  it("keeps disabled and economical at none and rejects unsupported higher policies", () => {
+    for (const semanticPolicy of ["disabled", "economical"] as const) {
+      expect(translateReasoningPolicy({
+        provider: "groq",
+        configuredModelId: QWEN_3_8,
+        semanticPolicy,
+      })).toEqual({
+        status: "translated",
+        familyId: "groq_qwen_3_8",
+        control: { kind: "reasoning_effort", value: "none" },
+      });
+    }
+    for (const semanticPolicy of ["high", "max_supported"] as const) {
+      expect(translateReasoningPolicy({
+        provider: "groq",
+        configuredModelId: QWEN_3_8,
+        semanticPolicy,
+      })).toEqual({
+        status: "unsupported",
+        code: "unsupported_reasoning_mapping",
+      });
+    }
+  });
+});
+
 describe("fail-closed provider capability", () => {
   it("rejects unknown Nemotron families instead of guessing", () => {
     expect(
@@ -279,13 +379,6 @@ describe("fail-closed provider capability", () => {
         provider: "nim",
         configuredModelId: GPT_OSS,
         semanticPolicy: "economical",
-      }),
-    ).toEqual({ status: "unmapped_family" });
-    expect(
-      translateReasoningPolicy({
-        provider: "groq",
-        configuredModelId: "qwen/qwen3.6-27b",
-        semanticPolicy: "standard",
       }),
     ).toEqual({ status: "unmapped_family" });
     expect(
@@ -386,6 +479,32 @@ describe("inference fingerprint materiality", () => {
       maxTokens: 4096,
     });
     expect(materiallyDifferent).not.toBe(bounded);
+  });
+
+  it("changes when Qwen provider reasoning or hidden-output mode changes", () => {
+    const enabled = createInferencePolicyFingerprint({
+      provider: "groq",
+      configuredModelId: QWEN_3_8,
+      reasoningEffort: "medium",
+      translatedWireControl: "reasoning_effort=medium;reasoning_format=hidden",
+      maxTokens: 4096,
+    });
+    const disabled = createInferencePolicyFingerprint({
+      provider: "groq",
+      configuredModelId: QWEN_3_8,
+      reasoningEffort: "none",
+      translatedWireControl: "reasoning_effort=none",
+      maxTokens: 4096,
+    });
+    const visible = createInferencePolicyFingerprint({
+      provider: "groq",
+      configuredModelId: QWEN_3_8,
+      reasoningEffort: "medium",
+      translatedWireControl: "reasoning_effort=medium;reasoning_format=visible",
+      maxTokens: 4096,
+    });
+    expect(enabled).not.toBe(disabled);
+    expect(enabled).not.toBe(visible);
   });
 });
 

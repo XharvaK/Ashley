@@ -15,6 +15,7 @@ import {
 import { routeBinding } from "./registry.js";
 
 const LIGHTNING = "nvidia/nemotron-3.5-lightning-30b-a3b";
+const QWEN_3_8 = "qwen/qwen3.8-27b";
 const ULTRA = "nvidia/nemotron-3-ultra-550b-a55b";
 const THOUGHT_MODEL = "@cf/deepseek-ai/deepseek-v4-flash-0731";
 const MISTRAL_SMALL = "mistral-small-2603";
@@ -39,11 +40,11 @@ describe("Phase 5 successor routing topology", () => {
     ).toBe(true);
   });
 
-  it("routes Expression and every direct utility purpose to NIM Lightning", () => {
+  it("routes Expression to Groq Qwen 3.8 and every direct utility purpose to NIM Lightning", () => {
     expect(resolveRoute("expression")).toMatchObject({
       route: "ashley_expression",
-      provider: "nim",
-      configuredModelId: LIGHTNING,
+      provider: "groq",
+      configuredModelId: QWEN_3_8,
     });
 
     for (const purpose of [
@@ -112,20 +113,25 @@ describe("Phase 5 successor routing topology", () => {
     }
   });
 
-  it("keeps Expression fallback metadata on Groq Qwen without a stale Mistral occupant", () => {
+  it("keeps the Expression chain metadata without a stale Mistral occupant", () => {
     const expression = currentPortfolio().rows.find(
       (row) => row.logicalRole === "expression",
     );
     expect(expression?.occupants).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          provider: "nim",
-          configuredModelId: LIGHTNING,
+          provider: "groq",
+          configuredModelId: QWEN_3_8,
+          reasoningPolicy: "standard",
+          effectiveReasoning: "medium",
         }),
         expect.objectContaining({
-          provider: "groq",
-          configuredModelId: "qwen/qwen3.6-27b",
+          provider: "nim",
+          configuredModelId: LIGHTNING,
           invocationMode: "caller_owned_chain",
+          fallbackClassFromPrevious: "model_substitution",
+          reasoningPolicy: "standard",
+          effectiveReasoning: "standard",
         }),
       ]),
     );
@@ -195,16 +201,13 @@ describe("Phase 5 successor routing topology", () => {
       (record) => record.route,
     )).toEqual(
       expect.arrayContaining([
-        "ashley_expression",
+        "ashley_expression_fallback",
         "utility_bulk",
         "sandbox_operator_light",
       ]),
     );
-    expect(routeBinding("ashley_expression").provider).toBe(
-      routeBinding("utility_bulk").provider,
-    );
-    expect(routeBinding("sandbox_operator_light").provider).toBe(
-      routeBinding("ashley_expression").provider,
-    );
+    expect(routeBinding("ashley_expression").provider).toBe("groq");
+    expect(routeBinding("utility_bulk").provider).toBe("nim");
+    expect(routeBinding("sandbox_operator_light").provider).toBe("nim");
   });
 });

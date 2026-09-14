@@ -2,6 +2,36 @@
   "schema": "ashley.model_fabric.reasoning_maps.v2",
   "families": [
     {
+      "familyId": "groq_qwen_3_6",
+      "match": {
+        "provider": "groq",
+        "configuredModelId": "qwen/qwen3.6-27b"
+      },
+      "staleAliases": {},
+      "policies": {
+        "disabled": { "kind": "reasoning_effort", "value": "none" },
+        "economical": { "kind": "reasoning_effort", "value": "none" },
+        "standard": { "kind": "groq_reasoning_effort", "value": "default", "reasoningFormat": "hidden" },
+        "high": { "kind": "unsupported", "code": "unsupported_reasoning_mapping" },
+        "max_supported": { "kind": "unsupported", "code": "unsupported_reasoning_mapping" }
+      }
+    },
+    {
+      "familyId": "groq_qwen_3_8",
+      "match": {
+        "provider": "groq",
+        "configuredModelId": "qwen/qwen3.8-27b"
+      },
+      "staleAliases": {},
+      "policies": {
+        "disabled": { "kind": "reasoning_effort", "value": "none" },
+        "economical": { "kind": "reasoning_effort", "value": "none" },
+        "standard": { "kind": "groq_reasoning_effort", "value": "medium", "reasoningFormat": "hidden" },
+        "high": { "kind": "unsupported", "code": "unsupported_reasoning_mapping" },
+        "max_supported": { "kind": "unsupported", "code": "unsupported_reasoning_mapping" }
+      }
+    },
+    {
       "familyId": "mistral_small",
       "match": {
         "provider": "mistral",

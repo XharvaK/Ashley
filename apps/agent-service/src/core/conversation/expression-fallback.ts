@@ -77,7 +77,7 @@ export function isEligibleMistralFailure(err: unknown): boolean {
 }
 
 /**
- * Computes the Expression fallback policy BEFORE primary Mistral dispatch.
+ * Computes the Expression fallback policy BEFORE primary Expression dispatch.
  * Returns `mistral_only` when the turn relies on material the minimal
  * (fallback) profile deliberately excludes, else `minimal_identity_allowed`.
  */
@@ -177,7 +177,7 @@ export function minimalExpressionContext(
 
 /**
  * Options for the visible fallback dispatch (one hop maximum).
- * - Route: ashley_expression_fallback (Groq qwen/qwen3.6-27b)
+ * - Route: ashley_expression_fallback (NIM Nemotron 3.5 Lightning)
  * - No tools, no sandbox authority, no perception parts.
  */
 export function fallbackCompletionOptions(input: {
@@ -195,11 +195,10 @@ export function fallbackCompletionOptions(input: {
   contextProjection?: ContextProjection;
 }): CognitiveDispatchOptions {
   return {
-    model: "qwen/qwen3.6-27b",
+    model: "nvidia/nemotron-3.5-lightning-30b-a3b",
     route: "ashley_expression_fallback",
     maxTokens: EXPRESSION_MAX_OUTPUT_TOKENS,
     temperature: 0.7,
-    reasoningEffort: "none",
     lane: input.lane,
     purpose: "expression",
     logicalRole: "expression",

@@ -9,6 +9,7 @@ import {
   resetAdapterCache,
 } from "../../mistral-client.js";
 import * as mistralAdapterModule from "../model-routing/adapters/mistral-adapter.js";
+import * as groqAdapterModule from "../model-routing/adapters/groq-adapter.js";
 import * as nimAdapterModule from "../model-routing/adapters/nim-adapter.js";
 import * as cloudflareAdapterModule from "../model-routing/adapters/cloudflare-adapter.js";
 import { attachProviderHttpStatusBoundary } from "../model-routing/types.js";
@@ -174,16 +175,16 @@ describe("MF-M1 pure contract seam", () => {
 });
 
 describe("MF-M1 completeChat receipts", () => {
-  it("records the live Expression route as an existing-compatibility NIM invocation", async () => {
-    env.nimApiKey = "test";
+  it("records the live Expression route as an existing-compatibility Groq invocation", async () => {
+    env.groqApiKey = "test";
     const dispatch = vi.fn(async () => ({
       text: "hello",
-      providerModel: "nvidia/nemotron-3.5-lightning-30b-a3b",
+      providerModel: "qwen/qwen3.8-27b",
       usage: { promptTokens: 3, completionTokens: 2 },
       finishReason: "stop",
     }));
-    vi.spyOn(nimAdapterModule, "createNimAdapter").mockReturnValue({
-      provider: "nim",
+    vi.spyOn(groqAdapterModule, "createGroqAdapter").mockReturnValue({
+      provider: "groq",
       dispatch,
     });
     const database = db();
@@ -212,9 +213,12 @@ describe("MF-M1 completeChat receipts", () => {
       receiptStage: "provider_response",
       dispatchTruth: "response_received",
       providerRequestCount: 1,
-      provider: "nim",
-      backend: "nim",
-      configuredModelId: "nvidia/nemotron-3.5-lightning-30b-a3b",
+      provider: "groq",
+      backend: "groq",
+      configuredModelId: "qwen/qwen3.8-27b",
+      requestedReasoningPolicy: "standard",
+      effectiveReasoningSent: "reasoning_effort=medium;reasoning_format=hidden",
+      translatedWireControl: "reasoning_effort=medium;reasoning_format=hidden",
       fallbackClass: "none",
       admissionBasis: { kind: "existing_compatibility" },
     });

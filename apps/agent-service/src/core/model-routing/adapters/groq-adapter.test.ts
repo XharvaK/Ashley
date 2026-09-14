@@ -142,6 +142,93 @@ describe("groq-adapter fixtures", () => {
     expect(capturedBody?.model).toBe("qwen/qwen3.6-27b");
   });
 
+  it("serializes trusted Qwen default reasoning with hidden output and strips inline thinking", async () => {
+    env.groqApiKey = "test";
+    let capturedBody: Record<string, unknown> | undefined;
+    const adapter = createGroqAdapter(async (_url, init) => {
+      capturedBody = JSON.parse(init?.body as string);
+      return fakeResponse({
+        choices: [{ message: { content: "<think>private reasoning</think>final answer" } }],
+        usage: {
+          prompt_tokens: 5,
+          completion_tokens: 8,
+          completion_tokens_details: { reasoning_tokens: 3 },
+        },
+      });
+    });
+    const result = await adapter.dispatch({
+      messages,
+      modelId: "qwen/qwen3.6-27b",
+      options: { maxTokens: 4096 },
+      fabricReasoning: {
+        kind: "groq_reasoning_effort",
+        value: "default",
+        reasoningFormat: "hidden",
+      },
+    });
+    expect(capturedBody).toMatchObject({
+      model: "qwen/qwen3.6-27b",
+      max_tokens: 4096,
+      reasoning_effort: "default",
+      reasoning_format: "hidden",
+    });
+    expect(result.text).toBe("final answer");
+    expect(result.text).not.toContain("private reasoning");
+    expect(JSON.stringify(result)).not.toContain("private reasoning");
+    expect(result.usage?.reasoningTokens).toBe(3);
+  });
+
+  it("serializes trusted Qwen 3.8 medium reasoning with hidden output", async () => {
+    env.groqApiKey = "test";
+    let capturedBody: Record<string, unknown> | undefined;
+    const adapter = createGroqAdapter(async (_url, init) => {
+      capturedBody = JSON.parse(init?.body as string);
+      return fakeResponse({
+        choices: [{ message: { content: "<think>private reasoning</think>final answer" } }],
+        usage: {
+          prompt_tokens: 5,
+          completion_tokens: 8,
+          completion_tokens_details: { reasoning_tokens: 3 },
+        },
+      });
+    });
+    const result = await adapter.dispatch({
+      messages,
+      modelId: "qwen/qwen3.8-27b",
+      options: { maxTokens: 4096 },
+      fabricReasoning: {
+        kind: "groq_reasoning_effort",
+        value: "medium",
+        reasoningFormat: "hidden",
+      },
+    });
+    expect(capturedBody).toMatchObject({
+      model: "qwen/qwen3.8-27b",
+      max_tokens: 4096,
+      reasoning_effort: "medium",
+      reasoning_format: "hidden",
+    });
+    expect(result.text).toBe("final answer");
+    expect(result.text).not.toContain("private reasoning");
+    expect(JSON.stringify(result)).not.toContain("private reasoning");
+    expect(result.usage?.reasoningTokens).toBe(3);
+  });
+
+  it("fails closed instead of sending medium to Qwen 3.6", async () => {
+    env.groqApiKey = "test";
+    let fetchCalled = false;
+    const adapter = createGroqAdapter(async () => {
+      fetchCalled = true;
+      return fakeResponse({ choices: [{ message: { content: "unexpected" } }] });
+    });
+    await expect(adapter.dispatch({
+      messages,
+      modelId: "qwen/qwen3.6-27b",
+      options: { reasoningEffort: "medium" },
+    })).rejects.toMatchObject({ code: "groq_reasoning_effort_unsupported" });
+    expect(fetchCalled).toBe(false);
+  });
+
   it("maps gpt-oss reasoning_effort none to low so Groq does not 400", async () => {
     env.groqApiKey = "test";
     let capturedBody: Record<string, unknown> | undefined;
