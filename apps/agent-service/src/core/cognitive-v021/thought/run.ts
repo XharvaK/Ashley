@@ -153,6 +153,11 @@ import {
   persistOrVerifyObservation,
   resolveObservationBinding,
 } from "../observation/persistence.js";
+import {
+  isAutonomousPublicPresenceOpportunity,
+  readPublicPresenceContext,
+  withPublicPresenceCapability,
+} from "../public-presence.js";
 
 export type ThoughtInvocation = {
   output: ThoughtStepOutput;
@@ -1987,6 +1992,22 @@ export async function runCognitiveCycle(
     });
   const originProfile = resolveOriginProfile(sidecar, event, cycle);
   if (!originProfile) throw new Error("origin_profile_unavailable");
+  const publicPresenceEnabled = isAutonomousPublicPresenceOpportunity({
+    cycleTriggerKind: cycle.triggerKind,
+    wakeSourceKind: wake.sourceKind,
+    eventKind: event.kind,
+    channel: payload.channel,
+    occupantId: cycle.occupantId,
+    configuredOwnerId: payload.ownerId,
+    reconciling: wake.state === "reconciling",
+  });
+  const cycleCapabilityReality = withPublicPresenceCapability(
+    deps.capabilityReality,
+    publicPresenceEnabled,
+  );
+  const publicPresence = publicPresenceEnabled
+    ? readPublicPresenceContext(sidecar, deps.nowMs())
+    : undefined;
   let triggerEvidence = typeof payload.evidenceRowId === "string"
     ? getConversationEvidence(sidecar, payload.evidenceRowId)
     : null;
@@ -2187,7 +2208,8 @@ export async function runCognitiveCycle(
       triggerText: ownerMessage,
       triggerEvidence,
       constitution: deps.constitution,
-      capabilityReality: deps.capabilityReality,
+      capabilityReality: cycleCapabilityReality,
+      ...(publicPresence === undefined ? {} : { publicPresence }),
       observations: observationsForThought,
       inFlight,
       runtimeCondition: { thoughtUnavailable: false },

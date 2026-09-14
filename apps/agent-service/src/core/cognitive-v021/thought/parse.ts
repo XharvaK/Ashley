@@ -68,6 +68,7 @@ const REGISTERED_OPERATION_KINDS = new Set([
   "workspace.write_file",
   "changeset.author",
   "objective.operate",
+  "discord.public_presence",
 ]);
 
 const OK: ValidationResult = { ok: true };

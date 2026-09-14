@@ -31,6 +31,7 @@ export type AllocationSectionId =
   | "orientation_kernel"
   | "domain_pointers"
   | "trigger_evidence"
+  | "public_presence"
   | "recent_raw"
   | "working_context_correction"
   | "working_context_referent"
@@ -101,6 +102,8 @@ export function requirednessContractFor(
       return { owner: "orientation_kernel_adapter", predicate: "canonical_kernel_available", overflow: "fail_closed" };
     case "trigger_evidence":
       return { owner: "continuity_adapter", predicate: "trigger_reference_available", overflow: "fail_closed" };
+    case "public_presence":
+      return { owner: "public_presence_adapter", predicate: "autonomous_idle_opportunity", overflow: "fail_closed" };
     case "domain_pointers":
       return { owner: "grounding_adapter", predicate: "bounded_domain_pointer_section_available", overflow: "fail_closed" };
     case "learned_self":
@@ -155,6 +158,7 @@ export function allocationTokenComponent(
   if (section === "trigger_evidence" || section === "recent_raw" || section === "remember_directive") {
     return "conversation_tokens";
   }
+  if (section === "public_presence") return "identity_kernel_tokens";
   if (section.startsWith("working_context")) return "working_context_tokens";
   if (section === "constitution" || section === "capability") return "identity_kernel_tokens";
   if (section === "occupancy_compact") return "domain_pointer_tokens";
@@ -200,6 +204,16 @@ export function buildAllocationCandidates(
     priority: 2,
     data: input.trigger,
   });
+
+  if (input.publicPresence !== undefined) {
+    candidates.push({
+      id: "public_presence",
+      section: "public_presence",
+      required: true,
+      priority: 3,
+      data: input.publicPresence,
+    });
+  }
 
   // The orientation kernel is the canonical C2 wire owner for identity
   // values/boundaries, bounded stable self, and capability reality. Keep the

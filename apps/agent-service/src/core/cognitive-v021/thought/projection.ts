@@ -26,6 +26,7 @@ import type {
   ThoughtInput,
   ThoughtOccupancy,
   WorkingContextItem,
+  PublicPresenceContext,
 } from "../types.js";
 import type { ChatMessage } from "../../model-routing/types.js";
 import type { DomainPointersSection } from "./domain-pointers.js";
@@ -92,6 +93,8 @@ export type ProjectedThoughtInput = {
   learnedSelfSlice: LearnedSelfSlice;
   /** Legacy in-process compatibility; C2 wire capability is orientationKernel. */
   capabilityReality: CapabilityReality;
+  /** Current public state is model-visible only during autonomous cognition. */
+  publicPresence?: PublicPresenceContext;
   observations: Observation[];
   retrieval: ProjectedRetrievalResult;
   inFlight: ProjectedInFlightRecord[];
@@ -261,6 +264,7 @@ export function projectThoughtInput(
     constitution: fullInput.constitution,
     learnedSelfSlice: fullInput.learnedSelfSlice,
     capabilityReality: fullInput.capabilityReality,
+    ...(fullInput.publicPresence === undefined ? {} : { publicPresence: fullInput.publicPresence }),
     observations: fullInput.observations,
     retrieval: {
       request: fullInput.retrieval.request,

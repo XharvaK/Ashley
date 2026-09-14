@@ -8,11 +8,6 @@ export type AgentError = {
   retryAfterSec?: number;
 };
 
-export type DiscordPresencePayload = {
-  status: "online" | "idle";
-  label: string;
-};
-
 function isTimeoutAbort(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
   return err.name === "TimeoutError" || err.name === "AbortError";
@@ -80,7 +75,6 @@ export async function ingressChat(
       declaredByteSize?: number;
       sourceUrl: string;
     }>;
-    discordPresence?: DiscordPresencePayload;
     inboundDiscordMessageIds?: string[];
     finalFragmentReceivedAtMs?: number;
   },
@@ -95,7 +89,6 @@ export async function ingressChat(
         channel: "discord",
         threadId: options?.threadId,
         attachments: options?.attachments?.length ? options.attachments : undefined,
-        discordPresence: options?.discordPresence,
         inboundDiscordMessageIds: options?.inboundDiscordMessageIds,
         finalFragmentReceivedAtMs: options?.finalFragmentReceivedAtMs,
       }),
@@ -187,37 +180,42 @@ export async function finalizeDelivery(
   });
 }
 
-export async function curiosityStatus() {
-  return agentFetch<{
-    enabled: boolean;
-    sources: number;
-    itemsToday: number;
-    readToday: number;
-    takesToday: number;
-    lastTakeAt: string | null;
-    presence?: {
-      ownTime: boolean;
-      proactivePaused: boolean;
-      curiosityEnabled: boolean;
-      owing: { topic: string; id: number } | null;
-      lastTake: {
-        title: string;
-        depth: "full" | "excerpt";
-        createdAt: string;
-        ageMin: number;
-      } | null;
-      currentActivity?:
-        | { state: "none" }
-        | {
-            state: "active";
-            kind: "reading";
-            id: string;
-            title: string;
-            startedAt?: string;
-          }
-        | null;
-    };
-  }>("/curiosity/status");
+export type PublicPresenceRemoteState = {
+  audience: "FULLY_PUBLIC";
+  action: "set" | "clear" | null;
+  text: string | null;
+  authoredAtMs: number | null;
+  expiresAtMs: number | null;
+  expired: boolean;
+  stateRevision: number | null;
+  sourceEffectId: string | null;
+  projectionState: "pending" | "projected" | "failed" | "unknown" | null;
+};
+
+export async function publicPresenceState(): Promise<PublicPresenceRemoteState> {
+  const query = new URLSearchParams({ owner_id: config.ownerId });
+  return agentFetch<PublicPresenceRemoteState>(`/discord/public-presence?${query.toString()}`);
+}
+
+export async function recordPublicPresenceProjection(input: {
+  stateRevision: number;
+  sourceEffectId: string;
+  outcome: "succeeded" | "failed" | "unknown";
+  cause: string;
+  error?: string | null;
+  atMs?: number;
+}) {
+  return agentFetch<{ ok: boolean; accepted: boolean }>(
+    "/discord/public-presence/projection-receipt",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        userId: config.ownerId,
+        ...input,
+        atMs: input.atMs ?? Date.now(),
+      }),
+    },
+  );
 }
 
 export async function reportReaction(messageId: string, emoji: string) {

@@ -14,7 +14,7 @@ export type { DataClassification } from "../privacy/classification.js";
 export const ARCHITECTURE_EPOCH = "v0.2.1" as const;
 export const IMPLEMENTATION_SPEC_VERSION = "0.2.1.r6" as const;
 export const THOUGHT_CONTRACT_VERSION = 2 as const;
-export const COGNITIVE_SIDECAR_SCHEMA_VERSION = 12 as const;
+export const COGNITIVE_SIDECAR_SCHEMA_VERSION = 13 as const;
 export const CAPACITY_WAIT_MAX_DURATION_MS = 120_000 as const;
 export const MECHANICAL_SPIN_GUARD_LIMIT = 12 as const;
 
@@ -1068,6 +1068,22 @@ export type RuntimeCondition = {
   lookupFailed: boolean;
   thoughtUnavailable: boolean;
 };
+
+export type PublicPresenceCapability = Readonly<{
+  operationKind: "discord.public_presence";
+  semanticClass: "effect";
+  audience: "FULLY_PUBLIC";
+  available: true;
+  requiredRequestFields: readonly ["action"];
+  optionalRequestFields: readonly ["text"];
+}>;
+
+export type PublicPresenceContext = Readonly<{
+  audience: "FULLY_PUBLIC";
+  text: string | null;
+  authoredAtMs: number | null;
+  expiresAtMs: number | null;
+}>;
 export type OccupantCalibration = {
   occupantId: OccupantId;
   notes: string[];
@@ -1088,6 +1104,8 @@ export type CapabilityReality = {
   approvedProjectIds: string[];
   /** Host-owned affordance facts exposed to Thought; never a selected branch. */
   operationCapabilities?: readonly ThoughtOperationCapability[];
+  /** Autonomous-only public self-presentation affordance. */
+  publicPresence?: PublicPresenceCapability;
 };
 
 export type ThoughtOperationCapability = Readonly<{
@@ -1128,6 +1146,8 @@ export type ThoughtInput = {
   constitution: IdentitySlice;
   learnedSelfSlice: LearnedSelfSlice;
   capabilityReality: CapabilityReality;
+  /** Present only for an autonomous idle-opportunity Thought. */
+  publicPresence?: PublicPresenceContext;
   observations: Observation[];
   retrieval: RetrievalResult;
   inFlight: InFlightRecord[];

@@ -56,6 +56,7 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
     const liveOperationExecutors = createV021LiveOperationExecutors({
       nuclear,
       ownerId,
+      sidecar: cognitiveSidecar,
     });
     const projector = createOutboxProjector(cognitiveSidecar, nuclear, {
       gate: (deliveryIntent) => {

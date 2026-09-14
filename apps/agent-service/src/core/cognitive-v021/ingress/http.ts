@@ -28,7 +28,6 @@ export type CognitiveIngressBody = {
     declaredByteSize?: number;
     sourceUrl: string;
   }>;
-  discordPresence?: { status: "online" | "idle"; label: string };
 };
 
 export type CognitiveIngressResult = {
@@ -162,7 +161,6 @@ export function admitCognitiveIngress(
             channel,
             threadId: input.threadId ?? conversationId,
             attachments: input.attachments ?? [],
-            discordPresence: input.discordPresence ?? null,
             subsumedByFrontierId: activeFrontier.frontierId,
           },
           createdAtMs: admittedAtMs,
@@ -208,7 +206,6 @@ export function admitCognitiveIngress(
           channel,
           threadId: input.threadId ?? conversationId,
           attachments: input.attachments ?? [],
-          discordPresence: input.discordPresence ?? null,
         },
         createdAtMs: admittedAtMs,
       },
@@ -258,7 +255,6 @@ export function createCognitiveIngressHandler(options: {
         inboundDiscordMessageIds: body.inboundDiscordMessageIds,
         finalFragmentReceivedAtMs: body.finalFragmentReceivedAtMs,
         attachments: body.attachments,
-        discordPresence: body.discordPresence,
       });
       res.status(202).json(result);
     } catch (error) {

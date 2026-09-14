@@ -676,3 +676,30 @@ SELECT
   cancellation_id, created_at_ms, updated_at_ms
 FROM wakes;
 `;
+
+export const COGNITIVE_SIDECAR_SCHEMA_V13 = String.raw`
+-- Bounded autonomous public Discord presence. The singleton stores the
+-- admitted desired state; Discord projection remains owned by the bot.
+CREATE TABLE IF NOT EXISTS public_presence_state (
+  id TEXT PRIMARY KEY CHECK (id = 'ashley-public-presence-v1'),
+  action TEXT NOT NULL CHECK (action IN ('set', 'clear')),
+  text TEXT,
+  authored_at_ms INTEGER NOT NULL,
+  expires_at_ms INTEGER,
+  source_cycle_id TEXT NOT NULL,
+  source_generation INTEGER NOT NULL,
+  source_effect_id TEXT NOT NULL,
+  state_revision INTEGER NOT NULL,
+  projection_state TEXT NOT NULL CHECK (projection_state IN ('pending', 'projected', 'failed', 'unknown')),
+  projection_attempt_at_ms INTEGER,
+  projection_outcome TEXT CHECK (projection_outcome IS NULL OR projection_outcome IN ('succeeded', 'failed', 'unknown')),
+  projection_cause TEXT,
+  projection_error TEXT,
+  updated_at_ms INTEGER NOT NULL,
+  CHECK (
+    (action = 'set' AND text IS NOT NULL AND expires_at_ms IS NOT NULL)
+    OR (action = 'clear' AND text IS NULL AND expires_at_ms IS NULL)
+  )
+);
+UPDATE cognitive_sidecar_meta SET schema_version = 13, projection_state = 'reconciling' WHERE id = 1;
+`;

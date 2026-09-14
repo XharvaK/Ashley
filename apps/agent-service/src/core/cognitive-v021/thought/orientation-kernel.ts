@@ -3,6 +3,7 @@ import type {
   CapabilityReality,
   IdentitySlice,
   LearnedSelfSlice,
+  PublicPresenceCapability,
 } from "../types.js";
 import { loadNuclearSystemPrompt } from "../../conversation/prompts.js";
 
@@ -94,6 +95,36 @@ function requiredMissing(field: string): never {
   throw new Error(`orientation_kernel_required_missing:${field}`);
 }
 
+function publicPresenceCapabilityOrFail(value: unknown): PublicPresenceCapability | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return requiredMissing("capabilityReality");
+  }
+  const candidate = value as Record<string, unknown>;
+  if (
+    candidate.operationKind !== "discord.public_presence"
+    || candidate.semanticClass !== "effect"
+    || candidate.audience !== "FULLY_PUBLIC"
+    || candidate.available !== true
+    || !Array.isArray(candidate.requiredRequestFields)
+    || candidate.requiredRequestFields.length !== 1
+    || candidate.requiredRequestFields[0] !== "action"
+    || !Array.isArray(candidate.optionalRequestFields)
+    || candidate.optionalRequestFields.length !== 1
+    || candidate.optionalRequestFields[0] !== "text"
+  ) {
+    return requiredMissing("capabilityReality");
+  }
+  return {
+    operationKind: "discord.public_presence",
+    semanticClass: "effect",
+    audience: "FULLY_PUBLIC",
+    available: true,
+    requiredRequestFields: ["action"],
+    optionalRequestFields: ["text"],
+  };
+}
+
 function capabilityRealityOrFail(value: unknown): CapabilityReality {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     return requiredMissing("capabilityReality");
@@ -108,6 +139,7 @@ function capabilityRealityOrFail(value: unknown): CapabilityReality {
   if (candidate.operationCapabilities !== undefined && !Array.isArray(candidate.operationCapabilities)) {
     return requiredMissing("capabilityReality");
   }
+  const publicPresence = publicPresenceCapabilityOrFail(candidate.publicPresence);
   return {
     vision: candidate.vision as boolean,
     attachmentText: candidate.attachmentText as boolean,
@@ -123,6 +155,7 @@ function capabilityRealityOrFail(value: unknown): CapabilityReality {
     ...(candidate.operationCapabilities === undefined
       ? {}
       : { operationCapabilities: [...(candidate.operationCapabilities as NonNullable<CapabilityReality["operationCapabilities"]>)] }),
+    ...(publicPresence === undefined ? {} : { publicPresence }),
   };
 }
 

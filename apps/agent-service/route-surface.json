@@ -92,6 +92,8 @@
     { "method": "POST", "path": "/cancel", "ownerScope": "owner_required", "lifecycle": "active" },
     { "method": "POST", "path": "/curiosity/tick", "ownerScope": "internal", "lifecycle": "retired" },
     { "method": "GET", "path": "/curiosity/status", "ownerScope": "internal", "lifecycle": "active" },
+    { "method": "GET", "path": "/discord/public-presence", "ownerScope": "owner_required", "lifecycle": "active" },
+    { "method": "POST", "path": "/discord/public-presence/projection-receipt", "ownerScope": "owner_required", "lifecycle": "active" },
     { "method": "POST", "path": "/initiative/tick", "ownerScope": "owner_required", "lifecycle": "retired" },
     { "method": "POST", "path": "/initiative/idle", "ownerScope": "owner_required", "lifecycle": "active" },
     { "method": "POST", "path": "/initiative/commit", "ownerScope": "owner_required", "lifecycle": "retired" },

@@ -16,6 +16,7 @@ import {
   type RuntimeCondition,
   type RememberDirective,
   type CycleTriggerKind,
+  type PublicPresenceContext,
 } from "../types.js";
 import {
   getConversationEvidence,
@@ -86,6 +87,8 @@ export type BuildThoughtInputOptions = {
   stableSelfBound?: number;
   /** Host-derived recovery/profile trigger. It is not a new persisted authority. */
   triggerKindOverride?: CycleTriggerKind;
+  /** Set only for the autonomous idle-opportunity public-presence affordance. */
+  publicPresence?: PublicPresenceContext;
   /** One coherent source package for the current semantic pass. */
   sourceCapture?: ThoughtSourceCapture;
 };
@@ -519,6 +522,7 @@ export function buildThoughtInput(options: BuildThoughtInputOptions): ThoughtInp
     },
     learnedSelfSlice,
     capabilityReality: options.capabilityReality,
+    ...(options.publicPresence === undefined ? {} : { publicPresence: options.publicPresence }),
     observations: options.observations ?? [],
     retrieval,
     inFlight: options.inFlight ?? listInFlight(options.sidecar, options.cycle.cycleId),

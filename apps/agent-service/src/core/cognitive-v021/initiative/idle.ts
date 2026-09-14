@@ -381,6 +381,8 @@ async function tickPeriodicConversation(
     cycleId: cycle.cycleId,
     periodicScheduleOccurrenceId: periodic.occurrenceId,
     privateBudgetReservationId: budget.reservation.reservationId,
+    ownerId: options.occupantId,
+    channel: "discord",
     occupantId: options.occupantId ?? "private",
     observationsCapture: observations.length > 0 ? "present" : "none",
     observationIds: binding.observationIds,

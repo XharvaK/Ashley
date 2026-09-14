@@ -6,6 +6,8 @@ import type {
   ExecuteWorkspaceExperimentV2Result,
 } from "../../sandbox/v2-execution.js";
 import type { Observation, EffectProposal } from "../types.js";
+import { admitTestCycle, openTestSidecar } from "../test-support.js";
+import { readPublicPresenceState } from "../public-presence.js";
 import { createV021LiveOperationExecutors } from "./live-operations.js";
 
 function projectObservation(): NonNullable<ExecuteProjectInspectionV2Result["observation"]> {
@@ -228,5 +230,60 @@ describe("v0.2.1 live Sandbox V2 operation construction", () => {
     expect(receipt).toMatchObject({ outcome: "failed", claims: { error: "verification_failed" } });
     expect(executeCandidateVerificationV2).toHaveBeenCalledTimes(1);
     nuclear.close();
+  });
+
+  it("persists a public presence effect only from the authenticated idle lineage", async () => {
+    const nuclear = new DatabaseSync(":memory:");
+    const sidecar = openTestSidecar();
+    const cycle = admitTestCycle(sidecar, {
+      cycleId: "cycle-public-presence",
+      conversationId: "conversation-public-presence",
+      generation: 1,
+      triggerKind: "idle_opportunity",
+      triggerRef: "event-public-presence",
+      occupantId: "owner",
+      nowMs: 7_000_000,
+    });
+    sidecar.prepare("UPDATE inbox_events SET payload_json = ? WHERE id = ?").run(
+      JSON.stringify({ ownerId: "owner", channel: "discord" }),
+      "event-public-presence",
+    );
+    sidecar.prepare("UPDATE wakes SET source_kind = 'idle' WHERE wake_id = ?").run(cycle.wakeId);
+    const executors = createV021LiveOperationExecutors({
+      nuclear,
+      sidecar,
+      ownerId: "owner",
+      nowMs: () => 7_000_000,
+    });
+
+    const receipt = await executors.executeEffect({
+      ...effectProposal({
+        effectId: "effect-public-presence",
+        idempotencyKey: "idempotency-public-presence",
+        cycleId: cycle.cycleId,
+        generation: cycle.generation,
+        kind: "discord.public_presence",
+        request: { action: "set", text: "Exact public presence." },
+      }),
+      originEventId: "event-public-presence",
+    });
+
+    expect(receipt).toMatchObject({
+      outcome: "succeeded",
+      claims: {
+        state: "persisted",
+        decision: "set",
+        audience: "FULLY_PUBLIC",
+        text: "Exact public presence.",
+        projectionState: "pending",
+      },
+    });
+    expect(readPublicPresenceState(sidecar)).toMatchObject({
+      action: "set",
+      text: "Exact public presence.",
+      sourceEffectId: "effect-public-presence",
+    });
+    nuclear.close();
+    sidecar.close();
   });
 });

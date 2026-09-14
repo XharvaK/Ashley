@@ -7,6 +7,7 @@ import { createServer } from "./server.js";
 import { env } from "./env.js";
 import { openCognitiveSidecarDb } from "./core/cognitive-v021/sidecar/db.js";
 import { openObservabilityStore, RAW_DEBUG_RETENTION_MAX_MS } from "./core/cognitive-v021/thought/diagnostics.js";
+import { applyPublicPresenceDecision } from "./core/cognitive-v021/public-presence.js";
 import type { Server } from "node:http";
 
 async function startTestServer(app: express.Express): Promise<{ server: Server; url: string }> {
@@ -295,6 +296,68 @@ describe("route surface registry", () => {
       env.discordOwnerId = originalDiscordOwnerId;
       if (originalMode === undefined) delete process.env.ASHLEY_OBSERVABILITY_MODE;
       else process.env.ASHLEY_OBSERVABILITY_MODE = originalMode;
+    }
+  });
+
+  it("serves the owner-authenticated public-presence state and projection receipt", async () => {
+    const originalDiscordOwnerId = env.discordOwnerId;
+    const ownerId = "route-test-owner";
+    env.discordOwnerId = ownerId;
+    const sidecar = openCognitiveSidecarDb(new DatabaseSync(":memory:"), { dataPlane: { kind: "isolated" } });
+    const manager = {
+      dataPlane: { kind: "isolated", cognitiveSidecarDbPath: ":memory:" },
+      getCognitiveSidecar: () => sidecar,
+    } as unknown as AgentManager;
+    const { server, url } = await startTestServer(createServer(manager, { cognitiveSidecar: sidecar }));
+    try {
+      const empty = await fetch(`${url}/discord/public-presence?owner_id=${encodeURIComponent(ownerId)}`);
+      expect(empty.status).toBe(200);
+      expect(await empty.json()).toMatchObject({
+        ok: true,
+        audience: "FULLY_PUBLIC",
+        action: null,
+        text: null,
+      });
+
+      const authoredAtMs = Date.now();
+      applyPublicPresenceDecision({
+        db: sidecar,
+        decision: { action: "set", text: "Route-visible exact text." },
+        cycleId: "cycle-route-presence",
+        generation: 1,
+        effectId: "effect-route-presence",
+        authoredAtMs,
+      });
+      const current = await fetch(`${url}/discord/public-presence?owner_id=${encodeURIComponent(ownerId)}`);
+      expect(await current.json()).toMatchObject({
+        action: "set",
+        text: "Route-visible exact text.",
+        audience: "FULLY_PUBLIC",
+      });
+
+      const state = sidecar.prepare("SELECT state_revision, source_effect_id FROM public_presence_state").get() as Record<string, unknown>;
+      const receipt = await fetch(`${url}/discord/public-presence/projection-receipt`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          userId: ownerId,
+          stateRevision: state.state_revision,
+          sourceEffectId: state.source_effect_id,
+          outcome: "succeeded",
+          cause: "ready",
+          atMs: authoredAtMs + 1,
+        }),
+      });
+      expect(receipt.status).toBe(200);
+      expect(await receipt.json()).toMatchObject({ ok: true, accepted: true });
+      expect(sidecar.prepare("SELECT projection_state FROM public_presence_state").get()).toEqual({ projection_state: "projected" });
+
+      const denied = await fetch(`${url}/discord/public-presence?owner_id=impostor`);
+      expect(denied.status).toBe(403);
+    } finally {
+      await stopTestServer(server);
+      sidecar.close();
+      env.discordOwnerId = originalDiscordOwnerId;
     }
   });
 });

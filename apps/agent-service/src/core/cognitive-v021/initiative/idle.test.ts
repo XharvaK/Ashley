@@ -519,6 +519,7 @@ describe("P1 periodic scheduling through the idle tick (R7 §§5–14)", () => {
       let observedInput: import("./idle.js").IdleThoughtContext | null = null;
       const result = await tickIdleOpportunity(db, {
         conversationId: "thread-full",
+        occupantId: "owner",
         nowMs: DUE,
         periodicCognitionEnabled: true,
         curiosityObservationProvider: async () => [acquired],
@@ -529,6 +530,8 @@ describe("P1 periodic scheduling through the idle tick (R7 §§5–14)", () => {
         },
       });
       const payload = observedInput!.event?.payload as Record<string, unknown>;
+      expect(payload.ownerId).toBe("owner");
+      expect(payload.channel).toBe("discord");
       expect(payload.observationsCapture).toBe("present");
       expect(payload.observationIds).toEqual([acquired.observationId]);
       expect(payload.observationCount).toBe(1);

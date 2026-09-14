@@ -29,6 +29,14 @@ import type {
 } from "../types.js";
 import type { OperationalClaimLicense } from "../../sandbox/engineering-types.js";
 import { getInFlight } from "../effect/in-flight.js";
+import {
+  applyPublicPresenceDecision,
+  isAutonomousPublicPresenceProposal,
+  PUBLIC_PRESENCE_AUDIENCE,
+  PUBLIC_PRESENCE_OPERATION,
+  publicPresenceReceipt,
+  validatePublicPresenceRequest,
+} from "../public-presence.js";
 
 const PROJECT_OPERATIONS = new Set([
   "project.read_file",
@@ -357,6 +365,59 @@ export function createV021LiveOperationExecutors(
         if (proposal.kind === "candidate_authorship") return "changeset.author";
         return proposal.kind;
       })();
+
+      if (proposal.kind === PUBLIC_PRESENCE_OPERATION && operation === PUBLIC_PRESENCE_OPERATION) {
+        const atMs = nowMs();
+        const validation = validatePublicPresenceRequest(proposal.request);
+        if (!validation.ok) {
+          return publicPresenceReceipt(proposal, {
+            outcome: "failed",
+            claims: { state: "none", error: validation.code, audience: PUBLIC_PRESENCE_AUDIENCE },
+            atMs,
+          });
+        }
+        if (
+          !options.sidecar
+          || !options.ownerId
+          || !isAutonomousPublicPresenceProposal(options.sidecar, proposal, options.ownerId)
+        ) {
+          return publicPresenceReceipt(proposal, {
+            outcome: "failed",
+            claims: { state: "none", error: "non_autonomous_lineage", audience: PUBLIC_PRESENCE_AUDIENCE },
+            atMs,
+          });
+        }
+        try {
+          const state = applyPublicPresenceDecision({
+            db: options.sidecar,
+            decision: validation.decision,
+            cycleId: proposal.cycleId,
+            generation: proposal.generation,
+            effectId: proposal.effectId,
+            authoredAtMs: atMs,
+          });
+          return publicPresenceReceipt(proposal, {
+            outcome: "succeeded",
+            claims: {
+              state: "persisted",
+              decision: state.action,
+              audience: PUBLIC_PRESENCE_AUDIENCE,
+              ...(state.text === null ? {} : { text: state.text }),
+              authoredAtMs: state.authoredAtMs,
+              expiresAtMs: state.expiresAtMs,
+              stateRevision: state.stateRevision,
+              projectionState: state.projectionState,
+            },
+            atMs,
+          });
+        } catch {
+          return publicPresenceReceipt(proposal, {
+            outcome: "failed",
+            claims: { state: "none", error: "state_persistence_failed", audience: PUBLIC_PRESENCE_AUDIENCE },
+            atMs,
+          });
+        }
+      }
 
       let license: OperationalClaimLicense;
       try {

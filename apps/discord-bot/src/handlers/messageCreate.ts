@@ -10,7 +10,6 @@ import { config } from "../config.js";
 import { agentErrorMessage } from "../chat/agent-errors.js";
 import { readKillSwitch } from "../chat/kill-switch.js";
 import { tempoTracker } from "../chat/pacing.js";
-import { getDiscordPresence } from "../presence.js";
 import { TurnBuffer } from "../chat/turn-buffer.js";
 
 export type MessageIngressChat = (
@@ -18,7 +17,6 @@ export type MessageIngressChat = (
   options?: {
     threadId?: string;
     attachments?: Intake["attachments"];
-    discordPresence?: ReturnType<typeof getDiscordPresence>;
     inboundDiscordMessageIds?: string[];
     finalFragmentReceivedAtMs?: number;
   },
@@ -71,7 +69,6 @@ export function createMessageCreateHandler(options: {
     try {
       await options.ingressChat(turn.text, {
         attachments: turn.attachments,
-        discordPresence: getDiscordPresence(),
         inboundDiscordMessageIds: turn.inboundDiscordMessageIds,
         finalFragmentReceivedAtMs: turn.finalFragmentReceivedAtMs,
       });

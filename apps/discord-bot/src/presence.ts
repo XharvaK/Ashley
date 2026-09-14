@@ -1,83 +1,159 @@
 import { ActivityType, type Client } from "discord.js";
-import { checkHealth, curiosityStatus } from "./agent-client.js";
 import {
-  pickPresenceLabel,
-  shouldApplyPresence,
-  type PresencePick,
-} from "./chat/presence-label.js";
+  checkHealth,
+  publicPresenceState,
+  recordPublicPresenceProjection,
+  type PublicPresenceRemoteState,
+} from "./agent-client.js";
 
 const REFRESH_MS = 10 * 60 * 1000;
+const MAX_PUBLIC_PRESENCE_CHARS = 128;
 
-export type DiscordPresence = {
-  status: "online" | "idle";
-  label: string;
+type ProjectionMetadata = {
+  stateRevision: number;
+  sourceEffectId: string;
+};
+
+type KnownProjection = ProjectionMetadata & {
+  text: string;
+  expiresAtMs: number;
 };
 
 let timer: ReturnType<typeof setInterval> | null = null;
-let last: DiscordPresence = { status: "online", label: "around" };
-let sticky: {
-  priority: number;
-  contentKey: string;
-  appliedAt: number;
-} | null = null;
+let inFlight: Promise<void> | null = null;
+let lastKnown: KnownProjection | null = null;
 
-/** Same string Discord is showing; chat uses this so she can own her status. */
-export function getDiscordPresence(): DiscordPresence {
-  return last;
+export function discordActivities(publicText: string | null): Array<{
+  name: string;
+  type: ActivityType;
+}> {
+  return publicText === null
+    ? []
+    : [{ name: publicText, type: ActivityType.Custom }];
 }
 
-function applyPick(client: Client, pick: PresencePick, now: number): void {
-  last = { status: pick.discordStatus, label: pick.label };
-  sticky = {
-    priority: pick.priority,
-    contentKey: pick.contentKey,
-    appliedAt: now,
-  };
-  client.user?.setPresence({
-    status: pick.discordStatus,
-    activities: [{ name: pick.label, type: ActivityType.Custom }],
-  });
+export function operationalDiscordStatus(healthy: boolean): "online" | "idle" {
+  return healthy ? "online" : "idle";
 }
 
-/**
- * Informative glanceable state from real ops + curiosity facts.
- * Never a KPI count. Cute rotating filler is the same lie as a fake read.
- */
-async function apply(client: Client): Promise<void> {
-  const now = Date.now();
-  const healthy = await checkHealth();
-  if (!healthy) {
-    const pick = pickPresenceLabel({
-      healthy: false,
-      enabled: true,
-      takesToday: 0,
-      presence: null,
-    });
-    if (shouldApplyPresence(sticky, pick, now)) {
-      applyPick(client, pick, now);
-    }
-    return;
+function validRemoteText(text: string | null, expiresAtMs: number | null, nowMs: number): string | null {
+  if (
+    typeof text !== "string"
+    || text.length === 0
+    || text.trim().length === 0
+    || [...text].length > MAX_PUBLIC_PRESENCE_CHARS
+    || expiresAtMs === null
+    || expiresAtMs <= nowMs
+    || /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/u.test(text)
+  ) return null;
+  return text;
+}
+
+function remoteProjection(
+  remote: PublicPresenceRemoteState,
+  nowMs: number,
+): { text: string | null; metadata: ProjectionMetadata | null; known: KnownProjection | null } {
+  const text = remote.action === "set"
+    ? validRemoteText(remote.text, remote.expiresAtMs, nowMs)
+    : null;
+  const metadata = remote.stateRevision !== null
+    && remote.sourceEffectId !== null
+    ? {
+        stateRevision: remote.stateRevision,
+        sourceEffectId: remote.sourceEffectId,
+      }
+    : null;
+  const known = metadata
+    && text !== null
+    && remote.expiresAtMs !== null
+    && remote.expiresAtMs > nowMs
+    ? { ...metadata, text, expiresAtMs: remote.expiresAtMs }
+    : null;
+  return { text, metadata, known };
+}
+
+function locallyKnownText(nowMs: number): string | null {
+  if (!lastKnown || lastKnown.expiresAtMs <= nowMs) {
+    lastKnown = null;
+    return null;
   }
+  return lastKnown.text;
+}
 
+async function reportProjection(
+  metadata: ProjectionMetadata | null,
+  outcome: "succeeded" | "failed",
+  cause: string,
+  error?: unknown,
+): Promise<void> {
+  if (!metadata) return;
   try {
-    const status = await curiosityStatus();
-    const pick = pickPresenceLabel({
-      healthy: true,
-      enabled: status.enabled,
-      takesToday: status.takesToday,
-      presence: status.presence ?? null,
+    await recordPublicPresenceProjection({
+      stateRevision: metadata.stateRevision,
+      sourceEffectId: metadata.sourceEffectId,
+      outcome,
+      cause,
+      error: error instanceof Error ? error.message : error == null ? null : String(error),
     });
-    if (shouldApplyPresence(sticky, pick, now)) {
-      applyPick(client, pick, now);
-    }
   } catch {
-    // Keep last sticky label; a missing curiosity status is not worth a lie.
+    // The desired state remains durable in the agent. The next bounded
+    // lifecycle reconciliation can retry the projection receipt.
   }
+}
+
+async function reconcile(client: Client, cause: string): Promise<void> {
+  const nowMs = Date.now();
+  const healthy = await checkHealth();
+  let publicText: string | null = null;
+  let metadata: ProjectionMetadata | null = null;
+  try {
+    const remote = await publicPresenceState();
+    const projected = remoteProjection(remote, nowMs);
+    publicText = projected.text;
+    metadata = projected.metadata;
+    lastKnown = projected.known;
+  } catch {
+    // Cold-start unknown state fails closed. A known local value may survive
+    // only until its persisted expiry.
+    publicText = locallyKnownText(nowMs);
+    metadata = lastKnown
+      ? { stateRevision: lastKnown.stateRevision, sourceEffectId: lastKnown.sourceEffectId }
+      : null;
+  }
+
+  const presence = {
+    status: operationalDiscordStatus(healthy),
+    activities: discordActivities(publicText),
+  } as const;
+  try {
+    if (!client.user) return;
+    await Promise.resolve(client.user.setPresence(presence));
+    await reportProjection(metadata, "succeeded", cause);
+  } catch (error) {
+    await reportProjection(metadata, "failed", cause, error);
+  }
+}
+
+export function reconcilePresence(client: Client, cause = "refresh"): Promise<void> {
+  if (inFlight) return inFlight;
+  inFlight = reconcile(client, cause).finally(() => {
+    inFlight = null;
+  });
+  return inFlight;
+}
+
+/** Pure lifecycle projection rule used by ready/resume qualification. */
+export function publicTextForRemoteState(
+  remote: PublicPresenceRemoteState,
+  nowMs: number,
+): string | null {
+  return remoteProjection(remote, nowMs).text;
 }
 
 export function startPresence(client: Client): void {
-  void apply(client);
-  timer = setInterval(() => void apply(client), REFRESH_MS);
+  if (timer) clearInterval(timer);
+  void reconcilePresence(client, "ready");
+  timer = setInterval(() => void reconcilePresence(client, "refresh"), REFRESH_MS);
 }
 
 export function stopPresence(): void {

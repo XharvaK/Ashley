@@ -53,6 +53,11 @@ import {
   readObservabilityMode,
 } from "./core/cognitive-v021/thought/diagnostics.js";
 import { listPeriodicDiagnostics } from "./core/cognitive-v021/initiative/periodic-diagnostics.js";
+import {
+  readPublicPresenceContext,
+  readPublicPresenceState,
+  recordPublicPresenceProjection,
+} from "./core/cognitive-v021/public-presence.js";
 import type { DataClassification } from "./core/privacy/classification.js";
 import type {
   ConsentEventKind,
@@ -2034,6 +2039,75 @@ export function createServer(
   });
 
   app.post("/initiative/tick", gone);
+
+  app.get("/discord/public-presence", (req, res) => {
+    try {
+      const owner = requireOwner(
+        typeof req.query.owner_id === "string" ? req.query.owner_id : undefined,
+      );
+      const sidecar = getCognitiveSidecar();
+      const state = readPublicPresenceState(sidecar);
+      const context = readPublicPresenceContext(sidecar);
+      const expired = state?.action === "set"
+        && state.expiresAtMs !== null
+        && state.expiresAtMs <= Date.now();
+      res.json({
+        ok: true,
+        ownerId: owner,
+        audience: context.audience,
+        action: state?.action ?? null,
+        text: context.text,
+        authoredAtMs: state?.authoredAtMs ?? null,
+        expiresAtMs: state?.expiresAtMs ?? null,
+        expired: Boolean(expired),
+        stateRevision: state?.stateRevision ?? null,
+        sourceEffectId: state?.sourceEffectId ?? null,
+        projectionState: state?.projectionState ?? null,
+      });
+    } catch (err) {
+      const { status, body } = toErrorResponse(err);
+      res.status(status).json(body);
+    }
+  });
+
+  app.post("/discord/public-presence/projection-receipt", (req, res) => {
+    try {
+      const body = c1Body(req);
+      requireOwner(typeof body.userId === "string" ? body.userId : undefined);
+      const stateRevision = body.stateRevision;
+      if (typeof stateRevision !== "number" || !Number.isSafeInteger(stateRevision)) {
+        throw new AppError("message_required", "stateRevision must be an integer", 400);
+      }
+      if (typeof body.sourceEffectId !== "string" || !body.sourceEffectId.trim()) {
+        throw new AppError("message_required", "sourceEffectId is required", 400);
+      }
+      if (body.outcome !== "succeeded" && body.outcome !== "failed" && body.outcome !== "unknown") {
+        throw new AppError("message_required", "outcome has an invalid value", 400);
+      }
+      if (typeof body.cause !== "string" || !body.cause.trim()) {
+        throw new AppError("message_required", "cause is required", 400);
+      }
+      if (body.error !== undefined && body.error !== null && typeof body.error !== "string") {
+        throw new AppError("message_required", "error must be a string", 400);
+      }
+      const atMs = body.atMs === undefined ? Date.now() : body.atMs;
+      if (typeof atMs !== "number" || !Number.isSafeInteger(atMs)) {
+        throw new AppError("message_required", "atMs must be an integer", 400);
+      }
+      const result = recordPublicPresenceProjection(getCognitiveSidecar(), {
+        stateRevision,
+        sourceEffectId: body.sourceEffectId,
+        outcome: body.outcome,
+        cause: body.cause,
+        error: body.error == null ? null : typeof body.error === "string" ? body.error : undefined,
+        atMs,
+      });
+      res.json({ ok: true, ...result });
+    } catch (err) {
+      const { status, body } = toErrorResponse(err);
+      res.status(status).json(body);
+    }
+  });
 
   app.post("/initiative/idle", async (req, res) => {
     try {

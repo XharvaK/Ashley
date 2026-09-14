@@ -319,6 +319,7 @@ export function allocateThoughtProjection(
       authorityEpoch: input.authorityEpoch,
       constitution: input.constitution,
       capabilityReality: input.capabilityReality,
+      ...(input.publicPresence === undefined ? {} : { publicPresence: input.publicPresence }),
       workingContext: wc,
       occupancy: input.occupancy,
       ...(includeDomainPointers && c2Input.domainPointers !== undefined

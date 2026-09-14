@@ -12,7 +12,7 @@ import { handleMessage } from "./handlers/messageCreate.js";
 import { handleReaction } from "./handlers/reactionAdd.js";
 import { startCognitiveIdleScheduler } from "./initiative/scheduler.js";
 import { startFulfillmentPump } from "./initiative/fulfillment-pump.js";
-import { startPresence } from "./presence.js";
+import { reconcilePresence, startPresence } from "./presence.js";
 
 export function createClient(): Client {
   const client = new Client({
@@ -34,6 +34,10 @@ export function createClient(): Client {
     startCognitiveIdleScheduler();
     startFulfillmentPump(client);
     startPresence(client);
+  });
+
+  client.on(Events.ShardResume, () => {
+    void reconcilePresence(client, "resume");
   });
 
   client.on(Events.InteractionCreate, (interaction) => {
