@@ -8,6 +8,7 @@ import {
 } from "../conversation/expression-fallback.js";
 import { loadFabricCatalog, loadTargetPortfolio } from "./catalog.js";
 import { currentPortfolio } from "./portfolio.js";
+import { capabilityProfileFor } from "./profiles.js";
 import {
   createInferencePolicyFingerprint,
   translateReasoningPolicy,
@@ -46,15 +47,25 @@ describe("TARGET portfolio + token envelope reconciliation", () => {
     expect(expression.occupants[0]).toMatchObject({
       provider: "nim",
       configuredModelId: "nvidia/nemotron-3.5-lightning-30b-a3b",
+      reasoningPolicy: "standard",
+      effectiveReasoning: "standard",
     });
     expect(expression.occupants[1]).toMatchObject({
       provider: "groq",
       configuredModelId: "qwen/qwen3.6-27b",
       invocationMode: "caller_owned_chain",
+      reasoningPolicy: "disabled",
+      effectiveReasoning: "none",
     });
-    expect(expression.maxOutputTokens).toBe(2048);
-    expect(EXPRESSION_MAX_OUTPUT_TOKENS).toBe(2048);
+    expect(expression.deadlineMs).toBe(20000);
+    expect(expression.maxOutputTokens).toBe(4096);
+    expect(EXPRESSION_MAX_OUTPUT_TOKENS).toBe(4096);
     expect(EXPRESSION_PROACTIVE_MAX_OUTPUT_TOKENS).toBe(500);
+    expect(capabilityProfileFor(
+      "nim",
+      "nvidia/nemotron-3.5-lightning-30b-a3b",
+    ).limits.maxOutputTokens).toBe(4096);
+    expect(capabilityProfileFor("groq", "qwen/qwen3.6-27b").limits.maxOutputTokens).toBe(4096);
     expect(current.routeBindings.thought).toMatchObject({
       provider: "cloudflare",
       configuredModelId: "@cf/deepseek-ai/deepseek-v4-flash-0731",
@@ -76,6 +87,19 @@ describe("TARGET portfolio + token envelope reconciliation", () => {
     expect(current.rows.find((row) => row.policyRowId === "mfr_thought_interactive_compat_v1")!.deadlineMs).toBe(60000);
     expect(target.rows.find((row) => row.policyRowId === "mfr_thought_interactive_target_v1")!.deadlineMs).toBe(6000);
     expect(target.rows.find((row) => row.policyRowId === "mfr_thought_observation_target_v1")!.deadlineMs).toBeNull();
+  });
+
+  it("keeps utility and engineering Lightning occupants reasoning-disabled", () => {
+    for (const policyRowId of [
+      "mfr_exchange_cognition_compat_v1",
+      "mfr_curiosity_consolidation_compat_v1",
+      "mfr_engineering_direct_cognition_compat_v1",
+      "mfr_maintenance_compat_v1",
+    ]) {
+      const row = current.rows.find((candidate) => candidate.policyRowId === policyRowId)!;
+      expect(row.reasoningPolicy).toBe("disabled");
+      expect(row.occupants[0]?.reasoningPolicy).toBe("disabled");
+    }
   });
 
   it("sets Ultra/Super high TARGET envelopes to 4096 with unchanged translator mappings", () => {

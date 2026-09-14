@@ -93,7 +93,7 @@
       "policies": {
         "disabled": { "kind": "chat_template_thinking", "enableThinking": false },
         "economical": { "kind": "chat_template_thinking", "enableThinking": false },
-        "standard": { "kind": "unsupported", "code": "lightning_standard_policy_unresolved" },
+        "standard": { "kind": "chat_template_thinking", "enableThinking": true, "reasoningBudgetTokens": 512 },
         "high": { "kind": "unsupported", "code": "unsupported_reasoning_mapping" },
         "max_supported": { "kind": "unsupported", "code": "unsupported_reasoning_mapping" }
       }

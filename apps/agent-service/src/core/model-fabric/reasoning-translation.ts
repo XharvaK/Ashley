@@ -34,7 +34,11 @@ type FamilyMatch = {
 
 type FamilyPolicyEntry =
   | { kind: "reasoning_effort"; value: "none" | "low" | "medium" | "high" }
-  | { kind: "chat_template_thinking"; enableThinking: boolean }
+  | {
+      kind: "chat_template_thinking";
+      enableThinking: boolean;
+      reasoningBudgetTokens?: number;
+    }
   | { kind: "unsupported"; code: ReasoningTranslationCode };
 
 export type ReasoningFamilyMap = Readonly<{
@@ -88,7 +92,22 @@ function parsePolicyEntry(
     if (typeof entry.enableThinking !== "boolean") {
       throw new Error(`invalid_reasoning_maps:${familyId}:${policy}:thinking`);
     }
-    return { kind: "chat_template_thinking", enableThinking: entry.enableThinking };
+    const reasoningBudgetTokens = entry.reasoningBudgetTokens;
+    if (
+      reasoningBudgetTokens !== undefined &&
+      (typeof reasoningBudgetTokens !== "number" ||
+        !Number.isInteger(reasoningBudgetTokens) ||
+        reasoningBudgetTokens < 1)
+    ) {
+      throw new Error(`invalid_reasoning_maps:${familyId}:${policy}:reasoning_budget`);
+    }
+    return {
+      kind: "chat_template_thinking",
+      enableThinking: entry.enableThinking,
+      ...(reasoningBudgetTokens !== undefined
+        ? { reasoningBudgetTokens }
+        : {}),
+    };
   }
   if (entry.kind === "unsupported") {
     if (!isTranslationCode(entry.code)) {
@@ -257,6 +276,9 @@ export function translateReasoningPolicy(input: {
     control: {
       kind: "chat_template_thinking",
       enableThinking: entry.enableThinking,
+      ...(entry.reasoningBudgetTokens !== undefined
+        ? { reasoningBudgetTokens: entry.reasoningBudgetTokens }
+        : {}),
     },
   };
 }
@@ -268,7 +290,12 @@ export function formatTranslatedWireControl(
   if (control.kind === "reasoning_effort") {
     return `reasoning_effort=${control.value}`;
   }
-  return `chat_template_kwargs.enable_thinking=${control.enableThinking ? "true" : "false"}`;
+  return [
+    `chat_template_kwargs.enable_thinking=${control.enableThinking ? "true" : "false"}`,
+    ...(control.reasoningBudgetTokens !== undefined
+      ? [`reasoning_budget=${control.reasoningBudgetTokens}`]
+      : []),
+  ].join(";");
 }
 
 export function toTrustedReasoningControl(
@@ -277,7 +304,13 @@ export function toTrustedReasoningControl(
   if (control.kind === "reasoning_effort") {
     return { kind: "reasoning_effort", value: control.value };
   }
-  return { kind: "chat_template_thinking", enableThinking: control.enableThinking };
+  return {
+    kind: "chat_template_thinking",
+    enableThinking: control.enableThinking,
+    ...(control.reasoningBudgetTokens !== undefined
+      ? { reasoningBudgetTokens: control.reasoningBudgetTokens }
+      : {}),
+  };
 }
 
 export function observedReasoningFromUsage(usage?: {
@@ -343,6 +376,12 @@ export function applyTranslatedControlToNimBody(
       throw new Error("nemotron_kwargs_model_mismatch");
     }
     body.chat_template_kwargs = { enable_thinking: control.enableThinking };
+    if (control.reasoningBudgetTokens !== undefined) {
+      if (!control.enableThinking) {
+        throw new Error("reasoning_budget_requires_thinking");
+      }
+      body.reasoning_budget = control.reasoningBudgetTokens;
+    }
     return;
   }
   if (configuredModelId === ULTRA_ID && control.value === "low") {

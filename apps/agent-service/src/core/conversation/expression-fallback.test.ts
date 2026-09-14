@@ -241,6 +241,7 @@ describe("expression fallback (Wave 3)", () => {
     expect(fake.calls.length).toBe(2);
     expect(fake.calls[1].options?.route).toBe("ashley_expression_fallback");
     expect(fake.calls[1].options?.model).toBe("qwen/qwen3.6-27b");
+    expect(fake.calls[1].options?.maxTokens).toBe(4096);
     expect(fake.calls[1].options?.reasoningEffort).toBe("none");
     expect(result.model).toBe("qwen/qwen3.6-27b");
     const row = db

@@ -25,7 +25,7 @@ import type { ContextProjection } from "../model-fabric/projection.js";
 export type ExpressionFallbackPolicy = "minimal_identity_allowed" | "mistral_only";
 export type ExpressionFallbackLane = "interactive" | "urgent_grounded" | "exchange_cognition" | "curiosity_maintenance";
 
-export const EXPRESSION_MAX_OUTPUT_TOKENS = 2048;
+export const EXPRESSION_MAX_OUTPUT_TOKENS = 4096;
 export const EXPRESSION_PROACTIVE_MAX_OUTPUT_TOKENS = 500;
 
 export type ExpressionComplete = (

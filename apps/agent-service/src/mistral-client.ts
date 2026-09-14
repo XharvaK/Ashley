@@ -807,6 +807,10 @@ export async function completeChat(
         : attemptContext.requestedWireReasoning
           ? { reasoningConfiguration: attemptContext.requestedWireReasoning }
           : {}),
+      ...(attemptContext.fabricReasoning?.kind === "chat_template_thinking" &&
+        attemptContext.fabricReasoning.reasoningBudgetTokens !== undefined
+        ? { reasoningBudgetTokens: attemptContext.fabricReasoning.reasoningBudgetTokens }
+        : {}),
       ...(targetProvider === "cloudflare" &&
         targetModel === "@cf/nvidia/nemotron-3-120b-a12b" &&
         attemptContext.fabricReasoning?.kind === "reasoning_effort" &&

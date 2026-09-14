@@ -5,6 +5,10 @@ import { buildNimRequestBody, createNimAdapter, mapNimError } from "./nim-adapte
 import type { ChatMessage } from "../types.js";
 import { providerHttpStatusFromBoundary } from "../types.js";
 import type { StructuredOutputSchemaFingerprint } from "../../model-fabric/types.js";
+import {
+  toTrustedReasoningControl,
+  translateReasoningPolicy,
+} from "../../model-fabric/reasoning-translation.js";
 
 const originalKey = env.nimApiKey;
 
@@ -290,6 +294,55 @@ describe("nim-adapter fixtures", () => {
     });
     expect(capturedBody?.reasoning_effort).toBe("high");
     expect(capturedBody?.reasoning_budget).toBe(1024);
+  });
+
+  it("applies the trusted Lightning standard translation exactly", async () => {
+    env.nimApiKey = "test";
+    const translated = translateReasoningPolicy({
+      provider: "nim",
+      configuredModelId: "nvidia/nemotron-3.5-lightning-30b-a3b",
+      semanticPolicy: "standard",
+    });
+    expect(translated.status).toBe("translated");
+    if (translated.status !== "translated") {
+      throw new Error("expected Lightning standard translation");
+    }
+
+    let capturedBody: Record<string, unknown> | undefined;
+    const adapter = createNimAdapter(async (_url, init) => {
+      capturedBody = JSON.parse(init?.body as string);
+      return fakeResponse({
+        choices: [{ message: {
+          content: "visible final expression",
+          reasoning_content: "private hidden reasoning",
+        } }],
+        usage: {
+          prompt_tokens: 5,
+          completion_tokens: 20,
+          completion_tokens_details: { reasoning_tokens: 12 },
+        },
+      });
+    });
+    const result = await adapter.dispatch({
+      messages,
+      modelId: "nvidia/nemotron-3.5-lightning-30b-a3b",
+      options: { maxTokens: 4096 },
+      fabricReasoning: toTrustedReasoningControl(translated.control),
+    });
+
+    expect(capturedBody).toMatchObject({
+      model: "nvidia/nemotron-3.5-lightning-30b-a3b",
+      max_tokens: 4096,
+      chat_template_kwargs: { enable_thinking: true },
+      reasoning_budget: 512,
+    });
+    expect(capturedBody).not.toHaveProperty("reasoning_effort");
+    expect(result.text).toBe("visible final expression");
+    expect(result.text).not.toContain("private hidden reasoning");
+    expect(result.usage?.reasoningTokens).toBe(12);
+    expect(JSON.stringify(result.responseDiagnostics)).not.toContain(
+      "private hidden reasoning",
+    );
   });
 
   it("serializes reasoning_budget 1024 for direct Super high reasoning effort without fabric", async () => {

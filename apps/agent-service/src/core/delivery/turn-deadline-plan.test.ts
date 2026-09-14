@@ -231,6 +231,17 @@ describe("TurnDeadlinePlan", () => {
   });
 
   describe("PROVISIONAL_UNQUALIFIED_TURN_DEADLINE_POLICY (Production Default)", () => {
+    it("gives the ordinary interactive Expression phase a 20 second window", () => {
+      const plan = createTurnDeadlinePlan(admittedAtMs);
+
+      expect(plan.branches.ordinary.expressionDeadlineAtMs).toBe(
+        admittedAtMs + 6_000 + 20_000 + 20_000,
+      );
+      expect(plan.branches.ordinary.generationDeadlineAtMs).toBe(
+        admittedAtMs + 6_000 + 20_000 + 20_000 + 4_000,
+      );
+    });
+
     it("accepts candidate_workspace_experiment with all 8 supported workspace operations", () => {
       const plan = createTurnDeadlinePlan(admittedAtMs);
 

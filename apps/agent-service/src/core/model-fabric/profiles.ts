@@ -27,6 +27,8 @@ const MODEL_OUTPUT_CEILINGS: Readonly<Record<string, number>> = {
   "groq:openai/gpt-oss-20b": 4096,
   "mistral:mistral-small-2603": 4096,
   "nim:nvidia/nemotron-3-super-120b-a12b": 8192,
+  "nim:nvidia/nemotron-3.5-lightning-30b-a3b": 4096,
+  "groq:qwen/qwen3.6-27b": 4096,
   "cloudflare:@cf/nvidia/nemotron-3-120b-a12b": 8192,
   "cloudflare:@cf/deepseek-ai/deepseek-v4-flash-0731": 16384,
 };

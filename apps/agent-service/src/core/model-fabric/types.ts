@@ -181,7 +181,11 @@ export type ReasoningPolicy =
 
 export type TranslatedWireControl =
   | { kind: "reasoning_effort"; value: "none" | "low" | "medium" | "high" }
-  | { kind: "chat_template_thinking"; enableThinking: boolean };
+  | {
+      kind: "chat_template_thinking";
+      enableThinking: boolean;
+      reasoningBudgetTokens?: number;
+    };
 
 export type ObservedReasoning =
   | { status: "tokens"; reasoningTokens: number }

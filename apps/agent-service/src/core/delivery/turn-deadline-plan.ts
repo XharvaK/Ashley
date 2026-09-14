@@ -364,7 +364,7 @@ function assertGenerationBeforeTransport(
  * 140 probes, 500ms is 2× that proven window.
  *
  * All other budgets reuse prior hard boundaries / incident and remain
- * provisional: 5s soft target, 6s Thought window, 4s guard, 20s Perception,
+ * provisional: 5s soft target, 6s Thought window, 20s Expression, 20s Perception,
  * 30s M1 cap, 6s M2 child cap (covers 5.042s tail, still explicitly
  * unqualified for child timing), 120s transport + final delivery.
  *
@@ -390,7 +390,7 @@ export const PROVISIONAL_UNQUALIFIED_TURN_DEADLINE_POLICY: TurnDeadlinePolicy =
     finalDeliveryReserveMs: 120_000,
     ordinary: {
       perceptionMs: 20_000,
-      expressionMs: 4_000,
+      expressionMs: 20_000,
       generationSettlementMs: 4_000,
     },
     sandboxM1: {

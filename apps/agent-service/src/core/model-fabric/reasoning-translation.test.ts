@@ -189,6 +189,7 @@ describe("Lightning translation", () => {
     expect(probe.requestBody?.chat_template_kwargs).toEqual({
       enable_thinking: false,
     });
+    expect(probe.requestBody?.reasoning_budget).toBeUndefined();
     expect(probe.requestBody?.reasoning_effort).toBeUndefined();
   });
 
@@ -201,20 +202,53 @@ describe("Lightning translation", () => {
     expect(probe.requestBody?.chat_template_kwargs).toEqual({
       enable_thinking: false,
     });
+    expect(probe.requestBody?.reasoning_budget).toBeUndefined();
+    expect(probe.requestBody?.reasoning_effort).toBeUndefined();
   });
 
-  it("fails closed for standard without a source-backed budget", () => {
+  it("maps standard to bounded thinking without reasoning_effort", () => {
     const probe = inspectFabricNimRequest({
       provider: "nim",
       configuredModelId: LIGHTNING,
       reasoningPolicy: "standard",
     });
-    expect(probe.requestBody).toBeNull();
+    expect(probe.semanticPolicy).toBe("standard");
     expect(probe.translation).toEqual({
-      status: "unsupported",
-      code: "lightning_standard_policy_unresolved",
+      status: "translated",
+      familyId: "nim_nemotron_lightning",
+      control: {
+        kind: "chat_template_thinking",
+        enableThinking: true,
+        reasoningBudgetTokens: 512,
+      },
     });
+    expect(probe.requestBody).toMatchObject({
+      chat_template_kwargs: { enable_thinking: true },
+      reasoning_budget: 512,
+    });
+    expect(probe.requestBody?.reasoning_effort).toBeUndefined();
+    expect(
+      probe.translation.status === "translated"
+        ? formatTranslatedWireControl(probe.translation.control)
+        : null,
+    ).toBe("chat_template_kwargs.enable_thinking=true;reasoning_budget=512");
   });
+
+  it.each(["high", "max_supported"] as const)(
+    "fails closed for Lightning %s",
+    (reasoningPolicy) => {
+      const probe = inspectFabricNimRequest({
+        provider: "nim",
+        configuredModelId: LIGHTNING,
+        reasoningPolicy,
+      });
+      expect(probe.requestBody).toBeNull();
+      expect(probe.translation).toEqual({
+        status: "unsupported",
+        code: "unsupported_reasoning_mapping",
+      });
+    },
+  );
 });
 
 describe("fail-closed provider capability", () => {
@@ -332,6 +366,26 @@ describe("inference fingerprint materiality", () => {
     });
     expect(repairedHash).not.toBe(aliasHash);
     expect(gptOssStillCurrent).toBe(gptOssCurrent);
+  });
+
+  it("changes when the Lightning reasoning budget changes", () => {
+    const bounded = createInferencePolicyFingerprint({
+      provider: "nim",
+      configuredModelId: LIGHTNING,
+      reasoningEffort: null,
+      translatedWireControl:
+        "chat_template_kwargs.enable_thinking=true;reasoning_budget=512",
+      maxTokens: 4096,
+    });
+    const materiallyDifferent = createInferencePolicyFingerprint({
+      provider: "nim",
+      configuredModelId: LIGHTNING,
+      reasoningEffort: null,
+      translatedWireControl:
+        "chat_template_kwargs.enable_thinking=true;reasoning_budget=256",
+      maxTokens: 4096,
+    });
+    expect(materiallyDifferent).not.toBe(bounded);
   });
 });
 

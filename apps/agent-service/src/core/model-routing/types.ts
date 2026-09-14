@@ -376,7 +376,11 @@ export type WireDispatchEvidence = Readonly<{
  */
 export type TrustedReasoningControl =
   | { kind: "reasoning_effort"; value: "none" | "low" | "medium" | "high" }
-  | { kind: "chat_template_thinking"; enableThinking: boolean };
+  | {
+      kind: "chat_template_thinking";
+      enableThinking: boolean;
+      reasoningBudgetTokens?: number;
+    };
 
 export type ProviderDispatchArgs = {
   messages: ChatMessage[];
