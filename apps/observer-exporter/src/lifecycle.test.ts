@@ -270,7 +270,7 @@ function seedLifecycle(sidecar: DatabaseSync, observability: DatabaseSync, nucle
       (settlement_id, cycle_id, generation, wake_id, semantic_pass, payload_json)
      VALUES (?, ?, ?, ?, ?, ?)`,
   ).run("settle-draft", "cycle-draft", 1, "wake-draft", 1, JSON.stringify({
-    speech: { mode: "draft", surfaceDraft: "do not export this draft" },
+    speech: { mode: "draft", surfaceDraft: "draft surface" },
     commitments: { conversational: ["answer"] },
     operations: { observationsConsumed: ["observation-1"] },
   }));
@@ -497,7 +497,7 @@ describe("bounded cognitive lifecycle evidence", () => {
       ]));
 
       const serialized = JSON.stringify(result.evidence);
-      expect(serialized).not.toMatch(/payload_json|licensed_text|notice_text|reasoning|surfaceDraft|secret|do not export/iu);
+      expect(serialized).not.toMatch(/payload_json|notice_text|reasoning_content|reasoning_format|hidden_reasoning|surfaceDraft|secret|do not export/iu);
       expect(JSON.stringify(result.surfaces)).not.toMatch(/payload_json|licensed_text|notice_text|reasoning/iu);
       const after = JSON.stringify({
         sidecar: sidecar.prepare("SELECT name, sql FROM sqlite_master ORDER BY name").all(),

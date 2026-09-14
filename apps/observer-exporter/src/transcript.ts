@@ -4,6 +4,7 @@ import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { redactObserverText, isSecretClassification } from "./privacy.js";
 import { allowlistedRows, tableColumns, tableExists, scalarJson } from "./sqlite.js";
+import { captureModernConversation } from "./modern.js";
 import type {
   FieldDayWindow,
   TranscriptAssembly,
@@ -247,10 +248,28 @@ export function assembleTranscript(input: {
   sessionsRoot: string;
   window: FieldDayWindow;
   nuclear: DatabaseSync | null;
+  cognitiveSidecar?: DatabaseSync | null;
   identity?: TranscriptDocument["identity"];
 }): TranscriptAssembly {
   const primaryResult = readPrimary(input.sessionsRoot, input.window);
-  const gaps = [...primaryResult.gaps];
+  const modernAttempted = input.cognitiveSidecar !== undefined;
+  const modernCapture = modernAttempted
+    ? captureModernConversation({
+      cognitiveSidecar: input.cognitiveSidecar ?? null,
+      nuclear: input.nuclear,
+      window: input.window,
+    })
+    : {
+      sessions: [],
+      turns: [],
+      expressionAttempts: [],
+      modernGaps: [],
+      modernActivityCount: 0,
+      modernMessageCount: 0,
+      sourceAvailable: false,
+      sourceAttempted: false,
+    };
+  const gaps = [...primaryResult.gaps, ...modernCapture.modernGaps];
   const sourceConflicts: TranscriptConflict[] = [];
   const nuclearMessages = input.nuclear ? readNuclearMessages(input.nuclear, input.window) : [];
   const byId = new Map(nuclearMessages.map((record) => [String(record.id), record]));
@@ -311,14 +330,55 @@ export function assembleTranscript(input: {
   const transcript: TranscriptDocument = {
     field_day: input.window.fieldDay,
     identity: input.identity ?? null,
-    sessions: primaryResult.sessions,
+    sessions: [...primaryResult.sessions, ...modernCapture.sessions],
     gaps,
     source_conflicts: sourceConflicts,
+    source_inventory: {
+      legacy_jsonl: {
+        available: existsSync(input.sessionsRoot),
+        record_count: primaryResult.primary.length,
+      },
+      modern_cognitive: {
+        available: modernCapture.sourceAvailable,
+        activity_count: modernCapture.modernActivityCount,
+        record_count: modernCapture.modernMessageCount,
+        extraction_status: !modernAttempted
+          ? "UNKNOWN"
+          : !modernCapture.sourceAvailable
+            ? "unavailable"
+            : modernCapture.modernGaps.length > 0
+              ? "partial"
+              : modernCapture.modernActivityCount === 0
+                ? "empty"
+                : "complete",
+      },
+    },
   };
+  const legacyRecordCount = primaryResult.primary.length;
+  const legacyAvailable = existsSync(input.sessionsRoot);
+  const modernHasActivity = modernCapture.modernActivityCount > 0;
+  const modernHealthy = modernCapture.sourceAvailable
+    && modernCapture.modernGaps.length === 0
+    && (!modernHasActivity || modernCapture.modernMessageCount > 0);
+  const coverage = !modernAttempted
+    ? primaryResult.complete ? "NORMAL" : "DEGRADED_PARTIAL"
+    : modernHasActivity
+      ? modernHealthy ? "NORMAL" : "DEGRADED_PARTIAL"
+      : modernHealthy && legacyAvailable && primaryResult.complete && legacyRecordCount > 0
+        ? "NORMAL"
+        : "DEGRADED_PARTIAL";
   return {
-    coverage: primaryResult.complete ? "NORMAL" : "DEGRADED_PARTIAL",
+    coverage,
     transcript,
     gaps,
     source_conflicts: sourceConflicts,
+    legacy_source_available: legacyAvailable,
+    legacy_record_count: legacyRecordCount,
+    modern_source_attempted: modernAttempted,
+    modern_source_available: modernCapture.sourceAvailable,
+    modern_activity_count: modernCapture.modernActivityCount,
+    modern_message_count: modernCapture.modernMessageCount,
+    legacy_gaps: primaryResult.gaps,
+    modern_gaps: modernCapture.modernGaps,
   };
 }

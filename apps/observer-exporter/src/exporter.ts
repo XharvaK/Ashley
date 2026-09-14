@@ -84,11 +84,11 @@ function addSurfaceFailure(surface: SurfaceReport, name: string, errorClass: str
 function combineSurfaceReports(
   identity: SurfaceReport,
   evidence: SurfaceReport,
-  transcript: { jsonlAvailable: boolean },
+  transcript: { jsonlAvailable: boolean; jsonlUsed: boolean },
 ): SurfaceReport {
   const combined = mergeEvidenceSurfaces(identity, evidence);
-  if (transcript.jsonlAvailable) combined.used.push("jsonl_root");
-  else combined.failed.push({ name: "jsonl_root", error_class: "source_missing", state: "UNKNOWN" });
+  if (transcript.jsonlUsed) combined.used.push("jsonl_root");
+  else if (!transcript.jsonlAvailable) combined.failed.push({ name: "jsonl_root", error_class: "source_missing", state: "UNKNOWN" });
   combined.used = [...new Set(combined.used)].sort();
   combined.failed.sort((a, b) => a.name.localeCompare(b.name));
   return combined;
@@ -225,10 +225,14 @@ export async function exportFieldObservation(options: ExportOptions): Promise<Ex
       sessionsRoot: join(dataRoot, "conversations", "sessions"),
       window,
       nuclear,
+      cognitiveSidecar,
       identity: identityResult.identity,
     });
-    const jsonlAvailable = existsSync(join(dataRoot, "conversations", "sessions"));
-    const surfaces = combineSurfaceReports(identityResult.surfaces, evidenceResult.surfaces, { jsonlAvailable });
+    const jsonlAvailable = transcriptResult.legacy_source_available ?? existsSync(join(dataRoot, "conversations", "sessions"));
+    const surfaces = combineSurfaceReports(identityResult.surfaces, evidenceResult.surfaces, {
+      jsonlAvailable,
+      jsonlUsed: (transcriptResult.legacy_record_count ?? 0) > 0,
+    });
     for (const failure of snapshotStatus.failed) {
       if (!surfaces.failed.some((candidate) => candidate.name === failure.name && candidate.error_class === failure.error_class)) {
         surfaces.failed.push(failure);

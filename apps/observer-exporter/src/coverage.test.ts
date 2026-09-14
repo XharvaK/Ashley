@@ -7,6 +7,7 @@ import { fieldDayWindow } from "./field-day.js";
 import {
   aggregateCoverage,
   sourceCoverageForDatabase,
+  sourceCoverageForModernTranscript,
   sourceCoverageForTranscript,
 } from "./coverage.js";
 import { extractEvidence } from "./evidence.js";
@@ -29,6 +30,7 @@ function validSidecar(sql = ""): DatabaseSync {
   return memoryDatabase(`
     CREATE TABLE inbox_events (id TEXT, conversation_id TEXT, kind TEXT, created_at_ms INTEGER, status TEXT, state TEXT, terminal_reason TEXT, wake_id TEXT, attempt_count INTEGER, consumed_at_ms INTEGER, next_eligible_at_ms INTEGER, last_failure_class TEXT);
     CREATE TABLE cycle_records (cycle_id TEXT, conversation_id TEXT, generation INTEGER, state TEXT, admitted_at_ms INTEGER, updated_at_ms INTEGER);
+    CREATE TABLE thought_steps (request_id TEXT, cycle_id TEXT, generation INTEGER, pass INTEGER, kind TEXT, payload_json TEXT, created_at_ms INTEGER);
     CREATE TABLE observations (observation_id TEXT, cycle_id TEXT, generation INTEGER, derived INTEGER, replay_safe INTEGER, modality TEXT, provenance TEXT, created_at_ms INTEGER);
     CREATE TABLE wakes (wake_id TEXT, occurrence_id TEXT, conversation_id TEXT, cycle_id TEXT, state TEXT, terminal_reason TEXT, created_at_ms INTEGER, updated_at_ms INTEGER);
     CREATE TABLE settlements (settlement_id TEXT, cycle_id TEXT, generation INTEGER, payload_json TEXT);
@@ -64,6 +66,7 @@ function validNuclear(sql = ""): DatabaseSync {
     CREATE TABLE mem_messages (created_at TEXT NOT NULL);
     CREATE TABLE delivery_reservations (id INTEGER, owner_id TEXT, channel TEXT, thread_id TEXT, trigger TEXT, delivery_lane TEXT, state TEXT, error_category TEXT, finalization_reason TEXT, created_at TEXT, finalized_at TEXT, cognitive_v021_projection_key TEXT);
     CREATE TABLE delivery_bubbles (reservation_id INTEGER, ordinal INTEGER, discord_message_id TEXT, sent_at TEXT);
+    CREATE TABLE attention_requests (id INTEGER, purpose TEXT, model_alias TEXT, provider_id TEXT, route_alias TEXT, state TEXT, outcome TEXT, created_at TEXT, dispatch_started_at TEXT, ended_at TEXT, actual_input_tokens INTEGER, actual_output_tokens INTEGER);
     ${sql}
   `);
 }
@@ -458,6 +461,24 @@ describe("per-source observer coverage", () => {
     expect(coverage.disposition).toBe("completeness_unknown");
     expect(coverage.failure_omission_state).toContain("schema_surface_absent:speech_outbox");
     sidecar.close();
+  });
+
+  it("does not call modern activity normal when extraction yields no transcript rows", () => {
+    const assembly = transcriptAssembly([]);
+    assembly.modern_source_attempted = true;
+    assembly.modern_source_available = true;
+    assembly.modern_activity_count = 1;
+    assembly.modern_message_count = 0;
+    assembly.modern_gaps = [{ class: "MISSING_MODERN", detail: "owner_cycle_relation_missing" }];
+
+    const coverage = completeMap("complete_empty");
+    coverage.modern_transcript = sourceCoverageForModernTranscript({ window, transcript: assembly });
+
+    expect(coverage.modern_transcript).toMatchObject({
+      disposition: "partial",
+      record_count: 0,
+    });
+    expect(aggregateCoverage(coverage)).toBe("DEGRADED_PARTIAL");
   });
 
   it("requires delivery receipt surfaces before nuclear completeness", () => {

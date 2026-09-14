@@ -1,6 +1,7 @@
 import type { DatabaseSync } from "node:sqlite";
 import { canonicalize } from "./canonical-json.js";
 import { fieldDayWhere, type FieldDayWhere } from "./coverage.js";
+import { captureModernConversation } from "./modern.js";
 import { allowlistedRows, pragmaUserVersion, tableColumns, tableExists } from "./sqlite.js";
 import { fieldDayWindow } from "./field-day.js";
 import type {
@@ -1055,6 +1056,35 @@ export function extractEvidence(input: {
   const recallEpochs = readRows(input.nuclear, surfaces, "recall_qualification_epochs", ["epoch_id", "status", "predecessor_epoch_id", "contract_id", "started_build_identity", "started_at", "retired_at", "eval_seed_count", "qualified_at", "model_epoch", "data_classification"]);
   const recallRelease = selectCurrent(releases, "recall");
   const cutoff = readRecallCutover(input.nuclear, surfaces, stringValue(rowValue(recallRelease, "release_id")));
+  markTable(surfaces, input.cognitiveSidecar ?? null, "thought_steps");
+  markTable(surfaces, input.nuclear, "attention_requests");
+  const modernCapture = captureModernConversation({
+    cognitiveSidecar: input.cognitiveSidecar ?? null,
+    nuclear: input.nuclear,
+    window,
+  });
+  const lifecycle = lifecycleEvidence({
+    nuclear: input.nuclear,
+    cognitiveSidecar: input.cognitiveSidecar ?? null,
+    cognitiveObservability: input.cognitiveObservability ?? null,
+    window,
+    surfaces,
+  });
+  lifecycle.modern_transcript = jsonObject({
+    source_identity: "cognitive-v021.db:conversation_evidence_log + lifecycle",
+    source_available: modernCapture.sourceAvailable,
+    activity_count: modernCapture.modernActivityCount,
+    record_count: modernCapture.modernMessageCount,
+    extraction_status: modernCapture.modernGaps.length > 0
+      ? "partial"
+      : modernCapture.modernActivityCount === 0
+        ? "empty"
+        : "complete",
+    gaps: modernCapture.modernGaps.map((gap) => jsonObject({ class: gap.class, detail: gap.detail })),
+    expression_attempts: modernCapture.expressionAttempts,
+  });
+  lifecycle.turn_evidence = modernCapture.turns;
+  lifecycle.expression_attempts = modernCapture.expressionAttempts;
   const evidence: EvidenceProjection = {
     decision_log: rowsInWindow(input.nuclear, surfaces, "decision_log", ["id", "channel", "trigger", "decision_kind", "created_at", "completion", "uncertainty", "urgency", "thought_source", "data_classification"], window),
     capability_releases: releases,
@@ -1074,13 +1104,9 @@ export function extractEvidence(input: {
     recall_live_cutovers: cutoff.rows,
     continuity_lineage: continuityLineage(input.continuity, surfaces).row,
     continuity_sessions: rowsInWindow(input.continuity, surfaces, "runtime_sessions", ["session_id", "started_at", "last_seen_at", "clean_shutdown_at", "build_identity", "nuclear_schema_version", "lineage_id", "data_classification"], window),
-    cognitive_lifecycle: lifecycleEvidence({
-      nuclear: input.nuclear,
-      cognitiveSidecar: input.cognitiveSidecar ?? null,
-      cognitiveObservability: input.cognitiveObservability ?? null,
-      window,
-      surfaces,
-    }),
+    cognitive_lifecycle: lifecycle,
+    turn_evidence: modernCapture.turns,
+    expression_attempts: modernCapture.expressionAttempts,
   };
   return { evidence, surfaces };
 }

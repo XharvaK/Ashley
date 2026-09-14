@@ -47,10 +47,11 @@ function fixture(): { dataRoot: string; outRoot: string; sessionsRoot: string; c
   createCoverageDatabase(join(dataRoot, "cognitive-v021.db"), `
     CREATE TABLE inbox_events (id TEXT, conversation_id TEXT, kind TEXT, created_at_ms INTEGER, status TEXT, state TEXT, terminal_reason TEXT, wake_id TEXT);
     CREATE TABLE cycle_records (cycle_id TEXT, conversation_id TEXT, generation INTEGER, state TEXT, admitted_at_ms INTEGER, updated_at_ms INTEGER);
+    CREATE TABLE thought_steps (request_id TEXT, cycle_id TEXT, generation INTEGER, pass INTEGER, kind TEXT, payload_json TEXT, created_at_ms INTEGER);
     CREATE TABLE observations (observation_id TEXT, cycle_id TEXT, generation INTEGER, derived INTEGER, replay_safe INTEGER, modality TEXT, provenance TEXT, created_at_ms INTEGER);
     CREATE TABLE wakes (wake_id TEXT, occurrence_id TEXT, conversation_id TEXT, cycle_id TEXT, state TEXT, terminal_reason TEXT, created_at_ms INTEGER, updated_at_ms INTEGER);
     CREATE TABLE settlements (settlement_id TEXT, cycle_id TEXT, generation INTEGER, payload_json TEXT);
-    CREATE TABLE speech_outbox (outbox_id INTEGER, settlement_id TEXT, projection_key TEXT, cycle_id TEXT, generation INTEGER, send_status TEXT, nuclear_reservation_id INTEGER, discord_message_ids_json TEXT);
+    CREATE TABLE speech_outbox (outbox_id INTEGER, settlement_id TEXT, projection_key TEXT, cycle_id TEXT, generation INTEGER, conversation_id TEXT, licensed_text TEXT, send_status TEXT, nuclear_reservation_id INTEGER, discord_message_ids_json TEXT, suppressed INTEGER, origin TEXT);
     CREATE TABLE system_notice_outbox (notice_id INTEGER, cycle_id TEXT, conversation_id TEXT, send_status TEXT, nuclear_reservation_id INTEGER, discord_message_id TEXT);
     CREATE TABLE conversation_evidence_log (row_id TEXT, lineage_id TEXT, version INTEGER, conversation_id TEXT, role TEXT, created_at_ms INTEGER, discord_message_ids_json TEXT, reservation_id INTEGER, producing_cycle_id TEXT, content_hash TEXT, source_status TEXT, secret_omitted INTEGER, delivered INTEGER, data_classification TEXT);
     CREATE TABLE periodic_cognition_schedule (id TEXT, authority_epoch INTEGER, next_eligible_at_ms INTEGER, updated_at_ms INTEGER);
@@ -108,6 +109,7 @@ describe("deterministic observer export", () => {
       "cognitive_observability",
       "cognitive_sidecar",
       "continuity",
+      "modern_transcript",
       "nuclear",
       "transcript_session",
     ]);

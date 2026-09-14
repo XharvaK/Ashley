@@ -223,6 +223,34 @@ export function createNuclearFixture(path: string): DatabaseSync {
       discord_message_id TEXT,
       sent_at TEXT
     );
+    CREATE TABLE attention_requests (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      lane TEXT NOT NULL,
+      purpose TEXT NOT NULL,
+      model_alias TEXT NOT NULL,
+      resolved_model_id TEXT,
+      provider_id TEXT,
+      route_alias TEXT,
+      state TEXT NOT NULL,
+      outcome TEXT,
+      error_class TEXT,
+      queued_at TEXT NOT NULL,
+      eligible_at TEXT NOT NULL,
+      age_origin_at TEXT NOT NULL,
+      deadline_at TEXT,
+      reserved_at TEXT,
+      dispatch_started_at TEXT,
+      ended_at TEXT,
+      actual_input_tokens INTEGER,
+      actual_output_tokens INTEGER,
+      delivery_reservation_id INTEGER,
+      created_at TEXT NOT NULL,
+      thought_invocation_id TEXT,
+      thought_cycle_id TEXT,
+      thought_generation INTEGER,
+      actual_provider TEXT,
+      actual_wire_binding_id TEXT
+    );
   `);
   return db;
 }

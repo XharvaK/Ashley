@@ -48,6 +48,8 @@ const SOURCE_IDENTITIES: Record<CoverageSource, string> = {
   continuity: "continuity.db",
 };
 
+const MODERN_TRANSCRIPT_IDENTITY = "cognitive-v021.db:conversation_evidence_log + lifecycle";
+
 const REQUIRED_DATABASE_SURFACES: Record<DatabaseCoverageSource, readonly RequiredCoverageSurface[]> = {
   nuclear: [
     {
@@ -70,6 +72,11 @@ const REQUIRED_DATABASE_SURFACES: Record<DatabaseCoverageSource, readonly Requir
         relatedColumn: "id",
         timestamp: { table: "delivery_reservations", columns: ["created_at", "finalized_at"], format: "iso" },
       },
+    },
+    {
+      table: "attention_requests",
+      columns: ["id", "purpose", "model_alias", "provider_id", "route_alias", "state", "outcome", "created_at", "dispatch_started_at", "ended_at", "actual_input_tokens", "actual_output_tokens"],
+      timestamp: { table: "attention_requests", columns: ["created_at", "dispatch_started_at", "ended_at"], format: "iso" },
     },
   ],
   cognitive_sidecar: [
@@ -102,6 +109,11 @@ const REQUIRED_DATABASE_SURFACES: Record<DatabaseCoverageSource, readonly Requir
         relatedColumn: "cycle_id",
         timestamp: { table: "cycle_records", columns: ["admitted_at_ms", "updated_at_ms"], format: "epoch_ms" },
       },
+    },
+    {
+      table: "thought_steps",
+      columns: ["request_id", "cycle_id", "generation", "pass", "kind", "payload_json", "created_at_ms"],
+      timestamp: { table: "thought_steps", columns: ["created_at_ms"], format: "epoch_ms" },
     },
     {
       table: "speech_outbox",
@@ -585,7 +597,8 @@ export function sourceCoverageForTranscript(input: {
 
   const timestamps: ObservedTimestamp[] = [];
   let invalidTimestamp = false;
-  for (const session of input.transcript.transcript.sessions) {
+  const legacySessions = input.transcript.transcript.sessions.filter((session) => session.source !== "cognitive_v021");
+  for (const session of legacySessions) {
     for (const message of session.messages) {
       const timestamp = parseTimestamp(message.ts, "iso");
       if (!timestamp || timestamp.milliseconds < input.window.start.getTime() || timestamp.milliseconds >= input.window.end.getTime()) {
@@ -595,7 +608,8 @@ export function sourceCoverageForTranscript(input: {
       timestamps.push(timestamp);
     }
   }
-  const failures = input.transcript.gaps.map((gap) => `transcript_gap:${gap.class}`);
+  const failures = (input.transcript.legacy_gaps ?? input.transcript.gaps)
+    .map((gap) => `transcript_gap:${gap.class}`);
   if (invalidTimestamp) failures.push("invalid_timestamp");
   const uniqueFailures = [...new Set(failures)];
   const recordCount = timestamps.length;
@@ -626,6 +640,71 @@ export function sourceCoverageForTranscript(input: {
   );
 }
 
+export function sourceCoverageForModernTranscript(input: {
+  window: FieldDayWindow;
+  transcript: TranscriptAssembly;
+}): SourceCoverage {
+  if (!input.transcript.modern_source_attempted) {
+    return {
+      source_identity: MODERN_TRANSCRIPT_IDENTITY,
+      requested_interval: requestedInterval(input.window),
+      observed_interval: null,
+      disposition: "complete_empty",
+      record_count: 0,
+      failure_omission_state: null,
+    };
+  }
+  if (!input.transcript.modern_source_available) {
+    return {
+      source_identity: MODERN_TRANSCRIPT_IDENTITY,
+      requested_interval: requestedInterval(input.window),
+      observed_interval: "UNKNOWN",
+      disposition: "unavailable_or_unchecked",
+      record_count: "UNKNOWN",
+      failure_omission_state: "source_missing_or_unreadable",
+    };
+  }
+  const timestamps: ObservedTimestamp[] = [];
+  for (const session of input.transcript.transcript.sessions) {
+    if (session.source !== "cognitive_v021") continue;
+    for (const message of session.messages) {
+      const timestamp = parseTimestamp(message.ts, "iso");
+      if (timestamp) timestamps.push(timestamp);
+    }
+  }
+  const activityCount = input.transcript.modern_activity_count ?? 0;
+  const recordCount = input.transcript.modern_message_count ?? timestamps.length;
+  const gaps = input.transcript.modern_gaps ?? [];
+  if (gaps.length === 0 && activityCount === 0) {
+    return {
+      source_identity: MODERN_TRANSCRIPT_IDENTITY,
+      requested_interval: requestedInterval(input.window),
+      observed_interval: observedInterval(timestamps),
+      disposition: "complete_empty",
+      record_count: recordCount,
+      failure_omission_state: null,
+    };
+  }
+  if (gaps.length === 0 && activityCount > 0 && recordCount > 0) {
+    return {
+      source_identity: MODERN_TRANSCRIPT_IDENTITY,
+      requested_interval: requestedInterval(input.window),
+      observed_interval: observedInterval(timestamps),
+      disposition: "complete_nonempty",
+      record_count: recordCount,
+      failure_omission_state: null,
+    };
+  }
+  return {
+    source_identity: MODERN_TRANSCRIPT_IDENTITY,
+    requested_interval: requestedInterval(input.window),
+    observed_interval: observedInterval(timestamps),
+    disposition: "partial",
+    record_count: recordCount,
+    failure_omission_state: failureState(gaps.map((gap) => `transcript_gap:${gap.class}:${gap.detail}`)),
+  };
+}
+
 export function buildSourceCoverage(input: {
   sessionsRoot: string;
   window: FieldDayWindow;
@@ -638,6 +717,9 @@ export function buildSourceCoverage(input: {
   };
   failures?: Partial<Record<DatabaseCoverageSource, string>>;
 }): SourceCoverageMap {
+  const modern = input.transcript.modern_source_attempted
+    ? sourceCoverageForModernTranscript(input)
+    : undefined;
   return {
     transcript_session: sourceCoverageForTranscript(input),
     nuclear: sourceCoverageForDatabase({
@@ -664,6 +746,7 @@ export function buildSourceCoverage(input: {
       window: input.window,
       failure: input.failures?.continuity,
     }),
+    ...(modern ? { modern_transcript: modern } : {}),
   };
 }
 
@@ -672,6 +755,20 @@ function isComplete(disposition: SourceCoverage["disposition"]): boolean {
 }
 
 export function aggregateCoverage(sourceCoverage: SourceCoverageMap): "NORMAL" | "DEGRADED_PARTIAL" {
+  const modern = sourceCoverage.modern_transcript;
+  if (modern) {
+    if (!isComplete(modern.disposition)) return "DEGRADED_PARTIAL";
+    if (!COVERAGE_SOURCES.filter((source) => source !== "transcript_session").every((source) => {
+      const coverage = sourceCoverage[source];
+      return coverage != null && isComplete(coverage.disposition);
+    })) {
+      return "DEGRADED_PARTIAL";
+    }
+    if (modern.disposition === "complete_nonempty") return "NORMAL";
+    return sourceCoverage.transcript_session.disposition === "complete_nonempty"
+      ? "NORMAL"
+      : "DEGRADED_PARTIAL";
+  }
   if (!COVERAGE_SOURCES.every((source) => {
     const coverage = sourceCoverage[source];
     return coverage != null && isComplete(coverage.disposition);

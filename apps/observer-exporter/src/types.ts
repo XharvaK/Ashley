@@ -39,7 +39,10 @@ export type SourceCoverage = {
   failure_omission_state: string | null | UnknownValue;
 };
 
-export type SourceCoverageMap = Record<CoverageSource, SourceCoverage>;
+export type SourceCoverageMap = Record<CoverageSource, SourceCoverage> & {
+  /** Modern canonical transcript coverage is optional for legacy direct callers. */
+  modern_transcript?: SourceCoverage;
+};
 
 export type FieldDayWindow = {
   fieldDay: string;
@@ -98,16 +101,34 @@ export type TranscriptMessage = {
   nuclear_message_id: number | string | null;
   join_method: "stable_identifier" | "timestamp_text_hash" | null;
   join_confidence: "high" | "ambiguous" | "none" | null;
+  /** Present only when the message came from the modern cognitive evidence log. */
+  evidence_row_id?: string | null;
+  conversation_id?: string | null;
+  discord_message_ids?: string[];
+  cycle_id?: string | null;
+  generation?: number | null;
+  reservation_id?: number | null;
+  outbox_id?: number | null;
+  settlement_id?: string | null;
+  delivery_bubble_ids?: Array<number | string>;
 };
 
 export type TranscriptSession = {
   session_id: string;
   channel: string;
   messages: TranscriptMessage[];
+  source?: "legacy_jsonl" | "cognitive_v021" | "mixed";
+  conversation_id?: string;
 };
 
 export type TranscriptGap = {
-  class: "UNKNOWN" | "MISSING_JSONL" | "MISSING_NUCLEAR" | "SOURCE_CONFLICT";
+  class:
+    | "UNKNOWN"
+    | "MISSING_JSONL"
+    | "MISSING_NUCLEAR"
+    | "SOURCE_CONFLICT"
+    | "MISSING_MODERN"
+    | "AMBIGUOUS_MODERN_JOIN";
   detail: string;
 };
 
@@ -133,6 +154,18 @@ export type TranscriptDocument = {
   sessions: TranscriptSession[];
   gaps: TranscriptGap[];
   source_conflicts: TranscriptConflict[];
+  source_inventory?: {
+    legacy_jsonl: {
+      available: boolean;
+      record_count: number;
+    };
+    modern_cognitive: {
+      available: boolean;
+      activity_count: number;
+      record_count: number;
+      extraction_status: "complete" | "partial" | "empty" | "unavailable" | "UNKNOWN";
+    };
+  };
 };
 
 export type TranscriptAssembly = {
@@ -140,6 +173,14 @@ export type TranscriptAssembly = {
   transcript: TranscriptDocument;
   gaps: TranscriptGap[];
   source_conflicts: TranscriptConflict[];
+  legacy_source_available?: boolean;
+  legacy_record_count?: number;
+  modern_source_attempted?: boolean;
+  modern_source_available?: boolean;
+  modern_activity_count?: number;
+  modern_message_count?: number;
+  legacy_gaps?: TranscriptGap[];
+  modern_gaps?: TranscriptGap[];
 };
 
 export type EvidenceProjection = {
@@ -163,6 +204,10 @@ export type EvidenceProjection = {
   continuity_sessions: JsonObject[];
   /** Bounded, redacted facts projected from the existing lifecycle owners. */
   cognitive_lifecycle: JsonObject | UnknownValue;
+  /** Per-turn evidence reconstructed from durable modern lifecycle joins. */
+  turn_evidence?: JsonObject[];
+  /** Observed Expression requests whose durable turn relation may be absent. */
+  expression_attempts?: JsonObject[];
 };
 
 export type IdentityExtraction = {
