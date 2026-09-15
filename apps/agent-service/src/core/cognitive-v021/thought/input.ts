@@ -4,6 +4,7 @@ import {
   DEFAULT_OCCUPANCY_COMPACT_K,
   type CapabilityReality,
   type CapabilityRealityReasonCode,
+  type CommitmentDueProjection,
   type ConversationEvidenceRecord,
   type CycleRecord,
   type IdentitySlice,
@@ -109,6 +110,8 @@ export type BuildThoughtInputOptions = {
   authenticatedOwner?: boolean;
   /** Current permitted destination facts. Thought may choose; Host does not fan out. */
   availableDestinations?: readonly AvailableSocialDestination[];
+  /** Fire-time commitment meaning and three-state evidence completeness. */
+  commitmentDue?: CommitmentDueProjection;
   /** Active disclosure-license entity UUIDs already resolved by the Host. */
   licenses?: string[];
 };
@@ -825,6 +828,7 @@ export function buildThoughtInput(options: BuildThoughtInputOptions): ThoughtInp
       kind: options.triggerKindOverride ?? options.cycle.triggerKind as CycleTriggerKind,
       ref: options.cycle.triggerRef,
     },
+    ...(options.commitmentDue === undefined ? {} : { commitmentDue: { ...options.commitmentDue } }),
     rawConversation,
     ...(conversationSelection.frontierIncludedIds.length > 0 || conversationSelection.currentTriggerRowId !== null
       ? {

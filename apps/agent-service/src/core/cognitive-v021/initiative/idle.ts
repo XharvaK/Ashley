@@ -6,6 +6,7 @@ import { collectSubscriptionObservations, listObservationSubscriptions, type Sub
 import { getActiveDeferredFrontier } from "../frontier/ledger.js";
 import {
   type CycleRecord,
+  type CommitmentEvidenceCompleteness,
   type FutureTrigger,
   type InboxEvent,
   type KernelRunResult,
@@ -61,6 +62,8 @@ export type IdleThoughtContext = {
   event: InboxEvent | null;
   trigger: { kind: "idle_opportunity" | "commitment_due" | "subscription_item" | "future_trigger_due"; ref: string };
   commitmentId?: string;
+  realizationClause?: string;
+  evidenceCompleteness?: CommitmentEvidenceCompleteness;
   occupancy: MindOccupancy[];
   observations: Observation[];
   dueTriggers: FutureTrigger[];
@@ -615,7 +618,11 @@ async function tickConversation(
     wakeId,
     event,
     trigger: { kind: triggerKind, ref: triggerRef },
-    ...(commitment ? { commitmentId: commitment.commitmentId } : {}),
+    ...(commitment ? {
+      commitmentId: commitment.commitmentId,
+      realizationClause: commitment.realizationClause,
+      evidenceCompleteness: "unknown" as const,
+    } : {}),
     occupancy,
     observations,
     dueTriggers,
@@ -636,6 +643,8 @@ async function executeAdmittedThought(
     event: InboxEvent | null;
     trigger: { kind: "idle_opportunity" | "commitment_due" | "subscription_item" | "future_trigger_due"; ref: string };
     commitmentId?: string;
+    realizationClause?: string;
+    evidenceCompleteness?: CommitmentEvidenceCompleteness;
     occupancy: MindOccupancy[];
     observations: Observation[];
     dueTriggers: FutureTrigger[];
@@ -645,7 +654,23 @@ async function executeAdmittedThought(
     thought: IdleThoughtRunner;
   },
 ): Promise<IdleTickResult> {
-  const { conversationId, cycle, wakeId, event, trigger, commitmentId, occupancy, observations, dueTriggers, suppressedTriggers, reservation, nowMs, thought } = input;
+  const {
+    conversationId,
+    cycle,
+    wakeId,
+    event,
+    trigger,
+    commitmentId,
+    realizationClause,
+    evidenceCompleteness,
+    occupancy,
+    observations,
+    dueTriggers,
+    suppressedTriggers,
+    reservation,
+    nowMs,
+    thought,
+  } = input;
   activePrivateCalls.add(conversationId);
   try {
     const result = await thought({
@@ -655,6 +680,8 @@ async function executeAdmittedThought(
       event,
       trigger,
       ...(commitmentId ? { commitmentId } : {}),
+      ...(realizationClause ? { realizationClause } : {}),
+      ...(evidenceCompleteness ? { evidenceCompleteness } : {}),
       occupancy,
       observations,
       dueTriggers,

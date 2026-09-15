@@ -90,6 +90,7 @@ export type ProjectedThoughtInput = {
     kind: CycleTriggerKind;
     ref: string;
   };
+  commitmentDue?: ThoughtInput["commitmentDue"];
   rawConversation: ThoughtInput["rawConversation"];
   conversationSelection?: ThoughtInput["conversationSelection"];
   workingContext: WorkingContextItem[];
@@ -283,6 +284,7 @@ export function projectThoughtInput(
     occupantId: fullInput.occupantId,
     authorityEpoch: fullInput.authorityEpoch,
     trigger: fullInput.trigger,
+    ...(fullInput.commitmentDue === undefined ? {} : { commitmentDue: fullInput.commitmentDue }),
     rawConversation: fullInput.rawConversation,
     ...(fullInput.conversationSelection === undefined
       ? {}

@@ -344,6 +344,7 @@ export function allocateThoughtProjection(
       cycleId: input.cycleId,
       generation: input.generation,
       trigger: input.trigger,
+      ...(input.commitmentDue === undefined ? {} : { commitmentDue: input.commitmentDue }),
       observations: input.observations,
       inFlight: projectedInFlight,
       allowedOperationalEffectRefs: [...operationalNamespace.allowedOperationalEffectRefs],

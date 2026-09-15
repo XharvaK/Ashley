@@ -26,6 +26,9 @@ export type CommitmentSettlement =
     ))
   | { settled: false; proposalId: string; reason: string; idempotentReplay?: boolean };
 
+export const COMMITMENT_PROVISIONAL_ORPHAN = "provisional_orphan" as const;
+export type CommitmentRecoveryStatus = typeof COMMITMENT_PROVISIONAL_ORPHAN;
+
 export type CommitmentAdmissionOptions = {
   ownerId?: string;
   nowMs?: number;
@@ -49,6 +52,7 @@ export type CommitmentOpportunity = {
   attemptCount: number;
   leaseToken: string | null;
   leaseExpiresAtMs: number | null;
+  recoveryStatus?: CommitmentRecoveryStatus;
 };
 
 const DEFAULT_MAX_PER_BENEFICIARY = 3;
@@ -502,10 +506,43 @@ export function recoverPendingCommitmentProposals(
   nuclearDb: DatabaseSync,
   options: CommitmentAdmissionOptions = {},
 ): CommitmentSettlement[] {
-  const refs = nuclearDb.prepare(
-    "SELECT DISTINCT source_ref FROM commitment_settlements WHERE result_json IS NULL ORDER BY source_ref",
-  ).all() as Array<{ source_ref?: unknown }>;
-  return refs.flatMap((row) => settlePersistedCommitmentProposals(nuclearDb, String(row.source_ref ?? ""), options));
+  const pending = nuclearDb.prepare(
+    `SELECT proposal_id, result_json
+       FROM commitment_settlements
+      WHERE result_json IS NULL
+      ORDER BY source_ref, ordinal`,
+  ).all() as RecordValue[];
+  const results: CommitmentSettlement[] = [];
+  for (const candidate of pending) {
+    const proposalId = String(candidate.proposal_id ?? "");
+    if (!proposalId) throw new Error("commitment_proposal_identity_invalid");
+    nuclearDb.exec("BEGIN IMMEDIATE");
+    try {
+      const row = rowForProposal(nuclearDb, proposalId);
+      if (!row) throw new Error("commitment_proposal_missing");
+      const stored = settlementFromJson(row.result_json);
+      if (stored) {
+        nuclearDb.exec("COMMIT");
+        results.push(resultWithReplay(stored));
+        continue;
+      }
+      const settlement: CommitmentSettlement = {
+        settled: false,
+        proposalId,
+        reason: COMMITMENT_PROVISIONAL_ORPHAN,
+        idempotentReplay: false,
+      };
+      nuclearDb.prepare(
+        "UPDATE commitment_settlements SET result_json = ?, settled_at_ms = ? WHERE proposal_id = ? AND result_json IS NULL",
+      ).run(stableJson(settlement), now(options.nowMs), proposalId);
+      nuclearDb.exec("COMMIT");
+      results.push(settlement);
+    } catch (error) {
+      try { nuclearDb.exec("ROLLBACK"); } catch { /* preserve primary failure */ }
+      throw error;
+    }
+  }
+  return results;
 }
 
 export function commitmentBindingsForSettlement(
@@ -531,6 +568,9 @@ function opportunityFromRow(row: RecordValue): CommitmentOpportunity | null {
   const evidence = record(parseJson(row.evidence_json));
   const proposal = record(evidence?.proposal);
   if (!proposal || !text(proposal.action) || !text(proposal.beneficiary) || !validDestination(proposal.destination) || !validTemporal(proposal.temporal) || !text(proposal.realizationClause)) return null;
+  const recoveryStatus = evidence?.recoveryStatus === COMMITMENT_PROVISIONAL_ORPHAN
+    ? COMMITMENT_PROVISIONAL_ORPHAN
+    : undefined;
   return {
     commitmentId: String(row.entity_uuid ?? ""),
     ownerId: String(row.owner_id ?? ""),
@@ -544,7 +584,18 @@ function opportunityFromRow(row: RecordValue): CommitmentOpportunity | null {
     attemptCount: Number(row.attempt_count ?? 0),
     leaseToken: row.lease_token == null ? null : String(row.lease_token),
     leaseExpiresAtMs: row.lease_expires_at_ms == null ? null : Number(row.lease_expires_at_ms),
+    ...(recoveryStatus ? { recoveryStatus } : {}),
   };
+}
+
+export function getCommitmentOpportunity(
+  nuclearDb: DatabaseSync,
+  input: { ownerId: string; commitmentId: string },
+): CommitmentOpportunity | null {
+  const row = nuclearDb.prepare(
+    "SELECT * FROM ashley_self_commitments WHERE owner_id = ? AND entity_uuid = ?",
+  ).get(input.ownerId, input.commitmentId) as RecordValue | undefined;
+  return row ? opportunityFromRow(row) : null;
 }
 
 export function listDueCommitmentOpportunities(
@@ -591,6 +642,18 @@ export function recoverCommitmentOpportunities(
       ).run(new Date(nowMs).toISOString(), id);
       missed += Number(result.changes);
     } else if (state === "attempted" && Number(row.attempt_count ?? 0) < 3) {
+      const evidenceRow = nuclearDb.prepare(
+        "SELECT evidence_json FROM ashley_self_commitments WHERE owner_id = ? AND entity_uuid = ?",
+      ).get(options.ownerId, id) as RecordValue | undefined;
+      const evidence = record(parseJson(evidenceRow?.evidence_json)) ?? {};
+      nuclearDb.prepare(
+        "UPDATE ashley_self_commitments SET evidence_json = ?, updated_at = ? WHERE owner_id = ? AND entity_uuid = ?",
+      ).run(
+        stableJson({ ...evidence, recoveryStatus: COMMITMENT_PROVISIONAL_ORPHAN }),
+        new Date(nowMs).toISOString(),
+        options.ownerId,
+        id,
+      );
       const result = nuclearDb.prepare(
         `UPDATE ashley_self_commitments SET commitment_state = 'admitted',
            lease_token = NULL, lease_expires_at_ms = NULL, updated_at = ?

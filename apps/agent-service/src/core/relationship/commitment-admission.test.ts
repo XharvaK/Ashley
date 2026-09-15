@@ -8,9 +8,11 @@ import {
   claimCommitmentOpportunity,
   commitmentBindingsForSettlement,
   persistCommitmentProposals,
+  recoverPendingCommitmentProposals,
   recoverCommitmentOpportunities,
   recheckCommitmentOpportunity,
   settlePersistedCommitmentProposals,
+  COMMITMENT_PROVISIONAL_ORPHAN,
   type CommitmentProposal,
 } from "./commitment-admission.js";
 import { grantPerson, revokePerson } from "./social-authority.js";
@@ -195,6 +197,48 @@ describe("commitment admission and fidelity", () => {
       expect(recoverCommitmentOpportunities(db, { ownerId, nowMs: nowMs + 5 * 60_000 + 1 })).toMatchObject({ requeued: 1 });
       db.prepare("UPDATE relationship_motivation_claims SET lease_until = '1970-01-01T00:00:00.000Z' WHERE relationship_entity_uuid = 'cmt:claim:0'").run();
       expect(claimCommitmentOpportunity(db, { ownerId, commitmentId: "cmt:claim:0", nowMs: nowMs + 5 * 60_000 + 2 })).not.toBeNull();
+    } finally {
+      db.close();
+    }
+  });
+
+  it("reconciles a pending settlement to an explicit provisional orphan without admitting a promise", () => {
+    const db = dbFixture();
+    try {
+      persistCommitmentProposals(db, "pending-orphan", [proposal({ temporal: { kind: "open" } })]);
+      const recovered = recoverPendingCommitmentProposals(db, { ownerId, nowMs, enabled: true });
+
+      expect(recovered).toMatchObject([{
+        settled: false,
+        proposalId: "cmt:pending-orphan:0",
+        reason: COMMITMENT_PROVISIONAL_ORPHAN,
+      }]);
+      const settlement = db.prepare("SELECT result_json, settled_at_ms FROM commitment_settlements WHERE proposal_id = ?")
+        .get("cmt:pending-orphan:0") as { result_json?: unknown; settled_at_ms?: unknown };
+      expect(String(settlement.result_json)).toContain(COMMITMENT_PROVISIONAL_ORPHAN);
+      expect(settlement.settled_at_ms).not.toBeNull();
+      expect(db.prepare("SELECT COUNT(*) AS count FROM ashley_self_commitments").get()).toEqual({ count: 0 });
+    } finally {
+      db.close();
+    }
+  });
+
+  it("marks a crashed attempted fire as a provisional orphan before requeueing it", () => {
+    const db = dbFixture();
+    try {
+      persistCommitmentProposals(db, "attempted-orphan", [proposal({ temporal: { kind: "open" } })]);
+      settlePersistedCommitmentProposals(db, "attempted-orphan", { ownerId, nowMs, enabled: true });
+      expect(claimCommitmentOpportunity(db, { ownerId, commitmentId: "cmt:attempted-orphan:0", nowMs })).not.toBeNull();
+
+      const recovered = recoverCommitmentOpportunities(db, {
+        ownerId,
+        nowMs: nowMs + 5 * 60_000 + 1,
+      });
+      expect(recovered).toMatchObject({ requeued: 1 });
+      const row = db.prepare("SELECT commitment_state, evidence_json FROM ashley_self_commitments WHERE entity_uuid = ?")
+        .get("cmt:attempted-orphan:0") as { commitment_state?: unknown; evidence_json?: unknown };
+      expect(row.commitment_state).toBe("admitted");
+      expect(JSON.parse(String(row.evidence_json))).toMatchObject({ recoveryStatus: COMMITMENT_PROVISIONAL_ORPHAN });
     } finally {
       db.close();
     }

@@ -14,6 +14,8 @@ import {
   MAX_THOUGHT_MODEL_ATTEMPTS,
   SETTLEMENT_SCHEMA_VERSION,
   type CycleTriggerKind,
+  type CommitmentDueProjection,
+  type CommitmentEvidenceCompleteness,
   type InboxEvent,
   type KernelDeps,
   type KernelRunResult,
@@ -64,6 +66,7 @@ import type { AttemptInputBasis } from "../social/types.js";
 import type { CommitmentRealizationBinding } from "../social/types.js";
 import {
   commitmentBindingsForSettlement,
+  getCommitmentOpportunity,
   isCommitmentsEnabled,
   persistCommitmentProposals,
   settlePersistedCommitmentProposals,
@@ -1972,6 +1975,32 @@ function deliveryIntentFor(
   };
 }
 
+function commitmentDueProjection(
+  nuclear: DatabaseSync,
+  cycle: { triggerKind: CycleTriggerKind; occupantId: string | null },
+  payload: Record<string, unknown>,
+): CommitmentDueProjection | undefined {
+  if (cycle.triggerKind !== "commitment_due") return undefined;
+  const commitmentId = typeof payload.commitmentId === "string" ? payload.commitmentId.trim() : "";
+  if (!commitmentId) return undefined;
+  const ownerId = typeof payload.ownerId === "string" && payload.ownerId.trim()
+    ? payload.ownerId.trim()
+    : cycle.occupantId?.trim() || "owner";
+  const opportunity = getCommitmentOpportunity(nuclear, { ownerId, commitmentId });
+  if (!opportunity) return undefined;
+  const rawCompleteness = payload.evidenceCompleteness;
+  const evidenceCompleteness: CommitmentEvidenceCompleteness = rawCompleteness === "supported"
+    || rawCompleteness === "contradicted"
+    || rawCompleteness === "unknown"
+    ? rawCompleteness
+    : "unknown";
+  return {
+    commitmentId: opportunity.commitmentId,
+    realizationClause: opportunity.realizationClause,
+    evidenceCompleteness,
+  };
+}
+
 type ExternalSocialDestination = {
   kind: "external_dm";
   principalId: string;
@@ -2345,6 +2374,7 @@ export async function runCognitiveCycle(
     });
   const originProfile = resolveOriginProfile(sidecar, event, cycle);
   if (!originProfile) throw new Error("origin_profile_unavailable");
+  const dueCommitment = commitmentDueProjection(nuclear, cycle, payload);
   const publicPresenceEnabled = isAutonomousPublicPresenceOpportunity({
     cycleTriggerKind: cycle.triggerKind,
     wakeSourceKind: wake.sourceKind,
@@ -2670,6 +2700,7 @@ export async function runCognitiveCycle(
       ...(crossSurfaceScope ? { crossSurfaceConversationIds: crossSurfaceScope } : {}),
       ...(availableDestinations === undefined ? {} : { availableDestinations }),
       ...(externalBinding ? { licenses: [...externalBinding.licenseRefs] } : {}),
+      ...(dueCommitment ? { commitmentDue: dueCommitment } : {}),
     };
     const sourceCapture = captureThoughtSourcePackage(thoughtInputOptions);
     const sourceCurrentness = sourceCapture.sourceCurrentness;

@@ -1264,12 +1264,22 @@ export type ThoughtOperationCapability = Readonly<{
   operatorBoundRequestFields: readonly string[];
   authorizedProjectIds: readonly string[];
 }>;
+
+export type CommitmentEvidenceCompleteness = "supported" | "contradicted" | "unknown";
+export type CommitmentDueProjection = Readonly<{
+  commitmentId: string;
+  realizationClause: string;
+  evidenceCompleteness: CommitmentEvidenceCompleteness;
+}>;
+
 export type ThoughtInput = {
   cycleId: CycleId;
   generation: Generation;
   occupantId: OccupantId;
   authorityEpoch: AuthorityEpoch;
   trigger: { kind: CycleTriggerKind; ref: string };
+  /** Stored commitment meaning plus fire-time evidence completeness for Thought. */
+  commitmentDue?: CommitmentDueProjection;
   rawConversation: ConversationEvidenceRecord[];
   /** Source-owned frontier identity/coverage metadata; text may be budgeted separately. */
   conversationSelection?: {

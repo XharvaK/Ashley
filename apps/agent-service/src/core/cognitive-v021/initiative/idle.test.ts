@@ -1,6 +1,8 @@
 import { readFileSync } from "node:fs";
+import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { openNuclearDb } from "../../db.js";
 import { PRIVATE_THOUGHT_MAX_CALLS_PER_HOUR } from "../types.js";
 import { openTestSidecar } from "../test-support.js";
 import { PRIVATE_THOUGHT_POLICY_ID } from "../private-budget/ledger.js";
@@ -8,6 +10,12 @@ import { reconcilePolicyClock } from "../private-budget/policy-time-ledger.js";
 import { tickIdleOpportunity } from "./idle.js";
 import { scheduleFutureTrigger } from "./future-triggers.js";
 import { resolveObservationBinding } from "../observation/persistence.js";
+import {
+  listDueCommitmentOpportunities,
+  persistCommitmentProposals,
+  settlePersistedCommitmentProposals,
+  type CommitmentProposal,
+} from "../../relationship/commitment-admission.js";
 
 function seedActiveOccupancy(db: ReturnType<typeof openTestSidecar>, conversationId = "thread-idle"): void {
   db.prepare(
@@ -25,6 +33,18 @@ function seedActiveOccupancy(db: ReturnType<typeof openTestSidecar>, conversatio
 
 function establishEpoch(db: ReturnType<typeof openTestSidecar>, nowMs: number): void {
   reconcilePolicyClock(db, { policyId: PRIVATE_THOUGHT_POLICY_ID, wallClockNowMs: nowMs, authorizationRef: "owner:test-epoch" });
+}
+
+function commitmentProposal(): CommitmentProposal {
+  return {
+    ordinal: 0,
+    action: "send the Owner a progress update",
+    beneficiary: "owner",
+    destination: { kind: "owner_private" },
+    temporal: { kind: "open" },
+    realizationClause: "I will send the Owner a progress update when the evidence supports it.",
+    thoughtCycle: { cycleId: "cycle-idle-commitment", attemptId: "attempt-idle-commitment" },
+  };
 }
 
 describe("v0.2.1 idle executive", () => {
@@ -124,6 +144,46 @@ describe("v0.2.1 idle executive", () => {
       expect(calls).toBe(0);
     } finally {
       db.close();
+    }
+  });
+
+  it("projects a due undertaking into Thought with unknown evidence when observation is incomplete", async () => {
+    const sidecar = openTestSidecar();
+    const nuclear = openNuclearDb(new DatabaseSync(":memory:"));
+    try {
+      const nowMs = 1_000;
+      establishEpoch(sidecar, nowMs);
+      persistCommitmentProposals(nuclear, "idle-due", [commitmentProposal()]);
+      settlePersistedCommitmentProposals(nuclear, "idle-due", { ownerId: "owner-1", nowMs, enabled: true });
+      const commitment = listDueCommitmentOpportunities(nuclear, "owner-1", nowMs)[0];
+      expect(commitment).toBeDefined();
+
+      let observed: import("./idle.js").IdleThoughtContext | null = null;
+      const result = await tickIdleOpportunity(sidecar, {
+        conversationId: "thread-commitment-due",
+        occupantId: "owner-1",
+        nowMs,
+        commitmentDb: nuclear,
+        commitmentOwnerId: "owner-1",
+        commitment,
+        runThought: async (input) => {
+          observed = input;
+          return { published: false, outboxId: null, thoughtModelAttempts: 1, speechMode: "none" as const };
+        },
+      });
+
+      expect(observed!.trigger).toEqual({ kind: "commitment_due", ref: "cmt:idle-due:0" });
+      expect(observed).toMatchObject({
+        commitmentId: "cmt:idle-due:0",
+        realizationClause: commitment?.realizationClause,
+        evidenceCompleteness: "unknown",
+      });
+      expect(result).toMatchObject({ eligible: true, thoughtCalls: 1, semanticAbsenceClaim: "no" });
+      expect(nuclear.prepare("SELECT commitment_state FROM ashley_self_commitments WHERE entity_uuid = ?").get("cmt:idle-due:0"))
+        .toMatchObject({ commitment_state: "attempted" });
+    } finally {
+      nuclear.close();
+      sidecar.close();
     }
   });
 
