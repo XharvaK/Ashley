@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  appendExternalUtteranceInTransaction,
   appendOwnerUtterance,
   appendSystemEvent,
+  getConversationEvidence,
   listConversationEvidence,
 } from "./conversation-log.js";
 import { openTestSidecar } from "../test-support.js";
@@ -101,6 +103,29 @@ describe("v0.2.1 conversation evidence log", () => {
       });
       expect(row.role).toBe("system");
       expect(row.dataClassification).toBe("ordinary");
+    } finally {
+      db.close();
+    }
+  });
+
+  it("rejects malformed speaker attribution without Owner-defaulting or persisting it", () => {
+    const db = openTestSidecar();
+    try {
+      expect(() => appendExternalUtteranceInTransaction(db, {
+        conversationId: "thread-1",
+        text: "unattributed external text",
+        discordMessageIds: ["malformed-speaker-1"],
+        speakerPrincipalId: "person-1",
+      })).toThrow("speaker_kind_invalid");
+      expect(db.prepare("SELECT COUNT(*) AS count FROM conversation_evidence_log").get()).toEqual({ count: 0 });
+
+      const owner = appendOwnerUtterance(db, {
+        conversationId: "thread-1",
+        text: "owner text",
+      });
+      db.prepare("UPDATE conversation_evidence_log SET speaker_kind = NULL WHERE row_id = ?").run(owner.rowId);
+      expect(getConversationEvidence(db, owner.rowId)).toBeNull();
+      expect(listConversationEvidence(db, "thread-1")).toEqual([]);
     } finally {
       db.close();
     }

@@ -153,6 +153,22 @@ function openNuclearWithRooms(): DatabaseSync {
       mode TEXT NOT NULL
     )`,
   );
+  nuclear.exec(
+    `CREATE TABLE derived_invalidation_journal (
+      change_id TEXT NOT NULL,
+      owner_id TEXT NOT NULL,
+      conversation_id TEXT,
+      source_refs_json TEXT NOT NULL,
+      invalidation_kind TEXT NOT NULL,
+      canonical_owner TEXT NOT NULL,
+      canonical_version INTEGER NOT NULL,
+      target_generation INTEGER NOT NULL,
+      state TEXT NOT NULL,
+      attempts INTEGER NOT NULL,
+      created_at_ms INTEGER NOT NULL,
+      updated_at_ms INTEGER NOT NULL
+    )`,
+  );
   const insert = nuclear.prepare(
     "INSERT INTO trusted_rooms (owner_id, guild_id, channel_id, mode) VALUES (?, ?, ?, ?)",
   );
@@ -283,6 +299,56 @@ describe("owner-private cross-surface recall bridge", () => {
       expect(listOwnerTrustedRoomConversationIds(nuclear, "")).toEqual([]);
     } finally {
       nuclear.close();
+    }
+  });
+
+  it("F10: callee authority overrides forged audience and cross-surface scope", () => {
+    const fixture = seedFixture();
+    const derived = openDerivedStore(":memory:");
+    const nuclear = openNuclearWithRooms();
+    try {
+      derived.reconcile(fixture.sidecar);
+      const ownerPrivate = retrieveCandidates(
+        fixture.sidecar,
+        {
+          conversationId: DM,
+          ownerId: "owner-1",
+          request: {
+            triggerTerms: ["vesper"],
+            workingContextTopics: [],
+            assertionKeys: [],
+            includeLogSearch: true,
+          },
+          crossSurfaceConversationIds: [OTHER_ROOM],
+        },
+        derived,
+        { authorityDb: nuclear, audience: { kind: "owner_private" } },
+      );
+      expect(ownerPrivate.state).toBe("ready");
+      expect(logRefs(ownerPrivate)).toContain(fixture.roomOwner);
+      expect(logRefs(ownerPrivate)).not.toContain(fixture.otherRoomOwner);
+
+      const roomWithForgedAudience = retrieveCandidates(
+        fixture.sidecar,
+        {
+          conversationId: ROOM,
+          ownerId: "owner-1",
+          request: {
+            triggerTerms: ["orpheus"],
+            workingContextTopics: [],
+            assertionKeys: [],
+            includeLogSearch: true,
+          },
+          crossSurfaceConversationIds: [DM],
+        },
+        derived,
+        { authorityDb: nuclear, audience: { kind: "owner_private" } },
+      );
+      expect(logRefs(roomWithForgedAudience)).not.toContain(fixture.dmOwner);
+    } finally {
+      nuclear.close();
+      derived.close();
+      fixture.sidecar.close();
     }
   });
 

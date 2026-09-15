@@ -9,6 +9,7 @@ import type {
 import { DerivedStore } from "./derived-store.js";
 import { hasAuthorityBarrier, requireStableAuthorityBarrier } from "../authority/barrier.js";
 import { hasPendingDerivedInvalidation } from "../authority/journal.js";
+import { listOwnerTrustedRoomConversationIds } from "../../relationship/social-authority.js";
 
 export type RawFtsMemoryRow = {
   assertionKey: AssertionKey;
@@ -165,7 +166,13 @@ export function searchConversationFts(
   sidecarDb: DatabaseSync,
   conversationId: string,
   ftsQuery: string | null,
-  options: { limit?: number; excludeRowIds?: Set<string>; authorityDb?: DatabaseSync; additionalConversationIds?: readonly string[] } = {},
+  options: {
+    limit?: number;
+    excludeRowIds?: Set<string>;
+    authorityDb?: DatabaseSync;
+    ownerId?: string;
+    additionalConversationIds?: readonly string[];
+  } = {},
 ): FtsSearchResult<LogFtsRow> {
   if (!ftsQuery || !ftsQuery.trim()) {
     return { state: "ready", rows: [] };
@@ -193,10 +200,16 @@ export function searchConversationFts(
   // primary conversation is always in scope; nothing is inferred from ID
   // prefixes. Each scoped conversation witnesses its own source-currentness
   // below, so adding a scope cannot weaken invalidation checks.
+  let additionalConversationIds = options.additionalConversationIds ?? [];
+  if (options.authorityDb) {
+    additionalConversationIds = options.ownerId?.trim()
+      ? listOwnerTrustedRoomConversationIds(options.authorityDb, options.ownerId)
+      : [];
+  }
   const scope = [
     conversationId,
     ...new Set(
-      (options.additionalConversationIds ?? []).filter((id) =>
+      additionalConversationIds.filter((id) =>
         typeof id === "string" && id.trim() && id !== conversationId),
     ),
   ];

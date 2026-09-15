@@ -121,15 +121,27 @@ function hashContent(role: EvidenceRole, text: string | null): string {
     .digest("hex");
 }
 
+function isSpeakerKind(value: unknown): value is EvidenceSpeakerKind {
+  return value === "owner" || value === "external_human" || value === "external_bot" || value === "ashley";
+}
+
+function speakerKindForWrite(role: EvidenceRole, value: unknown): EvidenceSpeakerKind | null {
+  if (value !== undefined && !isSpeakerKind(value)) throw new Error("speaker_kind_invalid");
+  if (isSpeakerKind(value)) return value;
+  if (role === "owner") return "owner";
+  if (role === "ashley") return "ashley";
+  if (role === "external_dialog") throw new Error("speaker_kind_invalid");
+  return null;
+}
+
 function mapEvidence(row: unknown): ConversationEvidenceRecord | null {
   if (typeof row !== "object" || row === null) return null;
   const value = row as EvidenceDbRow;
   const role = asString(value.role);
   if (role !== "owner" && role !== "ashley" && role !== "system" && role !== "external_dialog") return null;
-  const speakerKind: EvidenceSpeakerKind = value.speaker_kind === "owner" ||
-    value.speaker_kind === "external_human" || value.speaker_kind === "external_bot" || value.speaker_kind === "ashley"
-    ? value.speaker_kind
-    : "owner";
+  const speakerKind = isSpeakerKind(value.speaker_kind) ? value.speaker_kind : undefined;
+  if (speakerKind === undefined && role !== "system") return null;
+  if (value.speaker_kind != null && speakerKind === undefined) return null;
   const audienceAtCapture: EvidenceAudienceAtCapture = value.audience_at_capture === "dm" || value.audience_at_capture === "room"
     ? value.audience_at_capture
     : "owner_private";
@@ -226,6 +238,7 @@ export function appendEvidenceInTransaction(
   const ids = uniqueIds(input.discordMessageIds);
   const nowMs = input.nowMs ?? Date.now();
   const normalized = normalizeClassification(input, input.text);
+  const speakerKind = speakerKindForWrite(role, input.speakerKind);
   const explicitEdit = Boolean(input.editOfRowId);
 
   if (!explicitEdit) {
@@ -277,7 +290,7 @@ export function appendEvidenceInTransaction(
       normalized.secretOmitted ? 1 : 0,
       input.delivered ? 1 : 0,
       input.speakerPrincipalId ?? null,
-      input.speakerKind ?? null,
+      speakerKind,
       input.location == null ? null : JSON.stringify(input.location),
       input.audienceAtCapture ?? null,
       input.sentAtMs ?? null,
@@ -313,7 +326,7 @@ export function appendEvidenceInTransaction(
       normalized.secretOmitted ? 1 : 0,
       input.delivered ? 1 : 0,
       input.speakerPrincipalId ?? null,
-      input.speakerKind ?? null,
+      speakerKind,
       input.location == null ? null : JSON.stringify(input.location),
       input.audienceAtCapture ?? null,
       input.sentAtMs ?? null,

@@ -20,12 +20,15 @@ import { rankCandidates } from "./rank.js";
 import { deduplicateCandidates } from "./dedup.js";
 import { hasAuthorityBarrier } from "../authority/barrier.js";
 import { hasPendingDerivedInvalidation } from "../authority/journal.js";
+import { listOwnerTrustedRoomConversationIds } from "../../relationship/social-authority.js";
 
 export type RetrieveCandidatesInput = {
   conversationId: string;
   request: RetrievalRequest;
   rawConversationRowIds?: Set<string>;
   authorityDb?: DatabaseSync;
+  /** Authenticated Owner identity used only by the callee trust-root resolver. */
+  ownerId?: string;
   /**
    * Bounded Owner-private cross-surface recall scope: explicitly allowed
    * additional conversation IDs (the authenticated Owner's trusted rooms).
@@ -39,6 +42,8 @@ export type RetrieveCandidatesOptions = {
   authorityDb?: DatabaseSync;
   audience?: SocialAudience;
   licenses?: string[];
+  /** Authenticated Owner identity used only by the callee trust-root resolver. */
+  ownerId?: string;
 };
 
 export function tokenizeForDiscovery(text: string): string[] {
@@ -104,6 +109,57 @@ function audienceKey(audience: SocialAudience): string {
 
 function sameAudience(left: SocialAudience | null | undefined, right: SocialAudience): boolean {
   return left !== null && left !== undefined && audienceKey(left) === audienceKey(right);
+}
+
+function roomConversationId(conversationId: string): string | null {
+  const parts = conversationId.split(":");
+  if (parts.length < 3 || parts[0] !== "room" || !parts[1] || !parts[2]) return null;
+  return `room:${parts[1]}:${parts[2]}`;
+}
+
+function directConversationAudience(conversationId: string): SocialAudience {
+  const roomId = roomConversationId(conversationId);
+  if (roomId) return { kind: "room", roomId };
+  if (conversationId.startsWith("dm:")) {
+    const parts = conversationId.split(":");
+    const principalId = parts.at(-1)?.trim() ?? "";
+    if (principalId) return { kind: "dm", principalId };
+  }
+  return { kind: "owner_private" };
+}
+
+function canonicalRetrievalScope(
+  input: RetrieveCandidatesInput,
+  authorityDb: DatabaseSync | undefined,
+  requestedAudience: SocialAudience,
+  ownerId: string | undefined,
+): { audience: SocialAudience; conversationIds: string[] } {
+  if (!authorityDb) {
+    return {
+      audience: requestedAudience,
+      conversationIds: requestedAudience.kind === "owner_private"
+        ? [...new Set((input.crossSurfaceConversationIds ?? []).filter((id) =>
+          typeof id === "string" && id.trim() && id !== input.conversationId))]
+        : [],
+    };
+  }
+
+  let trustedRoomIds: string[] = [];
+  if (ownerId?.trim()) {
+    try {
+      trustedRoomIds = listOwnerTrustedRoomConversationIds(authorityDb, ownerId);
+    } catch {
+      trustedRoomIds = [];
+    }
+  }
+  const currentRoomId = roomConversationId(input.conversationId);
+  const audience = directConversationAudience(input.conversationId);
+  return {
+    audience,
+    conversationIds: audience.kind === "owner_private"
+      ? trustedRoomIds.filter((id) => id !== input.conversationId && id !== currentRoomId)
+      : [],
+  };
 }
 
 function retrievalHitEligible(
@@ -180,8 +236,8 @@ function recheckCrossSurfaceLogHit(
   if (typeof row.conversation_id !== "string" || !allowedConversationIds.has(row.conversation_id)) {
     return null;
   }
-  // Raw-column check on purpose: the mapped record defaults unknown
-  // attribution to Owner, which must never admit a cross-surface row.
+  // Raw-column check on purpose: a mapped record is not authority for
+  // cross-surface attribution, so malformed raw attribution must fail closed.
   if (row.speaker_kind !== "owner" && row.speaker_kind !== "ashley") return null;
   if (row.data_classification === "secret") return null;
   if (Number(row.secret_omitted) === 1) return null;
@@ -212,19 +268,17 @@ export function retrieveCandidates(
 ): RetrievalResult {
   const request: RetrievalRequest = { ...input.request, includeLogSearch: true };
   const authorityDb = options.authorityDb ?? input.authorityDb;
-  const audience = options.audience ?? { kind: "owner_private" };
+  const requestedAudience = options.audience ?? { kind: "owner_private" };
+  const ownerId = options.ownerId ?? input.ownerId;
+  const canonicalScope = canonicalRetrievalScope(input, authorityDb, requestedAudience, ownerId);
+  const audience = canonicalScope.audience;
   const licenses = options.licenses ?? [];
 
   // Bounded Owner-private cross-surface recall. The allowed set is an
   // explicit host-resolved list, never an inferred prefix. Any non-Owner
   // audience searches its own conversation only, so Owner-private evidence
   // can never flow toward a room through this scope.
-  const crossSurfaceScope = audience.kind === "owner_private"
-    ? [...new Set(
-      (input.crossSurfaceConversationIds ?? []).filter((id) =>
-        typeof id === "string" && id.trim() && id !== input.conversationId),
-    )]
-    : [];
+  const crossSurfaceScope = canonicalScope.conversationIds;
   const crossSurfaceAllowed = new Set(crossSurfaceScope);
 
   // Tier 1: Exact-key hits from sidecar memory assertions (authoritative sidecar query)
@@ -334,6 +388,7 @@ export function retrieveCandidates(
     const logResult = searchConversationFts(derivedStore, sidecarDb, input.conversationId, combinedLogQuery, {
       excludeRowIds: input.rawConversationRowIds,
       authorityDb,
+      ownerId,
       ...(crossSurfaceScope.length > 0 ? { additionalConversationIds: crossSurfaceScope } : {}),
     });
     if (logResult.state === "unavailable") {

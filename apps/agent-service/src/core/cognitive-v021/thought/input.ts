@@ -809,6 +809,7 @@ export function buildThoughtInput(options: BuildThoughtInputOptions): ThoughtInp
         includeLogSearch: true,
       },
       rawConversationRowIds,
+      ownerId: options.cycle.occupantId,
       ...(audience.kind === "owner_private" &&
       options.crossSurfaceConversationIds &&
       options.crossSurfaceConversationIds.length > 0
@@ -816,7 +817,7 @@ export function buildThoughtInput(options: BuildThoughtInputOptions): ThoughtInp
         : {}),
     },
     options.derivedStore,
-    { authorityDb: options.authorityDb, audience, licenses },
+    { authorityDb: options.authorityDb, audience, licenses, ownerId: options.cycle.occupantId },
   );
 
   const thoughtInput: ThoughtInputWithC2 = {
