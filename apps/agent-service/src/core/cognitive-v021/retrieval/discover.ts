@@ -26,6 +26,13 @@ export type RetrieveCandidatesInput = {
   request: RetrievalRequest;
   rawConversationRowIds?: Set<string>;
   authorityDb?: DatabaseSync;
+  /**
+   * Bounded Owner-private cross-surface recall scope: explicitly allowed
+   * additional conversation IDs (the authenticated Owner's trusted rooms).
+   * Honored only for the `owner_private` audience; every other audience
+   * searches its own conversation only.
+   */
+  crossSurfaceConversationIds?: readonly string[];
 };
 
 export type RetrieveCandidatesOptions = {
@@ -138,6 +145,59 @@ function evidenceAudience(row: ReturnType<typeof getConversationEvidence>): Soci
   return null;
 }
 
+type CrossSurfaceRawRow = {
+  row_id?: unknown;
+  lineage_id?: unknown;
+  version?: unknown;
+  conversation_id?: unknown;
+  text?: unknown;
+  data_classification?: unknown;
+  secret_omitted?: unknown;
+  speaker_kind?: unknown;
+  source_status?: unknown;
+};
+
+/**
+ * Authoritative recheck for one cross-surface log hit. FTS is discovery, not
+ * authority: the candidate row is re-read from the sidecar and must still
+ * satisfy every eligibility bound (allowed conversation, Owner/Ashley
+ * attribution on the raw column, current lineage version, non-secret, not
+ * secret-omitted, present non-redacted text). Anything else fails closed.
+ */
+function recheckCrossSurfaceLogHit(
+  sidecarDb: DatabaseSync,
+  rowId: string,
+  allowedConversationIds: ReadonlySet<string>,
+): ReturnType<typeof getConversationEvidence> {
+  const row = sidecarDb.prepare(
+    `SELECT row_id, lineage_id, version, conversation_id, text,
+            data_classification, secret_omitted, speaker_kind, source_status
+       FROM conversation_evidence_log
+      WHERE row_id = ?`,
+  ).get(rowId) as CrossSurfaceRawRow | undefined;
+  if (!row || typeof row.row_id !== "string") return null;
+  if (typeof row.conversation_id !== "string" || !allowedConversationIds.has(row.conversation_id)) {
+    return null;
+  }
+  // Raw-column check on purpose: the mapped record defaults unknown
+  // attribution to Owner, which must never admit a cross-surface row.
+  if (row.speaker_kind !== "owner" && row.speaker_kind !== "ashley") return null;
+  if (row.data_classification === "secret") return null;
+  if (Number(row.secret_omitted) === 1) return null;
+  if (typeof row.text !== "string" || !row.text || row.text === "[redacted]") return null;
+  if (row.source_status === "redacted") return null;
+  if (typeof row.lineage_id === "string" && row.lineage_id) {
+    const latest = sidecarDb.prepare(
+      `SELECT version FROM conversation_evidence_log
+        WHERE lineage_id = ?
+        ORDER BY version DESC
+        LIMIT 1`,
+    ).get(row.lineage_id) as { version?: unknown } | undefined;
+    if (Number(latest?.version) !== Number(row.version)) return null;
+  }
+  return getConversationEvidence(sidecarDb, rowId);
+}
+
 /**
  * Deterministic tiered indexed retrieval.
  * Composes exact-key fetch, FTS5 BM25 memory and conversation search,
@@ -153,6 +213,18 @@ export function retrieveCandidates(
   const authorityDb = options.authorityDb ?? input.authorityDb;
   const audience = options.audience ?? { kind: "owner_private" };
   const licenses = options.licenses ?? [];
+
+  // Bounded Owner-private cross-surface recall. The allowed set is an
+  // explicit host-resolved list, never an inferred prefix. Any non-Owner
+  // audience searches its own conversation only, so Owner-private evidence
+  // can never flow toward a room through this scope.
+  const crossSurfaceScope = audience.kind === "owner_private"
+    ? [...new Set(
+      (input.crossSurfaceConversationIds ?? []).filter((id) =>
+        typeof id === "string" && id.trim() && id !== input.conversationId),
+    )]
+    : [];
+  const crossSurfaceAllowed = new Set(crossSurfaceScope);
 
   // Tier 1: Exact-key hits from sidecar memory assertions (authoritative sidecar query)
   const exactKeyHits = fetchExactKeyHits(sidecarDb, request.assertionKeys ?? [], authorityDb, audience, licenses);
@@ -261,12 +333,20 @@ export function retrieveCandidates(
     const logResult = searchConversationFts(derivedStore, sidecarDb, input.conversationId, combinedLogQuery, {
       excludeRowIds: input.rawConversationRowIds,
       authorityDb,
+      ...(crossSurfaceScope.length > 0 ? { additionalConversationIds: crossSurfaceScope } : {}),
     });
     if (logResult.state === "unavailable") {
       infrastructureState = "unavailable";
     }
     logHits = logResult.rows.flatMap((row) => {
-      const evidence = getConversationEvidence(sidecarDb, row.rowId);
+      const crossSurface = row.conversationId !== input.conversationId;
+      const evidence = crossSurface
+        ? recheckCrossSurfaceLogHit(sidecarDb, row.rowId, crossSurfaceAllowed)
+        : getConversationEvidence(sidecarDb, row.rowId);
+      // A failed cross-surface recheck (or an orphan index row) is not a
+      // candidate at all. Same-conversation rows always resolve here because
+      // searchConversationFts already fails closed on orphans.
+      if (!evidence) return [];
       const scope = evidenceAudience(evidence) ?? { kind: "owner_private" } as SocialAudience;
       const metadata = {
         audienceScope: scope,

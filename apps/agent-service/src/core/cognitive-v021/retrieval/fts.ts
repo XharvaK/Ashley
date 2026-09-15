@@ -165,7 +165,7 @@ export function searchConversationFts(
   sidecarDb: DatabaseSync,
   conversationId: string,
   ftsQuery: string | null,
-  options: { limit?: number; excludeRowIds?: Set<string>; authorityDb?: DatabaseSync } = {},
+  options: { limit?: number; excludeRowIds?: Set<string>; authorityDb?: DatabaseSync; additionalConversationIds?: readonly string[] } = {},
 ): FtsSearchResult<LogFtsRow> {
   if (!ftsQuery || !ftsQuery.trim()) {
     return { state: "ready", rows: [] };
@@ -188,16 +188,39 @@ export function searchConversationFts(
     return { state: "unavailable", rows: [] };
   }
 
+  // Bounded cross-surface scope: an explicitly allowed set of additional
+  // conversation IDs (e.g. the authenticated Owner's trusted rooms). The
+  // primary conversation is always in scope; nothing is inferred from ID
+  // prefixes. Each scoped conversation witnesses its own source-currentness
+  // below, so adding a scope cannot weaken invalidation checks.
+  const scope = [
+    conversationId,
+    ...new Set(
+      (options.additionalConversationIds ?? []).filter((id) =>
+        typeof id === "string" && id.trim() && id !== conversationId),
+    ),
+  ];
+  for (const scopedId of scope) {
+    const scopedReady = scopedId === conversationId || derivedStore.isReady(sidecarDb, {
+      authorityDb: options.authorityDb,
+      conversationId: scopedId,
+    });
+    if (!scopedReady) {
+      return { state: "unavailable", rows: [] };
+    }
+  }
+
   const limit = Math.max(1, options.limit ?? 50);
 
   try {
+    const scopePlaceholders = scope.map(() => "?").join(",");
     const ftsRows = derivedStore.db.prepare(`
       SELECT row_id, conversation_id, text, rank
       FROM conversation_fts
-      WHERE conversation_fts MATCH ? AND conversation_id = ?
+      WHERE conversation_fts MATCH ? AND conversation_id IN (${scopePlaceholders})
       ORDER BY rank ASC
       LIMIT ?
-    `).all(ftsQuery, conversationId, limit) as Array<{
+    `).all(ftsQuery, ...scope, limit) as Array<{
       row_id: string;
       conversation_id: string;
       text: string;
@@ -242,7 +265,10 @@ export function searchConversationFts(
 
     const resultRows: LogFtsRow[] = [];
     for (const ftsRow of filteredFts) {
-      if (options.authorityDb && hasPendingDerivedInvalidation(options.authorityDb, ftsRow.row_id, conversationId)) {
+      // Witness the hit's own conversation scope: a pending invalidation
+      // scoped to a cross-surface conversation must fail that hit closed,
+      // exactly as a same-conversation invalidation does for local hits.
+      if (options.authorityDb && hasPendingDerivedInvalidation(options.authorityDb, ftsRow.row_id, ftsRow.conversation_id)) {
         derivedStore.markInvalid();
         return { state: "unavailable", rows: [] };
       }

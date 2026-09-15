@@ -1108,3 +1108,35 @@ export function classifyEligibility(
   }
   return { verdict: "capture_quarantine", audienceHint: location };
 }
+
+/**
+ * Canonical Owner-private cross-surface recall scope.
+ * Returns stable `room:<guild>:<channel>` identities for rooms that are
+ * currently `trusted_social` for exactly this Owner. No other mode, no other
+ * owner, no inferred identities. Fail-closed: an unreadable authority table
+ * yields an empty scope, never a widened one.
+ */
+export function listOwnerTrustedRoomConversationIds(
+  db: DatabaseSync,
+  ownerId: string,
+): string[] {
+  if (!ownerId.trim()) return [];
+  let rows: Array<{ guild_id?: unknown; channel_id?: unknown }>;
+  try {
+    rows = db.prepare(
+      `SELECT guild_id, channel_id FROM trusted_rooms
+        WHERE owner_id = ? AND mode = 'trusted_social'
+        ORDER BY guild_id ASC, channel_id ASC`,
+    ).all(ownerId) as Array<{ guild_id?: unknown; channel_id?: unknown }>;
+  } catch {
+    return [];
+  }
+  const ids: string[] = [];
+  for (const row of rows) {
+    const guild = typeof row.guild_id === "string" ? row.guild_id.trim() : "";
+    const channel = typeof row.channel_id === "string" ? row.channel_id.trim() : "";
+    if (!guild || !channel || guild.includes(":") || channel.includes(":")) continue;
+    ids.push(`room:${guild}:${channel}`);
+  }
+  return [...new Set(ids)];
+}

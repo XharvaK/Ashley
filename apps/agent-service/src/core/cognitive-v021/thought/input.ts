@@ -94,6 +94,13 @@ export type BuildThoughtInputOptions = {
   sourceCapture?: ThoughtSourceCapture;
   /** Audience for this lifecycle. Legacy Owner callers default to Owner-private. */
   audience?: SocialAudience;
+  /**
+   * Bounded Owner-participated room IDs for authenticated Owner-private
+   * recall. Forwarded to retrieval only for the `owner_private` audience;
+   * silently dropped for every other audience so room Thought can never
+   * receive a cross-surface scope.
+   */
+  crossSurfaceConversationIds?: readonly string[];
   /** Authenticated Owner identity remains authoritative in a room audience. */
   authenticatedOwner?: boolean;
   /** Current permitted destination facts. Thought may choose; Host does not fan out. */
@@ -728,6 +735,11 @@ export function buildThoughtInput(options: BuildThoughtInputOptions): ThoughtInp
         includeLogSearch: true,
       },
       rawConversationRowIds,
+      ...(audience.kind === "owner_private" &&
+      options.crossSurfaceConversationIds &&
+      options.crossSurfaceConversationIds.length > 0
+        ? { crossSurfaceConversationIds: options.crossSurfaceConversationIds }
+        : {}),
     },
     options.derivedStore,
     { authorityDb: options.authorityDb, audience, licenses },

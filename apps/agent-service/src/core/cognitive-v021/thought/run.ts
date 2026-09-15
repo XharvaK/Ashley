@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
+import { isAuthorizedOwnerId } from "../../../owner-auth.js";
 import {
   completeChat,
 } from "../../../mistral-client.js";
@@ -192,7 +193,7 @@ import {
   roomIdentity,
   type OwnerRoomDestination,
 } from "../social/room-activation.js";
-import { listAvailableSocialDestinations } from "../../relationship/social-authority.js";
+import { listAvailableSocialDestinations, listOwnerTrustedRoomConversationIds } from "../../relationship/social-authority.js";
 import { defaultQuotaBucket } from "../../attention/ledger.js";
 import {
   ResourceFuse,
@@ -1991,6 +1992,30 @@ export function ownerRoomDestinationFor(
   return { kind: "room", roomId, guildId, channelId, ownerRoom: true };
 }
 
+/**
+ * Bounded Owner-private cross-surface recall scope. Resolves only when the
+ * current cycle uses the default Owner-private audience (no room/external
+ * destination) AND the cycle owner re-verifies as the authorized trust-root.
+ * Room identities come from canonical trusted-room authority for that same
+ * Owner. Anything else yields no scope, so room and external cycles can
+ * never receive one.
+ */
+function ownerPrivateCrossSurfaceScope(
+  nuclear: DatabaseSync,
+  options: { thoughtAudience?: unknown; ownerId?: unknown },
+): string[] | undefined {
+  if (options.thoughtAudience !== undefined) return undefined;
+  const ownerId = typeof options.ownerId === "string" ? options.ownerId : null;
+  if (!ownerId || !isAuthorizedOwnerId(ownerId)) return undefined;
+  let rooms: readonly string[];
+  try {
+    rooms = listOwnerTrustedRoomConversationIds(nuclear, ownerId);
+  } catch {
+    return undefined;
+  }
+  return rooms.length > 0 ? [...rooms] : undefined;
+}
+
 type ObservationPersistenceInput = {
   cycleId: string;
   generation: number;
@@ -2552,6 +2577,13 @@ export async function runCognitiveCycle(
       );
     }
     const rawConversationIds = listConversationEvidence(sidecar, cycle.conversationId, { limit: 12 }).map((r) => r.rowId);
+    // Bounded Owner-private cross-surface recall: trusted-room evidence for
+    // the same authenticated Owner becomes a retrieval candidate. Room and
+    // external cycles never receive a scope (see ownerPrivateCrossSurfaceScope).
+    const crossSurfaceScope = ownerPrivateCrossSurfaceScope(nuclear, {
+      thoughtAudience,
+      ownerId: typeof payload.ownerId === "string" ? payload.ownerId : cycle.occupantId,
+    });
     const thoughtInputOptions = {
       sidecar,
       cycle,
@@ -2570,6 +2602,7 @@ export async function runCognitiveCycle(
       authorityDb: deps.attentionDb,
       ...(thoughtAudience ? { audience: thoughtAudience } : {}),
       ...(ownerRoomDestination ? { authenticatedOwner: true } : {}),
+      ...(crossSurfaceScope ? { crossSurfaceConversationIds: crossSurfaceScope } : {}),
       ...(availableDestinations === undefined ? {} : { availableDestinations }),
       ...(externalBinding ? { licenses: [...externalBinding.licenseRefs] } : {}),
     };
