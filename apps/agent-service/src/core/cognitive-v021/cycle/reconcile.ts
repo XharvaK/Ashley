@@ -1,13 +1,20 @@
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { suppressUndeliveredOutbox } from "../speech/outbox.js";
-import { finishWakeInTransaction, getWake, recordWakeCancellationInTransaction } from "../wake/ledger.js";
-import { getCycle, hasValidDurableContinuationOwner } from "./inbox.js";
+import { finishWakeInTransaction, getWake, reconcileWakeInTransaction, recordWakeCancellationInTransaction } from "../wake/ledger.js";
+import {
+  getCycle,
+  getCycleFreshnessState,
+  hasValidDurableContinuationOwner,
+  markUnresolvedDeferredInTransaction,
+} from "./inbox.js";
+import { proveNoExternalDispatch } from "../retry/startup-outcome-recovery.js";
 
 export type ReconcileStartupResult = {
   retiredCycleIds: string[];
   recoveredOrphanEvidenceRowIds: string[];
   coveredSiblingEventIds: string[];
+  unresolvedDeferredCycleIds: string[];
 };
 
 export const EXTERNAL_UNBATCHED_RECOVERY_HORIZON_MS = 10_000;
@@ -52,6 +59,35 @@ type CoveredSiblingCandidateRow = {
   payload_json: string;
   compose_log_ids_json: string;
 };
+
+function isSocialConversation(conversationId: string, triggerKind?: string): boolean {
+  return conversationId.startsWith("dm:")
+    || conversationId.startsWith("room:")
+    || triggerKind === "external_message";
+}
+
+function cycleEventIds(sidecar: DatabaseSync, cycleId: string, wakeId: string): string[] {
+  const rows = sidecar.prepare(
+    `SELECT id
+       FROM inbox_events
+      WHERE wake_id = ?
+        AND (json_extract(payload_json, '$.cycleId') = ? OR kind IN ('external_utterance','external_message','external_eligible_pending'))
+      ORDER BY created_at_ms ASC, id ASC`,
+  ).all(wakeId, cycleId) as Array<{ id?: unknown }>;
+  return rows.map((row) => typeof row.id === "string" ? row.id : "").filter(Boolean);
+}
+
+function proveSocialAttemptUndispatched(sidecar: DatabaseSync, cycleId: string, wakeId: string): boolean {
+  const eventIds = cycleEventIds(sidecar, cycleId, wakeId);
+  if (eventIds.length === 0) return false;
+  let proven = false;
+  for (const eventId of eventIds) {
+    const proof = proveNoExternalDispatch(sidecar, eventId);
+    if (!proof.ok) return false;
+    proven = true;
+  }
+  return proven;
+}
 
 function parseJsonArray(value: unknown): string[] {
   try {
@@ -233,30 +269,57 @@ export function reconcileStartupOwnership(
   const retiredCycleIds: string[] = [];
   const recoveredOrphanEvidenceRowIds: string[] = [];
   const coveredSiblingEventIds: string[] = [];
+  const unresolvedDeferredCycleIds: string[] = [];
 
   sidecar.exec("BEGIN IMMEDIATE");
   try {
     // Step 1: Discover and retire zombie cycles
     const occupyingRows = sidecar.prepare(
-      "SELECT cycle_id FROM cycle_records WHERE state NOT IN ('silent', 'idle') ORDER BY admitted_at_ms ASC",
+      "SELECT cycle_id FROM cycle_records WHERE state NOT IN ('silent', 'idle') AND COALESCE(disposition, '') != 'intentional_silence' ORDER BY admitted_at_ms ASC",
     ).all() as Array<{ cycle_id: string }>;
 
     for (const row of occupyingRows) {
       const cycle = getCycle(sidecar, row.cycle_id);
       if (!cycle) continue;
       if (!hasValidDurableContinuationOwner(sidecar, cycle)) {
-        suppressUndeliveredOutbox(sidecar, {
-          conversationId: cycle.conversationId,
-          generation: cycle.generation,
-          reason: "preempted_zombie_cycle",
-        });
-        sidecar.prepare("UPDATE cycle_records SET state = 'silent', updated_at_ms = ? WHERE cycle_id = ?").run(nowMs, cycle.cycleId);
-        if (cycle.wakeId) {
-          const wake = getWake(sidecar, cycle.wakeId);
-          if (wake && wake.state !== "terminal") {
-            recordWakeCancellationInTransaction(sidecar, { wakeId: cycle.wakeId, nowMs });
-            if (wake.state !== "reconciling" && wake.state !== "consequence_pending") {
-              finishWakeInTransaction(sidecar, cycle.wakeId, wake.leaseToken, "cancelled", nowMs);
+        if (isSocialConversation(cycle.conversationId, cycle.triggerKind)) {
+          // A social computation may disappear without resolving the captured
+          // interaction. Prove the dispatch side before retiring only the
+          // computation; the input remains pending/unresolved and is never
+          // synthesized into an Owner-era terminal disposition.
+          const freshness = getCycleFreshnessState(sidecar, cycle.cycleId);
+          const proofAvailable = freshness.attemptId == null
+            ? true
+            : proveSocialAttemptUndispatched(sidecar, cycle.cycleId, cycle.wakeId);
+          markUnresolvedDeferredInTransaction(sidecar, cycle.cycleId, nowMs);
+          if (cycle.wakeId) {
+            const wake = getWake(sidecar, cycle.wakeId);
+            if (wake && wake.state !== "terminal") {
+              recordWakeCancellationInTransaction(sidecar, { wakeId: cycle.wakeId, nowMs });
+              if (wake.state !== "reconciling" && wake.state !== "consequence_pending") {
+                reconcileWakeInTransaction(sidecar, cycle.wakeId, nowMs);
+              }
+            }
+          }
+          unresolvedDeferredCycleIds.push(cycle.cycleId);
+          if (!proofAvailable) {
+            // Keep the explicit unresolved disposition. The failed proof is
+            // intentionally not converted into a terminal input outcome.
+          }
+        } else {
+          suppressUndeliveredOutbox(sidecar, {
+            conversationId: cycle.conversationId,
+            generation: cycle.generation,
+            reason: "preempted_zombie_cycle",
+          });
+          sidecar.prepare("UPDATE cycle_records SET state = 'silent', updated_at_ms = ? WHERE cycle_id = ?").run(nowMs, cycle.cycleId);
+          if (cycle.wakeId) {
+            const wake = getWake(sidecar, cycle.wakeId);
+            if (wake && wake.state !== "terminal") {
+              recordWakeCancellationInTransaction(sidecar, { wakeId: cycle.wakeId, nowMs });
+              if (wake.state !== "reconciling" && wake.state !== "consequence_pending") {
+                finishWakeInTransaction(sidecar, cycle.wakeId, wake.leaseToken, "cancelled", nowMs);
+              }
             }
           }
         }
@@ -268,7 +331,7 @@ export function reconcileStartupOwnership(
     // Recovery strictly requires that the cycle was mechanically proven ownerless/zombie
     // and retired by THIS reconciliation invocation (retained in retiredCycleIds).
     if (retiredCycleIds.length > 0) {
-      const retiredCycleSet = new Set(retiredCycleIds);
+      const retiredOwnerCycleSet = new Set(retiredCycleIds.filter((cycleId) => !unresolvedDeferredCycleIds.includes(cycleId)));
       const orphanEvidenceRows = sidecar.prepare(
         `SELECT cel.row_id, cel.conversation_id, cel.created_at_ms, cel.discord_message_ids_json
          FROM conversation_evidence_log cel
@@ -289,7 +352,7 @@ export function reconcileStartupOwnership(
         ).all(candidate.conversation_id) as CycleCandidateRow[];
 
         for (const cycleRow of cycles) {
-          if (!retiredCycleSet.has(cycleRow.cycle_id)) continue;
+          if (!retiredOwnerCycleSet.has(cycleRow.cycle_id)) continue;
 
           const composeLogIds = parseJsonArray(cycleRow.compose_log_ids_json);
           if (!composeLogIds.includes(candidate.row_id)) continue;
@@ -336,7 +399,7 @@ export function reconcileStartupOwnership(
     coveredSiblingEventIds.push(...convergedCoveredSiblingEvents(sidecar, nowMs));
 
     sidecar.exec("COMMIT");
-    return { retiredCycleIds, recoveredOrphanEvidenceRowIds, coveredSiblingEventIds };
+    return { retiredCycleIds, recoveredOrphanEvidenceRowIds, coveredSiblingEventIds, unresolvedDeferredCycleIds };
   } catch (error) {
     try { sidecar.exec("ROLLBACK"); } catch {}
     throw error;

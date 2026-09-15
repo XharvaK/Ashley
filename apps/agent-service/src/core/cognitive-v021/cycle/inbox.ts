@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
+import { sha256, stableJson } from "../../model-fabric/hash.js";
 import {
   ARCHITECTURE_EPOCH,
   type ConversationId,
@@ -10,6 +11,9 @@ import {
   type InboxEvent,
   type WakeRecord,
 } from "../types.js";
+import type { AttemptInputBasis } from "../social/types.js";
+import { hashAttemptBasis } from "../social/basis.js";
+import { getEvidenceByRowId } from "../evidence/conversation-log.js";
 import {
   admitWakeInTransaction,
   getWake,
@@ -55,6 +59,72 @@ export type AppendInboxEventInput = {
 
 type DbRow = Record<string, unknown>;
 
+export type CycleDisposition =
+  | "intentional_silence"
+  | "technical_failure"
+  | "resource_deferred"
+  | "owner_preempted"
+  | "hard_invalidated"
+  | "unresolved_deferred"
+  | "candidate_ready"
+  | "publication_admitted"
+  | "dispatching"
+  | "delivered"
+  | "partially_delivered"
+  | "uncertain"
+  | "blocked_at_dispatch";
+
+/** V14 lifecycle columns exposed without widening the shared legacy type. */
+export type CycleRecordWithFreshness = CycleRecord & {
+  attemptId: string | null;
+  attemptInputBasis: AttemptInputBasis | null;
+  supersessionsUsed: number;
+  pendingQueue: string[];
+  disposition: CycleDisposition | null;
+};
+
+export type CycleFreshnessIntegrity = "valid" | "counter_corrupt" | "basis_missing" | "queue_corrupt";
+
+export type CycleFreshnessState = Readonly<{
+  cycleId: string;
+  attemptId: string | null;
+  attemptInputBasis: AttemptInputBasis | null;
+  supersessionsUsed: number;
+  pendingQueue: string[];
+  disposition: CycleDisposition | null;
+  integrity: CycleFreshnessIntegrity;
+}>;
+
+export type FreshEvidenceRow =
+  | string
+  | {
+      rowId?: string;
+      evidenceRowId?: string;
+      version?: number;
+      speakerPrincipalId?: string | null;
+      speakerKind?: string | null;
+      replyToMessageId?: string | null;
+      attachmentCoverage?: "complete" | "truncated_at_limit" | "failed" | "unsupported";
+    };
+
+export type FreshnessAttemptResult = {
+  kind: "started" | "superseded" | "queued" | "hard_invalidated" | "owner_preempted" | "resumed" | "unresolved_deferred" | "technical_failure";
+  cycle: CycleRecordWithFreshness;
+  previousAttemptId: string | null;
+  attemptId: string | null;
+  supersessionsUsed: number;
+  pendingQueue: string[];
+  attemptInputBasis: AttemptInputBasis | null;
+  reason?: string;
+  diagnostic?: string;
+  activeThoughtCancellation?: {
+    conversationId: string;
+    cycleId: string;
+    generation: number;
+    action: "compose" | "preempt";
+  } | null;
+};
+
 function isRow(value: unknown): value is DbRow {
   return typeof value === "object" && value !== null;
 }
@@ -91,10 +161,72 @@ function triggerKindForInbox(kind: string): CycleTriggerKind {
   return "owner_message";
 }
 
-function mapCycle(row: unknown): CycleRecord | null {
+function parseAttemptInputBasis(value: unknown): AttemptInputBasis | null {
+  if (typeof value !== "string" || !value.trim()) return null;
+  try {
+    const parsed = JSON.parse(value) as Record<string, unknown>;
+    if (!parsed || Array.isArray(parsed) || parsed.schemaVersion !== 1 || !Array.isArray(parsed.orderedRefs)
+      || !parsed.orderedRefs.every((item) => typeof item === "string")
+      || !parsed.versions || typeof parsed.versions !== "object" || Array.isArray(parsed.versions)
+      || typeof parsed.speakerAttributionHash !== "string"
+      || !Array.isArray(parsed.replyEdges)
+      || !parsed.attachmentCoverage || typeof parsed.attachmentCoverage !== "object"
+      || Array.isArray(parsed.attachmentCoverage)
+      || typeof parsed.projectionVersion !== "string") return null;
+    return parsed as unknown as AttemptInputBasis;
+  } catch {
+    return null;
+  }
+}
+
+function parsePendingQueue(value: unknown): { queue: string[]; valid: boolean } {
+  if (typeof value !== "string" || !value.trim()) return { queue: [], valid: false };
+  try {
+    const parsed = JSON.parse(value);
+    if (!Array.isArray(parsed) || !parsed.every((item) => typeof item === "string" && item.trim())) {
+      return { queue: [], valid: false };
+    }
+    return { queue: parsed.map((item) => item.trim()), valid: true };
+  } catch {
+    return { queue: [], valid: false };
+  }
+}
+
+function cycleFreshnessFromRow(row: DbRow): CycleFreshnessState {
+  const cycleId = stringValue(row.cycle_id);
+  const attemptId = row.attempt_id == null ? null : stringValue(row.attempt_id);
+  const rawCounter = row.supersessions_used;
+  const counter = typeof rawCounter === "number" ? rawCounter : Number(rawCounter ?? 0);
+  const counterValid = Number.isInteger(counter) && counter >= 0 && counter <= 2;
+  const basis = parseAttemptInputBasis(row.attempt_input_basis_json);
+  const basisMissing = Boolean(attemptId) && basis === null;
+  const pending = parsePendingQueue(row.pending_queue_json);
+  const integrity: CycleFreshnessIntegrity = !counterValid
+    ? "counter_corrupt"
+    : !pending.valid
+      ? "queue_corrupt"
+      : basisMissing
+        ? "basis_missing"
+        : "valid";
+  const disposition = row.disposition === null || row.disposition === undefined || row.disposition === ""
+    ? null
+    : row.disposition as CycleDisposition;
+  return {
+    cycleId,
+    attemptId,
+    attemptInputBasis: basis,
+    supersessionsUsed: counterValid ? counter : 2,
+    pendingQueue: pending.queue,
+    disposition,
+    integrity,
+  };
+}
+
+function mapCycle(row: unknown): CycleRecordWithFreshness | null {
   if (!isRow(row)) return null;
   const wakeId = stringValue(row.wake_id);
   if (!wakeId) return null;
+  const freshness = cycleFreshnessFromRow(row);
   return {
     cycleId: stringValue(row.cycle_id),
     conversationId: stringValue(row.conversation_id),
@@ -109,6 +241,11 @@ function mapCycle(row: unknown): CycleRecord | null {
     admittedAtMs: numberValue(row.admitted_at_ms),
     composeLogIds: jsonArray(row.compose_log_ids_json),
     preemptedGeneration: row.preempted_generation == null ? null : numberValue(row.preempted_generation),
+    attemptId: freshness.attemptId,
+    attemptInputBasis: freshness.attemptInputBasis,
+    supersessionsUsed: freshness.supersessionsUsed,
+    pendingQueue: freshness.pendingQueue,
+    disposition: freshness.disposition,
   };
 }
 
@@ -204,7 +341,7 @@ export function admitCycle(db: DatabaseSync, input: AdmitCycleInput): CycleRecor
   return admitCycleInTransaction(db, input);
 }
 
-export function getCycle(db: DatabaseSync, cycleId: string): CycleRecord | null {
+export function getCycle(db: DatabaseSync, cycleId: string): CycleRecordWithFreshness | null {
   return mapCycle(db.prepare("SELECT * FROM cycle_records WHERE cycle_id = ?").get(cycleId));
 }
 
@@ -278,7 +415,7 @@ export function resolveDurableContinuationOwner(
   return { status: "proven_no_owner", cycle, wake };
 }
 
-export function getCurrentCycle(db: DatabaseSync, conversationId: string, options: { includeIdle?: boolean } = {}): CycleRecord | null {
+export function getCurrentCycle(db: DatabaseSync, conversationId: string, options: { includeIdle?: boolean } = {}): CycleRecordWithFreshness | null {
   const exclusion = options.includeIdle ? "" : "AND state NOT IN ('silent', 'idle')";
   return mapCycle(db.prepare(
     `SELECT * FROM cycle_records
@@ -389,6 +526,230 @@ export function appendInboxEvent(db: DatabaseSync, input: AppendInboxEventInput)
     try { db.exec("ROLLBACK"); } catch { /* preserve the append error */ }
     throw error;
   }
+}
+
+export function getCycleFreshnessState(db: DatabaseSync, cycleId: string): CycleFreshnessState {
+  const row = db.prepare("SELECT cycle_id, attempt_id, attempt_input_basis_json, supersessions_used, pending_queue_json, disposition FROM cycle_records WHERE cycle_id = ? LIMIT 1").get(cycleId) as DbRow | undefined;
+  if (!row) throw new Error("cycle_missing");
+  return cycleFreshnessFromRow(row);
+}
+
+function requireFreshnessIntegrity(state: CycleFreshnessState, options: { requireBasis?: boolean } = {}): void {
+  if (state.integrity === "counter_corrupt") throw new Error("freshness_counter_corrupt");
+  if (state.integrity === "queue_corrupt") throw new Error("freshness_queue_corrupt");
+  if (options.requireBasis && state.integrity === "basis_missing") throw new Error("basis_missing");
+}
+
+function writeFreshnessStateInTransaction(
+  db: DatabaseSync,
+  cycleId: string,
+  input: {
+    attemptId?: string | null;
+    attemptInputBasis?: AttemptInputBasis | null;
+    supersessionsUsed?: number;
+    pendingQueue?: readonly string[];
+    disposition?: CycleDisposition | null;
+    state?: CycleState;
+    allowMissingBasis?: boolean;
+    nowMs: number;
+  },
+): CycleFreshnessState {
+  const current = getCycleFreshnessState(db, cycleId);
+  const counter = input.supersessionsUsed ?? current.supersessionsUsed;
+  if (!Number.isInteger(counter) || counter < 0 || counter > 2) throw new Error("freshness_counter_invalid");
+  const queue = input.pendingQueue ?? current.pendingQueue;
+  if (!queue.every((item) => typeof item === "string" && item.trim())) throw new Error("freshness_queue_invalid");
+  const attemptId = input.attemptId === undefined ? current.attemptId : input.attemptId;
+  const basis = input.attemptInputBasis === undefined ? current.attemptInputBasis : input.attemptInputBasis;
+  if (attemptId && !basis && !input.allowMissingBasis) throw new Error("basis_missing");
+  const assignments = [
+    "attempt_id = ?",
+    "attempt_input_basis_json = ?",
+    "supersessions_used = ?",
+    "pending_queue_json = ?",
+    "disposition = ?",
+    "updated_at_ms = ?",
+  ];
+  const values: Array<string | number | null> = [
+    attemptId,
+    basis ? JSON.stringify(basis) : null,
+    counter,
+    JSON.stringify([...queue]),
+    input.disposition === undefined ? current.disposition : input.disposition,
+    input.nowMs,
+  ];
+  if (input.state !== undefined) {
+    assignments.push("state = ?");
+    values.push(input.state);
+  }
+  values.push(cycleId);
+  const result = db.prepare(`UPDATE cycle_records SET ${assignments.join(", ")} WHERE cycle_id = ?`).run(...values);
+  if (Number(result.changes) !== 1) throw new Error("cycle_missing");
+  return getCycleFreshnessState(db, cycleId);
+}
+
+export function setCycleFreshnessStateInTransaction(
+  db: DatabaseSync,
+  cycleId: string,
+  input: Omit<Parameters<typeof writeFreshnessStateInTransaction>[2], "nowMs"> & { nowMs: number },
+): CycleFreshnessState {
+  return writeFreshnessStateInTransaction(db, cycleId, input);
+}
+
+export function initializeAttemptInputBasis(
+  db: DatabaseSync,
+  input: { cycleId: string; basis: AttemptInputBasis; attemptId?: string; nowMs?: number },
+): CycleFreshnessState {
+  hashAttemptBasis(input.basis);
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    const current = getCycleFreshnessState(db, input.cycleId);
+    if (current.attemptId && current.attemptInputBasis) {
+      if (hashAttemptBasis(current.attemptInputBasis) !== hashAttemptBasis(input.basis)) throw new Error("attempt_basis_immutable");
+      db.exec("COMMIT");
+      return current;
+    }
+    const attemptId = input.attemptId ?? `attempt:${input.cycleId}:1`;
+    const result = writeFreshnessStateInTransaction(db, input.cycleId, {
+      attemptId,
+      attemptInputBasis: input.basis,
+      nowMs: input.nowMs ?? Date.now(),
+    });
+    db.exec("COMMIT");
+    return result;
+  } catch (error) {
+    try { db.exec("ROLLBACK"); } catch {}
+    throw error;
+  }
+}
+
+export function appendPendingQueueInTransaction(
+  db: DatabaseSync,
+  cycleId: string,
+  evidenceRefs: readonly string[],
+  nowMs = Date.now(),
+): CycleFreshnessState {
+  const current = getCycleFreshnessState(db, cycleId);
+  requireFreshnessIntegrity(current);
+  const queue = [...current.pendingQueue];
+  for (const ref of evidenceRefs) {
+    const normalized = ref.trim();
+    if (normalized && !queue.includes(normalized)) queue.push(normalized);
+  }
+  return writeFreshnessStateInTransaction(db, cycleId, { pendingQueue: queue, nowMs });
+}
+
+export function appendPendingQueue(
+  db: DatabaseSync,
+  cycleId: string,
+  evidenceRefs: readonly string[],
+  nowMs = Date.now(),
+): CycleFreshnessState {
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    const result = appendPendingQueueInTransaction(db, cycleId, evidenceRefs, nowMs);
+    db.exec("COMMIT");
+    return result;
+  } catch (error) {
+    try { db.exec("ROLLBACK"); } catch {}
+    throw error;
+  }
+}
+
+export function clearPendingQueueInTransaction(db: DatabaseSync, cycleId: string, nowMs = Date.now()): string[] {
+  const current = getCycleFreshnessState(db, cycleId);
+  requireFreshnessIntegrity(current);
+  writeFreshnessStateInTransaction(db, cycleId, { pendingQueue: [], nowMs });
+  return [...current.pendingQueue];
+}
+
+export function markCycleDispositionInTransaction(
+  db: DatabaseSync,
+  cycleId: string,
+  disposition: CycleDisposition,
+  options: { state?: CycleState; nowMs?: number } = {},
+): CycleFreshnessState {
+  return writeFreshnessStateInTransaction(db, cycleId, {
+    disposition,
+    ...(options.state === undefined ? {} : { state: options.state }),
+    nowMs: options.nowMs ?? Date.now(),
+  });
+}
+
+export function markUnresolvedDeferredInTransaction(db: DatabaseSync, cycleId: string, nowMs = Date.now()): CycleFreshnessState {
+  return markCycleDispositionInTransaction(db, cycleId, "unresolved_deferred", { state: "silent", nowMs });
+}
+
+export function markIntentionalSilenceInTransaction(db: DatabaseSync, cycleId: string, nowMs = Date.now()): CycleFreshnessState {
+  return markCycleDispositionInTransaction(db, cycleId, "intentional_silence", { state: "silent", nowMs });
+}
+
+export function markTechnicalFailureInTransaction(db: DatabaseSync, cycleId: string, nowMs = Date.now()): CycleFreshnessState {
+  return markCycleDispositionInTransaction(db, cycleId, "technical_failure", { state: "silent", nowMs });
+}
+
+export function currentAttemptIs(
+  db: DatabaseSync,
+  input: { cycleId: string; generation: number; attemptId: string; attemptInputBasis?: AttemptInputBasis | null },
+): boolean {
+  const cycle = getCycle(db, input.cycleId);
+  if (!cycle || cycle.generation !== input.generation || cycle.attemptId !== input.attemptId) return false;
+  if (input.attemptInputBasis === undefined) return true;
+  if (!cycle.attemptInputBasis || !input.attemptInputBasis) return false;
+  try {
+    return hashAttemptBasis(cycle.attemptInputBasis) === hashAttemptBasis(input.attemptInputBasis);
+  } catch {
+    return false;
+  }
+}
+
+export function basisFromEvidenceRows(
+  db: DatabaseSync,
+  rows: readonly FreshEvidenceRow[],
+  options: { projectionVersion?: string } = {},
+): AttemptInputBasis {
+  const orderedRefs = rows.map((item) => typeof item === "string"
+    ? item.trim()
+    : (item.evidenceRowId ?? item.rowId ?? "").trim()).filter(Boolean);
+  if (orderedRefs.length === 0) throw new Error("attempt_basis_orderedRefs_empty");
+  const versions: Record<string, number> = {};
+  const speakerMaterial: unknown[] = [];
+  const replyEdges: Array<[string, string]> = [];
+  const attachmentCoverage: Record<string, "complete" | "truncated_at_limit" | "failed" | "unsupported"> = {};
+  for (const item of rows) {
+    const ref = typeof item === "string" ? item.trim() : (item.evidenceRowId ?? item.rowId ?? "").trim();
+    if (!ref) continue;
+    const supplied = typeof item === "string" ? {} : item;
+    const evidence = getEvidenceByRowId(db, ref);
+    const version = supplied.version ?? evidence?.version ?? 1;
+    if (!Number.isInteger(version) || version < 0) throw new Error(`attempt_basis_version_missing:${ref}`);
+    versions[ref] = version;
+    const speakerPrincipalId = supplied.speakerPrincipalId ?? evidence?.speakerPrincipalId ?? null;
+    const speakerKind = supplied.speakerKind ?? evidence?.speakerKind ?? null;
+    const replyTo = supplied.replyToMessageId ?? evidence?.replyToMessageId ?? null;
+    speakerMaterial.push({ ref, speakerPrincipalId, speakerKind, location: evidence?.location ?? null });
+    if (replyTo) replyEdges.push([ref, replyTo]);
+    const coverage = supplied.attachmentCoverage
+      ?? (evidence && (evidence.attachmentRefs ?? []).length > 0 ? "unsupported" : "complete");
+    attachmentCoverage[ref] = coverage;
+  }
+  return {
+    schemaVersion: 1,
+    orderedRefs,
+    versions,
+    speakerAttributionHash: sha256(speakerMaterial),
+    replyEdges,
+    attachmentCoverage,
+    projectionVersion: options.projectionVersion ?? "ra-p14-v1",
+  };
+}
+
+export function freshnessBasisIdentity(basis: AttemptInputBasis): string {
+  return hashAttemptBasis(basis);
+}
+
+export function freshnessStateFingerprint(state: CycleFreshnessState): string {
+  return sha256(stableJson(state));
 }
 
 /** Feed actual Host control settlement results back to ordinary Thought. */

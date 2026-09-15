@@ -50,7 +50,16 @@ import {
   type ThoughtStructuralFeedback,
 } from "./structural-feedback.js";
 import type { PrivateBudgetDispatchBinding } from "../private-budget/ledger.js";
-import { getCycle, getCurrentCycle, admitCycle, appendCycleLogIds, updateCycleState } from "../cycle/inbox.js";
+import {
+  getCycle,
+  getCurrentCycle,
+  admitCycle,
+  appendCycleLogIds,
+  updateCycleState,
+  currentAttemptIs,
+  getCycleFreshnessState,
+} from "../cycle/inbox.js";
+import type { AttemptInputBasis } from "../social/types.js";
 import { captureOwnerDispatchCoverage, proveExactOwnerSupersession } from "../cycle/owner-coverage.js";
 import { getConversationEvidence, listConversationEvidence } from "../evidence/conversation-log.js";
 import { listInFlight } from "../effect/in-flight.js";
@@ -1987,6 +1996,35 @@ function currentGenerationIs(
   return current?.cycleId === cycle.cycleId && current.generation === cycle.generation;
 }
 
+type AttemptLifecycleBinding = {
+  attemptId: string | null;
+  attemptInputBasis: AttemptInputBasis | null;
+};
+
+function socialAttemptLifecycle(
+  cycle: { conversationId: string; triggerKind: CycleTriggerKind },
+): boolean {
+  return cycle.conversationId.startsWith("dm:")
+    || cycle.conversationId.startsWith("room:")
+    || (cycle.triggerKind as string) === "external_message";
+}
+
+function currentLifecycleIs(
+  db: DatabaseSync,
+  cycle: { cycleId: string; conversationId: string; generation: number },
+  attemptBinding: AttemptLifecycleBinding | null,
+): boolean {
+  if (!currentGenerationIs(db, cycle)) return false;
+  if (!attemptBinding) return true;
+  if (!attemptBinding.attemptId || !attemptBinding.attemptInputBasis) return false;
+  return currentAttemptIs(db, {
+    cycleId: cycle.cycleId,
+    generation: cycle.generation,
+    attemptId: attemptBinding.attemptId,
+    attemptInputBasis: attemptBinding.attemptInputBasis,
+  });
+}
+
 function authorityDbForPacks(
   deps: KernelDeps,
   packs: import("../types.js").AuthorityPacks,
@@ -2105,6 +2143,14 @@ export async function runCognitiveCycle(
   if (triggerEvidence) cycle = appendCycleLogIds(sidecar, cycle.cycleId, [triggerEvidence.rowId], deps.nowMs());
   cycle = updateCycleState(sidecar, cycle.cycleId, "assembling", deps.nowMs());
   const admittedCycle = cycle;
+  let attemptLifecycleBinding: AttemptLifecycleBinding | null = null;
+  if (socialAttemptLifecycle(admittedCycle)) {
+    const freshness = getCycleFreshnessState(sidecar, admittedCycle.cycleId);
+    attemptLifecycleBinding = {
+      attemptId: freshness.attemptId,
+      attemptInputBasis: freshness.attemptInputBasis,
+    };
+  }
   const hasDurableObservationBinding = typeof payload.periodicScheduleOccurrenceId === "string"
     || Object.prototype.hasOwnProperty.call(payload, "observationsCapture");
   const durableObservations = hasDurableObservationBinding
@@ -2189,7 +2235,7 @@ export async function runCognitiveCycle(
     terminal?: ThoughtTerminalDescriptor,
   ): Promise<KernelRunResult> => {
     const counters = getThoughtAttemptCounters(sidecar, admittedCycle.cycleId, admittedCycle.generation);
-    if (!currentGenerationIs(sidecar, admittedCycle)) {
+    if (!currentLifecycleIs(sidecar, admittedCycle, attemptLifecycleBinding)) {
       return resultWithCounters(
         admittedCycle.cycleId,
         admittedCycle.generation,
@@ -2274,7 +2320,7 @@ export async function runCognitiveCycle(
     for (;;) {
     counters = getThoughtAttemptCounters(sidecar, cycle.cycleId, cycle.generation);
     structuralRetriesForPass = persistedMalformedRetries(sidecar, cycle.cycleId, cycle.generation, pass);
-    if (!currentGenerationIs(sidecar, cycle)) {
+    if (!currentLifecycleIs(sidecar, cycle, attemptLifecycleBinding)) {
       return resultWithCounters(cycle.cycleId, cycle.generation, null, counters, staleOwnerResultOptions());
     }
     if (deps.nowMs() >= thoughtDeadlineAtMs) {
@@ -2448,6 +2494,13 @@ export async function runCognitiveCycle(
       if (cancellationReason === "compose" && currentGenerationIs(sidecar, cycle)) {
         incrementThoughtAttemptCounter(sidecar, cycle.cycleId, cycle.generation, "composeCancelledAttempts");
         cycle = getCycle(sidecar, cycle.cycleId) ?? cycle;
+        if (attemptLifecycleBinding) {
+          const freshness = getCycleFreshnessState(sidecar, cycle.cycleId);
+          attemptLifecycleBinding = {
+            attemptId: freshness.attemptId,
+            attemptInputBasis: freshness.attemptInputBasis,
+          };
+        }
         const latest = listConversationEvidence(sidecar, cycle.conversationId, { limit: 1000 }).at(-1);
         triggerEvidence = latest ?? triggerEvidence;
         ownerMessage = latest?.text ?? ownerMessage;
@@ -2972,7 +3025,7 @@ export async function runCognitiveCycle(
         makeThoughtTerminal("fidelity", { codes: [fidelity.code], stage: "fidelity" }),
       );
     }
-    if (!currentGenerationIs(sidecar, cycle)) {
+    if (!currentLifecycleIs(sidecar, cycle, attemptLifecycleBinding)) {
       counters = getThoughtAttemptCounters(sidecar, cycle.cycleId, cycle.generation);
       return resultWithCounters(cycle.cycleId, cycle.generation, null, counters, staleOwnerResultOptions());
     }

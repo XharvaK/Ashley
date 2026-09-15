@@ -1,6 +1,23 @@
 import type { DatabaseSync } from "node:sqlite";
-import { admitCycle, appendCycleLogIds, getCurrentCycle, hasValidDurableContinuationOwner } from "./inbox.js";
+import {
+  admitCycle,
+  appendCycleLogIds,
+  basisFromEvidenceRows,
+  currentAttemptIs,
+  getCycle,
+  getCycleFreshnessState,
+  getCurrentCycle,
+  markCycleDispositionInTransaction,
+  setCycleFreshnessStateInTransaction,
+  type CycleRecordWithFreshness,
+  type FreshEvidenceRow,
+  type FreshnessAttemptResult,
+  type CycleFreshnessState,
+  hasValidDurableContinuationOwner,
+} from "./inbox.js";
 import type { CycleRecord, CycleTriggerKind } from "../types.js";
+import type { AttemptInputBasis } from "../social/types.js";
+import { sha256 } from "../../model-fabric/hash.js";
 import { suppressUndeliveredOutbox } from "../speech/outbox.js";
 import { cancelActiveThought } from "./active.js";
 import { admitWakeInTransaction, finishWakeInTransaction, getWake, reconcileWakeInTransaction, recordWakeCancellationInTransaction } from "../wake/ledger.js";
@@ -31,6 +48,337 @@ export type ComposeOrPreemptResult = {
   preemptedGeneration: number | null;
   activeThoughtCancellation?: ActiveThoughtCancellation | null;
 };
+
+export type FreshnessAbsorbOptions = {
+  nowMs?: number;
+  projectionVersion?: string;
+  /** Hard invalidation is a Host fact already established by the caller. */
+  hardInvalidation?: boolean | string;
+};
+
+function freshEvidenceRef(row: FreshEvidenceRow): string {
+  if (typeof row === "string") return row.trim();
+  return (row.evidenceRowId ?? row.rowId ?? "").trim();
+}
+
+function uniqueFreshEvidenceRows(rows: readonly FreshEvidenceRow[], existing: readonly string[]): FreshEvidenceRow[] {
+  const seen = new Set(existing);
+  const result: FreshEvidenceRow[] = [];
+  for (const row of rows) {
+    const ref = freshEvidenceRef(row);
+    if (!ref || seen.has(ref)) continue;
+    seen.add(ref);
+    result.push(typeof row === "string" ? ref : { ...row, evidenceRowId: ref });
+  }
+  return result;
+}
+
+function nextAttemptId(cycleId: string, previous: string | null): string {
+  const suffix = previous?.match(/:(\d+)$/)?.[1];
+  const ordinal = suffix ? Number(suffix) + 1 : 1;
+  return `attempt:${cycleId}:${Number.isSafeInteger(ordinal) && ordinal > 0 ? ordinal : 1}`;
+}
+
+function appendAttemptBasis(
+  db: DatabaseSync,
+  current: CycleFreshnessState,
+  newRows: readonly FreshEvidenceRow[],
+  projectionVersion?: string,
+): AttemptInputBasis {
+  const incoming = basisFromEvidenceRows(db, newRows, {
+    projectionVersion: projectionVersion ?? current.attemptInputBasis?.projectionVersion,
+  });
+  if (!current.attemptInputBasis) {
+    const existingRefs = getCycle(db, current.cycleId)?.composeLogIds ?? [];
+    if (existingRefs.length === 0) return incoming;
+    const existing = basisFromEvidenceRows(db, existingRefs, { projectionVersion });
+    return {
+      schemaVersion: 1,
+      orderedRefs: [...existing.orderedRefs, ...incoming.orderedRefs.filter((ref) => !existing.orderedRefs.includes(ref))],
+      versions: { ...existing.versions, ...incoming.versions },
+      speakerAttributionHash: sha256([existing.speakerAttributionHash, incoming.speakerAttributionHash]),
+      replyEdges: [...existing.replyEdges, ...incoming.replyEdges],
+      attachmentCoverage: { ...existing.attachmentCoverage, ...incoming.attachmentCoverage },
+      projectionVersion: projectionVersion ?? existing.projectionVersion,
+    };
+  }
+  const base = current.attemptInputBasis;
+  const orderedRefs = [...base.orderedRefs, ...incoming.orderedRefs.filter((ref) => !base.orderedRefs.includes(ref))];
+  return {
+    schemaVersion: 1,
+    orderedRefs,
+    versions: { ...base.versions, ...incoming.versions },
+    speakerAttributionHash: sha256([base.speakerAttributionHash, incoming.speakerAttributionHash]),
+    replyEdges: [...base.replyEdges, ...incoming.replyEdges],
+    attachmentCoverage: { ...base.attachmentCoverage, ...incoming.attachmentCoverage },
+    projectionVersion: projectionVersion ?? base.projectionVersion,
+  };
+}
+
+function freshnessResult(
+  db: DatabaseSync,
+  cycleId: string,
+  kind: FreshnessAttemptResult["kind"],
+  previousAttemptId: string | null,
+  options: { reason?: string; diagnostic?: string; activeThoughtCancellation?: FreshnessAttemptResult["activeThoughtCancellation"] } = {},
+): FreshnessAttemptResult {
+  const cycle = getCycle(db, cycleId);
+  if (!cycle) throw new Error("cycle_missing");
+  return {
+    kind,
+    cycle,
+    previousAttemptId,
+    attemptId: cycle.attemptId,
+    supersessionsUsed: cycle.supersessionsUsed,
+    pendingQueue: [...cycle.pendingQueue],
+    attemptInputBasis: cycle.attemptInputBasis,
+    ...(options.reason ? { reason: options.reason } : {}),
+    ...(options.diagnostic ? { diagnostic: options.diagnostic } : {}),
+    ...(options.activeThoughtCancellation === undefined ? {} : { activeThoughtCancellation: options.activeThoughtCancellation }),
+  };
+}
+
+function socialCycle(cycle: CycleRecordWithFreshness): boolean {
+  return cycle.conversationId.startsWith("dm:")
+    || cycle.conversationId.startsWith("room:")
+    || cycle.triggerKind === ("external_message" as CycleTriggerKind);
+}
+
+/** Persist the hard invalidation fence without consuming freshness budget. */
+export function hardInvalidateInTransaction(
+  db: DatabaseSync,
+  cycleId: string,
+  options: { reason?: string; nowMs?: number } = {},
+): FreshnessAttemptResult {
+  const cycle = getCycle(db, cycleId);
+  if (!cycle) throw new Error("cycle_missing");
+  const previousAttemptId = cycle.attemptId;
+  if (cycle.wakeId) recordWakeCancellationInTransaction(db, { wakeId: cycle.wakeId, nowMs: options.nowMs ?? Date.now() });
+  markCycleDispositionInTransaction(db, cycleId, "hard_invalidated", { state: "silent", nowMs: options.nowMs ?? Date.now() });
+  return freshnessResult(db, cycleId, "hard_invalidated", previousAttemptId, {
+    reason: options.reason ?? "hard_invalidated",
+    activeThoughtCancellation: {
+      conversationId: cycle.conversationId,
+      cycleId,
+      generation: cycle.generation,
+      action: "preempt",
+    },
+  });
+}
+
+export function hardInvalidate(
+  db: DatabaseSync,
+  cycleId: string,
+  options: { reason?: string; nowMs?: number } = {},
+): FreshnessAttemptResult {
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    const result = hardInvalidateInTransaction(db, cycleId, options);
+    db.exec("COMMIT");
+    if (result.activeThoughtCancellation) cancelActiveThought(result.activeThoughtCancellation);
+    return result;
+  } catch (error) {
+    try { db.exec("ROLLBACK"); } catch {}
+    throw error;
+  }
+}
+
+/**
+ * Apply the frozen one-initial-plus-two-supersessions rule. The caller's row
+ * order is authoritative; this helper never sorts conversational evidence.
+ */
+export function absorbFreshMessagesInTransaction(
+  db: DatabaseSync,
+  cycleId: string,
+  newEvidenceRows: readonly FreshEvidenceRow[],
+  options: FreshnessAbsorbOptions = {},
+): FreshnessAttemptResult {
+  const cycle = getCycle(db, cycleId);
+  if (!cycle) throw new Error("cycle_missing");
+  if (options.hardInvalidation) {
+    return hardInvalidateInTransaction(db, cycleId, {
+      reason: typeof options.hardInvalidation === "string" ? options.hardInvalidation : "hard_invalidated",
+      nowMs: options.nowMs,
+    });
+  }
+  const current = getCycleFreshnessState(db, cycleId);
+  const rows = uniqueFreshEvidenceRows(newEvidenceRows, current.attemptInputBasis?.orderedRefs ?? cycle.composeLogIds);
+  if (rows.length === 0) throw new Error("fresh_evidence_required");
+  const refs = rows.map(freshEvidenceRef);
+  const previousAttemptId = current.attemptId;
+
+  if (current.integrity === "queue_corrupt") throw new Error("freshness_queue_corrupt");
+
+  if (!current.attemptId) {
+    const basis = appendAttemptBasis(db, current, rows, options.projectionVersion);
+    setCycleFreshnessStateInTransaction(db, cycleId, {
+      attemptId: `attempt:${cycleId}:1`,
+      attemptInputBasis: basis,
+      state: "thinking",
+      disposition: null,
+      nowMs: options.nowMs ?? Date.now(),
+    });
+    appendCycleLogIds(db, cycleId, refs, options.nowMs ?? Date.now());
+    return freshnessResult(db, cycleId, "started", previousAttemptId, { activeThoughtCancellation: null });
+  }
+
+  // A current attempt without a reconstructable basis cannot safely absorb.
+  // Keep the new evidence durable in the overflow queue and refuse the attempt.
+  if (!current.attemptInputBasis || current.integrity === "basis_missing") {
+    const queue = [...current.pendingQueue, ...refs.filter((ref) => !current.pendingQueue.includes(ref))];
+    setCycleFreshnessStateInTransaction(db, cycleId, {
+      pendingQueue: queue,
+      allowMissingBasis: true,
+      nowMs: options.nowMs ?? Date.now(),
+    });
+    return freshnessResult(db, cycleId, "queued", previousAttemptId, {
+      reason: "basis_missing",
+      diagnostic: "attempt_refused_basis_missing",
+      activeThoughtCancellation: null,
+    });
+  }
+
+  const corruptCounter = current.integrity === "counter_corrupt";
+  const used = corruptCounter ? 2 : current.supersessionsUsed;
+  if (used >= 2) {
+    const queue = [...current.pendingQueue, ...refs.filter((ref) => !current.pendingQueue.includes(ref))];
+    setCycleFreshnessStateInTransaction(db, cycleId, { pendingQueue: queue, nowMs: options.nowMs ?? Date.now() });
+    return freshnessResult(db, cycleId, "queued", previousAttemptId, {
+      reason: "supersession_budget_exhausted",
+      diagnostic: corruptCounter ? "freshness_counter_corrupt_treated_as_exhausted" : undefined,
+      activeThoughtCancellation: null,
+    });
+  }
+
+  const basis = appendAttemptBasis(db, current, rows, options.projectionVersion);
+  const nextAttemptIdValue = nextAttemptId(cycleId, current.attemptId);
+  appendCycleLogIds(db, cycleId, refs, options.nowMs ?? Date.now());
+  setCycleFreshnessStateInTransaction(db, cycleId, {
+    attemptId: nextAttemptIdValue,
+    attemptInputBasis: basis,
+    supersessionsUsed: used + 1,
+    state: "thinking",
+    disposition: null,
+    nowMs: options.nowMs ?? Date.now(),
+  });
+  return freshnessResult(db, cycleId, "superseded", previousAttemptId, {
+    activeThoughtCancellation: {
+      conversationId: cycle.conversationId,
+      cycleId,
+      generation: cycle.generation,
+      action: "compose",
+    },
+  });
+}
+
+export function absorbFreshMessages(
+  db: DatabaseSync,
+  cycleId: string,
+  newEvidenceRows: readonly FreshEvidenceRow[],
+  options: FreshnessAbsorbOptions = {},
+): FreshnessAttemptResult {
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    const result = absorbFreshMessagesInTransaction(db, cycleId, newEvidenceRows, options);
+    db.exec("COMMIT");
+    if (result.activeThoughtCancellation) cancelActiveThought(result.activeThoughtCancellation);
+    return result;
+  } catch (error) {
+    try { db.exec("ROLLBACK"); } catch {}
+    throw error;
+  }
+}
+
+function preemptExternalAttemptInTransaction(
+  db: DatabaseSync,
+  cycleId: string,
+  nowMs: number,
+): FreshnessAttemptResult {
+  const cycle = getCycle(db, cycleId);
+  if (!cycle) throw new Error("cycle_missing");
+  if (!socialCycle(cycle)) throw new Error("external_cycle_required");
+  if (cycle.wakeId) recordWakeCancellationInTransaction(db, { wakeId: cycle.wakeId, nowMs });
+  setCycleFreshnessStateInTransaction(db, cycleId, {
+    state: "silent",
+    disposition: "owner_preempted",
+    nowMs,
+  });
+  return freshnessResult(db, cycleId, "owner_preempted", cycle.attemptId, {
+    reason: "owner_preempted",
+    activeThoughtCancellation: {
+      conversationId: cycle.conversationId,
+      cycleId,
+      generation: cycle.generation,
+      action: "preempt",
+    },
+  });
+}
+
+/** Suspend external work for an Owner turn while retaining basis and queue. */
+export function preemptExternalAttempt(
+  db: DatabaseSync,
+  cycleId: string,
+  options: { nowMs?: number } = {},
+): FreshnessAttemptResult {
+  const nowMs = options.nowMs ?? Date.now();
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    const result = preemptExternalAttemptInTransaction(db, cycleId, nowMs);
+    db.exec("COMMIT");
+    if (result.activeThoughtCancellation) cancelActiveThought(result.activeThoughtCancellation);
+    return result;
+  } catch (error) {
+    try { db.exec("ROLLBACK"); } catch {}
+    throw error;
+  }
+}
+
+export const suspendExternalAttempt = preemptExternalAttempt;
+
+/** Resume on the same ordered basis without consuming freshness budget. */
+export function resumeExternalAttempt(
+  db: DatabaseSync,
+  cycleId: string,
+  options: { nowMs?: number } = {},
+): FreshnessAttemptResult {
+  const nowMs = options.nowMs ?? Date.now();
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    const cycle = getCycle(db, cycleId);
+    if (!cycle) throw new Error("cycle_missing");
+    if (!socialCycle(cycle)) throw new Error("external_cycle_required");
+    const current = getCycleFreshnessState(db, cycleId);
+    if (!current.attemptInputBasis) {
+      const result = freshnessResult(db, cycleId, "queued", current.attemptId, {
+        reason: "basis_missing",
+        diagnostic: "attempt_refused_basis_missing",
+        activeThoughtCancellation: null,
+      });
+      db.exec("COMMIT");
+      return result;
+    }
+    const nextAttemptIdValue = nextAttemptId(cycleId, current.attemptId);
+    setCycleFreshnessStateInTransaction(db, cycleId, {
+      attemptId: nextAttemptIdValue,
+      state: "thinking",
+      disposition: null,
+      nowMs,
+    });
+    const result = freshnessResult(db, cycleId, "resumed", current.attemptId, { activeThoughtCancellation: null });
+    db.exec("COMMIT");
+    return result;
+  } catch (error) {
+    try { db.exec("ROLLBACK"); } catch {}
+    throw error;
+  }
+}
+
+export function currentFreshnessAttemptIs(
+  db: DatabaseSync,
+  input: Parameters<typeof currentAttemptIs>[1],
+): boolean {
+  return currentAttemptIs(db, input);
+}
 
 function hasPublishedOutbox(db: DatabaseSync, conversationId: string, generation: number): boolean {
   const row = db.prepare(
