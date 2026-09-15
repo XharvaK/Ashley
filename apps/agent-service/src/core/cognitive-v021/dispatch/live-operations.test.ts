@@ -6,6 +6,7 @@ import type {
   ExecuteProjectInspectionV2Result,
   ExecuteWorkspaceExperimentV2Result,
 } from "../../sandbox/v2-execution.js";
+import type { ExecutePatchExportV2Result } from "../../sandbox/patch-export-execution.js";
 import type { Observation, EffectProposal } from "../types.js";
 import { admitTestCycle, openTestSidecar } from "../test-support.js";
 import { readPublicPresenceState } from "../public-presence.js";
@@ -277,6 +278,110 @@ describe("v0.2.1 live Sandbox V2 operation construction", () => {
       claims: { state: "succeeded", profile: "inquiry_experiment", executionTruth: "effect_verified" },
     });
     expect(executeInquiryExperimentV2).toHaveBeenCalledTimes(1);
+    nuclear.close();
+  });
+
+  it("routes Thought-adjudicated patch export without adding a notification effect", async () => {
+    const nuclear = new DatabaseSync(":memory:");
+    const executePatchExportV2 = vi.fn(async (input: unknown): Promise<ExecutePatchExportV2Result> => {
+      expect(input).toMatchObject({
+        request: {
+          operation: "patch_export",
+          projectId: "project-ashley",
+          changesetId: "cs_candidate-1",
+          adjudication: "accept",
+        },
+        ownerId: "owner-1",
+        messageEntityUuid: "cycle-1",
+      });
+      return {
+        license: {
+          state: "succeeded",
+          profile: "patch_export",
+          executionTruth: "effect_verified",
+          patchExportClaimEffect: {
+            verified: true,
+            projectId: "project-ashley",
+            changesetId: "cs_candidate-1",
+            destinationRelativeName: "cs_candidate-1.patch",
+            patchSha256: "a".repeat(64),
+            witnessedSha256: "a".repeat(64),
+            bytesWritten: 16,
+            applied: false,
+            liveUnwritten: true,
+            gitUnwritten: true,
+            protocolState: "admitted",
+            witnessState: "digest_readback",
+            completedAtMs: 42,
+          },
+        },
+      };
+    });
+    const executors = createV021LiveOperationExecutors({
+      nuclear,
+      ownerId: "owner-1",
+      adapters: { executePatchExportV2 },
+    });
+
+    const receipt = await executors.executeEffect(effectProposal({
+      effectId: "patch-export-effect",
+      idempotencyKey: "patch-export-idempotency",
+      kind: "patch_export",
+      request: {
+        operation: "patch_export",
+        projectId: "project-ashley",
+        changesetId: "cs_candidate-1",
+        adjudication: "accept",
+      },
+    }));
+
+    expect(receipt).toMatchObject({
+      outcome: "succeeded",
+      claims: {
+        state: "succeeded",
+        profile: "patch_export",
+        executionTruth: "effect_verified",
+        patchExportClaimEffect: { applied: false, liveUnwritten: true, gitUnwritten: true },
+      },
+    });
+    expect(JSON.stringify(receipt)).not.toContain("notification");
+    expect(executePatchExportV2).toHaveBeenCalledTimes(1);
+    nuclear.close();
+  });
+
+  it("records a pre-M4 patch-export refusal as not attempted", async () => {
+    const nuclear = new DatabaseSync(":memory:");
+    const executePatchExportV2 = vi.fn(async (): Promise<ExecutePatchExportV2Result> => ({
+      license: {
+        state: "none",
+        profile: "patch_export",
+        error: "verification_receipt_required",
+        executionTruth: "no_effect_proven",
+      },
+    }));
+    const executors = createV021LiveOperationExecutors({
+      nuclear,
+      ownerId: "owner-1",
+      adapters: { executePatchExportV2 },
+    });
+
+    const receipt = await executors.executeEffect(effectProposal({
+      effectId: "patch-export-not-ready",
+      idempotencyKey: "patch-export-not-ready-idempotency",
+      kind: "patch_export",
+      request: {
+        operation: "patch_export",
+        projectId: "project-ashley",
+        changesetId: "cs_candidate-1",
+        adjudication: "accept",
+      },
+    }));
+
+    expect(receipt).toMatchObject({
+      outcome: "not_attempted",
+      claims: { state: "none", error: "verification_receipt_required" },
+    });
+    expect(executePatchExportV2).toHaveBeenCalledTimes(1);
     nuclear.close();
   });
 

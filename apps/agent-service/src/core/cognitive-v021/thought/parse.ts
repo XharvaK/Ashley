@@ -69,6 +69,7 @@ const REGISTERED_OPERATION_KINDS = new Set([
   "workspace.verify",
   "workspace.write_file",
   "changeset.author",
+  "patch_export",
   "objective.operate",
   "discord.public_presence",
 ]);

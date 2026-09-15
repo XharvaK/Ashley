@@ -68,3 +68,31 @@ export function getVerificationReceiptByTaskId(
     .get(taskId) as VerificationReceiptRow | undefined;
   return row ?? null;
 }
+
+export function getSuccessfulVerificationReceiptForCandidate(
+  db: DatabaseSync,
+  input: { ownerId: string; workspaceId: string; candidateTreeHash: string },
+): VerificationReceiptRow | null {
+  const rows = db
+    .prepare(
+      `SELECT task_id AS taskId, workspace_id AS workspaceId, recipe_id AS recipeId,
+              recipe_version AS recipeVersion, snapshot_id AS snapshotId,
+              candidate_tree_hash AS candidateTreeHash, base_tree_hash AS baseTreeHash,
+              outcome, settled_at AS settledAt, facts_json AS factsJson
+         FROM verification_receipts
+        WHERE owner_id = ? AND workspace_id = ? AND candidate_tree_hash = ?
+        ORDER BY id DESC`,
+    )
+    .all(input.ownerId, input.workspaceId, input.candidateTreeHash) as VerificationReceiptRow[];
+
+  for (const row of rows) {
+    if (row.outcome !== "succeeded") continue;
+    try {
+      const facts = JSON.parse(row.factsJson) as { verificationOutcome?: unknown };
+      if (facts.verificationOutcome === "verified_success") return row;
+    } catch {
+      // An unreadable facts payload cannot witness a successful candidate.
+    }
+  }
+  return null;
+}

@@ -27,6 +27,7 @@ const V021_LIVE_OPERATION_CAPABILITIES: ReadonlySet<CapabilityName> = new Set([
   "project_experimentation",
   "candidate_verification",
   "candidate_authorship",
+  "patch_export",
 ]);
 
 /** The production v0.2.1 perception provider is not bound in this candidate. */
@@ -75,18 +76,26 @@ function thoughtOperationCapabilities(input: {
   registry: V2ProjectReadRegistry;
   projectInspectionAvailable: boolean;
   verificationAvailable: boolean;
+  patchExportAvailable: boolean;
 }): readonly ThoughtOperationCapability[] {
   const projectReadFileSpec = v2CapabilitySpec("project.read_file");
   const projectListDirectorySpec = v2CapabilitySpec("project.list_directory");
   const projectSearchTextSpec = v2CapabilitySpec("project.search_text");
   const workspaceVerifySpec = v2CapabilitySpec("workspace.verify");
-  if (!projectReadFileSpec || !projectListDirectorySpec || !projectSearchTextSpec || !workspaceVerifySpec) {
+  const patchExportSpec = v2CapabilitySpec("patch_export");
+  if (!projectReadFileSpec || !projectListDirectorySpec || !projectSearchTextSpec || !workspaceVerifySpec || !patchExportSpec) {
     throw new Error("sandbox_v2_operation_capability_spec_missing");
   }
   const approvedProjectIds = authorizedProjectIds(input.registry, () => true);
   const verificationProjectIds = authorizedProjectIds(
     input.registry,
     (entry) => entry.verificationAllowed === true && (entry.allowedRecipeIds?.length ?? 0) > 0,
+  );
+  const patchExportProjectIds = authorizedProjectIds(
+    input.registry,
+    (entry) => entry.patchExportAllowed === true &&
+      typeof entry.exportDestinationCanonicalRoot === "string" &&
+      entry.exportDestinationCanonicalRoot.length > 0,
   );
   return Object.freeze([
     Object.freeze({
@@ -137,6 +146,18 @@ function thoughtOperationCapabilities(input: {
       operatorBoundRequestFields: Object.freeze(["workspaceId", "recipeId"]),
       authorizedProjectIds: Object.freeze(verificationProjectIds),
     }),
+    Object.freeze({
+      operationKind: "patch_export",
+      semanticClass: "effect" as const,
+      family: patchExportSpec.family,
+      readOnly: patchExportSpec.readOnly,
+      requiresProject: patchExportSpec.requiresProject,
+      available: input.patchExportAvailable,
+      requiredRequestFields: Object.freeze(["projectId", "changesetId", "adjudication"]),
+      optionalRequestFields: Object.freeze([]),
+      operatorBoundRequestFields: Object.freeze(["changesetId"]),
+      authorizedProjectIds: Object.freeze(patchExportProjectIds),
+    }),
   ]);
 }
 
@@ -178,10 +199,13 @@ export function getCapabilityReality(
     canOfferCandidateWorkspace(db, sandboxOptions);
   const authorshipAvailable = V021_LIVE_OPERATION_CAPABILITIES.has("candidate_authorship") &&
     canOfferCandidateAuthorship(db, sandboxOptions);
+  const patchExportAvailable = V021_LIVE_OPERATION_CAPABILITIES.has("patch_export") &&
+    canOfferPatchExport(db, sandboxOptions);
   const operationCapabilities = thoughtOperationCapabilities({
     registry,
     projectInspectionAvailable,
     verificationAvailable,
+    patchExportAvailable,
   });
   const facts = {
     vision: audienceCapabilityAllowed("vision") && perceptionFacts.vision,
@@ -193,7 +217,7 @@ export function getCapabilityReality(
     canOfferVerification: !externalAudience && verificationAvailable,
     canOfferAuthorship: !externalAudience && authorshipAvailable,
     canOfferBoundedOperation: false,
-    canOfferPatchExport: false,
+    canOfferPatchExport: !externalAudience && patchExportAvailable,
   };
   const reachabilityReasons: Record<string, CapabilityRealityReasonCode> = {};
   for (const name of ["vision", "attachmentText", "conversationalRead", "webSearch"] as const) {
@@ -208,7 +232,7 @@ export function getCapabilityReality(
     });
   }
   const operationFacts: Array<{
-    name: "canOfferProjectInspection" | "canOfferWorkspace" | "canOfferVerification" | "canOfferAuthorship";
+    name: "canOfferProjectInspection" | "canOfferWorkspace" | "canOfferVerification" | "canOfferAuthorship" | "canOfferPatchExport";
     value: boolean;
     rawValue: boolean;
   }> = [
@@ -216,6 +240,7 @@ export function getCapabilityReality(
     { name: "canOfferWorkspace", value: facts.canOfferWorkspace, rawValue: workspaceAvailable },
     { name: "canOfferVerification", value: facts.canOfferVerification, rawValue: verificationAvailable },
     { name: "canOfferAuthorship", value: facts.canOfferAuthorship, rawValue: authorshipAvailable },
+    { name: "canOfferPatchExport", value: facts.canOfferPatchExport, rawValue: patchExportAvailable },
   ];
   for (const item of operationFacts) {
     reachabilityReasons[item.name] = reasonForCapability({
@@ -227,16 +252,15 @@ export function getCapabilityReality(
       audienceAllowed: audienceCapabilityAllowed,
     });
   }
-  for (const name of ["canOfferBoundedOperation", "canOfferPatchExport"] as const) {
-    reachabilityReasons[name] = reasonForCapability({
-      value: facts[name],
-      rawValue: false,
-      name,
-      externalAudience,
-      substrateWithoutAuthority,
-      audienceAllowed: audienceCapabilityAllowed,
-    });
-  }
+  reachabilityReasons.canOfferBoundedOperation = reasonForCapability({
+    value: facts.canOfferBoundedOperation,
+    rawValue: false,
+    name: "canOfferBoundedOperation",
+    externalAudience,
+    ownerOnly: true,
+    substrateWithoutAuthority,
+    audienceAllowed: audienceCapabilityAllowed,
+  });
   const projectedOperationCapabilities = externalAudience
     ? operationCapabilities.map((capability) => ({
       ...capability,

@@ -20,6 +20,7 @@ import {
 } from "./engineering-types.js";
 import { persistPatchExportRecord } from "./patch-export-store.js";
 import { getChangeSet } from "./changeset-store.js";
+import { getSuccessfulVerificationReceiptForCandidate } from "./verification-receipt-store.js";
 import { loadOperatorProjectReadRegistry } from "./project-registry.js";
 import { isSandboxV2Available } from "./v2-execution.js";
 import type { V2ProjectReadRegistry } from "@composer-assistant/sandbox-v2";
@@ -33,6 +34,7 @@ export type ExecutePatchExportV2Input = {
   skipCapabilityGate?: boolean;
   registry?: V2ProjectReadRegistry;
   dispatcher?: SandboxV2Dispatcher;
+  workspaceManager?: import("@composer-assistant/sandbox-v2").WorkspaceManager;
   envOverrides?: {
     sandboxEngineeringLifecycleEnabled?: boolean;
     sandboxAvailable?: () => boolean;
@@ -66,6 +68,10 @@ export async function executePatchExportV2(
 ): Promise<ExecutePatchExportV2Result> {
   const { request, messageEntityUuid } = input;
   const taskId = `v2-export-${Date.now()}`;
+
+  if (request.adjudication !== "accept") {
+    return none("thought_adjudication_required", { taskId }, messageEntityUuid);
+  }
 
   if (input.db && !input.skipCapabilityGate) {
     try {
@@ -135,6 +141,20 @@ export async function executePatchExportV2(
   ) {
     return none("changeset_not_exportable", { taskId }, messageEntityUuid);
   }
+  if (input.workspaceManager?.isInquiryExperimentWorkspace(changeset.workspace_id)) {
+    return none("inquiry_workspace_forbidden", { taskId }, messageEntityUuid);
+  }
+  if (!changeset.candidate_tree_hash) {
+    return none("verification_receipt_required", { taskId }, messageEntityUuid);
+  }
+  const verificationReceipt = getSuccessfulVerificationReceiptForCandidate(input.db, {
+    ownerId: input.ownerId,
+    workspaceId: changeset.workspace_id,
+    candidateTreeHash: changeset.candidate_tree_hash,
+  });
+  if (!verificationReceipt) {
+    return none("verification_receipt_required", { taskId }, messageEntityUuid);
+  }
 
   try {
     const dispatcher =
@@ -142,6 +162,7 @@ export async function executePatchExportV2(
       new SandboxV2Dispatcher({
         env: {
           registry,
+          workspaceManager: input.workspaceManager,
         },
       });
 

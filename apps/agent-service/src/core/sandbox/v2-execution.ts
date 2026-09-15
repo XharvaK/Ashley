@@ -83,6 +83,7 @@ import {
 } from "./verification-license.js";
 import { issueCandidateAuthorshipLicense } from "./authorship-license.js";
 import {
+  markChangeSetsAbandonedAfterVerificationFailure,
   persistProposedChangeSet,
   persistQuarantinedChangeSet,
 } from "./changeset-store.js";
@@ -1466,6 +1467,9 @@ export async function executeCandidateVerificationV2(
   if (!bound.ok) {
     return none(bound.error);
   }
+  if (input.workspaceManager?.isInquiryExperimentWorkspace(bound.workspaceId)) {
+    return none("inquiry_workspace_forbidden");
+  }
   const boundRequest = {
     ...request,
     workspaceId: bound.workspaceId,
@@ -1550,10 +1554,27 @@ export async function executeCandidateVerificationV2(
               ? String((receipt as { candidateTreeHash?: unknown }).candidateTreeHash ?? "")
               : null,
           outcome: res.outcome,
-          facts: { error: license.error ?? null },
+          facts: {
+            error: license.error ?? null,
+            verificationOutcome: license.verificationClaimEffect?.verificationOutcome ?? null,
+          },
         });
       } catch {
         /* unique receipt already recorded */
+      }
+    }
+    if (
+      input.db &&
+      input.ownerId &&
+      license.verificationClaimEffect?.verificationOutcome === "verified_failure"
+    ) {
+      try {
+        markChangeSetsAbandonedAfterVerificationFailure(input.db, {
+          ownerId: input.ownerId,
+          workspaceId: boundRequest.workspaceId ?? "unknown",
+        });
+      } catch {
+        /* verification receipt remains the authoritative failure audit */
       }
     }
     return { license };
@@ -1675,6 +1696,9 @@ export async function executeCandidateAuthorshipV2(
   if (!bound.ok) {
     return none(bound.error);
   }
+  if (input.workspaceManager?.isInquiryExperimentWorkspace(bound.workspaceId)) {
+    return none("inquiry_workspace_forbidden");
+  }
   const boundRequest: CognitionAuthorshipRequest & { workspaceId: string } = {
     ...request,
     workspaceId: bound.workspaceId,
@@ -1778,9 +1802,8 @@ export async function executeCandidateAuthorshipV2(
         verificationRecipeIds: boundRequest.verificationRecipeIds ?? [],
         intendedPaths: boundRequest.intendedPaths,
         changedPaths: receipt.changedPaths,
-        // First slice does not look up matching M4 receipts. Declared
-        // evidenceRefs stay on evidence_refs_json; this column would
-        // overclaim a verified match.
+        // M4 verification is independently persisted before M7 can export;
+        // declared evidenceRefs remain distinct from that receipt.
         linkedVerificationRefs: [],
         patchSha256: receipt.patchSha256,
         patchBytes: receipt.patchBytes,

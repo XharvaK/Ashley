@@ -83,6 +83,7 @@ export type CognitionPatchExportRequest = {
   operation: "patch_export";
   projectId: string;
   changesetId: string;
+  adjudication: "accept";
 };
 
 export type CognitionOperationalRequest =

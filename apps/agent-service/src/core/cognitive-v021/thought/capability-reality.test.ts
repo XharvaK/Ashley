@@ -43,7 +43,7 @@ describe("v0.2.1 CapabilityReality live-surface contract", () => {
 
       expect(reality).toMatchObject({
         canOfferBoundedOperation: false,
-        canOfferPatchExport: false,
+        canOfferPatchExport: true,
         vision: false,
         attachmentText: false,
         conversationalRead: false,
@@ -119,6 +119,18 @@ describe("v0.2.1 CapabilityReality live-surface contract", () => {
           operatorBoundRequestFields: ["workspaceId", "recipeId"],
           authorizedProjectIds: ["project-ashley"],
         },
+        {
+          operationKind: "patch_export",
+          semanticClass: "effect",
+          family: "patch_export",
+          readOnly: false,
+          requiresProject: true,
+          available: true,
+          requiredRequestFields: ["projectId", "changesetId", "adjudication"],
+          optionalRequestFields: [],
+          operatorBoundRequestFields: ["changesetId"],
+          authorizedProjectIds: ["project-ashley"],
+        },
       ]);
       expect(reality.operationCapabilities?.some((operation) =>
         "expectedKind" in operation || "semanticBranch" in operation,
@@ -141,6 +153,7 @@ describe("v0.2.1 CapabilityReality live-surface contract", () => {
       expect(owner.reachability?.reasons).toMatchObject({
         canOfferProjectInspection: "capability_exists",
         canOfferWorkspace: "capability_exists",
+        canOfferPatchExport: "capability_exists",
         vision: "evidence_not_acquired",
         canOfferBoundedOperation: "unavailable",
       });
@@ -157,6 +170,7 @@ describe("v0.2.1 CapabilityReality live-surface contract", () => {
         canOfferProjectInspection: "another_audience_only",
         canOfferWorkspace: "another_audience_only",
         canOfferVerification: "another_audience_only",
+        canOfferPatchExport: "another_audience_only",
       });
       expect(room.operationCapabilities?.every((operation) =>
         operation.authorizedProjectIds.length === 0 && operation.available === false,

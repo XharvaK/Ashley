@@ -238,6 +238,7 @@ export function getChangeSet(
   artifact_ref: string | null;
   patch_sha256: string | null;
   patch_bytes: number | null;
+  candidate_tree_hash: string | null;
   quarantine_reason: string | null;
   evidence_refs_json: string;
   owner_id: string;
@@ -248,7 +249,7 @@ export function getChangeSet(
     (db
       .prepare(
         `SELECT status, review_status, artifact_ref, patch_sha256, patch_bytes,
-                quarantine_reason, evidence_refs_json, owner_id, project_id, workspace_id
+                candidate_tree_hash, quarantine_reason, evidence_refs_json, owner_id, project_id, workspace_id
            FROM candidate_changesets WHERE changeset_id = ?`,
       )
       .get(changesetId) as {
@@ -257,6 +258,7 @@ export function getChangeSet(
       artifact_ref: string | null;
       patch_sha256: string | null;
       patch_bytes: number | null;
+      candidate_tree_hash: string | null;
       quarantine_reason: string | null;
       evidence_refs_json: string;
       owner_id: string;
@@ -264,6 +266,18 @@ export function getChangeSet(
       workspace_id: string;
     } | undefined) ?? null
   );
+}
+
+export function markChangeSetsAbandonedAfterVerificationFailure(
+  db: DatabaseSync,
+  input: { ownerId: string; workspaceId: string },
+): number {
+  const result = db.prepare(
+    `UPDATE candidate_changesets
+        SET status = 'abandoned', review_status = NULL, updated_at = ?
+      WHERE owner_id = ? AND workspace_id = ? AND status = 'proposed'`,
+  ).run(nowIso(), input.ownerId, input.workspaceId) as { changes: number };
+  return Number(result.changes);
 }
 
 export function listChangeSetEventTypes(db: DatabaseSync, changesetId: string): string[] {

@@ -14,6 +14,10 @@ import {
   type InquiryExperimentRequest,
 } from "../../sandbox/v2-execution.js";
 import {
+  executePatchExportV2,
+  type ExecutePatchExportV2Result,
+} from "../../sandbox/patch-export-execution.js";
+import {
   loadOperatorProjectReadRegistry,
   type V2ProjectReadRegistry,
 } from "../../sandbox/project-registry.js";
@@ -21,6 +25,7 @@ import type { SandboxV2Dispatcher, SandboxV2Environment, WorkspaceManager } from
 import type {
   CognitionAuthorshipRequest,
   CognitionInspectionRequest,
+  CognitionPatchExportRequest,
   CognitionVerificationRequest,
   CognitionWorkspaceRequest,
 } from "../../../core/types.js";
@@ -69,6 +74,7 @@ type LiveOperationAdapters = {
   executeCandidateVerificationV2: typeof executeCandidateVerificationV2;
   executeCandidateAuthorshipV2: typeof executeCandidateAuthorshipV2;
   executeInquiryExperimentV2: typeof executeInquiryExperimentV2;
+  executePatchExportV2: typeof executePatchExportV2;
 };
 
 export type V021LiveOperationExecutorOptions = {
@@ -217,6 +223,19 @@ function normalizeInquiryRequest(proposal: EffectProposal): InquiryExperimentReq
   return value as unknown as InquiryExperimentRequest;
 }
 
+function normalizePatchExportRequest(proposal: EffectProposal): CognitionPatchExportRequest | null {
+  const value = requestRecord(proposal.request);
+  const projectId = stringValue(value?.projectId);
+  const changesetId = stringValue(value?.changesetId);
+  if (!projectId || !changesetId || value?.adjudication !== "accept") return null;
+  return {
+    operation: "patch_export",
+    projectId,
+    changesetId,
+    adjudication: "accept",
+  };
+}
+
 function licenseClaims(license: OperationalClaimLicense): Record<string, unknown> {
   return {
     state: license.state,
@@ -229,6 +248,7 @@ function licenseClaims(license: OperationalClaimLicense): Record<string, unknown
     ...(license.workspaceClaimEffect ? { workspaceClaimEffect: license.workspaceClaimEffect } : {}),
     ...(license.verificationClaimEffect ? { verificationClaimEffect: license.verificationClaimEffect } : {}),
     ...(license.authorshipClaimEffect ? { authorshipClaimEffect: license.authorshipClaimEffect } : {}),
+    ...(license.patchExportClaimEffect ? { patchExportClaimEffect: license.patchExportClaimEffect } : {}),
   };
 }
 
@@ -241,7 +261,15 @@ function inferDispatchEvidence(
     license.error === "invalid_request" ||
     license.error === "unsupported_operation" ||
     license.error === "missing_project" ||
-    license.error === "missing_path"
+    license.error === "missing_path" ||
+    license.error === "thought_adjudication_required" ||
+    license.error === "verification_receipt_required" ||
+    license.error === "inquiry_workspace_forbidden" ||
+    license.error === "patch_export_gate_denied" ||
+    license.error === "patch_export_not_allowed" ||
+    license.error === "changeset_missing" ||
+    license.error === "changeset_not_exportable" ||
+    license.error === "changeset_project_mismatch"
   ) {
     return { provenNotStarted: true };
   }
@@ -316,7 +344,8 @@ function resultLicense(
   result:
     | ExecuteWorkspaceExperimentV2Result
     | ExecuteCandidateVerificationV2Result
-    | ExecuteCandidateAuthorshipV2Result,
+    | ExecuteCandidateAuthorshipV2Result
+    | ExecutePatchExportV2Result,
 ): OperationalClaimLicense {
   return result.license;
 }
@@ -359,6 +388,7 @@ export function createV021LiveOperationExecutors(
     executeCandidateVerificationV2,
     executeCandidateAuthorshipV2,
     executeInquiryExperimentV2,
+    executePatchExportV2,
     ...options.adapters,
   };
 
@@ -533,6 +563,19 @@ export function createV021LiveOperationExecutors(
               ownerId: options.ownerId,
               messageEntityUuid: proposal.cycleId,
               deadlineAtMs: base + 60_000,
+            });
+            license = resultLicense(result);
+          }
+        } else if (operation === "patch_export") {
+          const request = normalizePatchExportRequest(proposal);
+          if (!request) license = unavailableLicense("patch_export", "invalid_request");
+          else if (!options.ownerId) license = unavailableLicense("patch_export", "owner_id_required");
+          else {
+            const result = await adapters.executePatchExportV2({
+              ...common,
+              request,
+              ownerId: options.ownerId,
+              messageEntityUuid: proposal.cycleId,
             });
             license = resultLicense(result);
           }
