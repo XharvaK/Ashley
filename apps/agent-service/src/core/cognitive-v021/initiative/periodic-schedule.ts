@@ -24,17 +24,17 @@ import type { IdleObservationDraft } from "./idle.js";
 /**
  * P1 periodic scheduling ledger + poll evaluation (R7 §§5–14, frozen).
  *
- * Singleton scope + 60 m cheap loop + 6 h opportunity + 4/hour policy budget
+ * Singleton scope + 60 m cheap loop + 4 h opportunity + 4/hour policy budget
  * (S1 + S1b, both in P1). No new lifecycle, no new owner: the schedule is
  * durable state evaluated by the existing idle tick; Thought execution stays
  * on the existing kernel path; spend stays on the F1 budget ledger.
  */
 
 export const PERIODIC_SCHEDULE_ID = "ashley-periodic-v1" as const;
-/** Nominal opportunity cadence: 6 h (CHEAP_SERVICE_POLL=60 m drives the loop). */
-export const PERIODIC_CADENCE_MS = 21_600_000 as const;
+/** Nominal opportunity cadence: 4 h (CHEAP_SERVICE_POLL=60 m drives the loop). */
+export const PERIODIC_CADENCE_MS = 14_400_000 as const;
 /** Due window: 1 period. Unbound-only expiry (bound occurrences never expire). */
-export const PERIODIC_DUE_WINDOW_MS = 21_600_000 as const;
+export const PERIODIC_DUE_WINDOW_MS = 14_400_000 as const;
 /** Live-only curiosity acquisition cap on the unbound due path (mirrors idle). */
 export const PERIODIC_CURIOSITY_MAX_ITEMS = 12 as const;
 
@@ -130,9 +130,9 @@ export function readSchedule(db: DatabaseSync): PeriodicScheduleRow | null {
 }
 
 /**
- * First activation only: creates the singleton row with next = now + 6 h.
+ * First activation only: creates the singleton row with next = now + 4 h.
  * Idempotent (returns the existing row). Creates NO pending occurrence and
- * authorizes NO Thought — schedule now+6h only, zero immediate paid Thought.
+ * authorizes NO Thought — schedule now+4h only, zero immediate paid Thought.
  */
 export function createSchedule(db: DatabaseSync, input: { authorityEpoch: number; nowMs: number }): PeriodicScheduleRow {
   db.prepare(
@@ -292,7 +292,7 @@ export function freezeBinding(
  * Terminal schedule transition: receipt + pending-clear + next-advance in
  * ONE sidecar transaction. PK replay is idempotent and never double-advances
  * (returns the existing receipt without touching the schedule).
- * Advancement is disposition-relative: max(eventMs, prevNext) + 6 h.
+ * Advancement is disposition-relative: max(eventMs, prevNext) + 4 h.
  */
 export function clearPendingAndAdvance(
   db: DatabaseSync,
@@ -932,7 +932,7 @@ export async function evaluatePeriodicPoll(
 
   let schedule = readSchedule(db);
   if (!schedule) {
-    // First activation is schedule creation only (now+6h, no Thought).
+    // First activation is schedule creation only (now+4h, no Thought).
     // While disabled no row is even created (kill-switch A).
     if (!enabled) return { kind: "no_schedule_disabled" };
     return { kind: "schedule_created", schedule: createSchedule(db, { authorityEpoch, nowMs }) };

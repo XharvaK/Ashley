@@ -6,6 +6,7 @@ import { channelQueue } from "../chat/channel-queue.js";
 import { splitMessage } from "../chat/split-message.js";
 import {
   claimPendingCognitiveDeliveries,
+  claimPendingSocialNotifications,
   finalizeDelivery,
   receiptDeliveryBubble,
 } from "../agent-client.js";
@@ -17,6 +18,7 @@ type FulfillmentDelivery = Awaited<
 
 export type FulfillmentPumpDependencies = {
   claim: () => Promise<{ deliveries: FulfillmentDelivery[] }>;
+  claimSocial?: () => Promise<{ deliveries: FulfillmentDelivery[] }>;
   receipt: typeof receiptDeliveryBubble;
   finalize: typeof finalizeDelivery;
   send: typeof sendBubbles;
@@ -223,6 +225,18 @@ export async function drainPendingCognitiveDeliveries(
   return drainPendingDeliveries(client, deps);
 }
 
+export async function drainPendingSocialNotifications(
+  client: Client,
+  deps: FulfillmentPumpDependencies = {
+    claim: claimPendingSocialNotifications,
+    receipt: receiptDeliveryBubble,
+    finalize: finalizeDelivery,
+    send: sendBubbles,
+  },
+): Promise<number> {
+  return drainPendingDeliveries(client, deps);
+}
+
 let pumpTimer: NodeJS.Timeout | null = null;
 let pumpRunning = false;
 let pumpStopped = false;
@@ -251,6 +265,17 @@ export function startFulfillmentPump(
     pumpRunning = true;
     try {
       await drainPendingCognitiveDeliveries(client, deps);
+      // The social notification lane is independently gated. Existing test
+      // seams that inject only the cognitive claim function do not acquire a
+      // second remote lane accidentally.
+      if (config.socialCaptureEnabled && (deps === undefined || deps.claimSocial)) {
+        await drainPendingSocialNotifications(
+          client,
+          deps === undefined
+            ? undefined
+            : { ...deps, claim: deps.claimSocial! },
+        );
+      }
     } catch (err) {
       console.error("[discord-bot] error in fulfillment pump poll:", err);
     } finally {

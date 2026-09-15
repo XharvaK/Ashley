@@ -30,9 +30,21 @@ export type AppendEvidenceInput = {
   reservationId?: number | null;
   producingCycleId?: string | null;
   delivered?: boolean;
+  speakerPrincipalId?: string | null;
+  speakerKind?: EvidenceSpeakerKind;
+  location?: unknown;
+  audienceAtCapture?: EvidenceAudienceAtCapture;
+  sentAtMs?: number | null;
+  replyToMessageId?: string | null;
+  mentionIds?: string[];
+  attachmentRefs?: unknown[];
+  provenance?: unknown;
 };
 
-type EvidenceRole = "owner" | "ashley" | "system";
+export type EvidenceRole = "owner" | "ashley" | "system" | "external_dialog";
+
+type EvidenceSpeakerKind = "owner" | "external_human" | "external_bot" | "ashley";
+type EvidenceAudienceAtCapture = "owner_private" | "dm" | "room";
 
 type EvidenceDbRow = {
   row_id?: unknown;
@@ -51,6 +63,15 @@ type EvidenceDbRow = {
   data_classification?: unknown;
   secret_omitted?: unknown;
   delivered?: unknown;
+  speaker_principal_id?: unknown;
+  speaker_kind?: unknown;
+  location_json?: unknown;
+  audience_at_capture?: unknown;
+  sent_at_ms?: unknown;
+  reply_to_message_id?: unknown;
+  mention_ids_json?: unknown;
+  attachment_refs_json?: unknown;
+  provenance_json?: unknown;
 };
 
 function asString(value: unknown, fallback = ""): string {
@@ -73,6 +94,27 @@ function uniqueIds(ids: string[] | undefined): string[] {
   return [...new Set((ids ?? []).map((id) => id.trim()).filter(Boolean))];
 }
 
+function parseJson(value: unknown): unknown | null {
+  if (typeof value !== "string" || !value.trim()) return null;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+}
+
+function parseStringArray(value: unknown): string[] {
+  const parsed = parseJson(value);
+  return Array.isArray(parsed)
+    ? parsed.filter((item): item is string => typeof item === "string")
+    : [];
+}
+
+function parseJsonArray(value: unknown): unknown[] {
+  const parsed = parseJson(value);
+  return Array.isArray(parsed) ? parsed : [];
+}
+
 function hashContent(role: EvidenceRole, text: string | null): string {
   return createHash("sha256")
     .update(`${role}\u0000${text ?? ""}`, "utf8")
@@ -83,7 +125,14 @@ function mapEvidence(row: unknown): ConversationEvidenceRecord | null {
   if (typeof row !== "object" || row === null) return null;
   const value = row as EvidenceDbRow;
   const role = asString(value.role);
-  if (role !== "owner" && role !== "ashley" && role !== "system") return null;
+  if (role !== "owner" && role !== "ashley" && role !== "system" && role !== "external_dialog") return null;
+  const speakerKind: EvidenceSpeakerKind = value.speaker_kind === "owner" ||
+    value.speaker_kind === "external_human" || value.speaker_kind === "external_bot" || value.speaker_kind === "ashley"
+    ? value.speaker_kind
+    : "owner";
+  const audienceAtCapture: EvidenceAudienceAtCapture = value.audience_at_capture === "dm" || value.audience_at_capture === "room"
+    ? value.audience_at_capture
+    : "owner_private";
   let ids: string[] = [];
   try {
     const parsed = JSON.parse(asString(value.discord_message_ids_json, "[]"));
@@ -108,6 +157,15 @@ function mapEvidence(row: unknown): ConversationEvidenceRecord | null {
     dataClassification: asClassification(value.data_classification),
     secretOmitted: asNumber(value.secret_omitted) === 1,
     delivered: asNumber(value.delivered) === 1,
+    speakerPrincipalId: value.speaker_principal_id == null ? null : asString(value.speaker_principal_id),
+    speakerKind,
+    location: parseJson(value.location_json),
+    audienceAtCapture,
+    sentAtMs: value.sent_at_ms == null ? null : asNumber(value.sent_at_ms),
+    replyToMessageId: value.reply_to_message_id == null ? null : asString(value.reply_to_message_id),
+    mentionIds: parseStringArray(value.mention_ids_json),
+    attachmentRefs: parseJsonArray(value.attachment_refs_json),
+    provenance: parseJson(value.provenance_json),
   };
 }
 
@@ -192,30 +250,68 @@ export function appendEvidenceInTransaction(
   );
   const rowId = randomUUID();
   const storedIds = ids.length > 0 ? ids : parent?.discordMessageIds ?? [];
-  db.prepare(
-    `INSERT INTO conversation_evidence_log
-       (row_id, lineage_id, version, conversation_id, role, text, created_at_ms,
-        discord_message_ids_json, reservation_id, producing_cycle_id, architecture_epoch,
-        content_hash, source_status, data_classification, secret_omitted, delivered)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).run(
-    rowId,
-    lineageId,
-    version,
-    input.conversationId,
-    role,
-    normalized.text,
-    nowMs,
-    JSON.stringify(storedIds),
-    input.reservationId ?? null,
-    input.producingCycleId ?? null,
-    input.architectureEpoch ?? ARCHITECTURE_EPOCH,
-    hashContent(role, normalized.text),
-    input.sourceStatus ?? (explicitEdit ? "edited" : "received"),
-    normalized.classification,
-    normalized.secretOmitted ? 1 : 0,
-    input.delivered ? 1 : 0,
-  );
+  if (role === "external_dialog") {
+    db.prepare(
+      `INSERT INTO conversation_evidence_log
+         (row_id, lineage_id, version, conversation_id, role, text, created_at_ms,
+          discord_message_ids_json, reservation_id, producing_cycle_id, architecture_epoch,
+          content_hash, source_status, data_classification, secret_omitted, delivered,
+          speaker_principal_id, speaker_kind, location_json, audience_at_capture,
+          sent_at_ms, reply_to_message_id, mention_ids_json, attachment_refs_json, provenance_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      rowId,
+      lineageId,
+      version,
+      input.conversationId,
+      role,
+      normalized.text,
+      nowMs,
+      JSON.stringify(storedIds),
+      input.reservationId ?? null,
+      input.producingCycleId ?? null,
+      input.architectureEpoch ?? ARCHITECTURE_EPOCH,
+      hashContent(role, normalized.text),
+      input.sourceStatus ?? (explicitEdit ? "edited" : "received"),
+      normalized.classification,
+      normalized.secretOmitted ? 1 : 0,
+      input.delivered ? 1 : 0,
+      input.speakerPrincipalId ?? null,
+      input.speakerKind ?? null,
+      input.location == null ? null : JSON.stringify(input.location),
+      input.audienceAtCapture ?? null,
+      input.sentAtMs ?? null,
+      input.replyToMessageId ?? null,
+      JSON.stringify(input.mentionIds ?? []),
+      JSON.stringify(input.attachmentRefs ?? []),
+      input.provenance == null ? null : JSON.stringify(input.provenance),
+    );
+  } else {
+    db.prepare(
+      `INSERT INTO conversation_evidence_log
+         (row_id, lineage_id, version, conversation_id, role, text, created_at_ms,
+          discord_message_ids_json, reservation_id, producing_cycle_id, architecture_epoch,
+          content_hash, source_status, data_classification, secret_omitted, delivered)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      rowId,
+      lineageId,
+      version,
+      input.conversationId,
+      role,
+      normalized.text,
+      nowMs,
+      JSON.stringify(storedIds),
+      input.reservationId ?? null,
+      input.producingCycleId ?? null,
+      input.architectureEpoch ?? ARCHITECTURE_EPOCH,
+      hashContent(role, normalized.text),
+      input.sourceStatus ?? (explicitEdit ? "edited" : "received"),
+      normalized.classification,
+      normalized.secretOmitted ? 1 : 0,
+      input.delivered ? 1 : 0,
+    );
+  }
 
   const mapping = db.prepare(
     `INSERT OR IGNORE INTO conversation_evidence_discord_ids
@@ -265,6 +361,11 @@ export type AppendOwnerUtteranceResult = {
   duplicate: boolean;
 };
 
+export type AppendExternalUtteranceResult = {
+  evidence: ConversationEvidenceRecord;
+  duplicate: boolean;
+};
+
 /** Admit owner evidence within an existing caller-managed transaction. */
 export function appendOwnerUtteranceInTransaction(
   db: DatabaseSync,
@@ -277,6 +378,21 @@ export function appendOwnerUtteranceInTransaction(
     }
   }
   return { evidence: appendEvidenceInTransaction(db, "owner", input), duplicate: false };
+}
+
+/** Admit attributed external evidence within an existing caller-managed transaction. */
+export function appendExternalUtteranceInTransaction(
+  db: DatabaseSync,
+  input: AppendEvidenceInput,
+): AppendExternalUtteranceResult {
+  for (const id of uniqueIds(input.discordMessageIds)) {
+    const existing = existingByDiscordId(db, id);
+    if (existing) {
+      if (existing.role !== "external_dialog") throw new Error("external_evidence_discord_id_conflict");
+      return { evidence: existing, duplicate: true };
+    }
+  }
+  return { evidence: appendEvidenceInTransaction(db, "external_dialog", input), duplicate: false };
 }
 
 /** Admit owner evidence while exposing the Discord-id replay bit to ingress. */
@@ -308,6 +424,13 @@ export function appendAshleyEvidence(
 }
 
 export function getConversationEvidence(
+  db: DatabaseSync,
+  rowId: string,
+): ConversationEvidenceRecord | null {
+  return byId(db, rowId);
+}
+
+export function getEvidenceByRowId(
   db: DatabaseSync,
   rowId: string,
 ): ConversationEvidenceRecord | null {

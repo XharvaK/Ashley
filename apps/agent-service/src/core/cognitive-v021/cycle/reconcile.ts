@@ -10,6 +10,27 @@ export type ReconcileStartupResult = {
   coveredSiblingEventIds: string[];
 };
 
+export const EXTERNAL_UNBATCHED_RECOVERY_HORIZON_MS = 10_000;
+
+export type UnbatchedCaptureBatch = {
+  captureRefs: string[];
+  conversationKey: string;
+  finalFragmentReceivedAtMs?: number;
+};
+
+export type ReconcileUnbatchedCapturesResult = {
+  discovered: number;
+  batched: number;
+  failures: number;
+};
+
+type UnbatchedCaptureRow = {
+  id?: unknown;
+  conversation_id?: unknown;
+  payload_json?: unknown;
+  created_at_ms?: unknown;
+};
+
 type EvidenceCandidateRow = {
   row_id: string;
   conversation_id: string;
@@ -45,6 +66,106 @@ function payloadEvidenceRowId(value: unknown): string | null {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
   const evidenceRowId = (value as Record<string, unknown>).evidenceRowId;
   return typeof evidenceRowId === "string" && evidenceRowId.trim() ? evidenceRowId : null;
+}
+
+function capturePayload(value: unknown): {
+  captureRef: string;
+  evidenceRowId: string;
+  conversationKey: string;
+} | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const row = value as Record<string, unknown>;
+  const captureRef = typeof row.captureRef === "string" ? row.captureRef.trim() : "";
+  const evidenceRowId = typeof row.evidenceRowId === "string" ? row.evidenceRowId.trim() : "";
+  const conversationKey = typeof row.conversationKey === "string" ? row.conversationKey.trim() : "";
+  if (!captureRef || !evidenceRowId || !conversationKey) return null;
+  return { captureRef, evidenceRowId, conversationKey };
+}
+
+function externalCaptureAlreadyBatched(sidecar: DatabaseSync, evidenceRowId: string): boolean {
+  const row = sidecar.prepare(
+    `SELECT 1 AS present
+       FROM inbox_events
+      WHERE id IN (?, ?)
+      LIMIT 1`,
+  ).get(
+    `external:eligible:${evidenceRowId}`,
+    `external:quarantine:${evidenceRowId}`,
+  ) as { present?: unknown } | undefined;
+  return row?.present === 1;
+}
+
+/**
+ * Rediscover durable external captures that crossed capture COMMIT before the
+ * bot/service could send the reference batch. This is a bounded startup
+ * reconciliation seam; the injected batcher owns the normal admission
+ * transaction and no inbox wake or cognitive cycle is created here.
+ */
+export async function reconcileUnbatchedCaptures(
+  sidecar: DatabaseSync,
+  options: {
+    nowMs?: number;
+    horizonMs?: number;
+    limit?: number;
+    batch: (input: UnbatchedCaptureBatch) => Promise<unknown> | unknown;
+  },
+): Promise<ReconcileUnbatchedCapturesResult> {
+  const nowMs = options.nowMs ?? Date.now();
+  const horizonMs = options.horizonMs ?? EXTERNAL_UNBATCHED_RECOVERY_HORIZON_MS;
+  const cutoffMs = nowMs - horizonMs;
+  const limit = Math.max(1, Math.min(1000, options.limit ?? 100));
+  const rows = sidecar.prepare(
+    `SELECT id, conversation_id, payload_json, created_at_ms
+       FROM inbox_events
+      WHERE kind = 'external_captured'
+        AND wake_id IS NULL
+        AND state = 'pending'
+        AND status = 'pending'
+        AND created_at_ms <= ?
+      ORDER BY created_at_ms ASC, id ASC
+      LIMIT ?`,
+  ).all(cutoffMs, limit) as UnbatchedCaptureRow[];
+
+  const grouped = new Map<string, UnbatchedCaptureBatch>();
+  let discovered = 0;
+  let failures = 0;
+  for (const row of rows) {
+    let payloadValue: unknown;
+    try {
+      payloadValue = JSON.parse(typeof row.payload_json === "string" ? row.payload_json : "{}");
+    } catch {
+      failures += 1;
+      continue;
+    }
+    const payload = capturePayload(payloadValue);
+    if (!payload || externalCaptureAlreadyBatched(sidecar, payload.evidenceRowId)) continue;
+    discovered += 1;
+    const existing = grouped.get(payload.conversationKey);
+    if (existing) {
+      existing.captureRefs.push(payload.captureRef);
+      existing.finalFragmentReceivedAtMs = Math.max(
+        existing.finalFragmentReceivedAtMs ?? 0,
+        Number(row.created_at_ms ?? 0),
+      );
+    } else {
+      grouped.set(payload.conversationKey, {
+        captureRefs: [payload.captureRef],
+        conversationKey: payload.conversationKey,
+        finalFragmentReceivedAtMs: Number(row.created_at_ms ?? 0),
+      });
+    }
+  }
+
+  let batched = 0;
+  for (const batch of grouped.values()) {
+    try {
+      await options.batch(batch);
+      batched += batch.captureRefs.length;
+    } catch {
+      failures += batch.captureRefs.length;
+    }
+  }
+  return { discovered, batched, failures };
 }
 
 function convergedCoveredSiblingEvents(sidecar: DatabaseSync, nowMs: number): string[] {

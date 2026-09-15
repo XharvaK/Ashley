@@ -42,7 +42,7 @@ export function mapReservation(row: unknown): DeliveryReservationRow | null {
   const state = text(row.state);
   const lane = text(row.delivery_lane);
   const deliveryLane: DeliveryReservationRow["deliveryLane"] =
-    lane === "proactive" || lane === "operational_fulfillment"
+    lane === "proactive" || lane === "operational_fulfillment" || lane === "social_notify"
       ? lane
       : "reactive";
   if (trigger !== "reactive" && trigger !== "proactive") return null;

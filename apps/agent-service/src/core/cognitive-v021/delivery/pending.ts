@@ -44,17 +44,21 @@ function deliveryForState(
   };
 }
 
-/** Read-only listing of projected v0.2.1 Discord deliveries awaiting transport. */
-export function listPendingCognitiveDeliveries(
+function listPendingByLane(
   db: DatabaseSync,
   ownerId: string,
+  lane: "cognitive_v021" | "social_notify",
 ): PendingCognitiveDelivery[] {
+  const laneClause = lane === "social_notify"
+    ? "delivery_lane = 'social_notify'"
+    : "delivery_lane IN ('reactive', 'proactive')";
   const rows = db.prepare(
     `SELECT id
        FROM delivery_reservations
       WHERE owner_id = ?
         AND channel = 'discord'
         AND cognitive_v021_projection_key IS NOT NULL
+        AND ${laneClause}
         AND state = 'reserved'
       ORDER BY id ASC`,
   ).all(ownerId);
@@ -66,17 +70,38 @@ export function listPendingCognitiveDeliveries(
   });
 }
 
+/** Read-only listing of projected v0.2.1 Discord deliveries awaiting transport. */
+export function listPendingCognitiveDeliveries(
+  db: DatabaseSync,
+  ownerId: string,
+): PendingCognitiveDelivery[] {
+  return listPendingByLane(db, ownerId, "cognitive_v021");
+}
+
+/** Read-only listing of bounded Owner social-notification deliveries. */
+export function listPendingSocialNotifications(
+  db: DatabaseSync,
+  ownerId: string,
+): PendingCognitiveDelivery[] {
+  return listPendingByLane(db, ownerId, "social_notify");
+}
+
 function reconcileExpiredSending(
   db: DatabaseSync,
   ownerId: string,
   nowIso: string,
+  lane: "cognitive_v021" | "social_notify",
 ): void {
+  const laneClause = lane === "social_notify"
+    ? "delivery_lane = 'social_notify'"
+    : "delivery_lane IN ('reactive', 'proactive')";
   const rows = db.prepare(
     `SELECT id
        FROM delivery_reservations
       WHERE owner_id = ?
         AND channel = 'discord'
         AND cognitive_v021_projection_key IS NOT NULL
+        AND ${laneClause}
         AND state = 'sending'
         AND delivery_lease_expires_at IS NOT NULL
         AND delivery_lease_expires_at <= ?
@@ -97,14 +122,14 @@ function reconcileExpiredSending(
   }
 }
 
-/** Atomically checks out one projected cognitive delivery for the Discord pump. */
-export function claimPendingCognitiveDeliveries(
+function claimPendingByLane(
   db: DatabaseSync,
   input: {
     ownerId: string;
     leaseMs?: number;
     nowMs?: number;
   },
+  lane: "cognitive_v021" | "social_notify",
 ): PendingCognitiveDelivery[] {
   const nowMs = input.nowMs ?? Date.now();
   const nowIso = new Date(nowMs).toISOString();
@@ -112,7 +137,11 @@ export function claimPendingCognitiveDeliveries(
     nowMs + clampLeaseMs(input.leaseMs),
   ).toISOString();
 
-  reconcileExpiredSending(db, input.ownerId, nowIso);
+  reconcileExpiredSending(db, input.ownerId, nowIso, lane);
+
+  const laneClause = lane === "social_notify"
+    ? "delivery_lane = 'social_notify'"
+    : "delivery_lane IN ('reactive', 'proactive')";
 
   db.exec("BEGIN IMMEDIATE");
   try {
@@ -122,6 +151,7 @@ export function claimPendingCognitiveDeliveries(
         WHERE owner_id = ?
           AND channel = 'discord'
           AND cognitive_v021_projection_key IS NOT NULL
+          AND ${laneClause}
           AND state = 'reserved'
         ORDER BY id ASC
         LIMIT 1`,
@@ -150,4 +180,28 @@ export function claimPendingCognitiveDeliveries(
     }
     throw error;
   }
+}
+
+/** Atomically checks out one projected cognitive delivery for the Discord pump. */
+export function claimPendingCognitiveDeliveries(
+  db: DatabaseSync,
+  input: {
+    ownerId: string;
+    leaseMs?: number;
+    nowMs?: number;
+  },
+): PendingCognitiveDelivery[] {
+  return claimPendingByLane(db, input, "cognitive_v021");
+}
+
+/** Atomically checks out one projected social notification for the Owner pump. */
+export function claimPendingSocialNotifications(
+  db: DatabaseSync,
+  input: {
+    ownerId: string;
+    leaseMs?: number;
+    nowMs?: number;
+  },
+): PendingCognitiveDelivery[] {
+  return claimPendingByLane(db, input, "social_notify");
 }

@@ -14,7 +14,7 @@ export type { DataClassification } from "../privacy/classification.js";
 export const ARCHITECTURE_EPOCH = "v0.2.1" as const;
 export const IMPLEMENTATION_SPEC_VERSION = "0.2.1.r6" as const;
 export const THOUGHT_CONTRACT_VERSION = 2 as const;
-export const COGNITIVE_SIDECAR_SCHEMA_VERSION = 13 as const;
+export const COGNITIVE_SIDECAR_SCHEMA_VERSION = 14 as const;
 export const CAPACITY_WAIT_MAX_DURATION_MS = 120_000 as const;
 export const MECHANICAL_SPIN_GUARD_LIMIT = 12 as const;
 
@@ -444,7 +444,7 @@ export type ConversationEvidenceRecord = {
   lineageId: string;
   version: number;
   conversationId: ConversationId;
-  role: "owner" | "ashley" | "system";
+  role: "owner" | "ashley" | "system" | "external_dialog";
   text: string | null;
   createdAtMs: number;
   discordMessageIds: string[];
@@ -456,6 +456,15 @@ export type ConversationEvidenceRecord = {
   dataClassification: DataClassification;
   secretOmitted: boolean;
   delivered: boolean;
+  speakerPrincipalId?: string | null;
+  speakerKind?: "owner" | "external_human" | "external_bot" | "ashley";
+  location?: unknown | null;
+  audienceAtCapture?: "owner_private" | "dm" | "room";
+  sentAtMs?: number | null;
+  replyToMessageId?: string | null;
+  mentionIds?: string[];
+  attachmentRefs?: unknown[];
+  provenance?: unknown | null;
 };
 export type ConversationEvidenceDiscordId = {
   discordMessageId: string;
@@ -1254,7 +1263,7 @@ export type DeliveryIntent = {
     | "subscription"
     | "recovery"
     | "operation_completion";
-  deliveryLane: "reactive" | "proactive";
+  deliveryLane: "reactive" | "proactive" | "social_notify";
   purpose: "licensed_speech" | "system_notice";
 };
 export type OutboxSendStatus =

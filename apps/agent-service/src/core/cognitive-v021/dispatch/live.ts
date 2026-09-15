@@ -41,7 +41,7 @@ export const PERIODIC_RECOVERY_DISPATCH_BLOCKED = "periodic_recovery_dispatch_bl
  * opportunity). The durable age boundary (15 min) clamps the effective wait;
  * the row is preserved durably throughout — never dispatched, never unbound.
  */
-export const PERIODIC_RECOVERY_DEFER_MS = 21_600_000 as const;
+export const PERIODIC_RECOVERY_DEFER_MS = 14_400_000 as const;
 
 export function isPeriodicCognitionEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
   const raw = env.PERIODIC_COGNITION_ENABLED;

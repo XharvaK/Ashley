@@ -675,7 +675,8 @@ function normalizeBoundedRows(db: DatabaseSync, nowMs: number, eventId?: string)
   const suffix = eventId == null ? "" : " AND id = ?";
   const rows = db.prepare(
     `SELECT id FROM inbox_events
-      WHERE state IN ('pending', 'retry_wait')
+      WHERE wake_id IS NOT NULL
+        AND state IN ('pending', 'retry_wait')
         AND (attempt_count >= ? OR
              (first_attempt_at_ms IS NOT NULL AND first_attempt_at_ms + ? <= ?))${suffix}
       ORDER BY created_at_ms ASC, id ASC`,
@@ -692,7 +693,7 @@ function normalizeBoundedRows(db: DatabaseSync, nowMs: number, eventId?: string)
 }
 
 function candidates(db: DatabaseSync, input: ClaimDurableWorkInput): FairWorkCandidate[] {
-  const clauses = ["e.state IN ('pending', 'leased')"];
+  const clauses = ["e.wake_id IS NOT NULL", "e.state IN ('pending', 'leased')"];
   const values: Array<string | number> = [];
   if (input.conversationId) {
     clauses.push("e.conversation_id = ?");

@@ -60,8 +60,11 @@ export type PerceptionInlinePart = {
   audience: ModelAudience;
   kind: "image" | "text_excerpt" | "conversational_read";
   entityUuid: string;
+  artifactRef: string;
   content: string;
   mime?: string;
+  completeness: "complete" | "truncated_at_limit";
+  furtherRetrievalAvailable: boolean;
 };
 
 export type PerceptionTurnInput = {

@@ -96,6 +96,78 @@ export function resolveActiveThread(
   return id;
 }
 
+export type SocialConversationKind = "dm" | "room" | "thread";
+
+export type ResolveSocialConversationInput = {
+  kind: SocialConversationKind;
+  /** Ashley's Discord user id; required for DM identity construction. */
+  ashleyBotId?: string;
+  principalId?: string;
+  guildId?: string;
+  channelId?: string;
+  threadId?: string;
+  nowMs?: number;
+};
+
+function requiredSocialPart(value: string | undefined, code: string): string {
+  const normalized = value?.trim() ?? "";
+  if (!normalized) throw new Error(code);
+  return normalized;
+}
+
+/**
+ * Resolve and persist a stable social conversation identity beside the
+ * Owner-private thread resolver. This helper only records transport identity;
+ * it does not authorize, classify, or otherwise admit a social interaction.
+ */
+export function resolveSocialConversation(
+  db: DatabaseSync,
+  input: ResolveSocialConversationInput,
+): string {
+  let conversationId: string;
+  let principalId: string | null = null;
+  let guildId: string | null = null;
+  let channelId: string | null = null;
+  let threadId: string | null = null;
+
+  if (input.kind === "dm") {
+    const botId = requiredSocialPart(input.ashleyBotId, "social_bot_id_required");
+    principalId = requiredSocialPart(input.principalId, "social_principal_required");
+    conversationId = `dm:${botId}:${principalId}`;
+  } else if (input.kind === "room") {
+    guildId = requiredSocialPart(input.guildId, "social_guild_required");
+    channelId = requiredSocialPart(input.channelId, "social_channel_required");
+    conversationId = `room:${guildId}:${channelId}`;
+  } else {
+    guildId = requiredSocialPart(input.guildId, "social_guild_required");
+    channelId = requiredSocialPart(input.channelId, "social_channel_required");
+    threadId = requiredSocialPart(input.threadId, "social_thread_required");
+    conversationId = `room:${guildId}:${channelId}:thread:${threadId}`;
+  }
+
+  const nowMs = input.nowMs ?? Date.now();
+  db.prepare(
+    `INSERT OR IGNORE INTO social_conversations
+       (conversation_id, kind, principal_id, guild_id, channel_id, thread_id,
+        audience, created_at_ms, last_at_ms)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(
+    conversationId,
+    input.kind,
+    principalId,
+    guildId,
+    channelId,
+    threadId,
+    conversationId,
+    nowMs,
+    nowMs,
+  );
+  db.prepare(
+    "UPDATE social_conversations SET last_at_ms = MAX(last_at_ms, ?) WHERE conversation_id = ?",
+  ).run(nowMs, conversationId);
+  return conversationId;
+}
+
 export function insertMessage(
   db: DatabaseSync,
   input: InsertMessageInput,

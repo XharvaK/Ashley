@@ -35,7 +35,7 @@ import {
 import type { IdleObservationDraft } from "./idle.js";
 
 const BASE = 10_000_000;
-const CADENCE = 21_600_000;
+const CADENCE = 14_400_000;
 const POLICY = PRIVATE_THOUGHT_POLICY_ID;
 
 function seedOccupancy(db: ReturnType<typeof openTestSidecar>, conversationId: string): void {
@@ -65,8 +65,8 @@ function baseInput(overrides: Partial<Parameters<typeof evaluatePeriodicPoll>[1]
 describe("P1 periodic schedule ledger (R7 §§5–14)", () => {
   it("pins the frozen periodic constants", () => {
     expect(PERIODIC_SCHEDULE_ID).toBe("ashley-periodic-v1");
-    expect(PERIODIC_CADENCE_MS).toBe(21_600_000);
-    expect(PERIODIC_DUE_WINDOW_MS).toBe(21_600_000);
+    expect(PERIODIC_CADENCE_MS).toBe(14_400_000);
+    expect(PERIODIC_DUE_WINDOW_MS).toBe(14_400_000);
     expect(PERIODIC_CURIOSITY_MAX_ITEMS).toBe(12);
   });
 
@@ -177,6 +177,23 @@ describe("P1 periodic schedule ledger (R7 §§5–14)", () => {
       const minted = mintPendingOccurrence(db, { nowMs });
       expect(minted.effectiveEligibleAtMs).toBe(nowMs);
       expect(listReceipts(db)).toEqual([]);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("missedWindowsDoNotMultiply", () => {
+    const db = openTestSidecar();
+    try {
+      const schedule = createSchedule(db, { authorityEpoch: 1, nowMs: BASE });
+      const nowMs = schedule.nextEligibleAtMs + 10 * PERIODIC_DUE_WINDOW_MS;
+      const first = mintPendingOccurrence(db, { nowMs });
+      const duplicate = mintPendingOccurrence(db, { nowMs: nowMs + PERIODIC_DUE_WINDOW_MS });
+
+      expect(first.effectiveEligibleAtMs).toBe(nowMs);
+      expect(duplicate.reused).toBe(true);
+      expect(duplicate.occurrenceId).toBe(first.occurrenceId);
+      expect(listReceipts(db)).toHaveLength(0);
     } finally {
       db.close();
     }

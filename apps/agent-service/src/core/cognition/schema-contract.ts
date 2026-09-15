@@ -34,6 +34,12 @@ import {
 import { validateNuclearV42Schema } from "../delivery/migration-42.js";
 import { validateNuclearV43Schema } from "../cognitive-v021/migration-43.js";
 import { validateNuclearV44Schema } from "../cognitive-v021/migration-44.js";
+import { validateNuclearV45Schema } from "../perception/migration-45.js";
+import {
+  SOCIAL_AUTHORITY_INDEXES,
+  SOCIAL_AUTHORITY_TABLES,
+  validateNuclearV46Schema,
+} from "../relationship/migration-46.js";
 
 type TableInfoRow = {
   name?: string;
@@ -1106,9 +1112,26 @@ function requireNoV44Content(db: DatabaseSync, version: number): void {
   }
 }
 
+function requireNoV45Content(db: DatabaseSync, version: number): void {
+  for (const column of ["integrity_proof_json", "provenance_json", "preserved"]) {
+    if (tableInfo(db, "perception_artifacts").some((row) => row.name === column)) {
+      fail(version, `unexpected_v45_column:perception_artifacts.${column}`);
+    }
+  }
+}
+
+function requireNoV46Content(db: DatabaseSync, version: number): void {
+  for (const table of SOCIAL_AUTHORITY_TABLES) {
+    if (masterRow(db, "table", table)) fail(version, `unexpected_v46_table:${table}`);
+  }
+  for (const index of SOCIAL_AUTHORITY_INDEXES) {
+    if (masterRow(db, "index", index)) fail(version, `unexpected_v46_index:${index}`);
+  }
+}
+
 export function validateNuclearSchemaContent(
   db: DatabaseSync,
-  version: 22 | 23 | 24 | 25 | 26 | 27 | 28 | 29 | 30 | 31 | 32 | 33 | 34 | 35 | 36 | 37 | 38 | 39 | 40 | 41 | 42 | 43 | 44,
+  version: 22 | 23 | 24 | 25 | 26 | 27 | 28 | 29 | 30 | 31 | 32 | 33 | 34 | 35 | 36 | 37 | 38 | 39 | 40 | 41 | 42 | 43 | 44 | 45 | 46,
   options: { rejectNewerContent?: boolean } = {},
 ): void {
   if (version === 22) {
@@ -1293,6 +1316,18 @@ export function validateNuclearSchemaContent(
   }
   if (version === 43) return;
   validateNuclearV44Schema(db, version);
+  if (version === 44 && options.rejectNewerContent === true) {
+    requireNoV45Content(db, version);
+    return;
+  }
+  if (version === 44) return;
+  validateNuclearV45Schema(db, version);
+  if (version === 45 && options.rejectNewerContent === true) {
+    requireNoV46Content(db, version);
+    return;
+  }
+  if (version === 45) return;
+  validateNuclearV46Schema(db, version);
 }
 
 function addColumnIfMissing(

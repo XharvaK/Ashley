@@ -353,7 +353,7 @@ describe("P1 periodic scheduling through the idle tick (R7 §§5–14)", () => {
         },
       });
       const schedule = db.prepare("SELECT * FROM periodic_cognition_schedule WHERE id = 'ashley-periodic-v1'").get() as Record<string, unknown>;
-      expect(schedule.next_eligible_at_ms).toBe(DUE + 21_600_000);
+      expect(schedule.next_eligible_at_ms).toBe(DUE + 14_400_000);
       expect(schedule.pending_occurrence_id).toBeNull();
       expect(calls).toBe(0);
       expect(result.thoughtCalls).toBe(0);

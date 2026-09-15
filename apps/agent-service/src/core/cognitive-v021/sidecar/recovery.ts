@@ -5,6 +5,7 @@ import { recoverDurableWork } from "../retry/ledger.js";
 import { recoverWakes } from "../wake/ledger.js";
 import { recoverPrivateBudget } from "../private-budget/recovery.js";
 import { listEligiblePendingSpeechOutbox } from "../speech/outbox.js";
+import { listSystemNotices } from "../speech/infrastructure-notice.js";
 
 export type CognitiveSidecarRecoveryResult = {
   inboxClaimsRecovered: number;
@@ -13,6 +14,11 @@ export type CognitiveSidecarRecoveryResult = {
 };
 
 export type PendingSpeechOutboxRecoveryResult = {
+  reconsidered: number;
+  failures: number;
+};
+
+export type PendingSystemNoticeRecoveryResult = {
   reconsidered: number;
   failures: number;
 };
@@ -39,6 +45,27 @@ export async function reconsiderPendingSpeechOutbox(
   for (const row of rows) {
     try {
       await project(row.outboxId);
+    } catch {
+      failures += 1;
+    }
+  }
+  return { reconsidered: rows.length, failures };
+}
+
+/** Re-project committed Owner notices that were left pending by a process stop. */
+export async function reconsiderPendingSystemNotices(
+  db: DatabaseSync,
+  project: SpeechOutboxRecoveryProjector,
+  options: { limit?: number; lane?: "social_notify" } = {},
+): Promise<PendingSystemNoticeRecoveryResult> {
+  const rows = listSystemNotices(db, {
+    statuses: ["pending"],
+    limit: options.limit,
+  }).filter((row) => options.lane === undefined || row.deliveryIntent.deliveryLane === options.lane);
+  let failures = 0;
+  for (const row of rows) {
+    try {
+      await project(row.noticeId);
     } catch {
       failures += 1;
     }

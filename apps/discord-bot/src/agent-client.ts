@@ -1,4 +1,8 @@
 import { config } from "./config.js";
+import type { ExternalEnvelopeTransport } from "./chat/attachments.js";
+import type { GateVerdict } from "./security/gate.js";
+
+export type { ExternalEnvelopeTransport } from "./chat/attachments.js";
 
 const AGENT_TRANSPORT_HARD_MS = 30_000;
 
@@ -96,6 +100,85 @@ export async function ingressChat(
   );
 }
 
+export type SocialEligibilityResult = {
+  verdict: GateVerdict;
+  audienceHint: "dm" | "room" | "unknown";
+};
+
+const botServiceHeaders = (): HeadersInit => ({
+  "X-Ashley-Bot-Service": config.token,
+});
+
+export async function querySocialEligibility(input: {
+  authorId: string;
+  channelId: string;
+  guildId?: string;
+}): Promise<SocialEligibilityResult> {
+  const query = new URLSearchParams({
+    author: input.authorId,
+    channel: input.channelId,
+    ...(input.guildId ? { guild: input.guildId } : {}),
+  });
+  return agentFetch<SocialEligibilityResult>(`/social/eligibility?${query.toString()}`, {
+    headers: botServiceHeaders(),
+  }, 2_500);
+}
+
+export type ExternalCaptureResult = {
+  captureRef: string;
+  conversationKey: string;
+  duplicate: boolean;
+};
+
+export async function captureExternalChat(
+  envelope: ExternalEnvelopeTransport,
+  message: string,
+  options?: { gateHint?: GateVerdict; conversationKey?: string },
+): Promise<ExternalCaptureResult> {
+  return agentFetch<ExternalCaptureResult>("/chat/ingress-external/capture", {
+    method: "POST",
+    headers: botServiceHeaders(),
+    body: JSON.stringify({
+      envelope,
+      message,
+      discordMessageId: envelope.discordMessageId,
+      attachments: envelope.attachmentRefs,
+      gateHint: options?.gateHint,
+      conversationKey: options?.conversationKey,
+    }),
+  });
+}
+
+export type ExternalBatchResult = {
+  results: Array<{
+    captureRef: string;
+    disposition:
+      | "external_eligible_pending"
+      | "quarantined_external"
+      | "already_batched"
+      | "capture_missing"
+      | "capture_invalid";
+    notificationQueued?: boolean;
+    reason?: string;
+  }>;
+};
+
+export async function ingressExternalBatch(
+  captureRefs: string[],
+  conversationKey: string,
+  finalFragmentReceivedAtMs?: number,
+): Promise<ExternalBatchResult> {
+  return agentFetch<ExternalBatchResult>("/chat/ingress-external", {
+    method: "POST",
+    headers: botServiceHeaders(),
+    body: JSON.stringify({
+      captureRefs,
+      conversationKey,
+      finalFragmentReceivedAtMs,
+    }),
+  });
+}
+
 export type PendingDelivery = {
   reservationId: number;
   draftText: string;
@@ -108,7 +191,7 @@ export type PendingDelivery = {
 };
 
 export async function claimPendingDeliveries(options?: {
-  lane?: "cognitive_v021";
+  lane?: "cognitive_v021" | "social_notify";
 }) {
   return agentFetch<{ deliveries: PendingDelivery[] }>(
     `/delivery/claim`,
@@ -124,6 +207,10 @@ export async function claimPendingDeliveries(options?: {
 
 export async function claimPendingCognitiveDeliveries() {
   return claimPendingDeliveries({ lane: "cognitive_v021" });
+}
+
+export async function claimPendingSocialNotifications() {
+  return claimPendingDeliveries({ lane: "social_notify" });
 }
 
 export async function receiptDeliveryBubble(

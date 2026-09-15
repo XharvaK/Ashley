@@ -10,7 +10,12 @@ import { retrieveEpisodes } from "./core/memory/episodes.js";
 import { isAuthorizedOwnerId } from "./owner-auth.js";
 import { assertRegisteredRoutes } from "./route-surface.js";
 import { openCognitiveSidecarDb } from "./core/cognitive-v021/sidecar/db.js";
-import { createCognitiveIngressHandler } from "./core/cognitive-v021/ingress/http.js";
+import {
+  createCognitiveIngressHandler,
+  createExternalBatchHandler,
+  createExternalCaptureHandler,
+  isExternalSocialCaptureEnabled,
+} from "./core/cognitive-v021/ingress/http.js";
 import { getCognitiveHealthSnapshot } from "./core/cognitive-v021/dispatch/health.js";
 import { markProjectedDeliverySending } from "./core/cognitive-v021/delivery/outbox-projector.js";
 import { reconcilePolicyClock } from "./core/cognitive-v021/private-budget/policy-time-ledger.js";
@@ -68,6 +73,11 @@ import type {
   RepairProposalOrigin,
 } from "./core/relationship/types.js";
 import type { InteractionContractEvidenceRef } from "./core/relationship/interaction-contracts.js";
+import {
+  classifyEligibility,
+  readEligibilityBundle,
+} from "./core/relationship/social-authority.js";
+import { isRoomSeedActive } from "./core/relationship/room-seeding.js";
 
 const C5_CLASSIFICATIONS = ["ordinary", "sensitive", "never_public", "secret"] as const;
 const C5_OPERATIONS = [
@@ -321,11 +331,23 @@ export function createServer(
   options: {
     cognitiveSidecar?: DatabaseSync | null;
     observabilityDb?: DatabaseSync | null;
+    botServiceToken?: string;
+    projectSystemNotice?: (noticeId: number) => Promise<void> | void;
   } = {},
 ): express.Express {
   const app = express();
   app.use(cors());
   app.use(express.json({ limit: "2mb" }));
+
+  const botServiceToken = (
+    options.botServiceToken ?? process.env.DISCORD_BOT_TOKEN ?? ""
+  ).trim();
+  function requireBotService(req: express.Request): void {
+    const presented = req.get("X-Ashley-Bot-Service")?.trim() ?? "";
+    if (!botServiceToken || !presented || presented !== botServiceToken) {
+      throw new AppError("forbidden", "Forbidden", 403);
+    }
+  }
 
   let cognitiveSidecar = options.cognitiveSidecar ?? null;
   function getCognitiveSidecar(): DatabaseSync {
@@ -1554,6 +1576,81 @@ export function createServer(
     },
   );
 
+  app.post(
+    "/chat/ingress-external/capture",
+    (req, res, next) => {
+      try {
+        requireBotService(req);
+        createExternalCaptureHandler({
+          sidecar: getCognitiveSidecar(),
+          nuclearDb: manager.core.getDatabase(),
+          authorizeBotService: () => undefined,
+          enabled: isExternalSocialCaptureEnabled,
+          projectSystemNotice: options.projectSystemNotice,
+        })(req, res, next);
+      } catch (err) {
+        const { status, body } = toErrorResponse(err);
+        res.status(status).json(body);
+      }
+    },
+  );
+
+  app.post(
+    "/chat/ingress-external",
+    (req, res, next) => {
+      try {
+        requireBotService(req);
+        createExternalBatchHandler({
+          sidecar: getCognitiveSidecar(),
+          nuclearDb: manager.core.getDatabase(),
+          authorizeBotService: () => undefined,
+          enabled: isExternalSocialCaptureEnabled,
+          ownerId: env.memoryOwnerId || env.discordOwnerId || "default",
+          projectSystemNotice: options.projectSystemNotice,
+        })(req, res, next);
+      } catch (err) {
+        const { status, body } = toErrorResponse(err);
+        res.status(status).json(body);
+      }
+    },
+  );
+
+  app.get("/social/eligibility", (req, res) => {
+    try {
+      requireBotService(req);
+      const authorId = typeof req.query.author === "string"
+        ? req.query.author.trim()
+        : "";
+      const channelId = typeof req.query.channel === "string"
+        ? req.query.channel.trim()
+        : "";
+      const guildId = typeof req.query.guild === "string"
+        ? req.query.guild.trim()
+        : "";
+      if (!authorId || !channelId) {
+        throw new AppError(
+          "message_required",
+          "author and channel are required",
+          400,
+        );
+      }
+      const location = guildId ? "room" : "dm";
+      const eligibility = classifyEligibility(
+        readEligibilityBundle(manager.core.getDatabase(), {
+          principalId: authorId,
+          guildId: guildId || undefined,
+          channelId,
+        }),
+        location,
+        { roomSeedActive: !guildId || isRoomSeedActive() },
+      );
+      res.json(eligibility);
+    } catch (err) {
+      const { status, body } = toErrorResponse(err);
+      res.status(status).json(body);
+    }
+  });
+
   app.post("/chat/text", gone);
 
   app.get("/delivery/pending", (req, res) => {
@@ -1579,7 +1676,7 @@ export function createServer(
       const claimed = manager.core.claimPendingDeliveries(owner, {
         lane,
       });
-      if (lane === "cognitive_v021") {
+      if (lane === "cognitive_v021" || lane === "social_notify") {
         const sidecar = getCognitiveSidecar();
         for (const delivery of claimed) {
           markProjectedDeliverySending(

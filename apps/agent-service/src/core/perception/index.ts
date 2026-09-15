@@ -1,6 +1,11 @@
 import type { DatabaseSync } from "node:sqlite";
 import { fetchAttachmentBytes } from "./fetch.js";
 import {
+  readArtifactBytes,
+  readArtifactTextPage,
+  storeArtifactBytes,
+} from "./artifact-store.js";
+import {
   authorizeConversationalRead,
   createPendingRead,
   fetchConversationalReadPage,
@@ -36,6 +41,16 @@ import {
 
 export type { PerceptionTurnInput, PerceptionTurnResult } from "./types.js";
 export { fetchAttachmentBytes } from "./fetch.js";
+export {
+  artifactByteStoreDir,
+  readArtifactBytes,
+  readArtifactTextPage,
+  storeArtifactBytes,
+  sweepExpiredArtifacts,
+  type ArtifactTextPage,
+  type ArtifactSweepResult,
+  type IntegrityProof,
+} from "./artifact-store.js";
 export {
   createPendingArtifacts,
   transitionArtifactStatus,
@@ -76,12 +91,18 @@ function aggregateDeclaredBytes(attachments: AttachmentIntakeRef[]): number {
   );
 }
 
-function textExcerptFromBytes(bytes: Uint8Array, maxChars: number): string {
+function textExcerptFromBytes(
+  bytes: Uint8Array,
+  maxChars: number,
+): { text: string; completeness: "complete" | "truncated_at_limit" } {
   const decoded = new TextDecoder("utf-8", { fatal: false })
     .decode(bytes)
     .replace(/\s+/g, " ")
     .trim();
-  return decoded.slice(0, maxChars);
+  return {
+    text: decoded.slice(0, maxChars),
+    completeness: decoded.length > maxChars ? "truncated_at_limit" : "complete",
+  };
 }
 
 async function processArtifactFetch(
@@ -122,9 +143,17 @@ async function processArtifactFetch(
       byteSize: fetched.bytes.byteLength,
     });
 
+    const preserveArtifact = isImageMime(fetched.mime) || isTextMime(fetched.mime);
+    if (preserveArtifact) {
+      // The store verifies and writes the complete bytes before its final
+      // preserved=1 update. Projection below reads back those same bytes.
+      storeArtifactBytes(db, ownerId, artifact.entityUuid, fetched.bytes, fetched.mime);
+    }
+
     const modelParts: ModelPartRecord[] = [];
     if (isImageMime(fetched.mime) && options.visionAllowed) {
-      const dataUri = buildInlineDataUri(fetched.bytes, fetched.mime);
+      const preservedBytes = readArtifactBytes(db, artifact.entityUuid, ownerId);
+      const dataUri = buildInlineDataUri(preservedBytes, fetched.mime);
       modelParts.push({ audience: "thought", partIndex: 0 });
       modelParts.push({ audience: "expression", partIndex: 0 });
       markArtifactIncluded(db, artifact.entityUuid, ownerId, modelParts, {
@@ -134,8 +163,11 @@ async function processArtifactFetch(
         audience: "thought",
         kind: "image",
         entityUuid: artifact.entityUuid,
+        artifactRef: artifact.entityUuid,
         content: dataUri,
         mime: fetched.mime,
+        completeness: "complete",
+        furtherRetrievalAvailable: false,
       };
       options.thoughtParts.push(part);
       options.expressionParts.push({ ...part, audience: "expression" });
@@ -144,8 +176,9 @@ async function processArtifactFetch(
     }
 
     if (isTextMime(fetched.mime) && options.attachmentTextAllowed) {
-      const excerpt = textExcerptFromBytes(fetched.bytes, MAX_MODEL_EXCERPT_CHARS);
-      if (!excerpt) {
+      const preservedBytes = readArtifactBytes(db, artifact.entityUuid, ownerId);
+      const projection = textExcerptFromBytes(preservedBytes, MAX_MODEL_EXCERPT_CHARS);
+      if (!projection.text) {
         transitionArtifactStatus(db, artifact.entityUuid, ownerId, "failed", {
           errorCode: "empty_text_attachment",
         });
@@ -154,14 +187,17 @@ async function processArtifactFetch(
       modelParts.push({ audience: "thought", partIndex: 0 });
       markArtifactIncluded(db, artifact.entityUuid, ownerId, modelParts, {
         modelRepresentation: "inline_text_excerpt",
-        excerpt: excerpt.slice(0, 2_000),
+        excerpt: projection.text.slice(0, 2_000),
       });
       options.thoughtParts.push({
         audience: "thought",
         kind: "text_excerpt",
         entityUuid: artifact.entityUuid,
-        content: excerpt,
+        artifactRef: artifact.entityUuid,
+        content: projection.text,
         mime: fetched.mime,
+        completeness: projection.completeness,
+        furtherRetrievalAvailable: projection.completeness === "truncated_at_limit",
       });
       options.licenses.textExcerptIncluded.push(artifact.entityUuid);
       return;
@@ -172,10 +208,34 @@ async function processArtifactFetch(
     });
   } catch (error) {
     const code = error instanceof Error ? error.message : "fetch_failed";
-    transitionArtifactStatus(db, artifact.entityUuid, ownerId, "failed", {
-      errorCode: code.slice(0, 120),
-    });
+    if (code === "response_too_large") {
+      transitionArtifactStatus(db, artifact.entityUuid, ownerId, "unsupported", {
+        errorCode: "too-large",
+      });
+    } else {
+      transitionArtifactStatus(db, artifact.entityUuid, ownerId, "failed", {
+        errorCode: code.slice(0, 120),
+      });
+    }
   }
+}
+
+export function fetchArtifactTextPage(
+  db: DatabaseSync,
+  params: {
+    entityUuid: string;
+    ownerId: string;
+    offsetChars: number;
+    limitChars: number;
+  },
+) {
+  return readArtifactTextPage(
+    db,
+    params.entityUuid,
+    params.offsetChars,
+    params.limitChars,
+    params.ownerId,
+  );
 }
 
 export async function runPerceptionTurn(
@@ -315,7 +375,12 @@ export async function runPerceptionTurn(
           audience: "thought",
           kind: "conversational_read",
           entityUuid: conversationalRead.entityUuid,
+          artifactRef: conversationalRead.entityUuid,
           content: `Title: ${page.title}\n\n${page.modelExcerpt}`,
+          completeness: page.modelExcerpt.length >= MAX_MODEL_EXCERPT_CHARS
+            ? "truncated_at_limit"
+            : "complete",
+          furtherRetrievalAvailable: page.modelExcerpt.length >= MAX_MODEL_EXCERPT_CHARS,
         };
         thoughtParts.push(excerptPart);
         licenses.conversationalReadIncluded.push(conversationalRead.entityUuid);

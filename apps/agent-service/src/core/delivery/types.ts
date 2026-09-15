@@ -1,6 +1,6 @@
 export type DeliveryTrigger = "reactive" | "proactive";
 
-export type DeliveryLane = "reactive" | "proactive" | "operational_fulfillment";
+export type DeliveryLane = "reactive" | "proactive" | "operational_fulfillment" | "social_notify";
 
 export type DeliveryState =
   | "drafted"

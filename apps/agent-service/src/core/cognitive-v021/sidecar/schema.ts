@@ -703,3 +703,40 @@ CREATE TABLE IF NOT EXISTS public_presence_state (
 );
 UPDATE cognitive_sidecar_meta SET schema_version = 13, projection_state = 'reconciling' WHERE id = 1;
 `;
+
+export const COGNITIVE_SIDECAR_SCHEMA_V14 = String.raw`
+ALTER TABLE conversation_evidence_log ADD COLUMN speaker_principal_id TEXT;
+ALTER TABLE conversation_evidence_log ADD COLUMN speaker_kind TEXT CHECK(speaker_kind IS NULL OR speaker_kind IN ('owner','external_human','external_bot','ashley'));
+ALTER TABLE conversation_evidence_log ADD COLUMN location_json TEXT CHECK(location_json IS NULL OR json_valid(location_json));
+ALTER TABLE conversation_evidence_log ADD COLUMN audience_at_capture TEXT CHECK(audience_at_capture IS NULL OR audience_at_capture IN ('owner_private','dm','room'));
+ALTER TABLE conversation_evidence_log ADD COLUMN sent_at_ms INTEGER;
+ALTER TABLE conversation_evidence_log ADD COLUMN reply_to_message_id TEXT;
+ALTER TABLE conversation_evidence_log ADD COLUMN mention_ids_json TEXT CHECK(mention_ids_json IS NULL OR json_valid(mention_ids_json));
+ALTER TABLE conversation_evidence_log ADD COLUMN attachment_refs_json TEXT CHECK(attachment_refs_json IS NULL OR json_valid(attachment_refs_json));
+ALTER TABLE conversation_evidence_log ADD COLUMN provenance_json TEXT CHECK(provenance_json IS NULL OR json_valid(provenance_json));
+
+ALTER TABLE inbox_events ADD COLUMN envelope_json TEXT CHECK(envelope_json IS NULL OR json_valid(envelope_json));
+
+ALTER TABLE cycle_records ADD COLUMN attempt_id TEXT;
+ALTER TABLE cycle_records ADD COLUMN attempt_input_basis_json TEXT CHECK(attempt_input_basis_json IS NULL OR json_valid(attempt_input_basis_json));
+ALTER TABLE cycle_records ADD COLUMN supersessions_used INTEGER NOT NULL DEFAULT 0 CHECK(supersessions_used BETWEEN 0 AND 2);
+ALTER TABLE cycle_records ADD COLUMN pending_queue_json TEXT NOT NULL DEFAULT '[]' CHECK(json_valid(pending_queue_json));
+ALTER TABLE cycle_records ADD COLUMN disposition TEXT CHECK(disposition IS NULL OR disposition IN ('intentional_silence','technical_failure','resource_deferred','owner_preempted','hard_invalidated','unresolved_deferred','candidate_ready','publication_admitted','dispatching','delivered','partially_delivered','uncertain','blocked_at_dispatch'));
+
+CREATE TABLE IF NOT EXISTS social_conversations (
+  conversation_id TEXT PRIMARY KEY,
+  kind TEXT CHECK(kind IN ('dm','room','thread')) NOT NULL,
+  principal_id TEXT,
+  guild_id TEXT,
+  channel_id TEXT,
+  thread_id TEXT,
+  audience TEXT NOT NULL,
+  created_at_ms INTEGER NOT NULL,
+  last_at_ms INTEGER NOT NULL,
+  CHECK((kind='dm' AND principal_id IS NOT NULL) OR (kind='room' AND channel_id IS NOT NULL) OR kind='thread')
+);
+CREATE INDEX IF NOT EXISTS idx_social_conv_lookup
+  ON social_conversations(principal_id, channel_id, last_at_ms);
+
+UPDATE cognitive_sidecar_meta SET schema_version = 14, projection_state = 'reconciling' WHERE id = 1;
+`;

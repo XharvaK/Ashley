@@ -7,9 +7,13 @@ import { loadAuthorityPacks } from "./core/cognitive-v021/authority/packs.js";
 import { getCapabilityReality } from "./core/cognitive-v021/thought/capability-reality.js";
 import { readIdentitySlice } from "./core/cognitive-v021/identity/constitution.js";
 import { runPerceptionBeforeThought } from "./core/cognitive-v021/perception/adapter.js";
+import { sweepExpiredArtifacts } from "./core/perception/artifact-store.js";
 import { createOutboxProjector, reconcileProjectedDeliverySweep } from "./core/cognitive-v021/delivery/outbox-projector.js";
 import { startInboxConsumer, type InboxConsumerHandle, type InboxConsumerHandler } from "./core/cognitive-v021/cycle/inbox-consumer.js";
-import { reconcileStartupOwnership } from "./core/cognitive-v021/cycle/reconcile.js";
+import {
+  reconcileStartupOwnership,
+  reconcileUnbatchedCaptures,
+} from "./core/cognitive-v021/cycle/reconcile.js";
 import { reconcileStrandedOutcomeUnknownAtStartup } from "./core/cognitive-v021/retry/startup-outcome-recovery.js";
 import { repairMissingC3Experiences } from "./core/cognitive-v021/failure/c3-recovery.js";
 import { startFrontierCoordinator, type FrontierCoordinatorHandle } from "./core/cognitive-v021/frontier/index.js";
@@ -33,7 +37,14 @@ import {
 } from "./core/cognitive-v021/thought/diagnostics.js";
 import { DatabaseSync } from "node:sqlite";
 import { reconcileAuthorityBarrierOnStartup } from "./core/cognitive-v021/authority/barrier.js";
-import { reconsiderPendingSpeechOutbox } from "./core/cognitive-v021/sidecar/recovery.js";
+import {
+  reconsiderPendingSpeechOutbox,
+  reconsiderPendingSystemNotices,
+} from "./core/cognitive-v021/sidecar/recovery.js";
+import {
+  admitExternalBatch,
+  isExternalSocialCaptureEnabled,
+} from "./core/cognitive-v021/ingress/http.js";
 import { createLiveExpressionBinding } from "./core/cognitive-v021/speech/live-expression.js";
 
 export function createAgentInboxConsumerHandler(
@@ -49,6 +60,7 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
   let frontierCoordinator: FrontierCoordinatorHandle | null = null;
   let derivedStore: DerivedStore | null = null;
   let observabilityDb: DatabaseSync | null = null;
+  let projectSystemNotice: ((noticeId: number) => Promise<void>) | undefined;
   if (cognitiveSidecar) {
     const nuclear = manager.core.getDatabase();
     const ownerId = env.memoryOwnerId || env.discordOwnerId || "default";
@@ -76,6 +88,7 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
         return eligibility.ok ? { ok: true } : { ok: false, reason: eligibility.reason };
       },
     });
+    projectSystemNotice = (noticeId) => projector.projectSystem(noticeId);
     derivedStore = openDerivedStore(defaultDerivedIndexDbPath());
     observabilityDb = new DatabaseSync(defaultObservabilityDbPath());
     initObservabilitySchema(observabilityDb);
@@ -123,6 +136,21 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
     };
     manager.configureCognitiveDispatch({ deps, projector });
     reconcileStartupOwnership(cognitiveSidecar);
+    if (isExternalSocialCaptureEnabled()) {
+      const externalRecovery = await reconcileUnbatchedCaptures(cognitiveSidecar, {
+        batch: (input) => admitExternalBatch(
+          cognitiveSidecar,
+          nuclear,
+          input,
+          { ownerId, projectSystemNotice },
+        ),
+      });
+      if (externalRecovery.failures > 0) {
+        console.warn(
+          `[cognitive-v021] unbatched external capture recovery deferred rows=${externalRecovery.failures}`,
+        );
+      }
+    }
     const speechRecovery = await reconsiderPendingSpeechOutbox(
       cognitiveSidecar,
       (outboxId) => projector.project(outboxId),
@@ -130,6 +158,16 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
     if (speechRecovery.failures > 0) {
       console.warn(
         `[cognitive-v021] pending speech recovery deferred rows=${speechRecovery.failures}`,
+      );
+    }
+    const noticeRecovery = await reconsiderPendingSystemNotices(
+      cognitiveSidecar,
+      (noticeId) => projector.projectSystem(noticeId),
+      { lane: "social_notify" },
+    );
+    if (noticeRecovery.failures > 0) {
+      console.warn(
+        `[cognitive-v021] pending social notification recovery deferred rows=${noticeRecovery.failures}`,
       );
     }
     try {
@@ -167,6 +205,11 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
         } catch (error) {
           console.warn("[cognitive-v021] delivery reconciliation maintenance deferred", error);
         }
+        try {
+          sweepExpiredArtifacts(nuclear, { nowMs, limit: 50 });
+        } catch (error) {
+          console.warn("[perception] artifact retention maintenance deferred", error);
+        }
         if (observabilityDb) purgeThoughtDebugCaptures(observabilityDb, nowMs);
       },
       onError: (error, event) => console.error(`[cognitive-v021] event failed id=${event?.id ?? "?"}`, error),
@@ -181,7 +224,11 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
       },
     );
   }
-  const app = createServer(manager, { cognitiveSidecar, observabilityDb });
+  const app = createServer(manager, {
+    cognitiveSidecar,
+    observabilityDb,
+    projectSystemNotice,
+  });
   const server = listen(app);
   manager.markStartupComplete();
   console.log(

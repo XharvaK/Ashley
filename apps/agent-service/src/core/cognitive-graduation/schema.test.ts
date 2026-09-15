@@ -16,8 +16,8 @@ describe("C4 additive schema", () => {
     const db = openNuclearDb(new DatabaseSync(":memory:"));
     try {
       // The historical C4 packet recorded v42. Current source also includes
-      // W4 migrations v43 and v44; db.ts is the live schema authority.
-      expect(NUCLEAR_SUPPORTED_VERSION).toBe(44);
+      // W4 migrations v43 through v46; db.ts is the live schema authority.
+      expect(NUCLEAR_SUPPORTED_VERSION).toBe(46);
       expect(db.prepare("PRAGMA user_version").get()).toEqual({
         user_version: NUCLEAR_SUPPORTED_VERSION,
       });

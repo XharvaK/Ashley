@@ -6,13 +6,18 @@ import {
   type Message,
 } from "discord.js";
 import { config } from "./config.js";
-import { isAllowedMessage, isOwner } from "./security/gate.js";
+import {
+  classifySocialSender,
+  isAllowedMessage,
+  isOwner,
+} from "./security/gate.js";
 import { handleSlash } from "./handlers/interactionCreate.js";
 import { handleMessage } from "./handlers/messageCreate.js";
 import { handleReaction } from "./handlers/reactionAdd.js";
 import { startCognitiveIdleScheduler } from "./initiative/scheduler.js";
 import { startFulfillmentPump } from "./initiative/fulfillment-pump.js";
 import { reconcilePresence, startPresence } from "./presence.js";
+import { querySocialEligibility } from "./agent-client.js";
 
 export function createClient(): Client {
   const client = new Client({
@@ -47,15 +52,52 @@ export function createClient(): Client {
   });
 
   client.on(Events.MessageCreate, (message: Message) => {
-    if (message.author.bot) return;
+    // Self-loop exclusion is structurally first: Ashley's own messages never
+    // enter either the Owner path or the external capture path.
+    if (client.user && message.author?.id === client.user.id) return;
     void (async () => {
       try {
         const full = message.partial ? await message.fetch() : message;
-        if (!isAllowedMessage(full)) return;
+        const authorId = full.author?.id;
+        const channelId = full.channel?.id;
+        if (!authorId || !channelId) {
+          console.warn("[discord-bot] dropped malformed message transport");
+          return;
+        }
+        if (isOwner(authorId)) {
+          if (!isAllowedMessage(full)) return;
+          console.log(
+            `[discord-bot] message from ${authorId} in ${full.channel.isDMBased() ? "DM" : "guild"}`,
+          );
+          await handleMessage(full);
+          return;
+        }
+        let eligibility: { authorized: boolean } | undefined;
+        let eligibilityFailed = false;
+        if (config.socialCaptureEnabled) {
+          try {
+            const result = await querySocialEligibility({
+              authorId,
+              channelId,
+              guildId: full.guild?.id,
+            });
+            eligibility = { authorized: result.verdict === "allow_social" };
+          } catch {
+            eligibilityFailed = true;
+          }
+        }
+        const verdict = classifySocialSender({
+          selfLoop: false,
+          transportValid: true,
+          socialCaptureEnabled: config.socialCaptureEnabled,
+          eligibility,
+          eligibilityFailed,
+        });
+        if (verdict === "drop") return;
         console.log(
-          `[discord-bot] message from ${full.author.id} in ${full.channel.isDMBased() ? "DM" : "guild"}`,
+          `[discord-bot] external message from ${authorId} in ${full.channel.isDMBased() ? "DM" : "guild"} gate=${verdict}`,
         );
-        await handleMessage(full);
+        await handleMessage(full, { gateVerdict: verdict });
       } catch (err) {
         console.error("[discord-bot] messageCreate error:", err);
       }

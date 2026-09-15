@@ -63,6 +63,11 @@ loadWindowsUserEnvFallback();
 
 const numericWarnings: string[] = [];
 
+const configuredAllowedChannels = (process.env.DISCORD_ALLOWED_CHANNELS ?? "")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+
 export class ConfigError extends Error {
   readonly code = "config_missing";
   constructor(message: string) {
@@ -90,11 +95,18 @@ function numericEnv(
 export const config = {
   token: process.env.DISCORD_BOT_TOKEN ?? "",
   ownerId: process.env.DISCORD_OWNER_ID ?? "",
-  allowedChannels: (process.env.DISCORD_ALLOWED_CHANNELS ?? "")
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean),
+  allowedChannels: configuredAllowedChannels,
   guildId: process.env.DISCORD_GUILD_ID ?? "",
+  // This is a representation seed only. Owner DMs are not in the channel
+  // allowlist and therefore cannot become room rows through this projection.
+  trustedRoomSeed: {
+    guildId: process.env.DISCORD_GUILD_ID ?? "",
+    channelIds: process.env.DISCORD_GUILD_ID ? configuredAllowedChannels : [],
+  },
+  // External social substrate remains closed unless explicitly activated by
+  // the operator. A missing or malformed value is false.
+  socialCaptureEnabled:
+    process.env.RA_SOCIAL_CAPTURE === "true" || process.env.RA_SOCIAL_CAPTURE === "1",
   agentUrl: process.env.AGENT_SERVICE_URL ?? "http://127.0.0.1:3710",
   proactiveEnabled: process.env.PROACTIVE_ENABLED !== "false",
   proactiveCheckIntervalMin: numericEnv(

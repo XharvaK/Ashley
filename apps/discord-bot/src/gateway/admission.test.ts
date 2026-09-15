@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { checkGatewayBotAdmission } from "./admission.js";
 import { EXIT_CODES } from "../lifecycle/exit-codes.js";
+import { classifySocialSender } from "../security/gate.js";
 
 test("checkGatewayBotAdmission: admits login when remaining > 0 (valid integer) and calls exact literal Gateway URL", async () => {
   let calledUrl: string | undefined;
@@ -246,4 +247,56 @@ test("checkGatewayBotAdmission: returns RETRYABLE on network / fetch error", asy
     assert.equal(result.disposition, "RETRYABLE");
     assert.equal(result.exitCode, EXIT_CODES.TRANSIENT);
   }
+});
+
+test("social sender classification drops Ashley's own self-loop before later branches", () => {
+  assert.equal(classifySocialSender({
+    selfLoop: true,
+    transportValid: true,
+    socialCaptureEnabled: true,
+    eligibility: { authorized: true },
+  }), "drop");
+});
+
+test("social sender classification drops malformed transport", () => {
+  assert.equal(classifySocialSender({
+    selfLoop: false,
+    transportValid: false,
+    socialCaptureEnabled: true,
+  }), "drop");
+});
+
+test("social sender classification preserves current gate-off behavior", () => {
+  assert.equal(classifySocialSender({
+    selfLoop: false,
+    transportValid: true,
+    socialCaptureEnabled: false,
+    eligibility: { authorized: true },
+  }), "drop");
+});
+
+test("trusted-room humans and bots are advisory allow_social", () => {
+  assert.equal(classifySocialSender({
+    selfLoop: false,
+    transportValid: true,
+    socialCaptureEnabled: true,
+    eligibility: { authorized: true },
+  }), "allow_social");
+});
+
+test("unknown, unpermitted, and failed eligibility contacts are captured for quarantine", () => {
+  for (const eligibility of [undefined, { authorized: false }]) {
+    assert.equal(classifySocialSender({
+      selfLoop: false,
+      transportValid: true,
+      socialCaptureEnabled: true,
+      eligibility,
+    }), "capture_quarantine");
+  }
+  assert.equal(classifySocialSender({
+    selfLoop: false,
+    transportValid: true,
+    socialCaptureEnabled: true,
+    eligibilityFailed: true,
+  }), "capture_quarantine");
 });

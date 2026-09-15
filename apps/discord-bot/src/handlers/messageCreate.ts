@@ -1,16 +1,31 @@
 import type { Message } from "discord.js";
 import {
+  captureExternalChat,
   ingressChat,
+  ingressExternalBatch,
   pauseProactiveRemote,
   resumeProactiveRemote,
+  type ExternalBatchResult,
+  type ExternalCaptureResult,
 } from "../agent-client.js";
 import { channelQueue } from "../chat/channel-queue.js";
-import { MAX_IMAGES, describeIntake, type Intake } from "../chat/attachments.js";
+import {
+  MAX_IMAGES,
+  describeIntake,
+  hasIngestibleTextAttachment,
+  type ExternalEnvelopeTransport,
+  type Intake,
+} from "../chat/attachments.js";
 import { config } from "../config.js";
 import { agentErrorMessage } from "../chat/agent-errors.js";
 import { readKillSwitch } from "../chat/kill-switch.js";
 import { tempoTracker } from "../chat/pacing.js";
 import { TurnBuffer } from "../chat/turn-buffer.js";
+import type { GateVerdict } from "../security/gate.js";
+
+export type MessageSocialContext = {
+  gateVerdict: GateVerdict;
+};
 
 export type MessageIngressChat = (
   message: string,
@@ -19,6 +34,7 @@ export type MessageIngressChat = (
     attachments?: Intake["attachments"];
     inboundDiscordMessageIds?: string[];
     finalFragmentReceivedAtMs?: number;
+    hasIngestibleTextAttachment?: boolean;
   },
 ) => Promise<unknown>;
 
@@ -27,10 +43,20 @@ export type BufferedMessageTurn = {
   attachments: Intake["attachments"];
   inboundDiscordMessageIds: string[];
   finalFragmentReceivedAtMs: number;
+  hasIngestibleTextAttachment: boolean;
+  gateVerdict?: GateVerdict;
 };
 
+type BufferedFragment = Intake & {
+  gateVerdict?: GateVerdict;
+  captureRef?: string;
+  conversationKey?: string;
+};
+
+type BufferedTarget = Message | { kind: "external"; conversationKey: string };
+
 export type MessageCreateHandler = {
-  handleMessage: (message: Message) => Promise<void>;
+  handleMessage: (message: Message, context?: MessageSocialContext) => Promise<void>;
   flushForTest: (channelId: string) => Promise<void>;
 };
 
@@ -42,6 +68,17 @@ export type MessageCreateHandler = {
  */
 export function createMessageCreateHandler(options: {
   ingressChat: MessageIngressChat;
+  captureExternalChat?: (
+    envelope: ExternalEnvelopeTransport,
+    message: string,
+    options?: { gateHint?: GateVerdict; conversationKey?: string },
+  ) => Promise<ExternalCaptureResult>;
+  ingressExternalBatch?: (
+    captureRefs: string[],
+    conversationKey: string,
+    finalFragmentReceivedAtMs?: number,
+  ) => Promise<ExternalBatchResult>;
+  botId?: string;
   channelQueue?: { abort(channelId: string): void };
   onFirstFragment?: (channelId: string) => void;
   quietMs?: number;
@@ -49,7 +86,9 @@ export function createMessageCreateHandler(options: {
 }): MessageCreateHandler {
   let lastReadyPromise = Promise.resolve();
   let drain: (channelId: string) => Promise<void>;
-  const localTurns = new TurnBuffer<Intake, Message>(
+  let externalCaptureFailures = 0;
+  let externalBatchFailures = 0;
+  const localTurns = new TurnBuffer<BufferedFragment, BufferedTarget>(
     (channelId) => {
       lastReadyPromise = drain(channelId);
       void lastReadyPromise.catch(() => {});
@@ -60,33 +99,97 @@ export function createMessageCreateHandler(options: {
   drain = async (channelId: string) => {
     const buffered = localTurns.take(channelId);
     if (!buffered) return;
+    const firstFragment = buffered.fragments[0];
+    if (firstFragment?.gateVerdict) {
+      const captureRefs = buffered.fragments.map((fragment) => fragment.captureRef);
+      if (captureRefs.some((captureRef) => !captureRef)) {
+        console.warn("[discord-bot] external buffer contained an incomplete capture reference");
+        return;
+      }
+      try {
+        await (options.ingressExternalBatch ?? ingressExternalBatch)(
+          captureRefs as string[],
+          channelId,
+          buffered.finalFragmentReceivedAt,
+        );
+      } catch (error) {
+        externalBatchFailures += 1;
+        console.error(
+          `[discord-bot] external batch admission failed; retry remains durable count=${externalBatchFailures}`,
+          error,
+        );
+      }
+      return;
+    }
     const turn = {
       text: buffered.fragments.map((fragment) => fragment.text).join("\n"),
       attachments: buffered.fragments.flatMap((fragment) => fragment.attachments).slice(0, MAX_IMAGES),
       inboundDiscordMessageIds: buffered.fragments.map((fragment) => fragment.messageId),
       finalFragmentReceivedAtMs: buffered.finalFragmentReceivedAt,
+      hasIngestibleTextAttachment: buffered.fragments.some((fragment) => hasIngestibleTextAttachment(fragment)),
     };
     try {
       await options.ingressChat(turn.text, {
         attachments: turn.attachments,
         inboundDiscordMessageIds: turn.inboundDiscordMessageIds,
         finalFragmentReceivedAtMs: turn.finalFragmentReceivedAtMs,
+        hasIngestibleTextAttachment: turn.hasIngestibleTextAttachment,
       });
     } catch (error) {
       const code = (error as Error & { code?: string }).code;
       const retryAfterSec = (error as Error & { retryAfterSec?: number }).retryAfterSec;
       console.error("[discord-bot] cognitive ingress failed closed:", error);
-      if (typeof buffered.target.reply === "function") {
+      if (
+        "reply" in buffered.target &&
+        typeof buffered.target.reply === "function"
+      ) {
         await buffered.target.reply(agentErrorMessage(code, retryAfterSec)).catch(() => {});
       }
     }
   };
 
   return {
-    async handleMessage(message: Message): Promise<void> {
+    async handleMessage(message: Message, context?: MessageSocialContext): Promise<void> {
       if (message.content.trim().startsWith("/")) return;
+      if (context?.gateVerdict === "drop") return;
       const intake = describeIntake(message);
-      if (!intake.text) return;
+      if (!context?.gateVerdict && !intake.text && !hasIngestibleTextAttachment(intake)) return;
+      if (context?.gateVerdict) {
+        try {
+          const envelope = intake.envelope;
+          if (!envelope) throw new Error("external_envelope_unattributable");
+          const conversationKey = externalConversationKey(
+            envelope,
+            options.botId ?? messageClientUserId(message),
+          );
+          const captured = await (options.captureExternalChat ?? captureExternalChat)(
+            envelope,
+            intake.text,
+            { gateHint: context.gateVerdict, conversationKey },
+          );
+          if (!captured.captureRef || captured.conversationKey !== conversationKey) {
+            throw new Error("external_capture_receipt_invalid");
+          }
+          const first = localTurns.push(conversationKey, {
+            text: "",
+            attachments: [],
+            hasMedia: false,
+            hasIngestibleTextAttachment: false,
+            messageId: intake.messageId,
+            gateVerdict: context.gateVerdict,
+            captureRef: captured.captureRef,
+            conversationKey,
+          }, { kind: "external", conversationKey });
+          if (first) options.channelQueue?.abort(conversationKey);
+        } catch (error) {
+          externalCaptureFailures += 1;
+          console.error(
+            `[discord-bot] external capture failed; reference not buffered count=${externalCaptureFailures}`,
+            error,
+          );
+        }
+        return;
+      }
       const channelId = message.channel.id;
       const first = localTurns.push(channelId, intake, message);
       if (first) {
@@ -101,6 +204,25 @@ export function createMessageCreateHandler(options: {
       await lastReadyPromise;
     },
   };
+}
+
+function messageClientUserId(message: Message): string | undefined {
+  const userId = (message as Message & {
+    client?: { user?: { id?: string } | null };
+  }).client?.user?.id;
+  return typeof userId === "string" ? userId.trim() || undefined : undefined;
+}
+
+function externalConversationKey(
+  envelope: ExternalEnvelopeTransport,
+  botId: string | undefined,
+): string {
+  if (envelope.location.kind === "room") {
+    return `room:${envelope.location.guildId}:${envelope.location.channelId}`;
+  }
+  const normalizedBotId = botId?.trim();
+  if (!normalizedBotId) throw new Error("external_bot_identity_unavailable");
+  return `dm:${normalizedBotId}:${envelope.location.principalId}`;
 }
 
 const messageCreateHandler = createMessageCreateHandler({
@@ -130,7 +252,7 @@ async function handleKillSwitch(message: Message): Promise<boolean> {
   return true;
 }
 
-export async function handleMessage(message: Message): Promise<void> {
+export async function handleMessage(message: Message, context?: MessageSocialContext): Promise<void> {
   if (await handleKillSwitch(message)) return;
-  await messageCreateHandler.handleMessage(message);
+  await messageCreateHandler.handleMessage(message, context);
 }
