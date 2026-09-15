@@ -3,6 +3,7 @@ import { canEnterModelContext } from "../../privacy/classification.js";
 import type { LearnedSelfSlice, MemoryAssertion, MemoryKind } from "../types.js";
 import type { SocialAudience } from "../social/types.js";
 import { listMemoryAssertions } from "../memory/assertions.js";
+import { listMemorySupports } from "../memory/supports.js";
 
 export type LearnedSelfEntry = {
   memoryKind: MemoryKind;
@@ -24,6 +25,8 @@ export function validateLearnedSelfEntry(input: LearnedSelfEntry): true {
 type MutableSelfSlice = {
   broadDispositions: string[];
   broadInterests: string[];
+  broadSupportRefs: string[];
+  supportRefs: string[];
   broadAudienceScope: SocialAudience | null;
   broadScopeAmbiguous: boolean;
   broadHasUnscopedEvidence: boolean;
@@ -33,6 +36,7 @@ type MutableSelfSlice = {
     dispositions: string[];
     interests: string[];
     sourceRefs: string[];
+    supportRefs: string[];
     protectionStatus: "admitted" | "unresolved" | null;
   }>;
 };
@@ -54,11 +58,15 @@ function addText(target: { dispositions: string[]; interests: string[] }, statem
   }
 }
 
-function addEntry(slice: MutableSelfSlice, assertion: MemoryAssertion): void {
+function addEntry(slice: MutableSelfSlice, assertion: MemoryAssertion, db: DatabaseSync): void {
   if (!assertion.live || assertion.memoryKind !== "learned_self_evidence") return;
   if (!canEnterModelContext(assertion.dataClassification, "private")) return;
   const statement = assertion.statement.trim();
   if (!statement) return;
+  const supportRefs = listMemorySupports(db, assertion.assertionKey).map(
+    (support) => support.sourceRef ?? support.supportId,
+  );
+  slice.supportRefs.push(...supportRefs);
 
   const scope = assertion.audienceScope;
   if (scope && (scope.kind === "owner_dm" || scope.kind === "dm" || scope.kind === "room")) {
@@ -68,10 +76,12 @@ function addEntry(slice: MutableSelfSlice, assertion: MemoryAssertion): void {
       dispositions: [],
       interests: [],
       sourceRefs: [],
+      supportRefs: [],
       protectionStatus: null,
     };
     addText(linked, statement);
     if (assertion.sourceEvidenceRef) linked.sourceRefs.push(assertion.sourceEvidenceRef);
+    linked.supportRefs.push(...supportRefs);
     if (linked.protectionStatus === null && assertion.protectionStatus !== undefined) {
       linked.protectionStatus = assertion.protectionStatus;
     }
@@ -80,6 +90,7 @@ function addEntry(slice: MutableSelfSlice, assertion: MemoryAssertion): void {
   }
 
   addText({ dispositions: slice.broadDispositions, interests: slice.broadInterests }, statement);
+  slice.broadSupportRefs.push(...supportRefs);
   if (!assertion.audienceScope) {
     slice.broadHasUnscopedEvidence = true;
   } else if (slice.broadAudienceScope === null && !slice.broadHasUnscopedEvidence && !slice.broadScopeAmbiguous) {
@@ -100,6 +111,8 @@ export function buildLearnedSelfSlice(
   const slice: MutableSelfSlice = {
     broadDispositions: [],
     broadInterests: [],
+    broadSupportRefs: [],
+    supportRefs: [],
     broadAudienceScope: null,
     broadScopeAmbiguous: false,
     broadHasUnscopedEvidence: false,
@@ -111,7 +124,7 @@ export function buildLearnedSelfSlice(
     memoryKinds: ["learned_self_evidence"],
     modelContext: true,
   });
-  for (const assertion of assertions) addEntry(slice, assertion);
+  for (const assertion of assertions) addEntry(slice, assertion, db);
 
   // Keep the legacy enumerable shape stable for Owner-path snapshots. The
   // audience-separated projection is available to the P12 filter as
@@ -130,6 +143,7 @@ export function buildLearnedSelfSlice(
   const broadOrientation = Object.freeze({
     dispositions: [...new Set(slice.broadDispositions)],
     interests: [...new Set(slice.broadInterests)],
+    ...(slice.broadSupportRefs.length > 0 ? { supportRefs: [...new Set(slice.broadSupportRefs)] } : {}),
     audienceScope: slice.broadScopeAmbiguous || slice.broadHasUnscopedEvidence ? null : slice.broadAudienceScope,
     protectionStatus: slice.broadProtectionStatus,
   });
@@ -138,8 +152,10 @@ export function buildLearnedSelfSlice(
     dispositions: [...new Set(entry.dispositions)],
     interests: [...new Set(entry.interests)],
     sourceRefs: [...new Set(entry.sourceRefs)],
+    ...(entry.supportRefs.length > 0 ? { supportRefs: [...new Set(entry.supportRefs)] } : {}),
     protectionStatus: entry.protectionStatus,
   })));
+  const supportRefs = [...new Set(slice.supportRefs)];
   Object.defineProperties(result, {
     broadOrientation: {
       value: broadOrientation,
@@ -154,6 +170,7 @@ export function buildLearnedSelfSlice(
       configurable: false,
     },
   });
+  if (supportRefs.length > 0) result.supportRefs = supportRefs;
   return result;
 }
 

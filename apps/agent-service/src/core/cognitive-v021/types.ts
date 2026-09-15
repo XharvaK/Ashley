@@ -1165,10 +1165,13 @@ export type IdentitySlice = {
 export type LearnedSelfSlice = {
   dispositions: string[];
   interests: string[];
+  /** Source/support references for the currently projected learned-self slice. */
+  supportRefs?: string[];
   /** New audience-separated projection. Kept optional for legacy in-process callers. */
   broadOrientation?: {
     dispositions: string[];
     interests: string[];
+    supportRefs?: string[];
     audienceScope?: SocialAudience | null;
     protectionStatus?: "admitted" | "unresolved" | null;
   };
@@ -1177,6 +1180,7 @@ export type LearnedSelfSlice = {
     dispositions: string[];
     interests: string[];
     sourceRefs: string[];
+    supportRefs?: string[];
     protectionStatus?: "admitted" | "unresolved" | null;
     licenseRefs?: string[];
   }>;

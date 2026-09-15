@@ -367,9 +367,14 @@ function filterLearnedSelf(
     ...(broadAllowed?.interests ?? []),
     ...linked.flatMap((entry) => entry.interests),
   ];
+  const supportRefs = [
+    ...(broadAllowed?.supportRefs ?? []),
+    ...linked.flatMap((entry) => entry.supportRefs ?? []),
+  ];
   const result: LearnedSelfSlice = {
     dispositions: [...new Set(dispositions)],
     interests: [...new Set(interests)],
+    ...(supportRefs.length === 0 ? {} : { supportRefs: [...new Set(supportRefs)] }),
     ...(broadAllowed === undefined ? {} : { broadOrientation: broadAllowed }),
     ...(linked.length === 0 ? {} : { personLinked: linked }),
   };
