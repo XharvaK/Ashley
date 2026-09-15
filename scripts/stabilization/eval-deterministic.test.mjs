@@ -13,13 +13,25 @@ const matrix = JSON.parse(
 
 test("scenario coverage is stable and explicit", () => {
   const result = evaluateScenarioMatrix(matrix);
+  assert.equal(matrix.qualificationKind, "fresh_requalification");
+  assert.equal(matrix.candidateSourceSha, "ab5805af4e374354e68b89df9e68540255228d48");
+  assert.equal(matrix.candidateSourceTree, "171c6014e8bd7d9063f59554ccfc890229691f49");
+  assert.equal(matrix.historicalMatrixRecovered, false);
+  assert.equal(matrix.historicalMatrixReconstructed, false);
+  assert.equal(matrix.historicalCountsPreserved, false);
   assert.deepEqual(result.counts, {
-    covered: 10,
-    partial: 4,
-    gap: 1,
+    covered: 4,
+    partial: 9,
+    gap: 2,
     deferred: 0,
   });
-  assert.deepEqual(result.deterministicGaps, ["S-INJECT"]);
+  assert.deepEqual(result.deterministicGaps, ["S-INJECT", "S-SELFMOD"]);
+  assert.deepEqual(
+    result.scenarios
+      .filter((scenario) => scenario.hardGate && scenario.status !== "covered")
+      .map((scenario) => scenario.id),
+    ["S-REFUSE", "S-QUOTA", "S-BACKUP", "S-INJECT", "S-SANDBOX", "S-SELFMOD", "S-EXT"],
+  );
   assert.deepEqual(result.errors, []);
 });
 
@@ -29,7 +41,7 @@ test("missing evidence becomes an explicit partial result instead of a green cla
   const result = evaluateScenarioMatrix(changed);
   const refusal = result.scenarios.find((scenario) => scenario.id === "S-REFUSE");
   assert.equal(refusal?.status, "partial");
-  assert.deepEqual(result.deterministicGaps, ["S-INJECT"]);
+  assert.deepEqual(result.deterministicGaps, ["S-INJECT", "S-SELFMOD"]);
 });
 
 test("run evaluation reports deterministic flags without retaining reply text", () => {
