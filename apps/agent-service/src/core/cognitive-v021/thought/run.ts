@@ -759,7 +759,7 @@ function providerFailureCaptureForError(
   });
 }
 
-type LocalAliasTarget = "working_context" | "concern";
+type LocalAliasTarget = "working_context" | "desk" | "concern";
 type LocalAliasBinding = { id: string; target: LocalAliasTarget };
 
 type ThoughtMaterializationFailureCode = Extract<
@@ -882,6 +882,14 @@ function materializeSemanticSettlement(
     }
     if (delta.op === "supersede" && delta.replacement.identity.kind === "local") {
       register(delta.replacement.identity.alias, "working_context", `workingContextDeltas[${index}].replacement.identity`);
+    }
+  }
+  for (const [index, delta] of (semantic.deskDeltas ?? []).entries()) {
+    if (delta.op === "upsert" && delta.entry.identity.kind === "local") {
+      register(delta.entry.identity.alias, "desk", `deskDeltas[${index}].entry.identity`);
+    }
+    if (delta.op === "supersede" && delta.replacement.identity.kind === "local") {
+      register(delta.replacement.identity.alias, "desk", `deskDeltas[${index}].replacement.identity`);
     }
   }
   for (const [index, delta] of (semantic.concernDeltas ?? []).entries()) {
@@ -1077,6 +1085,56 @@ function materializeSemanticSettlement(
             replacement: legacyItem,
           };
     });
+  if (semantic.deskDeltas) result.deskDeltas = semantic.deskDeltas.map((delta, index) => {
+    if (delta.op === "archive" || delta.op === "tombstone") {
+      return {
+        op: delta.op,
+        id: materializeExistingReference(
+          delta.target,
+          referenceAllowlist,
+          "desk",
+          `deskDeltas[${index}].target`,
+        ),
+      };
+    }
+    const entry = delta.op === "upsert" ? delta.entry : delta.replacement;
+    const materializedEntry = {
+      id: semanticReferenceValue(
+        entry.identity,
+        localAliases,
+        referenceAllowlist,
+        "desk",
+        `deskDeltas[${index}].${delta.op === "upsert" ? "entry" : "replacement"}.identity`,
+      ) ?? randomUUID(),
+      concernRef: semanticReferenceValue(
+        entry.concernRef,
+        localAliases,
+        referenceAllowlist,
+        "concern",
+        `deskDeltas[${index}].${delta.op === "upsert" ? "entry" : "replacement"}.concernRef`,
+      ),
+      body: entry.body,
+      authorKind: entry.authorKind,
+      sourceRefs: [...entry.sourceRefs],
+      verbatim: entry.verbatim,
+      form: entry.form,
+      endorsementRef: semanticReferenceValue(
+        entry.endorsementRef,
+        localAliases,
+        referenceAllowlist,
+        undefined,
+        `deskDeltas[${index}].${delta.op === "upsert" ? "entry" : "replacement"}.endorsementRef`,
+      ),
+      audienceScope: { ...entry.audienceScope },
+    };
+    return delta.op === "upsert"
+      ? { op: "upsert", entry: materializedEntry }
+      : {
+          op: "supersede",
+          id: materializeExistingReference(delta.target, referenceAllowlist, "desk", `deskDeltas[${index}].target`),
+          replacement: materializedEntry,
+        };
+  });
   if (semantic.concernDeltas) result.concernDeltas = semantic.concernDeltas.map((delta, index) => delta.op === "resolve"
       ? {
           op: "resolve",
@@ -1205,6 +1263,7 @@ function semanticReferencesForInput(input: ThoughtInput | ProjectedThoughtInput)
   return [
     ...input.rawConversation.map((row) => row.rowId),
     ...input.workingContext.map((item) => item.id),
+    ...(input.deskEntries ?? []).map((item) => item.id),
     ...input.occupancy.map((item) => item.concernId),
     ...input.observations.map((item) => item.observationId),
     ...effectRefs,
@@ -1231,6 +1290,7 @@ function semanticReferenceTargetsForInput(
     recordTarget(item.id, "working_context");
     recordTarget(item.concernId, "concern");
   }
+  for (const item of input.deskEntries ?? []) recordTarget(item.id, "desk");
   for (const item of input.occupancy) recordTarget(item.concernId, "concern");
   for (const item of input.observations) recordTarget(item.observationId, "observation");
   return targets;

@@ -1,6 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import { openCognitiveSidecarDb } from "../db.js";
+import { COGNITIVE_SIDECAR_SCHEMA_VERSION } from "../../types.js";
 import {
   COGNITIVE_SIDECAR_SCHEMA_V1,
   COGNITIVE_SIDECAR_SCHEMA_V2,
@@ -69,12 +70,12 @@ describe("cognitive sidecar Schema V8 migration", () => {
       expect(
         (db.prepare("PRAGMA user_version").get() as { user_version: number })
           .user_version,
-      ).toBe(14);
+      ).toBe(COGNITIVE_SIDECAR_SCHEMA_VERSION);
       expect(
         db.prepare(
           "SELECT schema_version FROM cognitive_sidecar_meta WHERE id = 1",
         ).get(),
-      ).toEqual({ schema_version: 14 });
+      ).toEqual({ schema_version: COGNITIVE_SIDECAR_SCHEMA_VERSION });
       expect(
         (db.prepare("PRAGMA table_info(deferred_reactive_frontiers)").all() as Array<{ name: string }>)
           .map((column) => column.name),

@@ -33,7 +33,8 @@ import type {
 export type { ExportOptions } from "./types.js";
 
 export const EXPORTER_VERSION = "observer-exporter@0.1.0" as const;
-export const BUNDLE_SCHEMA_VERSION = 2 as const;
+// P-W1-01 is the first exporter-visible surface addition after the v2 bundle.
+export const BUNDLE_SCHEMA_VERSION = 3 as const;
 
 const BUNDLE_FILES = [
   "manifest.json",

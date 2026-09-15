@@ -141,6 +141,11 @@ const REQUIRED_DATABASE_SURFACES: Record<DatabaseCoverageSource, readonly Requir
       timestamp: { table: "conversation_evidence_log", columns: ["created_at_ms"], format: "epoch_ms" },
     },
     {
+      table: "desk_entries",
+      columns: ["id", "concern_ref", "body", "author_kind", "source_refs_json", "verbatim", "form", "endorsement_ref", "audience_scope_json", "lifecycle", "superseded_by", "updated_cycle", "updated_generation", "created_at_ms", "updated_at_ms"],
+      timestamp: { table: "desk_entries", columns: ["updated_at_ms"], format: "epoch_ms" },
+    },
+    {
       table: "periodic_cognition_schedule",
       columns: ["id", "authority_epoch", "next_eligible_at_ms", "updated_at_ms"],
       timestamp: { table: "periodic_cognition_schedule", columns: ["updated_at_ms"], format: "epoch_ms" },

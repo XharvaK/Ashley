@@ -11,6 +11,7 @@ export const V021_FORGET_TARGET_MATRIX = {
   conversation_evidence_log: { behavior: "none", content: "redact" },
   thought_steps: { behavior: "none", content: "redact" },
   working_context_items: { behavior: "detach", content: "redact" },
+  desk_entries: { behavior: "detach", content: "redact" },
   concerns: { behavior: "resolve", content: "redact" },
   mind_occupancy: { behavior: "detach", content: "none" },
   future_triggers: { behavior: "cancel", content: "redact" },
@@ -127,6 +128,19 @@ export function applyV021Forget(
       ).run(JSON.stringify({ type: "repair", text: "", concernId: null, sourceTurnIds: [], status: "abandoned", supersedesId: null }), id);
       changedRows += number(result.changes);
       addTarget(targets, "v021_working_context", id, "detach");
+    }
+
+    const deskRows = db.prepare("SELECT id, body FROM desk_entries").all();
+    for (const row of deskRows) {
+      if (!isRow(row) || !hasTopic(row.body, topic)) continue;
+      const id = text(row.id);
+      const result = db.prepare(
+        `UPDATE desk_entries
+            SET body = ?, source_refs_json = '[]', endorsement_ref = NULL
+          WHERE id = ?`,
+      ).run(REDACTED_MEMORY_STATEMENT, id);
+      changedRows += number(result.changes);
+      addTarget(targets, "v021_desk_entry", id);
     }
 
     const occupancyRows = db.prepare("SELECT conversation_id, concern_id FROM mind_occupancy").all();
@@ -326,6 +340,11 @@ export function planV021Forget(
     add("v021_working_context", text(row.id), "detach");
   }
 
+  for (const row of db.prepare("SELECT id, body FROM desk_entries").all()) {
+    if (!isRow(row) || !hasTopic(row.body, topic)) continue;
+    add("v021_desk_entry", text(row.id));
+  }
+
   for (const row of db.prepare("SELECT conversation_id, concern_id FROM mind_occupancy").all()) {
     if (!isRow(row) || !concernIds.has(text(row.concern_id))) continue;
     add("v021_occupancy", `${text(row.conversation_id)}:${text(row.concern_id)}`, "detach");
@@ -488,6 +507,13 @@ function applyV021ForgetTargetsInTransaction(
           SET payload_json = ?, superseded = 1
         WHERE id = ?`,
     ).run(JSON.stringify({ type: "repair", text: "", concernId: null, sourceTurnIds: [], status: "abandoned", supersedesId: null }), id), changed);
+  }
+  for (const id of targetIds(targets, "v021_desk_entry")) {
+    addChanges(db.prepare(
+      `UPDATE desk_entries
+          SET body = ?, source_refs_json = '[]', endorsement_ref = NULL
+        WHERE id = ?`,
+    ).run(REDACTED_MEMORY_STATEMENT, id), changed);
   }
   for (const id of targetIds(targets, "v021_concern")) {
     addChanges(db.prepare(

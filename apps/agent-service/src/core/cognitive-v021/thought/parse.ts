@@ -1,6 +1,8 @@
 import type {
   AbstainSemanticOutput,
   ConcernSemanticDelta,
+  DeskEntrySemantic,
+  DeskSemanticDelta,
   EffectIntentSemanticOutput,
   ExistingRef,
   FutureTriggerSemanticDelta,
@@ -407,6 +409,33 @@ function validWorkingContextDelta(value: unknown, allowlist: ReadonlySet<string>
   return false;
 }
 
+function validDeskEntry(value: unknown, allowlist: ReadonlySet<string>): value is DeskEntrySemantic {
+  const record = recordShape(value, [
+    "identity", "concernRef", "body", "authorKind", "sourceRefs", "verbatim", "form", "endorsementRef", "audienceScope",
+  ]);
+  if (!record || !semanticRef(record.identity, allowlist) || !validSemanticRefField(record.concernRef, allowlist)
+    || !nonEmptyString(record.body) || !refArray(record.sourceRefs, allowlist)
+    || typeof record.verbatim !== "boolean" || !validCommitmentDestination(record.audienceScope)) return false;
+  const authorKind = record.authorKind;
+  const form = record.form;
+  if (authorKind !== "ashley" && authorKind !== "owner" && authorKind !== "quoted_external") return false;
+  if (form !== "note" && form !== "draft" && form !== "observation" && form !== "brainstorm") return false;
+  if (authorKind === "quoted_external" ? record.verbatim !== true : record.verbatim !== false) return false;
+  return record.endorsementRef === null || existingRef(record.endorsementRef, allowlist);
+}
+
+function validDeskDelta(value: unknown, allowlist: ReadonlySet<string>): value is DeskSemanticDelta {
+  const record = semanticRecord(value);
+  if (!record || typeof record.op !== "string") return false;
+  if (record.op === "upsert") return Object.keys(record).length === 2 && validDeskEntry(record.entry, allowlist);
+  if (record.op === "supersede") return Object.keys(record).length === 3
+    && existingRef(record.target, allowlist) && validDeskEntry(record.replacement, allowlist);
+  if (record.op === "archive" || record.op === "tombstone") {
+    return Object.keys(record).length === 2 && existingRef(record.target, allowlist);
+  }
+  return false;
+}
+
 function validConcernDelta(value: unknown, allowlist: ReadonlySet<string>): boolean {
   const record = semanticRecord(value);
   if (!record || typeof record.op !== "string") return false;
@@ -565,6 +594,7 @@ function validateSettlementLocalAliases(
   };
   const check = (value: unknown, field: string): ValidationResult => checkReference(value, field);
   const working = Array.isArray(record.workingContextDeltas) ? record.workingContextDeltas : [];
+  const desk = Array.isArray(record.deskDeltas) ? record.deskDeltas : [];
   const concerns = Array.isArray(record.concernDeltas) ? record.concernDeltas : [];
   const interpretation = semanticRecord(record.interpretation);
   for (const binding of (interpretation && Array.isArray(interpretation.referentBindings)
@@ -586,6 +616,15 @@ function validateSettlementLocalAliases(
     const itemRecord = semanticRecord(item);
     for (const [key, value] of [["identity", itemRecord?.identity], ["concernRef", itemRecord?.concernRef], ["supersedesRef", itemRecord?.supersedesRef]] as const) {
       const result = check(value, `workingContextDeltas.${key}`);
+      if (!result.ok) return result;
+    }
+  }
+  for (const delta of desk) {
+    const deltaRecord = semanticRecord(delta);
+    const item = deltaRecord?.entry ?? deltaRecord?.replacement;
+    const itemRecord = semanticRecord(item);
+    for (const [key, value] of [["identity", itemRecord?.identity], ["concernRef", itemRecord?.concernRef]] as const) {
+      const result = check(value, `deskDeltas.${key}`);
       if (!result.ok) return result;
     }
   }
@@ -618,7 +657,7 @@ function validateSettlementLocalAliases(
 
 function parseSettlementSemantic(value: SemanticRecord, allowlist: ReadonlySet<string>): ThoughtSemanticParseResult {
   const unknown = Object.keys(value).find((key) => ![
-    "kind", "interactionIntent", "speech", "interpretation", "commitments", "workingContextDeltas", "concernDeltas",
+    "kind", "interactionIntent", "speech", "interpretation", "commitments", "workingContextDeltas", "deskDeltas", "concernDeltas",
     "occupancyDeltas", "futureTriggerDeltas", "subscriptionDeltas", "durableNominations", "evidenceUse",
   ].includes(key));
   if (unknown) return semanticFailure("unknown_field", unknown);
@@ -637,6 +676,7 @@ function parseSettlementSemantic(value: SemanticRecord, allowlist: ReadonlySet<s
 
   const arrays: Array<[string, (item: unknown) => boolean]> = [
     ["workingContextDeltas", (item) => validWorkingContextDelta(item, allowlist)],
+    ["deskDeltas", (item) => validDeskDelta(item, allowlist)],
     ["concernDeltas", (item) => validConcernDelta(item, allowlist)],
     ["occupancyDeltas", (item) => validOccupancyDelta(item, allowlist)],
     ["futureTriggerDeltas", (item) => validFutureTriggerDelta(item, allowlist)],

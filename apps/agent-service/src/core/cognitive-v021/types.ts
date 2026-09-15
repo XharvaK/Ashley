@@ -20,7 +20,7 @@ export type { DataClassification } from "../privacy/classification.js";
 export const ARCHITECTURE_EPOCH = "v0.2.1" as const;
 export const IMPLEMENTATION_SPEC_VERSION = "0.2.1.r6" as const;
 export const THOUGHT_CONTRACT_VERSION = 2 as const;
-export const COGNITIVE_SIDECAR_SCHEMA_VERSION = 14 as const;
+export const COGNITIVE_SIDECAR_SCHEMA_VERSION = 15 as const;
 export const CAPACITY_WAIT_MAX_DURATION_MS = 120_000 as const;
 export const MECHANICAL_SPIN_GUARD_LIMIT = 12 as const;
 
@@ -371,6 +371,40 @@ export type WorkingContextDelta =
       replacement: Omit<WorkingContextItem, "updatedGeneration">;
     }
   | { op: "abandon"; id: string };
+
+export type DeskAuthorKind = "ashley" | "owner" | "quoted_external";
+export type DeskForm = "note" | "draft" | "observation" | "brainstorm";
+export type DeskLifecycle = "active" | "archived" | "tombstoned";
+
+/** Owner-private, durable desk content. Meaning remains Thought-authored. */
+export type DeskEntry = {
+  id: string;
+  concernRef: ConcernId | null;
+  body: string;
+  authorKind: DeskAuthorKind;
+  sourceRefs: string[];
+  verbatim: boolean;
+  form: DeskForm;
+  endorsementRef: string | null;
+  audienceScope: SocialAudience;
+  lifecycle: DeskLifecycle;
+  supersededBy: string | null;
+  updatedCycle: CycleId;
+  updatedGeneration: Generation;
+  createdAtMs: number;
+  updatedAtMs: number;
+};
+
+export type DeskEntryDraft = Omit<
+  DeskEntry,
+  "lifecycle" | "supersededBy" | "updatedCycle" | "updatedGeneration" | "createdAtMs" | "updatedAtMs"
+>;
+
+export type DeskDelta =
+  | { op: "upsert"; entry: DeskEntryDraft }
+  | { op: "supersede"; id: string; replacement: DeskEntryDraft }
+  | { op: "archive"; id: string }
+  | { op: "tombstone"; id: string };
 
 export type ConcernRecord = {
   concernId: ConcernId;
@@ -737,6 +771,24 @@ export type WorkingContextSemanticDelta =
   | { op: "supersede"; target: ExistingRef; replacement: WorkingContextItemSemantic }
   | { op: "abandon"; target: ExistingRef };
 
+export type DeskEntrySemantic = {
+  identity: SemanticRef;
+  concernRef: SemanticRef | null;
+  body: string;
+  authorKind: DeskAuthorKind;
+  sourceRefs: readonly ExistingRef[];
+  verbatim: boolean;
+  form: DeskForm;
+  endorsementRef: ExistingRef | null;
+  audienceScope: SocialAudience;
+};
+
+export type DeskSemanticDelta =
+  | { op: "upsert"; entry: DeskEntrySemantic }
+  | { op: "supersede"; target: ExistingRef; replacement: DeskEntrySemantic }
+  | { op: "archive"; target: ExistingRef }
+  | { op: "tombstone"; target: ExistingRef };
+
 export type ConcernSemanticDelta =
   | {
       op: "upsert";
@@ -806,6 +858,7 @@ export type SettlementSemanticOutput = {
   interpretation?: ThoughtInterpretation;
   commitments?: ThoughtCommitments;
   workingContextDeltas?: readonly WorkingContextSemanticDelta[];
+  deskDeltas?: readonly DeskSemanticDelta[];
   concernDeltas?: readonly ConcernSemanticDelta[];
   occupancyDeltas?: readonly OccupancySemanticDelta[];
   futureTriggerDeltas?: readonly FutureTriggerSemanticDelta[];
@@ -978,6 +1031,7 @@ export type ThoughtSettlementDraft = {
   };
   speech: ThoughtSpeechDraft;
   workingContextDelta?: WorkingContextDelta[];
+  deskDeltas?: DeskDelta[];
   concernDeltas?: ConcernDelta[];
   occupancyDelta?: OccupancyDelta[];
   futureTriggers?: FutureTriggerDelta[];
@@ -1221,6 +1275,8 @@ export type ThoughtInput = {
     currentTriggerRowId?: string | null;
   };
   workingContext: WorkingContextItem[];
+  /** Owner-private desk projection; absent when no eligible entries exist. */
+  deskEntries?: DeskEntry[];
   occupancy: ThoughtOccupancy[];
   /** Host-captured concern snapshots seen while assembling this Thought input. */
   concernSnapshots?: Readonly<Record<string, string>>;
@@ -1315,6 +1371,7 @@ export type V021ForgetEntityType =
   | "v021_conversation_evidence"
   | "v021_thought_step"
   | "v021_working_context"
+  | "v021_desk_entry"
   | "v021_concern"
   | "v021_occupancy"
   | "v021_future_trigger"

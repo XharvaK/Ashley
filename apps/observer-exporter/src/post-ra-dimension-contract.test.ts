@@ -70,8 +70,8 @@ describe("Post-RA Observer calibration contract", () => {
     }
   });
 
-  it("does not alter the bundle schema or register future desk surfaces", () => {
-    expect(BUNDLE_SCHEMA_VERSION).toBe(2);
-    expect(contract.POST_RA_P_W1_00_EVIDENCE_SURFACES.some((surface) => surface.table === "desk_entries")).toBe(false);
+  it("binds the first desk surface addition to the bumped bundle schema", () => {
+    expect(BUNDLE_SCHEMA_VERSION).toBe(3);
+    expect(contract.hasRequiredDatabaseSurface("cognitive_sidecar", "desk_entries", ["id", "body", "updated_at_ms"])).toBe(true);
   });
 });

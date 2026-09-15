@@ -8,6 +8,7 @@ import type {
   InFlightRecord,
   MindOccupancy,
   Observation,
+  DeskEntry,
   ThoughtInput,
   WorkingContextItem,
 } from "../../types.js";
@@ -39,6 +40,7 @@ export type AllocationSectionId =
   | "working_context_commitment"
   | "working_context_topic"
   | "working_context_other"
+  | "desk_entry"
   | "occupancy_compact"
   | "constitution"
   | "learned_self"
@@ -160,6 +162,7 @@ export function allocationTokenComponent(
   }
   if (section === "public_presence") return "identity_kernel_tokens";
   if (section.startsWith("working_context")) return "working_context_tokens";
+  if (section === "desk_entry") return "working_context_tokens";
   if (section === "constitution" || section === "capability") return "identity_kernel_tokens";
   if (section === "occupancy_compact") return "domain_pointer_tokens";
   if (section === "learned_self") return "learned_self_tokens";
@@ -471,6 +474,19 @@ export function buildAllocationCandidates(
     }
   }
 
+  // Owner-private desk entries are optional structured context. The desk
+  // store owns attribution, lifecycle, and audience eligibility.
+  for (const item of input.deskEntries ?? []) {
+    candidates.push({
+      id: `desk:${item.id}`,
+      section: "desk_entry",
+      required: false,
+      priority: 16,
+      ref: item.id,
+      data: item,
+    });
+  }
+
   // 17. Compact Retrieval Candidates (optional, tier/rank ordered)
   for (let idx = 0; idx < compactRetrievalHits.length; idx++) {
     const hit = compactRetrievalHits[idx];
@@ -527,6 +543,7 @@ function canonicalStoreFor(section: AllocationSectionId): string {
     return "conversation_evidence_log";
   }
   if (section.startsWith("working_context")) return "working_context_items";
+  if (section === "desk_entry") return "desk_entries";
   if (section === "occupancy_compact") return "mind_occupancy";
   if (section === "constitution") return "identity_entries";
   if (section === "capability") return "capability_reality";
@@ -569,6 +586,11 @@ function evidenceRefsFor(value: unknown): readonly string[] {
     }
     if (Array.isArray(record.evidenceRefs)) {
       for (const ref of record.evidenceRefs) {
+        if (typeof ref === "string" && ref.trim() !== "") refs.add(ref);
+      }
+    }
+    if (Array.isArray(record.sourceRefs)) {
+      for (const ref of record.sourceRefs) {
         if (typeof ref === "string" && ref.trim() !== "") refs.add(ref);
       }
     }

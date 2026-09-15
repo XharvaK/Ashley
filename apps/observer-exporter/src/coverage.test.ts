@@ -37,6 +37,7 @@ function validSidecar(sql = ""): DatabaseSync {
     CREATE TABLE speech_outbox (outbox_id INTEGER, settlement_id TEXT, projection_key TEXT, cycle_id TEXT, generation INTEGER, send_status TEXT, nuclear_reservation_id INTEGER, discord_message_ids_json TEXT);
     CREATE TABLE system_notice_outbox (notice_id INTEGER, cycle_id TEXT, conversation_id TEXT, send_status TEXT, nuclear_reservation_id INTEGER, discord_message_id TEXT);
     CREATE TABLE conversation_evidence_log (row_id TEXT, lineage_id TEXT, version INTEGER, conversation_id TEXT, role TEXT, created_at_ms INTEGER, discord_message_ids_json TEXT, reservation_id INTEGER, producing_cycle_id TEXT, content_hash TEXT, source_status TEXT, data_classification TEXT, secret_omitted INTEGER, delivered INTEGER);
+    CREATE TABLE desk_entries (id TEXT, concern_ref TEXT, body TEXT, author_kind TEXT, source_refs_json TEXT, verbatim INTEGER, form TEXT, endorsement_ref TEXT, audience_scope_json TEXT, lifecycle TEXT, superseded_by TEXT, updated_cycle TEXT, updated_generation INTEGER, created_at_ms INTEGER, updated_at_ms INTEGER);
     CREATE TABLE periodic_cognition_schedule (id TEXT, authority_epoch INTEGER, next_eligible_at_ms INTEGER, updated_at_ms INTEGER);
     CREATE TABLE periodic_cognition_occurrence_receipts (schedule_occurrence_id TEXT, disposition TEXT, wake_id TEXT, authority_epoch INTEGER, eligible_at_ms INTEGER, closed_at_ms INTEGER);
     CREATE TABLE causal_ledger (id INTEGER, cycle_id TEXT, generation INTEGER, thought_unavailable INTEGER);
@@ -371,6 +372,21 @@ describe("per-source observer coverage", () => {
     expect(coverage).toMatchObject({
       disposition: "complete_nonempty",
       record_count: 2,
+      failure_omission_state: null,
+    });
+    sidecar.close();
+  });
+
+  it("covers persisted desk entries through the sidecar allowlist", () => {
+    const sidecar = validSidecar(`
+      INSERT INTO desk_entries (id, body, author_kind, lifecycle, updated_at_ms)
+        VALUES ('desk:covered', 'private desk evidence', 'ashley', 'active', ${window.start.getTime() + 1_000});
+    `);
+
+    const coverage = sourceCoverageForDatabase({ db: sidecar, source: "cognitive_sidecar", window });
+    expect(coverage).toMatchObject({
+      disposition: "complete_nonempty",
+      record_count: 1,
       failure_omission_state: null,
     });
     sidecar.close();

@@ -127,6 +127,23 @@ const workingContextDeltaSchema = { oneOf: [
   strictObject({ op: { const: "supersede" }, target: existingRefSchema, replacement: semanticItemSchema }, ["op", "target", "replacement"]),
   strictObject({ op: { const: "abandon" }, target: existingRefSchema }, ["op", "target"]),
 ] };
+const deskEntrySchema = strictObject({
+  identity: semanticRefSchema,
+  concernRef: nullableSemanticRefSchema,
+  body: { type: "string", minLength: 1 },
+  authorKind: { enum: ["ashley", "owner", "quoted_external"] },
+  sourceRefs: stringArraySchema,
+  verbatim: { type: "boolean" },
+  form: { enum: ["note", "draft", "observation", "brainstorm"] },
+  endorsementRef: { oneOf: [existingRefSchema, { type: "null" }] },
+  audienceScope: commitmentDestinationSchema,
+}, ["identity", "concernRef", "body", "authorKind", "sourceRefs", "verbatim", "form", "endorsementRef", "audienceScope"]);
+const deskDeltaSchema = { oneOf: [
+  strictObject({ op: { const: "upsert" }, entry: deskEntrySchema }, ["op", "entry"]),
+  strictObject({ op: { const: "supersede" }, target: existingRefSchema, replacement: deskEntrySchema }, ["op", "target", "replacement"]),
+  strictObject({ op: { const: "archive" }, target: existingRefSchema }, ["op", "target"]),
+  strictObject({ op: { const: "tombstone" }, target: existingRefSchema }, ["op", "target"]),
+] };
 const concernRecordSchema = strictObject({
   identity: semanticRefSchema, statement: { type: "string" }, sourceTurnRefs: stringArraySchema, dimensions: dimensionsSchema,
   status: { enum: ["active", "investigating", "waiting_for_evidence", "dormant_but_revisitable", "resolved", "quarantined"] },
@@ -182,6 +199,7 @@ const semanticOutputSettlementSchema = strictObject({
     strictObject({ mode: { const: "draft" }, mustSay: nonEmptyStringArraySchema, mustNotSay: nonEmptyStringArraySchema, surfaceDraft: { type: "string", minLength: 1 }, presentationDirectives: nonEmptyStringArraySchema }, ["mode", "surfaceDraft"]),
   ] },
   workingContextDeltas: { type: "array", minItems: 1, items: workingContextDeltaSchema },
+  deskDeltas: { type: "array", minItems: 1, items: deskDeltaSchema },
   concernDeltas: { type: "array", minItems: 1, items: concernDeltaSchema },
   occupancyDeltas: { type: "array", minItems: 1, items: occupancyDeltaSchema },
   futureTriggerDeltas: { type: "array", minItems: 1, items: futureTriggerDeltaSchema },
@@ -380,6 +398,13 @@ function applyExperimentalWireBounds(schema: SchemaRecord): void {
     for (const field of ["item", "replacement"]) {
       const item = property(form, field);
       if (Object.keys(item).length) property(item, "text").maxLength = 500;
+    }
+  }
+  for (const branch of record(property(settlement, "deskDeltas").items).oneOf as unknown[]) {
+    const form = record(branch);
+    for (const field of ["entry", "replacement"]) {
+      const item = property(form, field);
+      if (Object.keys(item).length) property(item, "body").maxLength = 800;
     }
   }
   property(property(record((record(property(settlement, "concernDeltas").items).oneOf as unknown[])[0]), "record"), "statement").maxLength = 500;

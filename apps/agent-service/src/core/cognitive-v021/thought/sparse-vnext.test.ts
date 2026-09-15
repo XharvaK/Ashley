@@ -5,7 +5,7 @@ import { fidelityCheck } from "../speech/fidelity.js";
 import { validateThoughtSettlementDraft } from "../settlement/validate.js";
 import { makeThoughtDraft } from "../test-support.js";
 
-const refs = new Set(["turn-1", "concern-1", "entity-1", "trigger-1", "subscription-1", "assertion-1"]);
+const refs = new Set(["turn-1", "concern-1", "entity-1", "desk-1", "trigger-1", "subscription-1", "assertion-1"]);
 const minimal = { kind: "settlement", speech: { mode: "draft", surfaceDraft: "Goodnight. Sleep well." } };
 const dimensions = { source: "owner_utterance", status: "asserted", time: "historical", reliability: "owner_supplied" };
 const parse = (value: unknown) => parseThoughtSemanticOutput(value, refs);
@@ -18,7 +18,7 @@ describe("Sparse VNext fresh authoring", () => {
     }
   });
 
-  it.each(["workingContextDeltas", "concernDeltas", "occupancyDeltas", "futureTriggerDeltas", "subscriptionDeltas", "durableNominations"])("rejects empty or malformed present %s", (field) => {
+  it.each(["workingContextDeltas", "deskDeltas", "concernDeltas", "occupancyDeltas", "futureTriggerDeltas", "subscriptionDeltas", "durableNominations"])("rejects empty or malformed present %s", (field) => {
     expect(parse({ ...minimal, [field]: [] })).toMatchObject({ ok: false, code: "empty_when_present", field });
     for (const value of [null, {}, "", false]) expect(parse({ ...minimal, [field]: value }).ok).toBe(false);
   });
@@ -72,6 +72,32 @@ describe("Sparse VNext fresh authoring", () => {
     expect(parse({ ...minimal, futureTriggerDeltas: [trigger], subscriptionDeltas: [{ op: "create", subscription }] }).ok).toBe(true);
     expect(parse({ ...minimal, futureTriggerDeltas: [{ ...trigger, identity: { kind: "local", alias: "dead" } }] }).ok).toBe(false);
     expect(parse({ ...minimal, subscriptionDeltas: [{ op: "create", subscription: { ...subscription, identity: { kind: "local", alias: "dead" } } }] }).ok).toBe(false);
+  });
+
+  it("validates desk attribution, audience shape, and existing endorsement references", () => {
+    const entry = {
+      identity: { kind: "existing", ref: "desk-1" },
+      concernRef: null,
+      body: "A bounded desk note.",
+      authorKind: "ashley",
+      sourceRefs: ["turn-1"],
+      verbatim: false,
+      form: "note",
+      endorsementRef: "assertion-1",
+      audienceScope: { kind: "owner_private" },
+    };
+    expect(parse({ ...minimal, deskDeltas: [{ op: "upsert", entry }] })).toEqual({
+      ok: true,
+      value: { ...minimal, deskDeltas: [{ op: "upsert", entry }] },
+    });
+    expect(parse({ ...minimal, deskDeltas: [{
+      op: "upsert",
+      entry: { ...entry, authorKind: "quoted_external", verbatim: false },
+    }] })).toMatchObject({ ok: false, code: "wrong_type", field: "deskDeltas" });
+    expect(parse({ ...minimal, deskDeltas: [{
+      op: "upsert",
+      entry: { ...entry, endorsementRef: "not-allowlisted" },
+    }] })).toMatchObject({ ok: false, code: "wrong_type", field: "deskDeltas" });
   });
 
   it("rejects a creation alias that collides with an existing reference", () => {

@@ -18,6 +18,7 @@ import {
   type RememberDirective,
   type CycleTriggerKind,
   type PublicPresenceContext,
+  type DeskEntry,
 } from "../types.js";
 import type { AvailableSocialDestination, SocialAudience } from "../social/types.js";
 import {
@@ -59,6 +60,7 @@ import {
   buildOccupiedConcernProjection,
   enrichOccupancyForThought,
 } from "./occupied-concerns.js";
+import { isDeskEntryAudienceEligible, listDeskEntries } from "../desk/store.js";
 
 export type BuildThoughtInputOptions = {
   sidecar: DatabaseSync;
@@ -67,6 +69,7 @@ export type BuildThoughtInputOptions = {
   triggerEvidence?: ConversationEvidenceRecord | null;
   rawConversation?: ConversationEvidenceRecord[];
   workingContext?: WorkingContextItem[];
+  deskEntries?: DeskEntry[];
   occupancy?: MindOccupancy[];
   constitution: IdentitySlice;
   learnedSelfSlice?: LearnedSelfSlice;
@@ -605,6 +608,8 @@ export function captureThoughtSourcePackage(
   const audience = options.audience ?? ownerAudience();
   const licenses = options.licenses ?? [];
   const eligibleWorkingContext = filterStructured(workingContext, audience, licenses);
+  const deskEntries = options.deskEntries ?? listDeskEntries(options.sidecar, { audience });
+  const eligibleDeskEntries = deskEntries.filter((entry) => isDeskEntryAudienceEligible(entry, audience));
   const selectedOccupancy = occupancySelection(
     options.sidecar,
     options.cycle.conversationId,
@@ -684,6 +689,7 @@ export function captureThoughtSourcePackage(
   );
   return Object.freeze({
     workingContext: Object.freeze([...eligibleWorkingContext]),
+    deskEntries: Object.freeze([...eligibleDeskEntries]),
     occupancy: Object.freeze([...eligibleOccupancy]),
     occupiedConcernProjection,
     concernSnapshots: Object.freeze({ ...concernSnapshots }),
@@ -716,6 +722,7 @@ export function buildThoughtInput(options: BuildThoughtInputOptions): ThoughtInp
   );
   const rawConversation = filterEvidence(conversationSelection.selectedEvidence, audience);
   const workingContext = filterStructured(sourceCapture.workingContext, audience, licenses);
+  const deskEntries = sourceCapture.deskEntries.filter((entry) => isDeskEntryAudienceEligible(entry, audience));
   const selectedOccupancy = filterStructured(sourceCapture.occupancy, audience, licenses);
   const occupancy = enrichOccupancyForThought(
     selectedOccupancy,
@@ -828,6 +835,7 @@ export function buildThoughtInput(options: BuildThoughtInputOptions): ThoughtInp
         }
       : {}),
     workingContext,
+    ...(deskEntries.length > 0 ? { deskEntries } : {}),
     occupancy,
     concernSnapshots,
     // Keep the legacy IdentitySlice wire shape compact. The richer

@@ -2,6 +2,7 @@ import { sha256, stableJson } from "../../model-fabric/hash.js";
 import type { DatabaseSync } from "node:sqlite";
 import type {
   ConcernDelta,
+  DeskEntry,
   FutureTriggerDelta,
   MindOccupancy,
   OccupancyDelta,
@@ -66,6 +67,7 @@ export type ThoughtSourceCurrentness = Readonly<{
 /** The exact source rows and bounded domain evidence consumed by one pass. */
 export type ThoughtSourceCapture = Readonly<{
   workingContext: readonly WorkingContextItem[];
+  deskEntries: readonly DeskEntry[];
   occupancy: readonly MindOccupancy[];
   occupiedConcernProjection: readonly OccupiedConcernProjection[];
   concernSnapshots: Readonly<Record<string, string>>;

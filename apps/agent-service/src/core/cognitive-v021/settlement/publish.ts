@@ -29,6 +29,7 @@ import {
   roomIdentity,
 } from "../social/room-activation.js";
 import { applyWorkingContextDelta } from "../evidence/working-context.js";
+import { applyDeskDeltas } from "../desk/store.js";
 import { applyConcernDelta, getConcern } from "../concerns/lineage.js";
 import { applyOccupancyDelta } from "../concerns/occupancy.js";
 import { enqueueDurableNomination } from "../memory/nomination.js";
@@ -327,6 +328,7 @@ export function publishSemanticTransaction(
     }
 
     for (const delta of (settlement.workingContextDelta ?? [])) applyWorkingContextDelta(db, delta, settlement);
+    applyDeskDeltas(db, settlement.deskDeltas ?? [], settlement);
     for (const delta of (settlement.concernDeltas ?? [])) applyConcernDelta(db, delta, settlement);
     for (const delta of (settlement.occupancyDelta ?? [])) applyOccupancyDelta(db, delta, settlement);
     if (settlement.subscriptions) assertSubscriptionCapacity(db, conversationId, settlement.subscriptions);

@@ -10,6 +10,7 @@ import type {
   CycleId,
   CycleTriggerKind,
   DataClassification,
+  DeskEntry,
   EpistemicDimensions,
   Generation,
   IdentitySlice,
@@ -92,6 +93,7 @@ export type ProjectedThoughtInput = {
   rawConversation: ThoughtInput["rawConversation"];
   conversationSelection?: ThoughtInput["conversationSelection"];
   workingContext: WorkingContextItem[];
+  deskEntries?: DeskEntry[];
   occupancy: ThoughtOccupancy[];
   /** Host-captured concern snapshots; non-enumerable and excluded from model wire. */
   concernSnapshots?: Readonly<Record<string, string>>;
@@ -286,6 +288,7 @@ export function projectThoughtInput(
       ? {}
       : { conversationSelection: fullInput.conversationSelection }),
     workingContext: fullInput.workingContext,
+    ...(fullInput.deskEntries === undefined ? {} : { deskEntries: fullInput.deskEntries }),
     occupancy: fullInput.occupancy,
     constitution: fullInput.constitution,
     learnedSelfSlice: fullInput.learnedSelfSlice,

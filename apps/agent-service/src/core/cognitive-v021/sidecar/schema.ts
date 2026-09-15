@@ -740,3 +740,29 @@ CREATE INDEX IF NOT EXISTS idx_social_conv_lookup
 
 UPDATE cognitive_sidecar_meta SET schema_version = 14, projection_state = 'reconciling' WHERE id = 1;
 `;
+
+export const COGNITIVE_SIDECAR_SCHEMA_V15 = String.raw`
+CREATE TABLE IF NOT EXISTS desk_entries (
+  id TEXT PRIMARY KEY,
+  concern_ref TEXT,
+  body TEXT NOT NULL,
+  author_kind TEXT NOT NULL CHECK(author_kind IN ('ashley', 'owner', 'quoted_external')),
+  source_refs_json TEXT NOT NULL CHECK(json_valid(source_refs_json)),
+  verbatim INTEGER NOT NULL CHECK(verbatim IN (0, 1)),
+  form TEXT NOT NULL CHECK(form IN ('note', 'draft', 'observation', 'brainstorm')),
+  endorsement_ref TEXT,
+  audience_scope_json TEXT NOT NULL CHECK(json_valid(audience_scope_json)),
+  lifecycle TEXT NOT NULL CHECK(lifecycle IN ('active', 'archived', 'tombstoned')),
+  superseded_by TEXT,
+  updated_cycle TEXT NOT NULL,
+  updated_generation INTEGER NOT NULL,
+  created_at_ms INTEGER NOT NULL,
+  updated_at_ms INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_desk_entries_projection
+  ON desk_entries(lifecycle, updated_generation DESC, id ASC);
+CREATE INDEX IF NOT EXISTS idx_desk_entries_concern
+  ON desk_entries(concern_ref, lifecycle);
+
+UPDATE cognitive_sidecar_meta SET schema_version = 15, projection_state = 'reconciling' WHERE id = 1;
+`;

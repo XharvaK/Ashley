@@ -6,7 +6,7 @@ import type { ExistingRef, LocalAlias, SemanticRef } from "../types.js";
  * Other opaque references remain allowlist-only because this input does not
  * carry enough state to prove their target domain.
  */
-export type ThoughtReferenceTarget = "working_context" | "concern" | "observation";
+export type ThoughtReferenceTarget = "working_context" | "desk" | "concern" | "observation";
 
 export type ThoughtReferenceTargetMap = ReadonlyMap<
   string,

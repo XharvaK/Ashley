@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { getConversationEvidence } from "../../evidence/conversation-log.js";
 import { resolveSocialConversation } from "../../../memory/threads.js";
 import { openCognitiveSidecarDb } from "../db.js";
+import { COGNITIVE_SIDECAR_SCHEMA_VERSION } from "../../types.js";
 import {
   COGNITIVE_SIDECAR_SCHEMA_V1,
   COGNITIVE_SIDECAR_SCHEMA_V2,
@@ -104,7 +105,7 @@ describe("cognitive sidecar Schema V14 migration", () => {
     try {
       openCognitiveSidecarDb(db, { dataPlane: { kind: "isolated" } });
 
-      expect((db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(14);
+      expect((db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(COGNITIVE_SIDECAR_SCHEMA_VERSION);
       expect(columnNames(db, "conversation_evidence_log")).toEqual(expect.arrayContaining([
         "speaker_principal_id",
         "speaker_kind",

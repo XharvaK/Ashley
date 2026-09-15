@@ -54,6 +54,7 @@ function fixture(): { dataRoot: string; outRoot: string; sessionsRoot: string; c
     CREATE TABLE speech_outbox (outbox_id INTEGER, settlement_id TEXT, projection_key TEXT, cycle_id TEXT, generation INTEGER, conversation_id TEXT, licensed_text TEXT, send_status TEXT, nuclear_reservation_id INTEGER, discord_message_ids_json TEXT, suppressed INTEGER, origin TEXT);
     CREATE TABLE system_notice_outbox (notice_id INTEGER, cycle_id TEXT, conversation_id TEXT, send_status TEXT, nuclear_reservation_id INTEGER, discord_message_id TEXT);
     CREATE TABLE conversation_evidence_log (row_id TEXT, lineage_id TEXT, version INTEGER, conversation_id TEXT, role TEXT, created_at_ms INTEGER, discord_message_ids_json TEXT, reservation_id INTEGER, producing_cycle_id TEXT, content_hash TEXT, source_status TEXT, secret_omitted INTEGER, delivered INTEGER, data_classification TEXT);
+    CREATE TABLE desk_entries (id TEXT, concern_ref TEXT, body TEXT, author_kind TEXT, source_refs_json TEXT, verbatim INTEGER, form TEXT, endorsement_ref TEXT, audience_scope_json TEXT, lifecycle TEXT, superseded_by TEXT, updated_cycle TEXT, updated_generation INTEGER, created_at_ms INTEGER, updated_at_ms INTEGER);
     CREATE TABLE periodic_cognition_schedule (id TEXT, authority_epoch INTEGER, next_eligible_at_ms INTEGER, updated_at_ms INTEGER);
     CREATE TABLE periodic_cognition_occurrence_receipts (schedule_occurrence_id TEXT, disposition TEXT, wake_id TEXT, authority_epoch INTEGER, eligible_at_ms INTEGER, closed_at_ms INTEGER);
     CREATE TABLE causal_ledger (id INTEGER, cycle_id TEXT, generation INTEGER, thought_unavailable INTEGER);
@@ -102,7 +103,7 @@ describe("deterministic observer export", () => {
       source_coverage: Record<string, { disposition: string }>;
     }>(join(first.bundleDir, "manifest.json"));
     expect(manifest.bundle_id).toBe(first.bundleId);
-    expect(manifest.bundle_schema_version).toBe(2);
+    expect(manifest.bundle_schema_version).toBe(3);
     expect(manifest.source_coverage.cognitive_sidecar.disposition).toBe("complete_empty");
     expect(manifest.source_coverage.cognitive_observability.disposition).toBe("complete_empty");
     expect(Object.keys(first.sourceCoverage).sort()).toEqual([
@@ -201,7 +202,7 @@ describe("deterministic observer export", () => {
 
   it("keeps volatile values out of the semantic hash and binds contract versions", () => {
     const base = {
-      bundle_schema_version: 2,
+      bundle_schema_version: 3,
       exporter_version: "observer-exporter@0.1.0",
       redaction_profile: "ashley-credential-omission-v1",
       field_day: "2026-08-26",

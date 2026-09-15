@@ -3,6 +3,7 @@ import type { ChatMessage } from "../../../model-routing/types.js";
 import type {
   RetrievalHit,
   ThoughtInput,
+  DeskEntry,
   WorkingContextItem,
 } from "../../types.js";
 import { AppError } from "../../../../errors.js";
@@ -259,6 +260,7 @@ export function allocateThoughtProjection(
   const conversationIncluded: ThoughtInput["rawConversation"] = [];
   const conversationOmittedIds = new Set(input.conversationSelection?.omittedEvidenceIds ?? []);
   const workingContextIncluded: WorkingContextItem[] = [];
+  const deskEntriesIncluded: DeskEntry[] = [];
   const retrievalHitsIncluded: CompactRetrievalEvidence[] = [];
   let orientationKernelIncluded = false;
   let domainPointersIncluded = false;
@@ -297,6 +299,7 @@ export function allocateThoughtProjection(
 
   function renderTentative(
     wc: WorkingContextItem[],
+    deskEntries: DeskEntry[],
     retrieval: CompactRetrievalEvidence[],
     conversation: ThoughtInput["rawConversation"],
     includeOrientationKernel = orientationKernelIncluded,
@@ -326,6 +329,7 @@ export function allocateThoughtProjection(
         availableDestinations: [...input.availableDestinations].slice(0, MAX_AVAILABLE_SOCIAL_DESTINATIONS),
       }),
       workingContext: wc,
+      ...(input.deskEntries === undefined ? {} : { deskEntries }),
       occupancy: input.occupancy,
       ...(includeDomainPointers && c2Input.domainPointers !== undefined
         ? { domainPointers: c2Input.domainPointers }
@@ -390,7 +394,7 @@ export function allocateThoughtProjection(
   // Exact serialize-then-estimate candidate inclusion loop
   for (const candidate of candidates) {
     if (
-      candidate.section.startsWith("working_context") &&
+      (candidate.section.startsWith("working_context") || candidate.section === "desk_entry") &&
       !candidate.required &&
       utf8JsonBytes(candidate.data) > REQUIRED_WC_ITEM_BYTES
     ) {
@@ -409,6 +413,7 @@ export function allocateThoughtProjection(
       continue;
     }
     let tentativeWc = workingContextIncluded;
+    let tentativeDeskEntries = deskEntriesIncluded;
     let tentativeRetrieval = retrievalHitsIncluded;
     let tentativeConversation = conversationIncluded;
     let tentativeOrientationKernel = orientationKernelIncluded;
@@ -419,6 +424,8 @@ export function allocateThoughtProjection(
       tentativeConversation = [...conversationIncluded, candidate.data as ThoughtInput["rawConversation"][number]];
     } else if (candidate.section.startsWith("working_context")) {
       tentativeWc = [...workingContextIncluded, candidate.data as WorkingContextItem];
+    } else if (candidate.section === "desk_entry") {
+      tentativeDeskEntries = [...deskEntriesIncluded, candidate.data as DeskEntry];
     } else if (candidate.section === "retrieval_compact") {
       tentativeRetrieval = [...retrievalHitsIncluded, candidate.data as CompactRetrievalEvidence];
     } else if (candidate.section === "orientation_kernel") {
@@ -431,6 +438,7 @@ export function allocateThoughtProjection(
 
     const tentativeProjected = renderTentative(
       tentativeWc,
+      tentativeDeskEntries,
       tentativeRetrieval,
       tentativeConversation,
       tentativeOrientationKernel,
@@ -456,6 +464,8 @@ export function allocateThoughtProjection(
         conversationIncluded.push(candidate.data as ThoughtInput["rawConversation"][number]);
       } else if (candidate.section.startsWith("working_context")) {
         workingContextIncluded.push(candidate.data as WorkingContextItem);
+      } else if (candidate.section === "desk_entry") {
+        deskEntriesIncluded.push(candidate.data as DeskEntry);
       } else if (candidate.section === "retrieval_compact") {
         retrievalHitsIncluded.push(candidate.data as CompactRetrievalEvidence);
       } else if (candidate.section === "orientation_kernel") {
@@ -498,6 +508,7 @@ export function allocateThoughtProjection(
 
   const finalProjected = renderTentative(
     workingContextIncluded,
+    deskEntriesIncluded,
     retrievalHitsIncluded,
     conversationIncluded,
     orientationKernelIncluded,
@@ -563,6 +574,7 @@ export function allocateThoughtProjection(
     "generation",
     "trigger",
     "rawConversation",
+    "deskEntries",
     "observations",
     "retrieval",
     "inFlight",
