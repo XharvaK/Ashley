@@ -18,6 +18,7 @@ import {
 } from "./core/cognitive-v021/ingress/http.js";
 import { getCognitiveHealthSnapshot } from "./core/cognitive-v021/dispatch/health.js";
 import { markProjectedDeliverySending } from "./core/cognitive-v021/delivery/outbox-projector.js";
+import { recheckExternalPublicationReservation } from "./core/cognitive-v021/settlement/publish.js";
 import { reconcilePolicyClock } from "./core/cognitive-v021/private-budget/policy-time-ledger.js";
 import { PRIVATE_THOUGHT_POLICY_ID } from "./core/cognitive-v021/private-budget/ledger.js";
 import { getContinuityFor } from "./core/continuity/registry.js";
@@ -1736,6 +1737,26 @@ export function createServer(
         discordMessageId.trim(),
       );
       res.json({ ok: true });
+    } catch (err) {
+      const { status, body } = toErrorResponse(err);
+      res.status(status).json(body);
+    }
+  });
+
+  app.post("/delivery/:id/recheck-external", (req, res) => {
+    try {
+      const owner = requireOwner(
+        (req.body as { userId?: string }).userId,
+      );
+      const id = Number(req.params.id);
+      if (!Number.isFinite(id)) {
+        throw new AppError("not_found", "reservation not found", 404);
+      }
+      const status = manager.core.getDeliveryStatus(owner, id);
+      if (!status) {
+        throw new AppError("not_found", "reservation not found", 404);
+      }
+      res.json(recheckExternalPublicationReservation(manager.core.getDatabase(), id));
     } catch (err) {
       const { status, body } = toErrorResponse(err);
       res.status(status).json(body);

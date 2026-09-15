@@ -50,6 +50,8 @@ export async function sendBubbles(
     firstBubbleDeadlineAtMs?: number;
     finalDeliveryDeadlineAtMs?: number;
     onBubbleSent?: (ordinal: number, message: Message) => Promise<void>;
+    /** Recheck an external publication binding immediately before each send. */
+    beforeBubbleSend?: (ordinal: number) => Promise<void>;
     clock?: { nowMs(): number };
   },
 ): Promise<BubbleSendResult> {
@@ -113,6 +115,16 @@ export async function sendBubbles(
       });
       budget -= delay;
       await sleepAbortable(delay, pacing.signal);
+    }
+
+    try {
+      await options?.beforeBubbleSend?.(bubble.ordinal);
+    } catch (error) {
+      result.failureCategory = "aborted";
+      throw new DeliverySendError(
+        error instanceof Error ? error.message : "external_dispatch_blocked",
+        result,
+      );
     }
 
     const withGif = i === 0 && gifUrl;

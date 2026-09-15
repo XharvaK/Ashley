@@ -32,7 +32,7 @@ export type FinalizeDeliveryInput = {
   /** When true, keep availability quiet if own-time session is open (caller decides). */
   ownTimeOpen?: boolean;
   /** Optional archival logger callback for receipt-backed assistant text only. */
-  onArchivalAssistant?: (text: string) => void;
+  onArchivalAssistant?: (text: string, destination?: unknown) => void;
 };
 
 export type FinalizeDeliveryResult = {
@@ -41,6 +41,8 @@ export type FinalizeDeliveryResult = {
   deliveredText: string;
   receiptCount: number;
   plannedCount: number;
+  /** The destination binding used for archival, absent on legacy Owner rows. */
+  destination?: unknown;
 };
 
 function reasonFor(
@@ -141,6 +143,7 @@ export function finalizeDelivery(
         deliveredText,
         receiptCount,
         plannedCount: bubbles.length,
+        ...(reservation.destination === undefined ? {} : { destination: reservation.destination }),
       };
     }
 
@@ -246,7 +249,7 @@ export function finalizeDelivery(
     }
 
     if (deliveredText && input.onArchivalAssistant) {
-      input.onArchivalAssistant(deliveredText);
+      input.onArchivalAssistant(deliveredText, reservation.destination);
     }
 
     return {
@@ -255,6 +258,7 @@ export function finalizeDelivery(
       deliveredText,
       receiptCount,
       plannedCount,
+      ...(reservation.destination === undefined ? {} : { destination: reservation.destination }),
     };
   } catch (error) {
     try {

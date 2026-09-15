@@ -36,6 +36,16 @@ function num(value: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+function jsonValue(value: unknown): unknown {
+  if (typeof value !== "string" || value.trim() === "") return undefined;
+  try { return JSON.parse(value); } catch { return undefined; }
+}
+
+function jsonArrayValue(value: unknown): unknown[] | undefined {
+  const parsed = jsonValue(value);
+  return Array.isArray(parsed) ? parsed : undefined;
+}
+
 export function mapReservation(row: unknown): DeliveryReservationRow | null {
   if (!isRow(row)) return null;
   const trigger = text(row.trigger);
@@ -46,6 +56,10 @@ export function mapReservation(row: unknown): DeliveryReservationRow | null {
       ? lane
       : "reactive";
   if (trigger !== "reactive" && trigger !== "proactive") return null;
+  const destination = jsonValue(row.destination_json);
+  const attemptInputBasis = jsonValue(row.attempt_input_basis_json);
+  const hardDependencyBundle = jsonValue(row.hard_dependency_bundle_json);
+  const licenseRefs = jsonArrayValue(row.license_refs_json);
   return {
     id: Number(row.id),
     ownerId: text(row.owner_id),
@@ -79,7 +93,57 @@ export function mapReservation(row: unknown): DeliveryReservationRow | null {
     ),
     createdAt: text(row.created_at),
     finalizedAt: row.finalized_at == null ? null : text(row.finalized_at),
+    ...(destination === undefined ? {} : { destination }),
+    ...(attemptInputBasis === undefined ? {} : { attemptInputBasis }),
+    ...(hardDependencyBundle === undefined ? {} : { hardDependencyBundle }),
+    ...(licenseRefs === undefined || licenseRefs.length === 0 ? {} : { licenseRefs }),
   };
+}
+
+export type ExternalReservationBinding = {
+  destination: unknown;
+  attemptInputBasis: unknown;
+  hardDependencyBundle: unknown;
+  licenseRefs: readonly unknown[];
+};
+
+/**
+ * Bind a drafted reservation to the exact external publication candidate.
+ * The state transition is the dispatch claim guard and is intentionally
+ * composed inside the caller's existing nuclear transaction.
+ */
+export function reserveExternalDeliveryInTransaction(
+  db: DatabaseSync,
+  reservationId: number,
+  binding: ExternalReservationBinding,
+): DeliveryReservationRow {
+  const current = getDeliveryReservation(db, reservationId);
+  if (!current) throw new Error("delivery_reservation_missing");
+  const encoded = [
+    JSON.stringify(binding.destination),
+    JSON.stringify(binding.attemptInputBasis),
+    JSON.stringify(binding.hardDependencyBundle),
+    JSON.stringify(binding.licenseRefs),
+  ];
+  if (current.state === "reserved" || current.state === "sending") {
+    const same = JSON.stringify(current.destination) === encoded[0]
+      && JSON.stringify(current.attemptInputBasis) === encoded[1]
+      && JSON.stringify(current.hardDependencyBundle) === encoded[2]
+      && JSON.stringify(current.licenseRefs ?? []) === encoded[3];
+    if (same) return current;
+    throw new Error("delivery_reservation_binding_conflict");
+  }
+  if (current.state !== "drafted") throw new Error("delivery_not_drafted");
+  const result = db.prepare(
+    `UPDATE delivery_reservations
+        SET state = 'reserved', destination_json = ?, attempt_input_basis_json = ?,
+            hard_dependency_bundle_json = ?, license_refs_json = ?
+      WHERE id = ? AND state = 'drafted'`,
+  ).run(encoded[0], encoded[1], encoded[2], encoded[3], reservationId);
+  if (Number(result.changes) !== 1) throw new Error("delivery_reservation_claim_lost");
+  const updated = getDeliveryReservation(db, reservationId);
+  if (!updated) throw new Error("delivery_reservation_missing");
+  return updated;
 }
 
 export function getDeliveryReservation(

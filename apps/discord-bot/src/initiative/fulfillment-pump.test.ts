@@ -382,6 +382,69 @@ test("proven pre-dispatch failure (aborted before send) is safe send_failure", a
   assert.equal(finalizations[0].cause, "send_failure");
 });
 
+test("external-DM reservations resolve to the bound principal and recheck before send", async () => {
+  const previous = process.env.RA_DM_PUBLICATION;
+  process.env.RA_DM_PUBLICATION = "true";
+  const fetched: string[] = [];
+  const sent: string[] = [];
+  const rechecks: number[] = [];
+  const finalizations: string[] = [];
+  const channel = {
+    id: "dm-person-1",
+    send: async (payload: unknown) => {
+      sent.push(String(payload));
+      return { id: `discord-${sent.length}` } as Message;
+    },
+  } as Partial<DMChannel> & { id: string };
+  const client = {
+    users: {
+      fetch: async (id: string) => {
+        fetched.push(id);
+        return { id, createDM: async () => channel } as unknown as User;
+      },
+    },
+  } as unknown as Client;
+  const pending: PendingDelivery[] = [{
+    reservationId: 601,
+    draftText: "bound external draft",
+    bubbles: [{ ordinal: 0, text: "bound external draft", discordMessageId: null }],
+    statusUrl: "/delivery/601",
+    destination: { kind: "external_dm", principalId: "person-1" },
+  }];
+  const deps: FulfillmentPumpDependencies = {
+    claim: async () => ({ deliveries: pending }),
+    recheck: async (reservationId) => {
+      rechecks.push(reservationId);
+      return { ok: true };
+    },
+    receipt: async () => ({ ok: true }),
+    finalize: async (_reservationId, cause) => {
+      finalizations.push(cause);
+      return { state: "committed", finalizationReason: "all_bubbles_delivered", deliveredText: "" };
+    },
+    send: async (target, chunks, gifUrl, pacing, onFirstSend, options) =>
+      (await import("../chat/send-bubbles.js")).sendBubbles(
+        target,
+        chunks,
+        gifUrl,
+        pacing,
+        onFirstSend,
+        options,
+      ),
+  };
+
+  try {
+    assert.equal(await drainPendingCognitiveDeliveries(client, deps), 1);
+    assert.deepEqual(fetched, ["person-1"]);
+    assert.deepEqual(sent, ["bound external draft"]);
+    assert.deepEqual(rechecks, [601, 601]);
+    assert.deepEqual(finalizations, ["complete"]);
+  } finally {
+    if (previous === undefined) delete process.env.RA_DM_PUBLICATION;
+    else process.env.RA_DM_PUBLICATION = previous;
+  }
+});
+
 test("partial success persists first bubble incrementally and finalizes partially_delivered", async () => {
   const receipts: Array<{ ordinal: number }> = [];
   const finalizations: Array<{ cause: string }> = [];

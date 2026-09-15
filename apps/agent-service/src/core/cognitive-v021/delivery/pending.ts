@@ -10,6 +10,8 @@ export type PendingCognitiveDelivery = {
   draftText: string;
   bubbles: ReturnType<typeof listDeliveryBubbles>;
   statusUrl: string;
+  /** Destination binding is absent for legacy Owner-private rows. */
+  destination?: unknown;
 };
 
 export const COGNITIVE_DELIVERY_LEASE_MS = 120_000;
@@ -41,6 +43,7 @@ function deliveryForState(
     draftText: reservation.draftText ?? "",
     bubbles: listDeliveryBubbles(db, id),
     statusUrl: `/delivery/${id}`,
+    ...(reservation.destination === undefined ? {} : { destination: reservation.destination }),
   };
 }
 

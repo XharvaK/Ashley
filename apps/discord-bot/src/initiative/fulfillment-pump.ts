@@ -1,5 +1,6 @@
 import {
   type Client,
+  type DMChannel,
 } from "discord.js";
 import { config } from "../config.js";
 import { channelQueue } from "../chat/channel-queue.js";
@@ -8,7 +9,9 @@ import {
   claimPendingCognitiveDeliveries,
   claimPendingSocialNotifications,
   finalizeDelivery,
+  recheckExternalPublication,
   receiptDeliveryBubble,
+  type ExternalPublicationRecheckResult,
 } from "../agent-client.js";
 import { DeliverySendError, sendBubbles } from "../chat/send-bubbles.js";
 
@@ -22,12 +25,49 @@ export type FulfillmentPumpDependencies = {
   receipt: typeof receiptDeliveryBubble;
   finalize: typeof finalizeDelivery;
   send: typeof sendBubbles;
+  recheck?: (reservationId: number) => Promise<ExternalPublicationRecheckResult>;
 };
 
 export const FULFILLMENT_POLL_INTERVAL_MS = 1500;
 
 // Local in-flight set as client defense-in-depth; server atomic claim is authoritative
 const localInFlightReservations = new Set<number>();
+
+type DeliveryTarget =
+  | { kind: "owner" }
+  | { kind: "external_dm"; principalId: string }
+  | { kind: "room" }
+  | { kind: "invalid" };
+
+function deliveryTarget(destination: unknown): DeliveryTarget {
+  if (destination === undefined) return { kind: "owner" };
+  if (typeof destination !== "object" || destination === null) return { kind: "invalid" };
+  const value = destination as { kind?: unknown; principalId?: unknown };
+  if ((value.kind === "external_dm" || value.kind === "dm") &&
+      typeof value.principalId === "string" && value.principalId.trim()) {
+    return { kind: "external_dm", principalId: value.principalId.trim() };
+  }
+  if (value.kind === "room") return { kind: "room" };
+  return { kind: "invalid" };
+}
+
+function externalDmPublicationEnabled(): boolean {
+  return process.env.RA_DM_PUBLICATION === "true" || process.env.RA_DM_PUBLICATION === "1";
+}
+
+function externalDispatchBlocked(
+  reservationId: number,
+  reason: string,
+): DeliverySendError {
+  return new DeliverySendError(`external_publication_blocked:${reason}`, {
+    reservationId,
+    attemptedOrdinal: null,
+    receiptedOrdinals: [],
+    failureCategory: "aborted",
+    anySubstantiveContentVisible: false,
+    messages: [],
+  });
+}
 
 async function persistReceiptWithRetry(
   receipt: FulfillmentPumpDependencies["receipt"],
@@ -57,8 +97,7 @@ async function drainPendingDeliveries(
   const { deliveries } = await deps.claim();
   if (!deliveries || deliveries.length === 0) return 0;
 
-  const user = await client.users.fetch(config.ownerId);
-  const dm = await user.createDM();
+  let ownerDm: DMChannel | null = null;
   let deliveredCount = 0;
 
   for (const delivery of deliveries) {
@@ -68,6 +107,19 @@ async function drainPendingDeliveries(
     localInFlightReservations.add(delivery.reservationId);
 
     try {
+      const target = deliveryTarget(delivery.destination);
+      if (target.kind === "room" || target.kind === "invalid") {
+        await deps.finalize(delivery.reservationId, "send_failure").catch(() => {});
+        continue;
+      }
+      if (target.kind === "external_dm" && !externalDmPublicationEnabled()) {
+        await deps.finalize(delivery.reservationId, "send_failure").catch(() => {});
+        continue;
+      }
+      const dm = target.kind === "external_dm"
+        ? await (await client.users.fetch(target.principalId)).createDM()
+        : (ownerDm ??= await (await client.users.fetch(config.ownerId)).createDM());
+
       const bubbles =
         delivery.bubbles.length > 0
           ? delivery.bubbles
@@ -87,6 +139,14 @@ async function drainPendingDeliveries(
 
       try {
         await channelQueue.enqueueOrThrow(dm.id, async ({ signal }) => {
+          if (target.kind === "external_dm") {
+            const verdict = deps.recheck
+              ? await deps.recheck(delivery.reservationId)
+              : { ok: false as const, reason: "external_recheck_unavailable" };
+            if (!verdict.ok) {
+              throw externalDispatchBlocked(delivery.reservationId, verdict.reason);
+            }
+          }
           dispatchStarted = true;
           sendResult = await deps.send(
             dm,
@@ -102,6 +162,16 @@ async function drainPendingDeliveries(
               onBubbleSent: async (ordinal, msg) => {
                 await persistReceiptWithRetry(deps.receipt, delivery.reservationId, ordinal, msg.id);
               },
+              beforeBubbleSend: target.kind === "external_dm"
+                ? async () => {
+                    const verdict = deps.recheck
+                      ? await deps.recheck(delivery.reservationId)
+                      : { ok: false as const, reason: "external_recheck_unavailable" };
+                    if (!verdict.ok) {
+                      throw new Error(`external_publication_blocked:${verdict.reason}`);
+                    }
+                  }
+                : undefined,
             },
           );
         });
@@ -220,6 +290,7 @@ export async function drainPendingCognitiveDeliveries(
     receipt: receiptDeliveryBubble,
     finalize: finalizeDelivery,
     send: sendBubbles,
+    recheck: recheckExternalPublication,
   },
 ): Promise<number> {
   return drainPendingDeliveries(client, deps);
@@ -232,6 +303,7 @@ export async function drainPendingSocialNotifications(
     receipt: receiptDeliveryBubble,
     finalize: finalizeDelivery,
     send: sendBubbles,
+    recheck: recheckExternalPublication,
   },
 ): Promise<number> {
   return drainPendingDeliveries(client, deps);

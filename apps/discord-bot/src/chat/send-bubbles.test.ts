@@ -55,6 +55,36 @@ describe("sendBubbles onFirstSend", () => {
     );
   });
 
+  it("rechecks before every unsent bubble and halts the remainder", async () => {
+    const order: string[] = [];
+    const channel = {
+      send: async (payload: unknown) => {
+        order.push(`send:${String(payload)}`);
+        return { id: String(payload) } as never;
+      },
+    } as SendableChannels;
+
+    await assert.rejects(
+      sendBubbles(channel, ["first", "second"], null, null, undefined, {
+        beforeBubbleSend: async (ordinal) => {
+          order.push(`recheck:${ordinal}`);
+          if (ordinal === 1) throw new Error("external_publication_blocked:authority_vector_stale");
+        },
+        onBubbleSent: async (ordinal) => {
+          order.push(`receipt:${ordinal}`);
+        },
+      }),
+      /external_publication_blocked:authority_vector_stale/,
+    );
+
+    assert.deepEqual(order, [
+      "recheck:0",
+      "send:first",
+      "receipt:0",
+      "recheck:1",
+    ]);
+  });
+
   it("fires once after the first bubble, before later bubbles", async () => {
     const sends: unknown[] = [];
     const order: string[] = [];

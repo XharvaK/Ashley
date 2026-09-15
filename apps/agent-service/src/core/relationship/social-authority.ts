@@ -863,43 +863,58 @@ export function revokeLicense(
   });
 }
 
-export function consumeLicenseOnce(
+export type ConsumeLicenseOnceInput = {
+  entityUuid: string;
+  expectedVersion: number;
+  reservationId: string;
+  nowMs?: number;
+};
+
+function consumeLicenseOnceInTransaction(
   db: DatabaseSync,
-  input: {
-    entityUuid: string;
-    expectedVersion: number;
-    reservationId: string;
-    nowMs?: number;
-  },
+  input: ConsumeLicenseOnceInput,
 ): DisclosureLicense {
   const entityUuid = required(input.entityUuid, "social_entity_required");
   required(input.reservationId, "license_reservation_required");
   const now = timeMs(input.nowMs);
-  return withImmediateTransaction(db, () => {
-    const current = rowByEntity(db, "disclosure_licenses", entityUuid);
-    if (!current) throw new Error("license_missing");
-    if (current.revoked_at != null) throw new Error("license_revoked");
-    if (integer(current.uses_consumed) >= integer(current.uses_allowed)) throw new Error("license_consumed");
-    const expiresAt = nullableText(current.expires_at);
-    if (expiresAt != null && expiresAt <= isoTime(now)) throw new Error("license_expired");
-    const version = expectedVersion(current, input.expectedVersion);
-    advanceRelationalHardPolicyRevisionInTransaction(db, {
-      reasonCode: "disclosure_license_consume",
-      changeId: `${entityUuid}:consume:${input.reservationId}`,
-      nowMs: now,
-      mutate: () => ({
-        changes: Number(db.prepare(
-          `UPDATE disclosure_licenses
-              SET uses_consumed = uses_consumed + 1, version = version + 1
-            WHERE entity_uuid = ? AND version = ? AND revoked_at IS NULL
-              AND uses_consumed < uses_allowed
-              AND (expires_at IS NULL OR expires_at > ?)`,
-        ).run(entityUuid, version, isoTime(now)).changes),
-        value: undefined,
-      }),
-    });
-    return license(rowByEntity(db, "disclosure_licenses", entityUuid)!);
+  const current = rowByEntity(db, "disclosure_licenses", entityUuid);
+  if (!current) throw new Error("license_missing");
+  if (current.revoked_at != null) throw new Error("license_revoked");
+  if (integer(current.uses_consumed) >= integer(current.uses_allowed)) throw new Error("license_consumed");
+  const expiresAt = nullableText(current.expires_at);
+  if (expiresAt != null && expiresAt <= isoTime(now)) throw new Error("license_expired");
+  const version = expectedVersion(current, input.expectedVersion);
+  advanceRelationalHardPolicyRevisionInTransaction(db, {
+    reasonCode: "disclosure_license_consume",
+    changeId: `${entityUuid}:consume:${input.reservationId}`,
+    nowMs: now,
+    mutate: () => ({
+      changes: Number(db.prepare(
+        `UPDATE disclosure_licenses
+            SET uses_consumed = uses_consumed + 1, version = version + 1
+          WHERE entity_uuid = ? AND version = ? AND revoked_at IS NULL
+            AND uses_consumed < uses_allowed
+            AND (expires_at IS NULL OR expires_at > ?)`,
+      ).run(entityUuid, version, isoTime(now)).changes),
+      value: undefined,
+    }),
   });
+  return license(rowByEntity(db, "disclosure_licenses", entityUuid)!);
+}
+
+/** Compose one-shot use consumption inside RA-P13's existing nuclear transaction. */
+export function consumeLicenseOnceInExistingTransaction(
+  db: DatabaseSync,
+  input: ConsumeLicenseOnceInput,
+): DisclosureLicense {
+  return consumeLicenseOnceInTransaction(db, input);
+}
+
+export function consumeLicenseOnce(
+  db: DatabaseSync,
+  input: ConsumeLicenseOnceInput,
+): DisclosureLicense {
+  return withImmediateTransaction(db, () => consumeLicenseOnceInTransaction(db, input));
 }
 
 export function readEligibilityBundle(

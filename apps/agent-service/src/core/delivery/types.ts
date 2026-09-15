@@ -53,6 +53,11 @@ export type DeliveryReservationRow = {
   phaseLifecycle: import("./phase-lifecycle.js").PhaseLifecycleEnvelope | null;
   createdAt: string;
   finalizedAt: string | null;
+  /** RA-P13 destination and currentness binding; absent on legacy Owner rows. */
+  destination?: unknown;
+  attemptInputBasis?: unknown;
+  hardDependencyBundle?: unknown;
+  licenseRefs?: unknown[];
 };
 
 export type DeliveryBubbleRow = {

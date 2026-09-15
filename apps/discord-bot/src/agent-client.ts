@@ -188,6 +188,7 @@ export type PendingDelivery = {
     discordMessageId: string | null;
   }>;
   statusUrl: string;
+  destination?: unknown;
 };
 
 export async function claimPendingDeliveries(options?: {
@@ -211,6 +212,22 @@ export async function claimPendingCognitiveDeliveries() {
 
 export async function claimPendingSocialNotifications() {
   return claimPendingDeliveries({ lane: "social_notify" });
+}
+
+export type ExternalPublicationRecheckResult =
+  | { ok: true }
+  | { ok: false; reason: string };
+
+export async function recheckExternalPublication(
+  reservationId: number,
+): Promise<ExternalPublicationRecheckResult> {
+  return agentFetch<ExternalPublicationRecheckResult>(
+    `/delivery/${reservationId}/recheck-external`,
+    {
+      method: "POST",
+      body: JSON.stringify({ userId: config.ownerId }),
+    },
+  );
 }
 
 export async function receiptDeliveryBubble(
