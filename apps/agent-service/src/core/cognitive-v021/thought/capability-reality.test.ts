@@ -103,4 +103,39 @@ describe("v0.2.1 CapabilityReality live-surface contract", () => {
       db.close();
     }
   });
+
+  it("projects reason-coded reachability for Owner and room audiences", () => {
+    const db = activeDb();
+    try {
+      const owner = getCapabilityReality(db, {
+        registry: registry(),
+        audience: { kind: "owner_private" },
+        masterMode: "apply",
+        lifecycleEnabled: true,
+        substrateAvailable: true,
+      });
+      expect(owner.reachability?.reasons).toMatchObject({
+        canOfferProjectInspection: "capability_exists",
+        canOfferWorkspace: "capability_exists",
+        vision: "evidence_not_acquired",
+        canOfferBoundedOperation: "unavailable",
+      });
+
+      const room = getCapabilityReality(db, {
+        registry: registry(),
+        audience: { kind: "room", roomId: "room:guild-1:channel-1" },
+        licenses: [],
+        masterMode: "apply",
+        lifecycleEnabled: true,
+        substrateAvailable: true,
+      });
+      expect(room.reachability?.reasons).toMatchObject({
+        canOfferProjectInspection: "another_audience_only",
+        canOfferWorkspace: "another_audience_only",
+        canOfferVerification: "another_audience_only",
+      });
+    } finally {
+      db.close();
+    }
+  });
 });

@@ -1134,6 +1134,22 @@ export type RuntimeCondition = {
   thoughtUnavailable: boolean;
 };
 
+export const CAPABILITY_REALITY_REASON_CODES = [
+  "capability_exists",
+  "unavailable",
+  "another_audience_only",
+  "needs_owner_approval",
+  "substrate_without_authority",
+  "evidence_not_acquired",
+] as const;
+
+export type CapabilityRealityReasonCode = (typeof CAPABILITY_REALITY_REASON_CODES)[number];
+
+export type CapabilityReachability = Readonly<{
+  audience: SocialAudience;
+  reasons: Readonly<Record<string, CapabilityRealityReasonCode>>;
+}>;
+
 export type PublicPresenceCapability = Readonly<{
   operationKind: "discord.public_presence";
   semanticClass: "effect";
@@ -1171,6 +1187,8 @@ export type CapabilityReality = {
   operationCapabilities?: readonly ThoughtOperationCapability[];
   /** Autonomous-only public self-presentation affordance. */
   publicPresence?: PublicPresenceCapability;
+  /** Reason-coded reachability facts for the audience used to build this reality. */
+  reachability?: CapabilityReachability;
 };
 
 export type ThoughtOperationCapability = Readonly<{

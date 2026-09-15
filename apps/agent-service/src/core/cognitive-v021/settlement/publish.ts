@@ -35,6 +35,7 @@ import { enqueueDurableNomination } from "../memory/nomination.js";
 import { assertSubscriptionCapacity } from "../observation/subscriptions.js";
 import { sanitizeFutureTriggerPayload } from "../initiative/future-triggers.js";
 import { beginConsequenceInTransaction, getWakeForCycle, getWake } from "../wake/ledger.js";
+import { isAuthorizedOwnerId } from "../../../owner-auth.js";
 import {
   assertThoughtSourceCurrentness,
   isThoughtSourceCurrentnessError,
@@ -471,6 +472,10 @@ export function getPublishedSettlementIdentity(
 
 export type ExternalPublicationDestination =
   | {
+      kind: "owner_dm";
+      threadId: string;
+    }
+  | {
       kind: "external_dm" | "dm";
       principalId: string;
       channelId?: string;
@@ -514,7 +519,7 @@ export type ExternalPublicationAdmission = {
 
 type AuthorityDepRef = HardDependencyBundle["permit"];
 type ExternalDestination = {
-  kind: "external_dm" | "room";
+  kind: "owner_dm" | "external_dm" | "room";
   audience: SocialAudience;
   principalId?: string;
   roomId?: string;
@@ -553,6 +558,16 @@ export function isExternalDmPublicationEnabled(env: NodeJS.ProcessEnv = process.
 
 function normalizeDestination(destination: ExternalPublicationDestination): ExternalDestination | null {
   if (!destination || typeof destination !== "object") return null;
+  if (destination.kind === "owner_dm"
+    && Object.keys(destination).length === 2
+    && typeof destination.threadId === "string"
+    && destination.threadId.trim()) {
+    return {
+      kind: "owner_dm",
+      audience: { kind: "owner_dm", threadId: destination.threadId.trim() },
+      threadId: destination.threadId.trim(),
+    };
+  }
   if ((destination.kind === "external_dm" || destination.kind === "dm") &&
       typeof destination.principalId === "string" && destination.principalId.trim()) {
     return {
@@ -574,6 +589,36 @@ function normalizeDestination(destination: ExternalPublicationDestination): Exte
       channelId: destination.channelId,
       threadId: destination.threadId,
     };
+  }
+  return null;
+}
+
+function ownerDmIdentityReason(
+  db: DatabaseSync,
+  ownerId: string,
+  destination: ExternalDestination,
+): string | null {
+  if (destination.kind !== "owner_dm") return null;
+  if (!isAuthorizedOwnerId(ownerId)) return "owner_dm_identity_unresolved";
+  const threadId = destination.threadId;
+  if (!threadId) return "owner_dm_identity_unresolved";
+  let thread: AuthorityRow | undefined;
+  try {
+    thread = db.prepare(
+      `SELECT id, owner_id, status, channel FROM mem_threads
+         WHERE id = ?
+         LIMIT 1`,
+    ).get(threadId) as AuthorityRow | undefined;
+  } catch {
+    return "owner_dm_identity_unresolved";
+  }
+  if (
+    String(thread?.id ?? "") !== threadId
+    || String(thread?.owner_id ?? "") !== ownerId
+    || thread?.status !== "active"
+    || thread?.channel !== "discord"
+  ) {
+    return "owner_dm_identity_unresolved";
   }
   return null;
 }
@@ -696,7 +741,9 @@ function currentRowsForDestination(
   restrictions: AuthorityRow[];
   boundaries: AuthorityRow[];
 } {
-  const principalId = destination.principalId ?? null;
+  const principalId = destination.kind === "owner_dm"
+    ? ownerId
+    : destination.principalId ?? null;
   const roomId = destination.roomId ?? null;
   const prohibitions = db.prepare(
     `SELECT * FROM owner_prohibitions
@@ -728,12 +775,14 @@ function currentRowsForDestination(
 }
 
 function audienceFromLicense(value: unknown):
+  | { kind: "owner_private" }
   | { kind: "dm"; principalId: string }
   | { kind: "room"; roomId: string }
   | { kind: "exact_principals"; principalIds: string[] }
   | null {
   const candidate = asRecord(value);
   if (!candidate) return null;
+  if (candidate.kind === "owner_private") return { kind: "owner_private" };
   if ((candidate.kind === "dm" || candidate.kind === "external_dm") && typeof candidate.principalId === "string") {
     return { kind: "dm", principalId: candidate.principalId };
   }
@@ -756,11 +805,14 @@ function audienceFromLicense(value: unknown):
 function licenseCoversDestination(
   row: AuthorityRow,
   destination: ExternalDestination,
+  ownerId?: string,
 ): boolean {
   const audience = audienceFromLicense(parseJson(row.grantee_audience_json));
   if (!audience) return false;
+  if (audience.kind === "owner_private") return destination.kind === "owner_dm";
   if (audience.kind === "dm") {
-    return destination.kind === "external_dm" && destination.principalId === audience.principalId;
+    return (destination.kind === "external_dm" && destination.principalId === audience.principalId)
+      || (destination.kind === "owner_dm" && ownerId === audience.principalId);
   }
   if (audience.kind === "room") {
     return destination.kind === "room" && destination.roomId === audience.roomId;
@@ -799,8 +851,9 @@ function licenseUsable(
   reservationOwned: boolean,
   materialHash?: string,
   useNo?: number,
+  ownerId?: string,
 ): string | null {
-  if (!licenseCoversDestination(row, destination)) return "audience_mismatch";
+  if (!licenseCoversDestination(row, destination, ownerId)) return "audience_mismatch";
   if (materialHash && row.material_hash !== materialHash) return "license_material_mismatch";
   if (row.revoked_at != null) return "license_revoked";
   if (typeof row.expires_at === "string") {
@@ -825,13 +878,13 @@ function policyReason(
   const rows = currentRowsForDestination(db, candidate.ownerId, destination, nowMs);
   const hardProhibition = rows.prohibitions.some((row) => boolFlag(row.hard_stop) || row.scope === "no_contact");
   if (hardProhibition) return "hard_stop";
-  if (destination.kind === "external_dm") {
+  if (destination.kind === "external_dm" || destination.kind === "owner_dm") {
     const directProhibition = rows.prohibitions.some((row) => row.scope === "no_dm" || row.scope === "no_direct");
     if (directProhibition) return "owner_prohibition";
   }
   const hardBoundary = rows.boundaries.some((row) => row.scope === "no_contact");
   if (hardBoundary) return "hard_stop";
-  if (destination.kind === "external_dm"
+  if ((destination.kind === "external_dm" || destination.kind === "owner_dm")
     && rows.boundaries.some((row) => row.scope === "no_dm" || row.scope === "no_direct")) return "ashley_boundary";
   if (destination.kind === "external_dm") {
     if (candidate.closure?.hardStop === true) return "hard_stop";
@@ -852,6 +905,15 @@ function policyReason(
     if (candidate.interactionIntent === "initiate" && rows.boundaries.some((row) => row.scope === "no_initiation")) {
       return "ashley_no_initiation";
     }
+  }
+  if (destination.kind === "owner_dm") {
+    if (candidate.closure?.hardStop === true) return "hard_stop";
+    const restriction = rows.restrictions.find((row) => typeof row.kind === "string");
+    if (restriction?.kind === "do_not_contact" || restriction?.kind === "no_dm") return "recipient_restricted";
+    if (candidate.interactionIntent === "initiate" && restriction?.kind === "no_initiation") {
+      return "recipient_no_initiation";
+    }
+    if (restriction?.kind === "room_only") return "recipient_room_only";
   }
   if (destination.kind === "room") {
     if (candidate.interactionIntent !== "continue") return "room_no_initiation";
@@ -997,6 +1059,8 @@ function revalidateExternalReservationInTransaction(
   }
   const destination = normalizeDestination(reservation.destination as ExternalPublicationDestination);
   if (!destination) return "destination_invalid";
+  const identityReason = ownerDmIdentityReason(db, reservation.ownerId, destination);
+  if (identityReason) return identityReason;
   let bundle: HardDependencyBundle;
   try { bundle = reservation.hardDependencyBundle as HardDependencyBundle; } catch { return "hard_dependency_bundle_invalid"; }
   let barrier: { epoch: number; revision: number };
@@ -1019,6 +1083,7 @@ function revalidateExternalReservationInTransaction(
       ref.consumedByReservationId === reservation.id,
       ref.materialHash,
       ref.useNo,
+      reservation.ownerId,
     );
     if (reason) return reason;
   }
@@ -1045,6 +1110,8 @@ export function recheckExternalPublicationReservation(
   if (!reservation) return { ok: false, reason: "delivery_reservation_missing" };
   const destination = normalizeDestination(reservation.destination as ExternalPublicationDestination);
   if (!destination) return { ok: false, reason: "destination_invalid" };
+  const identityReason = ownerDmIdentityReason(db, reservation.ownerId, destination);
+  if (identityReason) return { ok: false, reason: identityReason };
   if (destination.kind === "external_dm" && !isExternalDmPublicationEnabled()) {
     return { ok: false, reason: "external_publication_disabled" };
   }
@@ -1132,6 +1199,8 @@ export function admitExternalPublication(
   const nowMs = candidate.nowMs ?? Date.now();
   const destination = normalizeDestination(candidate.destination);
   if (!destination) return admissionFailure(candidate, "destination_invalid");
+  const identityReason = ownerDmIdentityReason(nuclear, candidate.ownerId, destination);
+  if (identityReason) return admissionFailure(candidate, identityReason);
   if (destination.kind === "external_dm" && !isExternalDmPublicationEnabled()) {
     return admissionFailure(candidate, "external_publication_disabled");
   }
@@ -1167,7 +1236,7 @@ export function admitExternalPublication(
     for (const ref of refs) {
       const row = rows.find((value) => value.entity_uuid === ref);
       if (!row) throw new Error("license_missing");
-      const reason = licenseUsable(row, destination, nowMs, false, candidate.materialHash);
+      const reason = licenseUsable(row, destination, nowMs, false, candidate.materialHash, undefined, candidate.ownerId);
       if (reason) throw new Error(reason);
     }
     const policy = policyReason(nuclear, candidate, destination, nowMs);

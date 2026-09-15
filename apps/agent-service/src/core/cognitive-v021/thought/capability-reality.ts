@@ -14,7 +14,11 @@ import {
   type V2ProjectReadRegistry,
 } from "../../sandbox/project-registry.js";
 import type { CapabilityName } from "../../rollout/capabilities.js";
-import type { CapabilityReality, ThoughtOperationCapability } from "../types.js";
+import type {
+  CapabilityReality,
+  CapabilityRealityReasonCode,
+  ThoughtOperationCapability,
+} from "../types.js";
 import type { SocialAudience } from "../social/types.js";
 
 /** Capabilities with an actual v0.2.1 production adapter in this candidate. */
@@ -36,6 +40,26 @@ export type CapabilityRealityOptions = {
   audience?: SocialAudience;
   licenses?: readonly string[];
 };
+
+function reasonForCapability(input: {
+  value: boolean;
+  rawValue: boolean;
+  name: string;
+  externalAudience: boolean;
+  ownerOnly?: boolean;
+  perception?: boolean;
+  substrateWithoutAuthority: boolean;
+  audienceAllowed: (name: string) => boolean;
+}): CapabilityRealityReasonCode {
+  if (input.value) return "capability_exists";
+  if (input.externalAudience && input.ownerOnly && input.rawValue) return "another_audience_only";
+  if (input.externalAudience && input.rawValue && !input.audienceAllowed(input.name)) {
+    return "needs_owner_approval";
+  }
+  if (input.perception && !input.rawValue) return "evidence_not_acquired";
+  if (!input.rawValue && input.substrateWithoutAuthority) return "substrate_without_authority";
+  return "unavailable";
+}
 
 function authorizedProjectIds(
   registry: V2ProjectReadRegistry,
@@ -112,31 +136,103 @@ export function getCapabilityReality(
   const licenses = options.licenses ?? [];
   const audienceCapabilityAllowed = (name: string): boolean =>
     !externalAudience || licenses.includes(name) || licenses.includes(`capability:${name}`);
+  const substrateWithoutAuthority = masterMode !== "apply"
+    || options.lifecycleEnabled === false
+    || options.substrateAvailable === false;
+  const perceptionFacts = {
+    vision: V021_LIVE_PERCEPTION_CAPABILITIES.has("vision") && perceptionCapabilityCanInfluence(db, "vision", masterMode),
+    attachmentText: V021_LIVE_PERCEPTION_CAPABILITIES.has("attachment_text") &&
+      perceptionCapabilityCanInfluence(db, "attachment_text", masterMode),
+    conversationalRead: V021_LIVE_PERCEPTION_CAPABILITIES.has("conversational_read") &&
+      perceptionCapabilityCanInfluence(db, "conversational_read", masterMode),
+    webSearch: V021_LIVE_PERCEPTION_CAPABILITIES.has("web_search") &&
+      perceptionCapabilityCanInfluence(db, "web_search", masterMode),
+  };
+  const workspaceAvailable = V021_LIVE_OPERATION_CAPABILITIES.has("project_experimentation") &&
+    canOfferCandidateWorkspace(db, sandboxOptions);
+  const authorshipAvailable = V021_LIVE_OPERATION_CAPABILITIES.has("candidate_authorship") &&
+    canOfferCandidateAuthorship(db, sandboxOptions);
   const operationCapabilities = thoughtOperationCapabilities({
     registry,
     projectInspectionAvailable,
     verificationAvailable,
   });
-  return {
-    vision: audienceCapabilityAllowed("vision") && V021_LIVE_PERCEPTION_CAPABILITIES.has("vision") &&
-      perceptionCapabilityCanInfluence(db, "vision", masterMode),
-    attachmentText: audienceCapabilityAllowed("attachment_text") && V021_LIVE_PERCEPTION_CAPABILITIES.has("attachment_text") &&
-      perceptionCapabilityCanInfluence(db, "attachment_text", masterMode),
-    conversationalRead: audienceCapabilityAllowed("conversational_read") && V021_LIVE_PERCEPTION_CAPABILITIES.has("conversational_read") &&
-      perceptionCapabilityCanInfluence(db, "conversational_read", masterMode),
-    webSearch: audienceCapabilityAllowed("web_search") && V021_LIVE_PERCEPTION_CAPABILITIES.has("web_search") &&
-      perceptionCapabilityCanInfluence(db, "web_search", masterMode),
+  const facts = {
+    vision: audienceCapabilityAllowed("vision") && perceptionFacts.vision,
+    attachmentText: audienceCapabilityAllowed("attachment_text") && perceptionFacts.attachmentText,
+    conversationalRead: audienceCapabilityAllowed("conversational_read") && perceptionFacts.conversationalRead,
+    webSearch: audienceCapabilityAllowed("web_search") && perceptionFacts.webSearch,
     canOfferProjectInspection: !externalAudience && projectInspectionAvailable,
-    canOfferWorkspace: !externalAudience && V021_LIVE_OPERATION_CAPABILITIES.has("project_experimentation") &&
-      canOfferCandidateWorkspace(db, sandboxOptions),
+    canOfferWorkspace: !externalAudience && workspaceAvailable,
     canOfferVerification: !externalAudience && verificationAvailable,
-    canOfferAuthorship: !externalAudience && V021_LIVE_OPERATION_CAPABILITIES.has("candidate_authorship") &&
-      canOfferCandidateAuthorship(db, sandboxOptions),
+    canOfferAuthorship: !externalAudience && authorshipAvailable,
     canOfferBoundedOperation: false,
     canOfferPatchExport: false,
-    approvedProjectIds: externalAudience ? [] : listApprovedReadProjectIds(registry),
-    operationCapabilities: externalAudience
-      ? operationCapabilities.map((capability) => ({ ...capability, available: false }))
-      : operationCapabilities,
   };
+  const reachabilityReasons: Record<string, CapabilityRealityReasonCode> = {};
+  for (const name of ["vision", "attachmentText", "conversationalRead", "webSearch"] as const) {
+    reachabilityReasons[name] = reasonForCapability({
+      value: facts[name],
+      rawValue: perceptionFacts[name],
+      name,
+      externalAudience,
+      perception: true,
+      substrateWithoutAuthority,
+      audienceAllowed: audienceCapabilityAllowed,
+    });
+  }
+  const operationFacts: Array<{
+    name: "canOfferProjectInspection" | "canOfferWorkspace" | "canOfferVerification" | "canOfferAuthorship";
+    value: boolean;
+    rawValue: boolean;
+  }> = [
+    { name: "canOfferProjectInspection", value: facts.canOfferProjectInspection, rawValue: projectInspectionAvailable },
+    { name: "canOfferWorkspace", value: facts.canOfferWorkspace, rawValue: workspaceAvailable },
+    { name: "canOfferVerification", value: facts.canOfferVerification, rawValue: verificationAvailable },
+    { name: "canOfferAuthorship", value: facts.canOfferAuthorship, rawValue: authorshipAvailable },
+  ];
+  for (const item of operationFacts) {
+    reachabilityReasons[item.name] = reasonForCapability({
+      ...item,
+      name: item.name,
+      externalAudience,
+      ownerOnly: true,
+      substrateWithoutAuthority,
+      audienceAllowed: audienceCapabilityAllowed,
+    });
+  }
+  for (const name of ["canOfferBoundedOperation", "canOfferPatchExport"] as const) {
+    reachabilityReasons[name] = reasonForCapability({
+      value: facts[name],
+      rawValue: false,
+      name,
+      externalAudience,
+      substrateWithoutAuthority,
+      audienceAllowed: audienceCapabilityAllowed,
+    });
+  }
+  const projectedOperationCapabilities = externalAudience
+    ? operationCapabilities.map((capability) => ({ ...capability, available: false }))
+    : operationCapabilities;
+  for (const capability of operationCapabilities) {
+    reachabilityReasons[capability.operationKind] = reasonForCapability({
+      value: externalAudience ? false : capability.available,
+      rawValue: capability.available,
+      name: capability.operationKind,
+      externalAudience,
+      ownerOnly: true,
+      substrateWithoutAuthority,
+      audienceAllowed: audienceCapabilityAllowed,
+    });
+  }
+  const reality: CapabilityReality = {
+    ...facts,
+    approvedProjectIds: externalAudience ? [] : listApprovedReadProjectIds(registry),
+    operationCapabilities: projectedOperationCapabilities,
+    reachability: {
+      audience: { ...audience },
+      reasons: reachabilityReasons,
+    },
+  };
+  return reality;
 }

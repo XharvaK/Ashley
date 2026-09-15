@@ -39,6 +39,7 @@ type MutableSelfSlice = {
 
 function audienceKey(audience: SocialAudience): string {
   if (audience.kind === "owner_private") return "owner_private";
+  if (audience.kind === "owner_dm") return `owner_dm:${audience.threadId}`;
   if (audience.kind === "dm") return `dm:${audience.principalId}`;
   return `room:${audience.roomId}`;
 }
@@ -60,7 +61,7 @@ function addEntry(slice: MutableSelfSlice, assertion: MemoryAssertion): void {
   if (!statement) return;
 
   const scope = assertion.audienceScope;
-  if (scope && (scope.kind === "dm" || scope.kind === "room")) {
+  if (scope && (scope.kind === "owner_dm" || scope.kind === "dm" || scope.kind === "room")) {
     const key = audienceKey(scope);
     const linked = slice.linked.get(key) ?? {
       audience: scope,

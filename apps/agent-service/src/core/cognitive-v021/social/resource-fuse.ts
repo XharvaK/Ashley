@@ -90,6 +90,7 @@ function usage(value: ResourceUsage): ResourceUsage {
 
 function audienceKey(audience: SocialAudience): string {
   if (audience.kind === "owner_private") return "owner_private";
+  if (audience.kind === "owner_dm") return `owner_dm:${audience.threadId}`;
   if (audience.kind === "dm") return `dm:${audience.principalId}`;
   return `room:${audience.roomId}`;
 }

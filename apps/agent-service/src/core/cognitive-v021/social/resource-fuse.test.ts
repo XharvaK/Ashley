@@ -124,9 +124,17 @@ describe("P19 social resource fuse", () => {
 
   it("records a Thought destination choice only from the available mechanical facts", () => {
     const available: AvailableSocialDestination[] = [
+      { audience: { kind: "owner_dm", threadId: "owner-thread" }, source: "owner_identity", permitScope: null },
       { audience: { kind: "dm", principalId: "person-a" }, source: "social_permit", permitScope: "person_wide" },
       { audience: { kind: "room", roomId: "room:guild:channel" }, source: "trusted_room", permitScope: null },
     ];
+    expect(recordMultiDestinationChoice({
+      available,
+      chosen: { kind: "owner_dm", threadId: "owner-thread" },
+    })).toEqual({
+      accepted: true,
+      destination: { kind: "owner_dm", threadId: "owner-thread" },
+    });
     expect(recordMultiDestinationChoice({ available, chosen: { kind: "dm", principalId: "person-a" } })).toEqual({
       accepted: true,
       destination: { kind: "dm", principalId: "person-a" },

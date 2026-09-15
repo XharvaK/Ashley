@@ -82,6 +82,7 @@ function validDestination(value: unknown): value is SocialAudience {
   const row = record(value);
   if (!row || typeof row.kind !== "string") return false;
   if (row.kind === "owner_private") return exactKeys(row, ["kind"]);
+  if (row.kind === "owner_dm") return exactKeys(row, ["kind", "threadId"]) && text(row.threadId);
   if (row.kind === "dm") return exactKeys(row, ["kind", "principalId"]) && text(row.principalId);
   if (row.kind === "room") return exactKeys(row, ["kind", "roomId"]) && text(row.roomId);
   return false;
@@ -260,6 +261,15 @@ function authorityAllows(
 ): string | null {
   if (proposal.destination.kind === "owner_private") {
     return proposal.beneficiary === "owner" ? null : "beneficiary_destination_mismatch";
+  }
+  if (proposal.destination.kind === "owner_dm") {
+    if (proposal.beneficiary !== "owner") return "beneficiary_destination_mismatch";
+    const thread = db.prepare(
+      `SELECT id FROM mem_threads
+         WHERE id = ? AND owner_id = ? AND status = 'active' AND channel = 'discord'
+         LIMIT 1`,
+    ).get(proposal.destination.threadId, ownerId) as { id?: unknown } | undefined;
+    return thread?.id === proposal.destination.threadId ? null : "owner_dm_not_authorized";
   }
   if (proposal.destination.kind === "dm") {
     if (proposal.beneficiary !== proposal.destination.principalId) return "beneficiary_destination_mismatch";

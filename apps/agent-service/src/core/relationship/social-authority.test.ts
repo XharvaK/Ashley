@@ -2,6 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import { openNuclearDb } from "../db.js";
 import { readAuthorityBarrier } from "../cognitive-v021/authority/barrier.js";
+import { resolveActiveThread } from "../memory/threads.js";
 import {
   clearProhibition,
   classifyEligibility,
@@ -9,6 +10,7 @@ import {
   grantPerson,
   issueLicense,
   listAvailableSocialDestinations,
+  resolveOwnerDmDestination,
   prohibitPerson,
   readEligibilityBundle,
   revokeLicense,
@@ -278,6 +280,31 @@ describe("social authority accessors", () => {
           permitScope: null,
         },
       ]);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("resolves an Owner-private DM from Owner identity and never from room state", () => {
+    const db = dbFixture();
+    try {
+      const threadId = resolveActiveThread(db, ownerId, "discord");
+      expect(resolveOwnerDmDestination(db, ownerId)).toEqual({
+        kind: "owner_dm",
+        threadId,
+      });
+      expect(listAvailableSocialDestinations(db, { nowMs })).not.toContainEqual({
+        audience: { kind: "owner_dm", threadId },
+        source: "owner_identity",
+        permitScope: null,
+      });
+      expect(listAvailableSocialDestinations(db, { nowMs, ownerId })).toContainEqual({
+        audience: { kind: "owner_dm", threadId },
+        source: "owner_identity",
+        permitScope: null,
+      });
+      expect(resolveOwnerDmDestination(db, "")).toBeNull();
+      expect(resolveOwnerDmDestination(db, "   ")).toBeNull();
     } finally {
       db.close();
     }

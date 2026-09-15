@@ -5,6 +5,8 @@ import type {
   LearnedSelfSlice,
   PublicPresenceCapability,
 } from "../types.js";
+import { CAPABILITY_REALITY_REASON_CODES as CAPABILITY_REASON_CODES } from "../types.js";
+import type { SocialAudience } from "../social/types.js";
 import { loadNuclearSystemPrompt } from "../../conversation/prompts.js";
 
 /** Implementation default only. This is not an architectural prompt-size law. */
@@ -125,6 +127,50 @@ function publicPresenceCapabilityOrFail(value: unknown): PublicPresenceCapabilit
   };
 }
 
+function capabilityReachabilityOrFail(value: unknown): CapabilityReality["reachability"] {
+  if (value === undefined) return undefined;
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return requiredMissing("capabilityReality");
+  }
+  const candidate = value as Record<string, unknown>;
+  const audienceValue = candidate.audience;
+  if (typeof audienceValue !== "object" || audienceValue === null || Array.isArray(audienceValue)) {
+    return requiredMissing("capabilityReality");
+  }
+  const audience = audienceValue as Record<string, unknown>;
+  let normalizedAudience: SocialAudience;
+  if (audience.kind === "owner_private" && Object.keys(audience).length === 1) {
+    normalizedAudience = { kind: "owner_private" };
+  } else if (audience.kind === "owner_dm"
+    && Object.keys(audience).length === 2
+    && typeof audience.threadId === "string" && audience.threadId.trim()) {
+    normalizedAudience = { kind: "owner_dm", threadId: audience.threadId.trim() };
+  } else if (audience.kind === "dm"
+    && Object.keys(audience).length === 2
+    && typeof audience.principalId === "string" && audience.principalId.trim()) {
+    normalizedAudience = { kind: "dm", principalId: audience.principalId.trim() };
+  } else if (audience.kind === "room"
+    && Object.keys(audience).length === 2
+    && typeof audience.roomId === "string" && audience.roomId.trim()) {
+    normalizedAudience = { kind: "room", roomId: audience.roomId.trim() };
+  } else {
+    return requiredMissing("capabilityReality");
+  }
+  if (typeof candidate.reasons !== "object" || candidate.reasons === null || Array.isArray(candidate.reasons)) {
+    return requiredMissing("capabilityReality");
+  }
+  const reasons = candidate.reasons as Record<string, unknown>;
+  if (Object.values(reasons).some((reason) =>
+    typeof reason !== "string" || !CAPABILITY_REASON_CODES.includes(reason as typeof CAPABILITY_REASON_CODES[number]),
+  )) {
+    return requiredMissing("capabilityReality");
+  }
+  return {
+    audience: normalizedAudience,
+    reasons: { ...reasons } as Record<string, (typeof CAPABILITY_REASON_CODES)[number]>,
+  };
+}
+
 function capabilityRealityOrFail(value: unknown): CapabilityReality {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     return requiredMissing("capabilityReality");
@@ -140,6 +186,7 @@ function capabilityRealityOrFail(value: unknown): CapabilityReality {
     return requiredMissing("capabilityReality");
   }
   const publicPresence = publicPresenceCapabilityOrFail(candidate.publicPresence);
+  const reachability = capabilityReachabilityOrFail(candidate.reachability);
   return {
     vision: candidate.vision as boolean,
     attachmentText: candidate.attachmentText as boolean,
@@ -156,6 +203,7 @@ function capabilityRealityOrFail(value: unknown): CapabilityReality {
       ? {}
       : { operationCapabilities: [...(candidate.operationCapabilities as NonNullable<CapabilityReality["operationCapabilities"]>)] }),
     ...(publicPresence === undefined ? {} : { publicPresence }),
+    ...(reachability === undefined ? {} : { reachability }),
   };
 }
 

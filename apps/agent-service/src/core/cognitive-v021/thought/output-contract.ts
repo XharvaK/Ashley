@@ -82,6 +82,7 @@ const operationalClaimSchema = strictObject({
 const commitmentDestinationSchema = {
   oneOf: [
     strictObject({ kind: { const: "owner_private" } }, ["kind"]),
+    strictObject({ kind: { const: "owner_dm" }, threadId: { type: "string", minLength: 1 } }, ["kind", "threadId"]),
     strictObject({ kind: { const: "dm" }, principalId: { type: "string", minLength: 1 } }, ["kind", "principalId"]),
     strictObject({ kind: { const: "room" }, roomId: { type: "string", minLength: 1 } }, ["kind", "roomId"]),
   ],

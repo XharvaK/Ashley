@@ -116,6 +116,7 @@ describe("v0.2.1 Thought run", () => {
   it("keeps an Owner room cycle eligible for the existing Owner operation path", async () => {
     const sidecar = openTestSidecar();
     const attentionDb = openTestSidecar();
+    const nuclear = openNuclearDb(new DatabaseSync(":memory:"));
     const roomId = "room:owner-guild:owner-channel";
     const cycle = admitTestCycle(sidecar, {
       conversationId: roomId,
@@ -149,7 +150,7 @@ describe("v0.2.1 Thought run", () => {
       createdAtMs: 2,
     });
     let calls = 0;
-    const completeChat = vi.fn(async () => {
+    const completeChat = vi.fn<KernelDeps["completeChat"]>(async () => {
       calls += 1;
       const output = calls === 1
         ? {
@@ -176,7 +177,7 @@ describe("v0.2.1 Thought run", () => {
       secretOmitted: false,
     }));
     try {
-      const result = await runCognitiveCycle(sidecar, attentionDb, event, deps({
+      const result = await runCognitiveCycle(sidecar, nuclear, event, deps({
         attentionDb,
         completeChat,
         executeObservation,
@@ -184,6 +185,13 @@ describe("v0.2.1 Thought run", () => {
       expect(result.published).toBe(true);
       expect(executeObservation).toHaveBeenCalledTimes(1);
       expect(result.infrastructureNotice).toBeNull();
+      const thoughtMessages = completeChat.mock.calls[0]?.[0] as Array<{ content?: unknown }> | undefined;
+      const projectedInput = JSON.parse(String(thoughtMessages?.[1]?.content ?? "{}")) as {
+        availableDestinations?: Array<{ audience?: { kind?: string; threadId?: string } }>;
+      };
+      expect(projectedInput.availableDestinations).toEqual(expect.arrayContaining([
+        expect.objectContaining({ audience: expect.objectContaining({ kind: "owner_dm" }) }),
+      ]));
       const outbox = sidecar.prepare("SELECT delivery_intent_json FROM speech_outbox").get() as { delivery_intent_json: string };
       expect(JSON.parse(outbox.delivery_intent_json).destination).toEqual({
         kind: "room",
@@ -195,6 +203,7 @@ describe("v0.2.1 Thought run", () => {
     } finally {
       sidecar.close();
       attentionDb.close();
+      nuclear.close();
     }
   });
 

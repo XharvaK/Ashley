@@ -293,6 +293,7 @@ function validCommitmentDestination(value: unknown): boolean {
   const record = semanticRecord(value);
   if (!record || typeof record.kind !== "string") return false;
   if (record.kind === "owner_private") return Object.keys(record).length === 1;
+  if (record.kind === "owner_dm") return Object.keys(record).length === 2 && nonEmptyString(record.threadId);
   if (record.kind === "dm") return Object.keys(record).length === 2 && nonEmptyString(record.principalId);
   if (record.kind === "room") return Object.keys(record).length === 2 && nonEmptyString(record.roomId);
   return false;

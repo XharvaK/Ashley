@@ -27,13 +27,14 @@ export type SocialPrincipalId = string;              // Discord snowflake, never
 export type SpeakerKind = "owner" | "external_human" | "external_bot" | "ashley";
 export type SocialAudience =
   | { kind: "owner_private" }
+  | { kind: "owner_dm"; threadId: string }
   | { kind: "dm"; principalId: SocialPrincipalId }
   | { kind: "room"; roomId: string };                // stable room identity, NOT a member digest
 
 /** Host facts offered to Thought; the Host does not choose a destination. */
 export type AvailableSocialDestination = {
   audience: SocialAudience;
-  source: "social_permit" | "trusted_room";
+  source: "owner_identity" | "social_permit" | "trusted_room";
   permitScope: "person_wide" | "dm_only" | "room_only" | null;
 };
 export type SocialLocation =

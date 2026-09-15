@@ -217,6 +217,7 @@ function validateCommitments(
 function isCommitmentDestination(value: unknown): boolean {
   if (!isRecord(value) || typeof value.kind !== "string") return false;
   if (value.kind === "owner_private") return Object.keys(value).length === 1;
+  if (value.kind === "owner_dm") return Object.keys(value).length === 2 && typeof value.threadId === "string" && value.threadId.trim().length > 0;
   if (value.kind === "dm") return Object.keys(value).length === 2 && isString(value.principalId) && value.principalId.trim().length > 0;
   if (value.kind === "room") return Object.keys(value).length === 2 && isString(value.roomId) && value.roomId.trim().length > 0;
   return false;

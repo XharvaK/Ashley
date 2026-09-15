@@ -2,6 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import { openNuclearDb } from "../db.js";
 import { readAuthorityBarrier } from "../cognitive-v021/authority/barrier.js";
+import { resolveActiveThread } from "../memory/threads.js";
 import { fidelityCheck } from "../cognitive-v021/speech/fidelity.js";
 import {
   claimCommitmentOpportunity,
@@ -78,6 +79,33 @@ describe("commitment admission and fidelity", () => {
       const result = settlePersistedCommitmentProposals(db, "impossible", { ownerId, nowMs, enabled: true });
       expect(result).toMatchObject([{ settled: true, admitted: false, reason: "contact_not_eligible" }]);
       expect(db.prepare("SELECT COUNT(*) AS count FROM ashley_self_commitments").get()).toEqual({ count: 0 });
+    } finally {
+      db.close();
+    }
+  });
+
+  it("admits an Owner-DM commitment only when its active thread belongs to the Owner", () => {
+    const db = dbFixture();
+    try {
+      const threadId = resolveActiveThread(db, ownerId, "discord");
+      persistCommitmentProposals(db, "owner-dm", [proposal({
+        destination: { kind: "owner_dm", threadId },
+      })]);
+      expect(settlePersistedCommitmentProposals(db, "owner-dm", {
+        ownerId,
+        nowMs,
+        enabled: true,
+      })).toMatchObject([{ settled: true, admitted: true }]);
+
+      const otherThreadId = resolveActiveThread(db, "owner-2", "discord");
+      persistCommitmentProposals(db, "wrong-owner-dm", [proposal({
+        destination: { kind: "owner_dm", threadId: otherThreadId },
+      })]);
+      expect(settlePersistedCommitmentProposals(db, "wrong-owner-dm", {
+        ownerId,
+        nowMs,
+        enabled: true,
+      })).toMatchObject([{ settled: true, admitted: false, reason: "owner_dm_not_authorized" }]);
     } finally {
       db.close();
     }

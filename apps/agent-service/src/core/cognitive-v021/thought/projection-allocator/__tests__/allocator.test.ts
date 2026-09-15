@@ -714,6 +714,21 @@ describe("Whole-Thought Projection Allocator", () => {
     expect(allocated.receipt.tokenBreakdown.required_overflow_count).toBe(0);
   });
 
+  it("bounds available social destinations inside the projection allocator", () => {
+    const availableDestinations = Array.from({ length: 12 }, (_, index) => ({
+      audience: { kind: "dm" as const, principalId: `person-${index}` },
+      source: "social_permit" as const,
+      permitScope: "dm_only" as const,
+    }));
+    const allocated = allocateThoughtProjection({
+      thoughtInput: makeThoughtInput({ availableDestinations }),
+      requestId: "req-destination-bound",
+    });
+
+    expect(allocated.projected.availableDestinations).toHaveLength(8);
+    expect(allocated.projected.availableDestinations?.[0]).toEqual(availableDestinations[0]);
+  });
+
   it("records mechanical W0 projection geometry and allocation operation counts", () => {
     const input = withSyntheticC2(makeThoughtInput());
     const allocated = allocateThoughtProjection({

@@ -3,6 +3,7 @@ import {
   DEFAULT_LAST_N_TURNS,
   DEFAULT_OCCUPANCY_COMPACT_K,
   type CapabilityReality,
+  type CapabilityRealityReasonCode,
   type ConversationEvidenceRecord,
   type CycleRecord,
   type IdentitySlice,
@@ -146,6 +147,7 @@ function ownerAudience(): SocialAudience {
 
 function audienceKey(audience: SocialAudience): string {
   if (audience.kind === "owner_private") return "owner_private";
+  if (audience.kind === "owner_dm") return `owner_dm:${audience.threadId}`;
   if (audience.kind === "dm") return `dm:${audience.principalId}`;
   return `room:${audience.roomId}`;
 }
@@ -156,6 +158,9 @@ function sameAudience(left: SocialAudience | null | undefined, right: SocialAudi
 
 function locationAudience(location: unknown): SocialAudience | null {
   if (!isRecord(location) || typeof location.kind !== "string") return null;
+  if (location.kind === "owner_dm" && typeof location.threadId === "string" && location.threadId.trim()) {
+    return { kind: "owner_dm", threadId: location.threadId };
+  }
   if (location.kind === "external_dm" && typeof location.principalId === "string" && location.principalId.trim()) {
     return { kind: "dm", principalId: location.principalId };
   }
@@ -176,6 +181,7 @@ function evidenceMatchesAudience(
   audience: SocialAudience,
 ): boolean {
   if (audience.kind === "owner_private") return true;
+  if (audience.kind === "owner_dm") return false;
   if (row.audienceAtCapture !== (audience.kind === "dm" ? "dm" : "room")) return false;
   return sameAudience(locationAudience(row.location), audience);
 }
@@ -255,17 +261,39 @@ function filterConstitution(
   };
 }
 
-function filterCapabilityReality(
+export function filterCapabilityReality(
   capability: CapabilityReality,
   audience: SocialAudience,
   licenses: readonly string[],
   authenticatedOwner = false,
 ): CapabilityReality {
   if (audience.kind === "owner_private" || (authenticatedOwner && audience.kind === "room")) {
-    return capability;
+    return capability.reachability === undefined
+      ? capability
+      : {
+          ...capability,
+          reachability: {
+            ...capability.reachability,
+            audience: { ...audience },
+          },
+        };
   }
-  const capabilityAllowed = (name: string): boolean => licenses.includes(name);
-  return {
+  const capabilityAllowed = (name: string): boolean =>
+    licenses.includes(name) || licenses.includes(`capability:${name}`);
+  const previousReasons = capability.reachability?.reasons ?? {};
+  const reasonFor = (
+    name: string,
+    value: boolean,
+    sourceValue: boolean,
+    options: { licenseName?: string; ownerOnly?: boolean; perception?: boolean } = {},
+  ): CapabilityRealityReasonCode => {
+    if (value) return "capability_exists";
+    if (options.ownerOnly && sourceValue) return "another_audience_only";
+    if (sourceValue && !capabilityAllowed(options.licenseName ?? name)) return "needs_owner_approval";
+    if (options.perception && !sourceValue) return "evidence_not_acquired";
+    return previousReasons[name] ?? "unavailable";
+  };
+  const filtered = {
     ...capability,
     vision: capability.vision && capabilityAllowed("vision"),
     attachmentText: capability.attachmentText && capabilityAllowed("attachment_text"),
@@ -280,6 +308,37 @@ function filterCapabilityReality(
     approvedProjectIds: [],
     operationCapabilities: capability.operationCapabilities?.map((item) => ({ ...item, available: false })),
     publicPresence: undefined,
+  };
+  const reasons: Record<string, CapabilityRealityReasonCode> = {
+    vision: reasonFor("vision", filtered.vision, capability.vision, { licenseName: "vision", perception: true }),
+    attachmentText: reasonFor("attachmentText", filtered.attachmentText, capability.attachmentText, {
+      licenseName: "attachment_text",
+      perception: true,
+    }),
+    conversationalRead: reasonFor("conversationalRead", filtered.conversationalRead, capability.conversationalRead, {
+      licenseName: "conversational_read",
+      perception: true,
+    }),
+    webSearch: reasonFor("webSearch", filtered.webSearch, capability.webSearch, {
+      licenseName: "web_search",
+      perception: true,
+    }),
+    canOfferProjectInspection: reasonFor("canOfferProjectInspection", false, capability.canOfferProjectInspection, { ownerOnly: true }),
+    canOfferWorkspace: reasonFor("canOfferWorkspace", false, capability.canOfferWorkspace, { ownerOnly: true }),
+    canOfferVerification: reasonFor("canOfferVerification", false, capability.canOfferVerification, { ownerOnly: true }),
+    canOfferAuthorship: reasonFor("canOfferAuthorship", false, capability.canOfferAuthorship, { ownerOnly: true }),
+    canOfferBoundedOperation: reasonFor("canOfferBoundedOperation", false, capability.canOfferBoundedOperation),
+    canOfferPatchExport: reasonFor("canOfferPatchExport", false, capability.canOfferPatchExport),
+  };
+  for (const item of capability.operationCapabilities ?? []) {
+    reasons[item.operationKind] = reasonFor(item.operationKind, false, item.available, { ownerOnly: true });
+  }
+  return {
+    ...filtered,
+    reachability: {
+      audience: { ...audience },
+      reasons,
+    },
   };
 }
 

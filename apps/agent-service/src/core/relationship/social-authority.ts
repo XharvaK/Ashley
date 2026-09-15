@@ -6,6 +6,8 @@ import {
 } from "../cognitive-v021/authority/barrier.js";
 import { advanceRelationalHardPolicyRevisionInTransaction } from "./hard-policy-revision.js";
 import type { AvailableSocialDestination } from "../cognitive-v021/social/types.js";
+import { resolveActiveThread } from "../memory/threads.js";
+import { isAuthorizedOwnerId } from "../../owner-auth.js";
 
 export type SocialPermitScope = "person_wide" | "dm_only" | "room_only";
 export type TrustedRoomMode = "trusted_social" | "observe_only" | "disengaged";
@@ -1015,7 +1017,7 @@ export function readEligibilityBundle(
 /** Enumerate current mechanical destinations without selecting one for Thought. */
 export function listAvailableSocialDestinations(
   db: DatabaseSync,
-  input: { nowMs?: number } = {},
+  input: { nowMs?: number; ownerId?: string } = {},
 ): AvailableSocialDestination[] {
   const now = timeMs(input.nowMs);
   const nowIso = isoTime(now);
@@ -1045,6 +1047,9 @@ export function listAvailableSocialDestinations(
       const previous = destinations.get(key);
       if (!previous || destination.permitScope === "person_wide") destinations.set(key, destination);
     }
+    const ownerDestination = input.ownerId === undefined
+      ? null
+      : resolveOwnerDmDestination(db, input.ownerId);
     const rooms: AvailableSocialDestination[] = db.prepare(
       `SELECT guild_id, channel_id FROM trusted_rooms
         WHERE mode = 'trusted_social'
@@ -1058,7 +1063,15 @@ export function listAvailableSocialDestinations(
       };
     });
     db.exec("COMMIT");
-    return [...destinations.values(), ...rooms];
+    return [
+      ...(ownerDestination ? [{
+        audience: ownerDestination,
+        source: "owner_identity" as const,
+        permitScope: null,
+      }] : []),
+      ...destinations.values(),
+      ...rooms,
+    ];
   } catch (error) {
     try { db.exec("ROLLBACK"); } catch { /* preserve the read failure */ }
     throw error;
@@ -1139,4 +1152,23 @@ export function listOwnerTrustedRoomConversationIds(
     ids.push(`room:${guild}:${channel}`);
   }
   return [...new Set(ids)];
+}
+
+/**
+ * Resolve the existing Owner-private thread from the authenticated Owner
+ * identity. The resolver is deliberately fail-closed and never derives a DM
+ * identity from a room or another participant.
+ */
+export function resolveOwnerDmDestination(
+  db: DatabaseSync,
+  ownerId: string,
+): { kind: "owner_dm"; threadId: string } | null {
+  const normalizedOwnerId = typeof ownerId === "string" ? ownerId.trim() : "";
+  if (!normalizedOwnerId || !isAuthorizedOwnerId(normalizedOwnerId)) return null;
+  try {
+    const threadId = resolveActiveThread(db, normalizedOwnerId, "discord").trim();
+    return threadId ? { kind: "owner_dm", threadId } : null;
+  } catch {
+    return null;
+  }
 }

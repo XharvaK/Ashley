@@ -2322,9 +2322,14 @@ export async function runCognitiveCycle(
   const thoughtAudience = ownerRoomDestination
     ? { kind: "room" as const, roomId: ownerRoomDestination.roomId }
     : externalAudience;
-  const availableDestinations = externalCycle
-    ? listAvailableSocialDestinations(nuclear, { nowMs: deps.nowMs() })
-    : undefined;
+  const ownerRoomOwnerId = ownerRoomDestination && typeof triggerEvidence?.speakerPrincipalId === "string"
+    ? triggerEvidence.speakerPrincipalId.trim()
+    : "";
+  const availableDestinations = ownerRoomDestination && ownerRoomOwnerId
+    ? listAvailableSocialDestinations(nuclear, { nowMs: deps.nowMs(), ownerId: ownerRoomOwnerId })
+    : externalCycle
+      ? listAvailableSocialDestinations(nuclear, { nowMs: deps.nowMs() })
+      : undefined;
   const botParticipantId = externalCycle
     && triggerEvidence?.speakerKind === "external_bot"
     && typeof triggerEvidence.speakerPrincipalId === "string"

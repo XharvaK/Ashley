@@ -2,6 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import { readAuthorityBarrier } from "../authority/barrier.js";
 import { openNuclearDb } from "../../db.js";
+import { resolveActiveThread } from "../../memory/threads.js";
 import type {
   AttemptInputBasis,
   DepRef,
@@ -342,6 +343,54 @@ describe("external publication admission", () => {
         ),
       ));
       expect(roomResult).toMatchObject({ admitted: false, reason: "audience_mismatch" });
+    } finally {
+      db.close();
+    }
+  });
+
+  it("admits an Owner-DM destination only with an Owner-scoped disclosure license", () => {
+    const db = dbFixture();
+    try {
+      const threadId = resolveActiveThread(db, ownerId, "discord");
+      const license = issueLicense(db, {
+        ownerId,
+        materialHash: "material-1",
+        sourcePrincipal: ownerId,
+        controlledProtections: {},
+        granteeAudience: { kind: "dm", principalId: ownerId },
+        usesAllowed: 1,
+        grantRef: "grant-owner-dm",
+        nowMs,
+      });
+      const reservationId = insertDraft(db, "owner-dm");
+      const result = withPublicationEnabled(() => admitExternalPublication(
+        db,
+        undefined,
+        candidateFor(
+          db,
+          reservationId,
+          undefined,
+          license.entityUuid,
+          { kind: "owner_dm", threadId },
+        ),
+      ));
+      expect(result).toMatchObject({ admitted: true, quarantined: false, reservationId });
+
+      const otherThreadId = resolveActiveThread(db, "owner-2", "discord");
+      const otherReservationId = insertDraft(db, "owner-dm-wrong-owner");
+      const other = withPublicationEnabled(() => admitExternalPublication(
+        db,
+        undefined,
+        candidateFor(
+          db,
+          otherReservationId,
+          undefined,
+          license.entityUuid,
+          { kind: "owner_dm", threadId: otherThreadId },
+          2,
+        ),
+      ));
+      expect(other).toMatchObject({ admitted: false, reason: "owner_dm_identity_unresolved" });
     } finally {
       db.close();
     }

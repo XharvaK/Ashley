@@ -68,6 +68,8 @@ import {
   type StructuralFeedbackInput,
 } from "../structural-feedback.js";
 
+const MAX_AVAILABLE_SOCIAL_DESTINATIONS = 8;
+
 export class RequiredOverflowError extends AppError {
   readonly requiredOverflowCount = 1;
   readonly section: string;
@@ -321,7 +323,7 @@ export function allocateThoughtProjection(
       capabilityReality: input.capabilityReality,
       ...(input.publicPresence === undefined ? {} : { publicPresence: input.publicPresence }),
       ...(input.availableDestinations === undefined ? {} : {
-        availableDestinations: [...input.availableDestinations],
+        availableDestinations: [...input.availableDestinations].slice(0, MAX_AVAILABLE_SOCIAL_DESTINATIONS),
       }),
       workingContext: wc,
       occupancy: input.occupancy,
