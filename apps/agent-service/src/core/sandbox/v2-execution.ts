@@ -544,6 +544,24 @@ async function runProjectInspectionV2(
     input.envOverrides?.registry ??
     loadOperatorProjectReadRegistry();
 
+  // Resolve the operator-owned binding at this adapter boundary as well as
+  // inside the Sandbox V2 executor. Custom dispatch seams are test seams, not
+  // permission bypasses, and every call must fail closed for an unlisted or
+  // revoked project.
+  const projectResolution = registry.resolveReadRoot(request.projectId);
+  if (!projectResolution.ok) {
+    return finish(
+      {
+        state: "failed",
+        taskId: `v2-insp-${Date.now()}`,
+        profile: "project_investigation",
+        error: projectResolution.error,
+        ...(messageEntityUuid ? { sourceMessageEntityUuid: messageEntityUuid } : {}),
+      },
+      null,
+    );
+  }
+
   const isCustomSeam =
     input.dispatcher !== undefined ||
     input.envOverrides?.spawnInspection !== undefined ||

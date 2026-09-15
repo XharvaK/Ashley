@@ -77,8 +77,10 @@ function thoughtOperationCapabilities(input: {
   verificationAvailable: boolean;
 }): readonly ThoughtOperationCapability[] {
   const projectReadFileSpec = v2CapabilitySpec("project.read_file");
+  const projectListDirectorySpec = v2CapabilitySpec("project.list_directory");
+  const projectSearchTextSpec = v2CapabilitySpec("project.search_text");
   const workspaceVerifySpec = v2CapabilitySpec("workspace.verify");
-  if (!projectReadFileSpec || !workspaceVerifySpec) {
+  if (!projectReadFileSpec || !projectListDirectorySpec || !projectSearchTextSpec || !workspaceVerifySpec) {
     throw new Error("sandbox_v2_operation_capability_spec_missing");
   }
   const approvedProjectIds = authorizedProjectIds(input.registry, () => true);
@@ -96,6 +98,30 @@ function thoughtOperationCapabilities(input: {
       available: input.projectInspectionAvailable,
       requiredRequestFields: Object.freeze(["projectId", "path"]),
       optionalRequestFields: Object.freeze([]),
+      operatorBoundRequestFields: Object.freeze([]),
+      authorizedProjectIds: Object.freeze(approvedProjectIds),
+    }),
+    Object.freeze({
+      operationKind: "project.list_directory",
+      semanticClass: "observation" as const,
+      family: projectListDirectorySpec.family,
+      readOnly: projectListDirectorySpec.readOnly,
+      requiresProject: projectListDirectorySpec.requiresProject,
+      available: input.projectInspectionAvailable,
+      requiredRequestFields: Object.freeze(["projectId", "path"]),
+      optionalRequestFields: Object.freeze([]),
+      operatorBoundRequestFields: Object.freeze([]),
+      authorizedProjectIds: Object.freeze(approvedProjectIds),
+    }),
+    Object.freeze({
+      operationKind: "project.search_text",
+      semanticClass: "observation" as const,
+      family: projectSearchTextSpec.family,
+      readOnly: projectSearchTextSpec.readOnly,
+      requiresProject: projectSearchTextSpec.requiresProject,
+      available: input.projectInspectionAvailable,
+      requiredRequestFields: Object.freeze(["projectId", "pattern"]),
+      optionalRequestFields: Object.freeze(["path", "maxMatches"]),
       operatorBoundRequestFields: Object.freeze([]),
       authorizedProjectIds: Object.freeze(approvedProjectIds),
     }),
@@ -212,7 +238,11 @@ export function getCapabilityReality(
     });
   }
   const projectedOperationCapabilities = externalAudience
-    ? operationCapabilities.map((capability) => ({ ...capability, available: false }))
+    ? operationCapabilities.map((capability) => ({
+      ...capability,
+      available: false,
+      authorizedProjectIds: [],
+    }))
     : operationCapabilities;
   for (const capability of operationCapabilities) {
     reachabilityReasons[capability.operationKind] = reasonForCapability({

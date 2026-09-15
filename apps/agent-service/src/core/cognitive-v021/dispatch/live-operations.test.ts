@@ -232,6 +232,45 @@ describe("v0.2.1 live Sandbox V2 operation construction", () => {
     nuclear.close();
   });
 
+  it("maps the Thought project.inspect objective to one bounded M2 read surface", async () => {
+    const nuclear = new DatabaseSync(":memory:");
+    const calls: unknown[] = [];
+    const executeProjectInspectionV2 = vi.fn(async (input: any): Promise<ExecuteProjectInspectionV2Result> => {
+      calls.push(input);
+      return {
+        license: { state: "succeeded", profile: "project_investigation" },
+        observation: projectObservation(),
+        dispatchAttempted: true,
+      };
+    });
+    const executors = createV021LiveOperationExecutors({
+      nuclear,
+      adapters: { executeProjectInspectionV2 },
+    });
+
+    await executors.executeObservation({
+      requestId: "inspection-objective-1",
+      cycleId: "cycle-inspection-objective",
+      generation: 1,
+      kind: "project.inspect",
+      request: {
+        projectId: "project-ashley",
+        operation: "project.read_file",
+        path: "README.md",
+      },
+      replaySafe: true,
+    });
+
+    expect(calls[0]).toMatchObject({
+      request: {
+        operation: "project.read_file",
+        projectId: "project-ashley",
+        path: "README.md",
+      },
+    });
+    nuclear.close();
+  });
+
   it("persists a public presence effect only from the authenticated idle lineage", async () => {
     const nuclear = new DatabaseSync(":memory:");
     const sidecar = openTestSidecar();

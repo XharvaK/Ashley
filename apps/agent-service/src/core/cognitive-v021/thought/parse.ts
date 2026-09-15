@@ -128,6 +128,27 @@ function jsonObject(value: unknown): value is JsonObject {
   return semanticRecord(value) !== null && jsonValue(value);
 }
 
+function validProjectInspectionObjective(value: unknown): boolean {
+  const record = semanticRecord(value);
+  if (!record || typeof record.projectId !== "string" || record.projectId.length === 0) return false;
+  if (record.operation === "project.read_file" || record.operation === "project.list_directory") {
+    return recordShape(record, ["projectId", "operation", "path"]) !== null
+      && nonEmptyString(record.path);
+  }
+  if (record.operation === "project.search_text") {
+    if (!recordShape(record, ["projectId", "operation", "pattern"], ["path", "maxMatches"]) || !nonEmptyString(record.pattern)) {
+      return false;
+    }
+    return (record.path === undefined || typeof record.path === "string")
+      && (record.maxMatches === undefined || (
+        typeof record.maxMatches === "number" &&
+        Number.isSafeInteger(record.maxMatches) &&
+        record.maxMatches > 0
+      ));
+  }
+  return false;
+}
+
 function existingRef(value: unknown, allowlist: ReadonlySet<string>): value is ExistingRef {
   return nonEmptyString(value) && allowlist.has(value);
 }
@@ -724,6 +745,9 @@ function parseOperationSemantic(
     return semanticFailure("operation_not_registered", "operationKind");
   }
   if (!jsonObject(record.request)) return semanticFailure("wrong_type", "request");
+  if (record.operationKind === "project.inspect" && !validProjectInspectionObjective(record.request)) {
+    return semanticFailure("wrong_type", "request");
+  }
   if (!nonEmptyString(record.purpose)) return semanticFailure("wrong_type", "purpose");
   if (!stringArray(record.existingRefs)) return semanticFailure("wrong_type", "existingRefs");
   if (!refArray(record.existingRefs, allowlist)) return semanticFailure("reference_not_allowlisted", "existingRefs");

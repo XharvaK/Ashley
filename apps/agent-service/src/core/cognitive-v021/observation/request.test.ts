@@ -11,4 +11,17 @@ describe("v0.2.1 observation/effect classification", () => {
     expect(classifyOperation("workspace.write_file", {})).toBe("effect");
     expect(classifyOperation("unknown_op", {})).toBe("effect");
   });
+
+  it("classifies every bounded M2 inspection surface as a replay-safe observation", () => {
+    for (const kind of ["project.inspect", "project.read_file", "project.list_directory", "project.search_text"]) {
+      expect(classifyOperation(kind, {})).toBe("observation");
+    }
+    expect(createObservationRequest({
+      cycleId: "c1",
+      generation: 1,
+      requestId: "inspect-1",
+      kind: "project.inspect",
+      request: { projectId: "project-ashley", operation: "project.read_file", path: "README.md" },
+    })).toMatchObject({ kind: "project.inspect", replaySafe: true });
+  });
 });

@@ -84,6 +84,30 @@ describe("v0.2.1 CapabilityReality live-surface contract", () => {
           authorizedProjectIds: ["project-ashley"],
         },
         {
+          operationKind: "project.list_directory",
+          semanticClass: "observation",
+          family: "project_inspection",
+          readOnly: true,
+          requiresProject: true,
+          available: true,
+          requiredRequestFields: ["projectId", "path"],
+          optionalRequestFields: [],
+          operatorBoundRequestFields: [],
+          authorizedProjectIds: ["project-ashley"],
+        },
+        {
+          operationKind: "project.search_text",
+          semanticClass: "observation",
+          family: "project_inspection",
+          readOnly: true,
+          requiresProject: true,
+          available: true,
+          requiredRequestFields: ["projectId", "pattern"],
+          optionalRequestFields: ["path", "maxMatches"],
+          operatorBoundRequestFields: [],
+          authorizedProjectIds: ["project-ashley"],
+        },
+        {
           operationKind: "workspace.verify",
           semanticClass: "effect",
           family: "project_verification",
@@ -134,6 +158,9 @@ describe("v0.2.1 CapabilityReality live-surface contract", () => {
         canOfferWorkspace: "another_audience_only",
         canOfferVerification: "another_audience_only",
       });
+      expect(room.operationCapabilities?.every((operation) =>
+        operation.authorizedProjectIds.length === 0 && operation.available === false,
+      )).toBe(true);
     } finally {
       db.close();
     }

@@ -4,6 +4,8 @@ import type { ObservationRequest } from "../types.js";
 export type OperationClass = "observation" | "effect";
 const READ_OPERATIONS = new Set([
   "project.read_file",
+  "project.list_directory",
+  "project.search_text",
   "project.inspect",
   "workspace.read_file",
   "read_file",

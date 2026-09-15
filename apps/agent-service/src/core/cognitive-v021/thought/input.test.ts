@@ -3,7 +3,7 @@ import { admitTestCycle, openTestSidecar, makeThoughtDraft } from "../test-suppo
 import { openDerivedStore } from "../retrieval/derived-store.js";
 import { appendOwnerUtterance } from "../evidence/conversation-log.js";
 import type { CapabilityReality, IdentitySlice, MindOccupancy, WorkingContextItem } from "../types.js";
-import { buildThoughtInput, frontierAwareEvidenceSelection } from "./input.js";
+import { buildThoughtInput, filterCapabilityReality, frontierAwareEvidenceSelection } from "./input.js";
 import { appendCycleLogIds, getCycle } from "../cycle/inbox.js";
 import {
   getActiveDeferredFrontier,
@@ -103,6 +103,31 @@ describe("v0.2.1 ThoughtInput assembly", () => {
     } finally {
       db.close();
     }
+  });
+
+  it("removes operator project IDs when inspection affordances are filtered from non-Owner input", () => {
+    const filtered = filterCapabilityReality({
+      ...capability,
+      operationCapabilities: [{
+        operationKind: "project.read_file",
+        semanticClass: "observation",
+        family: "project_inspection",
+        readOnly: true,
+        requiresProject: true,
+        available: true,
+        requiredRequestFields: ["projectId", "path"],
+        optionalRequestFields: [],
+        operatorBoundRequestFields: [],
+        authorizedProjectIds: ["project-ashley"],
+      }],
+    }, { kind: "room", roomId: "room:external" }, [], false);
+
+    expect(filtered.approvedProjectIds).toEqual([]);
+    expect(filtered.canOfferProjectInspection).toBe(false);
+    expect(filtered.operationCapabilities).toEqual([expect.objectContaining({
+      available: false,
+      authorizedProjectIds: [],
+    })]);
   });
 
   it("uses one coherent selected-source package for input and currentness", () => {

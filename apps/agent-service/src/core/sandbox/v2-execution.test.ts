@@ -177,11 +177,23 @@ describe("Sandbox V2 Execution Adapter & Operator Registry", () => {
   });
 
   describe("executeProjectInspectionV2", () => {
+    const AUTHORIZED_REGISTRY = new V2ProjectReadRegistry([
+      {
+        projectId: "project-ashley",
+        canonicalRoot: "/home/xarvak/project-ashley",
+        displayName: "Ashley",
+        enabled: true,
+        readAllowed: true,
+        candidateWorkspaceAllowed: false,
+        engineeringAllowed: false,
+      },
+    ]);
     const REACTIVE_DEADLINES = {
       projectInspectionPreparationDeadlineAtMs: Date.now() + 60_000,
       childExecutionDeadlineAtMs: Date.now() + 66_000,
       childTerminationDeadlineAtMs: Date.now() + 66_500,
       settlementDeadlineAtMs: Date.now() + 70_000,
+      registry: AUTHORIZED_REGISTRY,
     };
 
     it("fails immediately when settlementDeadlineAtMs is already exceeded", async () => {
@@ -279,6 +291,43 @@ describe("Sandbox V2 Execution Adapter & Operator Registry", () => {
       expect(res.license.profile).toBe("project_investigation");
       expect(res.license.error).toBe("sandbox_unavailable");
       expect(res.observation).toBeNull();
+    });
+
+    it("refuses an unlisted project before a custom dispatcher can run", async () => {
+      let dispatched = false;
+      const res = await executeProjectInspectionV2({
+        ...REACTIVE_DEADLINES,
+        registry: new V2ProjectReadRegistry([]),
+        request: {
+          operation: "project.read_file",
+          projectId: "unlisted-project",
+          path: "README.md",
+        },
+        dispatcher: {
+          dispatch: async () => {
+            dispatched = true;
+            return {
+              outcome: "succeeded",
+              operation: "project.read_file",
+              executedAtMs: 1,
+              result: {
+                kind: "project.read_file",
+                path: "README.md",
+                contentBase64: "eA==",
+                bytes: 1,
+                sha256: "f".repeat(64),
+                truncated: false,
+              },
+            } as SandboxV2Result;
+          },
+        } as any,
+        envOverrides: { sandboxEngineeringLifecycleEnabled: true },
+      });
+
+      expect(res.license).toMatchObject({ state: "failed", error: "unknown_project" });
+      expect(res.observation).toBeNull();
+      expect(res.dispatchAttempted).toBe(false);
+      expect(dispatched).toBe(false);
     });
 
     it("returns state=failed, error=invalid_result on malformed kernel read_file result", async () => {

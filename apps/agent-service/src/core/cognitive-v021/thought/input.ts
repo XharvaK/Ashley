@@ -312,7 +312,11 @@ export function filterCapabilityReality(
     canOfferBoundedOperation: false,
     canOfferPatchExport: false,
     approvedProjectIds: [],
-    operationCapabilities: capability.operationCapabilities?.map((item) => ({ ...item, available: false })),
+    operationCapabilities: capability.operationCapabilities?.map((item) => ({
+      ...item,
+      available: false,
+      authorizedProjectIds: [],
+    })),
     publicPresence: undefined,
   };
   const reasons: Record<string, CapabilityRealityReasonCode> = {

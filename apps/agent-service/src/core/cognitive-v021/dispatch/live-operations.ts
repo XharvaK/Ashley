@@ -43,6 +43,7 @@ const PROJECT_OPERATIONS = new Set([
   "project.list_directory",
   "project.search_text",
 ]);
+const PROJECT_INSPECTION_INTENT = "project.inspect";
 
 const WORKSPACE_OPERATIONS = new Set([
   "workspace.read_file",
@@ -118,16 +119,20 @@ function inspectionDeadlines(nowMs: () => number): {
 }
 
 function normalizeProjectRequest(req: ObservationRequest): CognitionInspectionRequest | null {
-  if (!PROJECT_OPERATIONS.has(req.kind)) return null;
   const value = requestRecord(req.request);
   const projectId = stringValue(value?.projectId);
   if (!projectId) return null;
 
-  if (req.kind === "project.search_text") {
+  const operation = req.kind === PROJECT_INSPECTION_INTENT
+    ? stringValue(value?.operation)
+    : req.kind;
+  if (!operation || !PROJECT_OPERATIONS.has(operation)) return null;
+
+  if (operation === "project.search_text") {
     const pattern = stringValue(value?.pattern);
     if (!pattern) return null;
     return {
-      operation: req.kind,
+      operation,
       projectId,
       ...(typeof value?.path === "string" ? { path: value.path } : {}),
       pattern,
@@ -137,7 +142,7 @@ function normalizeProjectRequest(req: ObservationRequest): CognitionInspectionRe
 
   const path = stringValue(value?.path);
   if (!path) return null;
-  return { operation: req.kind, projectId, path };
+  return { operation, projectId, path };
 }
 
 function normalizeWorkspaceRequest(
