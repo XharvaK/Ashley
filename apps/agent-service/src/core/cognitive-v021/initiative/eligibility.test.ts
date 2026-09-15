@@ -8,6 +8,7 @@ import { openOwnTimeSession } from "../../state/own-time.js";
 import { patchState } from "../../state/store.js";
 import {
   classifyInitiativeClass,
+  evaluateInquiryOperationalGate,
   evaluateProactiveEligibility,
 } from "./eligibility.js";
 
@@ -76,6 +77,34 @@ describe("proactive eligibility", () => {
       env.cognitionMode = originalMode;
       db.close();
     }
+  });
+
+  it("keeps inquiry stopping mechanical and read-only", () => {
+    expect(evaluateInquiryOperationalGate({
+      hasGroundedOccupancy: false,
+      hasDueTrigger: false,
+      hasMatchedObservation: false,
+      hasAcquiredObservation: false,
+      hasCommitment: false,
+    })).toEqual({ ok: false, reason: "no_grounded_work" });
+
+    expect(evaluateInquiryOperationalGate({
+      hasGroundedOccupancy: true,
+      hasDueTrigger: false,
+      hasMatchedObservation: false,
+      hasAcquiredObservation: false,
+      hasCommitment: false,
+    })).toEqual({ ok: true });
+
+    // Dormant occupancy is intentionally not a grounded work source. A later
+    // Thought turn may revisit it when an independently admitted trigger exists.
+    expect(evaluateInquiryOperationalGate({
+      hasGroundedOccupancy: false,
+      hasDueTrigger: true,
+      hasMatchedObservation: false,
+      hasAcquiredObservation: false,
+      hasCommitment: false,
+    }).ok).toBe(true);
   });
 
   it("blocks both classes during open own-time", () => {

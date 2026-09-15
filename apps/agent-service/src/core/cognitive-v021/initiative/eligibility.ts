@@ -29,6 +29,35 @@ export type ProactiveEligibilityInput = {
   hasUrgent: boolean;
 };
 
+export type InquiryOperationalGateInput = Readonly<{
+  hasGroundedOccupancy: boolean;
+  hasDueTrigger: boolean;
+  hasMatchedObservation: boolean;
+  hasAcquiredObservation: boolean;
+  hasCommitment: boolean;
+}>;
+
+export type InquiryOperationalGate =
+  | { ok: true }
+  | { ok: false; reason: "no_grounded_work" };
+
+/**
+ * Read-only gate for operational inquiry work. It checks only existing
+ * grounded state or an already admitted evidence/commitment source; it never
+ * infers semantic interest, dormancy, or completion.
+ */
+export function evaluateInquiryOperationalGate(
+  input: InquiryOperationalGateInput,
+): InquiryOperationalGate {
+  return input.hasGroundedOccupancy
+    || input.hasDueTrigger
+    || input.hasMatchedObservation
+    || input.hasAcquiredObservation
+    || input.hasCommitment
+    ? { ok: true }
+    : { ok: false, reason: "no_grounded_work" };
+}
+
 function idleRemainingSec(
   lastUserMessageAt: string | null,
   minIdleHours: number,

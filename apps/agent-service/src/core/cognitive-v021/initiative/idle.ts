@@ -25,6 +25,7 @@ import { admitWake, getWake } from "../wake/ledger.js";
 import { occurrenceIdFor } from "../wake/identity.js";
 import {
   PRIVATE_THOUGHT_POLICY_ID,
+  PRIVATE_THOUGHT_WINDOW_MS,
   getPrivateReservation,
   getPrivateBudgetProjection,
   markPrivateReservationUnknown,
@@ -52,6 +53,8 @@ import {
   recheckCommitmentOpportunity,
   type CommitmentOpportunity,
 } from "../../relationship/commitment-admission.js";
+import { appendSystemEvent } from "../evidence/conversation-log.js";
+import { evaluateInquiryOperationalGate } from "./eligibility.js";
 
 const GROUNDED_STATUSES = new Set(["active", "investigating", "waiting_for_evidence"]);
 type IdleRunnerResult = Partial<KernelRunResult> & {
@@ -291,6 +294,48 @@ function emptyResult(
   };
 }
 
+function recordBudgetExhaustionEvidence(
+  db: DatabaseSync,
+  input: {
+    conversationId: string;
+    policyId: string;
+    nowMs: number;
+    wakeId?: string | null;
+    cycleId?: string | null;
+  },
+): void {
+  // Repeated polling must not create an unbounded evidence stream while the
+  // same rolling budget window remains exhausted. The first factual stop in
+  // the window is sufficient for a later Thought turn to observe it.
+  const recent = db.prepare(
+    `SELECT row_id
+       FROM conversation_evidence_log
+      WHERE conversation_id = ?
+        AND role = 'system'
+        AND source_status = 'capacity_exhausted'
+        AND created_at_ms > ?
+      ORDER BY created_at_ms DESC, rowid DESC
+      LIMIT 1`,
+  ).get(input.conversationId, Math.max(0, input.nowMs - PRIVATE_THOUGHT_WINDOW_MS));
+  if (recent) return;
+  appendSystemEvent(db, {
+    conversationId: input.conversationId,
+    text: "Private Thought execution stopped because the private compute budget was exhausted; this is an operational stop, not a semantic conclusion.",
+    nowMs: input.nowMs,
+    sourceStatus: "capacity_exhausted",
+    dataClassification: "never_public",
+    audienceAtCapture: "owner_private",
+    producingCycleId: input.cycleId ?? null,
+    provenance: {
+      kind: "operational_stop",
+      reason: "capacity_exhausted",
+      budget: "private_compute_budget",
+      policyId: input.policyId,
+      wakeId: input.wakeId ?? null,
+    },
+  });
+}
+
 function settleUnsettledPrivateReservation(db: DatabaseSync, reservationId: string, nowMs: number): void {
   const current = getPrivateReservation(db, reservationId);
   if (!current || current.state !== "held") return;
@@ -381,6 +426,9 @@ async function tickPeriodicConversation(
     wallClockNowMs: nowMs,
   });
   if (budget.kind === "refused") {
+    if (budget.reason === "capacity_exhausted") {
+      recordBudgetExhaustionEvidence(db, { conversationId, policyId, nowMs, wakeId: wake.wakeId, cycleId: cycle.cycleId });
+    }
     return emptyResult(
       conversationId,
       budget.reason === "clock_reconciliation" ? "private_compute_clock_reconciliation" : "private_compute_budget",
@@ -505,7 +553,14 @@ async function tickConversation(
       acquired = [];
     }
   }
-  if (!commitment && occupancy.length === 0 && dueTriggers.length === 0 && matched.length === 0 && acquired.length === 0) {
+  const inquiryGate = evaluateInquiryOperationalGate({
+    hasGroundedOccupancy: occupancy.length > 0,
+    hasDueTrigger: dueTriggers.length > 0,
+    hasMatchedObservation: matched.length > 0,
+    hasAcquiredObservation: acquired.length > 0,
+    hasCommitment: commitment !== undefined,
+  });
+  if (!inquiryGate.ok) {
     return emptyResult(conversationId, "empty_house", [], suppressedTriggers.filter((trigger) => trigger.conversationId === conversationId));
   }
 
@@ -595,7 +650,10 @@ async function tickConversation(
           ? { kind: "budget_exhausted" as const }
           : admitWake(db, admissionInput);
   if (admission.kind === "clock_reconciliation") return emptyResult(conversationId, "private_compute_clock_reconciliation", dueTriggers, []);
-  if (admission.kind === "budget_exhausted") return emptyResult(conversationId, "private_compute_budget", dueTriggers, []);
+  if (admission.kind === "budget_exhausted") {
+    recordBudgetExhaustionEvidence(db, { conversationId, policyId, nowMs });
+    return emptyResult(conversationId, "private_compute_budget", dueTriggers, []);
+  }
   if (admission.kind === "cancelled") return emptyResult(conversationId, "wake_cancelled", dueTriggers, suppressedTriggers);
   if (admission.kind === "stale") return emptyResult(conversationId, "wake_stale", dueTriggers, suppressedTriggers);
   const cycle = getCycle(db, admission.wake.cycleId);
@@ -611,6 +669,9 @@ async function tickConversation(
     wallClockNowMs: nowMs,
   });
   if (budget.kind === "refused") {
+    if (budget.reason === "capacity_exhausted") {
+      recordBudgetExhaustionEvidence(db, { conversationId, policyId, nowMs, wakeId, cycleId: cycle.cycleId });
+    }
     return emptyResult(
       conversationId,
       budget.reason === "clock_reconciliation" ? "private_compute_clock_reconciliation" : "private_compute_budget",

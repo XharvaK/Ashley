@@ -450,6 +450,8 @@ export type OccupiedConcernProjection = Readonly<{
   statement: string;
   status: Extract<OccupancyStatus, "active" | "investigating" | "waiting_for_evidence">;
   priority: number;
+  /** Existing epistemic context needed for a later Thought inquiry review. */
+  dimensions: Readonly<Pick<EpistemicDimensions, "status" | "reliability">>;
   provenance: "cognitive_sidecar.concerns";
 }>;
 

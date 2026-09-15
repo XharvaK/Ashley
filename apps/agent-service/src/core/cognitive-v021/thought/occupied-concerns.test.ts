@@ -74,6 +74,7 @@ function inputWithOccupancy(
         statement,
         status: "active",
         priority: 7,
+        dimensions: { status: "asserted", reliability: "owner_supplied" },
         provenance: "cognitive_sidecar.concerns",
       },
     ]),
@@ -150,6 +151,7 @@ describe("P1 occupied-concern projection", () => {
         statement: "The exact statement for A.",
         status: "active",
         priority: 8,
+        dimensions: { status: "asserted", reliability: "owner_supplied" },
         provenance: "cognitive_sidecar.concerns",
       },
       {
@@ -157,6 +159,7 @@ describe("P1 occupied-concern projection", () => {
         statement: "The exact statement for C.",
         status: "investigating",
         priority: 8,
+        dimensions: { status: "asserted", reliability: "owner_supplied" },
         provenance: "cognitive_sidecar.concerns",
       },
       {
@@ -164,6 +167,7 @@ describe("P1 occupied-concern projection", () => {
         statement: "The exact statement for B.",
         status: "active",
         priority: 8,
+        dimensions: { status: "asserted", reliability: "owner_supplied" },
         provenance: "cognitive_sidecar.concerns",
       },
       {
@@ -171,6 +175,7 @@ describe("P1 occupied-concern projection", () => {
         statement: "The exact statement for W.",
         status: "waiting_for_evidence",
         priority: 7,
+        dimensions: { status: "asserted", reliability: "owner_supplied" },
         provenance: "cognitive_sidecar.concerns",
       },
     ]);
@@ -196,6 +201,7 @@ describe("P1 occupied-concern projection", () => {
       statement: "The exact persisted concern statement.",
       status: "active",
       priority: 7,
+      dimensions: { status: "asserted", reliability: "owner_supplied" },
       provenance: "cognitive_sidecar.concerns",
     }]);
     expect(firstVisible.occupancy).not.toEqual(expect.arrayContaining([
@@ -227,7 +233,7 @@ describe("P1 occupied-concern projection", () => {
         `INSERT INTO concerns
            (concern_id, conversation_id, statement, source_refs_json, dimensions_json,
             assertion_key, status, snapshot_hash, updated_cycle)
-         VALUES (?, ?, ?, '[]', '{}', NULL, ?, ?, 'cycle-p1-db')`,
+         VALUES (?, ?, ?, '[]', '{"source":"owner_utterance","status":"asserted","time":"current","reliability":"owner_supplied"}', NULL, ?, ?, 'cycle-p1-db')`,
       );
       insertConcern.run("concern-db-active", "thread-p1-db", "Persisted concern statement for DB.", "active", "snapshot-db-active");
       insertConcern.run("concern-db-resolved", "thread-p1-db", "Resolved statement must stay out.", "resolved", "snapshot-db-resolved");
@@ -284,6 +290,7 @@ describe("P1 occupied-concern projection", () => {
         statement: "Persisted concern statement for DB.",
         status: "active",
         priority: 4,
+        dimensions: { status: "asserted", reliability: "owner_supplied" },
         provenance: "cognitive_sidecar.concerns",
       }]);
     } finally {
@@ -294,7 +301,7 @@ describe("P1 occupied-concern projection", () => {
   it("keeps the Thought output semantic schema identity pinned", () => {
     expect(THOUGHT_OUTPUT_SCHEMA_FINGERPRINT).toBe(THOUGHT_SEMANTIC_SCHEMA_FINGERPRINT);
     expect(THOUGHT_OUTPUT_SCHEMA_FINGERPRINT).toBe(
-      "sha256:dd04a67498991de675eb3addefa4781452fab9388c667427338c58e11572a23f",
+      "sha256:d250e11c2de96b71b27680366da0306fe4028b90f5af7dbd1b9e792d5fb6d6f9",
     );
   });
 });

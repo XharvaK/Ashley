@@ -349,6 +349,13 @@ describe("Thought semantic output contract", () => {
     expect(instruction).toContain("omit the epistemic commitment");
   });
 
+  it("keeps later inquiry uncertainty Thought-authored", () => {
+    const instruction = thoughtOutputCompatibilityInstruction();
+
+    expect(instruction).toContain("uncertaintyDisplay is Thought-authored");
+    expect(instruction).toContain("Budget exhaustion is operational evidence and never a semantic conclusion");
+  });
+
   it("makes the canonical epistemic item shape explicit for json_object providers", () => {
     const instruction = thoughtOutputCompatibilityInstruction();
 
@@ -478,11 +485,11 @@ describe("Thought semantic output contract", () => {
 
   it("keeps protected semantic, wire, and capability fingerprints exact", () => {
     expect(THOUGHT_SEMANTIC_SCHEMA_FINGERPRINT).toBe(
-      "sha256:dd04a67498991de675eb3addefa4781452fab9388c667427338c58e11572a23f",
+      "sha256:d250e11c2de96b71b27680366da0306fe4028b90f5af7dbd1b9e792d5fb6d6f9",
     );
     const zeroOp = constrainThoughtOutputSchema(buildOperationalEffectNamespaceFromRefs([]));
     expect(zeroOp.wireSchemaFingerprint).toBe(
-      "sha256:6ab80a13e1373fcea3ab8b71fecb9f68df7f5347fceb7f03e7a98904adad75f6",
+      "sha256:aa870daa37b5249355259eb66ac35e88ca9dbc23801df55d91f62dff36c558fd",
     );
     expect(zeroOp.namespaceConstraintFingerprint).toBe(
       "sha256:d277b3804b25361994107886d1f33f779a7501298b01fe483ebe7c795b6e19c6",

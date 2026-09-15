@@ -209,6 +209,22 @@ describe("v0.2.1 idle executive", () => {
       expect(calls).toBe(PRIVATE_THOUGHT_MAX_CALLS_PER_HOUR);
       expect(exhaustedResult?.reason).toBe("private_compute_budget");
       expect(db.prepare("SELECT COUNT(*) AS count FROM wakes WHERE conversation_id = 'thread-budget'").get()).toMatchObject({ count: PRIVATE_THOUGHT_MAX_CALLS_PER_HOUR });
+      expect(db.prepare(
+        `SELECT source_status, data_classification, text, provenance_json
+           FROM conversation_evidence_log
+          WHERE conversation_id = 'thread-budget' AND role = 'system'
+          ORDER BY created_at_ms DESC, rowid DESC LIMIT 1`,
+      ).get()).toMatchObject({
+        source_status: "capacity_exhausted",
+        data_classification: "never_public",
+        text: expect.stringContaining("private compute budget"),
+        provenance_json: expect.stringContaining("capacity_exhausted"),
+      });
+      expect(db.prepare(
+        "SELECT COUNT(*) AS count FROM conversation_evidence_log WHERE conversation_id = 'thread-budget' AND role = 'system' AND source_status = 'capacity_exhausted'",
+      ).get()).toMatchObject({ count: 1 });
+      expect(db.prepare("SELECT status FROM mind_occupancy WHERE conversation_id = 'thread-budget'").get()).toMatchObject({ status: "active" });
+      expect(db.prepare("SELECT status FROM concerns WHERE conversation_id = 'thread-budget'").get()).toMatchObject({ status: "active" });
     } finally {
       db.close();
     }
