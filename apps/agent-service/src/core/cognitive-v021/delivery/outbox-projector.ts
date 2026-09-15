@@ -17,6 +17,7 @@ import {
   type ExternalPublicationCandidate,
 } from "../settlement/publish.js";
 import { externalDmPrincipal } from "../social/dm-activation.js";
+import { isRoomPublicationEnabled } from "../social/room-activation.js";
 import {
   getSystemNotice,
   updateSystemNoticeStatus,
@@ -558,9 +559,6 @@ export class OutboxDeliveryProjector implements OutboxDeliveryProjectorContract 
     const reservationId = this.reserve(row, "outboxId" in row ? row.licensedText : row.noticeText);
     const external = row.deliveryIntent.externalPublication;
     if (external) {
-      const principal = external.destination.kind === "external_dm"
-        ? external.destination.principalId
-        : null;
       const candidate: ExternalPublicationCandidate = {
         ownerId: row.deliveryIntent.ownerId,
         reservationId,
@@ -572,9 +570,13 @@ export class OutboxDeliveryProjector implements OutboxDeliveryProjectorContract 
         ...(external.materialHash ? { materialHash: external.materialHash } : {}),
         nowMs: this.options.nowMs?.() ?? Date.now(),
       };
-      const admission = principal && externalDmPrincipal() === principal
-        ? admitExternalPublication(this.nuclear, this.nuclear, candidate)
-        : { admitted: false, quarantined: true, reason: "external_principal_mismatch", reservationId };
+      const admission = external.destination.kind === "external_dm"
+        ? externalDmPrincipal() === external.destination.principalId
+          ? admitExternalPublication(this.nuclear, this.nuclear, candidate)
+          : { admitted: false, quarantined: true, reason: "external_principal_mismatch", reservationId }
+        : isRoomPublicationEnabled(process.env, external.destination.channelId)
+          ? admitExternalPublication(this.nuclear, this.nuclear, candidate)
+          : { admitted: false, quarantined: true, reason: "room_publication_disabled", reservationId };
       if (!admission.admitted) {
         const nowIso = new Date(this.options.nowMs?.() ?? Date.now()).toISOString();
         this.nuclear.prepare(

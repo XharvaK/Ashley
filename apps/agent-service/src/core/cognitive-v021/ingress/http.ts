@@ -10,7 +10,10 @@ import {
 import { resolveSocialConversation } from "../../memory/threads.js";
 import { notifySidecarPostCommit } from "../retrieval/derived-store.js";
 import { appendCycleLogIds, appendInboxEventInTransaction, getCycle, getInboxEvent } from "../cycle/inbox.js";
-import { composeOrPreemptInTransaction } from "../cycle/fence.js";
+import {
+  composeOrPreemptInTransaction,
+  preemptExternalRoomAttemptsInTransaction,
+} from "../cycle/fence.js";
 import { cancelActiveThought } from "../cycle/active.js";
 import {
   advanceDeferredFrontierEvidence,
@@ -155,6 +158,7 @@ export function admitCognitiveIngress(
       };
     }
 
+    const roomPreemptions = preemptExternalRoomAttemptsInTransaction(sidecar, admittedAtMs);
     const activeFrontier = getActiveDeferredFrontier(sidecar, conversationId);
     if (activeFrontier) {
       advanceDeferredFrontierEvidence(sidecar, activeFrontier.frontierId, evidence.rowId, admittedAtMs);
@@ -180,6 +184,7 @@ export function admitCognitiveIngress(
         randomUUID(),
       );
       sidecar.exec("COMMIT");
+      for (const cancellation of roomPreemptions) cancelActiveThought(cancellation);
       try { notifySidecarPostCommit(sidecar, { changedRowIds: [evidence.rowId] }); } catch {}
       return {
         accepted: true,
@@ -223,6 +228,7 @@ export function admitCognitiveIngress(
       randomUUID(),
     );
     sidecar.exec("COMMIT");
+    for (const cancellation of roomPreemptions) cancelActiveThought(cancellation);
     if (fence.activeThoughtCancellation) {
       cancelActiveThought(fence.activeThoughtCancellation);
     }

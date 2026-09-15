@@ -1006,11 +1006,18 @@ export function classifyEligibility(
   location: "dm" | "room",
   options: { roomSeedActive?: boolean } = {},
 ): { verdict: SocialEligibilityVerdict; audienceHint: "dm" | "room" | "unknown" } {
-  const blockedByProhibition = bundle.prohibitions.some((item) => item.hardStop || item.scope === "no_contact");
-  const blockedByRestriction = bundle.restrictions.some((item) =>
-    item.kind === "do_not_contact" || (location === "dm" && item.kind === "no_dm"));
+  // A room capture is ambient perception. A person-scoped direct prohibition
+  // bars addressing that person, but it does not erase the room's shared
+  // reality. Room-targeted hard policy still blocks the room as a destination.
+  const blockedByProhibition = bundle.prohibitions.some((item) =>
+    item.hardStop || item.scope === "no_contact"
+      || (location === "dm" && (item.scope === "no_dm" || item.scope === "no_direct"))
+      || (location === "room" && item.targetRoomId != null && item.scope === "no_direct"));
+  const blockedByRestriction = location === "dm" && bundle.restrictions.some((item) =>
+    item.kind === "do_not_contact" || item.kind === "no_dm");
   const blockedByBoundary = bundle.boundaries.some((item) =>
-    item.scope === "no_contact" || item.scope === "no_direct" || (location === "dm" && item.scope === "no_dm"));
+    item.scope === "no_contact"
+      || (location === "dm" && (item.scope === "no_direct" || item.scope === "no_dm")));
   if (blockedByProhibition || blockedByRestriction || blockedByBoundary) {
     return { verdict: "capture_quarantine", audienceHint: location };
   }

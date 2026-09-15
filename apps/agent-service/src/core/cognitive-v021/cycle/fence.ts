@@ -314,6 +314,29 @@ function preemptExternalAttemptInTransaction(
   });
 }
 
+/** Persist Owner precedence over all currently active trusted-room work. */
+export function preemptExternalRoomAttemptsInTransaction(
+  db: DatabaseSync,
+  nowMs = Date.now(),
+): ActiveThoughtCancellation[] {
+  const rows = db.prepare(
+    `SELECT cycle_id
+       FROM cycle_records
+      WHERE conversation_id LIKE 'room:%'
+        AND trigger_kind = 'external_message'
+        AND state IN ('admitted', 'assembling', 'thinking', 'awaiting_operation',
+                      'authority_check', 'publishing', 'sending', 'capacity_wait')
+      ORDER BY admitted_at_ms ASC, cycle_id ASC`,
+  ).all() as Array<{ cycle_id?: unknown }>;
+  const cancellations: ActiveThoughtCancellation[] = [];
+  for (const row of rows) {
+    if (typeof row.cycle_id !== "string" || !row.cycle_id.trim()) continue;
+    const result = preemptExternalAttemptInTransaction(db, row.cycle_id, nowMs);
+    if (result.activeThoughtCancellation) cancellations.push(result.activeThoughtCancellation);
+  }
+  return cancellations;
+}
+
 /** Suspend external work for an Owner turn while retaining basis and queue. */
 export function preemptExternalAttempt(
   db: DatabaseSync,

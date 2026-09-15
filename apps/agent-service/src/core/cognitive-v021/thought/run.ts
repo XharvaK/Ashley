@@ -179,6 +179,11 @@ import {
   isExternalDmCognitionEnabled,
   isExternalDmPublicationEnabled,
 } from "../social/dm-activation.js";
+import {
+  buildRoomAuthorityBinding,
+  isRoomPublicationEnabled,
+  roomIdentity,
+} from "../social/room-activation.js";
 
 export type ControlInterpretationPhaseInput = {
   sourceRef: string;
@@ -1871,29 +1876,50 @@ function deliveryIntentFor(
   };
 }
 
-type ExternalDmDestination = {
+type ExternalSocialDestination = {
   kind: "external_dm";
   principalId: string;
   channelId?: string;
+  threadId?: string;
+} | {
+  kind: "room";
+  roomId: string;
+  guildId: string;
+  channelId: string;
   threadId?: string;
 };
 
 function externalDestinationFor(
   payload: Record<string, unknown>,
-): ExternalDmDestination | null {
+): ExternalSocialDestination | null {
   const value = payload.externalDestination;
   if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
   const candidate = value as Record<string, unknown>;
-  if (candidate.kind !== "external_dm" || typeof candidate.principalId !== "string" || !candidate.principalId.trim()) {
+  if (candidate.kind === "external_dm" && typeof candidate.principalId === "string" && candidate.principalId.trim()) {
+    const channelId = typeof candidate.channelId === "string" && candidate.channelId.trim()
+      ? candidate.channelId.trim()
+      : undefined;
+    return {
+      kind: "external_dm",
+      principalId: candidate.principalId.trim(),
+      ...(channelId ? { channelId } : {}),
+      ...(typeof candidate.threadId === "string" && candidate.threadId.trim()
+        ? { threadId: candidate.threadId.trim() }
+        : {}),
+    };
+  }
+  if (candidate.kind !== "room"
+    || typeof candidate.roomId !== "string"
+    || typeof candidate.guildId !== "string"
+    || typeof candidate.channelId !== "string"
+    || candidate.roomId !== roomIdentity(candidate.guildId, candidate.channelId)) {
     return null;
   }
-  const channelId = typeof candidate.channelId === "string" && candidate.channelId.trim()
-    ? candidate.channelId.trim()
-    : undefined;
   return {
-    kind: "external_dm",
-    principalId: candidate.principalId.trim(),
-    ...(channelId ? { channelId } : {}),
+    kind: "room",
+    roomId: candidate.roomId,
+    guildId: candidate.guildId,
+    channelId: candidate.channelId,
     ...(typeof candidate.threadId === "string" && candidate.threadId.trim()
       ? { threadId: candidate.threadId.trim() }
       : {}),
@@ -2189,16 +2215,31 @@ export async function runCognitiveCycle(
   const externalCycle = cycle.triggerKind === "external_message" || event.kind === "external_utterance";
   const externalDestination = externalCycle ? externalDestinationFor(payload) : null;
   const externalAudience = externalDestination
-    ? { kind: "dm" as const, principalId: externalDestination.principalId }
+    ? externalDestination.kind === "external_dm"
+      ? { kind: "dm" as const, principalId: externalDestination.principalId }
+      : { kind: "room" as const, roomId: externalDestination.roomId }
     : undefined;
-  let externalBinding: ReturnType<typeof buildExternalDmAuthorityBinding> | null = null;
+  let externalBinding:
+    | ReturnType<typeof buildExternalDmAuthorityBinding>
+    | ReturnType<typeof buildRoomAuthorityBinding>
+    | null = null;
   if (externalDestination) {
     try {
-      externalBinding = buildExternalDmAuthorityBinding(nuclear, {
-        principalId: externalDestination.principalId,
-        channelId: externalDestination.channelId ?? event.conversationId,
-        nowMs: deps.nowMs(),
-      });
+      externalBinding = externalDestination.kind === "external_dm"
+        ? buildExternalDmAuthorityBinding(nuclear, {
+          principalId: externalDestination.principalId,
+          channelId: externalDestination.channelId ?? event.conversationId,
+          nowMs: deps.nowMs(),
+        })
+        : buildRoomAuthorityBinding(nuclear, {
+          ownerId: typeof payload.ownerId === "string" && payload.ownerId.trim()
+            ? payload.ownerId
+            : cycle.conversationId,
+          roomId: externalDestination.roomId,
+          guildId: externalDestination.guildId,
+          channelId: externalDestination.channelId,
+          nowMs: deps.nowMs(),
+        });
     } catch {
       // The final publication path remains fail-closed if the coherent bundle
       // cannot be reconstructed from the current authority owner.
@@ -3112,11 +3153,17 @@ export async function runCognitiveCycle(
           thoughtExecutionProvenance: currentExecutionProvenance(),
         });
       };
+      const dmDestination = externalDestination?.kind === "external_dm" ? externalDestination : null;
+      const roomDestination = externalDestination?.kind === "room" ? externalDestination : null;
       const configuredPrincipal = externalDmPrincipal();
-      if (!isExternalDmCognitionEnabled() || !isExternalDmPublicationEnabled()
-        || !configuredPrincipal || !externalDestination
-        || externalDestination.principalId !== configuredPrincipal
-        || settlement.speech.mode !== "draft") {
+      const dmClosed = !dmDestination
+        || !isExternalDmCognitionEnabled()
+        || !isExternalDmPublicationEnabled()
+        || !configuredPrincipal
+        || dmDestination.principalId !== configuredPrincipal;
+      const roomClosed = !roomDestination
+        || !isRoomPublicationEnabled(process.env, roomDestination.channelId);
+      if ((dmDestination ? dmClosed : roomClosed) || !externalDestination || settlement.speech.mode !== "draft") {
         return blockExternalCycle();
       }
       const freshness = getCycleFreshnessState(sidecar, cycle.cycleId);
@@ -3125,6 +3172,9 @@ export async function runCognitiveCycle(
         return blockExternalCycle();
       }
       if (settlement.interactionIntent !== "continue" && settlement.interactionIntent !== "initiate") {
+        return blockExternalCycle();
+      }
+      if (roomDestination && settlement.interactionIntent !== "continue") {
         return blockExternalCycle();
       }
       externalPublication = {

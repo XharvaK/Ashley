@@ -130,6 +130,49 @@ test("fulfillment pump uses the same receipt/finalize flow for cognitive deliver
   assert.deepEqual(events, ["receipt", "finalize:complete"]);
 });
 
+test("fulfillment pump sends a room-bound reservation through the channel queue", async () => {
+  const previousSeed = process.env.RA_ROOM_SEED_ACTIVE;
+  const previousRoom = process.env.RA_ROOM_PUBLICATION;
+  process.env.RA_ROOM_SEED_ACTIVE = "true";
+  process.env.RA_ROOM_PUBLICATION = "room-channel";
+  const finalizations: string[] = [];
+  try {
+    const deps: FulfillmentPumpDependencies = {
+      claim: async () => ({ deliveries: [{
+        reservationId: 175,
+        draftText: "room reply",
+        bubbles: [{ ordinal: 0, text: "room reply", discordMessageId: null }],
+        statusUrl: "/delivery/175",
+        destination: { kind: "room", roomId: "room:guild:room-channel", guildId: "guild", channelId: "room-channel" },
+      }] }),
+      receipt: async () => ({ ok: true }),
+      finalize: async (_reservationId, cause) => {
+        finalizations.push(cause);
+        return { state: "committed", finalizationReason: "all_bubbles_delivered", deliveredText: "room reply" };
+      },
+      send: async () => ({
+        reservationId: 175,
+        attemptedOrdinal: null,
+        receiptedOrdinals: [0],
+        failureCategory: null,
+        anySubstantiveContentVisible: true,
+        messages: [{ id: "room-message" } as Message],
+      }),
+      recheck: async () => ({ ok: true }),
+    };
+    const client = {
+      channels: { fetch: async (id: string) => ({ id, send: async () => ({ id: "room-transport-message" }) }) },
+    } as unknown as Client;
+    assert.equal(await drainPendingCognitiveDeliveries(client, deps), 1);
+    assert.deepEqual(finalizations, ["complete"]);
+  } finally {
+    if (previousSeed === undefined) delete process.env.RA_ROOM_SEED_ACTIVE;
+    else process.env.RA_ROOM_SEED_ACTIVE = previousSeed;
+    if (previousRoom === undefined) delete process.env.RA_ROOM_PUBLICATION;
+    else process.env.RA_ROOM_PUBLICATION = previousRoom;
+  }
+});
+
 test("fulfillment pump records send_failure when Discord send has no visible content", async () => {
   const finalizations: Array<{ reservationId: number; cause: string }> = [];
 

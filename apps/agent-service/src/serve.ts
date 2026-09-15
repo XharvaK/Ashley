@@ -46,6 +46,7 @@ import {
   isExternalSocialCaptureEnabled,
 } from "./core/cognitive-v021/ingress/http.js";
 import { promoteEligiblePending } from "./core/cognitive-v021/social/dm-activation.js";
+import { promoteEligibleRoomPending } from "./core/cognitive-v021/social/room-activation.js";
 import { createLiveExpressionBinding } from "./core/cognitive-v021/speech/live-expression.js";
 
 export function createAgentInboxConsumerHandler(
@@ -156,6 +157,12 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
     if (dmPromotion.rejected > 0) {
       console.warn(
         `[cognitive-v021] external DM promotion deferred rows=${dmPromotion.rejected}`,
+      );
+    }
+    const roomPromotion = promoteEligibleRoomPending(cognitiveSidecar, nuclear, { ownerId });
+    if (roomPromotion.rejected > 0) {
+      console.warn(
+        `[cognitive-v021] external room promotion deferred rows=${roomPromotion.rejected}`,
       );
     }
     const speechRecovery = await reconsiderPendingSpeechOutbox(

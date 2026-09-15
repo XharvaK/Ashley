@@ -1,6 +1,7 @@
 import {
   type Client,
   type DMChannel,
+  type SendableChannels,
 } from "discord.js";
 import { config } from "../config.js";
 import { channelQueue } from "../chat/channel-queue.js";
@@ -36,23 +37,46 @@ const localInFlightReservations = new Set<number>();
 type DeliveryTarget =
   | { kind: "owner" }
   | { kind: "external_dm"; principalId: string }
-  | { kind: "room" }
+  | { kind: "room"; guildId: string; channelId: string }
   | { kind: "invalid" };
 
 function deliveryTarget(destination: unknown): DeliveryTarget {
   if (destination === undefined) return { kind: "owner" };
   if (typeof destination !== "object" || destination === null) return { kind: "invalid" };
-  const value = destination as { kind?: unknown; principalId?: unknown };
+  const value = destination as {
+    kind?: unknown;
+    principalId?: unknown;
+    guildId?: unknown;
+    channelId?: unknown;
+  };
   if ((value.kind === "external_dm" || value.kind === "dm") &&
       typeof value.principalId === "string" && value.principalId.trim()) {
     return { kind: "external_dm", principalId: value.principalId.trim() };
   }
-  if (value.kind === "room") return { kind: "room" };
+  if (value.kind === "room"
+    && typeof value.guildId === "string" && value.guildId.trim()
+    && typeof value.channelId === "string" && value.channelId.trim()) {
+    return {
+      kind: "room",
+      guildId: value.guildId.trim(),
+      channelId: value.channelId.trim(),
+    };
+  }
   return { kind: "invalid" };
 }
 
 function externalDmPublicationEnabled(): boolean {
   return process.env.RA_DM_PUBLICATION === "true" || process.env.RA_DM_PUBLICATION === "1";
+}
+
+function roomPublicationEnabled(channelId: string): boolean {
+  const configured = process.env.RA_ROOM_PUBLICATION?.trim();
+  const seedActive = process.env.RA_ROOM_SEED_ACTIVE === "true" || process.env.RA_ROOM_SEED_ACTIVE === "1";
+  return seedActive && Boolean(configured) && configured === channelId;
+}
+
+function externalTarget(target: DeliveryTarget): target is Extract<DeliveryTarget, { kind: "external_dm" | "room" }> {
+  return target.kind === "external_dm" || target.kind === "room";
 }
 
 function externalDispatchBlocked(
@@ -108,7 +132,7 @@ async function drainPendingDeliveries(
 
     try {
       const target = deliveryTarget(delivery.destination);
-      if (target.kind === "room" || target.kind === "invalid") {
+      if (target.kind === "invalid") {
         await deps.finalize(delivery.reservationId, "send_failure").catch(() => {});
         continue;
       }
@@ -116,9 +140,22 @@ async function drainPendingDeliveries(
         await deps.finalize(delivery.reservationId, "send_failure").catch(() => {});
         continue;
       }
-      const dm = target.kind === "external_dm"
-        ? await (await client.users.fetch(target.principalId)).createDM()
-        : (ownerDm ??= await (await client.users.fetch(config.ownerId)).createDM());
+      if (target.kind === "room" && !roomPublicationEnabled(target.channelId)) {
+        await deps.finalize(delivery.reservationId, "send_failure").catch(() => {});
+        continue;
+      }
+      const channel: SendableChannels = target.kind === "room"
+        ? await (async () => {
+            const fetched = await client.channels.fetch(target.channelId);
+            if (!fetched || typeof (fetched as { send?: unknown }).send !== "function") {
+              throw new Error("room_channel_not_sendable");
+            }
+            return fetched as SendableChannels;
+          })()
+        : target.kind === "external_dm"
+          ? await (await client.users.fetch(target.principalId)).createDM()
+          : (ownerDm ??= await (await client.users.fetch(config.ownerId)).createDM());
+      const queueId = target.kind === "room" ? target.channelId : channel.id;
 
       const bubbles =
         delivery.bubbles.length > 0
@@ -138,8 +175,8 @@ async function drainPendingDeliveries(
       let sendResult: Awaited<ReturnType<typeof sendBubbles>> | null = null;
 
       try {
-        await channelQueue.enqueueOrThrow(dm.id, async ({ signal }) => {
-          if (target.kind === "external_dm") {
+        await channelQueue.enqueueOrThrow(queueId, async ({ signal }) => {
+          if (externalTarget(target)) {
             const verdict = deps.recheck
               ? await deps.recheck(delivery.reservationId)
               : { ok: false as const, reason: "external_recheck_unavailable" };
@@ -149,7 +186,7 @@ async function drainPendingDeliveries(
           }
           dispatchStarted = true;
           sendResult = await deps.send(
-            dm,
+            channel,
             bubbles,
             null,
             {
@@ -162,7 +199,7 @@ async function drainPendingDeliveries(
               onBubbleSent: async (ordinal, msg) => {
                 await persistReceiptWithRetry(deps.receipt, delivery.reservationId, ordinal, msg.id);
               },
-              beforeBubbleSend: target.kind === "external_dm"
+              beforeBubbleSend: externalTarget(target)
                 ? async () => {
                     const verdict = deps.recheck
                       ? await deps.recheck(delivery.reservationId)

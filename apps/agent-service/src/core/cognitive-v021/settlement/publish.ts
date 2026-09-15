@@ -23,6 +23,7 @@ import {
   getDeliveryReservation,
   reserveExternalDeliveryInTransaction,
 } from "../../delivery/store.js";
+import { isRoomPublicationEnabled, roomIdentity } from "../social/room-activation.js";
 import { applyWorkingContextDelta } from "../evidence/working-context.js";
 import { applyConcernDelta, getConcern } from "../concerns/lineage.js";
 import { applyOccupancyDelta } from "../concerns/occupancy.js";
@@ -547,7 +548,9 @@ function normalizeDestination(destination: ExternalPublicationDestination): Exte
       threadId: destination.threadId,
     };
   }
-  if (destination.kind === "room" && typeof destination.roomId === "string" && destination.roomId.trim()) {
+  if (destination.kind === "room" && typeof destination.roomId === "string" && destination.roomId.trim()
+    && typeof destination.guildId === "string" && destination.guildId.trim()
+    && typeof destination.channelId === "string" && destination.channelId.trim()) {
     return {
       kind: "room",
       audience: { kind: "room", roomId: destination.roomId },
@@ -605,6 +608,11 @@ function dependencyRow(db: DatabaseSync, dependency: AuthorityDepRef): Authority
         "SELECT * FROM trusted_rooms WHERE guild_id = ? AND channel_id = ? LIMIT 1",
       ).get(parts[1], parts[2]) as AuthorityRow | undefined;
     }
+  }
+  if (dependency.key.startsWith("room:") && dependency.table === "owner_prohibitions") {
+    return db.prepare(
+      "SELECT * FROM owner_prohibitions WHERE target_room_id = ? ORDER BY version DESC, rowid DESC LIMIT 1",
+    ).get(dependency.key) as AuthorityRow | undefined;
   }
   return undefined;
 }
@@ -802,11 +810,14 @@ function policyReason(
   const rows = currentRowsForDestination(db, candidate.ownerId, destination, nowMs);
   const hardProhibition = rows.prohibitions.some((row) => boolFlag(row.hard_stop) || row.scope === "no_contact");
   if (hardProhibition) return "hard_stop";
-  const directProhibition = rows.prohibitions.some((row) => row.scope === "no_dm" || row.scope === "no_direct");
-  if (directProhibition) return "owner_prohibition";
+  if (destination.kind === "external_dm") {
+    const directProhibition = rows.prohibitions.some((row) => row.scope === "no_dm" || row.scope === "no_direct");
+    if (directProhibition) return "owner_prohibition";
+  }
   const hardBoundary = rows.boundaries.some((row) => row.scope === "no_contact");
   if (hardBoundary) return "hard_stop";
-  if (rows.boundaries.some((row) => row.scope === "no_dm" || row.scope === "no_direct")) return "ashley_boundary";
+  if (destination.kind === "external_dm"
+    && rows.boundaries.some((row) => row.scope === "no_dm" || row.scope === "no_direct")) return "ashley_boundary";
   if (destination.kind === "external_dm") {
     if (candidate.closure?.hardStop === true) return "hard_stop";
     const restriction = rows.restrictions.find((row) => typeof row.kind === "string");
@@ -827,7 +838,21 @@ function policyReason(
       return "ashley_no_initiation";
     }
   }
-  if (destination.kind === "room") return "room_not_yet_activated";
+  if (destination.kind === "room") {
+    if (candidate.interactionIntent !== "continue") return "room_no_initiation";
+    if (!destination.guildId || !destination.channelId
+      || destination.roomId !== roomIdentity(destination.guildId, destination.channelId)) {
+      return "room_not_authorized";
+    }
+    if (!destination.guildId || !destination.channelId
+      || !isRoomPublicationEnabled(process.env, destination.channelId)) {
+      return "room_not_yet_activated";
+    }
+    const room = db.prepare(
+      `SELECT mode FROM trusted_rooms WHERE guild_id = ? AND channel_id = ? LIMIT 1`,
+    ).get(destination.guildId, destination.channelId) as AuthorityRow | undefined;
+    if (room?.mode !== "trusted_social") return "room_not_authorized";
+  }
   return null;
 }
 
@@ -1001,9 +1026,16 @@ export function recheckExternalPublicationReservation(
   reservationId: number,
   nowMs = Date.now(),
 ): { ok: true } | { ok: false; reason: string } {
-  if (!isExternalDmPublicationEnabled()) return { ok: false, reason: "external_publication_disabled" };
   const reservation = getDeliveryReservation(db, reservationId);
   if (!reservation) return { ok: false, reason: "delivery_reservation_missing" };
+  const destination = normalizeDestination(reservation.destination as ExternalPublicationDestination);
+  if (!destination) return { ok: false, reason: "destination_invalid" };
+  if (destination.kind === "external_dm" && !isExternalDmPublicationEnabled()) {
+    return { ok: false, reason: "external_publication_disabled" };
+  }
+  if (destination.kind === "room" && !isRoomPublicationEnabled(process.env, destination.channelId)) {
+    return { ok: false, reason: "room_publication_disabled" };
+  }
   if (reservation.state !== "reserved" && reservation.state !== "sending") {
     return { ok: false, reason: "delivery_not_sendable" };
   }
@@ -1036,7 +1068,6 @@ export function admitExternalPublication(
 ): ExternalPublicationAdmission {
   const shapeError = validateCandidateShape(candidate);
   if (shapeError) return admissionFailure(candidate, shapeError);
-  if (!isExternalDmPublicationEnabled()) return admissionFailure(candidate, "external_publication_disabled");
 
   let nuclear: DatabaseSync;
   try { nuclear = selectNuclearDb(db, authorityDb); } catch (error) {
@@ -1045,6 +1076,9 @@ export function admitExternalPublication(
   const nowMs = candidate.nowMs ?? Date.now();
   const destination = normalizeDestination(candidate.destination);
   if (!destination) return admissionFailure(candidate, "destination_invalid");
+  if (destination.kind === "external_dm" && !isExternalDmPublicationEnabled()) {
+    return admissionFailure(candidate, "external_publication_disabled");
+  }
 
   nuclear.exec("BEGIN IMMEDIATE");
   try {

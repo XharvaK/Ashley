@@ -4,9 +4,7 @@ import {
   getCurrentCycle,
 } from "../cycle/inbox.js";
 import { absorbFreshMessagesInTransaction } from "../cycle/fence.js";
-import {
-  getEvidenceByRowId,
-} from "../evidence/conversation-log.js";
+import { getEvidenceByRowId } from "../evidence/conversation-log.js";
 import type { ConversationEvidenceRecord } from "../types.js";
 import type { DepRef, HardDependencyBundle } from "./types.js";
 import {
@@ -14,16 +12,11 @@ import {
   readEligibilityBundle,
   type EligibilityBundle,
 } from "../../relationship/social-authority.js";
+import { isRoomSeedActive } from "../../relationship/room-seeding.js";
 
 type Row = Record<string, unknown>;
 
-export type ExternalDmActivation = Readonly<{
-  principalId: string | null;
-  cognitionEnabled: boolean;
-  publicationEnabled: boolean;
-}>;
-
-export type ExternalDmPromotionResult = Readonly<{
+export type RoomPromotionResult = Readonly<{
   promoted: number;
   waiting: number;
   rejected: number;
@@ -31,29 +24,8 @@ export type ExternalDmPromotionResult = Readonly<{
   eventIds: readonly string[];
 }>;
 
-function flag(env: NodeJS.ProcessEnv, name: string): boolean {
-  return env[name] === "true" || env[name] === "1";
-}
-
-export function externalDmPrincipal(env: NodeJS.ProcessEnv = process.env): string | null {
-  const value = env.RA_DM_PRINCIPAL?.trim();
-  return value ? value : null;
-}
-
-export function isExternalDmCognitionEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
-  return flag(env, "RA_DM_COGNITION") && externalDmPrincipal(env) !== null;
-}
-
-export function isExternalDmPublicationEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
-  return flag(env, "RA_DM_PUBLICATION") && externalDmPrincipal(env) !== null;
-}
-
-export function readExternalDmActivation(env: NodeJS.ProcessEnv = process.env): ExternalDmActivation {
-  return {
-    principalId: externalDmPrincipal(env),
-    cognitionEnabled: isExternalDmCognitionEnabled(env),
-    publicationEnabled: isExternalDmPublicationEnabled(env),
-  };
+function text(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 function record(value: unknown): Row | null {
@@ -62,30 +34,49 @@ function record(value: unknown): Row | null {
     : null;
 }
 
-function text(value: unknown): string | null {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
-
 function payloadOf(value: unknown): Row {
   if (typeof value !== "string") return {};
   try { return record(JSON.parse(value)) ?? {}; } catch { return {}; }
 }
 
-function externalDmLocation(evidence: ConversationEvidenceRecord): {
-  principalId: string;
+export function roomIdentity(guildId: string, channelId: string): string {
+  const guild = guildId.trim();
+  const channel = channelId.trim();
+  if (!guild || !channel) throw new Error("room_identity_required");
+  return `room:${guild}:${channel}`;
+}
+
+export function configuredRoomChannel(env: NodeJS.ProcessEnv = process.env): string | null {
+  const value = env.RA_ROOM_PUBLICATION?.trim();
+  return value || null;
+}
+
+/** The staged room gate is one explicitly configured Discord channel. */
+export function isRoomPublicationEnabled(
+  env: NodeJS.ProcessEnv = process.env,
+  channelId?: string,
+): boolean {
+  const configured = configuredRoomChannel(env);
+  return isRoomSeedActive(env) && configured !== null
+    && (channelId === undefined || configured === channelId.trim());
+}
+
+function roomLocation(evidence: ConversationEvidenceRecord): {
+  guildId: string;
   channelId: string;
+  speakerPrincipalId: string;
 } | null {
   const location = record(evidence.location);
-  if (location?.kind !== "external_dm") return null;
-  const principalId = text(location.principalId);
-  const channelId = text(location.channelId);
-  if (!principalId || !channelId || evidence.speakerPrincipalId !== principalId) return null;
-  return { principalId, channelId };
+  const guildId = text(location?.guildId);
+  const channelId = text(location?.channelId);
+  const speakerPrincipalId = text(evidence.speakerPrincipalId);
+  if (location?.kind !== "room" || !guildId || !channelId || !speakerPrincipalId) return null;
+  return { guildId, channelId, speakerPrincipalId };
 }
 
 function markerRows(sidecar: DatabaseSync, limit: number): Row[] {
   return sidecar.prepare(
-    `SELECT id, conversation_id, payload_json, created_at_ms
+    `SELECT id, conversation_id, payload_json
        FROM inbox_events
       WHERE kind = 'external_eligible_pending'
         AND wake_id IS NULL
@@ -111,28 +102,29 @@ function markPromotionMarkerConsumed(
   ).run(nowMs, markerId);
 }
 
-function activeDmEligibility(
+function activeRoomEligibility(
   nuclear: DatabaseSync,
   evidence: ConversationEvidenceRecord,
   nowMs: number,
-): { bundle: EligibilityBundle; location: { principalId: string; channelId: string } } | null {
-  const location = externalDmLocation(evidence);
+): { bundle: EligibilityBundle; location: NonNullable<ReturnType<typeof roomLocation>> } | null {
+  const location = roomLocation(evidence);
   if (!location) return null;
   const bundle = readEligibilityBundle(nuclear, {
-    principalId: location.principalId,
+    principalId: location.speakerPrincipalId,
+    guildId: location.guildId,
     channelId: location.channelId,
     nowMs,
   });
-  const decision = classifyEligibility(bundle, "dm");
+  const decision = classifyEligibility(bundle, "room", { roomSeedActive: true });
   return decision.verdict === "allow_social" ? { bundle, location } : null;
 }
 
 /**
- * Promote only the exact configured DM principal. Capture and eligibility
- * markers remain durable when the activation gate is absent or partial.
- * This is the sole P15 constructor for an external cognitive wake/cycle.
+ * Promote room captures only for the one staged room. This is the room-side
+ * constructor for an external cognitive cycle; it is never called by the
+ * capture or batch routes and remains closed unless both room gates are set.
  */
-export function promoteEligiblePending(
+export function promoteEligibleRoomPending(
   sidecar: DatabaseSync,
   nuclear: DatabaseSync,
   options: {
@@ -141,9 +133,10 @@ export function promoteEligiblePending(
     limit?: number;
     env?: NodeJS.ProcessEnv;
   } = {},
-): ExternalDmPromotionResult {
-  const activation = readExternalDmActivation(options.env);
-  if (!activation.cognitionEnabled || !activation.principalId) {
+): RoomPromotionResult {
+  const env = options.env ?? process.env;
+  const configuredChannel = configuredRoomChannel(env);
+  if (!isRoomPublicationEnabled(env, configuredChannel ?? undefined) || !configuredChannel) {
     return { promoted: 0, waiting: 0, rejected: 0, cycleIds: [], eventIds: [] };
   }
 
@@ -159,27 +152,26 @@ export function promoteEligiblePending(
     const conversationId = text(row.conversation_id);
     const payload = payloadOf(row.payload_json);
     const evidenceRowId = text(payload.evidenceRowId);
-    if (!markerId || !conversationId || !evidenceRowId || !conversationId.startsWith("dm:")) {
+    if (!markerId || !conversationId || !evidenceRowId || !conversationId.startsWith("room:")) {
       waiting += 1;
       continue;
     }
     const evidence = getEvidenceByRowId(sidecar, evidenceRowId);
-    const location = evidence ? externalDmLocation(evidence) : null;
-    if (!evidence || !location || location.principalId !== activation.principalId) {
+    const location = evidence ? roomLocation(evidence) : null;
+    if (!evidence || !location || location.channelId !== configuredChannel
+      || conversationId !== roomIdentity(location.guildId, location.channelId)) {
       waiting += 1;
       continue;
     }
 
-    let eligibility: ReturnType<typeof activeDmEligibility>;
+    let eligibility: ReturnType<typeof activeRoomEligibility>;
     try {
-      eligibility = activeDmEligibility(nuclear, evidence, nowMs);
+      eligibility = activeRoomEligibility(nuclear, evidence, nowMs);
     } catch {
       waiting += 1;
       continue;
     }
     if (!eligibility) {
-      // A revoke or restriction before promotion does not destroy the knock.
-      // It remains pending for a later effective Owner grant.
       waiting += 1;
       continue;
     }
@@ -195,10 +187,12 @@ export function promoteEligiblePending(
       }
 
       const current = getCurrentCycle(sidecar, conversationId, { includeIdle: false });
+      const roomId = roomIdentity(location.guildId, location.channelId);
       const utteranceId = `external:utterance:${evidence.rowId}`;
       const destination = {
-        kind: "external_dm" as const,
-        principalId: location.principalId,
+        kind: "room" as const,
+        roomId,
+        guildId: location.guildId,
         channelId: location.channelId,
       };
       const event = appendInboxEventInTransaction(sidecar, {
@@ -215,7 +209,7 @@ export function promoteEligiblePending(
           channel: "discord",
           threadId: conversationId,
           externalDestination: destination,
-          audience: { kind: "dm", principalId: location.principalId },
+          audience: { kind: "room", roomId },
         },
         createdAtMs: nowMs,
         capturedAuthorityRevision: eligibility.bundle.barrier.revision,
@@ -226,7 +220,7 @@ export function promoteEligiblePending(
       if (!cycleId) throw new Error("external_cycle_missing");
       absorbFreshMessagesInTransaction(sidecar, cycleId, [evidence.rowId], {
         nowMs,
-        projectionVersion: "ra-p15-dm-v1",
+        projectionVersion: "ra-p16-room-v1",
       });
 
       const markerEnvelope = sidecar.prepare(
@@ -243,8 +237,8 @@ export function promoteEligiblePending(
       sidecar.exec("COMMIT");
       promoted.push(cycleId);
       eventIds.push(event.id);
-    } catch (error) {
-      try { sidecar.exec("ROLLBACK"); } catch { /* preserve promotion error */ }
+    } catch {
+      try { sidecar.exec("ROLLBACK"); } catch { /* preserve promotion failure */ }
       rejected += 1;
     }
   }
@@ -273,36 +267,87 @@ function dep(
   };
 }
 
-export type ExternalDmAuthorityBinding = Readonly<{
+function roomLicenseRefs(
+  nuclear: DatabaseSync,
+  ownerId: string,
+  roomId: string,
+  nowMs: number,
+): Array<{ entityUuid: string; version: number }> {
+  const rows = nuclear.prepare(
+    `SELECT entity_uuid, version, grantee_audience_json
+       FROM disclosure_licenses
+      WHERE owner_id = ? AND revoked_at IS NULL
+        AND uses_consumed < uses_allowed
+        AND (expires_at IS NULL OR expires_at > ?)
+      ORDER BY grant_ref, entity_uuid`,
+  ).all(ownerId, new Date(nowMs).toISOString()) as Row[];
+  return rows.flatMap((row) => {
+    let audience: Row | null = null;
+    try { audience = record(JSON.parse(String(row.grantee_audience_json ?? ""))); } catch { audience = null; }
+    if (audience?.kind !== "room" || audience.roomId !== roomId) return [];
+    const entityUuid = text(row.entity_uuid);
+    const version = Number(row.version);
+    return entityUuid && Number.isInteger(version) ? [{ entityUuid, version }] : [];
+  });
+}
+
+function roomProhibitionRevision(
+  nuclear: DatabaseSync,
+  ownerId: string,
+  roomId: string,
+): number | null {
+  const row = nuclear.prepare(
+    `SELECT version FROM owner_prohibitions
+      WHERE owner_id = ? AND target_room_id = ? AND cleared_at IS NULL
+      ORDER BY version DESC, rowid DESC LIMIT 1`,
+  ).get(ownerId, roomId) as Row | undefined;
+  const version = Number(row?.version);
+  return Number.isInteger(version) ? version : null;
+}
+
+export type RoomAuthorityBinding = Readonly<{
   bundle: HardDependencyBundle;
   licenseRefs: readonly string[];
 }>;
 
-/** Build the coherent S5 dependency vector used by the external DM rail. */
-export function buildExternalDmAuthorityBinding(
+/** Build a stable-room S5 dependency bundle without requiring a per-bot permit. */
+export function buildRoomAuthorityBinding(
   nuclear: DatabaseSync,
-  input: { principalId: string; channelId: string; nowMs?: number },
-): ExternalDmAuthorityBinding {
+  input: {
+    ownerId: string;
+    roomId: string;
+    guildId: string;
+    channelId: string;
+    nowMs?: number;
+  },
+): RoomAuthorityBinding {
+  const roomId = roomIdentity(input.guildId, input.channelId);
+  if (input.roomId !== roomId) throw new Error("room_identity_mismatch");
+  const nowMs = input.nowMs ?? Date.now();
   const eligibility = readEligibilityBundle(nuclear, {
-    principalId: input.principalId,
+    guildId: input.guildId,
     channelId: input.channelId,
-    nowMs: input.nowMs,
+    nowMs,
   });
-  const permit = eligibility.permits.find((item) =>
-    item.scope === "person_wide" || item.scope === "dm_only");
-  const licenseRefs = eligibility.licenses.map((item) => item.entityUuid);
+  if (eligibility.trustedRoom?.mode !== "trusted_social") throw new Error("room_not_authorized");
+  const licenses = roomLicenseRefs(nuclear, input.ownerId, roomId, nowMs);
   return {
     bundle: {
-      permit: dep(eligibility, "social_permits", permit?.entityUuid ?? `principal:${input.principalId}`, permit?.version ?? null),
-      prohibitionAbsence: dep(eligibility, "owner_prohibitions", `principal:${input.principalId}`, null),
-      roomState: dep(eligibility, "trusted_rooms", "absent-room", null),
-      recipientRestrictionAbsence: dep(eligibility, "recipient_restrictions", `principal:${input.principalId}`, null),
-      ashleyBoundaryAbsence: dep(eligibility, "ashley_boundaries", `principal:${input.principalId}`, null),
-      licenses: eligibility.licenses.map((item) => dep(eligibility, "disclosure_licenses", item.entityUuid, item.version)),
-      capability: dep(eligibility, "capability_authority", "capability:external_dm", null),
-      destinationAccess: dep(eligibility, "destination_access", `dm:${input.principalId}`, null),
+      permit: dep(eligibility, "social_permits", `room:${roomId}`, null),
+      prohibitionAbsence: dep(
+        eligibility,
+        "owner_prohibitions",
+        roomId,
+        roomProhibitionRevision(nuclear, input.ownerId, roomId),
+      ),
+      roomState: dep(eligibility, "trusted_rooms", `room:${input.guildId}:${input.channelId}`, 1),
+      recipientRestrictionAbsence: dep(eligibility, "recipient_restrictions", `room:${roomId}`, null),
+      ashleyBoundaryAbsence: dep(eligibility, "ashley_boundaries", `room:${roomId}`, null),
+      licenses: licenses.map((item) => dep(eligibility, "disclosure_licenses", item.entityUuid, item.version)),
+      capability: dep(eligibility, "capability_authority", "capability:room", null),
+      destinationAccess: dep(eligibility, "destination_access", `room:${roomId}`, null),
       barrier: { epoch: eligibility.barrier.epoch, revision: eligibility.barrier.revision },
     },
-    licenseRefs,
+    licenseRefs: licenses.map((item) => item.entityUuid),
   };
 }
