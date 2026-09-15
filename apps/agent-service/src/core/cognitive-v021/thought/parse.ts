@@ -469,8 +469,22 @@ function validSubscriptionDelta(value: unknown, allowlist: ReadonlySet<string>):
   if (!record || typeof record.op !== "string") return false;
   if (record.op === "cancel") return Object.keys(record).length === 2 && existingRef(record.target, allowlist);
   const item = recordShape(record, ["op", "subscription"]);
-  const subscription = item && recordShape(item.subscription, ["concernRef", "source", "scope", "topicKeys", "match", "expiresAtMs"]);
-  return !!item && !!subscription && item.op === "create"
+  const subscription = item && recordShape(item.subscription, ["concernRef", "source", "scope", "topicKeys", "match", "expiresAtMs"], ["externalSource", "pollIntervalMs"]);
+  if (!item || !subscription || item.op !== "create") return false;
+  const external = subscription.externalSource === undefined
+    ? null
+    : recordShape(subscription.externalSource, ["kind", "urlPattern"]);
+  const externalValid = subscription.externalSource === undefined
+    ? subscription.pollIntervalMs === undefined
+    : !!external
+      && (external.kind === "url" || external.kind === "url_pattern" || external.kind === "rss" || external.kind === "atom" || external.kind === "json")
+      && nonEmptyString(external.urlPattern)
+      && subscription.pollIntervalMs !== undefined
+      && typeof subscription.pollIntervalMs === "number"
+      && Number.isSafeInteger(subscription.pollIntervalMs)
+      && subscription.pollIntervalMs > 0
+      && subscription.expiresAtMs !== null;
+  return externalValid
     && validSemanticRefField(subscription.concernRef, allowlist)
     && nonEmptyString(subscription.source) && nonEmptyString(subscription.scope)
     && stringArray(subscription.topicKeys)

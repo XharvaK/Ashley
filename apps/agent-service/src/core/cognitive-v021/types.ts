@@ -20,7 +20,7 @@ export type { DataClassification } from "../privacy/classification.js";
 export const ARCHITECTURE_EPOCH = "v0.2.1" as const;
 export const IMPLEMENTATION_SPEC_VERSION = "0.2.1.r6" as const;
 export const THOUGHT_CONTRACT_VERSION = 2 as const;
-export const COGNITIVE_SIDECAR_SCHEMA_VERSION = 15 as const;
+export const COGNITIVE_SIDECAR_SCHEMA_VERSION = 16 as const;
 export const CAPACITY_WAIT_MAX_DURATION_MS = 120_000 as const;
 export const MECHANICAL_SPIN_GUARD_LIMIT = 12 as const;
 
@@ -475,6 +475,23 @@ export type FutureTriggerDelta =
   | { op: "create"; trigger: Omit<FutureTrigger, "status"> }
   | { op: "cancel"; triggerId: string };
 
+export type ExternalSubscriptionSourceKind = "url" | "url_pattern" | "rss" | "atom" | "json";
+export type ExternalSubscriptionSource = {
+  kind: ExternalSubscriptionSourceKind;
+  urlPattern: string;
+};
+export type SubscriptionPollOutcomeKind =
+  | "not_due"
+  | "complete_no_match"
+  | "matched"
+  | "fetch_failure"
+  | "timeout"
+  | "partial"
+  | "unavailable"
+  | "rejected"
+  | "expired";
+export type SubscriptionMutationAuthority = "thought_adoption" | "owner_request";
+
 export type ObservationSubscription = {
   subscriptionId: string;
   conversationId: ConversationId;
@@ -485,11 +502,19 @@ export type ObservationSubscription = {
   match: "equality" | "substring";
   expiresAtMs: number | null;
   status: "active" | "cancelled";
+  externalSource?: ExternalSubscriptionSource | null;
+  pollIntervalMs?: number | null;
+  requesterId?: string | null;
+  lastPolledAtMs?: number | null;
+  lastPollOutcome?: SubscriptionPollOutcomeKind | null;
+  expiryOpportunityEmittedAtMs?: number | null;
 };
 export type SubscriptionDelta =
   | {
       op: "create";
       subscription: Omit<ObservationSubscription, "status">;
+      /** Host-derived authority binding for same-id renewal/expansion. */
+      authority?: SubscriptionMutationAuthority;
     }
   | { op: "cancel"; subscriptionId: string };
 
@@ -829,6 +854,8 @@ export type SubscriptionSemanticDelta =
         topicKeys: readonly string[];
         match: "equality" | "substring";
         expiresAtMs: number | null;
+        externalSource?: ExternalSubscriptionSource;
+        pollIntervalMs?: number;
       };
     }
   | { op: "cancel"; target: ExistingRef };

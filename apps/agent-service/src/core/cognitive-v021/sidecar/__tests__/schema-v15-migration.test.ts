@@ -56,12 +56,12 @@ function createV14Fixture(): DatabaseSync {
   return db;
 }
 
-describe("cognitive sidecar Schema V15 migration", () => {
-  it("creates the personal desk exactly once when migrating V14", () => {
+describe("cognitive sidecar Schema V15/V16 migration", () => {
+  it("creates the personal desk and external-watch columns exactly once when migrating V14", () => {
     const db = createV14Fixture();
     try {
       openCognitiveSidecarDb(db, { dataPlane: { kind: "isolated" } });
-      expect((db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(15);
+      expect((db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(16);
       expect(db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'desk_entries'").all())
         .toEqual([{ name: "desk_entries" }]);
       expect(db.prepare("PRAGMA table_info(desk_entries)").all()).toEqual(expect.arrayContaining([
@@ -74,8 +74,16 @@ describe("cognitive sidecar Schema V15 migration", () => {
         expect.objectContaining({ name: "lifecycle" }),
         expect.objectContaining({ name: "updated_generation" }),
       ]));
+      expect(db.prepare("PRAGMA table_info(observation_subscriptions)").all()).toEqual(expect.arrayContaining([
+        expect.objectContaining({ name: "external_source_type" }),
+        expect.objectContaining({ name: "external_source_url_pattern" }),
+        expect.objectContaining({ name: "poll_interval_ms" }),
+        expect.objectContaining({ name: "expires_at_ms" }),
+        expect.objectContaining({ name: "requester_id" }),
+        expect.objectContaining({ name: "last_poll_outcome" }),
+      ]));
       openCognitiveSidecarDb(db, { dataPlane: { kind: "isolated" } });
-      expect((db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(15);
+      expect((db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(16);
       expect(db.prepare("SELECT COUNT(*) AS count FROM desk_entries").get()).toEqual({ count: 0 });
     } finally {
       db.close();

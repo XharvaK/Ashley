@@ -34,7 +34,10 @@ import { applyDeskDeltas } from "../desk/store.js";
 import { applyConcernDelta, getConcern } from "../concerns/lineage.js";
 import { applyOccupancyDelta } from "../concerns/occupancy.js";
 import { enqueueDurableNomination } from "../memory/nomination.js";
-import { assertSubscriptionCapacity } from "../observation/subscriptions.js";
+import {
+  applyObservationSubscriptionDelta,
+  assertSubscriptionCapacity,
+} from "../observation/subscriptions.js";
 import { sanitizeFutureTriggerPayload } from "../initiative/future-triggers.js";
 import { beginConsequenceInTransaction, getWakeForCycle, getWake } from "../wake/ledger.js";
 import { isAuthorizedOwnerId } from "../../../owner-auth.js";
@@ -174,17 +177,7 @@ function applyFutureTriggerDelta(db: DatabaseSync, delta: FutureTriggerDelta): v
 }
 
 function applySubscriptionDelta(db: DatabaseSync, delta: SubscriptionDelta): void {
-  if (delta.op === "cancel") {
-    db.prepare("UPDATE observation_subscriptions SET cancelled = 1 WHERE subscription_id = ?").run(delta.subscriptionId);
-    return;
-  }
-  db.prepare(
-    `INSERT INTO observation_subscriptions
-       (subscription_id, conversation_id, spec_json, cancelled)
-     VALUES (?, ?, ?, 0)
-     ON CONFLICT(subscription_id) DO UPDATE SET conversation_id=excluded.conversation_id,
-       spec_json=excluded.spec_json, cancelled=0`,
-  ).run(delta.subscription.subscriptionId, delta.subscription.conversationId, json(delta.subscription));
+  applyObservationSubscriptionDelta(db, delta);
 }
 
 function applyNomination(db: DatabaseSync, nomination: DurableNomination): void {

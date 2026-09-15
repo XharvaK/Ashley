@@ -13,6 +13,7 @@ import { listWorkingContext } from "../evidence/working-context.js";
 import { upsertMemoryAssertion } from "../memory/assertions.js";
 import { captureThoughtSourceCurrentness } from "../thought/source-currentness.js";
 import { captureThoughtSourcePackage } from "../thought/input.js";
+import { createObservationSubscription } from "../observation/subscriptions.js";
 
 function settlement(overrides: Partial<PublishedCognitiveSettlement> = {}): PublishedCognitiveSettlement {
   return {
@@ -173,6 +174,48 @@ describe("v0.2.1 semantic publication transaction", () => {
       expect(db.prepare("SELECT COUNT(*) AS count FROM settlements").get()).toMatchObject({ count: 1 });
       expect(db.prepare("SELECT COUNT(*) AS count FROM speech_outbox").get()).toMatchObject({ count: 1 });
       expect(db.prepare("SELECT licensed_text FROM speech_outbox").get()).toMatchObject({ licensed_text: "hello" });
+    } finally {
+      db.close();
+    }
+  });
+
+  it("refuses a same-id subscription renewal without renewed authority and rolls back publication", () => {
+    const db = openTestSidecar();
+    try {
+      createObservationSubscription(db, {
+        subscriptionId: "watch-renewal-publish",
+        conversationId: "thread-1",
+        concernId: null,
+        source: "watch",
+        scope: "owner-thread",
+        topicKeys: ["hy3"],
+        match: "substring",
+        expiresAtMs: 10_000,
+        externalSource: { kind: "url", urlPattern: "https://public.test/feed" },
+        pollIntervalMs: 60_000,
+      });
+      admitTestCycle(db, { cycleId: "cycle-renewal", conversationId: "thread-1", triggerKind: "owner_message", triggerRef: "one", occupantId: "doc", authorityEpoch: 1, nowMs: 1 });
+      expect(() => publishSemanticTransaction(db, settlement({
+        cycleId: "cycle-renewal",
+        subscriptions: [{
+          op: "create",
+          subscription: {
+            subscriptionId: "watch-renewal-publish",
+            conversationId: "thread-1",
+            concernId: null,
+            source: "watch",
+            scope: "owner-thread-expanded",
+            topicKeys: ["hy3", "new-topic"],
+            match: "substring",
+            expiresAtMs: 20_000,
+            externalSource: { kind: "url", urlPattern: "https://public.test/feed" },
+            pollIntervalMs: 60_000,
+          },
+        }],
+      }))).toThrow("subscription_renewal_authority_required");
+      expect(db.prepare("SELECT expires_at_ms, cancelled, spec_json FROM observation_subscriptions WHERE subscription_id = ?").get("watch-renewal-publish"))
+        .toMatchObject({ expires_at_ms: 10_000, cancelled: 0 });
+      expect(db.prepare("SELECT COUNT(*) AS count FROM settlements WHERE cycle_id = 'cycle-renewal'").get()).toEqual({ count: 0 });
     } finally {
       db.close();
     }

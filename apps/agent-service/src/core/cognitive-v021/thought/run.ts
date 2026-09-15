@@ -1222,6 +1222,7 @@ function materializeSemanticSettlement(
       ? { op: "cancel", subscriptionId: delta.target }
       : {
           op: "create",
+          authority: "thought_adoption" as const,
           subscription: {
             subscriptionId: randomUUID(),
             conversationId,
@@ -1237,6 +1238,10 @@ function materializeSemanticSettlement(
             topicKeys: [...delta.subscription.topicKeys],
             match: delta.subscription.match,
             expiresAtMs: delta.subscription.expiresAtMs,
+            ...(delta.subscription.externalSource ? {
+              externalSource: { ...delta.subscription.externalSource },
+              pollIntervalMs: delta.subscription.pollIntervalMs,
+            } : {}),
           },
         });
   if (semantic.durableNominations) result.durableNominations = semantic.durableNominations.map((nomination, index) => ({

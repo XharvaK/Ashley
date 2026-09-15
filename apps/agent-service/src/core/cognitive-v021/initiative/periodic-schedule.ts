@@ -12,7 +12,12 @@ import {
   reservePrivateThought,
 } from "../private-budget/ledger.js";
 import { isPeriodicCognitionEnabled } from "../dispatch/live.js";
-import { collectSubscriptionObservations, type SubscriptionItem } from "../observation/subscriptions.js";
+import {
+  collectSubscriptionObservations,
+  pollObservationSubscriptions,
+  type ExternalSubscriptionPollOptions,
+  type SubscriptionItem,
+} from "../observation/subscriptions.js";
 import {
   persistOrVerifyObservations,
   recoverObservationBindingForCycle,
@@ -579,6 +584,10 @@ export type PeriodicPollInput = {
   enabled?: boolean;
   policyId?: string;
   subscriptionItems?: Array<SubscriptionItem | string>;
+  /** When supplied, the existing scheduler polls admitted watches before matching. */
+  externalWatchPoll?: Omit<ExternalSubscriptionPollOptions, "nowMs">;
+  /** Lets the idle owner use the same poll result for its ordinary match path. */
+  onExternalWatchItems?: (items: SubscriptionItem[]) => void;
   /** T8 precedence: any authored trigger fired this poll defers new periodic work. */
   dueTriggerFired?: boolean;
   acquireObservations?: (input: {
@@ -928,7 +937,22 @@ export async function evaluatePeriodicPoll(
   const enabled = resolveEnabled(input.enabled);
   const authorityEpoch = input.authorityEpoch ?? 1;
   const policyId = input.policyId ?? PRIVATE_THOUGHT_POLICY_ID;
-  const subscriptionItems = input.subscriptionItems ?? [];
+  let subscriptionItems = input.subscriptionItems ?? [];
+  if (input.externalWatchPoll !== undefined) {
+    try {
+      const polled = await pollObservationSubscriptions(db, {
+        ...input.externalWatchPoll,
+        nowMs,
+      });
+      if (polled.items.length > 0) {
+        subscriptionItems = [...subscriptionItems, ...polled.items];
+        input.onExternalWatchItems?.(polled.items);
+      }
+    } catch {
+      // External watch failure is represented per watch by the poll owner;
+      // a transport exception must not block the existing scheduler.
+    }
+  }
 
   let schedule = readSchedule(db);
   if (!schedule) {

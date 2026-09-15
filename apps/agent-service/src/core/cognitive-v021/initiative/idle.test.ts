@@ -10,6 +10,7 @@ import { reconcilePolicyClock } from "../private-budget/policy-time-ledger.js";
 import { tickIdleOpportunity } from "./idle.js";
 import { scheduleFutureTrigger } from "./future-triggers.js";
 import { resolveObservationBinding } from "../observation/persistence.js";
+import { createObservationSubscription, MIN_EXTERNAL_WATCH_POLL_INTERVAL_MS } from "../observation/subscriptions.js";
 import {
   listDueCommitmentOpportunities,
   persistCommitmentProposals,
@@ -263,6 +264,61 @@ describe("v0.2.1 idle executive", () => {
       expect(db.prepare("SELECT COUNT(*) AS count FROM concerns").get()).toMatchObject({ count: 0 });
       expect(db.prepare("SELECT COUNT(*) AS count FROM working_context_items").get()).toMatchObject({ count: 0 });
       expect(db.prepare("SELECT COUNT(*) AS count FROM speech_outbox").get()).toMatchObject({ count: 0 });
+    } finally {
+      db.close();
+    }
+  });
+
+  it("routes an admitted external watch through idle matching without a Thought call on a not-due poll", async () => {
+    const db = openTestSidecar();
+    try {
+      const nowMs = 10_000;
+      establishEpoch(db, nowMs);
+      createObservationSubscription(db, {
+        subscriptionId: "idle-external-watch",
+        conversationId: "thread-external-watch",
+        concernId: null,
+        source: "external_watch",
+        scope: "owner-thread",
+        topicKeys: ["HY3"],
+        match: "substring",
+        expiresAtMs: nowMs + 100_000,
+        externalSource: { kind: "url", urlPattern: "https://public.test/watch" },
+        pollIntervalMs: MIN_EXTERNAL_WATCH_POLL_INTERVAL_MS,
+        requesterId: "owner-42",
+      });
+      const fetcher = async () => new Response("<html><body>HY3 changed</body></html>", {
+        status: 200,
+        headers: { "content-type": "text/html" },
+      });
+      const resolve = async () => [{ address: "93.184.216.34", family: 4 }];
+      let thoughtCalls = 0;
+      const first = await tickIdleOpportunity(db, {
+        conversationId: "thread-external-watch",
+        occupantId: "owner-42",
+        nowMs,
+        externalWatch: { fetcher, resolve },
+        runThought: async (input) => {
+          thoughtCalls += 1;
+          expect(input.trigger.kind).toBe("subscription_item");
+          expect(input.observations[0]?.payload).toMatchObject({ requesterId: "owner-42", ownerRequested: true });
+          return { published: true, outboxId: null, thoughtModelAttempts: 1, speechMode: "none" as const };
+        },
+      });
+      expect(first).toMatchObject({ eligible: true, thoughtCalls: 1, acceptedSettlements: 1 });
+
+      const second = await tickIdleOpportunity(db, {
+        conversationId: "thread-external-watch",
+        occupantId: "owner-42",
+        nowMs: nowMs + 1,
+        externalWatch: { fetcher, resolve },
+        runThought: async () => {
+          thoughtCalls += 1;
+          return { published: true, outboxId: null, thoughtModelAttempts: 1, speechMode: "none" as const };
+        },
+      });
+      expect(second.reason).toBe("empty_house");
+      expect(thoughtCalls).toBe(1);
     } finally {
       db.close();
     }

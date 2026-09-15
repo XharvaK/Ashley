@@ -2,7 +2,12 @@ import type { DatabaseSync } from "node:sqlite";
 import { getCycle, resolveDurableContinuationOwner } from "../cycle/inbox.js";
 import { listOccupancy } from "../concerns/occupancy.js";
 import { fireDueTriggers } from "./future-triggers.js";
-import { collectSubscriptionObservations, listObservationSubscriptions, type SubscriptionItem } from "../observation/subscriptions.js";
+import {
+  collectSubscriptionObservations,
+  listObservationSubscriptions,
+  type ExternalSubscriptionPollOptions,
+  type SubscriptionItem,
+} from "../observation/subscriptions.js";
 import { getActiveDeferredFrontier } from "../frontier/ledger.js";
 import {
   type CycleRecord,
@@ -87,6 +92,8 @@ export type IdleTickOptions = {
   subscriptionItems?: Array<SubscriptionItem | string>;
   curiosityItems?: Array<SubscriptionItem | string>;
   items?: Array<SubscriptionItem | string>;
+  /** Optional deterministic transport boundary for admitted external watches. */
+  externalWatch?: Omit<ExternalSubscriptionPollOptions, "nowMs">;
   runThought?: IdleThoughtRunner;
   thought?: IdleThoughtRunner;
   thoughtRunner?: IdleThoughtRunner;
@@ -782,7 +789,7 @@ export async function tickIdleOpportunity(
     logOccupancyUnreachable(options.conversationId ?? null, error);
     return emptyResult(options.conversationId ?? null, "occupancy_unreachable", [], []);
   }
-  const items = inputItems(options);
+  let items = inputItems(options);
   let commitment: CommitmentOpportunity | undefined = options.commitment;
   if (!commitment && options.commitmentDb && isCommitmentsEnabled()) {
     recoverCommitmentOpportunities(options.commitmentDb, {
@@ -806,6 +813,10 @@ export async function tickIdleOpportunity(
     enabled: options.periodicCognitionEnabled,
     policyId: options.privateBudgetPolicyId,
     subscriptionItems: items,
+    externalWatchPoll: options.externalWatch ?? {},
+    onExternalWatchItems: (polledItems) => {
+      items = [...items, ...polledItems];
+    },
     dueTriggerFired: due.fired.length > 0,
     acquireObservations: options.curiosityObservationProvider
       ? async ({ conversationId, nowMs: acquireNowMs, occupancy }) => {

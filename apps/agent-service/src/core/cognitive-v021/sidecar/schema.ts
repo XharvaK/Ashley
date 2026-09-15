@@ -766,3 +766,19 @@ CREATE INDEX IF NOT EXISTS idx_desk_entries_concern
 
 UPDATE cognitive_sidecar_meta SET schema_version = 15, projection_state = 'reconciling' WHERE id = 1;
 `;
+
+export const COGNITIVE_SIDECAR_SCHEMA_V16 = String.raw`
+ALTER TABLE observation_subscriptions ADD COLUMN external_source_type TEXT
+  CHECK(external_source_type IS NULL OR external_source_type IN ('url', 'url_pattern', 'rss', 'atom', 'json'));
+ALTER TABLE observation_subscriptions ADD COLUMN external_source_url_pattern TEXT;
+ALTER TABLE observation_subscriptions ADD COLUMN poll_interval_ms INTEGER;
+ALTER TABLE observation_subscriptions ADD COLUMN expires_at_ms INTEGER;
+ALTER TABLE observation_subscriptions ADD COLUMN requester_id TEXT;
+ALTER TABLE observation_subscriptions ADD COLUMN last_polled_at_ms INTEGER;
+ALTER TABLE observation_subscriptions ADD COLUMN last_poll_outcome TEXT
+  CHECK(last_poll_outcome IS NULL OR last_poll_outcome IN ('not_due', 'complete_no_match', 'matched', 'fetch_failure', 'timeout', 'partial', 'unavailable', 'rejected', 'expired'));
+ALTER TABLE observation_subscriptions ADD COLUMN expiry_opportunity_emitted_at_ms INTEGER;
+CREATE INDEX IF NOT EXISTS idx_observation_subscriptions_external_poll
+  ON observation_subscriptions(cancelled, expires_at_ms, last_polled_at_ms, subscription_id);
+UPDATE cognitive_sidecar_meta SET schema_version = 16, projection_state = 'reconciling' WHERE id = 1;
+`;

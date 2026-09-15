@@ -161,7 +161,7 @@ const futureTriggerDeltaSchema = { oneOf: [
   strictObject({ op: { const: "cancel" }, target: existingRefSchema }, ["op", "target"]),
 ] };
 const subscriptionDeltaSchema = { oneOf: [
-  strictObject({ op: { const: "create" }, subscription: strictObject({ concernRef: nullableSemanticRefSchema, source: { type: "string" }, scope: { type: "string" }, topicKeys: stringArraySchema, match: { enum: ["equality", "substring"] }, expiresAtMs: { type: ["integer", "null"] } }, ["concernRef", "source", "scope", "topicKeys", "match", "expiresAtMs"]) }, ["op", "subscription"]),
+  strictObject({ op: { const: "create" }, subscription: strictObject({ concernRef: nullableSemanticRefSchema, source: { type: "string" }, scope: { type: "string" }, topicKeys: stringArraySchema, match: { enum: ["equality", "substring"] }, expiresAtMs: { type: ["integer", "null"] }, externalSource: strictObject({ kind: { enum: ["url", "url_pattern", "rss", "atom", "json"] }, urlPattern: { type: "string", minLength: 1 } }, ["kind", "urlPattern"]), pollIntervalMs: { type: "integer", minimum: 1 } }, ["concernRef", "source", "scope", "topicKeys", "match", "expiresAtMs"]) }, ["op", "subscription"]),
   strictObject({ op: { const: "cancel" }, target: existingRefSchema }, ["op", "target"]),
 ] };
 const nominationSchema = strictObject({
