@@ -672,6 +672,10 @@ export function sourceCoverageForModernTranscript(input: {
       if (timestamp) timestamps.push(timestamp);
     }
   }
+  for (const ingress of input.transcript.transcript.external_ingress ?? []) {
+    const timestamp = parseTimestamp(ingress.captured_at, "iso");
+    if (timestamp) timestamps.push(timestamp);
+  }
   const activityCount = input.transcript.modern_activity_count ?? 0;
   const recordCount = input.transcript.modern_message_count ?? timestamps.length;
   const gaps = input.transcript.modern_gaps ?? [];

@@ -1,6 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { mkdirSync } from "node:fs";
 import { afterEach, describe, expect, it } from "vitest";
+import { extractEvidence } from "./evidence.js";
 import { fieldDayWindow } from "./field-day.js";
 import { captureModernConversation } from "./modern.js";
 import { assembleTranscript } from "./transcript.js";
@@ -86,6 +87,95 @@ function sidecar(): DatabaseSync {
     );
   `);
   return db;
+}
+
+function addExternalCompatibilitySchema(db: DatabaseSync): void {
+  db.exec(`
+    ALTER TABLE conversation_evidence_log ADD COLUMN speaker_principal_id TEXT;
+    ALTER TABLE conversation_evidence_log ADD COLUMN speaker_kind TEXT;
+    ALTER TABLE conversation_evidence_log ADD COLUMN location_json TEXT;
+    ALTER TABLE conversation_evidence_log ADD COLUMN audience_at_capture TEXT;
+    ALTER TABLE conversation_evidence_log ADD COLUMN sent_at_ms INTEGER;
+    ALTER TABLE conversation_evidence_log ADD COLUMN reply_to_message_id TEXT;
+    ALTER TABLE conversation_evidence_log ADD COLUMN mention_ids_json TEXT;
+    ALTER TABLE conversation_evidence_log ADD COLUMN attachment_refs_json TEXT;
+    ALTER TABLE conversation_evidence_log ADD COLUMN provenance_json TEXT;
+    CREATE TABLE inbox_events (
+      id INTEGER PRIMARY KEY,
+      conversation_id TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      payload_json TEXT,
+      created_at_ms INTEGER NOT NULL,
+      status TEXT NOT NULL,
+      state TEXT NOT NULL,
+      terminal_reason TEXT,
+      quarantine_reason TEXT,
+      wake_id TEXT,
+      envelope_json TEXT
+    );
+  `);
+}
+
+function insertExternalEvidence(db: DatabaseSync, rowId: string, producingCycleId: string | null = null): void {
+  db.prepare(
+    `INSERT INTO conversation_evidence_log
+      (row_id, lineage_id, version, conversation_id, role, text, created_at_ms,
+       discord_message_ids_json, reservation_id, producing_cycle_id, content_hash,
+       source_status, data_classification,
+       speaker_principal_id, speaker_kind, location_json, audience_at_capture,
+       sent_at_ms, reply_to_message_id, mention_ids_json, attachment_refs_json, provenance_json)
+     VALUES (?, ?, 1, ?, 'external_dialog', ?, ?, ?, NULL, ?, 'hash', 'received', 'ordinary',
+       ?, 'external_human', ?, 'dm', ?, NULL, '[]', '[]', ?)`,
+  ).run(
+    rowId,
+    `lineage-${rowId}`,
+    "dm:ashley-bot:person-1",
+    "External hello",
+    inside(2),
+    JSON.stringify([`discord-${rowId}`]),
+    producingCycleId,
+    "person-1",
+    JSON.stringify({ kind: "external_dm", principalId: "person-1", channelId: "dm-1" }),
+    inside(2),
+    JSON.stringify({ source: "discord", receivedAtMs: inside(2) }),
+  );
+}
+
+function insertExternalMarkers(db: DatabaseSync, rowId: string): void {
+  db.prepare(
+    `INSERT INTO inbox_events
+      (id, conversation_id, kind, payload_json, created_at_ms, status, state,
+       terminal_reason, quarantine_reason, wake_id, envelope_json)
+     VALUES (?, ?, 'external_captured', ?, ?, 'pending', 'pending', NULL, NULL, NULL, ?)` ,
+  ).run(
+    9001,
+    "dm:ashley-bot:person-1",
+    JSON.stringify({
+      captureRef: `extcap:${rowId}`,
+      evidenceRowId: rowId,
+      conversationKey: "dm:ashley-bot:person-1",
+      discordMessageId: `discord-${rowId}`,
+    }),
+    inside(2),
+    JSON.stringify({ speakerPrincipalId: "person-1" }),
+  );
+  db.prepare(
+    `INSERT INTO inbox_events
+      (id, conversation_id, kind, payload_json, created_at_ms, status, state,
+       terminal_reason, quarantine_reason, wake_id, envelope_json)
+     VALUES (?, ?, 'quarantined_external', ?, ?, 'failed_terminal', 'quarantined',
+       'unknown_external', 'unknown_external', NULL, NULL)` ,
+  ).run(
+    9002,
+    "dm:ashley-bot:person-1",
+    JSON.stringify({
+      captureRef: `extcap:${rowId}`,
+      evidenceRowId: rowId,
+      conversationKey: "dm:ashley-bot:person-1",
+      discordMessageId: `discord-${rowId}`,
+    }),
+    inside(2, 1),
+  );
 }
 
 function attentionDatabase(): DatabaseSync {
@@ -423,6 +513,125 @@ describe("modern Field Lab transcript and turn evidence", () => {
     });
     expect(first.thought.reasoning_tokens).toBe("UNKNOWN");
     expect(JSON.stringify(capture)).not.toMatch(/reasoning_content|reasoning_format|hidden_reasoning|payload_json/iu);
+    cognitive.close();
+    attention.close();
+  });
+
+  it("preserves external attribution and quarantine separately from ordinary conversation", () => {
+    const cognitive = sidecar();
+    const attention = attentionDatabase();
+    addExternalCompatibilitySchema(cognitive);
+    addAttentionSchema(attention);
+    insertExternalEvidence(cognitive, "external-row-1");
+    insertExternalMarkers(cognitive, "external-row-1");
+
+    const capture = captureModernConversation({ cognitiveSidecar: cognitive, nuclear: attention, window });
+    const externalIngress = (capture as typeof capture & { externalIngress?: Array<Record<string, unknown>> }).externalIngress;
+
+    expect(externalIngress).toEqual([
+      expect.objectContaining({
+        evidence_row_id: "external-row-1",
+        capture_ref: "extcap:external-row-1",
+        discord_message_id: "discord-external-row-1",
+        conversation_id: "dm:ashley-bot:person-1",
+        text_redacted: "External hello",
+        speaker_principal_id: "person-1",
+        speaker_kind: "external_human",
+        location: { kind: "external_dm", principalId: "person-1", channelId: "dm-1" },
+        audience_at_capture: "dm",
+        capture_status: "pending",
+        capture_state: "pending",
+        admission_status: "failed_terminal",
+        admission_marker_state: "quarantined",
+        admission_state: "quarantined_external",
+        quarantine_reason: "unknown_external",
+        cognition_state: "not_reached",
+        publication_state: "not_attempted",
+        delivery_state: "not_attempted",
+      }),
+    ]);
+    expect(capture.sessions).toEqual([]);
+    expect(JSON.stringify(externalIngress)).not.toMatch(/payload_json|envelope_json|sourceUrl/iu);
+
+    const root = tempDir("observer-modern-external-complete-");
+    temporaryPaths.push(root);
+    const sessionsRoot = `${root}/sessions`;
+    mkdirSync(sessionsRoot, { recursive: true });
+    const transcript = assembleTranscript({
+      sessionsRoot,
+      window,
+      nuclear: attention,
+      cognitiveSidecar: cognitive,
+    });
+    expect(transcript.coverage).toBe("NORMAL");
+    expect(transcript.transcript.sessions).toEqual([]);
+    expect(transcript.transcript.external_ingress).toEqual(externalIngress);
+
+    const extracted = extractEvidence({
+      nuclear: attention,
+      continuity: null,
+      cognitiveSidecar: cognitive,
+      window,
+    });
+    expect(extracted.evidence.cognitive_lifecycle).toMatchObject({
+      external_ingress: externalIngress,
+    });
+    cognitive.close();
+    attention.close();
+  });
+
+  it("marks missing external lifecycle markers as a modern source gap", () => {
+    const root = tempDir("observer-modern-external-gap-");
+    temporaryPaths.push(root);
+    const sessionsRoot = `${root}/sessions`;
+    mkdirSync(sessionsRoot, { recursive: true });
+    const cognitive = sidecar();
+    const attention = attentionDatabase();
+    addExternalCompatibilitySchema(cognitive);
+    addAttentionSchema(attention);
+    insertExternalEvidence(cognitive, "external-row-gap");
+
+    const capture = captureModernConversation({ cognitiveSidecar: cognitive, nuclear: attention, window });
+    expect(capture.modernGaps.map((gap) => gap.detail)).toContain(
+      "external_marker_missing:external-row-gap",
+    );
+    const transcript = assembleTranscript({
+      sessionsRoot,
+      window,
+      nuclear: attention,
+      cognitiveSidecar: cognitive,
+    });
+    expect(transcript.coverage).toBe("DEGRADED_PARTIAL");
+    expect(transcript.modern_gaps?.map((gap) => gap.detail)).toContain(
+      "external_marker_missing:external-row-gap",
+    );
+    cognitive.close();
+    attention.close();
+  });
+
+  it("preserves an observed social cycle disposition without treating it as delivery", () => {
+    const cognitive = sidecar();
+    const attention = attentionDatabase();
+    addExternalCompatibilitySchema(cognitive);
+    addAttentionSchema(attention);
+    cognitive.exec("ALTER TABLE cycle_records ADD COLUMN disposition TEXT;");
+    insertExternalEvidence(cognitive, "external-row-silence", "external-cycle-1");
+    cognitive.prepare(
+      `INSERT INTO cycle_records
+        (cycle_id, conversation_id, generation, state, trigger_kind, admitted_at_ms, updated_at_ms, disposition)
+       VALUES ('external-cycle-1', 'dm:ashley-bot:person-1', 1, 'terminal', 'external_message', ?, ?, 'intentional_silence')`,
+    ).run(inside(3), inside(3));
+
+    const capture = captureModernConversation({ cognitiveSidecar: cognitive, nuclear: attention, window });
+    expect(capture.externalIngress).toEqual([
+      expect.objectContaining({
+        cycle_id: "external-cycle-1",
+        cycle_disposition: "intentional_silence",
+        cognition_state: "cycle_admitted",
+        publication_state: "not_attempted",
+        delivery_state: "not_attempted",
+      }),
+    ]);
     cognitive.close();
     attention.close();
   });

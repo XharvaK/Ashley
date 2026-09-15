@@ -132,6 +132,42 @@ export type TranscriptGap = {
   detail: string;
 };
 
+export type ExternalIngressProjection = {
+  /** Stable durable evidence identity. */
+  evidence_row_id: string;
+  lineage_id: string | UnknownValue;
+  evidence_version: number | UnknownValue;
+  conversation_id: string;
+  cycle_id: string | null | UnknownValue;
+  cycle_disposition: string | null | UnknownValue;
+  captured_at: string;
+  text_redacted: string;
+  capture_ref: string | null | UnknownValue;
+  discord_message_id: string | null | UnknownValue;
+  speaker_principal_id: string | null | UnknownValue;
+  speaker_kind: "external_human" | "external_bot" | "UNKNOWN";
+  location: JsonObject | UnknownValue;
+  audience_at_capture: "dm" | "room" | "UNKNOWN";
+  provenance: JsonObject | UnknownValue;
+  source_status: string | UnknownValue;
+  attachment_count: number | UnknownValue;
+  capture_status: string | UnknownValue;
+  capture_state: string | UnknownValue;
+  admission_status: string | UnknownValue;
+  admission_marker_state: string | UnknownValue;
+  /** Capture/admission state is mechanical and does not authorize Thought. */
+  admission_state:
+    | "capture_only"
+    | "external_eligible_pending"
+    | "quarantined_external"
+    | "cognitively_admitted"
+    | "UNKNOWN";
+  quarantine_reason: string | null | UnknownValue;
+  cognition_state: "not_reached" | "cycle_admitted" | "thought_observed" | "UNKNOWN";
+  publication_state: "not_attempted" | "observed" | "UNKNOWN";
+  delivery_state: "not_attempted" | "delivered" | "partial" | "failed" | "UNKNOWN";
+};
+
 export type TranscriptConflict = {
   session_id: string;
   jsonl: {
@@ -152,6 +188,8 @@ export type TranscriptDocument = {
   field_day: string;
   identity: Identity | null;
   sessions: TranscriptSession[];
+  /** External evidence is explicit and is never folded into ordinary sessions. */
+  external_ingress?: ExternalIngressProjection[];
   gaps: TranscriptGap[];
   source_conflicts: TranscriptConflict[];
   source_inventory?: {
@@ -204,6 +242,8 @@ export type EvidenceProjection = {
   continuity_sessions: JsonObject[];
   /** Bounded, redacted facts projected from the existing lifecycle owners. */
   cognitive_lifecycle: JsonObject | UnknownValue;
+  /** External capture and admission facts, separate from ordinary conversation. */
+  external_ingress?: ExternalIngressProjection[];
   /** Per-turn evidence reconstructed from durable modern lifecycle joins. */
   turn_evidence?: JsonObject[];
   /** Observed Expression requests whose durable turn relation may be absent. */

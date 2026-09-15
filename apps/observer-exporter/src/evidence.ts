@@ -1083,6 +1083,7 @@ export function extractEvidence(input: {
     gaps: modernCapture.modernGaps.map((gap) => jsonObject({ class: gap.class, detail: gap.detail })),
     expression_attempts: modernCapture.expressionAttempts,
   });
+  lifecycle.external_ingress = modernCapture.externalIngress;
   lifecycle.turn_evidence = modernCapture.turns;
   lifecycle.expression_attempts = modernCapture.expressionAttempts;
   const evidence: EvidenceProjection = {
@@ -1105,6 +1106,7 @@ export function extractEvidence(input: {
     continuity_lineage: continuityLineage(input.continuity, surfaces).row,
     continuity_sessions: rowsInWindow(input.continuity, surfaces, "runtime_sessions", ["session_id", "started_at", "last_seen_at", "clean_shutdown_at", "build_identity", "nuclear_schema_version", "lineage_id", "data_classification"], window),
     cognitive_lifecycle: lifecycle,
+    external_ingress: modernCapture.externalIngress,
     turn_evidence: modernCapture.turns,
     expression_attempts: modernCapture.expressionAttempts,
   };

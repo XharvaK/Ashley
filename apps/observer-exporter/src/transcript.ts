@@ -261,6 +261,7 @@ export function assembleTranscript(input: {
     })
     : {
       sessions: [],
+      externalIngress: [],
       turns: [],
       expressionAttempts: [],
       modernGaps: [],
@@ -331,6 +332,7 @@ export function assembleTranscript(input: {
     field_day: input.window.fieldDay,
     identity: input.identity ?? null,
     sessions: [...primaryResult.sessions, ...modernCapture.sessions],
+    external_ingress: modernCapture.externalIngress,
     gaps,
     source_conflicts: sourceConflicts,
     source_inventory: {

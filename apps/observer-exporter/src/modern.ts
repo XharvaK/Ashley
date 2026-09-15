@@ -3,6 +3,7 @@ import { fieldDayWhere } from "./coverage.js";
 import { allowlistedRows, tableColumns, tableExists } from "./sqlite.js";
 import { isSecretClassification, redactObserverText } from "./privacy.js";
 import type {
+  ExternalIngressProjection,
   FieldDayWindow,
   JsonObject,
   TranscriptGap,
@@ -23,8 +24,9 @@ type ReadResult = {
 
 type EvidenceRow = {
   rowId: string;
+  lineageId: string | null;
   conversationId: string;
-  role: "owner" | "ashley";
+  role: "owner" | "ashley" | "external_dialog";
   text: string;
   timestamp: string;
   milliseconds: number;
@@ -32,6 +34,13 @@ type EvidenceRow = {
   reservationId: number | null;
   producingCycleId: string | null;
   version: number | null;
+  sourceStatus: string | null;
+  speakerPrincipalId: string | null;
+  speakerKind: "owner" | "external_human" | "external_bot" | "ashley" | "UNKNOWN";
+  location: JsonObject | null;
+  audienceAtCapture: "dm" | "room" | "UNKNOWN";
+  provenance: JsonObject | null;
+  attachmentCount: number | null;
   delivered: boolean;
 };
 
@@ -68,6 +77,7 @@ type BubbleRow = {
 
 export type ModernConversationCapture = {
   sessions: TranscriptSession[];
+  externalIngress: ExternalIngressProjection[];
   turns: JsonObject[];
   expressionAttempts: JsonObject[];
   modernGaps: TranscriptGap[];
@@ -138,6 +148,88 @@ function parseObject(value: unknown): Record<string, unknown> | null {
   }
 }
 
+function parseArrayLength(value: unknown): number | null {
+  if (typeof value !== "string" || value.trim() === "") return null;
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed.length : null;
+  } catch {
+    return null;
+  }
+}
+
+function externalLocation(value: unknown): JsonObject | null {
+  const parsed = parseObject(value);
+  const kind = stringValue(parsed?.kind);
+  if (kind === "external_dm") {
+    const principalId = stringValue(parsed?.principalId);
+    const channelId = stringValue(parsed?.channelId);
+    return principalId && channelId
+      ? jsonObject({ kind, principalId, channelId })
+      : null;
+  }
+  if (kind === "room") {
+    const guildId = stringValue(parsed?.guildId);
+    const channelId = stringValue(parsed?.channelId);
+    return guildId && channelId
+      ? jsonObject({ kind, guildId, channelId })
+      : null;
+  }
+  return null;
+}
+
+function externalProvenance(value: unknown): JsonObject | null {
+  const parsed = parseObject(value);
+  const source = stringValue(parsed?.source);
+  if (!source) return null;
+  const receivedAtMs = numberValue(parsed?.receivedAtMs);
+  return jsonObject({
+    source,
+    ...(receivedAtMs === null ? {} : { receivedAtMs }),
+  });
+}
+
+function inboxPayload(row: Row): Record<string, unknown> | null {
+  return parseObject(row.payload_json);
+}
+
+function inboxEvidenceRowId(row: Row): string | null {
+  const payload = inboxPayload(row);
+  return stringValue(payload?.evidenceRowId) ?? stringValue(payload?.evidence_row_id);
+}
+
+function inboxCaptureRef(row: Row): string | null {
+  return stringValue(inboxPayload(row)?.captureRef) ?? stringValue(inboxPayload(row)?.capture_ref);
+}
+
+function inboxDiscordMessageId(row: Row): string | null {
+  return stringValue(inboxPayload(row)?.discordMessageId) ?? stringValue(inboxPayload(row)?.discord_message_id);
+}
+
+function inboxReason(row: Row): string | null {
+  return stringValue(row.quarantine_reason)
+    ?? stringValue(row.terminal_reason)
+    ?? stringValue(inboxPayload(row)?.reason);
+}
+
+function markerState(kind: unknown): "capture_only" | "external_eligible_pending" | "quarantined_external" | null {
+  if (kind === "quarantined_external") return "quarantined_external";
+  if (kind === "external_eligible_pending") return "external_eligible_pending";
+  if (kind === "external_captured") return "capture_only";
+  return null;
+}
+
+type ExternalMarker = {
+  state: "capture_only" | "external_eligible_pending" | "quarantined_external";
+  captureRef: string | null;
+  discordMessageId: string | null;
+  quarantineReason: string | null;
+  captureStatus: string | null;
+  captureState: string | null;
+  admissionStatus: string | null;
+  admissionMarkerState: string | null;
+};
+
 function readWindowRows(
   db: DatabaseSync | null,
   table: string,
@@ -181,11 +273,25 @@ function readWindowRows(
   }
 }
 
+function readOptionalWindowRows(
+  db: DatabaseSync | null,
+  table: string,
+  fields: string[],
+  requiredFields: readonly string[],
+  window: FieldDayWindow,
+): ReadResult {
+  if (!db || !tableExists(db, table)) {
+    return { rows: [], available: false, complete: true, error: null };
+  }
+  return readWindowRows(db, table, fields, requiredFields, window);
+}
+
 function readModernRows(
   db: DatabaseSync | null,
   window: FieldDayWindow,
 ): {
   evidence: ReadResult;
+  inboxEvents: ReadResult;
   cycles: ReadResult;
   thoughtSteps: ReadResult;
   settlements: ReadResult;
@@ -195,14 +301,30 @@ function readModernRows(
     evidence: readWindowRows(
       db,
       "conversation_evidence_log",
-      ["row_id", "conversation_id", "role", "text", "created_at_ms", "discord_message_ids_json", "reservation_id", "producing_cycle_id", "version", "delivered", "data_classification"],
+      [
+        "row_id", "lineage_id", "conversation_id", "role", "text", "created_at_ms",
+        "discord_message_ids_json", "reservation_id", "producing_cycle_id", "version",
+        "source_status", "data_classification", "speaker_principal_id", "speaker_kind",
+        "location_json", "audience_at_capture", "sent_at_ms", "attachment_refs_json",
+        "provenance_json", "delivered",
+      ],
       ["row_id", "conversation_id", "role", "created_at_ms"],
+      window,
+    ),
+    inboxEvents: readOptionalWindowRows(
+      db,
+      "inbox_events",
+      [
+        "id", "conversation_id", "kind", "payload_json", "created_at_ms", "status", "state",
+        "terminal_reason", "quarantine_reason", "wake_id", "envelope_json",
+      ],
+      ["id", "conversation_id", "kind", "created_at_ms", "status", "state"],
       window,
     ),
     cycles: readWindowRows(
       db,
       "cycle_records",
-      ["cycle_id", "conversation_id", "generation", "state", "admitted_at_ms", "updated_at_ms"],
+      ["cycle_id", "conversation_id", "generation", "state", "trigger_kind", "compose_log_ids_json", "disposition", "admitted_at_ms", "updated_at_ms"],
       ["cycle_id", "conversation_id", "generation", "admitted_at_ms", "updated_at_ms"],
       window,
     ),
@@ -265,7 +387,9 @@ function readDeliveryRows(db: DatabaseSync | null, window: FieldDayWindow): {
 function toEvidenceRows(rows: readonly Row[], gaps: TranscriptGap[]): EvidenceRow[] {
   const result: EvidenceRow[] = [];
   for (const row of rows) {
-    const role = row.role === "owner" || row.role === "ashley" ? row.role : null;
+    const role = row.role === "owner" || row.role === "ashley" || row.role === "external_dialog"
+      ? row.role
+      : null;
     const rowId = stringValue(row.row_id);
     const conversationId = stringValue(row.conversation_id);
     if (!role || !rowId || !conversationId || isSecretClassification(row.data_classification)) continue;
@@ -282,8 +406,37 @@ function toEvidenceRows(rows: readonly Row[], gaps: TranscriptGap[]): EvidenceRo
       gaps.push({ class: "MISSING_MODERN", detail: `modern_evidence_text_missing:${rowId}` });
       continue;
     }
+    const speakerKind = row.speaker_kind === "owner"
+      || row.speaker_kind === "external_human"
+      || row.speaker_kind === "external_bot"
+      || row.speaker_kind === "ashley"
+      ? row.speaker_kind
+      : "UNKNOWN";
+    const location = externalLocation(row.location_json);
+    const audienceAtCapture = row.audience_at_capture === "dm" || row.audience_at_capture === "room"
+      ? row.audience_at_capture
+      : "UNKNOWN";
+    const provenance = externalProvenance(row.provenance_json);
+    if (role === "external_dialog") {
+      if (!stringValue(row.speaker_principal_id)) {
+        gaps.push({ class: "MISSING_MODERN", detail: `external_attribution_missing:${rowId}:speaker_principal_id` });
+      }
+      if (speakerKind !== "external_human" && speakerKind !== "external_bot") {
+        gaps.push({ class: "MISSING_MODERN", detail: `external_attribution_missing:${rowId}:speaker_kind` });
+      }
+      if (!location) {
+        gaps.push({ class: "MISSING_MODERN", detail: `external_attribution_missing:${rowId}:location` });
+      }
+      if (audienceAtCapture === "UNKNOWN") {
+        gaps.push({ class: "MISSING_MODERN", detail: `external_attribution_missing:${rowId}:audience` });
+      }
+      if (!provenance) {
+        gaps.push({ class: "MISSING_MODERN", detail: `external_attribution_missing:${rowId}:provenance` });
+      }
+    }
     result.push({
       rowId,
+      lineageId: stringValue(row.lineage_id),
       conversationId,
       role,
       text,
@@ -293,6 +446,13 @@ function toEvidenceRows(rows: readonly Row[], gaps: TranscriptGap[]): EvidenceRo
       reservationId: numberValue(row.reservation_id),
       producingCycleId: stringValue(row.producing_cycle_id),
       version: numberValue(row.version),
+      sourceStatus: stringValue(row.source_status),
+      speakerPrincipalId: stringValue(row.speaker_principal_id),
+      speakerKind,
+      location,
+      audienceAtCapture,
+      provenance,
+      attachmentCount: parseArrayLength(row.attachment_refs_json),
       delivered: booleanValue(row.delivered),
     });
   }
@@ -767,6 +927,123 @@ function buildTurn(
   };
 }
 
+function cycleForExternalEvidence(evidence: EvidenceRow, cycles: readonly Row[]): Row | undefined {
+  if (evidence.producingCycleId) {
+    const direct = cycles.find((cycle) => String(cycle.cycle_id) === evidence.producingCycleId);
+    if (direct) return direct;
+  }
+  return cycles.find((cycle) => {
+    if (stringValue(cycle.conversation_id) !== evidence.conversationId) return false;
+    if (stringValue(cycle.trigger_kind) !== "external_message" && stringValue(cycle.trigger_kind) !== "external_utterance") {
+      return false;
+    }
+    return parseStringArray(cycle.compose_log_ids_json).includes(evidence.rowId);
+  });
+}
+
+function selectedExternalMarker(
+  evidence: EvidenceRow,
+  markerRows: readonly Row[],
+): ExternalMarker | null {
+  const matches = markerRows.filter((row) => {
+    const state = markerState(row.kind);
+    return state !== null && inboxEvidenceRowId(row) === evidence.rowId;
+  });
+  const selected = ["quarantined_external", "external_eligible_pending", "external_captured"]
+    .map((kind) => matches.find((row) => row.kind === kind))
+    .find((row): row is Row => row !== undefined);
+  if (!selected) return null;
+  const state = markerState(selected.kind);
+  if (!state) return null;
+  const captureMarker = matches.find((row) => row.kind === "external_captured");
+  return {
+    state,
+    captureRef: inboxCaptureRef(selected) ?? (captureMarker ? inboxCaptureRef(captureMarker) : null),
+    discordMessageId: inboxDiscordMessageId(selected) ?? (captureMarker ? inboxDiscordMessageId(captureMarker) : null),
+    quarantineReason: state === "quarantined_external" ? inboxReason(selected) : null,
+    captureStatus: stringValue(captureMarker?.status) ?? stringValue(selected.status),
+    captureState: stringValue(captureMarker?.state) ?? stringValue(selected.state),
+    admissionStatus: stringValue(selected.status),
+    admissionMarkerState: stringValue(selected.state),
+  };
+}
+
+function turnRecord(turn: unknown): Record<string, unknown> | null {
+  if (!turn || typeof turn !== "object" || Array.isArray(turn)) return null;
+  return turn as Record<string, unknown>;
+}
+
+function externalIngressProjection(
+  evidence: EvidenceRow,
+  rows: ReturnType<typeof readModernRows>,
+  turns: readonly JsonObject[],
+  marker: ExternalMarker | null,
+): ExternalIngressProjection {
+  const cycle = cycleForExternalEvidence(evidence, rows.cycles.rows);
+  const cycleId = stringValue(cycle?.cycle_id);
+  const thoughtObserved = cycleId !== null && rows.thoughtSteps.rows.some((row) => String(row.cycle_id) === cycleId);
+  const turn = turnRecord(cycleId === null ? undefined : turns.find((candidate) => String(candidate.cycle_id) === cycleId));
+  const finalSpeech = turnRecord(turn?.final_speech);
+  const deliveryResult = finalSpeech?.delivery_result;
+  const speechObserved = cycleId !== null && rows.speeches.rows.some((row) => String(row.cycle_id) === cycleId);
+  const eligibleMarkerPending = marker?.state === "external_eligible_pending"
+    && marker.admissionStatus === "pending"
+    && marker.admissionMarkerState === "pending";
+  const eligibleMarkerConsumedWithoutCycle = marker?.state === "external_eligible_pending" && cycleId === null && !eligibleMarkerPending;
+  const cognitionState: ExternalIngressProjection["cognition_state"] = cycleId === null
+    ? eligibleMarkerConsumedWithoutCycle
+      ? "UNKNOWN"
+      : rows.cycles.error === null ? "not_reached" : "UNKNOWN"
+    : thoughtObserved
+      ? "thought_observed"
+      : "cycle_admitted";
+  const admissionState: ExternalIngressProjection["admission_state"] = cycleId !== null
+    ? "cognitively_admitted"
+    : marker?.state === "external_eligible_pending"
+      ? eligibleMarkerPending ? marker.state : "UNKNOWN"
+      : marker?.state ?? "UNKNOWN";
+  const publicationState: ExternalIngressProjection["publication_state"] = speechObserved
+    ? "observed"
+    : cycleId !== null && rows.speeches.error !== null
+      ? "UNKNOWN"
+      : "not_attempted";
+  const deliveryState: ExternalIngressProjection["delivery_state"] = !speechObserved
+    ? "not_attempted"
+    : deliveryResult === "delivered" || deliveryResult === "partial" || deliveryResult === "failed"
+      ? deliveryResult
+      : "UNKNOWN";
+  return {
+    evidence_row_id: evidence.rowId,
+    lineage_id: evidence.lineageId ?? "UNKNOWN",
+    evidence_version: evidence.version ?? "UNKNOWN",
+    conversation_id: evidence.conversationId,
+    cycle_id: cycleId,
+    cycle_disposition: cycleId === null ? null : stringValue(cycle?.disposition) ?? "UNKNOWN",
+    captured_at: evidence.timestamp,
+    text_redacted: redactObserverText(evidence.text),
+    capture_ref: marker?.captureRef ?? "UNKNOWN",
+    discord_message_id: marker?.discordMessageId ?? evidence.discordMessageIds[0] ?? null,
+    speaker_principal_id: evidence.speakerPrincipalId ?? "UNKNOWN",
+    speaker_kind: evidence.speakerKind === "external_human" || evidence.speakerKind === "external_bot"
+      ? evidence.speakerKind
+      : "UNKNOWN",
+    location: evidence.location ?? "UNKNOWN",
+    audience_at_capture: evidence.audienceAtCapture,
+    provenance: evidence.provenance ?? "UNKNOWN",
+    source_status: evidence.sourceStatus ?? "UNKNOWN",
+    attachment_count: evidence.attachmentCount ?? "UNKNOWN",
+    capture_status: marker?.captureStatus ?? "UNKNOWN",
+    capture_state: marker?.captureState ?? "UNKNOWN",
+    admission_status: marker?.admissionStatus ?? "UNKNOWN",
+    admission_marker_state: marker?.admissionMarkerState ?? "UNKNOWN",
+    admission_state: admissionState,
+    quarantine_reason: marker?.quarantineReason ?? (admissionState === "UNKNOWN" ? "UNKNOWN" : null),
+    cognition_state: cognitionState,
+    publication_state: publicationState,
+    delivery_state: deliveryState,
+  };
+}
+
 function makeSessions(messages: readonly TranscriptMessage[]): TranscriptSession[] {
   const byConversation = new Map<string, TranscriptMessage[]>();
   for (const message of messages) {
@@ -798,6 +1075,7 @@ export function captureModernConversation(input: {
   if (!input.cognitiveSidecar) {
     return {
       sessions: [],
+      externalIngress: [],
       turns: [],
       expressionAttempts: [],
       modernGaps: [],
@@ -815,6 +1093,37 @@ export function captureModernConversation(input: {
     if (result.error && result.error !== "source_unavailable") modernGaps.push({ class: "MISSING_MODERN", detail: result.error });
   }
   const evidence = toEvidenceRows(rows.evidence.rows, modernGaps);
+  const externalEvidence = evidence.filter((row) => row.role === "external_dialog");
+  const externalMarkerRows = rows.inboxEvents.rows.filter((row) => markerState(row.kind) !== null);
+  for (const event of externalMarkerRows) {
+    const eventEvidenceId = inboxEvidenceRowId(event);
+    if (!eventEvidenceId) {
+      const eventId = stringValue(event.id) ?? "UNKNOWN";
+      modernGaps.push({ class: "MISSING_MODERN", detail: `external_marker_invalid:${eventId}` });
+      continue;
+    }
+    if (!externalEvidence.some((row) => row.rowId === eventEvidenceId)) {
+      modernGaps.push({ class: "MISSING_MODERN", detail: `external_evidence_missing:${eventEvidenceId}` });
+    }
+  }
+  if (externalEvidence.length > 0) {
+    if (rows.inboxEvents.error) {
+      modernGaps.push({ class: "MISSING_MODERN", detail: `external_markers_unreadable:${rows.inboxEvents.error}` });
+    } else if (!rows.inboxEvents.available) {
+      modernGaps.push({ class: "MISSING_MODERN", detail: "external_markers_unavailable" });
+    }
+    for (const row of externalEvidence) {
+      const marker = rows.inboxEvents.available ? selectedExternalMarker(row, rows.inboxEvents.rows) : null;
+      if (rows.inboxEvents.available && !marker) {
+        modernGaps.push({ class: "MISSING_MODERN", detail: `external_marker_missing:${row.rowId}` });
+      }
+      if (marker?.state === "external_eligible_pending"
+        && (marker.admissionStatus !== "pending" || marker.admissionMarkerState !== "pending")
+        && !cycleForExternalEvidence(row, rows.cycles.rows)) {
+        modernGaps.push({ class: "MISSING_MODERN", detail: `external_cycle_missing:${row.rowId}` });
+      }
+    }
+  }
   const attention = toAttentionRows(attentionResult.rows);
   const linkedExpressionIds = new Set<string>();
   for (const speech of rows.speeches.rows) {
@@ -831,6 +1140,9 @@ export function captureModernConversation(input: {
     });
   const activityKeys = new Set<string>();
   for (const row of evidence) activityKeys.add(`evidence:${row.rowId}`);
+  for (const row of rows.inboxEvents.rows) {
+    if (markerState(row.kind) !== null && stringValue(row.id)) activityKeys.add(`inbox:${String(row.id)}`);
+  }
   for (const row of rows.cycles.rows) if (stringValue(row.cycle_id)) activityKeys.add(`cycle:${String(row.cycle_id)}`);
   for (const row of rows.thoughtSteps.rows) if (stringValue(row.request_id)) activityKeys.add(`thought:${String(row.request_id)}`);
   for (const row of rows.settlements.rows) if (stringValue(row.settlement_id)) activityKeys.add(`settlement:${String(row.settlement_id)}`);
@@ -856,13 +1168,20 @@ export function captureModernConversation(input: {
     if (!settlementId || processedOutboxes.has(settlementId)) continue;
     modernGaps.push({ class: "MISSING_MODERN", detail: `speech_cycle_unmatched:${settlementId}` });
   }
-  const modernMessageCount = messages.length;
+  const externalIngress = externalEvidence.map((row) => externalIngressProjection(
+    row,
+    rows,
+    turns,
+    selectedExternalMarker(row, rows.inboxEvents.rows),
+  ));
+  const modernMessageCount = messages.length + externalIngress.length;
   if (activityKeys.size > 0 && modernMessageCount === 0) {
     modernGaps.push({ class: "MISSING_MODERN", detail: "modern_transcript_empty_with_activity" });
   }
   const uniqueGaps = [...new Map(modernGaps.map((gap) => [`${gap.class}:${gap.detail}`, gap])).values()];
   return {
     sessions: makeSessions(messages),
+    externalIngress,
     turns,
     expressionAttempts,
     modernGaps: uniqueGaps,
