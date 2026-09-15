@@ -127,6 +127,7 @@ const sparseObject = (properties: Record<string, unknown>): Record<string, unkno
 const nonEmptyStringArraySchema = presentArray({ type: "string" });
 const semanticOutputSettlementSchema = strictObject({
   kind: { const: "settlement" },
+  interactionIntent: { enum: ["continue", "initiate"] },
   interpretation: sparseObject({
     discourseActs: { type: "array", minItems: 1, items: { enum: ["inform", "ask", "correct", "acknowledge", "disagree", "hold", "silence", "other"] } },
     referentBindings: { type: "array", minItems: 1, items: referentBindingSchema },
@@ -399,6 +400,7 @@ export function thoughtOutputCompatibilityInstruction(): string {
     'During an autonomous idle opportunity only, capabilityReality.publicPresence may expose operationKind:"discord.public_presence" with audience:"FULLY_PUBLIC". You may choose effect_intent with request {"action":"set","text":"<exact public text>"} or {"action":"clear"}; you may also make no public-presence decision by choosing no effect_intent. The public text is deliberate self-presentation visible to anyone who can see Ashley\'s Discord presence, not hidden reasoning or a request to reveal private/internal material. You decide what it means. The Host may reject mechanically unsafe content but never rewrites it. A no-decision leaves the current state unchanged.',
     "CapabilityReality field semantics: conversationalRead reports only whether an additional authorized user-requested URL/page read may be performed; it does not report whether supplied conversation content is visible. Every rawConversation entry included in this request is directly readable current context regardless of conversationalRead.",
     "Do not emit kernel identity, lifecycle, delivery, or publication fields; Ashley code binds those values.",
+    "When the semantic act is social contact, interactionIntent may be continue or initiate; omit it when no contact intent is authored.",
     `A settlement must include these required sections: ${requiredFields(settlement).join(", ")}.`,
     `Speech shape: ${speechForms(settlement).join("; ")}.`,
     "Speech mustSay contract: every mustSay entry is a literal required substring and each entry must appear verbatim in surfaceDraft; the host fidelity checker rejects any draft that does not contain them verbatim. Omit mustSay when no exact literal wording is required. Behavioral, stylistic, or procedural directives do not belong in mustSay; put those in presentationDirectives.",

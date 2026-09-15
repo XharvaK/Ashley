@@ -478,11 +478,11 @@ describe("Thought semantic output contract", () => {
 
   it("keeps protected semantic, wire, and capability fingerprints exact", () => {
     expect(THOUGHT_SEMANTIC_SCHEMA_FINGERPRINT).toBe(
-      "sha256:f7637ff4bcd3cdef07835918553e978c6186aac982291e03ff6796d688ecf5c7",
+      "sha256:ce8c87828428a94285e4bc9668b3cdf5c69b2bc00fd2aa1e8692b45e52729be9",
     );
     const zeroOp = constrainThoughtOutputSchema(buildOperationalEffectNamespaceFromRefs([]));
     expect(zeroOp.wireSchemaFingerprint).toBe(
-      "sha256:0166645e8c53193c14fe80d00c0742b428d641040edaaa005a0a061ca2d10ca7",
+      "sha256:9eee6a93e6e45fa5dbbdff6eab7e1c36d13471b41c2610a8166552d7fd64d2c2",
     );
     expect(zeroOp.namespaceConstraintFingerprint).toBe(
       "sha256:d277b3804b25361994107886d1f33f779a7501298b01fe483ebe7c795b6e19c6",

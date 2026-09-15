@@ -23,6 +23,10 @@ import {
   type DurableSettlement,
 } from "../retry/ledger.js";
 import { getActiveDeferredFrontier } from "../frontier/ledger.js";
+import {
+  controlSettlementReceiptId,
+  type ControlSettlement,
+} from "../../relationship/control-admission.js";
 
 export type AdmitCycleInput = {
   conversationId: ConversationId;
@@ -83,6 +87,7 @@ function triggerKindForInbox(kind: string): CycleTriggerKind {
   if (kind === "subscription_item") return "subscription_item";
   if (kind === "observation_or_receipt") return "observation_or_receipt";
   if (kind === "recovery") return "recovery";
+  if (kind === "control_settlement_receipt") return "observation_or_receipt";
   return "owner_message";
 }
 
@@ -384,6 +389,33 @@ export function appendInboxEvent(db: DatabaseSync, input: AppendInboxEventInput)
     try { db.exec("ROLLBACK"); } catch { /* preserve the append error */ }
     throw error;
   }
+}
+
+/** Feed actual Host control settlement results back to ordinary Thought. */
+export function appendControlSettlementReceipt(
+  db: DatabaseSync,
+  input: {
+    conversationId: ConversationId;
+    sourceRef: string;
+    proposalId: string;
+    settlements: readonly ControlSettlement[];
+    ownerId?: string;
+    nowMs?: number;
+  },
+): InboxEvent {
+  const id = controlSettlementReceiptId(input.proposalId);
+  return appendInboxEvent(db, {
+    id,
+    conversationId: input.conversationId,
+    kind: "control_settlement_receipt",
+    payload: {
+      sourceRef: input.sourceRef,
+      proposalId: input.proposalId,
+      settlements: input.settlements,
+      ...(input.ownerId ? { ownerId: input.ownerId } : {}),
+    },
+    createdAtMs: input.nowMs,
+  });
 }
 
 export { appendInboxEventInTransaction };

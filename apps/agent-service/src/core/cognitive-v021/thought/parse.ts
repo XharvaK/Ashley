@@ -561,11 +561,14 @@ function validateSettlementLocalAliases(
 
 function parseSettlementSemantic(value: SemanticRecord, allowlist: ReadonlySet<string>): ThoughtSemanticParseResult {
   const unknown = Object.keys(value).find((key) => ![
-    "kind", "speech", "interpretation", "commitments", "workingContextDeltas", "concernDeltas",
+    "kind", "interactionIntent", "speech", "interpretation", "commitments", "workingContextDeltas", "concernDeltas",
     "occupancyDeltas", "futureTriggerDeltas", "subscriptionDeltas", "durableNominations", "evidenceUse",
   ].includes(key));
   if (unknown) return semanticFailure("unknown_field", unknown);
   if (value.kind !== "settlement") return semanticFailure("wrong_kind", "kind");
+  if (own(value, "interactionIntent") && value.interactionIntent !== "continue" && value.interactionIntent !== "initiate") {
+    return semanticFailure("invalid_enum", "interactionIntent");
+  }
   if (!own(value, "speech")) return semanticFailure("required_field_missing", "speech");
 
   let result = validateSpeech(value.speech);

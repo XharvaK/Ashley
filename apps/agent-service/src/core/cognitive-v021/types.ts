@@ -772,6 +772,8 @@ export type ThoughtEvidenceUse = {
 export type SettlementSemanticOutput = {
   kind: "settlement";
   speech: ThoughtSpeechIntent;
+  /** Thought-authored declared contact intent; Host enforces it at admission. */
+  interactionIntent?: "continue" | "initiate";
   interpretation?: ThoughtInterpretation;
   commitments?: ThoughtCommitments;
   workingContextDeltas?: readonly WorkingContextSemanticDelta[];
@@ -927,6 +929,8 @@ export type ThoughtSettlementDraft = {
   occupantId: OccupantId;
   architectureEpoch: typeof ARCHITECTURE_EPOCH;
   triggerRef: string;
+  /** Thought-authored declared contact intent; Host enforces it at admission. */
+  interactionIntent?: "continue" | "initiate";
   interpretation?: {
     discourseActs?: DiscourseAct[];
     referentBindings?: ReferentBinding[];

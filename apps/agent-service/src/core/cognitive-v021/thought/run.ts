@@ -158,6 +158,96 @@ import {
   readPublicPresenceContext,
   withPublicPresenceCapability,
 } from "../public-presence.js";
+import {
+  CONTROL_INTERPRETATION_SCHEMA,
+  CONTROL_INTERPRETATION_SCHEMA_FINGERPRINT,
+  parseControlInterpretation,
+  type ControlInterpretationResult,
+} from "../../relationship/control-admission.js";
+
+export type ControlInterpretationPhaseInput = {
+  sourceRef: string;
+  messageId: string;
+  message: string;
+  candidatePrincipalRefs?: readonly Record<string, unknown>[];
+  sourceSpan?: { start: number; end: number };
+};
+
+export type ControlInterpretationPhaseResult = {
+  result: ControlInterpretationResult;
+  requestId: string;
+  attempts: number;
+};
+
+const CONTROL_INTERPRETER_INSTRUCTIONS = [
+  "You are Ashley's bounded Owner control interpreter.",
+  "Interpret only the authenticated Owner message supplied in the user context.",
+  "Return exactly one JSON object: none, ambiguous, or proposals.",
+  "Proposals may contain only ordinal, operation, mechanically attributed principalRef, scope, duration, sourceSpan, and thoughtCycle.",
+  "The ordinal is the only proposal identity supplied by Thought. Never emit id, proposalId, uuid, transactionId, settlementId, or any other identity field.",
+  "Never emit speech, effects, commitments, tools, or ordinary conversational content in this phase.",
+  "Quoted, hypothetical, negated, or ambiguous authority must return ambiguous or none according to the supplied semantic reading; the Host does not infer those meanings.",
+  "Do not guess a principal from a display name or handle. Use only the supplied exact candidate references.",
+].join(" ");
+
+/**
+ * Run the dedicated bounded control phase through the existing Thought
+ * dispatch owner. This phase has its own schema and is never the ordinary
+ * canonical settlement form.
+ */
+export async function runControlInterpretationPhase(
+  input: ControlInterpretationPhaseInput,
+  deps: Pick<KernelDeps, "attentionDb" | "completeChat">,
+  options: {
+    ownerId?: string;
+    deadlineAtMs?: number;
+    signal?: AbortSignal;
+    requestId?: string;
+  } = {},
+): Promise<ControlInterpretationPhaseResult> {
+  if (!input.sourceRef.trim() || !input.messageId.trim() || !input.message.trim()) {
+    throw new Error("control_phase_input_required");
+  }
+  const requestId = options.requestId ?? randomUUID();
+  const deadlineAtMs = options.deadlineAtMs ?? Date.now() + 30_000;
+  const messages: ChatMessage[] = [
+    { role: "system", content: CONTROL_INTERPRETER_INSTRUCTIONS },
+    {
+      role: "user",
+      content: JSON.stringify({
+        sourceRef: input.sourceRef,
+        messageId: input.messageId,
+        message: input.message,
+        ...(input.sourceSpan ? { sourceSpan: input.sourceSpan } : {}),
+        candidatePrincipalRefs: input.candidatePrincipalRefs ?? [],
+      }),
+    },
+  ];
+  const completion = await invokeThoughtComplete(messages, {
+    attentionDb: deps.attentionDb,
+    route: "thought",
+    purpose: "thought",
+    lane: "urgent_grounded",
+    ownerId: options.ownerId ?? "owner",
+    responseFormat: "json_schema",
+    structuredOutput: {
+      contractId: "ashley.thought.control-interpretation.v1",
+      schemaId: "ashley.thought.control-interpretation.v1.schema",
+      schemaFingerprint: CONTROL_INTERPRETATION_SCHEMA_FINGERPRINT,
+      schema: CONTROL_INTERPRETATION_SCHEMA,
+    },
+    maxTokens: 2_048,
+    temperature: 0,
+    deadlineAtMs,
+    signal: options.signal,
+    requestId,
+  }, deps.completeChat);
+  return {
+    result: parseControlInterpretation(completion.text),
+    requestId,
+    attempts: 1,
+  };
+}
 
 export type ThoughtInvocation = {
   output: ThoughtStepOutput;
@@ -792,6 +882,7 @@ function materializeSemanticSettlement(
     occupantId: input.occupantId,
     architectureEpoch: "v0.2.1",
     triggerRef: input.trigger.ref,
+    ...(semantic.interactionIntent ? { interactionIntent: semantic.interactionIntent } : {}),
     speech: {
       mode: semantic.speech.mode,
       surfaceDraft: semantic.speech.mode === "draft" ? semantic.speech.surfaceDraft : null,
