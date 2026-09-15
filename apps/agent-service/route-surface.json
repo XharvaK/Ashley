@@ -78,6 +78,7 @@
     { "method": "GET", "path": "/delivery/pending", "ownerScope": "owner_required", "lifecycle": "active" },
     { "method": "POST", "path": "/delivery/:id/receipt", "ownerScope": "owner_required", "lifecycle": "active" },
     { "method": "POST", "path": "/delivery/:id/recheck-external", "ownerScope": "owner_required", "lifecycle": "active" },
+    { "method": "POST", "path": "/delivery/:id/recheck-owner-room", "ownerScope": "owner_required", "lifecycle": "active" },
     { "method": "POST", "path": "/delivery/:id/auxiliary", "ownerScope": "owner_required", "lifecycle": "active" },
     { "method": "POST", "path": "/delivery/:id/finalize", "ownerScope": "owner_required", "lifecycle": "active" },
     { "method": "POST", "path": "/delivery/claim", "ownerScope": "owner_required", "lifecycle": "active" },

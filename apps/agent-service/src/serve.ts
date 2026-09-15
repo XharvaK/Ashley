@@ -62,6 +62,57 @@ export function createAgentInboxConsumerHandler(
   return (event) => manager.dispatchCognitiveEvent(event);
 }
 
+type StartupCleanupResources = {
+  cognitiveSidecar: DatabaseSync | null;
+  cognitiveConsumer: InboxConsumerHandle | null;
+  frontierCoordinator: FrontierCoordinatorHandle | null;
+  derivedStore: DerivedStore | null;
+  observabilityDb: DatabaseSync | null;
+};
+
+export async function closeStartupResources(
+  manager: Pick<AgentManager, "shutdown" | "logger" | "core">,
+  resources: StartupCleanupResources,
+): Promise<void> {
+  resources.cognitiveConsumer?.stop();
+  resources.frontierCoordinator?.stop();
+  try {
+    if (resources.cognitiveConsumer) await resources.cognitiveConsumer.done;
+  } catch {
+    // Preserve the primary startup failure.
+  }
+  try {
+    await manager.shutdown();
+  } catch {
+    // Preserve the primary startup failure.
+  }
+  try {
+    resources.derivedStore?.close();
+  } catch {
+    // Preserve the primary startup failure.
+  }
+  try {
+    resources.observabilityDb?.close();
+  } catch {
+    // Preserve the primary startup failure.
+  }
+  try {
+    resources.cognitiveSidecar?.close();
+  } catch {
+    // Preserve the primary startup failure.
+  }
+  try {
+    manager.logger.close();
+  } catch {
+    // Preserve the primary startup failure.
+  }
+  try {
+    manager.core.getDatabase().close();
+  } catch {
+    // Preserve the primary startup failure.
+  }
+}
+
 export async function serveAgent(manager: AgentManager): Promise<void> {
   await manager.init();
   const cognitiveSidecar = manager.openCognitiveSidecar();
@@ -297,12 +348,24 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
       },
     );
   }
-  const app = createServer(manager, {
-    cognitiveSidecar,
-    observabilityDb,
-    projectSystemNotice,
-  });
-  const server = listen(app);
+  let server: ReturnType<typeof listen>;
+  try {
+    const app = createServer(manager, {
+      cognitiveSidecar,
+      observabilityDb,
+      projectSystemNotice,
+    });
+    server = listen(app);
+  } catch (error) {
+    await closeStartupResources(manager, {
+      cognitiveSidecar,
+      cognitiveConsumer,
+      frontierCoordinator,
+      derivedStore,
+      observabilityDb,
+    });
+    throw error;
+  }
   manager.markStartupComplete();
   console.log(
     `[agent-service] nuclear core enabled db=${manager.core.getHealth().dbPath} plane=${manager.dataPlane.kind}`,
