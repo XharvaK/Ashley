@@ -37,7 +37,10 @@ import {
   type VerificationOutcome,
   type VerificationProtocolState,
 } from "../v2-types.js";
-import type { ProtectedRootsConfig } from "@composer-assistant/sandbox-policy";
+import {
+  isVerificationRecipeAllowed,
+  type ProtectedRootsConfig,
+} from "@composer-assistant/sandbox-policy";
 
 export const CANDIDATE_GUEST_PATH = "/candidate";
 export const PROJECTION_GUEST_PATH = "/output";
@@ -245,6 +248,10 @@ export async function executeCandidateVerification(
   const resolution = options.registry.resolveReadRoot(validated.projectId);
   if (!resolution.ok) return failed(resolution.error);
   const entry = resolution.entry;
+  if (entry.verificationAllowed !== true) return failed("verification_not_allowed");
+  if (!isVerificationRecipeAllowed(entry, recipe.recipeId)) {
+    return failed("recipe_not_allowed");
+  }
 
   const spawnVerification = options.spawnVerification ?? spawnBubblewrapVerification;
   const isCustomSpawn = options.spawnVerification !== undefined;

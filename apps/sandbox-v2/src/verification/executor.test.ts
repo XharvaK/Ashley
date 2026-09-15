@@ -34,6 +34,8 @@ function projectEntry(overrides: Partial<ProjectRootEntry> = {}): ProjectRootEnt
     readAllowed: true,
     candidateWorkspaceAllowed: false,
     engineeringAllowed: false,
+    verificationAllowed: true,
+    allowedRecipeIds: ["typescript_fixture_compile_v1"],
     ...overrides,
   };
 }
@@ -59,14 +61,14 @@ async function seedWorkspace(sourceRoot: string, managedRoot: string) {
   return { manager, acquired };
 }
 
-function makeHarness() {
+function makeHarness(overrides: Partial<ProjectRootEntry> = {}) {
   const root = mkdtempSync(join(tmpdir(), "ashley-m4-exec-"));
   tempDirs.push(root);
   const sourceRoot = join(root, "src-project");
   const managedRoot = join(root, "workspaces");
   mkdirSync(sourceRoot, { recursive: true });
   mkdirSync(managedRoot, { recursive: true });
-  const registry = new V2ProjectReadRegistry([projectEntry()]);
+  const registry = new V2ProjectReadRegistry([projectEntry(overrides)]);
   const catalog = new RecipeCatalog([fixtureRecipe()]);
   return { root, sourceRoot, managedRoot, registry, catalog };
 }
@@ -108,6 +110,60 @@ describe("M4 verification bwrap args", () => {
 });
 
 describe("M4 workspace.verify executor — adversarial", () => {
+  it("fails closed when direct verification authority is revoked", async () => {
+    const h = makeHarness({ verificationAllowed: false });
+    const { manager, acquired } = await seedWorkspace(h.sourceRoot, h.managedRoot);
+    let spawned = 0;
+    const result = await executeCandidateVerification(
+      {
+        version: 2,
+        operation: "workspace.verify",
+        projectId: "composer-assistant",
+        workspaceId: acquired.workspaceId,
+        recipeId: "typescript_fixture_compile_v1",
+      },
+      {
+        registry: h.registry,
+        recipeCatalog: h.catalog,
+        workspaceManager: manager,
+        spawnVerification: async () => {
+          spawned += 1;
+          throw new Error("revoked verification must not spawn");
+        },
+      },
+    );
+    expect(result.outcome).toBe("failed");
+    if (result.outcome === "failed") expect(result.error).toBe("verification_not_allowed");
+    expect(spawned).toBe(0);
+  });
+
+  it("fails closed when the resolved recipe is not project-authorized", async () => {
+    const h = makeHarness({ allowedRecipeIds: ["other_recipe"] });
+    const { manager, acquired } = await seedWorkspace(h.sourceRoot, h.managedRoot);
+    let spawned = 0;
+    const result = await executeCandidateVerification(
+      {
+        version: 2,
+        operation: "workspace.verify",
+        projectId: "composer-assistant",
+        workspaceId: acquired.workspaceId,
+        recipeId: "typescript_fixture_compile_v1",
+      },
+      {
+        registry: h.registry,
+        recipeCatalog: h.catalog,
+        workspaceManager: manager,
+        spawnVerification: async () => {
+          spawned += 1;
+          throw new Error("disallowed recipe must not spawn");
+        },
+      },
+    );
+    expect(result.outcome).toBe("failed");
+    if (result.outcome === "failed") expect(result.error).toBe("recipe_not_allowed");
+    expect(spawned).toBe(0);
+  });
+
   it("rejects model command/argv/executable before spawn", async () => {
     const h = makeHarness();
     let spawned = false;
@@ -385,6 +441,33 @@ describe("M4 workspace.verify executor — fixture compile", () => {
 });
 
 describe("M4 dispatcher routing", () => {
+  it("fails closed when direct workspace.verify dispatch has revoked authority", async () => {
+    const h = makeHarness({ verificationAllowed: false });
+    const { manager, acquired } = await seedWorkspace(h.sourceRoot, h.managedRoot);
+    let spawned = 0;
+    const dispatcher = new SandboxV2Dispatcher({
+      env: {
+        registry: h.registry,
+        recipeCatalog: h.catalog,
+        workspaceManager: manager,
+        spawnVerification: async () => {
+          spawned += 1;
+          throw new Error("revoked verification must not spawn");
+        },
+      },
+    });
+    const result = await dispatcher.dispatch({
+      version: 2,
+      operation: "workspace.verify",
+      projectId: "composer-assistant",
+      workspaceId: acquired.workspaceId,
+      recipeId: "typescript_fixture_compile_v1",
+    });
+    expect(result.outcome).toBe("failed");
+    if (result.outcome === "failed") expect(result.error).toBe("verification_not_allowed");
+    expect(spawned).toBe(0);
+  });
+
   it("does not fall back to the M3 writable spawn seam", async () => {
     const h = makeHarness();
     const dispatcher = new SandboxV2Dispatcher({
