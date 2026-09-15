@@ -173,6 +173,12 @@ import {
   parseControlInterpretation,
   type ControlInterpretationResult,
 } from "../../relationship/control-admission.js";
+import {
+  buildExternalDmAuthorityBinding,
+  externalDmPrincipal,
+  isExternalDmCognitionEnabled,
+  isExternalDmPublicationEnabled,
+} from "../social/dm-activation.js";
 
 export type ControlInterpretationPhaseInput = {
   sourceRef: string;
@@ -1811,6 +1817,7 @@ function suppliedObservations(
 function triggerKind(value: unknown): CycleTriggerKind {
   switch (value) {
     case "owner_message":
+    case "external_message":
     case "idle_opportunity":
     case "subscription_item":
     case "future_trigger_due":
@@ -1827,14 +1834,16 @@ function deliveryIntentFor(
   payload: Record<string, unknown>,
   purpose: DeliveryIntent["purpose"],
   triggerKind = cycle.triggerKind,
+  externalPublication?: DeliveryIntent["externalPublication"],
 ): DeliveryIntent {
+  const external = triggerKind === "external_message";
   const trigger: DeliveryIntent["trigger"] =
     triggerKind === "idle_opportunity" ? "idle" :
       triggerKind === "subscription_item" ? "subscription" :
         triggerKind === "future_trigger_due" ? "future_trigger" :
           triggerKind === "recovery" ? "recovery" :
             triggerKind === "observation_or_receipt" ? "operation_completion" :
-              "owner_message_reactive";
+            external ? "external_message" : "owner_message_reactive";
   const ownerId = typeof payload.ownerId === "string" && payload.ownerId.trim()
     ? payload.ownerId
     : cycle.conversationId;
@@ -1844,14 +1853,50 @@ function deliveryIntentFor(
   const threadId = typeof payload.threadId === "string" && payload.threadId.trim()
     ? payload.threadId
     : cycle.conversationId;
+  const rawDestination = payload.externalDestination;
+  const destination = external && purpose === "licensed_speech"
+    && typeof rawDestination === "object" && rawDestination !== null && !Array.isArray(rawDestination)
+    ? rawDestination as DeliveryIntent["destination"]
+    : undefined;
   return {
     ownerId,
     channel,
     threadId,
     conversationId: cycle.conversationId,
     trigger,
-    deliveryLane: trigger === "owner_message_reactive" ? "reactive" : "proactive",
+    deliveryLane: trigger === "owner_message_reactive" || trigger === "external_message" ? "reactive" : "proactive",
     purpose,
+    ...(destination ? { destination } : {}),
+    ...(externalPublication ? { externalPublication } : {}),
+  };
+}
+
+type ExternalDmDestination = {
+  kind: "external_dm";
+  principalId: string;
+  channelId?: string;
+  threadId?: string;
+};
+
+function externalDestinationFor(
+  payload: Record<string, unknown>,
+): ExternalDmDestination | null {
+  const value = payload.externalDestination;
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const candidate = value as Record<string, unknown>;
+  if (candidate.kind !== "external_dm" || typeof candidate.principalId !== "string" || !candidate.principalId.trim()) {
+    return null;
+  }
+  const channelId = typeof candidate.channelId === "string" && candidate.channelId.trim()
+    ? candidate.channelId.trim()
+    : undefined;
+  return {
+    kind: "external_dm",
+    principalId: candidate.principalId.trim(),
+    ...(channelId ? { channelId } : {}),
+    ...(typeof candidate.threadId === "string" && candidate.threadId.trim()
+      ? { threadId: candidate.threadId.trim() }
+      : {}),
   };
 }
 
@@ -2141,6 +2186,25 @@ export async function runCognitiveCycle(
     ? getConversationEvidence(sidecar, payload.evidenceRowId)
     : null;
   if (triggerEvidence) cycle = appendCycleLogIds(sidecar, cycle.cycleId, [triggerEvidence.rowId], deps.nowMs());
+  const externalCycle = cycle.triggerKind === "external_message" || event.kind === "external_utterance";
+  const externalDestination = externalCycle ? externalDestinationFor(payload) : null;
+  const externalAudience = externalDestination
+    ? { kind: "dm" as const, principalId: externalDestination.principalId }
+    : undefined;
+  let externalBinding: ReturnType<typeof buildExternalDmAuthorityBinding> | null = null;
+  if (externalDestination) {
+    try {
+      externalBinding = buildExternalDmAuthorityBinding(nuclear, {
+        principalId: externalDestination.principalId,
+        channelId: externalDestination.channelId ?? event.conversationId,
+        nowMs: deps.nowMs(),
+      });
+    } catch {
+      // The final publication path remains fail-closed if the coherent bundle
+      // cannot be reconstructed from the current authority owner.
+      externalBinding = null;
+    }
+  }
   cycle = updateCycleState(sidecar, cycle.cycleId, "assembling", deps.nowMs());
   const admittedCycle = cycle;
   let attemptLifecycleBinding: AttemptLifecycleBinding | null = null;
@@ -2354,6 +2418,8 @@ export async function runCognitiveCycle(
       authorityObjections,
       derivedStore: deps.derivedStore,
       authorityDb: deps.attentionDb,
+      ...(externalAudience ? { audience: externalAudience } : {}),
+      ...(externalBinding ? { licenses: [...externalBinding.licenseRefs] } : {}),
     };
     const sourceCapture = captureThoughtSourcePackage(thoughtInputOptions);
     const sourceCurrentness = sourceCapture.sourceCurrentness;
@@ -3036,12 +3102,45 @@ export async function runCognitiveCycle(
       ...validation.draft,
       speech: { ...validation.draft.speech, surfaceDraft: speechText },
     }, randomUUID(), finalText);
+    let externalPublication: DeliveryIntent["externalPublication"] | undefined;
+    if (externalCycle) {
+      const blockExternalCycle = (): KernelRunResult => {
+        sidecar.prepare(
+          "UPDATE cycle_records SET state = 'silent', disposition = 'blocked_at_dispatch', updated_at_ms = ? WHERE cycle_id = ?",
+        ).run(deps.nowMs(), cycle.cycleId);
+        return resultWithCounters(cycle.cycleId, cycle.generation, null, counters, {
+          thoughtExecutionProvenance: currentExecutionProvenance(),
+        });
+      };
+      const configuredPrincipal = externalDmPrincipal();
+      if (!isExternalDmCognitionEnabled() || !isExternalDmPublicationEnabled()
+        || !configuredPrincipal || !externalDestination
+        || externalDestination.principalId !== configuredPrincipal
+        || settlement.speech.mode !== "draft") {
+        return blockExternalCycle();
+      }
+      const freshness = getCycleFreshnessState(sidecar, cycle.cycleId);
+      const basis = freshness.attemptInputBasis;
+      if (!basis || !externalBinding || externalBinding.licenseRefs.length === 0) {
+        return blockExternalCycle();
+      }
+      if (settlement.interactionIntent !== "continue" && settlement.interactionIntent !== "initiate") {
+        return blockExternalCycle();
+      }
+      externalPublication = {
+        destination: externalDestination,
+        attemptInputBasis: basis,
+        hardDependencyBundle: externalBinding.bundle,
+        interactionIntent: settlement.interactionIntent,
+        licenseRefs: [...externalBinding.licenseRefs],
+      };
+    }
     const publication = publishSemanticTransaction(sidecar, settlement, {
       nowMs: deps.nowMs(),
       triggerKind: cycle.triggerKind,
       fidelity: validation.draft.speech.mode === "draft" ? "passed" : "skipped",
       origin: deps.origin,
-      deliveryIntent: deliveryIntentFor(cycle, payload, "licensed_speech", originProfile.triggerKind),
+      deliveryIntent: deliveryIntentFor(cycle, payload, "licensed_speech", originProfile.triggerKind, externalPublication),
       authorityDb: authorityDbForPacks(deps, packs),
       expectedCurrentness: invocation.kernelEnvelope?.authorityCurrentness ?? packs.currentness.binding,
       currentness: currentnessPack,

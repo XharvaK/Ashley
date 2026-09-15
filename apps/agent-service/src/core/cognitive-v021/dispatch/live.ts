@@ -17,6 +17,7 @@ import {
   getPrivateReservationForWake,
 } from "../private-budget/ledger.js";
 import { getDeferredFrontier } from "../frontier/ledger.js";
+import { externalDmPrincipal, isExternalDmCognitionEnabled } from "../social/dm-activation.js";
 
 export type LiveCognitiveTurnInput = {
   sidecar: DatabaseSync;
@@ -199,6 +200,18 @@ export async function runLiveCognitiveTurn(
   const cycle = getCycle(input.sidecar, cycleId);
   if (!cycle || cycle.wakeId !== wake.wakeId) throw new Error("wake_cycle_conflict");
   if (wake.state === "terminal" || wake.state === "reconciling") throw new Error("wake_not_dispatchable");
+
+  const externalCycle = cycle.triggerKind === "external_message" || input.event.kind === "external_utterance";
+  if (externalCycle) {
+    if (!isExternalDmCognitionEnabled()) throw new Error("external_cognition_disabled");
+    const destination = payload.externalDestination;
+    const principal = typeof destination === "object" && destination !== null && !Array.isArray(destination)
+      ? (destination as Record<string, unknown>).principalId
+      : null;
+    if (typeof principal !== "string" || principal !== externalDmPrincipal()) {
+      throw new Error("external_principal_mismatch");
+    }
+  }
 
   const explicitReservationId = typeof payload.privateBudgetReservationId === "string"
     ? payload.privateBudgetReservationId

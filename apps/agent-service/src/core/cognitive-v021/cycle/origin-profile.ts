@@ -18,6 +18,7 @@ type ProfileTriggerKind = Exclude<CycleTriggerKind, "recovery">;
 function profileForTriggerKind(kind: CycleTriggerKind): SemanticCompositionProfile | null {
   switch (kind) {
     case "owner_message":
+    case "external_message":
       return "A";
     case "observation_or_receipt":
       return "B";
@@ -47,6 +48,9 @@ function triggerKindForEventKind(kind: string): ProfileTriggerKind | null {
     case "owner_message":
     case "owner_utterance":
       return "owner_message";
+    case "external_message":
+    case "external_utterance":
+      return "external_message";
     default:
       return null;
   }

@@ -152,6 +152,7 @@ function payloadRecord(value: unknown): DbRow {
 }
 
 function triggerKindForInbox(kind: string): CycleTriggerKind {
+  if (kind === "external_message" || kind === "external_utterance") return "external_message";
   if (kind === "future_trigger_due") return "future_trigger_due";
   if (kind === "idle_opportunity") return "idle_opportunity";
   if (kind === "subscription_item") return "subscription_item";

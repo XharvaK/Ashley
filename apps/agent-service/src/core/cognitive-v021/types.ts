@@ -196,6 +196,7 @@ export type PrivateBudgetAdmission =
 
 export type CycleTriggerKind =
   | "owner_message"
+  | "external_message"
   | "idle_opportunity"
   | "subscription_item"
   | "future_trigger_due"
@@ -1311,6 +1312,7 @@ export type DeliveryIntent = {
   conversationId: ConversationId;
   trigger:
     | "owner_message_reactive"
+    | "external_message"
     | "idle"
     | "future_trigger"
     | "subscription"
@@ -1318,6 +1320,21 @@ export type DeliveryIntent = {
     | "operation_completion";
   deliveryLane: "reactive" | "proactive" | "social_notify";
   purpose: "licensed_speech" | "system_notice";
+  /** Host-owned destination binding for a permitted social publication. */
+  destination?:
+    | { kind: "external_dm"; principalId: string; channelId?: string; threadId?: string }
+    | { kind: "room"; roomId: string; guildId?: string; channelId?: string; threadId?: string };
+  /** S5 input retained until the existing outbox projector owns a reservation id. */
+  externalPublication?: {
+    destination:
+      | { kind: "external_dm"; principalId: string; channelId?: string; threadId?: string }
+      | { kind: "room"; roomId: string; guildId?: string; channelId?: string; threadId?: string };
+    attemptInputBasis: import("./social/types.js").AttemptInputBasis;
+    hardDependencyBundle: import("./social/types.js").HardDependencyBundle;
+    interactionIntent: import("./social/types.js").InteractionIntent;
+    licenseRefs: string[];
+    materialHash?: string;
+  };
 };
 export type OutboxSendStatus =
   | "pending"

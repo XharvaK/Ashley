@@ -13,6 +13,11 @@ import {
   updateOutboxStatus,
 } from "../speech/outbox.js";
 import {
+  admitExternalPublication,
+  type ExternalPublicationCandidate,
+} from "../settlement/publish.js";
+import { externalDmPrincipal } from "../social/dm-activation.js";
+import {
   getSystemNotice,
   updateSystemNoticeStatus,
 } from "../speech/infrastructure-notice.js";
@@ -489,6 +494,8 @@ export class OutboxDeliveryProjector implements OutboxDeliveryProjectorContract 
     const nowIso = new Date(now).toISOString();
     const leaseIso = new Date(now + (this.options.leaseMs ?? 120_000)).toISOString();
     const bubbles = planContentBubbles(textValue);
+    const external = row.deliveryIntent.externalPublication;
+    const initialState = external ? "drafted" : "reserved";
     this.nuclear.exec("BEGIN IMMEDIATE");
     try {
       const result = this.nuclear.prepare(
@@ -497,19 +504,25 @@ export class OutboxDeliveryProjector implements OutboxDeliveryProjectorContract 
             delivery_lane, initiative_reservation_id, state, error_category, finalization_reason,
             draft_text, first_bubble_deadline_at, first_sent_at,
             generation_lease_expires_at, delivery_lease_expires_at,
-            created_at, finalized_at, cognitive_v021_projection_key)
-         VALUES (?, ?, ?, NULL, NULL, ?, ?, NULL, 'reserved', NULL, NULL,
-                 ?, NULL, NULL, NULL, ?, ?, NULL, ?)`,
+            created_at, finalized_at, cognitive_v021_projection_key,
+            destination_json, attempt_input_basis_json, hard_dependency_bundle_json, license_refs_json)
+         VALUES (?, ?, ?, NULL, NULL, ?, ?, NULL, ?, NULL, NULL,
+                 ?, NULL, NULL, NULL, ?, ?, NULL, ?, ?, ?, ?, ?)`,
       ).run(
         row.deliveryIntent.ownerId,
         row.deliveryIntent.channel,
         row.deliveryIntent.threadId,
         intentTrigger(row.deliveryIntent),
         row.deliveryIntent.deliveryLane,
+        initialState,
         textValue,
         leaseIso,
         nowIso,
         key,
+        external ? JSON.stringify(external.destination) : null,
+        external ? JSON.stringify(external.attemptInputBasis) : null,
+        external ? JSON.stringify(external.hardDependencyBundle) : null,
+        external ? JSON.stringify(external.licenseRefs) : "[]",
       );
       const reservationId = number(result.lastInsertRowid);
       const insertBubble = this.nuclear.prepare(
@@ -543,6 +556,43 @@ export class OutboxDeliveryProjector implements OutboxDeliveryProjectorContract 
     if ("outboxId" in row) updateOutboxStatus(this.sidecar, row.outboxId, "projecting");
     else updateSystemNoticeStatus(this.sidecar, row.noticeId, "projecting");
     const reservationId = this.reserve(row, "outboxId" in row ? row.licensedText : row.noticeText);
+    const external = row.deliveryIntent.externalPublication;
+    if (external) {
+      const principal = external.destination.kind === "external_dm"
+        ? external.destination.principalId
+        : null;
+      const candidate: ExternalPublicationCandidate = {
+        ownerId: row.deliveryIntent.ownerId,
+        reservationId,
+        attemptInputBasis: external.attemptInputBasis,
+        hardDependencyBundle: external.hardDependencyBundle,
+        destination: external.destination,
+        interactionIntent: external.interactionIntent,
+        licenseRefs: [...external.licenseRefs],
+        ...(external.materialHash ? { materialHash: external.materialHash } : {}),
+        nowMs: this.options.nowMs?.() ?? Date.now(),
+      };
+      const admission = principal && externalDmPrincipal() === principal
+        ? admitExternalPublication(this.nuclear, this.nuclear, candidate)
+        : { admitted: false, quarantined: true, reason: "external_principal_mismatch", reservationId };
+      if (!admission.admitted) {
+        const nowIso = new Date(this.options.nowMs?.() ?? Date.now()).toISOString();
+        this.nuclear.prepare(
+          `UPDATE delivery_reservations
+              SET state = 'aborted', error_category = ?, finalization_reason = 'send_failure', finalized_at = ?
+            WHERE id = ? AND state = 'drafted'`,
+        ).run(admission.reason ?? "external_publication_blocked", nowIso, reservationId);
+        if ("outboxId" in row) {
+          updateOutboxStatus(this.sidecar, row.outboxId, "suppressed", {
+            nuclearReservationId: reservationId,
+            finalizationReason: `external_publication_blocked:${admission.reason ?? "unknown"}`,
+          });
+        } else {
+          updateSystemNoticeStatus(this.sidecar, row.noticeId, "suppressed");
+        }
+        return;
+      }
+    }
     const destination = projectionReservation(this.nuclear, row.projectionKey);
     if (destination) {
       markTerminalFromDestination(this.sidecar, this.nuclear, row, destination);
