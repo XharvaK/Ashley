@@ -21,10 +21,11 @@ import { agentErrorMessage } from "../chat/agent-errors.js";
 import { readKillSwitch } from "../chat/kill-switch.js";
 import { tempoTracker } from "../chat/pacing.js";
 import { TurnBuffer } from "../chat/turn-buffer.js";
-import type { GateVerdict } from "../security/gate.js";
+import type { GateVerdict, OwnerRoomContext } from "../security/gate.js";
 
 export type MessageSocialContext = {
-  gateVerdict: GateVerdict;
+  gateVerdict?: GateVerdict;
+  ownerRoomContext?: OwnerRoomContext;
 };
 
 export type MessageIngressChat = (
@@ -35,6 +36,7 @@ export type MessageIngressChat = (
     inboundDiscordMessageIds?: string[];
     finalFragmentReceivedAtMs?: number;
     hasIngestibleTextAttachment?: boolean;
+    ownerRoomContext?: OwnerRoomContext;
   },
 ) => Promise<unknown>;
 
@@ -45,10 +47,12 @@ export type BufferedMessageTurn = {
   finalFragmentReceivedAtMs: number;
   hasIngestibleTextAttachment: boolean;
   gateVerdict?: GateVerdict;
+  ownerRoomContext?: OwnerRoomContext;
 };
 
 type BufferedFragment = Intake & {
   gateVerdict?: GateVerdict;
+  ownerRoomContext?: OwnerRoomContext;
   captureRef?: string;
   conversationKey?: string;
 };
@@ -128,12 +132,22 @@ export function createMessageCreateHandler(options: {
       finalFragmentReceivedAtMs: buffered.finalFragmentReceivedAt,
       hasIngestibleTextAttachment: buffered.fragments.some((fragment) => hasIngestibleTextAttachment(fragment)),
     };
+    const ownerRoomContexts = buffered.fragments
+      .map((fragment) => fragment.ownerRoomContext)
+      .filter((context): context is OwnerRoomContext => context !== undefined);
+    const ownerRoomContext = ownerRoomContexts[0];
+    if (ownerRoomContexts.some((context) =>
+      context.guildId !== ownerRoomContext?.guildId || context.channelId !== ownerRoomContext?.channelId)) {
+      console.warn("[discord-bot] Owner room buffer contained conflicting room context");
+      return;
+    }
     try {
       await options.ingressChat(turn.text, {
         attachments: turn.attachments,
         inboundDiscordMessageIds: turn.inboundDiscordMessageIds,
         finalFragmentReceivedAtMs: turn.finalFragmentReceivedAtMs,
         hasIngestibleTextAttachment: turn.hasIngestibleTextAttachment,
+        ...(ownerRoomContext ? { ownerRoomContext } : {}),
       });
     } catch (error) {
       const code = (error as Error & { code?: string }).code;
@@ -191,7 +205,10 @@ export function createMessageCreateHandler(options: {
         return;
       }
       const channelId = message.channel.id;
-      const first = localTurns.push(channelId, intake, message);
+      const fragment: BufferedFragment = context?.ownerRoomContext
+        ? { ...intake, ownerRoomContext: context.ownerRoomContext }
+        : intake;
+      const first = localTurns.push(channelId, fragment, message);
       if (first) {
         options.onFirstFragment?.(channelId);
         options.channelQueue?.abort(channelId);

@@ -496,6 +496,7 @@ export class OutboxDeliveryProjector implements OutboxDeliveryProjectorContract 
     const leaseIso = new Date(now + (this.options.leaseMs ?? 120_000)).toISOString();
     const bubbles = planContentBubbles(textValue);
     const external = row.deliveryIntent.externalPublication;
+    const destination = external?.destination ?? row.deliveryIntent.destination;
     const initialState = external ? "drafted" : "reserved";
     this.nuclear.exec("BEGIN IMMEDIATE");
     try {
@@ -520,7 +521,7 @@ export class OutboxDeliveryProjector implements OutboxDeliveryProjectorContract 
         leaseIso,
         nowIso,
         key,
-        external ? JSON.stringify(external.destination) : null,
+        destination ? JSON.stringify(destination) : null,
         external ? JSON.stringify(external.attemptInputBasis) : null,
         external ? JSON.stringify(external.hardDependencyBundle) : null,
         external ? JSON.stringify(external.licenseRefs) : "[]",

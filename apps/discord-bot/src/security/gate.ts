@@ -3,6 +3,11 @@ import type { Message } from "discord.js";
 
 export type GateVerdict = "drop" | "capture_quarantine" | "allow_social";
 
+export type OwnerRoomContext = {
+  guildId: string;
+  channelId: string;
+};
+
 export type SocialSenderClassificationInput = {
   selfLoop: boolean;
   transportValid: boolean;
@@ -47,4 +52,37 @@ export function isAllowedMessage(message: Message): boolean {
   if (!message.guild) return true;
   if (config.allowedChannels.length === 0) return false;
   return config.allowedChannels.includes(message.channel.id);
+}
+
+/**
+ * Return room context only for an authenticated Owner message in the one
+ * explicitly configured and currently staged room. The agent repeats the
+ * canonical trusted-room check before admission and publication.
+ */
+export function ownerRoomContextForMessage(
+  message: Message,
+  options: {
+    ownerId?: string;
+    guildId?: string;
+    channelIds?: readonly string[];
+    roomSeedActive?: boolean;
+    publicationChannelId?: string | null;
+  } = {},
+): OwnerRoomContext | undefined {
+  const ownerId = (options.ownerId ?? config.ownerId).trim();
+  const guildId = (options.guildId ?? config.trustedRoomSeed.guildId).trim();
+  const channelIds = options.channelIds ?? config.trustedRoomSeed.channelIds;
+  const roomSeedActive = options.roomSeedActive
+    ?? (process.env.RA_ROOM_SEED_ACTIVE === "true" || process.env.RA_ROOM_SEED_ACTIVE === "1");
+  const publicationChannelId = options.publicationChannelId === undefined
+    ? process.env.RA_ROOM_PUBLICATION?.trim() || null
+    : options.publicationChannelId?.trim() || null;
+  const messageGuildId = message.guild?.id?.trim();
+  const channelId = message.channel?.id?.trim();
+  if (!ownerId || !guildId || !roomSeedActive || !publicationChannelId) return undefined;
+  if (message.author?.id?.trim() !== ownerId) return undefined;
+  if (!messageGuildId || messageGuildId !== guildId || !channelId) return undefined;
+  if (!channelIds.some((candidate) => candidate.trim() === channelId)) return undefined;
+  if (publicationChannelId !== channelId) return undefined;
+  return { guildId, channelId };
 }

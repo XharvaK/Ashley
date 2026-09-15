@@ -5,6 +5,8 @@ import { admitTestCycle, openTestSidecar } from "../test-support.js";
 import { insertOutboxPending } from "../speech/outbox.js";
 import { emitInfrastructureNotice, THOUGHT_UNAVAILABLE_NOTICE, updateSystemNoticeStatus } from "../speech/infrastructure-notice.js";
 import { OutboxDeliveryProjector } from "./outbox-projector.js";
+import { recheckOwnerRoomPublicationReservation } from "../settlement/publish.js";
+import { upsertTrustedRoom } from "../../relationship/social-authority.js";
 
 type PlannedBubbleFixture = {
   discordMessageId?: string | null;
@@ -67,6 +69,68 @@ function seedSystemReservation(
 }
 
 describe("v0.2.1 cross-database outbox projection", () => {
+  it("carries an authenticated Owner room destination without external admission", async () => {
+    const sidecar = openTestSidecar();
+    const nuclear = openNuclearDb(new DatabaseSync(":memory:"));
+    const previousSeed = process.env.RA_ROOM_SEED_ACTIVE;
+    const previousPublication = process.env.RA_ROOM_PUBLICATION;
+    process.env.RA_ROOM_SEED_ACTIVE = "true";
+    process.env.RA_ROOM_PUBLICATION = "owner-channel";
+    try {
+      upsertTrustedRoom(nuclear, {
+        ownerId: "doc",
+        guildId: "owner-guild",
+        channelId: "owner-channel",
+        mode: "trusted_social",
+        provenance: "explicit_config",
+        addedBy: "doc",
+        nowMs: 1,
+      });
+      const row = insertOutboxPending(sidecar, {
+        settlementId: "owner-room-settlement",
+        cycleId: "owner-room-cycle",
+        generation: 1,
+        conversationId: "room:owner-guild:owner-channel",
+        licensedText: "room-bound Owner answer",
+        deliveryIntent: {
+          ownerId: "doc",
+          channel: "discord",
+          threadId: "room:owner-guild:owner-channel",
+          conversationId: "room:owner-guild:owner-channel",
+          trigger: "owner_message_reactive",
+          deliveryLane: "reactive",
+          purpose: "licensed_speech",
+          destination: {
+            kind: "room",
+            roomId: "room:owner-guild:owner-channel",
+            guildId: "owner-guild",
+            channelId: "owner-channel",
+            ownerRoom: true,
+          },
+        },
+      });
+      await new OutboxDeliveryProjector(sidecar, nuclear, { nowMs: () => 1_000 }).project(row.outboxId);
+      const reservation = nuclear.prepare(
+        "SELECT state, destination_json, attempt_input_basis_json FROM delivery_reservations",
+      ).get() as { state: string; destination_json: string; attempt_input_basis_json: string | null };
+      expect(reservation.state).toBe("reserved");
+      expect(JSON.parse(reservation.destination_json)).toMatchObject({
+        kind: "room",
+        roomId: "room:owner-guild:owner-channel",
+        ownerRoom: true,
+      });
+      expect(reservation.attempt_input_basis_json).toBeNull();
+      expect(recheckOwnerRoomPublicationReservation(nuclear, 1)).toEqual({ ok: true });
+    } finally {
+      if (previousSeed === undefined) delete process.env.RA_ROOM_SEED_ACTIVE;
+      else process.env.RA_ROOM_SEED_ACTIVE = previousSeed;
+      if (previousPublication === undefined) delete process.env.RA_ROOM_PUBLICATION;
+      else process.env.RA_ROOM_PUBLICATION = previousPublication;
+      sidecar.close();
+      nuclear.close();
+    }
+  });
+
   it("uses a versioned nuclear key and keeps speech/system namespaces distinct", async () => {
     const sidecar = openTestSidecar();
     const nuclear = openNuclearDb(new DatabaseSync(":memory:"));

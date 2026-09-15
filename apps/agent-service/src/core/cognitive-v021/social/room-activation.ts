@@ -61,6 +61,35 @@ export function isRoomPublicationEnabled(
     && (channelId === undefined || configured === channelId.trim());
 }
 
+export type OwnerRoomDestination = Readonly<{
+  kind: "room";
+  roomId: string;
+  guildId: string;
+  channelId: string;
+  ownerRoom: true;
+}>;
+
+/** Distinguish an authenticated Owner room destination from external room speech. */
+export function isOwnerRoomDestination(value: unknown): value is OwnerRoomDestination {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const candidate = value as Record<string, unknown>;
+  if (
+    candidate.kind !== "room"
+    || candidate.ownerRoom !== true
+    || typeof candidate.roomId !== "string"
+    || typeof candidate.guildId !== "string"
+    || typeof candidate.channelId !== "string"
+  ) return false;
+  const guildId = candidate.guildId.trim();
+  const channelId = candidate.channelId.trim();
+  if (guildId !== candidate.guildId || channelId !== candidate.channelId) return false;
+  try {
+    return candidate.roomId === roomIdentity(guildId, channelId);
+  } catch {
+    return false;
+  }
+}
+
 function roomLocation(evidence: ConversationEvidenceRecord): {
   guildId: string;
   channelId: string;

@@ -291,8 +291,10 @@ export function appendEvidenceInTransaction(
       `INSERT INTO conversation_evidence_log
          (row_id, lineage_id, version, conversation_id, role, text, created_at_ms,
           discord_message_ids_json, reservation_id, producing_cycle_id, architecture_epoch,
-          content_hash, source_status, data_classification, secret_omitted, delivered)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          content_hash, source_status, data_classification, secret_omitted, delivered,
+          speaker_principal_id, speaker_kind, location_json, audience_at_capture,
+          sent_at_ms, reply_to_message_id, mention_ids_json, attachment_refs_json, provenance_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       rowId,
       lineageId,
@@ -310,6 +312,15 @@ export function appendEvidenceInTransaction(
       normalized.classification,
       normalized.secretOmitted ? 1 : 0,
       input.delivered ? 1 : 0,
+      input.speakerPrincipalId ?? null,
+      input.speakerKind ?? null,
+      input.location == null ? null : JSON.stringify(input.location),
+      input.audienceAtCapture ?? null,
+      input.sentAtMs ?? null,
+      input.replyToMessageId ?? null,
+      JSON.stringify(input.mentionIds ?? []),
+      JSON.stringify(input.attachmentRefs ?? []),
+      input.provenance == null ? null : JSON.stringify(input.provenance),
     );
   }
 

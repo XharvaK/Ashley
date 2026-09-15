@@ -10,6 +10,7 @@ import {
   classifySocialSender,
   isAllowedMessage,
   isOwner,
+  ownerRoomContextForMessage,
 } from "./security/gate.js";
 import { handleSlash } from "./handlers/interactionCreate.js";
 import { handleMessage } from "./handlers/messageCreate.js";
@@ -69,7 +70,8 @@ export function createClient(): Client {
           console.log(
             `[discord-bot] message from ${authorId} in ${full.channel.isDMBased() ? "DM" : "guild"}`,
           );
-          await handleMessage(full);
+          const ownerRoomContext = ownerRoomContextForMessage(full);
+          await handleMessage(full, ownerRoomContext ? { ownerRoomContext } : undefined);
           return;
         }
         let eligibility: { authorized: boolean; audienceHint?: "dm" | "room" | "unknown" } | undefined;

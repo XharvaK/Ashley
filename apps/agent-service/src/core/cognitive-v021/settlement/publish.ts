@@ -23,7 +23,11 @@ import {
   getDeliveryReservation,
   reserveExternalDeliveryInTransaction,
 } from "../../delivery/store.js";
-import { isRoomPublicationEnabled, roomIdentity } from "../social/room-activation.js";
+import {
+  isOwnerRoomDestination,
+  isRoomPublicationEnabled,
+  roomIdentity,
+} from "../social/room-activation.js";
 import { applyWorkingContextDelta } from "../evidence/working-context.js";
 import { applyConcernDelta, getConcern } from "../concerns/lineage.js";
 import { applyOccupancyDelta } from "../concerns/occupancy.js";
@@ -1065,6 +1069,47 @@ export function recheckExternalPublicationReservation(
     try { db.exec("ROLLBACK"); } catch { /* preserve recheck error */ }
     return { ok: false, reason: error instanceof Error ? error.message : "external_recheck_failed" };
   }
+}
+
+/** Recheck an authenticated Owner room destination without applying external S5 rules. */
+export function recheckOwnerRoomPublicationReservation(
+  db: DatabaseSync,
+  reservationId: number,
+  _nowMs = Date.now(),
+): { ok: true } | { ok: false; reason: string } {
+  const reservation = getDeliveryReservation(db, reservationId);
+  if (!reservation) return { ok: false, reason: "delivery_reservation_missing" };
+  if (!isOwnerRoomDestination(reservation.destination)) {
+    return { ok: false, reason: "owner_room_destination_invalid" };
+  }
+  if (reservation.state !== "reserved" && reservation.state !== "sending") {
+    return { ok: false, reason: "delivery_not_sendable" };
+  }
+  if (!isRoomPublicationEnabled(process.env, reservation.destination.channelId)) {
+    return { ok: false, reason: "room_publication_disabled" };
+  }
+  try {
+    if (readAuthorityBarrier(db).state !== "stable") {
+      return { ok: false, reason: "authority_barrier_not_stable" };
+    }
+  } catch {
+    return { ok: false, reason: "authority_barrier_unavailable" };
+  }
+  const room = db.prepare(
+    `SELECT owner_id, guild_id, channel_id, mode
+       FROM trusted_rooms
+      WHERE guild_id = ? AND channel_id = ?
+      LIMIT 1`,
+  ).get(reservation.destination.guildId, reservation.destination.channelId) as DbRow | undefined;
+  if (
+    String(room?.owner_id ?? "") !== reservation.ownerId
+    || String(room?.guild_id ?? "") !== reservation.destination.guildId
+    || String(room?.channel_id ?? "") !== reservation.destination.channelId
+    || room?.mode !== "trusted_social"
+  ) {
+    return { ok: false, reason: "owner_room_not_authorized" };
+  }
+  return { ok: true };
 }
 
 /**

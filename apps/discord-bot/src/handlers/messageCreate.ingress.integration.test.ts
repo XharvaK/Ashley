@@ -52,6 +52,24 @@ function externalMessage(
   } as never;
 }
 
+function ownerMessage(
+  id: string,
+  content: string,
+  input: { channelId?: string; guildId?: string },
+) {
+  return {
+    id,
+    content,
+    author: { id: "owner-1", bot: false },
+    channel: { id: input.channelId ?? "channel-1" },
+    guild: input.guildId ? { id: input.guildId } : null,
+    attachments: new Map(),
+    stickers: new Map(),
+    embeds: [],
+    mentions: { users: new Map() },
+  } as never;
+}
+
 test("Discord ingress admits B while the first Thought/agent request is pending", async () => {
     let releaseA!: () => void;
     const aFinished = new Promise<void>((resolve) => { releaseA = resolve; });
@@ -179,6 +197,50 @@ test("external capture completes before the reference enters the buffer", async 
     refs: ["extcap:1"],
     key: "dm:ashley-bot:person-1",
   }]);
+});
+
+test("Owner trusted-room context uses Owner ingress and reaches the room-aware options", async () => {
+  let captureCalls = 0;
+  let admittedOptions: Record<string, unknown> | undefined;
+  const handler = createMessageCreateHandler({
+    quietMs: 1,
+    hardCapMs: 10,
+    ingressChat: async (_text, options) => {
+      admittedOptions = options as Record<string, unknown>;
+    },
+    captureExternalChat: async () => {
+      captureCalls += 1;
+      throw new Error("Owner room must not use external capture");
+    },
+  });
+
+  await handler.handleMessage(
+    ownerMessage("owner-room-1", "hello room", { guildId: "guild-1", channelId: "room-channel" }),
+    { ownerRoomContext: { guildId: "guild-1", channelId: "room-channel" } },
+  );
+  await handler.flushForTest("room-channel");
+
+  assert.equal(captureCalls, 0);
+  assert.deepEqual(admittedOptions?.ownerRoomContext, {
+    guildId: "guild-1",
+    channelId: "room-channel",
+  });
+});
+
+test("Owner DM remains on the existing private ingress without room context", async () => {
+  let admittedOptions: Record<string, unknown> | undefined;
+  const handler = createMessageCreateHandler({
+    quietMs: 1,
+    hardCapMs: 10,
+    ingressChat: async (_text, options) => {
+      admittedOptions = options as Record<string, unknown>;
+    },
+  });
+
+  await handler.handleMessage(ownerMessage("owner-dm-1", "hello private", {}));
+  await handler.flushForTest("channel-1");
+
+  assert.equal(admittedOptions?.ownerRoomContext, undefined);
 });
 
 test("valid external empty messages are captured", async () => {

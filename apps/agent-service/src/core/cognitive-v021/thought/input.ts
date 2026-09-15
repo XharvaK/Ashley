@@ -94,6 +94,8 @@ export type BuildThoughtInputOptions = {
   sourceCapture?: ThoughtSourceCapture;
   /** Audience for this lifecycle. Legacy Owner callers default to Owner-private. */
   audience?: SocialAudience;
+  /** Authenticated Owner identity remains authoritative in a room audience. */
+  authenticatedOwner?: boolean;
   /** Current permitted destination facts. Thought may choose; Host does not fan out. */
   availableDestinations?: readonly AvailableSocialDestination[];
   /** Active disclosure-license entity UUIDs already resolved by the Host. */
@@ -250,8 +252,11 @@ function filterCapabilityReality(
   capability: CapabilityReality,
   audience: SocialAudience,
   licenses: readonly string[],
+  authenticatedOwner = false,
 ): CapabilityReality {
-  if (audience.kind === "owner_private") return capability;
+  if (audience.kind === "owner_private" || (authenticatedOwner && audience.kind === "room")) {
+    return capability;
+  }
   const capabilityAllowed = (name: string): boolean => licenses.includes(name);
   return {
     ...capability,
@@ -664,7 +669,12 @@ export function buildThoughtInput(options: BuildThoughtInputOptions): ThoughtInp
     licenses,
   );
   const constitution = filterConstitution(options.constitution, audience);
-  const capabilityReality = filterCapabilityReality(options.capabilityReality, audience, licenses);
+  const capabilityReality = filterCapabilityReality(
+    options.capabilityReality,
+    audience,
+    licenses,
+    options.authenticatedOwner === true,
+  );
   const identity = constitution as IdentitySlice & Partial<IdentityOrientationSource>;
   const orientationKernel = options.orientationKernel && audience.kind === "owner_private"
     ? options.orientationKernel

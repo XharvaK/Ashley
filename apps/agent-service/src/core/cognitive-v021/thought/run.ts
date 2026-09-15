@@ -190,6 +190,7 @@ import {
   buildRoomAuthorityBinding,
   isRoomPublicationEnabled,
   roomIdentity,
+  type OwnerRoomDestination,
 } from "../social/room-activation.js";
 import { listAvailableSocialDestinations } from "../../relationship/social-authority.js";
 import { defaultQuotaBucket } from "../../attention/ledger.js";
@@ -1870,6 +1871,7 @@ function deliveryIntentFor(
   triggerKind = cycle.triggerKind,
   externalPublication?: DeliveryIntent["externalPublication"],
   socialLifecycle?: DeliveryIntent["socialLifecycle"],
+  destinationOverride?: DeliveryIntent["destination"],
 ): DeliveryIntent {
   const external = triggerKind === "external_message";
   const trigger: DeliveryIntent["trigger"] =
@@ -1890,9 +1892,10 @@ function deliveryIntentFor(
     ? payload.threadId
     : cycle.conversationId;
   const rawDestination = payload.externalDestination;
-  const destination = external && purpose === "licensed_speech"
-    && typeof rawDestination === "object" && rawDestination !== null && !Array.isArray(rawDestination)
-    ? rawDestination as DeliveryIntent["destination"]
+  const destination = purpose === "licensed_speech"
+    ? external && typeof rawDestination === "object" && rawDestination !== null && !Array.isArray(rawDestination)
+      ? rawDestination as DeliveryIntent["destination"]
+      : destinationOverride
     : undefined;
   return {
     ownerId,
@@ -1956,6 +1959,36 @@ function externalDestinationFor(
       ? { threadId: candidate.threadId.trim() }
       : {}),
   };
+}
+
+/** Build the room target for authenticated Owner speech without making it external. */
+export function ownerRoomDestinationFor(
+  conversationId: string,
+  payload: Record<string, unknown>,
+  triggerEvidence: {
+    role?: unknown;
+    speakerKind?: unknown;
+    speakerPrincipalId?: unknown;
+  } | null,
+): OwnerRoomDestination | null {
+  if (!triggerEvidence || triggerEvidence.role !== "owner" || triggerEvidence.speakerKind !== "owner") {
+    return null;
+  }
+  const context = payload.ownerRoomContext;
+  if (typeof context !== "object" || context === null || Array.isArray(context)) return null;
+  const candidate = context as Record<string, unknown>;
+  if (typeof candidate.guildId !== "string" || typeof candidate.channelId !== "string") return null;
+  const guildId = candidate.guildId.trim();
+  const channelId = candidate.channelId.trim();
+  const speakerPrincipalId = typeof triggerEvidence.speakerPrincipalId === "string"
+    ? triggerEvidence.speakerPrincipalId.trim()
+    : "";
+  if (!guildId || !channelId || !speakerPrincipalId) return null;
+  const ownerId = typeof payload.ownerId === "string" ? payload.ownerId.trim() : "";
+  if (ownerId && ownerId !== speakerPrincipalId) return null;
+  const roomId = roomIdentity(guildId, channelId);
+  if (conversationId !== roomId) return null;
+  return { kind: "room", roomId, guildId, channelId, ownerRoom: true };
 }
 
 type ObservationPersistenceInput = {
@@ -2107,9 +2140,9 @@ type AttemptLifecycleBinding = {
 function socialAttemptLifecycle(
   cycle: { conversationId: string; triggerKind: CycleTriggerKind },
 ): boolean {
-  return cycle.conversationId.startsWith("dm:")
-    || cycle.conversationId.startsWith("room:")
-    || (cycle.triggerKind as string) === "external_message";
+  // Owner room cycles retain the ordinary Owner lifecycle. Only the
+  // external trigger owns the social attempt/basis contract.
+  return (cycle.triggerKind as string) === "external_message";
 }
 
 function currentLifecycleIs(
@@ -2247,11 +2280,21 @@ export async function runCognitiveCycle(
   if (triggerEvidence) cycle = appendCycleLogIds(sidecar, cycle.cycleId, [triggerEvidence.rowId], deps.nowMs());
   const externalCycle = cycle.triggerKind === "external_message" || event.kind === "external_utterance";
   const externalDestination = externalCycle ? externalDestinationFor(payload) : null;
+  const ownerRoomContextPresent = Object.prototype.hasOwnProperty.call(payload, "ownerRoomContext");
+  const ownerRoomDestination = !externalCycle
+    ? ownerRoomDestinationFor(cycle.conversationId, payload, triggerEvidence)
+    : null;
+  if (ownerRoomContextPresent && !ownerRoomDestination) {
+    throw new Error("owner_room_context_invalid");
+  }
   const externalAudience = externalDestination
     ? externalDestination.kind === "external_dm"
       ? { kind: "dm" as const, principalId: externalDestination.principalId }
       : { kind: "room" as const, roomId: externalDestination.roomId }
     : undefined;
+  const thoughtAudience = ownerRoomDestination
+    ? { kind: "room" as const, roomId: ownerRoomDestination.roomId }
+    : externalAudience;
   const availableDestinations = externalCycle
     ? listAvailableSocialDestinations(nuclear, { nowMs: deps.nowMs() })
     : undefined;
@@ -2523,7 +2566,8 @@ export async function runCognitiveCycle(
       authorityObjections,
       derivedStore: deps.derivedStore,
       authorityDb: deps.attentionDb,
-      ...(externalAudience ? { audience: externalAudience } : {}),
+      ...(thoughtAudience ? { audience: thoughtAudience } : {}),
+      ...(ownerRoomDestination ? { authenticatedOwner: true } : {}),
       ...(availableDestinations === undefined ? {} : { availableDestinations }),
       ...(externalBinding ? { licenses: [...externalBinding.licenseRefs] } : {}),
     };
@@ -3364,6 +3408,7 @@ export async function runCognitiveCycle(
               attemptId: attemptLifecycleBinding?.attemptId ?? null,
             }
           : undefined,
+        ownerRoomDestination ?? undefined,
       ),
       authorityDb: authorityDbForPacks(deps, packs),
       expectedCurrentness: invocation.kernelEnvelope?.authorityCurrentness ?? packs.currentness.binding,

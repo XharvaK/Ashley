@@ -52,6 +52,59 @@ function openFrontier(
 }
 
 describe("v0.2.1 ThoughtInput assembly", () => {
+  it("keeps authenticated Owner authority while binding evidence to the room audience", () => {
+    const db = openTestSidecar();
+    try {
+      const roomId = "room:owner-guild:owner-channel";
+      const cycle = admitTestCycle(db, {
+        conversationId: roomId,
+        triggerKind: "owner_message",
+        triggerRef: "owner-room-input",
+        occupantId: "doc",
+        nowMs: 1,
+      });
+      const evidence = appendOwnerUtterance(db, {
+        conversationId: roomId,
+        text: "room-visible Owner request",
+        discordMessageIds: ["owner-room-input-message"],
+        nowMs: 2,
+        speakerPrincipalId: "doc",
+        speakerKind: "owner",
+        location: { kind: "room", guildId: "owner-guild", channelId: "owner-channel" },
+        audienceAtCapture: "room",
+      });
+
+      const ownerInput = makeInput(db, cycle, {
+        triggerEvidence: evidence,
+        rawConversation: [evidence],
+        audience: { kind: "room", roomId },
+        authenticatedOwner: true,
+      });
+      expect(ownerInput.rawConversation).toEqual([expect.objectContaining({
+        speakerPrincipalId: "doc",
+        speakerKind: "owner",
+        audienceAtCapture: "room",
+        location: { kind: "room", guildId: "owner-guild", channelId: "owner-channel" },
+      })]);
+      expect(ownerInput.capabilityReality).toMatchObject({
+        conversationalRead: true,
+        canOfferProjectInspection: true,
+      });
+
+      const externalInput = makeInput(db, cycle, {
+        triggerEvidence: evidence,
+        rawConversation: [evidence],
+        audience: { kind: "room", roomId },
+      });
+      expect(externalInput.capabilityReality).toMatchObject({
+        conversationalRead: false,
+        canOfferProjectInspection: false,
+      });
+    } finally {
+      db.close();
+    }
+  });
+
   it("uses one coherent selected-source package for input and currentness", () => {
     const db = openTestSidecar();
     try {

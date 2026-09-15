@@ -1,6 +1,6 @@
 import { config } from "./config.js";
 import type { ExternalEnvelopeTransport } from "./chat/attachments.js";
-import type { GateVerdict } from "./security/gate.js";
+import type { GateVerdict, OwnerRoomContext } from "./security/gate.js";
 
 export type { ExternalEnvelopeTransport } from "./chat/attachments.js";
 
@@ -81,6 +81,7 @@ export async function ingressChat(
     }>;
     inboundDiscordMessageIds?: string[];
     finalFragmentReceivedAtMs?: number;
+    ownerRoomContext?: OwnerRoomContext;
   },
 ): Promise<CognitiveIngressResult> {
   return agentFetch<CognitiveIngressResult>(
@@ -95,6 +96,7 @@ export async function ingressChat(
         attachments: options?.attachments?.length ? options.attachments : undefined,
         inboundDiscordMessageIds: options?.inboundDiscordMessageIds,
         finalFragmentReceivedAtMs: options?.finalFragmentReceivedAtMs,
+        ownerRoomContext: options?.ownerRoomContext,
       }),
     },
   );
@@ -225,6 +227,18 @@ export async function recheckExternalPublication(
 ): Promise<ExternalPublicationRecheckResult> {
   return agentFetch<ExternalPublicationRecheckResult>(
     `/delivery/${reservationId}/recheck-external`,
+    {
+      method: "POST",
+      body: JSON.stringify({ userId: config.ownerId }),
+    },
+  );
+}
+
+export async function recheckOwnerRoomPublication(
+  reservationId: number,
+): Promise<ExternalPublicationRecheckResult> {
+  return agentFetch<ExternalPublicationRecheckResult>(
+    `/delivery/${reservationId}/recheck-owner-room`,
     {
       method: "POST",
       body: JSON.stringify({ userId: config.ownerId }),

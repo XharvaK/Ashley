@@ -19,6 +19,7 @@ import {
   executionProvenanceFromMetadata,
   materializeEffectsCompleted,
   observeThoughtCycleInput,
+  ownerRoomDestinationFor,
   runCognitiveCycle,
 } from "./run.js";
 
@@ -54,6 +55,119 @@ function deps(overrides: Partial<KernelDeps> = {}): KernelDeps {
 }
 
 describe("v0.2.1 Thought run", () => {
+  it("binds authenticated Owner room context to a room destination without externalizing the cycle", () => {
+    const destination = ownerRoomDestinationFor(
+      "room:guild-1:channel-1",
+      {
+        ownerId: "doc",
+        ownerRoomContext: { guildId: "guild-1", channelId: "channel-1" },
+      },
+      { role: "owner", speakerKind: "owner", speakerPrincipalId: "doc" },
+    );
+    expect(destination).toEqual({
+      kind: "room",
+      roomId: "room:guild-1:channel-1",
+      guildId: "guild-1",
+      channelId: "channel-1",
+      ownerRoom: true,
+    });
+    expect(ownerRoomDestinationFor(
+      "room:guild-1:channel-1",
+      { ownerId: "doc", ownerRoomContext: { guildId: "guild-1", channelId: "channel-1" } },
+      { role: "owner", speakerKind: "external_human", speakerPrincipalId: "doc" },
+    )).toBeNull();
+    expect(ownerRoomDestinationFor(
+      "room:other-guild:channel-1",
+      { ownerId: "doc", ownerRoomContext: { guildId: "guild-1", channelId: "channel-1" } },
+      { role: "owner", speakerKind: "owner", speakerPrincipalId: "doc" },
+    )).toBeNull();
+  });
+
+  it("keeps an Owner room cycle eligible for the existing Owner operation path", async () => {
+    const sidecar = openTestSidecar();
+    const attentionDb = openTestSidecar();
+    const roomId = "room:owner-guild:owner-channel";
+    const cycle = admitTestCycle(sidecar, {
+      conversationId: roomId,
+      triggerKind: "owner_message",
+      triggerRef: "owner-room-operation",
+      occupantId: "doc",
+      authorityEpoch: 1,
+      nowMs: 1,
+    });
+    const evidence = appendOwnerUtterance(sidecar, {
+      conversationId: roomId,
+      text: "inspect the current project",
+      discordMessageIds: ["owner-room-operation-message"],
+      nowMs: 2,
+      speakerPrincipalId: "doc",
+      speakerKind: "owner",
+      location: { kind: "room", guildId: "owner-guild", channelId: "owner-channel" },
+      audienceAtCapture: "room",
+    });
+    const event = appendInboxEvent(sidecar, {
+      wakeId: cycle.wakeId,
+      conversationId: roomId,
+      kind: "owner_message",
+      payload: {
+        cycleId: cycle.cycleId,
+        evidenceRowId: evidence.rowId,
+        ownerId: "doc",
+        ownerMessage: evidence.text,
+        ownerRoomContext: { guildId: "owner-guild", channelId: "owner-channel" },
+      },
+      createdAtMs: 2,
+    });
+    let calls = 0;
+    const completeChat = vi.fn(async () => {
+      calls += 1;
+      const output = calls === 1
+        ? {
+            kind: "observation_intent",
+            operationKind: "project.read_file",
+            request: { path: "README.md" },
+            purpose: "inspect the current project",
+            evidenceNeed: "the current project file",
+            existingRefs: [evidence.rowId],
+          }
+        : makeSemanticSettlement();
+      return { text: JSON.stringify(output), model: "fake", modelAlias: "thought", resolvedModelId: null };
+    });
+    const executeObservation = vi.fn(async () => ({
+      observationId: "owner-room-observation",
+      cycleId: cycle.cycleId,
+      generation: cycle.generation,
+      derived: false,
+      replaySafe: true,
+      modality: "text" as const,
+      payload: { text: "README observed" },
+      provenance: "owner-room-test",
+      dataClassification: "ordinary" as const,
+      secretOmitted: false,
+    }));
+    try {
+      const result = await runCognitiveCycle(sidecar, attentionDb, event, deps({
+        attentionDb,
+        completeChat,
+        executeObservation,
+      }));
+      expect(result.published).toBe(true);
+      expect(executeObservation).toHaveBeenCalledTimes(1);
+      expect(result.infrastructureNotice).toBeNull();
+      const outbox = sidecar.prepare("SELECT delivery_intent_json FROM speech_outbox").get() as { delivery_intent_json: string };
+      expect(JSON.parse(outbox.delivery_intent_json).destination).toEqual({
+        kind: "room",
+        roomId,
+        guildId: "owner-guild",
+        channelId: "owner-channel",
+        ownerRoom: true,
+      });
+    } finally {
+      sidecar.close();
+      attentionDb.close();
+    }
+  });
+
   it("fails closed on a legacy periodic event without an observation binding and does not reacquire", async () => {
     const sidecar = openTestSidecar();
     const attentionDb = openTestSidecar();

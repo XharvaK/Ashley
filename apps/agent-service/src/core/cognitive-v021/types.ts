@@ -1337,7 +1337,7 @@ export type DeliveryIntent = {
   /** Host-owned destination binding for a permitted social publication. */
   destination?:
     | { kind: "external_dm"; principalId: string; channelId?: string; threadId?: string }
-    | { kind: "room"; roomId: string; guildId?: string; channelId?: string; threadId?: string };
+    | { kind: "room"; roomId: string; guildId?: string; channelId?: string; threadId?: string; ownerRoom?: boolean };
   /** S5 input retained until the existing outbox projector owns a reservation id. */
   externalPublication?: {
     destination:

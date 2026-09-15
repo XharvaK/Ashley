@@ -26,12 +26,14 @@ import {
   readEligibilityBundle,
 } from "../../relationship/social-authority.js";
 import { isRoomSeedActive } from "../../relationship/room-seeding.js";
+import { isRoomPublicationEnabled, roomIdentity } from "../social/room-activation.js";
 
 export type CognitiveIngressBody = {
   userId: string;
   message: string;
   channel?: string;
   threadId?: string;
+  ownerRoomContext?: OwnerRoomContext;
   discordMessageIds?: string[];
   inboundDiscordMessageIds?: string[];
   finalFragmentReceivedAtMs?: number;
@@ -42,6 +44,11 @@ export type CognitiveIngressBody = {
     declaredByteSize?: number;
     sourceUrl: string;
   }>;
+};
+
+export type OwnerRoomContext = {
+  guildId: string;
+  channelId: string;
 };
 
 export type CognitiveIngressResult = {
@@ -116,6 +123,31 @@ function resolveExistingWorkDisposition(
   return { inbox: matchedEvents[0], cycle };
 }
 
+function resolveOwnerRoomContext(
+  nuclearDb: DatabaseSync,
+  input: CognitiveIngressBody,
+  nowMs: number,
+): OwnerRoomContext | null {
+  if (input.ownerRoomContext == null) return null;
+  const candidate = externalRecord(input.ownerRoomContext);
+  const guildId = externalRequiredText(candidate?.guildId);
+  const channelId = externalRequiredText(candidate?.channelId);
+  if (!guildId || !channelId) throw new Error("owner_room_context_invalid");
+  if (!isRoomPublicationEnabled(process.env, channelId)) {
+    throw new Error("owner_room_not_active");
+  }
+  const eligibility = readEligibilityBundle(nuclearDb, { guildId, channelId, nowMs });
+  if (
+    eligibility.trustedRoom?.ownerId !== input.userId
+    || eligibility.trustedRoom.guildId !== guildId
+    || eligibility.trustedRoom.channelId !== channelId
+    || eligibility.trustedRoom.mode !== "trusted_social"
+  ) {
+    throw new Error("owner_room_not_authorized");
+  }
+  return { guildId, channelId };
+}
+
 export function admitCognitiveIngress(
   sidecar: DatabaseSync,
   nuclearDb: DatabaseSync,
@@ -126,18 +158,41 @@ export function admitCognitiveIngress(
   if (channel !== "discord") throw new Error("channel_retired");
   const text = input.message.trim();
   if (!text) throw new Error("message_required");
-  const conversationId = resolveActiveThread(nuclearDb, input.userId, channel);
   const discordMessageIds = input.discordMessageIds ?? input.inboundDiscordMessageIds ?? [];
   const admittedAtMs = options.nowMs ?? input.finalFragmentReceivedAtMs ?? Date.now();
+  const ownerRoomContext = resolveOwnerRoomContext(nuclearDb, input, admittedAtMs);
+  const conversationId = ownerRoomContext
+    ? roomIdentity(ownerRoomContext.guildId, ownerRoomContext.channelId)
+    : resolveActiveThread(nuclearDb, input.userId, channel);
 
   sidecar.exec("BEGIN IMMEDIATE");
   let evidence: ReturnType<typeof appendOwnerUtteranceInTransaction>["evidence"];
   try {
+    if (ownerRoomContext) {
+      resolveSocialConversation(sidecar, {
+        kind: "room",
+        guildId: ownerRoomContext.guildId,
+        channelId: ownerRoomContext.channelId,
+        nowMs: admittedAtMs,
+      });
+    }
     const appendResult = appendOwnerUtteranceInTransaction(sidecar, {
       conversationId,
       text,
       discordMessageIds,
       nowMs: admittedAtMs,
+      ...(ownerRoomContext ? {
+        speakerPrincipalId: input.userId,
+        speakerKind: "owner" as const,
+        location: {
+          kind: "room" as const,
+          guildId: ownerRoomContext.guildId,
+          channelId: ownerRoomContext.channelId,
+        },
+        audienceAtCapture: "room" as const,
+        sentAtMs: admittedAtMs,
+        provenance: { source: "discord" as const, receivedAtMs: admittedAtMs },
+      } : {}),
     });
     evidence = appendResult.evidence;
 
@@ -176,6 +231,7 @@ export function admitCognitiveIngress(
             channel,
             threadId: input.threadId ?? conversationId,
             attachments: input.attachments ?? [],
+            ...(ownerRoomContext ? { ownerRoomContext } : {}),
             subsumedByFrontierId: activeFrontier.frontierId,
           },
           createdAtMs: admittedAtMs,
@@ -222,6 +278,7 @@ export function admitCognitiveIngress(
           channel,
           threadId: input.threadId ?? conversationId,
           attachments: input.attachments ?? [],
+          ...(ownerRoomContext ? { ownerRoomContext } : {}),
         },
         createdAtMs: admittedAtMs,
       },
@@ -1026,6 +1083,7 @@ export function createCognitiveIngressHandler(options: {
         message: body.message,
         channel: body.channel,
         threadId: body.threadId,
+        ownerRoomContext: body.ownerRoomContext,
         discordMessageIds: body.discordMessageIds,
         inboundDiscordMessageIds: body.inboundDiscordMessageIds,
         finalFragmentReceivedAtMs: body.finalFragmentReceivedAtMs,

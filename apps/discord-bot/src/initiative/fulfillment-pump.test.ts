@@ -173,6 +173,133 @@ test("fulfillment pump sends a room-bound reservation through the channel queue"
   }
 });
 
+test("fulfillment pump sends an Owner-room reservation only to its exact room", async () => {
+  const previousSeed = process.env.RA_ROOM_SEED_ACTIVE;
+  const previousRoom = process.env.RA_ROOM_PUBLICATION;
+  process.env.RA_ROOM_SEED_ACTIVE = "true";
+  process.env.RA_ROOM_PUBLICATION = "owner-room-channel";
+  const fetched: string[] = [];
+  const sentChannels: string[] = [];
+  const ownerRoomRechecks: number[] = [];
+  let externalRechecks = 0;
+  let ownerDmFetches = 0;
+  try {
+    const deps: FulfillmentPumpDependencies = {
+      claim: async () => ({ deliveries: [{
+        reservationId: 176,
+        draftText: "Owner room answer",
+        bubbles: [{ ordinal: 0, text: "Owner room answer", discordMessageId: null }],
+        statusUrl: "/delivery/176",
+        destination: {
+          kind: "room",
+          roomId: "room:owner-guild:owner-room-channel",
+          guildId: "owner-guild",
+          channelId: "owner-room-channel",
+          ownerRoom: true,
+        },
+      }] }),
+      receipt: async () => ({ ok: true }),
+      finalize: async () => ({ state: "committed", finalizationReason: "all_bubbles_delivered", deliveredText: "Owner room answer" }),
+      send: async (channel) => {
+        sentChannels.push(channel.id);
+        return {
+          reservationId: 176,
+          attemptedOrdinal: null,
+          receiptedOrdinals: [0],
+          failureCategory: null,
+          anySubstantiveContentVisible: true,
+          messages: [{ id: "owner-room-message" } as Message],
+        };
+      },
+      recheck: async () => {
+        externalRechecks += 1;
+        throw new Error("Owner room must not use external recheck");
+      },
+      recheckOwnerRoom: async (reservationId) => {
+        ownerRoomRechecks.push(reservationId);
+        return { ok: true };
+      },
+    };
+    const client = {
+      channels: {
+        fetch: async (id: string) => {
+          fetched.push(id);
+          return { id, send: async () => ({ id: "owner-room-transport" }) };
+        },
+      },
+      users: { fetch: async () => { ownerDmFetches += 1; throw new Error("DM fallback forbidden"); } },
+    } as unknown as Client;
+    assert.equal(await drainPendingCognitiveDeliveries(client, deps), 1);
+    assert.deepEqual(fetched, ["owner-room-channel"]);
+    assert.deepEqual(sentChannels, ["owner-room-channel"]);
+    assert.deepEqual(ownerRoomRechecks, [176]);
+    assert.equal(externalRechecks, 0);
+    assert.equal(ownerDmFetches, 0);
+  } finally {
+    if (previousSeed === undefined) delete process.env.RA_ROOM_SEED_ACTIVE;
+    else process.env.RA_ROOM_SEED_ACTIVE = previousSeed;
+    if (previousRoom === undefined) delete process.env.RA_ROOM_PUBLICATION;
+    else process.env.RA_ROOM_PUBLICATION = previousRoom;
+  }
+});
+
+test("fulfillment pump does not fall back to Owner DM when Owner-room recheck closes", async () => {
+  const previousSeed = process.env.RA_ROOM_SEED_ACTIVE;
+  const previousRoom = process.env.RA_ROOM_PUBLICATION;
+  process.env.RA_ROOM_SEED_ACTIVE = "true";
+  process.env.RA_ROOM_PUBLICATION = "owner-room-channel";
+  let sends = 0;
+  let ownerDmFetches = 0;
+  const finalizations: string[] = [];
+  try {
+    const deps: FulfillmentPumpDependencies = {
+      claim: async () => ({ deliveries: [{
+        reservationId: 177,
+        draftText: "must remain pending/failed",
+        bubbles: [{ ordinal: 0, text: "must remain pending/failed", discordMessageId: null }],
+        statusUrl: "/delivery/177",
+        destination: {
+          kind: "room",
+          roomId: "room:owner-guild:owner-room-channel",
+          guildId: "owner-guild",
+          channelId: "owner-room-channel",
+          ownerRoom: true,
+        },
+      }] }),
+      receipt: async () => ({ ok: true }),
+      finalize: async (_id, cause) => {
+        finalizations.push(cause);
+        return { state: "aborted", finalizationReason: cause, deliveredText: "" };
+      },
+      send: async () => {
+        sends += 1;
+        return {
+          reservationId: 177,
+          attemptedOrdinal: null,
+          receiptedOrdinals: [0],
+          failureCategory: null,
+          anySubstantiveContentVisible: true,
+          messages: [{ id: "unexpected" } as Message],
+        };
+      },
+      recheckOwnerRoom: async () => ({ ok: false, reason: "room_narrowed" }),
+    };
+    const client = {
+      channels: { fetch: async (id: string) => ({ id, send: async () => ({ id: "unexpected" }) }) },
+      users: { fetch: async () => { ownerDmFetches += 1; throw new Error("DM fallback forbidden"); } },
+    } as unknown as Client;
+    assert.equal(await drainPendingCognitiveDeliveries(client, deps), 0);
+    assert.equal(sends, 0);
+    assert.equal(ownerDmFetches, 0);
+    assert.deepEqual(finalizations, ["send_failure"]);
+  } finally {
+    if (previousSeed === undefined) delete process.env.RA_ROOM_SEED_ACTIVE;
+    else process.env.RA_ROOM_SEED_ACTIVE = previousSeed;
+    if (previousRoom === undefined) delete process.env.RA_ROOM_PUBLICATION;
+    else process.env.RA_ROOM_PUBLICATION = previousRoom;
+  }
+});
+
 test("fulfillment pump records send_failure when Discord send has no visible content", async () => {
   const finalizations: Array<{ reservationId: number; cause: string }> = [];
 
