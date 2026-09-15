@@ -16,14 +16,36 @@ function json(rootDir, relativePath) {
   return JSON.parse(text(rootDir, relativePath));
 }
 
+export function readSupportedSchemaVersion(dbSource) {
+  const literal = dbSource.match(
+    /(?:export\s+)?const\s+NUCLEAR_SUPPORTED_VERSION\s*=\s*(\d+)\s*(?:as\s+const)?\s*;/,
+  );
+  if (literal) return Number(literal[1]);
+
+  const derived = dbSource.match(
+    /(?:export\s+)?const\s+NUCLEAR_SUPPORTED_VERSION\s*=\s*([A-Z][A-Z0-9_]*)\s*\+\s*(\d+)\s*(?:as\s+const)?\s*;/,
+  );
+  if (!derived) return null;
+
+  const baseline = dbSource.match(
+    new RegExp(
+      `(?:export\\s+)?const\\s+${derived[1]}\\s*=\\s*(\\d+)\\s*(?:as\\s+const)?\\s*;`,
+    ),
+  );
+  if (!baseline) return null;
+
+  return Number(baseline[1]) + Number(derived[2]);
+}
+
 export function runMintDocsAudit(rootDir = root) {
   const errors = [];
   const dbSource = text(rootDir, "apps/agent-service/src/core/db.ts");
-  const versionMatch = dbSource.match(/NUCLEAR_SUPPORTED_VERSION\s*=\s*(\d+)\s*;/);
-  if (!versionMatch || Number(versionMatch[1]) < 19) {
+  const schemaVersion = readSupportedSchemaVersion(dbSource);
+  if (schemaVersion === null) {
+    errors.push("schema_version_source_unrecognized");
+  } else if (schemaVersion < 19) {
     errors.push("schema_version_below_19");
   }
-  const schemaVersion = versionMatch ? Number(versionMatch[1]) : 0;
 
   const routes = json(rootDir, "apps/agent-service/route-surface.json").routes ?? [];
   for (const route of [
@@ -85,7 +107,7 @@ export function runMintDocsAudit(rootDir = root) {
   }
   if (errors.length > 0) throw new Error(errors.join(","));
   return {
-    schemaVersion,
+    schemaVersion: schemaVersion ?? 0,
     endpoints: ["GET /health", "GET /nuclear/health"],
     services,
     backup: "dual VACUUM snapshots; WAL/SHM copy unsupported",
