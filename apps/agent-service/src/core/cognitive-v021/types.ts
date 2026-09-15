@@ -8,6 +8,7 @@ import type {
 import type { DataClassification } from "../privacy/classification.js";
 import type { SandboxV2CapabilitySpec } from "@composer-assistant/sandbox-v2";
 import type { ThoughtSourceCurrentness } from "./thought/source-currentness.js";
+import type { SocialAudience } from "./social/types.js";
 
 export type { DataClassification } from "../privacy/classification.js";
 
@@ -342,6 +343,14 @@ export type WorkingContextItem = {
   status: "active" | "superseded" | "abandoned";
   supersedesId: string | null;
   updatedGeneration: Generation;
+  /** Audience/protection facets are optional for legacy Owner rows. */
+  audienceScope?: SocialAudience | null;
+  sourcePrincipal?: string | null;
+  sourceEvidenceRef?: string | null;
+  protectionSubjects?: string[] | null;
+  protectionBasisRefs?: string[];
+  protectionStatus?: "admitted" | "unresolved" | null;
+  licenseRefs?: string[];
 };
 
 export type WorkingContextDelta =
@@ -365,6 +374,8 @@ export type ConcernRecord = {
   assertionKey: AssertionKey | null;
   status: OccupancyStatus;
   snapshotHash: string;
+  audienceScope?: SocialAudience | null;
+  protectionStatus?: "admitted" | "unresolved" | null;
 };
 
 export type OccupancyStatus =
@@ -382,6 +393,8 @@ export type MindOccupancy = {
   priority: number;
   updatedCycle: CycleId;
   updatedGeneration: Generation;
+  audienceScope?: SocialAudience | null;
+  protectionStatus?: "admitted" | "unresolved" | null;
 };
 
 /** Existing occupancy row plus the optional persisted statement carried into Thought assembly. */
@@ -618,6 +631,12 @@ export type RetrievalHit = {
   live: boolean | null;
   role?: "owner" | "ashley" | "system" | "unknown" | null;
   supportRefs: string[];
+  /** Transport/source truth and admitted protection metadata for §8.1 filtering. */
+  source?: string | null;
+  subject?: string[] | null;
+  audienceScope?: SocialAudience | null;
+  licenseRefs?: string[];
+  protectionStatus?: "admitted" | "unresolved" | null;
 };
 export type RetrievalInfrastructureState = "ready" | "unavailable";
 
@@ -640,6 +659,8 @@ export type Observation = {
   rawOutranksDerivedOf?: string;
   dataClassification: DataClassification;
   secretOmitted: boolean;
+  audienceScope?: SocialAudience | null;
+  protectionStatus?: "admitted" | "unresolved" | null;
 };
 
 export type ThoughtInterpretation = {
@@ -855,6 +876,7 @@ export type InFlightRecord = {
   originJobId: string | null;
   originEventId: string | null;
   originAttemptId: string | null;
+  audienceScope?: SocialAudience | null;
 };
 export type EffectReceipt = {
   receiptId: string;
@@ -1070,10 +1092,28 @@ export type CognitiveWorkspace = { notes: string };
 export type IdentitySlice = {
   constitutional: string[];
   stableSelf: string[];
+  /** Optional source-owned redaction metadata; text is never classified by Host. */
+  privateDerivative?: string[];
+  privateDerivativeIndexes?: number[];
 };
 export type LearnedSelfSlice = {
   dispositions: string[];
   interests: string[];
+  /** New audience-separated projection. Kept optional for legacy in-process callers. */
+  broadOrientation?: {
+    dispositions: string[];
+    interests: string[];
+    audienceScope?: SocialAudience | null;
+    protectionStatus?: "admitted" | "unresolved" | null;
+  };
+  personLinked?: Array<{
+    audience: SocialAudience;
+    dispositions: string[];
+    interests: string[];
+    sourceRefs: string[];
+    protectionStatus?: "admitted" | "unresolved" | null;
+    licenseRefs?: string[];
+  }>;
 };
 export type RuntimeCondition = {
   fallback: boolean;
@@ -1199,6 +1239,13 @@ export type MemoryAssertion = {
   lineageParentKey: AssertionKey | null;
   admittedGeneration: Generation | null;
   live: boolean;
+  sourcePrincipal?: string | null;
+  subject?: string[] | null;
+  audienceScope?: SocialAudience | null;
+  sourceEvidenceRef?: string | null;
+  protectionBasisRefs?: string[];
+  protectionStatus?: "admitted" | "unresolved" | null;
+  licenseRefs?: string[];
 };
 export type MemorySupport = {
   supportId: string;
@@ -1220,6 +1267,8 @@ export type RememberDirective = {
   evidenceLineageId: string;
   evidenceRowId: string;
   dataClassification: DataClassification;
+  audienceScope?: SocialAudience | null;
+  protectionStatus?: "admitted" | "unresolved" | null;
 };
 
 export type V021ForgetDisposition =

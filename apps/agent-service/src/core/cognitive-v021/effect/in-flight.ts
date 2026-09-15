@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import type { InFlightRecord } from "../types.js";
 import type { EffectReceipt } from "../types.js";
+import type { SocialAudience } from "../social/types.js";
 
 export type PutInFlightInput = {
   effectId?: string;
@@ -15,14 +16,34 @@ export type PutInFlightInput = {
   payload?: unknown;
   originEventId: string;
   originAttemptId?: string | null;
+  audienceScope?: SocialAudience | null;
 };
 
 type DbRow = Record<string, unknown>;
 function stringValue(value: unknown, fallback = ""): string { return typeof value === "string" ? value : fallback; }
 function numberValue(value: unknown, fallback = 0): number { const n = typeof value === "number" ? value : Number(value); return Number.isFinite(n) ? n : fallback; }
+function audienceScope(value: unknown): SocialAudience | null | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const candidate = value as Record<string, unknown>;
+  if (candidate.kind === "owner_private") return { kind: "owner_private" };
+  if (candidate.kind === "dm" && typeof candidate.principalId === "string" && candidate.principalId.trim()) {
+    return { kind: "dm", principalId: candidate.principalId };
+  }
+  if (candidate.kind === "room" && typeof candidate.roomId === "string" && candidate.roomId.trim()) {
+    return { kind: "room", roomId: candidate.roomId };
+  }
+  return null;
+}
 function mapInFlight(row: unknown): InFlightRecord | null {
   if (typeof row !== "object" || row === null) return null;
   const value = row as DbRow;
+  let payload: Record<string, unknown> = {};
+  try {
+    const parsed = JSON.parse(stringValue(value.payload_json, "{}"));
+    if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) payload = parsed as Record<string, unknown>;
+  } catch { /* legacy rows have no audience metadata */ }
+  const scope = audienceScope(payload.audienceScope);
   return {
     effectId: stringValue(value.effect_id),
     cycleId: stringValue(value.cycle_id),
@@ -35,6 +56,7 @@ function mapInFlight(row: unknown): InFlightRecord | null {
     originJobId: value.origin_job_id == null ? null : stringValue(value.origin_job_id),
     originEventId: value.origin_event_id == null ? null : stringValue(value.origin_event_id),
     originAttemptId: value.origin_attempt_id == null ? null : stringValue(value.origin_attempt_id),
+    ...(scope === undefined ? {} : { audienceScope: scope }),
   };
 }
 
@@ -66,7 +88,14 @@ export function putInFlight(db: DatabaseSync, input: PutInFlightInput): InFlight
     input.generation,
     input.correlationId,
     input.idempotencyKey,
-    JSON.stringify(input.payload ?? {}),
+    JSON.stringify(input.audienceScope === undefined
+      ? (input.payload ?? {})
+      : {
+          ...(typeof input.payload === "object" && input.payload !== null && !Array.isArray(input.payload)
+            ? input.payload as Record<string, unknown>
+            : {}),
+          audienceScope: input.audienceScope,
+        }),
     input.dispatchedAtMs ?? Date.now(),
     input.originJobId ?? null,
     wakeId,

@@ -4,6 +4,7 @@ import {
   defaultUnclassifiedConversational,
   type DataClassification,
 } from "../privacy/classification.js";
+import type { SocialAudience } from "../cognitive-v021/social/types.js";
 
 export type AssertionKind =
   | "keyed_fact"
@@ -69,6 +70,12 @@ export type MemoryAssertion = {
   dataClassification: DataClassification;
   createdAt: string;
   updatedAt: string;
+  speakerPrincipal?: string | null;
+  audienceScope?: SocialAudience | null;
+  sourceEvidenceRef?: string | null;
+  protectionSubjects?: string[] | null;
+  protectionBasisRefs?: string[];
+  protectionStatus?: "admitted" | "unresolved" | null;
 };
 
 export type InsertAssertionInput = {
@@ -104,6 +111,12 @@ export type InsertAssertionInput = {
   entityUuid?: string;
   createdAt?: string;
   updatedAt?: string;
+  speakerPrincipal?: string | null;
+  audienceScope?: SocialAudience | null;
+  sourceEvidenceRef?: string | null;
+  protectionSubjects?: string[] | null;
+  protectionBasisRefs?: string[];
+  protectionStatus?: "admitted" | "unresolved" | null;
 };
 
 type DbRow = Record<string, unknown>;
@@ -140,6 +153,39 @@ function numberValue(value: unknown): number {
 
 function nullableNumber(value: unknown): number | null {
   return value == null ? null : numberValue(value);
+}
+
+function stringArray(value: unknown): string[] {
+  if (typeof value !== "string") return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed)
+      ? parsed.filter((item): item is string => typeof item === "string")
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function nullableStringArray(value: unknown): string[] | null {
+  return value == null ? null : stringArray(value);
+}
+
+function audienceScope(value: unknown): SocialAudience | null {
+  if (typeof value !== "string") return null;
+  try {
+    const parsed = JSON.parse(value) as Record<string, unknown>;
+    if (parsed.kind === "owner_private") return { kind: "owner_private" };
+    if (parsed.kind === "dm" && typeof parsed.principalId === "string" && parsed.principalId.trim()) {
+      return { kind: "dm", principalId: parsed.principalId };
+    }
+    if (parsed.kind === "room" && typeof parsed.roomId === "string" && parsed.roomId.trim()) {
+      return { kind: "room", roomId: parsed.roomId };
+    }
+  } catch {
+    // A legacy/null scope is handled as Owner-private by the eligibility layer.
+  }
+  return null;
 }
 
 function requireNonEmpty(value: string | null | undefined, name: string): string {
@@ -182,6 +228,18 @@ function assertValidInput(input: InsertAssertionInput): void {
   }
   if (input.dataClassification && !DATA_CLASSIFICATIONS.has(input.dataClassification)) {
     throw new Error("memory_assertion_classification_invalid");
+  }
+  if (input.protectionStatus !== undefined && input.protectionStatus !== null &&
+      input.protectionStatus !== "admitted" && input.protectionStatus !== "unresolved") {
+    throw new Error("memory_assertion_protection_status_invalid");
+  }
+  if (input.protectionSubjects !== undefined && input.protectionSubjects !== null &&
+      input.protectionSubjects.some((subject) => typeof subject !== "string" || subject.trim() === "")) {
+    throw new Error("memory_assertion_protection_subject_invalid");
+  }
+  if (input.protectionBasisRefs !== undefined &&
+      input.protectionBasisRefs.some((ref) => typeof ref !== "string" || ref.trim() === "")) {
+    throw new Error("memory_assertion_protection_basis_invalid");
   }
 }
 
@@ -248,6 +306,14 @@ function mapAssertion(value: unknown): MemoryAssertion | null {
     dataClassification: classification as DataClassification,
     createdAt: stringValue(source.created_at),
     updatedAt: stringValue(source.updated_at),
+    speakerPrincipal: nullableString(source.speaker_principal),
+    audienceScope: audienceScope(source.audience_scope),
+    sourceEvidenceRef: nullableString(source.source_evidence_ref),
+    protectionSubjects: nullableStringArray(source.protection_subjects_json),
+    protectionBasisRefs: stringArray(source.protection_basis_refs_json),
+    protectionStatus: source.protection_status === "admitted" || source.protection_status === "unresolved"
+      ? source.protection_status
+      : null,
   };
 }
 
@@ -268,9 +334,11 @@ export function insertAssertion(
         valid_from, valid_to, world_interval_basis, authority_from,
         authority_to, authority_basis, termination_reason,
         superseded_by_assertion_id, confidence, importance, data_classification,
-        created_at, updated_at)
+        created_at, updated_at, speaker_principal, audience_scope,
+        source_evidence_ref, protection_subjects_json, protection_basis_refs_json,
+        protection_status)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-             ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
+             ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
   ).run(
     input.entityUuid ?? newEntityUuid(),
     input.ownerId.trim(),
@@ -304,6 +372,12 @@ export function insertAssertion(
     input.dataClassification ?? defaultUnclassifiedConversational(),
     createdAt,
     updatedAt,
+    input.speakerPrincipal ?? null,
+    input.audienceScope == null ? null : JSON.stringify(input.audienceScope),
+    input.sourceEvidenceRef ?? null,
+    input.protectionSubjects == null ? null : JSON.stringify(input.protectionSubjects),
+    input.protectionBasisRefs == null ? null : JSON.stringify(input.protectionBasisRefs),
+    input.protectionStatus ?? null,
   );
   return Number(result.lastInsertRowid);
 }

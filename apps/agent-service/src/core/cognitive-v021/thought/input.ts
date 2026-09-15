@@ -18,6 +18,7 @@ import {
   type CycleTriggerKind,
   type PublicPresenceContext,
 } from "../types.js";
+import type { SocialAudience } from "../social/types.js";
 import {
   getConversationEvidence,
   listConversationEvidence,
@@ -91,6 +92,10 @@ export type BuildThoughtInputOptions = {
   publicPresence?: PublicPresenceContext;
   /** One coherent source package for the current semantic pass. */
   sourceCapture?: ThoughtSourceCapture;
+  /** Audience for this lifecycle. Legacy Owner callers default to Owner-private. */
+  audience?: SocialAudience;
+  /** Active disclosure-license entity UUIDs already resolved by the Host. */
+  licenses?: string[];
 };
 
 export type ThoughtInputWithC2 = ThoughtInput & {
@@ -115,6 +120,184 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function jsonValue(value: unknown): unknown {
   if (typeof value !== "string") return value;
   try { return JSON.parse(value); } catch { return null; }
+}
+
+type AudienceBoundValue = {
+  audienceScope?: SocialAudience | null;
+  protectionStatus?: "admitted" | "unresolved" | null;
+  licenseRefs?: string[];
+  dataClassification?: string;
+};
+
+function ownerAudience(): SocialAudience {
+  return { kind: "owner_private" };
+}
+
+function audienceKey(audience: SocialAudience): string {
+  if (audience.kind === "owner_private") return "owner_private";
+  if (audience.kind === "dm") return `dm:${audience.principalId}`;
+  return `room:${audience.roomId}`;
+}
+
+function sameAudience(left: SocialAudience | null | undefined, right: SocialAudience): boolean {
+  return left !== null && left !== undefined && audienceKey(left) === audienceKey(right);
+}
+
+function locationAudience(location: unknown): SocialAudience | null {
+  if (!isRecord(location) || typeof location.kind !== "string") return null;
+  if (location.kind === "external_dm" && typeof location.principalId === "string" && location.principalId.trim()) {
+    return { kind: "dm", principalId: location.principalId };
+  }
+  if (location.kind === "room") {
+    if (typeof location.roomId === "string" && location.roomId.trim()) {
+      return { kind: "room", roomId: location.roomId };
+    }
+    if (typeof location.guildId === "string" && typeof location.channelId === "string" &&
+        location.guildId.trim() && location.channelId.trim()) {
+      return { kind: "room", roomId: `room:${location.guildId}:${location.channelId}` };
+    }
+  }
+  return null;
+}
+
+function evidenceMatchesAudience(
+  row: ConversationEvidenceRecord,
+  audience: SocialAudience,
+): boolean {
+  if (audience.kind === "owner_private") return true;
+  if (row.audienceAtCapture !== (audience.kind === "dm" ? "dm" : "room")) return false;
+  return sameAudience(locationAudience(row.location), audience);
+}
+
+function licenseRefsValid(value: AudienceBoundValue, licenses: readonly string[]): boolean {
+  const refs = value.licenseRefs ?? [];
+  return refs.every((ref) => typeof ref === "string" && licenses.includes(ref));
+}
+
+/**
+ * External input requires an explicit scope and an admitted protection record.
+ * Legacy Owner rows remain unchanged because Owner-private is the existing
+ * source boundary, not a new disclosure decision.
+ */
+function structuredValueEligible(
+  value: AudienceBoundValue,
+  audience: SocialAudience,
+  licenses: readonly string[],
+): boolean {
+  if (audience.kind === "owner_private") return true;
+  if (value.dataClassification === "secret") return false;
+  if (!value.audienceScope) return false;
+  if (value.protectionStatus !== "admitted") return false;
+  if (sameAudience(value.audienceScope, audience)) return licenseRefsValid(value, licenses);
+  const refs = value.licenseRefs ?? [];
+  return refs.length > 0 && licenseRefsValid(value, licenses);
+}
+
+function filterEvidence(
+  rows: readonly ConversationEvidenceRecord[],
+  audience: SocialAudience,
+): ConversationEvidenceRecord[] {
+  return audience.kind === "owner_private"
+    ? [...rows]
+    : rows.filter((row) =>
+      row.dataClassification !== "secret" && !row.secretOmitted && evidenceMatchesAudience(row, audience));
+}
+
+function filterStructured<T extends AudienceBoundValue>(
+  rows: readonly T[],
+  audience: SocialAudience,
+  licenses: readonly string[],
+): T[] {
+  return audience.kind === "owner_private"
+    ? [...rows]
+    : rows.filter((row) => structuredValueEligible(row, audience, licenses));
+}
+
+function filterInFlight(
+  rows: readonly InFlightRecord[],
+  audience: SocialAudience,
+): InFlightRecord[] {
+  if (audience.kind === "owner_private") return [...rows];
+  // In-flight effects are already host-owned operational records. Their
+  // audience binding is the required protection boundary; unlike semantic
+  // memory, they do not need a second admission facet to remain visible to
+  // the same lifecycle.
+  return rows.filter((row) => sameAudience(row.audienceScope, audience));
+}
+
+function filterConstitution(
+  constitution: IdentitySlice,
+  audience: SocialAudience,
+): IdentitySlice {
+  if (audience.kind === "owner_private") return constitution;
+  const marked = constitution as IdentitySlice & {
+    privateDerivative?: readonly string[];
+    privateDerivativeIndexes?: readonly number[];
+  };
+  const denied = new Set(marked.privateDerivative ?? []);
+  const deniedIndexes = new Set(marked.privateDerivativeIndexes ?? []);
+  return {
+    constitutional: constitution.constitutional.filter((entry, index) =>
+      !denied.has(entry) && !deniedIndexes.has(index)),
+    stableSelf: constitution.stableSelf.filter((entry, index) =>
+      !denied.has(entry) && !deniedIndexes.has(index)),
+  };
+}
+
+function filterCapabilityReality(
+  capability: CapabilityReality,
+  audience: SocialAudience,
+  licenses: readonly string[],
+): CapabilityReality {
+  if (audience.kind === "owner_private") return capability;
+  const capabilityAllowed = (name: string): boolean => licenses.includes(name);
+  return {
+    ...capability,
+    vision: capability.vision && capabilityAllowed("vision"),
+    attachmentText: capability.attachmentText && capabilityAllowed("attachment_text"),
+    conversationalRead: capability.conversationalRead && capabilityAllowed("conversational_read"),
+    webSearch: capability.webSearch && capabilityAllowed("web_search"),
+    canOfferProjectInspection: false,
+    canOfferWorkspace: false,
+    canOfferVerification: false,
+    canOfferAuthorship: false,
+    canOfferBoundedOperation: false,
+    canOfferPatchExport: false,
+    approvedProjectIds: [],
+    operationCapabilities: capability.operationCapabilities?.map((item) => ({ ...item, available: false })),
+    publicPresence: undefined,
+  };
+}
+
+function filterLearnedSelf(
+  slice: LearnedSelfSlice,
+  audience: SocialAudience,
+  licenses: readonly string[],
+): LearnedSelfSlice {
+  if (audience.kind === "owner_private") return slice;
+  const broad = slice.broadOrientation;
+  const broadAllowed = broad && structuredValueEligible(broad, audience, licenses)
+    ? broad
+    : undefined;
+  const linked = (slice.personLinked ?? []).filter((entry) =>
+    sameAudience(entry.audience, audience) &&
+    (entry.protectionStatus === undefined || entry.protectionStatus === "admitted") &&
+    licenseRefsValid(entry, licenses));
+  const dispositions = [
+    ...(broadAllowed?.dispositions ?? []),
+    ...linked.flatMap((entry) => entry.dispositions),
+  ];
+  const interests = [
+    ...(broadAllowed?.interests ?? []),
+    ...linked.flatMap((entry) => entry.interests),
+  ];
+  const result: LearnedSelfSlice = {
+    dispositions: [...new Set(dispositions)],
+    interests: [...new Set(interests)],
+    ...(broadAllowed === undefined ? {} : { broadOrientation: broadAllowed }),
+    ...(linked.length === 0 ? {} : { personLinked: linked }),
+  };
+  return result;
 }
 
 function tokenize(text: string): string[] {
@@ -142,6 +325,21 @@ function loadWorkingContext(db: DatabaseSync, conversationId: string): WorkingCo
       status: payload.status === "abandoned" || payload.status === "superseded" ? payload.status : "active",
       supersedesId: typeof payload.supersedesId === "string" ? payload.supersedesId : null,
       updatedGeneration: Number(row.updated_generation ?? payload.updatedGeneration ?? 0),
+      audienceScope: isRecord(payload.audienceScope) ? payload.audienceScope as WorkingContextItem["audienceScope"] : null,
+      sourcePrincipal: typeof payload.sourcePrincipal === "string" ? payload.sourcePrincipal : null,
+      sourceEvidenceRef: typeof payload.sourceEvidenceRef === "string" ? payload.sourceEvidenceRef : null,
+      protectionSubjects: Array.isArray(payload.protectionSubjects)
+        ? payload.protectionSubjects.filter((value): value is string => typeof value === "string")
+        : null,
+      protectionBasisRefs: Array.isArray(payload.protectionBasisRefs)
+        ? payload.protectionBasisRefs.filter((value): value is string => typeof value === "string")
+        : [],
+      protectionStatus: payload.protectionStatus === "admitted" || payload.protectionStatus === "unresolved"
+        ? payload.protectionStatus
+        : null,
+      licenseRefs: Array.isArray(payload.licenseRefs)
+        ? payload.licenseRefs.filter((value): value is string => typeof value === "string")
+        : [],
     } satisfies WorkingContextItem];
   });
 }
@@ -331,12 +529,16 @@ export function captureThoughtSourcePackage(
 ): ThoughtSourceCapture {
   const workingContext = options.workingContext
     ?? listWorkingContext(options.sidecar, options.cycle.conversationId);
+  const audience = options.audience ?? ownerAudience();
+  const licenses = options.licenses ?? [];
+  const eligibleWorkingContext = filterStructured(workingContext, audience, licenses);
   const selectedOccupancy = occupancySelection(
     options.sidecar,
     options.cycle.conversationId,
     occupancyK,
     options.occupancy,
   );
+  const eligibleOccupancy = filterStructured(selectedOccupancy.selected, audience, licenses);
   const baseDomainPointers = options.domainPointers ?? buildDomainPointers(
     options.sidecar,
     options.cycle.conversationId,
@@ -352,8 +554,8 @@ export function captureThoughtSourcePackage(
     : baseDomainPointers;
 
   const relevantConcernIds = new Set<string>();
-  for (const item of workingContext) if (item.concernId) relevantConcernIds.add(item.concernId);
-  for (const item of selectedOccupancy.selected) relevantConcernIds.add(item.concernId);
+  for (const item of eligibleWorkingContext) if (item.concernId) relevantConcernIds.add(item.concernId);
+  for (const item of eligibleOccupancy) relevantConcernIds.add(item.concernId);
   for (const pointer of domainPointers.pointers) {
     for (const evidence of pointer.terminalEvidence ?? []) relevantConcernIds.add(evidence.concernId);
   }
@@ -376,6 +578,7 @@ export function captureThoughtSourcePackage(
   const concernSnapshots: Record<string, string> = {};
   const concernsById = new Map(
     listConcerns(options.sidecar, options.cycle.conversationId)
+      .filter((concern) => structuredValueEligible(concern, audience, licenses))
       .map((concern) => [concern.concernId, concern] as const),
   );
   for (const concernId of [...relevantConcernIds].sort()) {
@@ -384,7 +587,7 @@ export function captureThoughtSourcePackage(
     if (concern) concernSnapshots[concernId] = concern.snapshotHash;
   }
   const occupiedConcernProjection = buildOccupiedConcernProjection(
-    selectedOccupancy.selected,
+    eligibleOccupancy,
     [...concernsById.values()],
   );
 
@@ -393,11 +596,11 @@ export function captureThoughtSourcePackage(
     options.sidecar,
     options.authorityDb,
     options.cycle.occupantId,
-    workingContext,
+    eligibleWorkingContext,
     {
       conversationId: options.cycle.conversationId,
-      workingContext,
-      occupancy: selectedOccupancy.selected,
+      workingContext: eligibleWorkingContext,
+      occupancy: eligibleOccupancy,
       occupancyLimit: occupancyK,
       occupancyBoundary: selectedOccupancy.boundary,
       concernMembership: domainPointers.pointers.find((pointer) => pointer.domain === "concerns")?.entityIds ?? [],
@@ -407,8 +610,8 @@ export function captureThoughtSourcePackage(
     },
   );
   return Object.freeze({
-    workingContext: Object.freeze([...workingContext]),
-    occupancy: Object.freeze([...selectedOccupancy.selected]),
+    workingContext: Object.freeze([...eligibleWorkingContext]),
+    occupancy: Object.freeze([...eligibleOccupancy]),
     occupiedConcernProjection,
     concernSnapshots: Object.freeze({ ...concernSnapshots }),
     domainPointers,
@@ -420,6 +623,8 @@ export function captureThoughtSourcePackage(
 export function buildThoughtInput(options: BuildThoughtInputOptions): ThoughtInputWithC2 {
   const lastNTurns = Math.max(1, Math.min(100, options.lastNTurns ?? DEFAULT_LAST_N_TURNS));
   const occupancyK = Math.max(1, Math.min(100, options.occupancyK ?? DEFAULT_OCCUPANCY_COMPACT_K));
+  const audience = options.audience ?? ownerAudience();
+  const licenses = options.licenses ?? [];
   const sourceCapture = options.sourceCapture ?? captureThoughtSourcePackage(options, occupancyK);
   const activeFrontier = getActiveDeferredFrontier(
     options.sidecar,
@@ -436,18 +641,34 @@ export function buildThoughtInput(options: BuildThoughtInputOptions): ThoughtInp
       suppliedEvidence: options.rawConversation,
     },
   );
-  const rawConversation = conversationSelection.selectedEvidence;
-  const workingContext = [...sourceCapture.workingContext];
+  const rawConversation = filterEvidence(conversationSelection.selectedEvidence, audience);
+  const workingContext = filterStructured(sourceCapture.workingContext, audience, licenses);
+  const selectedOccupancy = filterStructured(sourceCapture.occupancy, audience, licenses);
   const occupancy = enrichOccupancyForThought(
-    sourceCapture.occupancy,
-    sourceCapture.occupiedConcernProjection,
+    selectedOccupancy,
+    sourceCapture.occupiedConcernProjection.filter((item) =>
+      selectedOccupancy.some((row) => row.concernId === item.concernId)),
   );
-  const concernSnapshots = sourceCapture.concernSnapshots;
-  const learnedSelfSlice = options.learnedSelfSlice ?? buildLearnedSelfSlice(options.sidecar);
-  const identity = options.constitution as IdentitySlice & Partial<IdentityOrientationSource>;
-  const orientationKernel = options.orientationKernel ?? buildOrientationKernel({
+  const concernIds = new Set([
+    ...workingContext.flatMap((item) => item.concernId ? [item.concernId] : []),
+    ...selectedOccupancy.map((item) => item.concernId),
+  ]);
+  const concernSnapshots = Object.fromEntries(
+    Object.entries(sourceCapture.concernSnapshots).filter(([concernId]) => concernIds.has(concernId)),
+  );
+  const learnedSelfSlice = filterLearnedSelf(
+    options.learnedSelfSlice ?? buildLearnedSelfSlice(options.sidecar),
+    audience,
+    licenses,
+  );
+  const constitution = filterConstitution(options.constitution, audience);
+  const capabilityReality = filterCapabilityReality(options.capabilityReality, audience, licenses);
+  const identity = constitution as IdentitySlice & Partial<IdentityOrientationSource>;
+  const orientationKernel = options.orientationKernel && audience.kind === "owner_private"
+    ? options.orientationKernel
+    : buildOrientationKernel({
     constitution: identity,
-    capabilityReality: options.capabilityReality,
+    capabilityReality,
     staticOperatingContract: options.staticOperatingContract,
     stableSelfBound: options.stableSelfBound,
     learnedSelf: learnedSelfSlice,
@@ -473,6 +694,17 @@ export function buildThoughtInput(options: BuildThoughtInputOptions): ThoughtInp
 
   const rawConversationRowIds = new Set(rawConversation.map((r) => r.rowId));
 
+  const eligibleObservations = filterStructured(options.observations ?? [], audience, licenses);
+  const eligibleInFlight = filterInFlight(
+    options.inFlight ?? listInFlight(options.sidecar, options.cycle.cycleId),
+    audience,
+  );
+  const rememberDirective = options.rememberDirective && structuredValueEligible(
+    options.rememberDirective,
+    audience,
+    licenses,
+  ) ? options.rememberDirective : null;
+
   const retrieval = retrieveCandidates(
     options.sidecar,
     {
@@ -486,7 +718,7 @@ export function buildThoughtInput(options: BuildThoughtInputOptions): ThoughtInp
       rawConversationRowIds,
     },
     options.derivedStore,
-    { authorityDb: options.authorityDb },
+    { authorityDb: options.authorityDb, audience, licenses },
   );
 
   const thoughtInput: ThoughtInputWithC2 = {
@@ -502,9 +734,11 @@ export function buildThoughtInput(options: BuildThoughtInputOptions): ThoughtInp
     ...(conversationSelection.frontierIncludedIds.length > 0 || conversationSelection.currentTriggerRowId !== null
       ? {
           conversationSelection: {
-            frontierIncludedIds: conversationSelection.frontierIncludedIds,
+            frontierIncludedIds: conversationSelection.frontierIncludedIds.filter((id) =>
+              rawConversation.some((row) => row.rowId === id)),
             omittedEvidenceIds: conversationSelection.omittedEvidenceIds,
-            ...(conversationSelection.currentTriggerRowId === null
+            ...(conversationSelection.currentTriggerRowId === null ||
+              !rawConversation.some((row) => row.rowId === conversationSelection.currentTriggerRowId)
               ? {}
               : { currentTriggerRowId: conversationSelection.currentTriggerRowId }),
           },
@@ -517,18 +751,18 @@ export function buildThoughtInput(options: BuildThoughtInputOptions): ThoughtInp
     // category-separated fields have already been captured by the orientation
     // kernel and must not be duplicated in the old compatibility field.
     constitution: {
-      constitutional: [...options.constitution.constitutional],
-      stableSelf: [...options.constitution.stableSelf],
+      constitutional: [...constitution.constitutional],
+      stableSelf: [...constitution.stableSelf],
     },
     learnedSelfSlice,
-    capabilityReality: options.capabilityReality,
+    capabilityReality,
     ...(options.publicPresence === undefined ? {} : { publicPresence: options.publicPresence }),
-    observations: options.observations ?? [],
+    observations: eligibleObservations,
     retrieval,
-    inFlight: options.inFlight ?? listInFlight(options.sidecar, options.cycle.cycleId),
+    inFlight: eligibleInFlight,
     authorityObjections: options.authorityObjections ?? [],
     runtimeCondition: emptyRuntimeCondition(options.runtimeCondition),
-    rememberDirective: options.rememberDirective ?? null,
+    rememberDirective,
     orientationKernel,
     domainPointers,
     c3Experiences,

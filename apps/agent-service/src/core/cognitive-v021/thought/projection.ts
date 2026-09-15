@@ -42,6 +42,10 @@ export type CompactMemoryEvidence = {
   dimensions: EpistemicDimensions | null;
   snippet: string;
   supportCount?: number;
+  source?: string | null;
+  subject?: string[] | null;
+  audienceScope?: RetrievalHit["audienceScope"];
+  licenseRefs?: string[];
 };
 
 export type CompactConversationEvidence = {
@@ -53,6 +57,10 @@ export type CompactConversationEvidence = {
   lineageId?: string | null;
   version?: number | null;
   provenance?: string | null;
+  source?: string | null;
+  subject?: string[] | null;
+  audienceScope?: RetrievalHit["audienceScope"];
+  licenseRefs?: string[];
 };
 
 export type CompactRetrievalEvidence =
@@ -197,6 +205,10 @@ export function computeDispatchMessagesHash(messages: ChatMessage[]): string {
 }
 
 export function projectRetrievalHit(hit: RetrievalHit): CompactRetrievalEvidence {
+  const externalMetadata = (hit.audienceScope !== undefined && hit.audienceScope !== null && hit.audienceScope.kind !== "owner_private") ||
+    hit.source != null ||
+    (hit.subject != null && hit.subject.length > 0) ||
+    (hit.licenseRefs != null && hit.licenseRefs.length > 0);
   if (hit.sourceStore === "conversation_log") {
     return {
       kind: "log",
@@ -204,6 +216,12 @@ export function projectRetrievalHit(hit: RetrievalHit): CompactRetrievalEvidence
       sourceStore: "conversation_log",
       role: hit.role ?? "unknown",
       snippet: hit.snippet,
+      ...(externalMetadata ? {
+        source: hit.source ?? null,
+        subject: hit.subject ?? null,
+        audienceScope: hit.audienceScope,
+        licenseRefs: hit.licenseRefs ?? [],
+      } : {}),
     };
   }
 
@@ -218,6 +236,12 @@ export function projectRetrievalHit(hit: RetrievalHit): CompactRetrievalEvidence
     dimensions: hit.dimensions,
     snippet: hit.snippet,
     supportCount: supportCount && supportCount > 0 ? supportCount : undefined,
+    ...(externalMetadata ? {
+      source: hit.source ?? null,
+      subject: hit.subject ?? null,
+      audienceScope: hit.audienceScope,
+      licenseRefs: hit.licenseRefs ?? [],
+    } : {}),
   };
 }
 

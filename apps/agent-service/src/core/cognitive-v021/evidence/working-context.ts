@@ -23,6 +23,19 @@ function strings(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
 }
 
+function audienceScope(value: unknown): WorkingContextItem["audienceScope"] {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const candidate = value as Record<string, unknown>;
+  if (candidate.kind === "owner_private") return { kind: "owner_private" };
+  if (candidate.kind === "dm" && typeof candidate.principalId === "string" && candidate.principalId.trim()) {
+    return { kind: "dm", principalId: candidate.principalId };
+  }
+  if (candidate.kind === "room" && typeof candidate.roomId === "string" && candidate.roomId.trim()) {
+    return { kind: "room", roomId: candidate.roomId };
+  }
+  return null;
+}
+
 function mapItem(row: unknown, conversationId: string): WorkingContextItem | null {
   if (!isRow(row)) return null;
   const payload = parse(row.payload_json);
@@ -44,6 +57,15 @@ function mapItem(row: unknown, conversationId: string): WorkingContextItem | nul
     status,
     supersedesId: typeof payload.supersedesId === "string" ? payload.supersedesId : null,
     updatedGeneration: Number(row.updated_generation ?? payload.updatedGeneration ?? 0),
+    audienceScope: audienceScope(payload.audienceScope),
+    sourcePrincipal: typeof payload.sourcePrincipal === "string" ? payload.sourcePrincipal : null,
+    sourceEvidenceRef: typeof payload.sourceEvidenceRef === "string" ? payload.sourceEvidenceRef : null,
+    protectionSubjects: Array.isArray(payload.protectionSubjects) ? strings(payload.protectionSubjects) : null,
+    protectionBasisRefs: strings(payload.protectionBasisRefs),
+    protectionStatus: payload.protectionStatus === "admitted" || payload.protectionStatus === "unresolved"
+      ? payload.protectionStatus
+      : null,
+    licenseRefs: strings(payload.licenseRefs),
   };
 }
 

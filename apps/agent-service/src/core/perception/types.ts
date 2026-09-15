@@ -1,4 +1,5 @@
 import type { Decision } from "../types.js";
+import type { SocialAudience } from "../cognitive-v021/social/types.js";
 
 export type PerceptionArtifactStatus =
   | "pending"
@@ -65,6 +66,8 @@ export type PerceptionInlinePart = {
   mime?: string;
   completeness: "complete" | "truncated_at_limit";
   furtherRetrievalAvailable: boolean;
+  /** Social audience of the lifecycle that is allowed to receive this part. */
+  audienceScope?: SocialAudience;
 };
 
 export type PerceptionTurnInput = {
@@ -77,6 +80,8 @@ export type PerceptionTurnInput = {
   /** Absolute optional-Perception cutoff selected by the owning turn plan. */
   deadlineAtMs: number;
   decision: Decision;
+  /** Defaults to Owner-private for legacy Owner turns. */
+  audience?: SocialAudience;
 };
 
 export type PerceptionTurnResult = {

@@ -38,6 +38,7 @@ import {
   type PerceptionTurnInput,
   type PerceptionTurnResult,
 } from "./types.js";
+import type { SocialAudience } from "../cognitive-v021/social/types.js";
 
 export type { PerceptionTurnInput, PerceptionTurnResult } from "./types.js";
 export { fetchAttachmentBytes } from "./fetch.js";
@@ -105,6 +106,17 @@ function textExcerptFromBytes(
   };
 }
 
+function bindAudience<T extends PerceptionInlinePart>(
+  part: T,
+  audience: SocialAudience,
+): T {
+  // Preserve the byte-for-byte Owner projection while making every external
+  // perception part carry its requesting lifecycle audience.
+  return audience.kind === "owner_private"
+    ? part
+    : { ...part, audienceScope: audience };
+}
+
 async function processArtifactFetch(
   db: DatabaseSync,
   ownerId: string,
@@ -116,6 +128,7 @@ async function processArtifactFetch(
     thoughtParts: PerceptionInlinePart[];
     expressionParts: PerceptionInlinePart[];
     licenses: PerceptionLicenses;
+    audience: SocialAudience;
   },
 ): Promise<void> {
   const row = db
@@ -159,7 +172,7 @@ async function processArtifactFetch(
       markArtifactIncluded(db, artifact.entityUuid, ownerId, modelParts, {
         modelRepresentation: "inline_base64",
       });
-      const part: PerceptionInlinePart = {
+      const part: PerceptionInlinePart = bindAudience({
         audience: "thought",
         kind: "image",
         entityUuid: artifact.entityUuid,
@@ -168,9 +181,9 @@ async function processArtifactFetch(
         mime: fetched.mime,
         completeness: "complete",
         furtherRetrievalAvailable: false,
-      };
+      }, options.audience);
       options.thoughtParts.push(part);
-      options.expressionParts.push({ ...part, audience: "expression" });
+      options.expressionParts.push(bindAudience({ ...part, audience: "expression" }, options.audience));
       options.licenses.imageIncluded.push(artifact.entityUuid);
       return;
     }
@@ -189,7 +202,7 @@ async function processArtifactFetch(
         modelRepresentation: "inline_text_excerpt",
         excerpt: projection.text.slice(0, 2_000),
       });
-      options.thoughtParts.push({
+      options.thoughtParts.push(bindAudience({
         audience: "thought",
         kind: "text_excerpt",
         entityUuid: artifact.entityUuid,
@@ -198,7 +211,7 @@ async function processArtifactFetch(
         mime: fetched.mime,
         completeness: projection.completeness,
         furtherRetrievalAvailable: projection.completeness === "truncated_at_limit",
-      });
+      }, options.audience));
       options.licenses.textExcerptIncluded.push(artifact.entityUuid);
       return;
     }
@@ -242,6 +255,7 @@ export async function runPerceptionTurn(
   db: DatabaseSync,
   input: PerceptionTurnInput,
 ): Promise<PerceptionTurnResult> {
+  const audience = input.audience ?? { kind: "owner_private" };
   const researchIntent = classifyResearchIntent(input.message);
   const licenses = emptyLicenses();
   const thoughtParts: PerceptionInlinePart[] = [];
@@ -330,6 +344,7 @@ export async function runPerceptionTurn(
           thoughtParts,
           expressionParts,
           licenses,
+          audience,
         }),
       ),
     );
@@ -371,7 +386,7 @@ export async function runPerceptionTurn(
           input.ownerId,
           modelParts,
         );
-        const excerptPart: PerceptionInlinePart = {
+        const excerptPart = bindAudience<PerceptionInlinePart>({
           audience: "thought",
           kind: "conversational_read",
           entityUuid: conversationalRead.entityUuid,
@@ -381,7 +396,7 @@ export async function runPerceptionTurn(
             ? "truncated_at_limit"
             : "complete",
           furtherRetrievalAvailable: page.modelExcerpt.length >= MAX_MODEL_EXCERPT_CHARS,
-        };
+        }, audience);
         thoughtParts.push(excerptPart);
         licenses.conversationalReadIncluded.push(conversationalRead.entityUuid);
       }

@@ -15,6 +15,7 @@ import {
 } from "../../sandbox/project-registry.js";
 import type { CapabilityName } from "../../rollout/capabilities.js";
 import type { CapabilityReality, ThoughtOperationCapability } from "../types.js";
+import type { SocialAudience } from "../social/types.js";
 
 /** Capabilities with an actual v0.2.1 production adapter in this candidate. */
 const V021_LIVE_OPERATION_CAPABILITIES: ReadonlySet<CapabilityName> = new Set([
@@ -32,6 +33,8 @@ export type CapabilityRealityOptions = {
   masterMode?: "observe" | "apply";
   lifecycleEnabled?: boolean;
   substrateAvailable?: boolean;
+  audience?: SocialAudience;
+  licenses?: readonly string[];
 };
 
 function authorizedProjectIds(
@@ -104,28 +107,36 @@ export function getCapabilityReality(
     canOfferProjectInspection(db, sandboxOptions);
   const verificationAvailable = V021_LIVE_OPERATION_CAPABILITIES.has("candidate_verification") &&
     canOfferCandidateVerification(db, sandboxOptions);
+  const audience = options.audience ?? { kind: "owner_private" };
+  const externalAudience = audience.kind !== "owner_private";
+  const licenses = options.licenses ?? [];
+  const audienceCapabilityAllowed = (name: string): boolean =>
+    !externalAudience || licenses.includes(name) || licenses.includes(`capability:${name}`);
+  const operationCapabilities = thoughtOperationCapabilities({
+    registry,
+    projectInspectionAvailable,
+    verificationAvailable,
+  });
   return {
-    vision: V021_LIVE_PERCEPTION_CAPABILITIES.has("vision") &&
+    vision: audienceCapabilityAllowed("vision") && V021_LIVE_PERCEPTION_CAPABILITIES.has("vision") &&
       perceptionCapabilityCanInfluence(db, "vision", masterMode),
-    attachmentText: V021_LIVE_PERCEPTION_CAPABILITIES.has("attachment_text") &&
+    attachmentText: audienceCapabilityAllowed("attachment_text") && V021_LIVE_PERCEPTION_CAPABILITIES.has("attachment_text") &&
       perceptionCapabilityCanInfluence(db, "attachment_text", masterMode),
-    conversationalRead: V021_LIVE_PERCEPTION_CAPABILITIES.has("conversational_read") &&
+    conversationalRead: audienceCapabilityAllowed("conversational_read") && V021_LIVE_PERCEPTION_CAPABILITIES.has("conversational_read") &&
       perceptionCapabilityCanInfluence(db, "conversational_read", masterMode),
-    webSearch: V021_LIVE_PERCEPTION_CAPABILITIES.has("web_search") &&
+    webSearch: audienceCapabilityAllowed("web_search") && V021_LIVE_PERCEPTION_CAPABILITIES.has("web_search") &&
       perceptionCapabilityCanInfluence(db, "web_search", masterMode),
-    canOfferProjectInspection: projectInspectionAvailable,
-    canOfferWorkspace: V021_LIVE_OPERATION_CAPABILITIES.has("project_experimentation") &&
+    canOfferProjectInspection: !externalAudience && projectInspectionAvailable,
+    canOfferWorkspace: !externalAudience && V021_LIVE_OPERATION_CAPABILITIES.has("project_experimentation") &&
       canOfferCandidateWorkspace(db, sandboxOptions),
-    canOfferVerification: verificationAvailable,
-    canOfferAuthorship: V021_LIVE_OPERATION_CAPABILITIES.has("candidate_authorship") &&
+    canOfferVerification: !externalAudience && verificationAvailable,
+    canOfferAuthorship: !externalAudience && V021_LIVE_OPERATION_CAPABILITIES.has("candidate_authorship") &&
       canOfferCandidateAuthorship(db, sandboxOptions),
     canOfferBoundedOperation: false,
     canOfferPatchExport: false,
-    approvedProjectIds: listApprovedReadProjectIds(registry),
-    operationCapabilities: thoughtOperationCapabilities({
-      registry,
-      projectInspectionAvailable,
-      verificationAvailable,
-    }),
+    approvedProjectIds: externalAudience ? [] : listApprovedReadProjectIds(registry),
+    operationCapabilities: externalAudience
+      ? operationCapabilities.map((capability) => ({ ...capability, available: false }))
+      : operationCapabilities,
   };
 }
