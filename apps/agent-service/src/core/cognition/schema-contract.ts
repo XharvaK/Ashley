@@ -40,6 +40,10 @@ import {
   SOCIAL_AUTHORITY_TABLES,
   validateNuclearV46Schema,
 } from "../relationship/migration-46.js";
+import {
+  V47_TABLE_COLUMNS,
+  validateNuclearV47Schema,
+} from "../memory/migration-47.js";
 
 type TableInfoRow = {
   name?: string;
@@ -1129,9 +1133,22 @@ function requireNoV46Content(db: DatabaseSync, version: number): void {
   }
 }
 
+function requireNoV47Content(db: DatabaseSync, version: number): void {
+  for (const [table, columns] of Object.entries(V47_TABLE_COLUMNS)) {
+    for (const column of columns) {
+      if (tableInfo(db, table).some((row) => row.name === column)) {
+        fail(version, `unexpected_v47_column:${table}.${column}`);
+      }
+    }
+  }
+  if (masterRow(db, "table", "commitment_settlements")) {
+    fail(version, "unexpected_v47_table:commitment_settlements");
+  }
+}
+
 export function validateNuclearSchemaContent(
   db: DatabaseSync,
-  version: 22 | 23 | 24 | 25 | 26 | 27 | 28 | 29 | 30 | 31 | 32 | 33 | 34 | 35 | 36 | 37 | 38 | 39 | 40 | 41 | 42 | 43 | 44 | 45 | 46,
+  version: 22 | 23 | 24 | 25 | 26 | 27 | 28 | 29 | 30 | 31 | 32 | 33 | 34 | 35 | 36 | 37 | 38 | 39 | 40 | 41 | 42 | 43 | 44 | 45 | 46 | 47,
   options: { rejectNewerContent?: boolean } = {},
 ): void {
   if (version === 22) {
@@ -1328,6 +1345,12 @@ export function validateNuclearSchemaContent(
   }
   if (version === 45) return;
   validateNuclearV46Schema(db, version);
+  if (version === 46 && options.rejectNewerContent === true) {
+    requireNoV47Content(db, version);
+    return;
+  }
+  if (version === 46) return;
+  validateNuclearV47Schema(db, version);
 }
 
 function addColumnIfMissing(

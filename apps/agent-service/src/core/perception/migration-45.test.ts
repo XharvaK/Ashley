@@ -7,8 +7,8 @@ describe("nuclear migration 45 artifact preservation", () => {
   it("lands the additive artifact proof columns as V45", () => {
     const db = openNuclearDb(new DatabaseSync(":memory:"));
     try {
-      expect(NUCLEAR_SUPPORTED_VERSION).toBe(46);
-      expect((db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(46);
+      expect(NUCLEAR_SUPPORTED_VERSION).toBe(47);
+      expect((db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(47);
       validateNuclearV45Schema(db);
       const columns = db.prepare("PRAGMA table_info(perception_artifacts)").all() as Array<{
         name: string;
