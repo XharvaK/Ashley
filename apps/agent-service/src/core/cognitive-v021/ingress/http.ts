@@ -621,6 +621,23 @@ function externalLocationForEligibility(evidence: {
   return null;
 }
 
+function initialContactQuarantineReason(
+  bundle: Parameters<typeof classifyEligibility>[0],
+  location: "dm" | "room",
+): string {
+  if (location !== "dm") return "ineligible_current_authority";
+  const hasDirectPermit = bundle.permits.some((item) =>
+    item.scope === "person_wide" || item.scope === "dm_only",
+  );
+  const blocked = bundle.prohibitions.some((item) => item.hardStop || item.scope === "no_contact" || item.scope === "no_dm" || item.scope === "no_direct")
+    || bundle.restrictions.some((item) => item.kind === "do_not_contact" || item.kind === "no_dm")
+    || bundle.boundaries.some((item) => item.scope === "no_contact" || item.scope === "no_dm" || item.scope === "no_direct");
+  // Preserve the initial-contact distinction as durable mechanical state. A
+  // later Owner grant can reopen this exact captured message; a deliberate
+  // restriction stays a backlog/quarantine case instead.
+  return !hasDirectPermit && !blocked ? "initial_contact_pending" : "ineligible_current_authority";
+}
+
 function notificationDay(nowMs: number): string {
   return new Date(nowMs).toISOString().slice(0, 10);
 }
@@ -886,7 +903,7 @@ export function admitExternalBatch(
             continue;
           }
           reason = decision.verdict === "capture_quarantine"
-            ? "ineligible_current_authority"
+            ? initialContactQuarantineReason(bundle, location.location)
             : "ineligible_current_authority";
         } catch {
           reason = "db_error";

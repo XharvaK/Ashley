@@ -47,6 +47,7 @@ import {
 } from "./core/cognitive-v021/ingress/http.js";
 import { promoteEligiblePending } from "./core/cognitive-v021/social/dm-activation.js";
 import { promoteEligibleRoomPending } from "./core/cognitive-v021/social/room-activation.js";
+import { recoverInitialContactEligibility } from "./core/cognitive-v021/social/continuity-memory.js";
 import { createLiveExpressionBinding } from "./core/cognitive-v021/speech/live-expression.js";
 
 export function createAgentInboxConsumerHandler(
@@ -152,6 +153,12 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
           `[cognitive-v021] unbatched external capture recovery deferred rows=${externalRecovery.failures}`,
         );
       }
+      const initialContactRecovery = recoverInitialContactEligibility(cognitiveSidecar, nuclear);
+      if (initialContactRecovery.failures > 0) {
+        console.warn(
+          `[cognitive-v021] initial external contact recovery deferred rows=${initialContactRecovery.failures}`,
+        );
+      }
     }
     const dmPromotion = promoteEligiblePending(cognitiveSidecar, nuclear, { ownerId });
     if (dmPromotion.rejected > 0) {
@@ -209,6 +216,35 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
       workerId: `agent-service:${process.pid}`,
       handler: createAgentInboxConsumerHandler(manager),
       onReconciliationMaintenance: (nowMs) => {
+        if (isExternalSocialCaptureEnabled()) {
+          void reconcileUnbatchedCaptures(cognitiveSidecar, {
+            nowMs,
+            batch: (input) => admitExternalBatch(
+              cognitiveSidecar,
+              nuclear,
+              input,
+              { ownerId, projectSystemNotice },
+            ),
+          }).then((externalRecovery) => {
+            if (externalRecovery.failures > 0) {
+              console.warn(
+                `[cognitive-v021] unbatched external capture maintenance deferred rows=${externalRecovery.failures}`,
+              );
+            }
+          }).catch((error) => {
+            console.warn("[cognitive-v021] external capture maintenance deferred", error);
+          });
+          try {
+            const initialContactRecovery = recoverInitialContactEligibility(cognitiveSidecar, nuclear, { nowMs });
+            if (initialContactRecovery.failures > 0) {
+              console.warn(
+                `[cognitive-v021] initial external contact maintenance deferred rows=${initialContactRecovery.failures}`,
+              );
+            }
+          } catch (error) {
+            console.warn("[cognitive-v021] initial external contact maintenance deferred", error);
+          }
+        }
         try {
           const deliveryRecovery = reconcileProjectedDeliverySweep(cognitiveSidecar, nuclear, { limit: 50 });
           if (deliveryRecovery.conflicts > 0) {

@@ -19,6 +19,10 @@ import { REDACTED_MEMORY_STATEMENT, upsertMemoryAssertion } from "./assertions.j
 import { notifySidecarPostCommit } from "../retrieval/derived-store.js";
 import { hasStructuredCurrentnessEntitlement } from "../authority/check.js";
 import { FROZEN_AUTOMATIC_ADMISSION_ALLOWLIST } from "./admission-allowlist.js";
+import {
+  prepareExternalSocialNomination,
+  type PreparedExternalSocialRevision,
+} from "../social/continuity-memory.js";
 
 type DbRow = Record<string, unknown>;
 
@@ -263,10 +267,46 @@ function admitOne(
     }
   }
 
+  // Social nominations must carry attributed external evidence through the
+  // same audience/protection fence as the direct revision writer. Owner-path
+  // nominations retain their existing admission behavior.
+  let socialAdmission: PreparedExternalSocialRevision | null = null;
+  const externalSourceCount = sourceRefs.reduce((count, ref) => {
+    const row = db.prepare(
+      `SELECT 1 FROM conversation_evidence_log
+        WHERE role = 'external_dialog' AND (row_id = ? OR lineage_id = ?)
+        LIMIT 1`,
+    ).get(ref, ref);
+    return row ? count + 1 : count;
+  }, 0);
+  const socialConversation = current.conversationId.startsWith("dm:") || current.conversationId.startsWith("room:");
+  if (externalSourceCount > 0 || (socialConversation && nomination.memoryKind === "learned_self_evidence")) {
+    if (nomination.memoryKind !== "learned_self_evidence" && nomination.memoryKind !== "shared_episode") {
+      const result = noAssertion("admission_skipped_provenance");
+      logAdmission(db, result, nowMs);
+      return result;
+    }
+    const prepared = prepareExternalSocialNomination(db, {
+      statement: nomination.statement,
+      memoryKind: nomination.memoryKind,
+      dimensions: nomination.dimensions,
+      dataClassification: nomination.dataClassification,
+      sourceRefs,
+      lineageParentKey: nomination.supersedesAssertionKey,
+    });
+    if (!prepared.ok) {
+      const result = noAssertion("admission_skipped_provenance");
+      logAdmission(db, result, nowMs);
+      return result;
+    }
+    socialAdmission = prepared.value;
+  }
+
   const existing = db.prepare("SELECT data_classification FROM sidecar_memory_assertions WHERE assertion_key = ?").get(nomination.assertionKey) as DbRow | undefined;
   const effectiveClassification = maxClassification(
     existing?.data_classification === "ordinary" || existing?.data_classification === "sensitive" || existing?.data_classification === "never_public" || existing?.data_classification === "secret" ? existing.data_classification : null,
     nomination.dataClassification,
+    socialAdmission?.effectiveClassification,
   );
   if (!canEnterModelContext(effectiveClassification, "private")) {
     const result = noAssertion("admission_skipped_secret");
@@ -282,6 +322,7 @@ function admitOne(
     lineageParentKey: nomination.supersedesAssertionKey,
     admittedGeneration: nomination.generation,
     live: true,
+    ...(socialAdmission ? socialAdmission.facets : {}),
   });
   if (nomination.supersedesAssertionKey && nomination.supersedesAssertionKey !== nomination.assertionKey) {
     db.prepare(
@@ -303,6 +344,30 @@ function admitOne(
     dataClassification: effectiveClassification,
     createdAtMs: nowMs,
   });
+  if (socialAdmission) {
+    for (const evidence of socialAdmission.evidence) {
+      appendMemorySupport(db, {
+        supportId: `social:evidence:${nomination.nominationId}:${evidence.rowId}`,
+        assertionKey: nomination.assertionKey,
+        source: "perception",
+        provenance: "native",
+        sourceArchitectureEpoch: "v0.2.1",
+        sourceRef: evidence.rowId,
+        settlementId: text(settlement.settlement_id),
+        evidenceLineageId: evidence.lineageId,
+        observationId: null,
+        receiptId: null,
+        dimensions: {
+          source: "perception",
+          status: "asserted",
+          time: "historical",
+          reliability: "fallible_observation",
+        },
+        dataClassification: evidence.dataClassification,
+        createdAtMs: evidence.createdAtMs,
+      });
+    }
+  }
   db.prepare("UPDATE durable_nominations SET admitted = 1 WHERE nomination_id = ?").run(nomination.nominationId);
   const result: AdmissionResult = { nominationId: nomination.nominationId, assertionKey: nomination.assertionKey, result: "admitted", assertion };
   logAdmission(db, result, nowMs);
