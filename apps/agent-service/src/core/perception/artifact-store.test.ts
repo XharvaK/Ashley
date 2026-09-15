@@ -221,4 +221,60 @@ describe("perception artifact byte store", () => {
     expect(row).toEqual({ status: "unsupported", error_code: "too-large", preserved: 0 });
     db.close();
   });
+
+  it("persists a provenance facet on the preserved attachment evidence", async () => {
+    vi.mocked(checkAttachmentPreflight).mockReturnValue({
+      allowed: true,
+      visionAllowed: false,
+      attachmentTextAllowed: true,
+      fetchBudgetMs: 1_000,
+    });
+    const bytes = new TextEncoder().encode("bounded attachment evidence");
+    const contentHash = createHash("sha256").update(bytes).digest("hex");
+    vi.mocked(fetchAttachmentBytes).mockResolvedValue({
+      bytes,
+      mime: "text/plain",
+      finalUrl: "https://cdn.example.test/evidence.txt",
+      contentHash,
+    });
+    const db = openDb();
+
+    const result = await runPerceptionTurn(db, {
+      ownerId: "owner-a",
+      message: "read this",
+      attachments: [{
+        discordAttachmentId: "attachment-provenance",
+        sourceUrl: "https://cdn.example.test/evidence.txt",
+        fileName: "evidence.txt",
+        declaredMime: "text/plain",
+        declaredByteSize: bytes.byteLength,
+      }],
+      sourceMessageEntityUuid: "message-provenance",
+      deliveryReservationEntityUuid: "reservation-provenance",
+      deliveryReservationId: 1,
+      deadlineAtMs: Date.now() + 10_000,
+      decision: {} as never,
+    });
+
+    const row = db.prepare(
+      `SELECT provenance_json, model_parts_json
+         FROM perception_artifacts
+        WHERE discord_attachment_id = ?`,
+    ).get("attachment-provenance") as {
+      provenance_json: string;
+      model_parts_json: string;
+    };
+    const storedProvenance = JSON.parse(row.provenance_json).provenance;
+    expect(storedProvenance).toMatchObject({
+      sourceIdentity: expect.stringMatching(/^url:/),
+      evidenceIdentity: `sha256:${contentHash}`,
+      citationRefs: expect.arrayContaining([expect.stringMatching(/^artifact:/)]),
+      completeness: "complete",
+    });
+    expect(JSON.parse(row.model_parts_json)[0].provenance).toMatchObject({
+      evidenceIdentity: `sha256:${contentHash}`,
+    });
+    expect(result.thoughtParts[0]?.inputTrust).toBe("untrusted_evidence");
+    db.close();
+  });
 });

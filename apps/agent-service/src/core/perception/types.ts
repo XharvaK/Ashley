@@ -27,10 +27,19 @@ export type ModelRepresentation =
 
 export type ModelAudience = "thought" | "expression";
 
+export type EvidenceProvenanceFacet = {
+  sourceIdentity: string;
+  evidenceIdentity: string;
+  capturedAt: string;
+  citationRefs: string[];
+  completeness: "complete" | "truncated_at_limit" | "incomplete";
+};
+
 export type ModelPartRecord = {
   audience: ModelAudience;
   partIndex: number;
   byteRange?: { start: number; end: number };
+  provenance?: EvidenceProvenanceFacet;
 };
 
 export type AttachmentIntakeRef = {
@@ -64,8 +73,10 @@ export type PerceptionInlinePart = {
   artifactRef: string;
   content: string;
   mime?: string;
-  completeness: "complete" | "truncated_at_limit";
+  completeness: "complete" | "truncated_at_limit" | "incomplete";
   furtherRetrievalAvailable: boolean;
+  provenance: EvidenceProvenanceFacet;
+  inputTrust: "untrusted_evidence";
   /** Social audience of the lifecycle that is allowed to receive this part. */
   audienceScope?: SocialAudience;
 };

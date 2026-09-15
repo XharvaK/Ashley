@@ -8,6 +8,7 @@ import {
   MAX_FILENAME_LENGTH,
   MAX_URL_LENGTH,
   type AttachmentIntakeRef,
+  type EvidenceProvenanceFacet,
   type ModelPartRecord,
   type ModelRepresentation,
   type PerceptionArtifactStatus,
@@ -139,6 +140,7 @@ export function transitionArtifactStatus(
     byteSize?: number;
     modelRepresentation?: ModelRepresentation;
     excerpt?: string | null;
+    provenance?: EvidenceProvenanceFacet;
   },
 ): boolean {
   const now = new Date().toISOString();
@@ -153,6 +155,7 @@ export function transitionArtifactStatus(
            byte_size = COALESCE(?, byte_size),
            model_representation = COALESCE(?, model_representation),
            excerpt = COALESCE(?, excerpt),
+           provenance_json = COALESCE(?, provenance_json),
            updated_at = ?
        WHERE entity_uuid = ? AND owner_id = ?`,
     )
@@ -165,6 +168,9 @@ export function transitionArtifactStatus(
       extras?.byteSize ?? null,
       extras?.modelRepresentation ?? null,
       extras?.excerpt ?? null,
+      extras?.provenance
+        ? JSON.stringify({ provenance: extras.provenance })
+        : null,
       now,
       entityUuid,
       ownerId,

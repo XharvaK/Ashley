@@ -28,6 +28,11 @@ import {
 import { detectCredentialShape, CREDENTIAL_OMITTED_PLACEHOLDER } from "./core/privacy/secrets.js";
 import { scanConfiguredSources } from "./core/curiosity/sources.js";
 import { performGroundedReads, type ReadRecord } from "./core/curiosity/reads.js";
+import { listRecentTakes } from "./core/curiosity/feed.js";
+import {
+  nuclearTakeToObservationDraft,
+  readRecordToObservationDraft as readRecordToCuriosityObservationDraft,
+} from "./core/cognitive-v021/perception/adapter.js";
 import { resolveActiveThread } from "./core/memory/threads.js";
 import type {
   CognitiveDispatchResult,
@@ -196,10 +201,18 @@ export class AgentManager {
         try { await scanConfiguredSources(nuclear); } catch { /* mechanical acquisition must not block Thought */ }
         try {
           const result = await performGroundedReads(nuclear, ownerId);
-          return result.reads
-            .filter((read) => read.provenance === "live")
-            .map(readRecordToObservationDraft)
+          const reads = result.reads
+            .map(readRecordToCuriosityObservationDraft)
             .filter((observation): observation is IdleObservationDraft => observation !== null);
+          const takes = listRecentTakes(nuclear, 12)
+            .map(nuclearTakeToObservationDraft)
+            .filter((observation): observation is IdleObservationDraft => observation !== null);
+          const seen = new Set<string>();
+          return [...reads, ...takes].filter((observation) => {
+            if (seen.has(observation.observationId)) return false;
+            seen.add(observation.observationId);
+            return true;
+          });
         } catch {
           return [];
         }

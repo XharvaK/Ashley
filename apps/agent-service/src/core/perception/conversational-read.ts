@@ -1,16 +1,21 @@
 import { createHash } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { htmlToText } from "../curiosity/feed.js";
+import {
+  fetchWithAggregateLimits,
+  type FetchLike,
+  type ResolveHost,
+} from "../curiosity/network.js";
 import { assignNewEntityUuid } from "../continuity/nuclear-targetable.js";
 import { defaultUnclassifiedConversational } from "../privacy/classification.js";
 import type { Decision } from "../types.js";
-import { fetchAttachmentBytes } from "./fetch.js";
 import {
   DEFAULT_RETENTION_DAYS,
   MAX_MODEL_EXCERPT_CHARS,
   MAX_STORED_EXCERPT_CHARS,
   MAX_URL_LENGTH,
   type ConversationalReadStatus,
+  type EvidenceProvenanceFacet,
   type ModelPartRecord,
 } from "./types.js";
 import { urlFingerprint } from "./ingest.js";
@@ -157,11 +162,50 @@ function extractTitle(rawHtml: string, fallback: string): string {
   return title || fallback.slice(0, 200);
 }
 
-function buildModelExcerpt(cleaned: string): { stored: string; model: string } {
+function boundedExcerpt(
+  normalized: string,
+  maximum: number,
+  marker: string | null,
+): string {
+  if (!marker) return normalized.slice(0, maximum);
+  if (normalized.length + marker.length + 2 <= maximum) {
+    return `${normalized}\n\n${marker}`;
+  }
+  const contentMaximum = Math.max(0, maximum - marker.length - 2);
+  return `${normalized.slice(0, contentMaximum).trimEnd()}\n\n${marker}`;
+}
+
+function buildModelExcerpt(
+  cleaned: string,
+  marker: string | null = null,
+): { stored: string; model: string } {
   const normalized = cleaned.replace(/\s+\n/g, "\n").trim();
-  const stored = normalized.slice(0, MAX_STORED_EXCERPT_CHARS);
-  const model = normalized.slice(0, MAX_MODEL_EXCERPT_CHARS);
+  const stored = boundedExcerpt(normalized, MAX_STORED_EXCERPT_CHARS, marker);
+  const model = boundedExcerpt(normalized, MAX_MODEL_EXCERPT_CHARS, marker);
   return { stored, model };
+}
+
+function contentTypeIsUnsupported(contentType: string): boolean {
+  const normalized = contentType.split(";", 1)[0]?.trim().toLowerCase() ?? "";
+  return Boolean(normalized) && !/(?:text\/|html|xhtml|xml|json)/.test(normalized);
+}
+
+function evidenceProvenance(
+  entityUuid: string,
+  pageIndex: number,
+  finalUrl: string,
+  cleaned: string,
+  capturedAt: string,
+  completeness: EvidenceProvenanceFacet["completeness"],
+): EvidenceProvenanceFacet {
+  const contentHash = createHash("sha256").update(cleaned).digest("hex");
+  return {
+    sourceIdentity: `url:${urlFingerprint(finalUrl)}`,
+    evidenceIdentity: `sha256:${contentHash}`,
+    capturedAt,
+    citationRefs: [`conversational-read:${entityUuid}:page:${pageIndex}`],
+    completeness,
+  };
 }
 
 export async function fetchConversationalReadPage(
@@ -170,10 +214,21 @@ export async function fetchConversationalReadPage(
     ownerId: string;
     entityUuid: string;
     url: string;
+    urls?: readonly string[];
     timeoutMs: number;
     signal?: AbortSignal;
+    fetcher?: FetchLike;
+    resolve?: ResolveHost;
   },
-): Promise<{ storedExcerpt: string; modelExcerpt: string; title: string } | null> {
+): Promise<{
+  storedExcerpt: string;
+  modelExcerpt: string;
+  title: string;
+  provenance: EvidenceProvenanceFacet[];
+  aggregateProvenance: EvidenceProvenanceFacet;
+  modelParts: ModelPartRecord[];
+  completeness: EvidenceProvenanceFacet["completeness"];
+} | null> {
   transitionConversationalReadStatus(
     db,
     params.entityUuid,
@@ -181,22 +236,23 @@ export async function fetchConversationalReadPage(
     "fetching",
   );
   try {
-    const resource = await fetchAttachmentBytes(params.url, {
+    const urls = [...new Set([
+      params.url,
+      ...(params.urls ?? []),
+    ].map((url) => url.trim()).filter(Boolean))];
+    const aggregate = await fetchWithAggregateLimits(urls, {
+      accept: "text/html, text/plain, application/json, application/xml",
       timeoutMs: params.timeoutMs,
-      maxBytes: 2 * 1024 * 1024,
       signal: params.signal,
+      fetcher: params.fetcher,
+      resolve: params.resolve,
+      outboundPurpose: "perception_http",
+      userAgent: "AshleyPerception/1.0",
     });
-    if (resource.mime === "application/pdf") {
-      transitionConversationalReadStatus(
-        db,
-        params.entityUuid,
-        params.ownerId,
-        "failed",
-        { errorCode: "pdf_not_supported", evidenceClass: "fetch_failed" },
-      );
-      return null;
-    }
-    if (resource.mime && !/(?:text\/|html|xhtml|xml|json)/.test(resource.mime)) {
+    if (aggregate.pages.some((page) => {
+      const normalized = page.contentType.split(";", 1)[0]?.trim().toLowerCase();
+      return normalized === "application/pdf" || contentTypeIsUnsupported(page.contentType);
+    })) {
       transitionConversationalReadStatus(
         db,
         params.entityUuid,
@@ -206,8 +262,18 @@ export async function fetchConversationalReadPage(
       );
       return null;
     }
-    const raw = new TextDecoder("utf-8", { fatal: false }).decode(resource.bytes);
-    const cleaned = htmlToText(raw).replace(/\s+\n/g, "\n").trim();
+
+    const pageTexts = aggregate.pages.map((page) => ({
+      raw: new TextDecoder("utf-8", { fatal: false }).decode(page.body),
+      cleaned: htmlToText(
+        new TextDecoder("utf-8", { fatal: false }).decode(page.body),
+      ).replace(/\s+\n/g, "\n").trim(),
+    }));
+    const cleaned = pageTexts
+      .map((page) => page.cleaned)
+      .filter(Boolean)
+      .join("\n\n")
+      .trim();
     if (cleaned.length < 80) {
       transitionConversationalReadStatus(
         db,
@@ -218,23 +284,78 @@ export async function fetchConversationalReadPage(
       );
       return null;
     }
-    const { stored, model } = buildModelExcerpt(cleaned);
-    const title = extractTitle(raw, params.url);
+
+    const completeness: EvidenceProvenanceFacet["completeness"] =
+      aggregate.envelope.truncated
+        ? "truncated_at_limit"
+        : aggregate.envelope.incomplete
+          ? "incomplete"
+          : "complete";
+    const capturedAt = new Date().toISOString();
+    const provenance = pageTexts.flatMap((page, index) => {
+      const fetchedPage = aggregate.pages[index];
+      if (!fetchedPage || !page.cleaned) return [];
+      return [evidenceProvenance(
+        params.entityUuid,
+        index,
+        fetchedPage.finalUrl,
+        page.cleaned,
+        capturedAt,
+        completeness,
+      )];
+    });
+    if (provenance.length === 0) {
+      transitionConversationalReadStatus(
+        db,
+        params.entityUuid,
+        params.ownerId,
+        "failed",
+        { errorCode: "insufficient_content", evidenceClass: "fetch_failed" },
+      );
+      return null;
+    }
     const contentHash = createHash("sha256").update(cleaned).digest("hex");
+    const aggregateProvenance: EvidenceProvenanceFacet = {
+      sourceIdentity: provenance.length === 1
+        ? provenance[0]!.sourceIdentity
+        : `aggregate:${params.entityUuid}`,
+      evidenceIdentity: `sha256:${contentHash}`,
+      capturedAt,
+      citationRefs: provenance.flatMap((facet) => facet.citationRefs),
+      completeness,
+    };
+    const marker = aggregate.envelope.truncationMarker;
+    const { stored, model } = buildModelExcerpt(cleaned, marker);
+    const firstRaw = pageTexts[0]?.raw ?? "";
+    const title = extractTitle(firstRaw, params.url);
+    const modelParts: ModelPartRecord[] = provenance.map((facet, index) => ({
+      audience: "thought",
+      partIndex: index,
+      provenance: facet,
+    }));
     transitionConversationalReadStatus(
       db,
       params.entityUuid,
       params.ownerId,
       "fetched",
       {
-        finalUrlFingerprint: urlFingerprint(resource.finalUrl),
+        finalUrlFingerprint: urlFingerprint(aggregate.pages[0]?.finalUrl ?? params.url),
         contentHash,
         title,
         excerpt: stored,
         evidenceClass: "read_record",
+        modelParts,
       },
     );
-    return { storedExcerpt: stored, modelExcerpt: model, title };
+    return {
+      storedExcerpt: stored,
+      modelExcerpt: model,
+      title,
+      provenance,
+      aggregateProvenance,
+      modelParts,
+      completeness,
+    };
   } catch (error) {
     const code = error instanceof Error ? error.message : "fetch_failed";
     transitionConversationalReadStatus(

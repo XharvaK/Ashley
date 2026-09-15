@@ -13,6 +13,7 @@ import {
 } from "node:fs";
 import type { DatabaseSync } from "node:sqlite";
 import { dirname, join, resolve } from "node:path";
+import type { EvidenceProvenanceFacet } from "./types.js";
 
 export type IntegrityProof = {
   sha256: string;
@@ -187,6 +188,7 @@ export function storeArtifactBytes(
   entityUuid: string,
   bytes: Uint8Array,
   mime: string,
+  provenanceFacet?: EvidenceProvenanceFacet,
 ): IntegrityProof {
   const row = rowForArtifact(db, entityUuid, ownerId);
   if (row.status === "redacted" || row.status === "expired") {
@@ -216,6 +218,7 @@ export function storeArtifactBytes(
     ownerId,
     entityUuid,
     mime: normalizedMime(mime),
+    ...(provenanceFacet ? { provenance: provenanceFacet } : {}),
   });
   const changes = db.prepare(
     `UPDATE perception_artifacts

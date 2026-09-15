@@ -12,6 +12,8 @@ const EXPLICIT_READ_PHRASES = [
 
 const URL_RE =
   /https?:\/\/[^\s<>"'`]+/i;
+const URL_GLOBAL_RE =
+  /https?:\/\/[^\s<>"'`]+/gi;
 
 export type ResearchIntentResult =
   | { intent: true; url: string }
@@ -41,4 +43,12 @@ export function extractFirstUrl(message: string): string | null {
   const match = message.trim().match(URL_RE);
   if (!match?.[0]) return null;
   return normalizeUrl(match[0]);
+}
+
+export function extractUrls(message: string): string[] {
+  return [...new Set(
+    (message.match(URL_GLOBAL_RE) ?? [])
+      .map(normalizeUrl)
+      .filter(Boolean),
+  )];
 }

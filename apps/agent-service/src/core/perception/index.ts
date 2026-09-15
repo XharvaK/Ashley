@@ -27,11 +27,12 @@ import {
   conversationalReadPreflight,
 } from "./preflight.js";
 import { perceptionCapabilityCanInfluence } from "./capability-self-model.js";
-import { classifyResearchIntent } from "./research-intent.js";
+import { classifyResearchIntent, extractUrls } from "./research-intent.js";
 import {
   MAX_MODEL_EXCERPT_CHARS,
   MAX_SINGLE_ATTACHMENT_BYTES,
   type AttachmentIntakeRef,
+  type EvidenceProvenanceFacet,
   type ModelPartRecord,
   type PerceptionInlinePart,
   type PerceptionLicenses,
@@ -60,7 +61,7 @@ export {
 } from "./ingest.js";
 export { checkAttachmentPreflight } from "./preflight.js";
 export { composeSelfCapabilityContext } from "./capability-self-model.js";
-export { classifyResearchIntent } from "./research-intent.js";
+export { classifyResearchIntent, extractUrls } from "./research-intent.js";
 export {
   createPendingRead,
   authorizeConversationalRead,
@@ -117,6 +118,22 @@ function bindAudience<T extends PerceptionInlinePart>(
     : { ...part, audienceScope: audience };
 }
 
+function artifactProvenance(
+  entityUuid: string,
+  finalUrl: string,
+  contentHash: string,
+  capturedAt: string,
+  completeness: EvidenceProvenanceFacet["completeness"] = "complete",
+): EvidenceProvenanceFacet {
+  return {
+    sourceIdentity: `url:${urlFingerprint(finalUrl)}`,
+    evidenceIdentity: `sha256:${contentHash}`,
+    capturedAt,
+    citationRefs: [`artifact:${entityUuid}`],
+    completeness,
+  };
+}
+
 async function processArtifactFetch(
   db: DatabaseSync,
   ownerId: string,
@@ -149,26 +166,41 @@ async function processArtifactFetch(
       markPdfUnsupported(db, artifact.entityUuid, ownerId);
       return;
     }
+    const capturedAt = new Date().toISOString();
+    const provenance = artifactProvenance(
+      artifact.entityUuid,
+      fetched.finalUrl,
+      fetched.contentHash,
+      capturedAt,
+    );
     transitionArtifactStatus(db, artifact.entityUuid, ownerId, "fetched", {
       mimeDetected: fetched.mime,
       finalUrlFingerprint: urlFingerprint(fetched.finalUrl),
       contentHash: fetched.contentHash,
       byteSize: fetched.bytes.byteLength,
+      provenance,
     });
 
     const preserveArtifact = isImageMime(fetched.mime) || isTextMime(fetched.mime);
     if (preserveArtifact) {
       // The store verifies and writes the complete bytes before its final
       // preserved=1 update. Projection below reads back those same bytes.
-      storeArtifactBytes(db, ownerId, artifact.entityUuid, fetched.bytes, fetched.mime);
+      storeArtifactBytes(
+        db,
+        ownerId,
+        artifact.entityUuid,
+        fetched.bytes,
+        fetched.mime,
+        provenance,
+      );
     }
 
     const modelParts: ModelPartRecord[] = [];
     if (isImageMime(fetched.mime) && options.visionAllowed) {
       const preservedBytes = readArtifactBytes(db, artifact.entityUuid, ownerId);
       const dataUri = buildInlineDataUri(preservedBytes, fetched.mime);
-      modelParts.push({ audience: "thought", partIndex: 0 });
-      modelParts.push({ audience: "expression", partIndex: 0 });
+      modelParts.push({ audience: "thought", partIndex: 0, provenance });
+      modelParts.push({ audience: "expression", partIndex: 0, provenance });
       markArtifactIncluded(db, artifact.entityUuid, ownerId, modelParts, {
         modelRepresentation: "inline_base64",
       });
@@ -181,6 +213,8 @@ async function processArtifactFetch(
         mime: fetched.mime,
         completeness: "complete",
         furtherRetrievalAvailable: false,
+        provenance,
+        inputTrust: "untrusted_evidence",
       }, options.audience);
       options.thoughtParts.push(part);
       options.expressionParts.push(bindAudience({ ...part, audience: "expression" }, options.audience));
@@ -197,7 +231,14 @@ async function processArtifactFetch(
         });
         return;
       }
-      modelParts.push({ audience: "thought", partIndex: 0 });
+      const textProvenance = {
+        ...provenance,
+        completeness: projection.completeness,
+      } satisfies EvidenceProvenanceFacet;
+      transitionArtifactStatus(db, artifact.entityUuid, ownerId, "fetched", {
+        provenance: textProvenance,
+      });
+      modelParts.push({ audience: "thought", partIndex: 0, provenance: textProvenance });
       markArtifactIncluded(db, artifact.entityUuid, ownerId, modelParts, {
         modelRepresentation: "inline_text_excerpt",
         excerpt: projection.text.slice(0, 2_000),
@@ -211,6 +252,8 @@ async function processArtifactFetch(
         mime: fetched.mime,
         completeness: projection.completeness,
         furtherRetrievalAvailable: projection.completeness === "truncated_at_limit",
+        provenance: textProvenance,
+        inputTrust: "untrusted_evidence",
       }, options.audience));
       options.licenses.textExcerptIncluded.push(artifact.entityUuid);
       return;
@@ -374,28 +417,26 @@ export async function runPerceptionTurn(
         ownerId: input.ownerId,
         entityUuid: conversationalRead.entityUuid,
         url: conversationalRead.requestedUrl,
+        urls: extractUrls(input.message),
         timeoutMs: readPreflight.fetchBudgetMs,
       });
       if (page) {
-        const modelParts: ModelPartRecord[] = [
-          { audience: "thought", partIndex: 0 },
-        ];
         markConversationalReadIncluded(
           db,
           conversationalRead.entityUuid,
           input.ownerId,
-          modelParts,
+          page.modelParts,
         );
         const excerptPart = bindAudience<PerceptionInlinePart>({
           audience: "thought",
           kind: "conversational_read",
           entityUuid: conversationalRead.entityUuid,
           artifactRef: conversationalRead.entityUuid,
-          content: `Title: ${page.title}\n\n${page.modelExcerpt}`,
-          completeness: page.modelExcerpt.length >= MAX_MODEL_EXCERPT_CHARS
-            ? "truncated_at_limit"
-            : "complete",
-          furtherRetrievalAvailable: page.modelExcerpt.length >= MAX_MODEL_EXCERPT_CHARS,
+          content: `[Untrusted external evidence]\nTitle: ${page.title}\n\n${page.modelExcerpt}`,
+          completeness: page.completeness,
+          furtherRetrievalAvailable: page.completeness !== "complete",
+          provenance: page.aggregateProvenance,
+          inputTrust: "untrusted_evidence",
         }, audience);
         thoughtParts.push(excerptPart);
         licenses.conversationalReadIncluded.push(conversationalRead.entityUuid);

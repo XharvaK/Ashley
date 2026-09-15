@@ -5,11 +5,56 @@ import { assertOutboundAllowed } from "../continuity/process-guards.js";
 export const MAX_REDIRECTS = 5;
 export const MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
 export const FETCH_TIMEOUT_MS = 20_000;
+export const MAX_AGGREGATE_PAGES = 4;
+export const MAX_AGGREGATE_BYTES = MAX_RESPONSE_BYTES * MAX_AGGREGATE_PAGES;
+export const MAX_AGGREGATE_REDIRECTS = MAX_REDIRECTS * MAX_AGGREGATE_PAGES;
+export const MAX_AGGREGATE_SUBREQUESTS =
+  MAX_AGGREGATE_PAGES * (MAX_REDIRECTS + 1);
+export const AGGREGATE_TRUNCATION_MARKER =
+  "[Ashley external read truncated: finite envelope limit reached]";
+export const AGGREGATE_INCOMPLETE_MARKER =
+  "[Ashley external read incomplete: capture deadline reached]";
 
 export type ResolveHost = (
   hostname: string,
 ) => Promise<Array<{ address: string; family: number }>>;
 export type FetchLike = typeof fetch;
+
+export type LimitedFetchResult = {
+  finalUrl: string;
+  contentType: string;
+  body: Uint8Array;
+  redirectDepth: number;
+  subrequests: number;
+  truncated: boolean;
+};
+
+export type AggregatePage = {
+  requestedUrl: string;
+  finalUrl: string;
+  contentType: string;
+  body: Uint8Array;
+  redirectDepth: number;
+  subrequests: number;
+  truncated: boolean;
+};
+
+export type AggregateEnvelope = {
+  totalPages: number;
+  totalBytes: number;
+  redirectDepth: number;
+  totalElapsedMs: number;
+  fanOut: number;
+  subrequests: number;
+  truncated: boolean;
+  incomplete: boolean;
+  truncationMarker: string | null;
+};
+
+export type AggregateFetchResult = {
+  pages: AggregatePage[];
+  envelope: AggregateEnvelope;
+};
 
 function publicIpv4(address: string): boolean {
   const octets = address.split(".").map(Number);
@@ -125,22 +170,37 @@ export async function validatePublicUrl(
 async function boundedBody(
   response: Response,
   maxBytes = MAX_RESPONSE_BYTES,
-): Promise<Uint8Array> {
+  truncateAtLimit = false,
+): Promise<{ body: Uint8Array; truncated: boolean }> {
   const length = Number(response.headers.get("content-length") ?? 0);
-  if (Number.isFinite(length) && length > maxBytes) throw new Error("response_too_large");
-  if (!response.body) return new Uint8Array();
+  const declaredTooLarge = Number.isFinite(length) && length > maxBytes;
+  if (declaredTooLarge && !truncateAtLimit) {
+    throw new Error("response_too_large");
+  }
+  if (!response.body) {
+    return { body: new Uint8Array(), truncated: declaredTooLarge };
+  }
+  if (maxBytes <= 0) {
+    await response.body.cancel();
+    return { body: new Uint8Array(), truncated: true };
+  }
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
   let total = 0;
+  let hitLimit = false;
   while (true) {
     const part = await reader.read();
     if (part.done) break;
-    total += part.value.byteLength;
-    if (total > maxBytes) {
+    const remaining = maxBytes - total;
+    if (part.value.byteLength > remaining) {
+      if (remaining > 0) chunks.push(part.value.slice(0, remaining));
       await reader.cancel();
-      throw new Error("response_too_large");
+      total = maxBytes;
+      hitLimit = true;
+      break;
     }
     chunks.push(part.value);
+    total += part.value.byteLength;
   }
   const body = new Uint8Array(total);
   let offset = 0;
@@ -148,7 +208,10 @@ async function boundedBody(
     body.set(chunk, offset);
     offset += chunk.byteLength;
   }
-  return body;
+  return {
+    body,
+    truncated: declaredTooLarge || hitLimit,
+  };
 }
 
 function withAbort<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
@@ -173,8 +236,10 @@ export async function fetchWithLimits(
     resolve?: ResolveHost;
     outboundPurpose?: string;
     userAgent?: string;
+    maxRedirects?: number;
+    truncateAtLimit?: boolean;
   },
-): Promise<{ finalUrl: string; contentType: string; body: Uint8Array }> {
+): Promise<LimitedFetchResult> {
   const fetcher = options.fetcher ?? fetch;
   // Explicit fetch/resolver injection is the deterministic fixture boundary
   // used by offline qualification tests. Outside that qualification mode the
@@ -195,22 +260,28 @@ export async function fetchWithLimits(
     else externalSignal.addEventListener("abort", abortFromExternal, { once: true });
   }
   let current = input;
+  const maxRedirects = Number.isFinite(options.maxRedirects)
+    ? Math.max(0, Math.min(MAX_REDIRECTS, Math.floor(options.maxRedirects!)))
+    : MAX_REDIRECTS;
   try {
-    for (let redirects = 0; redirects <= MAX_REDIRECTS; redirects++) {
+    for (let redirects = 0; redirects <= maxRedirects; redirects++) {
       const url = await withAbort(
         validatePublicUrl(current, options.resolve ?? defaultResolve),
         controller.signal,
       );
-      const response = await fetcher(url, {
-        redirect: "manual",
-        headers: {
-          accept: options.accept,
-          "user-agent": options.userAgent ?? "AshleyCuriosity/1.0",
-        },
-        signal: controller.signal,
-      });
+      const response = await withAbort(
+        Promise.resolve().then(() => fetcher(url, {
+          redirect: "manual",
+          headers: {
+            accept: options.accept,
+            "user-agent": options.userAgent ?? "AshleyCuriosity/1.0",
+          },
+          signal: controller.signal,
+        })),
+        controller.signal,
+      );
       if ([301, 302, 303, 307, 308].includes(response.status)) {
-        if (redirects === MAX_REDIRECTS) throw new Error("too_many_redirects");
+        if (redirects === maxRedirects) throw new Error("too_many_redirects");
         const location = response.headers.get("location");
         if (!location) throw new Error("redirect_without_location");
         await response.body?.cancel();
@@ -218,10 +289,17 @@ export async function fetchWithLimits(
         continue;
       }
       if (!response.ok) throw new Error(`http_${response.status}`);
+      const bounded = await withAbort(
+        boundedBody(response, options.maxBytes, options.truncateAtLimit ?? false),
+        controller.signal,
+      );
       return {
         finalUrl: url.toString(),
         contentType: response.headers.get("content-type")?.toLowerCase() ?? "",
-        body: await boundedBody(response, options.maxBytes),
+        body: bounded.body,
+        redirectDepth: redirects,
+        subrequests: redirects + 1,
+        truncated: bounded.truncated,
       };
     }
     throw new Error("too_many_redirects");
@@ -243,7 +321,7 @@ export async function fetchValidatedResource(
     fetcher?: FetchLike;
     resolve?: ResolveHost;
   },
-): Promise<{ finalUrl: string; contentType: string; body: Uint8Array }> {
+): Promise<LimitedFetchResult> {
   return fetchWithLimits(input, {
     accept: options.accept,
     timeoutMs: FETCH_TIMEOUT_MS,
@@ -252,4 +330,173 @@ export async function fetchValidatedResource(
     resolve: options.resolve,
     outboundPurpose: "curiosity_http",
   });
+}
+
+function boundedLimit(
+  value: number | undefined,
+  fallback: number,
+  maximum: number,
+): number {
+  if (value === undefined) return fallback;
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(maximum, Math.floor(value)));
+}
+
+function boundedTimeout(value: number): number {
+  if (!Number.isFinite(value)) return 1;
+  return Math.max(1, Math.min(FETCH_TIMEOUT_MS, Math.floor(value)));
+}
+
+export async function fetchWithAggregateLimits(
+  inputs: readonly string[],
+  options: {
+    accept: string;
+    timeoutMs: number;
+    maxPages?: number;
+    maxBytes?: number;
+    maxRedirects?: number;
+    maxSubrequests?: number;
+    signal?: AbortSignal;
+    fetcher?: FetchLike;
+    resolve?: ResolveHost;
+    outboundPurpose?: string;
+    userAgent?: string;
+  },
+): Promise<AggregateFetchResult> {
+  const urls = inputs.map((url) => url.trim()).filter(Boolean);
+  if (urls.length === 0) throw new Error("aggregate_urls_empty");
+
+  const maxPages = boundedLimit(
+    options.maxPages,
+    MAX_AGGREGATE_PAGES,
+    MAX_AGGREGATE_PAGES,
+  );
+  const maxBytes = boundedLimit(
+    options.maxBytes,
+    MAX_AGGREGATE_BYTES,
+    MAX_AGGREGATE_BYTES,
+  );
+  const maxRedirects = boundedLimit(
+    options.maxRedirects,
+    MAX_AGGREGATE_REDIRECTS,
+    MAX_AGGREGATE_REDIRECTS,
+  );
+  const maxSubrequests = boundedLimit(
+    options.maxSubrequests,
+    MAX_AGGREGATE_SUBREQUESTS,
+    MAX_AGGREGATE_SUBREQUESTS,
+  );
+  const timeoutMs = boundedTimeout(options.timeoutMs);
+  const controller = new AbortController();
+  const startedAt = Date.now();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  const externalSignal = options.signal;
+  const abortFromExternal = () => controller.abort();
+  if (externalSignal) {
+    if (externalSignal.aborted) controller.abort();
+    else externalSignal.addEventListener("abort", abortFromExternal, { once: true });
+  }
+
+  const pages: AggregatePage[] = [];
+  let totalBytes = 0;
+  let redirectDepth = 0;
+  let subrequests = 0;
+  let truncated = false;
+  let incomplete = false;
+
+  try {
+    for (const requestedUrl of urls) {
+      const elapsed = Date.now() - startedAt;
+      const remainingBytes = maxBytes - totalBytes;
+      const remainingRedirects = Math.max(0, maxRedirects - redirectDepth);
+      const remainingSubrequests = Math.max(0, maxSubrequests - subrequests);
+      if (
+        pages.length >= maxPages ||
+        remainingBytes <= 0 ||
+        remainingSubrequests <= 0 ||
+        elapsed >= timeoutMs
+      ) {
+        truncated = true;
+        incomplete = true;
+        break;
+      }
+
+      const remainingMs = Math.max(1, timeoutMs - elapsed);
+      const pageMaxRedirects = Math.min(
+        MAX_REDIRECTS,
+        remainingRedirects,
+        Math.max(0, remainingSubrequests - 1),
+      );
+      try {
+        const page = await fetchWithLimits(requestedUrl, {
+          accept: options.accept,
+          timeoutMs: Math.min(FETCH_TIMEOUT_MS, remainingMs),
+          maxBytes: Math.min(MAX_RESPONSE_BYTES, remainingBytes),
+          maxRedirects: pageMaxRedirects,
+          truncateAtLimit: true,
+          signal: controller.signal,
+          fetcher: options.fetcher,
+          resolve: options.resolve,
+          outboundPurpose: options.outboundPurpose ?? "perception_http",
+          userAgent: options.userAgent ?? "AshleyPerception/1.0",
+        });
+        pages.push({
+          requestedUrl,
+          finalUrl: page.finalUrl,
+          contentType: page.contentType,
+          body: page.body,
+          redirectDepth: page.redirectDepth,
+          subrequests: page.subrequests,
+          truncated: page.truncated,
+        });
+        totalBytes += page.body.byteLength;
+        redirectDepth += page.redirectDepth;
+        subrequests += page.subrequests;
+        if (page.truncated) {
+          truncated = true;
+          incomplete = true;
+          break;
+        }
+      } catch (error) {
+        const code = error instanceof Error ? error.message : "fetch_failed";
+        if (code === "fetch_timeout") {
+          incomplete = true;
+          break;
+        }
+        if (code === "too_many_redirects") {
+          subrequests += pageMaxRedirects + 1;
+          redirectDepth += pageMaxRedirects;
+          truncated = true;
+          incomplete = true;
+          break;
+        }
+        throw error;
+      }
+    }
+
+  } finally {
+    clearTimeout(timeout);
+    if (externalSignal) {
+      externalSignal.removeEventListener("abort", abortFromExternal);
+    }
+  }
+
+  return {
+    pages,
+    envelope: {
+      totalPages: pages.length,
+      totalBytes,
+      redirectDepth,
+      totalElapsedMs: Math.max(0, Date.now() - startedAt),
+      fanOut: pages.length,
+      subrequests,
+      truncated,
+      incomplete,
+      truncationMarker: truncated
+        ? AGGREGATE_TRUNCATION_MARKER
+        : incomplete
+          ? AGGREGATE_INCOMPLETE_MARKER
+          : null,
+    },
+  };
 }
