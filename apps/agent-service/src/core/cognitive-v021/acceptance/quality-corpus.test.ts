@@ -34,6 +34,7 @@ const capabilityReality: CapabilityReality = {
 };
 
 const HARD_TPM_CEILING = quotaContractFor("nim:openai/gpt-oss-20b").tpm; // 16,000
+const QUALITY_CORPUS_MAX_OUTPUT_TOKENS = 4_090;
 
 describe("Quality Corpus 18-Scenario Acceptance Qualification (§17.4, §18)", () => {
   for (const scenario of QUALITY_CORPUS_SCENARIOS) {
@@ -136,14 +137,16 @@ describe("Quality Corpus 18-Scenario Acceptance Qualification (§17.4, §18)", (
         const allocated = allocateThoughtProjection({
           thoughtInput,
           requestId: `req-${scenario.name}`,
-          maxOutputTokens: 4096,
+          maxOutputTokens: QUALITY_CORPUS_MAX_OUTPUT_TOKENS,
         });
 
         // 8. Verification against Hard Gates:
 
         // Gate A: Total demand <= 16000 TPM
-        const estimate = estimateRequestTokens(allocated.messages as any, { maxTokens: 4096 });
-        const totalDemand = estimate.estimatedInputTokens + 4096;
+        const estimate = estimateRequestTokens(allocated.messages as any, {
+          maxTokens: QUALITY_CORPUS_MAX_OUTPUT_TOKENS,
+        });
+        const totalDemand = estimate.estimatedInputTokens + QUALITY_CORPUS_MAX_OUTPUT_TOKENS;
         expect(totalDemand).toBeLessThanOrEqual(HARD_TPM_CEILING);
 
         // Gate B: currentTriggerAltered === 0

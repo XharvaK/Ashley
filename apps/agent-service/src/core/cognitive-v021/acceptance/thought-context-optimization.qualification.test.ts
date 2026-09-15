@@ -10,6 +10,7 @@ import { buildThoughtInput } from "../thought/input.js";
 import { appendInboxEvent } from "../cycle/inbox.js";
 import { appendOwnerUtterance } from "../evidence/conversation-log.js";
 import type { CapabilityReality, EpistemicDimensions, IdentitySlice, ThoughtInput } from "../types.js";
+import { quotaContractFor } from "../../model-routing/router.js";
 
 import { fileURLToPath } from "node:url";
 
@@ -178,11 +179,11 @@ describe("Thought Context Optimization — Coherent Candidate Qualification", ()
       const groqAllocation = allocateThoughtProjection({
         sidecar,
         thoughtInput,
-        quotaBucket: "groq:qwen/qwen3.6-27b",
+        quotaBucket: "groq:qwen/qwen3.8-27b",
         requestId: "req-groq-qual",
       });
 
-      expect(groqAllocation.receipt.hardTpm).toBe(6100);
+      expect(groqAllocation.receipt.hardTpm).toBe(quotaContractFor("groq:qwen/qwen3.8-27b").tpm);
       expect(groqAllocation.receipt.estimatedInputTokens)
         .toBeLessThanOrEqual(groqAllocation.receipt.semanticProjectionEnvelope.maxInputTokens);
       expect(groqAllocation.receipt.headroomTokens).toBeGreaterThan(0);

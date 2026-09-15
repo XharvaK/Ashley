@@ -100,6 +100,7 @@ function makeInput(db: ReturnType<typeof openTestSidecar>, includeC3: boolean) {
     workingContext: [],
     occupancy: [],
     learnedSelfSlice: { dispositions: [], interests: [] },
+    staticOperatingContract: "test-owned compact operating contract",
   });
 }
 

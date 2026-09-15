@@ -36,6 +36,7 @@ describe("MAT-II C2 allocator integration", () => {
           approvedProjectIds: [],
         },
         learnedSelfSlice: { dispositions: [], interests: [] },
+        staticOperatingContract: "test-owned compact operating contract",
       });
 
       expect(input.orientationKernel).toBeDefined();
@@ -86,6 +87,7 @@ describe("MAT-II C2 allocator integration", () => {
           approvedProjectIds: [],
         },
         learnedSelfSlice: { dispositions: [], interests: [] },
+        staticOperatingContract: "test-owned compact operating contract",
       });
 
       const allocated = allocateThoughtProjection({

@@ -405,10 +405,21 @@ describe("MF-ACT activation mechanics", () => {
     const targetExpression = targetPortfolio.rows.find(
       (row) => row.logicalRole === "expression" && row.occupancyKey === "default",
     )!;
+    const currentExpression = currentPortfolio().rows.find(
+      (row) => row.logicalRole === "expression" && row.occupancyKey === "default",
+    )!;
+    // The current compatibility and target portfolios use distinct coupling
+    // IDs. Use a separate active-row fixture that shares the target coupling
+    // so this test isolates the acknowledgement rule itself.
+    const activeOverlapFixture = {
+      ...currentExpression,
+      policyRowId: "mfr_expression_active_overlap_fixture",
+      quotaCouplingIds: targetExpression.quotaCouplingIds,
+    };
     const failed = createCouplingPreflight({
       couplingPreflightId: "cpf_expression_overlap_fixture",
       policyRow: targetExpression,
-      activeRows: currentPortfolio().rows,
+      activeRows: [...currentPortfolio().rows, activeOverlapFixture],
       ownerAcknowledged: false,
     });
     expect(failed.passed).toBe(false);

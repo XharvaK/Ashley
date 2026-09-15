@@ -170,12 +170,12 @@ describe("SLICE 0 receipt truth", () => {
   });
 
   it("does not classify Expression failure as Thought credential failover", async () => {
-    env.nimApiKey = "test-nim";
-    const providerError = new AppError("rate_limited", "NIM rate limited", 429);
+    env.groqApiKey = "test-groq";
+    const providerError = new AppError("rate_limited", "Groq rate limited", 429);
     attachProviderHttpStatusBoundary(providerError, 429);
     const dispatch = vi.fn().mockRejectedValue(providerError);
-    vi.spyOn(nimAdapterModule, "createNimAdapter").mockReturnValue({
-      provider: "nim",
+    vi.spyOn(groqAdapterModule, "createGroqAdapter").mockReturnValue({
+      provider: "groq",
       dispatch,
     });
     const database = db();
@@ -197,10 +197,10 @@ describe("SLICE 0 receipt truth", () => {
   });
 
   it("does not treat an SDK-shaped HTTP status as response_received", async () => {
-    env.nimApiKey = "test-nim";
+    env.groqApiKey = "test-groq";
     const sdkError = Object.assign(new Error("429 from SDK"), { status: 429 });
-    vi.spyOn(nimAdapterModule, "createNimAdapter").mockReturnValue({
-      provider: "nim",
+    vi.spyOn(groqAdapterModule, "createGroqAdapter").mockReturnValue({
+      provider: "groq",
       dispatch: vi.fn().mockRejectedValue(sdkError),
     });
     const database = db();
@@ -226,7 +226,7 @@ describe("SLICE 0 receipt truth", () => {
   });
 
   it.each([
-    ["groq", createGroqAdapter, "ashley_expression_fallback", "expression"],
+    ["groq", createGroqAdapter, "ashley_expression", "expression"],
     ["nim", createNimAdapter, "utility_bulk", "exchange_cognition"],
   ] as const)(
     "keeps %s connection failure as sent_outcome_unknown",

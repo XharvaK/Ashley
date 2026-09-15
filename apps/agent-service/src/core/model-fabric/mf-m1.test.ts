@@ -328,7 +328,7 @@ describe("MF-M1 completeChat receipts", () => {
   });
 
   it("attaches a resolved-not-sent receipt when local provider readiness fails", async () => {
-    env.nimApiKey = "";
+    env.groqApiKey = "";
     const database = db();
     let thrown: unknown;
 
@@ -356,7 +356,7 @@ describe("MF-M1 completeChat receipts", () => {
       receiptStage: "resolved_not_sent",
       dispatchTruth: "not_sent",
       providerRequestCount: 0,
-      provider: "nim",
+      provider: "groq",
     });
     expect(metadata.failure).toMatchObject({
       dispatchTruth: "not_sent",
@@ -366,14 +366,14 @@ describe("MF-M1 completeChat receipts", () => {
   });
 
   it("records a definitive provider HTTP failure as response_received", async () => {
-    env.nimApiKey = "test";
-    const providerError = new AppError("rate_limited", "NVIDIA NIM rate limited", 429, 30);
+    env.groqApiKey = "test";
+    const providerError = new AppError("rate_limited", "Groq rate limited", 429, 30);
     attachProviderHttpStatusBoundary(providerError, 429);
     const dispatch = vi.fn(async () => {
       throw providerError;
     });
-    vi.spyOn(nimAdapterModule, "createNimAdapter").mockReturnValue({
-      provider: "nim",
+    vi.spyOn(groqAdapterModule, "createGroqAdapter").mockReturnValue({
+      provider: "groq",
       dispatch,
     });
     const database = db();

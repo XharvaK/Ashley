@@ -186,7 +186,13 @@ describe("provider-aware missing key gating", () => {
     await expect(
       withOfflineAppGateDisabled(() => completeChat(
         [{ role: "user", content: "hi" }],
-        { route: "thought", attentionDb: db },
+        {
+          route: "thought",
+          purpose: "thought",
+          logicalRole: "thought",
+          maxTokens: 1_000,
+          attentionDb: db,
+        },
       )),
     ).rejects.toMatchObject({ code: "agent_not_ready" });
     expect(rowCount(db, "attention_requests")).toBe(0);
@@ -255,7 +261,13 @@ describe("shared NIM Lightning quota bucket at the dispatch layer", () => {
       await expect(
         withOfflineAppGateDisabled(() => completeChat(
           [{ role: "user", content: "x" }],
-          { route: "thought", attentionDb: db },
+          {
+            route: "thought",
+            purpose: "thought",
+            logicalRole: "thought",
+            maxTokens: 1_000,
+            attentionDb: db,
+          },
         )),
       ).rejects.toMatchObject({ code: "provider_unavailable" });
       fetchSpy.mockRestore();

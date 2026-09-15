@@ -154,6 +154,13 @@ export async function runAttentiveDispatch<T>(
   if (providerId === "opencode_zen" && !env.opencodeZenApiKey) {
     throw new AppError("agent_not_ready", "OpenCode Zen API key not configured", 503);
   }
+  if (providerId === "cloudflare" && (!env.cloudflareApiToken || !env.cloudflareAccountId)) {
+    throw new AppError(
+      "agent_not_ready",
+      "Cloudflare Workers AI credentials not configured",
+      503,
+    );
+  }
   const estimate = estimateRequestTokens(input.messages, {
     maxTokens: input.maxTokens,
     toolsJson: input.toolsJson,
