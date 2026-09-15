@@ -8,6 +8,11 @@ export type OwnerRoomContext = {
   channelId: string;
 };
 
+export type OwnerIngressRoute =
+  | { kind: "private_owner_dm" }
+  | { kind: "owner_trusted_room"; context: OwnerRoomContext }
+  | { kind: "reject_owner_guild" };
+
 export type SocialSenderClassificationInput = {
   selfLoop: boolean;
   transportValid: boolean;
@@ -85,4 +90,15 @@ export function ownerRoomContextForMessage(
   if (!channelIds.some((candidate) => candidate.trim() === channelId)) return undefined;
   if (publicationChannelId !== channelId) return undefined;
   return { guildId, channelId };
+}
+
+export function ownerIngressRouteForMessage(
+  message: Message,
+  options: Parameters<typeof ownerRoomContextForMessage>[1] = {},
+): OwnerIngressRoute {
+  if (!message.guild) return { kind: "private_owner_dm" };
+  const context = ownerRoomContextForMessage(message, options);
+  return context
+    ? { kind: "owner_trusted_room", context }
+    : { kind: "reject_owner_guild" };
 }

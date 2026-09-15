@@ -2138,11 +2138,13 @@ type AttemptLifecycleBinding = {
 };
 
 function socialAttemptLifecycle(
-  cycle: { conversationId: string; triggerKind: CycleTriggerKind },
+  cycle: { triggerKind: CycleTriggerKind },
+  eventKind: InboxEvent["kind"],
 ): boolean {
-  // Owner room cycles retain the ordinary Owner lifecycle. Only the
-  // external trigger owns the social attempt/basis contract.
-  return (cycle.triggerKind as string) === "external_message";
+  // Owner room cycles retain the ordinary Owner lifecycle. An external
+  // utterance absorbed into that cycle still owns the social attempt/basis
+  // contract.
+  return cycle.triggerKind === "external_message" || eventKind === "external_utterance";
 }
 
 function currentLifecycleIs(
@@ -2345,7 +2347,7 @@ export async function runCognitiveCycle(
   cycle = updateCycleState(sidecar, cycle.cycleId, "assembling", deps.nowMs());
   const admittedCycle = cycle;
   let attemptLifecycleBinding: AttemptLifecycleBinding | null = null;
-  if (socialAttemptLifecycle(admittedCycle)) {
+  if (socialAttemptLifecycle(admittedCycle, event.kind)) {
     const freshness = getCycleFreshnessState(sidecar, admittedCycle.cycleId);
     attemptLifecycleBinding = {
       attemptId: freshness.attemptId,

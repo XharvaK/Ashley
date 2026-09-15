@@ -10,7 +10,7 @@ import {
   classifySocialSender,
   isAllowedMessage,
   isOwner,
-  ownerRoomContextForMessage,
+  ownerIngressRouteForMessage,
 } from "./security/gate.js";
 import { handleSlash } from "./handlers/interactionCreate.js";
 import { handleMessage } from "./handlers/messageCreate.js";
@@ -67,11 +67,20 @@ export function createClient(): Client {
         }
         if (isOwner(authorId)) {
           if (!isAllowedMessage(full)) return;
+          const ownerRoute = ownerIngressRouteForMessage(full);
+          if (ownerRoute.kind === "reject_owner_guild") {
+            console.warn("[discord-bot] Owner guild message is not an active trusted room; ignored");
+            return;
+          }
           console.log(
             `[discord-bot] message from ${authorId} in ${full.channel.isDMBased() ? "DM" : "guild"}`,
           );
-          const ownerRoomContext = ownerRoomContextForMessage(full);
-          await handleMessage(full, ownerRoomContext ? { ownerRoomContext } : undefined);
+          await handleMessage(
+            full,
+            ownerRoute.kind === "owner_trusted_room"
+              ? { ownerRoomContext: ownerRoute.context }
+              : undefined,
+          );
           return;
         }
         let eligibility: { authorized: boolean; audienceHint?: "dm" | "room" | "unknown" } | undefined;

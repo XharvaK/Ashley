@@ -1,13 +1,22 @@
 import { describe, expect, it, vi } from "vitest";
 import { AppError } from "../../../errors.js";
-import { appendInboxEvent, basisFromEvidenceRows, initializeAttemptInputBasis } from "../cycle/inbox.js";
+import {
+  appendInboxEvent,
+  basisFromEvidenceRows,
+  getCycleFreshnessState,
+  getInboxEvent,
+  initializeAttemptInputBasis,
+} from "../cycle/inbox.js";
 import { appendExternalUtteranceInTransaction, appendOwnerUtterance } from "../evidence/conversation-log.js";
+import { admitExternalBatch, admitExternalCapture, type ExternalCaptureBody } from "../ingress/http.js";
 import { applyWorkingContextDelta } from "../evidence/working-context.js";
 import { admitTestCycle, openTestSidecar } from "../test-support.js";
 import type { CapabilityReality, IdentitySlice, KernelDeps, Observation, ThoughtInput } from "../types.js";
 import { makeSemanticSettlement } from "../test-support.js";
 import { DatabaseSync } from "node:sqlite";
 import { openNuclearDb } from "../../db.js";
+import { issueLicense, upsertTrustedRoom } from "../../relationship/social-authority.js";
+import { promoteEligibleRoomPending } from "../social/room-activation.js";
 import { validateThoughtSettlementDraft } from "../settlement/validate.js";
 import { parseThoughtSemanticOutput } from "./parse.js";
 import { getThoughtAttemptCounters } from "./counters.js";
@@ -30,6 +39,27 @@ const capabilityReality: CapabilityReality = {
   canOfferAuthorship: false, canOfferBoundedOperation: false, canOfferPatchExport: false,
   approvedProjectIds: [],
 };
+
+function roomCapture(messageId: string, message: string): ExternalCaptureBody {
+  return {
+    envelope: {
+      speakerPrincipalId: "room-human-1",
+      speakerKind: "external_human",
+      location: { kind: "room", guildId: "mixed-guild", channelId: "mixed-channel" },
+      audienceAtCapture: "unknown",
+      sentAtMs: 1_000,
+      discordMessageId: messageId,
+      mentionIds: [],
+      attachmentRefs: [],
+      provenance: { source: "discord", receivedAtMs: 1_000 },
+    },
+    message,
+    discordMessageId: messageId,
+    attachments: [],
+    gateHint: "allow_social",
+    conversationKey: "room:mixed-guild:mixed-channel",
+  };
+}
 
 function deps(overrides: Partial<KernelDeps> = {}): KernelDeps {
   return {
@@ -165,6 +195,120 @@ describe("v0.2.1 Thought run", () => {
     } finally {
       sidecar.close();
       attentionDb.close();
+    }
+  });
+
+  it("binds external room freshness when a current Owner room cycle absorbs a participant", async () => {
+    const sidecar = openTestSidecar();
+    const nuclear = openNuclearDb(new DatabaseSync(":memory:"));
+    const ownerId = "doc";
+    const roomId = "room:mixed-guild:mixed-channel";
+    const nowMs = 1_000;
+    const cycle = admitTestCycle(sidecar, {
+      cycleId: "cycle-mixed-owner-external-room",
+      conversationId: roomId,
+      triggerKind: "owner_message",
+      triggerRef: "owner-room-mixed-origin",
+      occupantId: ownerId,
+      authorityEpoch: 1,
+      nowMs,
+    });
+    upsertTrustedRoom(nuclear, {
+      ownerId,
+      guildId: "mixed-guild",
+      channelId: "mixed-channel",
+      mode: "trusted_social",
+      provenance: "explicit_config",
+      addedBy: ownerId,
+      sourceSpan: { source: "mixed-origin-test" },
+      nowMs,
+    });
+    issueLicense(nuclear, {
+      ownerId,
+      materialHash: "mixed-room-material",
+      sourcePrincipal: "room-human-1",
+      controlledProtections: { kind: "mixed-origin-test" },
+      granteeAudience: { kind: "room", roomId },
+      usesAllowed: 3,
+      grantRef: "mixed-origin-room-grant",
+      nowMs,
+    });
+    const previousEnv = new Map<string, string | undefined>([
+      ["RA_ROOM_SEED_ACTIVE", process.env.RA_ROOM_SEED_ACTIVE],
+      ["RA_ROOM_PUBLICATION", process.env.RA_ROOM_PUBLICATION],
+    ]);
+    process.env.RA_ROOM_SEED_ACTIVE = "true";
+    process.env.RA_ROOM_PUBLICATION = "mixed-channel";
+
+    try {
+      const firstCapture = admitExternalCapture(sidecar, nuclear, roomCapture("mixed-room-1", "first participant message"), { nowMs });
+      expect(admitExternalBatch(sidecar, nuclear, {
+        captureRefs: [firstCapture.captureRef],
+        conversationKey: roomId,
+      }, { nowMs, ownerId, roomSeedActive: true }).results[0]?.disposition)
+        .toBe("external_eligible_pending");
+      const firstPromotion = promoteEligibleRoomPending(sidecar, nuclear, {
+        nowMs,
+        ownerId,
+        env: { RA_ROOM_SEED_ACTIVE: "true", RA_ROOM_PUBLICATION: "mixed-channel" },
+      });
+      expect(firstPromotion).toMatchObject({ promoted: 1, rejected: 0 });
+      expect(firstPromotion.cycleIds).toEqual([cycle.cycleId]);
+      const firstEvent = getInboxEvent(sidecar, firstPromotion.eventIds[0]!);
+      expect(firstEvent?.kind).toBe("external_utterance");
+      expect(firstEvent?.conversationId).toBe(roomId);
+      expect(getCycleFreshnessState(sidecar, cycle.cycleId)).toMatchObject({
+        attemptId: `attempt:${cycle.cycleId}:1`,
+        attemptInputBasis: expect.objectContaining({ orderedRefs: expect.any(Array) }),
+      });
+
+      const secondCapture = admitExternalCapture(sidecar, nuclear, roomCapture("mixed-room-2", "second participant message"), { nowMs: nowMs + 1 });
+      expect(admitExternalBatch(sidecar, nuclear, {
+        captureRefs: [secondCapture.captureRef],
+        conversationKey: roomId,
+      }, { nowMs: nowMs + 1, ownerId, roomSeedActive: true }).results[0]?.disposition)
+        .toBe("external_eligible_pending");
+
+      let secondPromotion: ReturnType<typeof promoteEligibleRoomPending> | undefined;
+      const completeChat = vi.fn(async () => {
+        secondPromotion = promoteEligibleRoomPending(sidecar, nuclear, {
+          nowMs: nowMs + 2,
+          ownerId,
+          env: { RA_ROOM_SEED_ACTIVE: "true", RA_ROOM_PUBLICATION: "mixed-channel" },
+        });
+        return {
+          text: JSON.stringify(makeSemanticSettlement({
+            interactionIntent: "continue",
+            speech: { mode: "draft", surfaceDraft: "room response" },
+          })),
+          model: "fake",
+          modelAlias: "thought",
+          resolvedModelId: null,
+        };
+      });
+      const result = await runCognitiveCycle(
+        sidecar,
+        nuclear,
+        firstEvent!,
+        deps({ completeChat }),
+      );
+
+      expect(secondPromotion).toMatchObject({ promoted: 1, rejected: 0 });
+      expect(getCycleFreshnessState(sidecar, cycle.cycleId).attemptId)
+        .toBe(`attempt:${cycle.cycleId}:2`);
+      expect(completeChat).toHaveBeenCalledTimes(1);
+      expect(result.published).toBe(false);
+      expect(sidecar.prepare("SELECT COUNT(*) AS count FROM settlements WHERE cycle_id = ?").get(cycle.cycleId))
+        .toMatchObject({ count: 0 });
+      expect(sidecar.prepare("SELECT COUNT(*) AS count FROM speech_outbox WHERE cycle_id = ?").get(cycle.cycleId))
+        .toMatchObject({ count: 0 });
+    } finally {
+      for (const [key, value] of previousEnv) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+      nuclear.close();
+      sidecar.close();
     }
   });
 
