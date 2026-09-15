@@ -2863,6 +2863,23 @@ export async function runCognitiveCycle(
     incrementThoughtAttemptCounter(sidecar, cycle.cycleId, cycle.generation, "acceptedThoughtPasses");
     counters = getThoughtAttemptCounters(sidecar, cycle.cycleId, cycle.generation);
 
+    // External social Thought has no instrumental authority. Capability
+    // reality is descriptive input, so enforce the boundary before either
+    // generic operation executor can be reached.
+    if (
+      externalCycle
+      && (invocation.output.kind === "observation_request" || invocation.output.kind === "effect_proposal")
+    ) {
+      return emitFailure(
+        "external_operation_disabled",
+        undefined,
+        makeThoughtTerminal("authority", {
+          codes: ["CAPABILITY_UNAVAILABLE"],
+          stage: "external_operation",
+        }),
+      );
+    }
+
     if (invocation.output.kind === "observation_request") {
       const packs = deps.loadAuthorityPacks();
       const verdict = deps.checkAuthority("proposal", {

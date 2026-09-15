@@ -1,12 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 import { AppError } from "../../../errors.js";
-import { appendInboxEvent } from "../cycle/inbox.js";
-import { appendOwnerUtterance } from "../evidence/conversation-log.js";
+import { appendInboxEvent, basisFromEvidenceRows, initializeAttemptInputBasis } from "../cycle/inbox.js";
+import { appendExternalUtteranceInTransaction, appendOwnerUtterance } from "../evidence/conversation-log.js";
 import { applyWorkingContextDelta } from "../evidence/working-context.js";
 import { admitTestCycle, openTestSidecar } from "../test-support.js";
 import type { CapabilityReality, IdentitySlice, KernelDeps, Observation, ThoughtInput } from "../types.js";
 import { makeSemanticSettlement } from "../test-support.js";
 import { DatabaseSync } from "node:sqlite";
+import { openNuclearDb } from "../../db.js";
 import { validateThoughtSettlementDraft } from "../settlement/validate.js";
 import { parseThoughtSemanticOutput } from "./parse.js";
 import { getThoughtAttemptCounters } from "./counters.js";
@@ -89,6 +90,104 @@ describe("v0.2.1 Thought run", () => {
       attentionDb.close();
     }
   });
+
+  it.each(["observation_intent", "effect_intent"] as const)(
+    "does not dispatch an external %s even when generic authority checks pass",
+    async (kind) => {
+      const sidecar = openTestSidecar();
+      const nuclear = openNuclearDb(new DatabaseSync(":memory:"));
+      const conversationId = "dm:ashley:external-operation";
+      const principalId = "external-principal";
+      const cycle = admitTestCycle(sidecar, {
+        cycleId: `cycle-external-${kind}`,
+        conversationId,
+        triggerKind: "external_message",
+        triggerRef: `external-${kind}`,
+        occupantId: "doc",
+        authorityEpoch: 1,
+        nowMs: 1,
+      });
+
+      sidecar.exec("BEGIN IMMEDIATE");
+      const { evidence } = appendExternalUtteranceInTransaction(sidecar, {
+        conversationId,
+        text: "perform an instrumental operation",
+        discordMessageIds: [`discord-${kind}`],
+        nowMs: 2,
+        speakerPrincipalId: principalId,
+        speakerKind: "external_human",
+        location: { kind: "external_dm", principalId, channelId: "dm-channel" },
+        audienceAtCapture: "dm",
+        sentAtMs: 2,
+        mentionIds: [],
+        attachmentRefs: [],
+        provenance: { source: "discord", receivedAtMs: 2 },
+      });
+      sidecar.exec("COMMIT");
+      initializeAttemptInputBasis(sidecar, {
+        cycleId: cycle.cycleId,
+        basis: basisFromEvidenceRows(sidecar, [evidence.rowId]),
+        nowMs: 3,
+      });
+
+      const event = appendInboxEvent(sidecar, {
+        id: `external-operation-${kind}`,
+        wakeId: cycle.wakeId,
+        conversationId,
+        kind: "external_utterance",
+        payload: {
+          cycleId: cycle.cycleId,
+          evidenceRowId: evidence.rowId,
+          ownerMessage: evidence.text,
+          externalDestination: { kind: "external_dm", principalId, channelId: "dm-channel" },
+        },
+        createdAtMs: 3,
+      });
+      const completeChat = vi.fn(async () => ({
+        text: JSON.stringify(kind === "observation_intent"
+          ? {
+            kind,
+            operationKind: "project.read_file",
+            request: { path: "README.md" },
+            purpose: "inspect the workspace",
+            evidenceNeed: "the file contents",
+            existingRefs: [evidence.rowId],
+          }
+          : {
+            kind,
+            operationKind: "workspace.write_file",
+            request: { projectId: "project-ashley", path: "blocked.txt" },
+            purpose: "write the workspace",
+            expectedOutcome: "the file is written",
+            existingRefs: [evidence.rowId],
+          }),
+        model: "fake",
+        modelAlias: "thought",
+        resolvedModelId: null,
+      }));
+      const executeObservation = vi.fn();
+      const executeEffect = vi.fn();
+
+      try {
+        const result = await runCognitiveCycle(
+          sidecar,
+          nuclear,
+          event,
+          deps({ attentionDb: nuclear, completeChat, executeObservation, executeEffect }),
+        );
+
+        expect(result.published).toBe(false);
+        expect(result.infrastructureNotice).toBe(
+          `${THOUGHT_UNAVAILABLE_NOTICE} Error code: AUTHORITY_REJECTED`,
+        );
+        expect(executeObservation).not.toHaveBeenCalled();
+        expect(executeEffect).not.toHaveBeenCalled();
+      } finally {
+        sidecar.close();
+        nuclear.close();
+      }
+    },
+  );
 
   it("projects physical execution truth only from the canonical Model Fabric receipt", () => {
     const attempted = executionProvenanceFromMetadata({
