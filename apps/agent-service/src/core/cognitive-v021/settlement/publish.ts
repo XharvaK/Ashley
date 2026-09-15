@@ -1,6 +1,7 @@
 import type { DatabaseSync } from "node:sqlite";
 import { readAuthorityBarrier, requireCurrentAuthorityBinding } from "../authority/barrier.js";
-import { insertOutboxPending } from "../speech/outbox.js";
+import { getSpeechOutbox, insertOutboxPending } from "../speech/outbox.js";
+import { getCurrentCycle } from "../cycle/inbox.js";
 import type {
   CycleTriggerKind,
   DeliveryIntent,
@@ -855,7 +856,7 @@ function licenseUsable(
   useNo?: number,
   ownerId?: string,
 ): string | null {
-  if (!licenseCoversDestination(row, destination, ownerId)) return "audience_mismatch";
+  if (licenseAudienceReason(row, destination, ownerId)) return "audience_mismatch";
   if (materialHash && row.material_hash !== materialHash) return "license_material_mismatch";
   if (row.revoked_at != null) return "license_revoked";
   if (typeof row.expires_at === "string") {
@@ -868,6 +869,53 @@ function licenseUsable(
     return "license_consumed";
   }
   if (reservationOwned && useNo != null && consumed !== useNo) return "authority_vector_stale";
+  return null;
+}
+
+function licenseAudienceReason(
+  row: AuthorityRow,
+  destination: ExternalDestination,
+  ownerId?: string,
+): string | null {
+  return licenseCoversDestination(row, destination, ownerId) ? null : "audience_mismatch";
+}
+
+function reResolveDisclosureLicensesAtDispatch(
+  db: DatabaseSync,
+  reservation: NonNullable<ReturnType<typeof getDeliveryReservation>>,
+  destination: ExternalDestination,
+  bundle: HardDependencyBundle,
+  nowMs: number,
+): string | null {
+  const refs = storedLicenseRefs(reservation.licenseRefs ?? []);
+  const rows = licenseRows(db, refs.map((ref) => ref.entityUuid), reservation.ownerId);
+  if (refs.length === 0 || rows.length !== refs.length) return "license_missing";
+
+  for (const ref of refs) {
+    const row = rows.find((value) => value.entity_uuid === ref.entityUuid);
+    if (!row) return "license_missing";
+
+    // Re-resolve the exact grantee at dispatch. The reservation cannot widen
+    // its audience by selecting another license or a weaker audience.
+    const audienceReason = licenseAudienceReason(row, destination, reservation.ownerId);
+    if (audienceReason) return audienceReason;
+
+    const usableReason = licenseUsable(
+      row,
+      destination,
+      nowMs,
+      ref.consumedByReservationId === reservation.id,
+      ref.materialHash,
+      ref.useNo,
+      reservation.ownerId,
+    );
+    if (usableReason) return usableReason;
+
+    const dependency = bundle.licenses.find((item) => item.key === ref.entityUuid);
+    if (!dependency || licenseVersion(row) !== dependency.rowRevision) {
+      return "authority_vector_stale";
+    }
+  }
   return null;
 }
 
@@ -1051,10 +1099,54 @@ function reservationMatchesCandidate(
   return storedRefs.size === candidateRefs.size && [...candidateRefs].every((ref) => storedRefs.has(ref));
 }
 
+type DispatchRecheckOptions = {
+  cognitiveSidecar?: DatabaseSync;
+};
+
+function dispatchBasisReason(
+  db: DatabaseSync,
+  reservation: NonNullable<ReturnType<typeof getDeliveryReservation>>,
+  cognitiveSidecar?: DatabaseSync,
+): string | null {
+  if (!reservation.attemptInputBasis) return null;
+
+  try {
+    hashAttemptBasis(reservation.attemptInputBasis as AttemptInputBasis);
+  } catch {
+    return "attempt_basis_invalid";
+  }
+
+  // Manually-created legacy reservations have no cognitive projection key and
+  // therefore have no sidecar cycle identity to compare. Projected cognitive
+  // reservations do; once a key exists, an unavailable current basis refuses
+  // dispatch rather than proving freshness from the nuclear row alone.
+  const row = db.prepare(
+    "SELECT cognitive_v021_projection_key FROM delivery_reservations WHERE id = ?",
+  ).get(reservation.id) as DbRow | undefined;
+  const projectionKey = stringValue(row?.cognitive_v021_projection_key).trim();
+  if (!projectionKey) return cognitiveSidecar ? "current_basis_unavailable" : null;
+  if (!cognitiveSidecar) return "current_basis_unavailable";
+
+  const match = /^speech:(\d+)$/.exec(projectionKey);
+  if (!match) return "current_basis_unavailable";
+  const outboxId = Number(match[1]);
+  if (!Number.isSafeInteger(outboxId) || outboxId < 1) return "current_basis_unavailable";
+
+  const speech = getSpeechOutbox(cognitiveSidecar, outboxId);
+  if (!speech || speech.projectionKey !== projectionKey) return "current_basis_unavailable";
+  const current = getCurrentCycle(cognitiveSidecar, speech.conversationId, { includeIdle: true });
+  if (!current?.attemptInputBasis) return "current_basis_unavailable";
+  return basisEquivalent(
+    reservation.attemptInputBasis as AttemptInputBasis,
+    current.attemptInputBasis,
+  ) ? null : "stale_basis";
+}
+
 function revalidateExternalReservationInTransaction(
   db: DatabaseSync,
   reservation: NonNullable<ReturnType<typeof getDeliveryReservation>>,
   nowMs: number,
+  options: { checkDispatchBasis?: boolean; cognitiveSidecar?: DatabaseSync } = {},
 ): string | null {
   if (!reservation.destination || !reservation.hardDependencyBundle || !reservation.attemptInputBasis) {
     return "external_binding_missing";
@@ -1065,30 +1157,25 @@ function revalidateExternalReservationInTransaction(
   if (identityReason) return identityReason;
   let bundle: HardDependencyBundle;
   try { bundle = reservation.hardDependencyBundle as HardDependencyBundle; } catch { return "hard_dependency_bundle_invalid"; }
+  if (options.checkDispatchBasis) {
+    const basisReason = dispatchBasisReason(db, reservation, options.cognitiveSidecar);
+    if (basisReason) return basisReason;
+  }
+
+  const refs = storedLicenseRefs(reservation.licenseRefs ?? []);
+  const licenseReason = reResolveDisclosureLicensesAtDispatch(
+    db,
+    reservation,
+    destination,
+    bundle,
+    nowMs,
+  );
+  if (licenseReason) return licenseReason;
+
   let barrier: { epoch: number; revision: number };
   try { barrier = currentBarrier(db); } catch (error) { return error instanceof Error ? error.message : "authority_transition"; }
   if (barrier.epoch !== bundle.barrier.epoch || barrier.revision !== bundle.barrier.revision) return "authority_vector_stale";
   if (!allDependenciesCurrent(db, bundle, barrier, nowMs)) return "authority_vector_stale";
-
-  const refs = storedLicenseRefs(reservation.licenseRefs ?? []);
-  const rows = licenseRows(db, refs.map((ref) => ref.entityUuid), reservation.ownerId);
-  if (refs.length === 0 || rows.length !== refs.length) return "license_missing";
-  for (const ref of refs) {
-    const row = rows.find((value) => value.entity_uuid === ref.entityUuid);
-    if (!row) return "license_missing";
-    const dep = bundle.licenses.find((item) => item.key === ref.entityUuid);
-    if (!dep || licenseVersion(row) !== dep.rowRevision) return "authority_vector_stale";
-    const reason = licenseUsable(
-      row,
-      destination,
-      nowMs,
-      ref.consumedByReservationId === reservation.id,
-      ref.materialHash,
-      ref.useNo,
-      reservation.ownerId,
-    );
-    if (reason) return reason;
-  }
 
   const syntheticCandidate: ExternalPublicationCandidate = {
     ownerId: reservation.ownerId,
@@ -1107,6 +1194,7 @@ export function recheckExternalPublicationReservation(
   db: DatabaseSync,
   reservationId: number,
   nowMs = Date.now(),
+  options: DispatchRecheckOptions = {},
 ): { ok: true } | { ok: false; reason: string } {
   const reservation = getDeliveryReservation(db, reservationId);
   if (!reservation) return { ok: false, reason: "delivery_reservation_missing" };
@@ -1127,7 +1215,10 @@ export function recheckExternalPublicationReservation(
   try {
     const current = getDeliveryReservation(db, reservationId);
     if (!current) throw new Error("delivery_reservation_missing");
-    const reason = revalidateExternalReservationInTransaction(db, current, nowMs);
+    const reason = revalidateExternalReservationInTransaction(db, current, nowMs, {
+      checkDispatchBasis: true,
+      cognitiveSidecar: options.cognitiveSidecar,
+    });
     if (reason) {
       db.exec("ROLLBACK");
       return { ok: false, reason };
@@ -1145,6 +1236,7 @@ export function recheckOwnerRoomPublicationReservation(
   db: DatabaseSync,
   reservationId: number,
   _nowMs = Date.now(),
+  options: DispatchRecheckOptions = {},
 ): { ok: true } | { ok: false; reason: string } {
   const reservation = getDeliveryReservation(db, reservationId);
   if (!reservation) return { ok: false, reason: "delivery_reservation_missing" };
@@ -1154,6 +1246,8 @@ export function recheckOwnerRoomPublicationReservation(
   if (reservation.state !== "reserved" && reservation.state !== "sending") {
     return { ok: false, reason: "delivery_not_sendable" };
   }
+  const basisReason = dispatchBasisReason(db, reservation, options.cognitiveSidecar);
+  if (basisReason) return { ok: false, reason: basisReason };
   if (!isRoomPublicationEnabled(process.env, reservation.destination.channelId)) {
     return { ok: false, reason: "room_publication_disabled" };
   }

@@ -3,6 +3,10 @@ import { describe, expect, it } from "vitest";
 import { readAuthorityBarrier } from "../authority/barrier.js";
 import { openNuclearDb } from "../../db.js";
 import { resolveActiveThread } from "../../memory/threads.js";
+import { absorbFreshMessages } from "../cycle/fence.js";
+import { initializeAttemptInputBasis } from "../cycle/inbox.js";
+import { admitTestCycle, openTestSidecar } from "../test-support.js";
+import { insertOutboxPending } from "../speech/outbox.js";
 import type {
   AttemptInputBasis,
   DepRef,
@@ -20,6 +24,7 @@ import {
   issueLicense,
   prohibitPerson,
   revokePerson,
+  revokeLicense,
 } from "../../relationship/social-authority.js";
 
 const ownerId = "owner-1";
@@ -511,6 +516,172 @@ describe("external publication admission", () => {
         clearCandidate,
       ));
       expect(clearResult).toMatchObject({ admitted: false, reason: "authority_vector_stale" });
+    } finally {
+      db.close();
+    }
+  });
+
+  it("refuses an external reservation whose basis was superseded before dispatch", () => {
+    const sidecar = openTestSidecar();
+    const db = dbFixture();
+    try {
+      const conversationId = "dm:dispatch-freshness";
+      const cycle = admitTestCycle(sidecar, {
+        cycleId: "cycle-dispatch-freshness",
+        conversationId,
+        triggerKind: "owner_message",
+        triggerRef: "dispatch-freshness",
+        occupantId: ownerId,
+        nowMs: 1,
+      });
+      initializeAttemptInputBasis(sidecar, {
+        cycleId: cycle.cycleId,
+        basis: basis(),
+        nowMs: 2,
+      });
+      const speech = insertOutboxPending(sidecar, {
+        settlementId: "settlement-dispatch-freshness",
+        cycleId: cycle.cycleId,
+        generation: cycle.generation,
+        conversationId,
+        licensedText: "external draft",
+      });
+
+      const permit = grantPerson(db, {
+        ownerId,
+        principalId: "person-1",
+        scope: "dm_only",
+        sourceSpan: { source: "test" },
+        nowMs,
+      });
+      const license = issueLicense(db, {
+        ownerId,
+        materialHash: "material-1",
+        sourcePrincipal: "person-1",
+        controlledProtections: {},
+        granteeAudience: { kind: "dm", principalId: "person-1" },
+        usesAllowed: 1,
+        grantRef: "grant-dispatch-freshness",
+        nowMs,
+      });
+      const reservationId = insertDraft(db, "dispatch-freshness");
+      db.prepare(
+        "UPDATE delivery_reservations SET cognitive_v021_projection_key = ? WHERE id = ?",
+      ).run(speech.projectionKey, reservationId);
+      const admission = withPublicationEnabled(() => admitExternalPublication(
+        db,
+        undefined,
+        candidateFor(
+          db,
+          reservationId,
+          permit.entityUuid,
+          license.entityUuid,
+          { kind: "external_dm", principalId: "person-1" },
+        ),
+      ));
+      expect(admission).toMatchObject({ admitted: true, reservationId });
+
+      const superseded = absorbFreshMessages(sidecar, cycle.cycleId, ["evidence-2"], { nowMs: 3 });
+      expect(superseded.kind).toBe("superseded");
+      expect(withPublicationEnabled(() => recheckExternalPublicationReservation(
+        db,
+        reservationId,
+        nowMs,
+        { cognitiveSidecar: sidecar },
+      ))).toEqual({ ok: false, reason: "stale_basis" });
+      expect(db.prepare("SELECT state FROM delivery_reservations WHERE id = ?").get(reservationId))
+        .toEqual({ state: "reserved" });
+    } finally {
+      db.close();
+      sidecar.close();
+    }
+  });
+
+  it("refuses dispatch when the current license grantee no longer equals the recipient", () => {
+    const db = dbFixture();
+    try {
+      const permit = grantPerson(db, {
+        ownerId,
+        principalId: "person-1",
+        scope: "dm_only",
+        sourceSpan: { source: "test" },
+        nowMs,
+      });
+      const license = issueLicense(db, {
+        ownerId,
+        materialHash: "material-1",
+        sourcePrincipal: "person-1",
+        controlledProtections: {},
+        granteeAudience: { kind: "dm", principalId: "person-1" },
+        usesAllowed: 1,
+        grantRef: "grant-dispatch-grantee",
+        nowMs,
+      });
+      const reservationId = insertDraft(db, "dispatch-grantee");
+      expect(withPublicationEnabled(() => admitExternalPublication(
+        db,
+        undefined,
+        candidateFor(
+          db,
+          reservationId,
+          permit.entityUuid,
+          license.entityUuid,
+          { kind: "external_dm", principalId: "person-1" },
+        ),
+      ))).toMatchObject({ admitted: true, reservationId });
+
+      db.prepare(
+        "UPDATE disclosure_licenses SET grantee_audience_json = ? WHERE entity_uuid = ?",
+      ).run(JSON.stringify({ kind: "dm", principalId: "person-2" }), license.entityUuid);
+      expect(withPublicationEnabled(() => recheckExternalPublicationReservation(
+        db,
+        reservationId,
+        nowMs,
+      ))).toEqual({ ok: false, reason: "audience_mismatch" });
+    } finally {
+      db.close();
+    }
+  });
+
+  it("re-resolves a revoked license before external dispatch", () => {
+    const db = dbFixture();
+    try {
+      const permit = grantPerson(db, {
+        ownerId,
+        principalId: "person-1",
+        scope: "dm_only",
+        sourceSpan: { source: "test" },
+        nowMs,
+      });
+      const license = issueLicense(db, {
+        ownerId,
+        materialHash: "material-1",
+        sourcePrincipal: "person-1",
+        controlledProtections: {},
+        granteeAudience: { kind: "dm", principalId: "person-1" },
+        usesAllowed: 1,
+        grantRef: "grant-dispatch-revoke",
+        nowMs,
+      });
+      const reservationId = insertDraft(db, "dispatch-revoke");
+      expect(withPublicationEnabled(() => admitExternalPublication(
+        db,
+        undefined,
+        candidateFor(
+          db,
+          reservationId,
+          permit.entityUuid,
+          license.entityUuid,
+          { kind: "external_dm", principalId: "person-1" },
+        ),
+      ))).toMatchObject({ admitted: true, reservationId });
+
+      revokeLicense(db, { entityUuid: license.entityUuid, nowMs });
+      expect(withPublicationEnabled(() => recheckExternalPublicationReservation(
+        db,
+        reservationId,
+        nowMs,
+      ))).toEqual({ ok: false, reason: "license_revoked" });
     } finally {
       db.close();
     }

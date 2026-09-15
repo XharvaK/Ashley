@@ -1765,7 +1765,9 @@ export function createServer(
       if (!status) {
         throw new AppError("not_found", "reservation not found", 404);
       }
-      res.json(recheckExternalPublicationReservation(manager.core.getDatabase(), id));
+      res.json(recheckExternalPublicationReservation(manager.core.getDatabase(), id, Date.now(), {
+        cognitiveSidecar: getCognitiveSidecar(),
+      }));
     } catch (err) {
       const { status, body } = toErrorResponse(err);
       res.status(status).json(body);
@@ -1785,7 +1787,9 @@ export function createServer(
       if (!status) {
         throw new AppError("not_found", "reservation not found", 404);
       }
-      res.json(recheckOwnerRoomPublicationReservation(manager.core.getDatabase(), id));
+      res.json(recheckOwnerRoomPublicationReservation(manager.core.getDatabase(), id, Date.now(), {
+        cognitiveSidecar: getCognitiveSidecar(),
+      }));
     } catch (err) {
       const { status, body } = toErrorResponse(err);
       res.status(status).json(body);
