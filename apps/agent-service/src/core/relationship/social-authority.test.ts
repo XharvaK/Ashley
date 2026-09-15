@@ -4,14 +4,17 @@ import { openNuclearDb } from "../db.js";
 import { readAuthorityBarrier } from "../cognitive-v021/authority/barrier.js";
 import {
   clearProhibition,
+  classifyEligibility,
   consumeLicenseOnce,
   grantPerson,
   issueLicense,
+  listAvailableSocialDestinations,
   prohibitPerson,
   readEligibilityBundle,
   revokeLicense,
   revokePerson,
   setAshleyBoundary,
+  upsertTrustedRoom,
 } from "./social-authority.js";
 
 const ownerId = "owner-1";
@@ -171,6 +174,110 @@ describe("social authority accessors", () => {
         caller: "owner",
         nowMs,
       })).toThrow("boundary_authority_required");
+    } finally {
+      db.close();
+    }
+  });
+
+  it("requires the configured Owner bot principal to have person-wide DM authority", () => {
+    const db = dbFixture();
+    try {
+      grantPerson(db, {
+        ownerId,
+        principalId: "bot-1",
+        scope: "dm_only",
+        sourceSpan: { source: "test" },
+        nowMs,
+      });
+      const dmOnly = classifyEligibility(
+        readEligibilityBundle(db, { principalId: "bot-1", nowMs }),
+        "dm",
+        { externalBot: true, botDmPrincipal: "bot-1" },
+      );
+      expect(dmOnly.verdict).toBe("capture_quarantine");
+
+      grantPerson(db, {
+        ownerId,
+        principalId: "bot-1",
+        scope: "person_wide",
+        sourceSpan: { source: "test", grant: "bot" },
+        nowMs,
+      });
+      expect(classifyEligibility(
+        readEligibilityBundle(db, { principalId: "bot-1", nowMs }),
+        "dm",
+        { externalBot: true, botDmPrincipal: "bot-1" },
+      ).verdict).toBe("allow_social");
+      expect(classifyEligibility(
+        readEligibilityBundle(db, { principalId: "bot-1", guildId: "guild-1", channelId: "channel-1", nowMs }),
+        "room",
+        { externalBot: true, botDmPrincipal: null, roomSeedActive: true },
+      ).verdict).toBe("capture_quarantine");
+
+      upsertTrustedRoom(db, {
+        ownerId,
+        guildId: "guild-1",
+        channelId: "channel-1",
+        mode: "trusted_social",
+        provenance: "explicit_config",
+        addedBy: ownerId,
+        nowMs,
+      });
+      expect(classifyEligibility(
+        readEligibilityBundle(db, { principalId: "bot-1", guildId: "guild-1", channelId: "channel-1", nowMs }),
+        "room",
+        { externalBot: true, botDmPrincipal: null, roomSeedActive: true },
+      ).verdict).toBe("allow_social");
+    } finally {
+      db.close();
+    }
+  });
+
+  it("enumerates permitted destinations without treating room-only permits as DMs", () => {
+    const db = dbFixture();
+    try {
+      grantPerson(db, {
+        ownerId,
+        principalId: "person-1",
+        scope: "dm_only",
+        sourceSpan: { source: "test" },
+        nowMs,
+      });
+      grantPerson(db, {
+        ownerId,
+        principalId: "person-1",
+        scope: "person_wide",
+        sourceSpan: { source: "test", wider: true },
+        nowMs,
+      });
+      grantPerson(db, {
+        ownerId,
+        principalId: "person-2",
+        scope: "room_only",
+        sourceSpan: { source: "test", room: true },
+        nowMs,
+      });
+      upsertTrustedRoom(db, {
+        ownerId,
+        guildId: "guild-1",
+        channelId: "channel-1",
+        mode: "trusted_social",
+        provenance: "explicit_config",
+        addedBy: ownerId,
+        nowMs,
+      });
+      expect(listAvailableSocialDestinations(db, { nowMs })).toEqual([
+        {
+          audience: { kind: "dm", principalId: "person-1" },
+          source: "social_permit",
+          permitScope: "person_wide",
+        },
+        {
+          audience: { kind: "room", roomId: "room:guild-1:channel-1" },
+          source: "trusted_room",
+          permitScope: null,
+        },
+      ]);
     } finally {
       db.close();
     }

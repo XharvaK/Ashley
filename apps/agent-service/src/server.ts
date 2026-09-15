@@ -76,6 +76,7 @@ import type {
 import type { InteractionContractEvidenceRef } from "./core/relationship/interaction-contracts.js";
 import {
   classifyEligibility,
+  configuredBotDmPrincipal,
   readEligibilityBundle,
 } from "./core/relationship/social-authority.js";
 import { isRoomSeedActive } from "./core/relationship/room-seeding.js";
@@ -1628,6 +1629,7 @@ export function createServer(
       const guildId = typeof req.query.guild === "string"
         ? req.query.guild.trim()
         : "";
+      const externalBot = req.query.bot === "true" || req.query.bot === "1";
       if (!authorId || !channelId) {
         throw new AppError(
           "message_required",
@@ -1643,7 +1645,11 @@ export function createServer(
           channelId,
         }),
         location,
-        { roomSeedActive: !guildId || isRoomSeedActive() },
+        {
+          roomSeedActive: !guildId || isRoomSeedActive(),
+          externalBot,
+          botDmPrincipal: configuredBotDmPrincipal(),
+        },
       );
       res.json(eligibility);
     } catch (err) {

@@ -7,8 +7,10 @@ export type SocialSenderClassificationInput = {
   selfLoop: boolean;
   transportValid: boolean;
   socialCaptureEnabled: boolean;
-  eligibility?: { authorized: boolean };
+  eligibility?: { authorized: boolean; audienceHint?: "dm" | "room" | "unknown" };
   eligibilityFailed?: boolean;
+  externalBot?: boolean;
+  botDmConfigured?: boolean;
 };
 
 /**
@@ -23,6 +25,11 @@ export function classifySocialSender(
   if (!input.transportValid) return "drop";
   if (!input.socialCaptureEnabled) return "drop";
   if (input.eligibilityFailed || !input.eligibility) return "capture_quarantine";
+  if (
+    input.externalBot === true
+    && input.eligibility.audienceHint === "dm"
+    && input.botDmConfigured !== true
+  ) return "capture_quarantine";
   return input.eligibility.authorized ? "allow_social" : "capture_quarantine";
 }
 

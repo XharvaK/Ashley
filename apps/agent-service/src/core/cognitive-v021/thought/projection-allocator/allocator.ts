@@ -320,6 +320,9 @@ export function allocateThoughtProjection(
       constitution: input.constitution,
       capabilityReality: input.capabilityReality,
       ...(input.publicPresence === undefined ? {} : { publicPresence: input.publicPresence }),
+      ...(input.availableDestinations === undefined ? {} : {
+        availableDestinations: [...input.availableDestinations],
+      }),
       workingContext: wc,
       occupancy: input.occupancy,
       ...(includeDomainPointers && c2Input.domainPointers !== undefined

@@ -29,6 +29,13 @@ export type SocialAudience =
   | { kind: "owner_private" }
   | { kind: "dm"; principalId: SocialPrincipalId }
   | { kind: "room"; roomId: string };                // stable room identity, NOT a member digest
+
+/** Host facts offered to Thought; the Host does not choose a destination. */
+export type AvailableSocialDestination = {
+  audience: SocialAudience;
+  source: "social_permit" | "trusted_room";
+  permitScope: "person_wide" | "dm_only" | "room_only" | null;
+};
 export type SocialLocation =
   | { kind: "owner_dm"; threadId: string }
   | { kind: "external_dm"; principalId: SocialPrincipalId; channelId: string }

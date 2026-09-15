@@ -72,7 +72,7 @@ export function createClient(): Client {
           await handleMessage(full);
           return;
         }
-        let eligibility: { authorized: boolean } | undefined;
+        let eligibility: { authorized: boolean; audienceHint?: "dm" | "room" | "unknown" } | undefined;
         let eligibilityFailed = false;
         if (config.socialCaptureEnabled) {
           try {
@@ -80,8 +80,12 @@ export function createClient(): Client {
               authorId,
               channelId,
               guildId: full.guild?.id,
+              bot: full.author.bot,
             });
-            eligibility = { authorized: result.verdict === "allow_social" };
+            eligibility = {
+              authorized: result.verdict === "allow_social",
+              audienceHint: result.audienceHint,
+            };
           } catch {
             eligibilityFailed = true;
           }
@@ -92,6 +96,8 @@ export function createClient(): Client {
           socialCaptureEnabled: config.socialCaptureEnabled,
           eligibility,
           eligibilityFailed,
+          externalBot: full.author.bot,
+          botDmConfigured: !full.author.bot || config.botDmPrincipal === authorId,
         });
         if (verdict === "drop") return;
         console.log(

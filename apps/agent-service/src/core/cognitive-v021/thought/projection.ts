@@ -32,6 +32,7 @@ import type { ChatMessage } from "../../model-routing/types.js";
 import type { DomainPointersSection } from "./domain-pointers.js";
 import type { IdentityOrientationKernel } from "./orientation-kernel.js";
 import type { ThoughtSourceCurrentness } from "./source-currentness.js";
+import type { AvailableSocialDestination } from "../social/types.js";
 import { getOccupiedConcernProjection } from "./occupied-concerns.js";
 
 export type CompactMemoryEvidence = {
@@ -103,6 +104,7 @@ export type ProjectedThoughtInput = {
   capabilityReality: CapabilityReality;
   /** Current public state is model-visible only during autonomous cognition. */
   publicPresence?: PublicPresenceContext;
+  availableDestinations?: readonly AvailableSocialDestination[];
   observations: Observation[];
   retrieval: ProjectedRetrievalResult;
   inFlight: ProjectedInFlightRecord[];
@@ -289,6 +291,9 @@ export function projectThoughtInput(
     learnedSelfSlice: fullInput.learnedSelfSlice,
     capabilityReality: fullInput.capabilityReality,
     ...(fullInput.publicPresence === undefined ? {} : { publicPresence: fullInput.publicPresence }),
+    ...(fullInput.availableDestinations === undefined ? {} : {
+      availableDestinations: [...fullInput.availableDestinations],
+    }),
     observations: fullInput.observations,
     retrieval: {
       request: fullInput.retrieval.request,

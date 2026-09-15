@@ -113,11 +113,13 @@ export async function querySocialEligibility(input: {
   authorId: string;
   channelId: string;
   guildId?: string;
+  bot?: boolean;
 }): Promise<SocialEligibilityResult> {
   const query = new URLSearchParams({
     author: input.authorId,
     channel: input.channelId,
     ...(input.guildId ? { guild: input.guildId } : {}),
+    ...(input.bot === true ? { bot: "1" } : {}),
   });
   return agentFetch<SocialEligibilityResult>(`/social/eligibility?${query.toString()}`, {
     headers: botServiceHeaders(),

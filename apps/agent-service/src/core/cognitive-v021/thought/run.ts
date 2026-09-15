@@ -191,6 +191,18 @@ import {
   isRoomPublicationEnabled,
   roomIdentity,
 } from "../social/room-activation.js";
+import { listAvailableSocialDestinations } from "../../relationship/social-authority.js";
+import { defaultQuotaBucket } from "../../attention/ledger.js";
+import {
+  ResourceFuse,
+  resourceFusePolicyFromOwners,
+  type OperationalExhaustion,
+} from "../social/resource-fuse.js";
+import type { QuotaBucket } from "../../model-routing/types.js";
+
+const SOCIAL_RESOURCE_FUSE = new ResourceFuse(
+  resourceFusePolicyFromOwners(defaultQuotaBucket() as QuotaBucket),
+);
 
 export type ControlInterpretationPhaseInput = {
   sourceRef: string;
@@ -1857,6 +1869,7 @@ function deliveryIntentFor(
   purpose: DeliveryIntent["purpose"],
   triggerKind = cycle.triggerKind,
   externalPublication?: DeliveryIntent["externalPublication"],
+  socialLifecycle?: DeliveryIntent["socialLifecycle"],
 ): DeliveryIntent {
   const external = triggerKind === "external_message";
   const trigger: DeliveryIntent["trigger"] =
@@ -1891,6 +1904,7 @@ function deliveryIntentFor(
     purpose,
     ...(destination ? { destination } : {}),
     ...(externalPublication ? { externalPublication } : {}),
+    ...(socialLifecycle ? { socialLifecycle } : {}),
   };
 }
 
@@ -2238,6 +2252,26 @@ export async function runCognitiveCycle(
       ? { kind: "dm" as const, principalId: externalDestination.principalId }
       : { kind: "room" as const, roomId: externalDestination.roomId }
     : undefined;
+  const availableDestinations = externalCycle
+    ? listAvailableSocialDestinations(nuclear, { nowMs: deps.nowMs() })
+    : undefined;
+  const botParticipantId = externalCycle
+    && triggerEvidence?.speakerKind === "external_bot"
+    && typeof triggerEvidence.speakerPrincipalId === "string"
+    && triggerEvidence.speakerPrincipalId.trim()
+    ? triggerEvidence.speakerPrincipalId.trim()
+    : null;
+  const socialResourcePrecheck = botParticipantId
+    ? SOCIAL_RESOURCE_FUSE.admit({
+        conversationKey: cycle.conversationId,
+        consequenceChainId: wake.consequenceChainId ?? `wake:${wake.wakeId}`,
+        lifecycleId: `${cycle.cycleId}:${cycle.generation}`,
+        botParticipantId,
+        roomId: externalDestination?.kind === "room" ? externalDestination.roomId : undefined,
+        nowMs: deps.nowMs(),
+        usage: { computeMs: 0, outputTokens: 0, networkRequests: 0 },
+      })
+    : null;
   let externalBinding:
     | ReturnType<typeof buildExternalDmAuthorityBinding>
     | ReturnType<typeof buildRoomAuthorityBinding>
@@ -2447,6 +2481,17 @@ export async function runCognitiveCycle(
     if (!currentLifecycleIs(sidecar, cycle, attemptLifecycleBinding)) {
       return resultWithCounters(cycle.cycleId, cycle.generation, null, counters, staleOwnerResultOptions());
     }
+    if (socialResourcePrecheck && !socialResourcePrecheck.accepted) {
+      const fact: OperationalExhaustion = socialResourcePrecheck.fact;
+      return emitFailure(
+        `social_${fact.operational}`,
+        null,
+        makeThoughtTerminal("budget_exhausted", {
+          codes: [fact.operational],
+          stage: "social_resource_fuse",
+        }),
+      );
+    }
     if (deps.nowMs() >= thoughtDeadlineAtMs) {
       return emitFailure(
         "thought_deadline",
@@ -2479,6 +2524,7 @@ export async function runCognitiveCycle(
       derivedStore: deps.derivedStore,
       authorityDb: deps.attentionDb,
       ...(externalAudience ? { audience: externalAudience } : {}),
+      ...(availableDestinations === undefined ? {} : { availableDestinations }),
       ...(externalBinding ? { licenses: [...externalBinding.licenseRefs] } : {}),
     };
     const sourceCapture = captureThoughtSourcePackage(thoughtInputOptions);
@@ -3251,6 +3297,31 @@ export async function runCognitiveCycle(
       if (roomDestination && settlement.interactionIntent !== "continue") {
         return blockExternalCycle();
       }
+      if (botParticipantId) {
+        const resourceDecision = SOCIAL_RESOURCE_FUSE.admitAndRecord({
+          conversationKey: cycle.conversationId,
+          consequenceChainId: wake.consequenceChainId ?? `wake:${wake.wakeId}`,
+          lifecycleId: `${cycle.cycleId}:${cycle.generation}`,
+          botParticipantId,
+          roomId: roomDestination?.roomId,
+          nowMs: deps.nowMs(),
+          usage: {
+            computeMs: Math.max(0, deps.nowMs() - admittedCycle.admittedAtMs),
+            outputTokens: speechText?.length ?? 0,
+            networkRequests: 1,
+          },
+        });
+        if (!resourceDecision.accepted) {
+          return emitFailure(
+            `social_${resourceDecision.fact.operational}`,
+            null,
+            makeThoughtTerminal("budget_exhausted", {
+              codes: [resourceDecision.fact.operational],
+              stage: "social_resource_fuse",
+            }),
+          );
+        }
+      }
       externalPublication = {
         destination: externalDestination,
         attemptInputBasis: basis,
@@ -3264,7 +3335,19 @@ export async function runCognitiveCycle(
       triggerKind: cycle.triggerKind,
       fidelity: validation.draft.speech.mode === "draft" ? "passed" : "skipped",
       origin: deps.origin,
-      deliveryIntent: deliveryIntentFor(cycle, payload, "licensed_speech", originProfile.triggerKind, externalPublication),
+      deliveryIntent: deliveryIntentFor(
+        cycle,
+        payload,
+        "licensed_speech",
+        originProfile.triggerKind,
+        externalPublication,
+        externalCycle
+          ? {
+              consequenceChainId: wake.consequenceChainId ?? `wake:${wake.wakeId}`,
+              attemptId: attemptLifecycleBinding?.attemptId ?? null,
+            }
+          : undefined,
+      ),
       authorityDb: authorityDbForPacks(deps, packs),
       expectedCurrentness: invocation.kernelEnvelope?.authorityCurrentness ?? packs.currentness.binding,
       currentness: currentnessPack,

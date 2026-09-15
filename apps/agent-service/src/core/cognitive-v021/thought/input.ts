@@ -18,7 +18,7 @@ import {
   type CycleTriggerKind,
   type PublicPresenceContext,
 } from "../types.js";
-import type { SocialAudience } from "../social/types.js";
+import type { AvailableSocialDestination, SocialAudience } from "../social/types.js";
 import {
   getConversationEvidence,
   listConversationEvidence,
@@ -94,6 +94,8 @@ export type BuildThoughtInputOptions = {
   sourceCapture?: ThoughtSourceCapture;
   /** Audience for this lifecycle. Legacy Owner callers default to Owner-private. */
   audience?: SocialAudience;
+  /** Current permitted destination facts. Thought may choose; Host does not fan out. */
+  availableDestinations?: readonly AvailableSocialDestination[];
   /** Active disclosure-license entity UUIDs already resolved by the Host. */
   licenses?: string[];
 };
@@ -757,6 +759,13 @@ export function buildThoughtInput(options: BuildThoughtInputOptions): ThoughtInp
     learnedSelfSlice,
     capabilityReality,
     ...(options.publicPresence === undefined ? {} : { publicPresence: options.publicPresence }),
+    ...(options.availableDestinations === undefined ? {} : {
+      availableDestinations: options.availableDestinations.map((item) => ({
+        audience: { ...item.audience },
+        source: item.source,
+        permitScope: item.permitScope,
+      })),
+    }),
     observations: eligibleObservations,
     retrieval,
     inFlight: eligibleInFlight,

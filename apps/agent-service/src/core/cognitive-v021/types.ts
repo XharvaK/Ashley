@@ -11,6 +11,7 @@ import type { ThoughtSourceCurrentness } from "./thought/source-currentness.js";
 import type {
   CommitmentProposal,
   CommitmentRealizationBinding,
+  AvailableSocialDestination,
   SocialAudience,
 } from "./social/types.js";
 
@@ -1212,6 +1213,8 @@ export type ThoughtInput = {
   capabilityReality: CapabilityReality;
   /** Present only for an autonomous idle-opportunity Thought. */
   publicPresence?: PublicPresenceContext;
+  /** Host facts for permitted social destinations; Thought chooses if used. */
+  availableDestinations?: readonly AvailableSocialDestination[];
   observations: Observation[];
   retrieval: RetrievalResult;
   inFlight: InFlightRecord[];
@@ -1348,6 +1351,11 @@ export type DeliveryIntent = {
   };
   /** Host admission bindings carried through the existing outbox JSON. */
   commitmentBindings?: CommitmentRealizationBinding[];
+  /** Social lifecycle identity carried through the existing outbox JSON. */
+  socialLifecycle?: {
+    consequenceChainId: string;
+    attemptId: string | null;
+  };
 };
 export type OutboxSendStatus =
   | "pending"

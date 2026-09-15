@@ -266,8 +266,18 @@ export function publishSemanticTransaction(
       rollbackAuthority();
       return { published: false, replayed: false, reason: "wake_terminal", settlementId: null, outboxId: null };
     }
+    let durableDeliveryIntent = options.deliveryIntent;
     if (options.wakeLeaseToken && (currentWake.state === "authorized" || currentWake.state === "consequence_pending")) {
-      beginConsequenceInTransaction(db, wakeId, options.wakeLeaseToken, semanticPass, nowMs);
+      const consequence = beginConsequenceInTransaction(db, wakeId, options.wakeLeaseToken, semanticPass, nowMs);
+      if (durableDeliveryIntent?.socialLifecycle) {
+        durableDeliveryIntent = {
+          ...durableDeliveryIntent,
+          socialLifecycle: {
+            consequenceChainId: consequence.chainId,
+            attemptId: durableDeliveryIntent.socialLifecycle.attemptId,
+          },
+        };
+      }
     } else if (currentWake.state === "consequence_pending") {
       db.exec("ROLLBACK");
       sidecarTransactionOpen = false;
@@ -357,7 +367,7 @@ export function publishSemanticTransaction(
         conversationId,
         licensedText: settlement.speech.finalLicensedText ?? settlement.speech.surfaceDraft ?? "",
         origin: options.origin ?? "live",
-        deliveryIntent: options.deliveryIntent,
+        deliveryIntent: durableDeliveryIntent,
         commitmentBindings: settlement.commitmentBindings,
       });
       outboxId = outbox.outboxId;

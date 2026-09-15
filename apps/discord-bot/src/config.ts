@@ -107,6 +107,9 @@ export const config = {
   // the operator. A missing or malformed value is false.
   socialCaptureEnabled:
     process.env.RA_SOCIAL_CAPTURE === "true" || process.env.RA_SOCIAL_CAPTURE === "1",
+  // A single Owner-set bot identity may receive person-wide DM admission.
+  // The agent-service repeats this check authoritatively.
+  botDmPrincipal: process.env.RA_BOT_DM?.trim() ?? "",
   agentUrl: process.env.AGENT_SERVICE_URL ?? "http://127.0.0.1:3710",
   proactiveEnabled: process.env.PROACTIVE_ENABLED !== "false",
   proactiveCheckIntervalMin: numericEnv(

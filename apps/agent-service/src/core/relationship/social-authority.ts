@@ -5,6 +5,7 @@ import {
   type AuthorityBarrierSnapshot,
 } from "../cognitive-v021/authority/barrier.js";
 import { advanceRelationalHardPolicyRevisionInTransaction } from "./hard-policy-revision.js";
+import type { AvailableSocialDestination } from "../cognitive-v021/social/types.js";
 
 export type SocialPermitScope = "person_wide" | "dm_only" | "room_only";
 export type TrustedRoomMode = "trusted_social" | "observe_only" | "disengaged";
@@ -96,6 +97,19 @@ export type EligibilityBundle = {
   boundaries: AshleyBoundary[];
   licenses: DisclosureLicense[];
 };
+
+/** Owner-set bot identity used only for person-wide DM admission. */
+export function configuredBotDmPrincipal(env: NodeJS.ProcessEnv = process.env): string | null {
+  const value = env.RA_BOT_DM?.trim();
+  return value ? value : null;
+}
+
+export function isConfiguredBotDmPrincipal(
+  principalId: string,
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  return configuredBotDmPrincipal(env) === principalId.trim();
+}
 
 type Row = Record<string, unknown>;
 
@@ -998,13 +1012,70 @@ export function readEligibilityBundle(
   }
 }
 
+/** Enumerate current mechanical destinations without selecting one for Thought. */
+export function listAvailableSocialDestinations(
+  db: DatabaseSync,
+  input: { nowMs?: number } = {},
+): AvailableSocialDestination[] {
+  const now = timeMs(input.nowMs);
+  const nowIso = isoTime(now);
+  db.exec("BEGIN");
+  try {
+    const permitDestinations: AvailableSocialDestination[] = db.prepare(
+      `SELECT principal_id, scope FROM social_permits
+        WHERE scope IN ('person_wide', 'dm_only')
+          AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > ?)
+        ORDER BY principal_id, scope`,
+    ).all(nowIso).map((value) => {
+      const item = value as Row;
+      const scope = String(item.scope) as SocialPermitScope;
+      return {
+        audience: { kind: "dm", principalId: String(item.principal_id ?? "") },
+        source: "social_permit",
+        permitScope: scope,
+      };
+    });
+    const destinations = new Map<string, AvailableSocialDestination>();
+    for (const destination of permitDestinations) {
+      const key = destination.audience.kind === "dm"
+        ? `dm:${destination.audience.principalId}`
+        : destination.audience.kind === "room"
+          ? `room:${destination.audience.roomId}`
+          : "owner_private";
+      const previous = destinations.get(key);
+      if (!previous || destination.permitScope === "person_wide") destinations.set(key, destination);
+    }
+    const rooms: AvailableSocialDestination[] = db.prepare(
+      `SELECT guild_id, channel_id FROM trusted_rooms
+        WHERE mode = 'trusted_social'
+        ORDER BY guild_id, channel_id`,
+    ).all().map((value) => {
+      const item = value as Row;
+      return {
+        audience: { kind: "room" as const, roomId: `room:${String(item.guild_id ?? "")}:${String(item.channel_id ?? "")}` },
+        source: "trusted_room" as const,
+        permitScope: null,
+      };
+    });
+    db.exec("COMMIT");
+    return [...destinations.values(), ...rooms];
+  } catch (error) {
+    try { db.exec("ROLLBACK"); } catch { /* preserve the read failure */ }
+    throw error;
+  }
+}
+
 export type SocialEligibilityVerdict = "drop" | "capture_quarantine" | "allow_social";
 
 /** Mechanical policy projection used by the advisory bot-facing route. */
 export function classifyEligibility(
   bundle: EligibilityBundle,
   location: "dm" | "room",
-  options: { roomSeedActive?: boolean } = {},
+  options: {
+    roomSeedActive?: boolean;
+    externalBot?: boolean;
+    botDmPrincipal?: string | null;
+  } = {},
 ): { verdict: SocialEligibilityVerdict; audienceHint: "dm" | "room" | "unknown" } {
   // A room capture is ambient perception. A person-scoped direct prohibition
   // bars addressing that person, but it does not erase the room's shared
@@ -1023,6 +1094,13 @@ export function classifyEligibility(
   }
   if (location === "room" && options.roomSeedActive === true && bundle.trustedRoom?.mode === "trusted_social") {
     return { verdict: "allow_social", audienceHint: "room" };
+  }
+  if (location === "dm" && options.externalBot === true) {
+    const configuredPrincipal = options.botDmPrincipal?.trim() || null;
+    const hasBotPersonWidePermit = configuredPrincipal !== null && bundle.permits.some((item) =>
+      item.principalId === configuredPrincipal && item.scope === "person_wide",
+    );
+    if (!hasBotPersonWidePermit) return { verdict: "capture_quarantine", audienceHint: "dm" };
   }
   if (location === "dm" && bundle.permits.some((item) =>
     item.scope === "person_wide" || item.scope === "dm_only")) {
