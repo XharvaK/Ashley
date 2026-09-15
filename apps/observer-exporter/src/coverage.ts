@@ -192,6 +192,15 @@ const REQUIRED_DATABASE_SURFACES: Record<DatabaseCoverageSource, readonly Requir
   ],
 };
 
+export function hasRequiredDatabaseSurface(
+  source: DatabaseCoverageSource,
+  table: string,
+  columns: readonly string[],
+): boolean {
+  const surface = REQUIRED_DATABASE_SURFACES[source].find((candidate) => candidate.table === table);
+  return surface != null && columns.every((column) => surface.columns.includes(column));
+}
+
 type ObservedTimestamp = {
   milliseconds: number;
   iso: string;
@@ -783,3 +792,11 @@ export function aggregateCoverage(sourceCoverage: SourceCoverageMap): "NORMAL" |
     ? "NORMAL"
     : "DEGRADED_PARTIAL";
 }
+
+export {
+  POST_RA_COVERAGE_DIMENSIONS,
+  POST_RA_DIMENSION_CONTRACT,
+  POST_RA_PACKET_COVERAGE_OBLIGATIONS,
+  POST_RA_P_W1_00_EVIDENCE_SURFACES,
+  resolvePostRaDimensionContract,
+} from "./post-ra-dimension-contract.js";
