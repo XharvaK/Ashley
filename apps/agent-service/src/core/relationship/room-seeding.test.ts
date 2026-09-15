@@ -9,6 +9,7 @@ import {
 import {
   isRoomSeedActive,
   seedTrustedRoomsFromOwnerConfig,
+  seedTrustedRoomsFromOwnerEnvironment,
 } from "./room-seeding.js";
 
 const source = {
@@ -22,6 +23,121 @@ function dbFixture(): DatabaseSync {
 }
 
 describe("trusted-room owner-config seeding", () => {
+  it("does not create room authority when the representation is absent", () => {
+    const db = dbFixture();
+    try {
+      expect(seedTrustedRoomsFromOwnerEnvironment(db, {
+        ownerId: "owner-1",
+        env: {},
+        nowMs: 1_000,
+      })).toEqual([]);
+      expect(db.prepare("SELECT COUNT(*) AS count FROM trusted_rooms").get()).toEqual({ count: 0 });
+    } finally {
+      db.close();
+    }
+  });
+
+  it("projects the exact configured room at startup and keeps the gate separate", () => {
+    const db = dbFixture();
+    try {
+      const env = {
+        DISCORD_GUILD_ID: " guild-1 ",
+        DISCORD_ALLOWED_CHANNELS: " , channel-1, ",
+        RA_ROOM_SEED_ACTIVE: "false",
+      };
+      seedTrustedRoomsFromOwnerEnvironment(db, { ownerId: "owner-1", env, nowMs: 1_000 });
+      const before = db.prepare(
+        "SELECT guild_id, channel_id, mode, provenance FROM trusted_rooms",
+      ).all();
+      const revisionBeforeReseed = Number((db.prepare(
+        "SELECT revision FROM authority_transition_barrier WHERE barrier_id = 'global'",
+      ).get() as { revision: number }).revision);
+
+      seedTrustedRoomsFromOwnerEnvironment(db, { ownerId: "owner-1", env, nowMs: 2_000 });
+      expect(db.prepare(
+        "SELECT guild_id, channel_id, mode, provenance FROM trusted_rooms",
+      ).all()).toEqual(before);
+      expect(Number((db.prepare(
+        "SELECT revision FROM authority_transition_barrier WHERE barrier_id = 'global'",
+      ).get() as { revision: number }).revision)).toBe(revisionBeforeReseed);
+      expect(before).toEqual([{
+        guild_id: "guild-1",
+        channel_id: "channel-1",
+        mode: "trusted_social",
+        provenance: "seeded_from_owner_config",
+      }]);
+
+      const bundle = readEligibilityBundle(db, {
+        guildId: "guild-1",
+        channelId: "channel-1",
+        nowMs: 3_000,
+      });
+      expect(classifyEligibility(bundle, "room").verdict).toBe("capture_quarantine");
+    } finally {
+      db.close();
+    }
+  });
+
+  it("fails closed when room seeding is enabled without a complete target", () => {
+    const db = dbFixture();
+    try {
+      expect(() => seedTrustedRoomsFromOwnerEnvironment(db, {
+        ownerId: "owner-1",
+        env: {
+          DISCORD_ALLOWED_CHANNELS: "channel-only",
+          RA_ROOM_SEED_ACTIVE: "true",
+        },
+        nowMs: 1_000,
+      })).toThrow("trusted_room_seed_configuration_required");
+      expect(() => seedTrustedRoomsFromOwnerEnvironment(db, {
+        ownerId: "owner-1",
+        env: {
+          DISCORD_GUILD_ID: "guild-1",
+          DISCORD_ALLOWED_CHANNELS: " , ",
+          RA_ROOM_SEED_ACTIVE: "true",
+        },
+        nowMs: 2_000,
+      })).toThrow("trusted_room_seed_configuration_required");
+      expect(db.prepare("SELECT COUNT(*) AS count FROM trusted_rooms").get()).toEqual({ count: 0 });
+    } finally {
+      db.close();
+    }
+  });
+
+  it("delegates restart seeding without resurrecting a canonical narrowing", () => {
+    const db = dbFixture();
+    try {
+      const env = {
+        DISCORD_GUILD_ID: "guild-1",
+        DISCORD_ALLOWED_CHANNELS: "channel-1",
+      };
+      seedTrustedRoomsFromOwnerEnvironment(db, { ownerId: "owner-1", env, nowMs: 1_000 });
+      const room = db.prepare(
+        "SELECT entity_uuid FROM trusted_rooms WHERE guild_id = ? AND channel_id = ?",
+      ).get("guild-1", "channel-1") as { entity_uuid: string };
+      upsertTrustedRoom(db, {
+        ownerId: "owner-1",
+        guildId: "guild-1",
+        channelId: "channel-1",
+        mode: "observe_only",
+        provenance: "explicit_config",
+        addedBy: "owner",
+        expectedMode: "trusted_social",
+        nowMs: 2_000,
+      });
+
+      seedTrustedRoomsFromOwnerEnvironment(db, { ownerId: "owner-1", env, nowMs: 3_000 });
+      expect(db.prepare(
+        "SELECT entity_uuid, mode FROM trusted_rooms WHERE guild_id = ? AND channel_id = ?",
+      ).get("guild-1", "channel-1")).toEqual({
+        entity_uuid: room.entity_uuid,
+        mode: "observe_only",
+      });
+    } finally {
+      db.close();
+    }
+  });
+
   it("is idempotent and preserves canonical narrowing", () => {
     const db = dbFixture();
     try {

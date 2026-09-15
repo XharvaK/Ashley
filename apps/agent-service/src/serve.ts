@@ -54,6 +54,7 @@ import {
   recoverCommitmentOpportunities,
   recoverPendingCommitmentProposals,
 } from "./core/relationship/commitment-admission.js";
+import { seedTrustedRoomsFromOwnerEnvironment } from "./core/relationship/room-seeding.js";
 
 export function createAgentInboxConsumerHandler(
   manager: Pick<AgentManager, "dispatchCognitiveEvent">,
@@ -72,6 +73,7 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
   if (cognitiveSidecar) {
     const nuclear = manager.core.getDatabase();
     const ownerId = env.memoryOwnerId || env.discordOwnerId || "default";
+    seedTrustedRoomsFromOwnerEnvironment(nuclear, { ownerId });
     const capabilityReality = getCapabilityReality(nuclear);
     const liveOperationExecutors = createV021LiveOperationExecutors({
       nuclear,
