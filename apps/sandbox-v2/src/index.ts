@@ -102,7 +102,14 @@ export {
   type WorkspaceManagerOptions,
   type WorkspaceAcquisitionResult,
   type WorkspaceManifest,
+  type InquiryWorkspaceContext,
+  type InquiryWorkspaceTerminalReason,
 } from "./workspace/workspace-manager.js";
+
+export {
+  discardProjection,
+  type ProjectionCleanupResult,
+} from "./settlement-cleanup.js";
 
 export {
   RecipeCatalog,

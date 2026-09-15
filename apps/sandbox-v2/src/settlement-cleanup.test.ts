@@ -1,3 +1,6 @@
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { expect, it } from "vitest";
 
 it("force-closes a loopback server instead of awaiting a connection-held close callback", async () => {
@@ -100,4 +103,59 @@ it("stops awaiting child close at the termination deadline and preserves cleanup
   await expect(closePromise).resolves.toEqual({ closed: false, exitCode: null });
   expect(listeners.size).toBe(0);
   expect(1_500 - nowMs).toBe(100);
+});
+
+it("lets the canonical quarantine decision outrank ordinary projection discard", async () => {
+  const root = mkdtempSync(join(tmpdir(), "ashley-projection-cleanup-"));
+  writeFileSync(join(root, "secret-shaped-material"), "fixture", "utf8");
+  try {
+    const cleanupModule = await import("./settlement-cleanup.js") as Record<string, unknown>;
+    const discardProjection = cleanupModule.discardProjection;
+    expect(typeof discardProjection).toBe("function");
+    if (typeof discardProjection !== "function") return;
+
+    let quarantineCalled = false;
+    const result = (discardProjection as (
+      projectionRoot: string,
+      options: { quarantine: (projectionRoot: string) => boolean },
+    ) => { cleanupCompleted: boolean; projectionDiscarded: boolean; quarantinePreserved: boolean })(root, {
+      quarantine: (projectionRoot) => {
+        quarantineCalled = projectionRoot === root;
+        return true;
+      },
+    });
+
+    expect(quarantineCalled).toBe(true);
+    expect(result).toEqual({
+      cleanupCompleted: true,
+      projectionDiscarded: false,
+      quarantinePreserved: true,
+    });
+    expect(existsSync(join(root, "secret-shaped-material"))).toBe(true);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("discards only the mutable projection and preserves the caller's receipt/evidence references", async () => {
+  const root = mkdtempSync(join(tmpdir(), "ashley-projection-discard-"));
+  writeFileSync(join(root, "compiled-output"), "fixture", "utf8");
+  const receipts = [{ snapshotId: "receipt-1" }];
+  const evidence = [{ kind: "verification", outcome: "verified_success" }];
+  try {
+    const cleanupModule = await import("./settlement-cleanup.js") as Record<string, unknown>;
+    const discardProjection = cleanupModule.discardProjection;
+    expect(typeof discardProjection).toBe("function");
+    if (typeof discardProjection !== "function") return;
+
+    expect((discardProjection as (projectionRoot: string) => {
+      cleanupCompleted: boolean;
+      projectionDiscarded: boolean;
+    })(root)).toMatchObject({ cleanupCompleted: true, projectionDiscarded: true });
+    expect(existsSync(root)).toBe(false);
+    expect(receipts).toEqual([{ snapshotId: "receipt-1" }]);
+    expect(evidence).toEqual([{ kind: "verification", outcome: "verified_success" }]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });

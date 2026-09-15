@@ -35,7 +35,10 @@ import {
 import { createServer, connect as netConnect, type AddressInfo, type Server, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { WorkspaceManager, type WorkspaceAcquisitionResult } from "./workspace-manager.js";
+import {
+  WorkspaceManager,
+  type InquiryWorkspaceContext,
+} from "./workspace-manager.js";
 import { SANDBOX_V2_WORKSPACE_RUNNER_SOURCE } from "./runner.js";
 import { isWorkspaceRunnerEvidence, type WorkspaceRunnerEvidence } from "./evidence.js";
 import { validateProjectInspectionRequest } from "../validation.js";
@@ -107,6 +110,8 @@ export type WorkspaceExperimentExecutorOptions = {
   serverCloser?: (server: Server, connections: Set<Socket>) => void;
   /** Recovery provenance only. Grants no workspace authority. */
   originChildTaskId?: string;
+  /** When present, use the bounded inquiry workspace lifecycle. */
+  inquiry?: InquiryWorkspaceContext;
 };
 
 export type ProjectInspectionExecutorOptions = WorkspaceExperimentExecutorOptions;
@@ -354,15 +359,23 @@ export async function executeWorkspaceExperiment(
     options.workspaceManager ??
     new WorkspaceManager({ managedRoot: options.managedWorkspaceRoot });
 
-  const acquisition = await workspaceManager.acquireWorkspace(
-    {
-      projectId: entry.projectId,
-      canonicalRoot: entry.canonicalRoot,
-      protectedRoots: options.protectedRoots,
-    },
-    request.workspaceId,
-    options.originChildTaskId,
-  );
+  const workspaceContext = {
+    projectId: entry.projectId,
+    canonicalRoot: entry.canonicalRoot,
+    protectedRoots: options.protectedRoots,
+  };
+  const acquisition = options.inquiry
+    ? await workspaceManager.acquireInquiryWorkspace(
+        workspaceContext,
+        options.inquiry,
+        request.workspaceId,
+        options.originChildTaskId,
+      )
+    : await workspaceManager.acquireWorkspace(
+        workspaceContext,
+        request.workspaceId,
+        options.originChildTaskId,
+      );
   if (!acquisition.ok) {
     return failed(acquisition.error, executedAtMs);
   }

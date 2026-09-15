@@ -2,6 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it, vi } from "vitest";
 import type {
   ExecuteCandidateVerificationV2Result,
+  ExecuteInquiryExperimentV2Result,
   ExecuteProjectInspectionV2Result,
   ExecuteWorkspaceExperimentV2Result,
 } from "../../sandbox/v2-execution.js";
@@ -229,6 +230,53 @@ describe("v0.2.1 live Sandbox V2 operation construction", () => {
 
     expect(receipt).toMatchObject({ outcome: "failed", claims: { error: "verification_failed" } });
     expect(executeCandidateVerificationV2).toHaveBeenCalledTimes(1);
+    nuclear.close();
+  });
+
+  it("routes objective.operate to the inquiry-only coordinator", async () => {
+    const nuclear = new DatabaseSync(":memory:");
+    const executeInquiryExperimentV2 = vi.fn(async (input: unknown): Promise<ExecuteInquiryExperimentV2Result> => {
+      expect(input).toMatchObject({
+        request: {
+          operation: "objective.operate",
+          projectId: "project-ashley",
+          experimentId: "inquiry-1",
+        },
+        taskId: "inquiry-effect",
+        messageEntityUuid: "cycle-1",
+      });
+      return {
+        state: "succeeded",
+        experimentId: "inquiry-1",
+        workspaceId: "workspace-1",
+        terminalState: "active",
+        terminalized: false,
+        stepResults: [],
+      };
+    });
+    const executors = createV021LiveOperationExecutors({
+      nuclear,
+      adapters: { executeInquiryExperimentV2 },
+    });
+
+    const receipt = await executors.executeEffect(effectProposal({
+      effectId: "inquiry-effect",
+      kind: "objective.operate",
+      request: {
+        operation: "objective.operate",
+        projectId: "project-ashley",
+        experimentId: "inquiry-1",
+        objective: "answer one bounded question",
+        steps: [{ kind: "candidate_verification", request: { operation: "workspace.verify", projectId: "project-ashley" } }],
+        budget: { maxSteps: 1, deadlineAtMs: Date.now() + 60_000 },
+      },
+    }));
+
+    expect(receipt).toMatchObject({
+      outcome: "succeeded",
+      claims: { state: "succeeded", profile: "inquiry_experiment", executionTruth: "effect_verified" },
+    });
+    expect(executeInquiryExperimentV2).toHaveBeenCalledTimes(1);
     nuclear.close();
   });
 

@@ -438,6 +438,82 @@ describe("M4 workspace.verify executor — fixture compile", () => {
     expect(result.result.verificationOutcome).toBe("outcome_unknown");
     expect(result.result.timedOut).toBe(true);
   });
+
+  it("uses the active inquiry workspace, discards projection, and refuses it after terminal completion", async () => {
+    const h = makeHarness();
+    const manager = new WorkspaceManager({ managedRoot: h.managedRoot });
+    const context = {
+      projectId: "composer-assistant",
+      canonicalRoot: h.sourceRoot,
+    };
+    const inquiry = {
+      experimentId: "inquiry-m4-1",
+      objective: "Does the fixture produce the expected verification receipt?",
+      recipeId: "typescript_fixture_compile_v1",
+      budgetDeadlineAtMs: Date.now() + 60_000,
+    };
+    const acquired = await manager.acquireInquiryWorkspace(context, inquiry);
+    expect(acquired.ok).toBe(true);
+    if (!acquired.ok) return;
+
+    let spawned = 0;
+    const request = {
+      version: 2 as const,
+      operation: "workspace.verify" as const,
+      projectId: "composer-assistant",
+      workspaceId: acquired.workspaceId,
+      recipeId: "typescript_fixture_compile_v1",
+    };
+    const first = await executeCandidateVerification(request, {
+      registry: h.registry,
+      recipeCatalog: h.catalog,
+      workspaceManager: manager,
+      inquiry,
+      spawnVerification: async (input) => {
+        spawned += 1;
+        writeFileSync(join(input.projectionRoot, "receipt-output"), "fixture", "utf8");
+        return {
+          exitCode: 0,
+          stdout: "",
+          stderr: "",
+          timedOut: false,
+          stdoutOverflow: false,
+          stderrOverflow: false,
+        };
+      },
+    });
+    expect(first.outcome).toBe("succeeded");
+    if (first.outcome !== "succeeded" || first.result.kind !== "workspace.verify") return;
+    const retainedReceipt = first.result;
+    expect(retainedReceipt.projectionDiscarded).toBe(true);
+    expect(retainedReceipt.cleanupCompleted).toBe(true);
+
+    const terminal = manager.terminalizeInquiryWorkspace(
+      context,
+      acquired.workspaceId,
+      inquiry,
+      "completed",
+    );
+    expect(terminal.ok).toBe(true);
+
+    const afterTerminal = await executeCandidateVerification(request, {
+      registry: h.registry,
+      recipeCatalog: h.catalog,
+      workspaceManager: manager,
+      inquiry,
+      spawnVerification: async () => {
+        spawned += 1;
+        throw new Error("terminal inquiry must not spawn");
+      },
+    });
+    expect(afterTerminal.outcome).toBe("failed");
+    if (afterTerminal.outcome === "failed") {
+      expect(afterTerminal.error).toBe("inquiry_workspace_terminal");
+    }
+    expect(spawned).toBe(1);
+    expect(retainedReceipt.kind).toBe("workspace.verify");
+    expect(retainedReceipt.workspaceId).toBe(acquired.workspaceId);
+  });
 });
 
 describe("M4 dispatcher routing", () => {

@@ -40,6 +40,7 @@ import { v2CapabilitySpec, V2_DEFERRED_OPERATIONS, SANDBOX_V2_OPERATION_NAMES, i
 import type { V2ProjectReadRegistry } from "./registry.js";
 import type { SandboxV2Request, SandboxV2Result } from "./v2-types.js";
 import type { ProtectedRootsConfig } from "@composer-assistant/sandbox-policy";
+import type { InquiryWorkspaceContext } from "./workspace/workspace-manager.js";
 
 export type SandboxV2Environment = {
   registry: V2ProjectReadRegistry;
@@ -77,6 +78,8 @@ export type SandboxV2Environment = {
   clock?: { nowMs(): number };
   /** Recovery provenance only. Grants no workspace authority. */
   originChildTaskId?: string;
+  /** Bounded P-W3-03 inquiry identity, when the operation is an inquiry step. */
+  inquiry?: InquiryWorkspaceContext;
 };
 
 export type SandboxV2DispatchOptions = {
@@ -103,6 +106,12 @@ export class SandboxV2Dispatcher {
     const envelope = request as Record<string, unknown>;
     if (envelope.version !== 2 || typeof envelope.operation !== "string") {
       return fail("unknown", "invalid-request");
+    }
+    if (
+      this.env.inquiry &&
+      (envelope.operation === "changeset.author" || envelope.operation === "patch_export")
+    ) {
+      return fail(envelope.operation, "inquiry_operation_forbidden");
     }
     if (isM5ApplyForbiddenOperation(envelope.operation)) {
       return fail(envelope.operation, refuseApplyCandidateChangeSet().error);
@@ -175,6 +184,7 @@ export class SandboxV2Dispatcher {
         settlementDeadlineAtMs: this.env.settlementDeadlineAtMs,
         clock: this.env.clock,
         originChildTaskId: this.env.originChildTaskId,
+        inquiry: this.env.inquiry,
       });
     }
     if (request.operation === "workspace.verify") {
@@ -192,6 +202,7 @@ export class SandboxV2Dispatcher {
         childTerminationDeadlineAtMs: this.env.childTerminationDeadlineAtMs,
         settlementDeadlineAtMs: this.env.settlementDeadlineAtMs,
         clock: this.env.clock,
+        inquiry: this.env.inquiry,
       });
     }
     if (request.operation === "changeset.author") {

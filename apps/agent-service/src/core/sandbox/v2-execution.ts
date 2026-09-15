@@ -40,11 +40,17 @@ import {
 } from "@composer-assistant/sandbox-m1";
 import {
   SandboxV2Dispatcher,
+  admitBoundedOperationSequence,
+  runBoundedOperation,
+  M6_MAX_OBJECTIVE_CHARS,
+  WorkspaceManager,
   isChangesetAuthorResult,
   scanAuthorshipText,
   type SandboxV2Environment,
   type SandboxV2Request,
   type SandboxV2Result,
+  type InquiryWorkspaceContext,
+  type InquiryWorkspaceTerminalReason,
 } from "@composer-assistant/sandbox-v2";
 import { isVerificationRecipeAllowed } from "@composer-assistant/sandbox-policy";
 import { resolveVerificationBinding } from "./verification-binding.js";
@@ -52,6 +58,7 @@ import { resolveAuthorshipBinding } from "./authorship-binding.js";
 import type {
   CognitionInspectionRequest,
   CognitionWorkspaceRequest,
+  CognitionVerificationRequest,
   CognitionAuthorshipRequest,
   ProjectInspectionObservation,
   WorkspaceExperimentObservation,
@@ -779,6 +786,8 @@ export type ExecuteWorkspaceExperimentV2Input = {
   skipCapabilityGate?: boolean;
   /** Preallocated durable child identity. When set, used on every license path. */
   taskId?: string;
+  /** P-W3-03 context for an explicitly bounded inquiry experiment. */
+  inquiry?: InquiryWorkspaceContext;
 };
 
 export type ExecuteWorkspaceExperimentV2Result = {
@@ -912,6 +921,7 @@ export async function executeWorkspaceExperimentV2(
           childExecutionDeadlineAtMs: input.childExecutionDeadlineAtMs,
           childTerminationDeadlineAtMs: input.childTerminationDeadlineAtMs,
           settlementDeadlineAtMs,
+          inquiry: input.inquiry,
         },
       });
 
@@ -1031,6 +1041,328 @@ export async function executeWorkspaceExperimentV2(
   }
 }
 
+export type InquiryExperimentStep =
+  | { kind: "candidate_workspace_experiment"; request: CognitionWorkspaceRequest }
+  | { kind: "candidate_verification"; request: CognitionVerificationRequest };
+
+export type InquiryExperimentRequest = {
+  operation: "objective.operate";
+  projectId: string;
+  /** Thought-named opaque identity for this one bounded experiment. */
+  experimentId: string;
+  /** Thought-authored question/objective; only its digest enters workspace metadata. */
+  objective: string;
+  steps: readonly InquiryExperimentStep[];
+  budget: { maxSteps: number; deadlineAtMs: number };
+  workspaceId?: string;
+};
+
+export type InquiryExperimentStepResult = {
+  index: number;
+  kind: InquiryExperimentStep["kind"];
+  operation: string;
+  license: OperationalClaimLicense;
+  observation: WorkspaceExperimentObservation | null;
+};
+
+export type ExecuteInquiryExperimentV2Input = {
+  request: InquiryExperimentRequest;
+  ownerId?: string;
+  messageEntityUuid?: string;
+  dispatcher?: SandboxV2Dispatcher;
+  registry?: V2ProjectReadRegistry;
+  workspaceManager?: import("@composer-assistant/sandbox-v2").WorkspaceManager;
+  envOverrides?: Partial<SandboxV2Environment> & {
+    sandboxEngineeringLifecycleEnabled?: boolean;
+  };
+  db?: DatabaseSync;
+  masterMode?: CognitionMode;
+  skipCapabilityGate?: boolean;
+  taskId?: string;
+  cancelled?: () => boolean;
+  clock?: { nowMs(): number };
+  /** Omit while the same experiment remains resumable; set on terminal stop. */
+  terminal?: InquiryWorkspaceTerminalReason;
+};
+
+export type ExecuteInquiryExperimentV2Result = {
+  state: "succeeded" | "failed" | "outcome_unknown" | "none";
+  experimentId: string;
+  workspaceId: string | null;
+  terminalState: "active" | InquiryWorkspaceTerminalReason;
+  terminalized: boolean;
+  stepResults: InquiryExperimentStepResult[];
+  error?: string;
+};
+
+const INQUIRY_WORKSPACE_OPERATIONS = new Set([
+  "workspace.read_file",
+  "workspace.list_directory",
+  "workspace.search_text",
+  "workspace.write_file",
+  "workspace.replace_file",
+  "workspace.edit_text",
+  "workspace.delete_file",
+  "workspace.create_directory",
+]);
+
+function inquiryLabel(value: unknown): boolean {
+  return typeof value === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(value);
+}
+
+function emptyInquiryResult(
+  request: InquiryExperimentRequest | null | undefined,
+  error: string,
+  stepResults: InquiryExperimentStepResult[] = [],
+): ExecuteInquiryExperimentV2Result {
+  return {
+    state: "failed",
+    experimentId: typeof request?.experimentId === "string" ? request.experimentId : "unknown",
+    workspaceId: typeof request?.workspaceId === "string" ? request.workspaceId : null,
+    terminalState: "active",
+    terminalized: false,
+    stepResults,
+    error,
+  };
+}
+
+/**
+ * Executes only the M3/M4 portion of a Thought-named bounded inquiry. The
+ * existing adapters perform per-step registry, lifecycle, recipe, and
+ * substrate admission; this coordinator adds the same-experiment lifecycle
+ * and explicitly excludes M5 authorship and M7 export.
+ */
+export async function executeInquiryExperimentV2(
+  input: ExecuteInquiryExperimentV2Input,
+): Promise<ExecuteInquiryExperimentV2Result> {
+  const request = input.request;
+  if (
+    !request ||
+    request.operation !== "objective.operate" ||
+    !inquiryLabel(request.experimentId) ||
+    typeof request.objective !== "string" ||
+    request.objective.length < 1 ||
+    request.objective.length > M6_MAX_OBJECTIVE_CHARS ||
+    !Array.isArray(request.steps) ||
+    !request.budget ||
+    !Number.isSafeInteger(request.budget.deadlineAtMs)
+  ) {
+    return emptyInquiryResult(request, "invalid_inquiry_request");
+  }
+  if (request.budget.deadlineAtMs <= Date.now()) {
+    return emptyInquiryResult(request, "deadline_exceeded");
+  }
+  if (request.steps.some((step) => {
+    if (!step || typeof step !== "object") return true;
+    if (step.kind === "candidate_workspace_experiment") {
+      return !INQUIRY_WORKSPACE_OPERATIONS.has(step.request?.operation);
+    }
+    if (step.kind === "candidate_verification") {
+      return step.request?.operation !== "workspace.verify";
+    }
+    return true;
+  })) {
+    return emptyInquiryResult(request, "inquiry_step_forbidden");
+  }
+
+  const stepSpecs = request.steps.map((step) => ({
+    kind: step.kind,
+    operation: step.request.operation,
+  }));
+  const admitted = admitBoundedOperationSequence({
+    steps: stepSpecs,
+    maxSteps: request.budget.maxSteps,
+  });
+  if (!admitted.ok) return emptyInquiryResult(request, admitted.reason);
+
+  const registry =
+    input.registry ??
+    input.envOverrides?.registry ??
+    loadOperatorProjectReadRegistry();
+  const project = registry.resolveReadRoot(request.projectId);
+  if (!project.ok) return emptyInquiryResult(request, project.error);
+  if (project.entry.candidateWorkspaceAllowed !== true) {
+    return emptyInquiryResult(request, "workspace_not_allowed");
+  }
+
+  const lifecycleEnabled =
+    input.envOverrides?.sandboxEngineeringLifecycleEnabled !== undefined
+      ? input.envOverrides.sandboxEngineeringLifecycleEnabled
+      : env.sandboxEngineeringLifecycleEnabled;
+  if (!lifecycleEnabled) return emptyInquiryResult(request, "sandbox_lifecycle_disabled");
+
+  const explicitRecipeIds = request.steps
+    .filter((step): step is Extract<InquiryExperimentStep, { kind: "candidate_verification" }> =>
+      step.kind === "candidate_verification" && typeof step.request.recipeId === "string" && step.request.recipeId.length > 0,
+    )
+    .map((step) => step.request.recipeId!);
+  const recipeIds = [...new Set(explicitRecipeIds)];
+  if (recipeIds.length > 1) return emptyInquiryResult(request, "inquiry_recipe_mismatch");
+
+  const hasVerificationStep = request.steps.some((step) => step.kind === "candidate_verification");
+  let boundRecipeId = recipeIds[0];
+  if (hasVerificationStep) {
+    if (project.entry.verificationAllowed !== true) {
+      return emptyInquiryResult(request, "verification_not_allowed");
+    }
+    const allowedRecipeIds = project.entry.allowedRecipeIds ?? [];
+    if (!boundRecipeId) {
+      if (allowedRecipeIds.length === 0) return emptyInquiryResult(request, "no_allowed_recipe");
+      if (allowedRecipeIds.length !== 1) return emptyInquiryResult(request, "ambiguous_recipe");
+      boundRecipeId = allowedRecipeIds[0];
+    }
+    if (!boundRecipeId || !isVerificationRecipeAllowed(project.entry, boundRecipeId)) {
+      return emptyInquiryResult(request, "recipe_not_allowed");
+    }
+  }
+
+  const inquiry: InquiryWorkspaceContext = {
+    experimentId: request.experimentId,
+    objective: request.objective,
+    budgetDeadlineAtMs: request.budget.deadlineAtMs,
+    ...(boundRecipeId ? { recipeId: boundRecipeId } : {}),
+  };
+  const stepResults: InquiryExperimentStepResult[] = [];
+  let activeWorkspaceId = request.workspaceId ?? null;
+  let indeterminate = false;
+
+  const childTaskId = (index: number): string | undefined =>
+    input.taskId ? `${input.taskId}:inquiry:${index}` : undefined;
+
+  const controller = await runBoundedOperation({
+    steps: stepSpecs,
+    maxSteps: request.budget.maxSteps,
+    deadlineAtMs: request.budget.deadlineAtMs,
+    clock: input.clock,
+    cancelled: input.cancelled,
+    executeStep: async (_spec, index) => {
+      const step = request.steps[index];
+      if (!step) return { ok: false, error: "step_identity_mismatch" };
+      if (
+        activeWorkspaceId &&
+        step.request.workspaceId &&
+        step.request.workspaceId !== activeWorkspaceId
+      ) {
+        return { ok: false, error: "inquiry_workspace_mismatch" };
+      }
+      const requestWithWorkspace = {
+        ...step.request,
+        ...(activeWorkspaceId && !step.request.workspaceId
+          ? { workspaceId: activeWorkspaceId }
+          : {}),
+      };
+
+      if (step.kind === "candidate_workspace_experiment") {
+        const child = await executeWorkspaceExperimentV2({
+          request: requestWithWorkspace as CognitionWorkspaceRequest,
+          messageEntityUuid: input.messageEntityUuid,
+          dispatcher: input.dispatcher,
+          registry,
+          workspaceManager: input.workspaceManager,
+          envOverrides: input.envOverrides,
+          db: input.db,
+          masterMode: input.masterMode,
+          skipCapabilityGate: input.skipCapabilityGate,
+          taskId: childTaskId(index),
+          inquiry,
+        });
+        const workspaceId = child.license.workspaceClaimEffect?.workspaceId;
+        if (workspaceId) activeWorkspaceId = workspaceId;
+        stepResults.push({
+          index,
+          kind: step.kind,
+          operation: step.request.operation,
+          license: child.license,
+          observation: child.observation,
+        });
+        if (child.license.executionTruth === "effect_indeterminate") indeterminate = true;
+        if (child.license.state === "succeeded") return { ok: true };
+        return { ok: false, error: child.license.error ?? "inquiry_step_failed" };
+      }
+
+      const child = await executeCandidateVerificationV2({
+        request: requestWithWorkspace as CognitionVerificationRequest,
+        messageEntityUuid: input.messageEntityUuid,
+        deadlineAtMs: request.budget.deadlineAtMs,
+        dispatcher: input.dispatcher,
+        registry,
+        workspaceManager: input.workspaceManager,
+        envOverrides: input.envOverrides,
+        db: input.db,
+        masterMode: input.masterMode,
+        skipCapabilityGate: input.skipCapabilityGate,
+        taskId: childTaskId(index),
+        ownerId: input.ownerId,
+        inquiry,
+      });
+      const workspaceId = child.license.verificationClaimEffect?.workspaceId;
+      if (workspaceId) activeWorkspaceId = workspaceId;
+      stepResults.push({
+        index,
+        kind: step.kind,
+        operation: step.request.operation,
+        license: child.license,
+        observation: null,
+      });
+      if (child.license.executionTruth === "effect_indeterminate") indeterminate = true;
+      if (child.license.state === "succeeded") return { ok: true };
+      return { ok: false, error: child.license.error ?? "inquiry_step_failed" };
+    },
+  });
+
+  const terminalReason = input.terminal ?? (controller.stopReason === "cancelled" ? "cancelled" : undefined);
+  let terminalized = false;
+  let terminalState: "active" | InquiryWorkspaceTerminalReason = "active";
+  let terminalError: string | undefined;
+  if (terminalReason) {
+    if (!activeWorkspaceId) {
+      terminalError = "workspace_terminalization_failed";
+    } else {
+      const workspaceManager =
+        input.workspaceManager ??
+        new WorkspaceManager({ managedRoot: input.envOverrides?.managedWorkspaceRoot });
+      const terminal = workspaceManager.terminalizeInquiryWorkspace(
+        {
+          projectId: project.entry.projectId,
+          canonicalRoot: project.entry.canonicalRoot,
+          protectedRoots: input.envOverrides?.protectedRoots,
+        },
+        activeWorkspaceId,
+        inquiry,
+        terminalReason,
+      );
+      if (terminal.ok) {
+        terminalized = true;
+        terminalState = terminalReason;
+      } else {
+        terminalError = terminal.error;
+      }
+    }
+  }
+
+  const state = terminalError
+    ? "failed"
+    : indeterminate
+      ? "outcome_unknown"
+      : controller.stopReason === "succeeded"
+        ? "succeeded"
+        : "failed";
+  const stepError = stepResults[stepResults.length - 1]?.license.error;
+  return {
+    state,
+    experimentId: request.experimentId,
+    workspaceId: activeWorkspaceId,
+    terminalState,
+    terminalized,
+    stepResults,
+    ...(terminalError
+      ? { error: terminalError }
+      : controller.stopReason === "succeeded"
+        ? {}
+        : { error: stepError ?? controller.stopReason }),
+  };
+}
+
 export type ExecuteCandidateVerificationV2Input = {
   request: CandidateVerificationRequest;
   messageEntityUuid?: string;
@@ -1046,6 +1378,8 @@ export type ExecuteCandidateVerificationV2Input = {
   skipCapabilityGate?: boolean;
   taskId?: string;
   ownerId?: string;
+  /** P-W3-03 context for an explicitly bounded inquiry experiment. */
+  inquiry?: InquiryWorkspaceContext;
 };
 
 export type ExecuteCandidateVerificationV2Result = {
@@ -1163,6 +1497,9 @@ export async function executeCandidateVerificationV2(
           registry,
           workspaceManager: input.workspaceManager,
           ...input.envOverrides,
+          inquiry: input.inquiry
+            ? { ...input.inquiry, recipeId: boundRequest.recipeId }
+            : undefined,
         },
       });
 

@@ -11,7 +11,7 @@
  *      tree/          <-- Durable candidate filesystem mounted writable as /workspace
  */
 
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import {
   cpSync,
   existsSync,
@@ -41,7 +41,124 @@ export type WorkspaceManifest = {
   sourceSnapshotId: string;
   /** Recovery provenance only. Grants no authority. */
   originChildTaskId?: string;
+  /** Existing manifests without this field are legacy candidate workspaces. */
+  workspaceKind?: "candidate" | "inquiry_experiment";
+  /** Present only for an inquiry experiment workspace. */
+  lifecycle?: "active" | "terminal";
+  /** Opaque Thought-named inquiry identity; it is not an authority grant. */
+  experimentId?: string;
+  /** Digest only. The private objective text is never written to the manifest. */
+  objectiveSha256?: string;
+  /** The operator-bound recipe selected for this inquiry, when known. */
+  recipeId?: string;
+  terminalReason?: "completed" | "cancelled" | "aborted";
 };
+
+export type InquiryWorkspaceContext = {
+  experimentId: string;
+  objective: string;
+  budgetDeadlineAtMs?: number;
+  recipeId?: string;
+};
+
+export type InquiryWorkspaceTerminalReason = "completed" | "cancelled" | "aborted";
+
+const INQUIRY_OBJECTIVE_MAX_CHARS = 500;
+
+function inquiryObjectiveSha256(objective: string): string {
+  return createHash("sha256").update(objective, "utf8").digest("hex");
+}
+
+function validOpaqueLabel(value: unknown): value is string {
+  return typeof value === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(value);
+}
+
+function validRecipeLabel(value: unknown): value is string {
+  return typeof value === "string" && /^[A-Za-z0-9:_-]{1,128}$/.test(value);
+}
+
+function validateInquiryContext(
+  context: InquiryWorkspaceContext,
+  options: { allowExpiredBudget?: boolean } = {},
+): string | null {
+  if (!context || typeof context !== "object") return "inquiry_context_invalid";
+  if (!validOpaqueLabel(context.experimentId)) return "inquiry_experiment_id_invalid";
+  if (
+    typeof context.objective !== "string" ||
+    context.objective.length < 1 ||
+    context.objective.length > INQUIRY_OBJECTIVE_MAX_CHARS
+  ) {
+    return "inquiry_objective_invalid";
+  }
+  if (
+    context.budgetDeadlineAtMs !== undefined &&
+    options.allowExpiredBudget !== true &&
+    (!Number.isSafeInteger(context.budgetDeadlineAtMs) || context.budgetDeadlineAtMs <= Date.now())
+  ) {
+    return "inquiry_budget_expired";
+  }
+  if (context.recipeId !== undefined && !validRecipeLabel(context.recipeId)) {
+    return "inquiry_recipe_invalid";
+  }
+  return null;
+}
+
+function workspaceKind(manifest: WorkspaceManifest): "candidate" | "inquiry_experiment" {
+  return manifest.workspaceKind ?? "candidate";
+}
+
+function isWorkspaceManifest(
+  value: unknown,
+  expectedWorkspaceId?: string,
+  expectedProjectId?: string,
+): value is WorkspaceManifest {
+  if (!value || typeof value !== "object") return false;
+  const manifest = value as Partial<WorkspaceManifest>;
+  if (
+    manifest.schemaVersion !== 2 ||
+    typeof manifest.workspaceId !== "string" ||
+    typeof manifest.projectId !== "string" ||
+    typeof manifest.createdAt !== "string" ||
+    typeof manifest.lastUsedAt !== "string" ||
+    typeof manifest.sourceSnapshotId !== "string"
+  ) {
+    return false;
+  }
+  if (expectedWorkspaceId !== undefined && manifest.workspaceId !== expectedWorkspaceId) return false;
+  if (expectedProjectId !== undefined && manifest.projectId !== expectedProjectId) return false;
+  if (
+    manifest.workspaceKind !== undefined &&
+    manifest.workspaceKind !== "candidate" &&
+    manifest.workspaceKind !== "inquiry_experiment"
+  ) {
+    return false;
+  }
+  if (workspaceKind(manifest as WorkspaceManifest) === "inquiry_experiment") {
+    if (
+      !validOpaqueLabel(manifest.experimentId) ||
+      typeof manifest.objectiveSha256 !== "string" ||
+      !/^[a-f0-9]{64}$/.test(manifest.objectiveSha256) ||
+      (manifest.lifecycle !== "active" && manifest.lifecycle !== "terminal")
+    ) {
+      return false;
+    }
+    if (
+      manifest.recipeId !== undefined &&
+      !validRecipeLabel(manifest.recipeId)
+    ) {
+      return false;
+    }
+    if (
+      manifest.terminalReason !== undefined &&
+      manifest.terminalReason !== "completed" &&
+      manifest.terminalReason !== "cancelled" &&
+      manifest.terminalReason !== "aborted"
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
 
 export type AuthorizedProjectExecutionContext = {
   projectId: string;
@@ -117,13 +234,42 @@ export class WorkspaceManager {
     originChildTaskId?: string,
   ): Promise<WorkspaceAcquisitionResult> {
     if (requestedWorkspaceId) {
-      const resumed = this.resumeWorkspace(context, requestedWorkspaceId);
+      const resumed = this.resumeWorkspace(context, requestedWorkspaceId, "candidate");
       if (resumed.ok && originChildTaskId) {
         this.bindOriginChildTaskId(requestedWorkspaceId, originChildTaskId);
       }
       return resumed;
     }
-    return this.createWorkspace(context, originChildTaskId);
+    return this.createWorkspace(context, originChildTaskId, { workspaceKind: "candidate" });
+  }
+
+  /**
+   * Acquire a workspace for one bounded inquiry experiment. The workspace is
+   * tagged at creation and can only be resumed through the matching inquiry
+   * identity while its lifecycle is active.
+   */
+  async acquireInquiryWorkspace(
+    context: AuthorizedProjectExecutionContext,
+    inquiry: InquiryWorkspaceContext,
+    requestedWorkspaceId?: string,
+    originChildTaskId?: string,
+  ): Promise<WorkspaceAcquisitionResult> {
+    const invalid = validateInquiryContext(inquiry);
+    if (invalid) return { ok: false, error: invalid };
+    if (requestedWorkspaceId) {
+      const resumed = this.resumeInquiryWorkspace(context, requestedWorkspaceId, inquiry);
+      if (resumed.ok && originChildTaskId) {
+        this.bindOriginChildTaskId(requestedWorkspaceId, originChildTaskId);
+      }
+      return resumed;
+    }
+    return this.createWorkspace(context, originChildTaskId, {
+      workspaceKind: "inquiry_experiment",
+      experimentId: inquiry.experimentId,
+      objectiveSha256: inquiryObjectiveSha256(inquiry.objective),
+      ...(inquiry.recipeId ? { recipeId: inquiry.recipeId } : {}),
+      lifecycle: "active",
+    });
   }
 
   /**
@@ -159,9 +305,8 @@ export class WorkspaceManager {
         }
         const manifest = raw as WorkspaceManifest;
         if (
-          typeof manifest.createdAt !== "string" ||
-          typeof manifest.lastUsedAt !== "string" ||
-          typeof manifest.sourceSnapshotId !== "string"
+          !isWorkspaceManifest(manifest, name, projectId) ||
+          workspaceKind(manifest) !== "candidate"
         ) {
           continue;
         }
@@ -186,7 +331,80 @@ export class WorkspaceManager {
     context: AuthorizedProjectExecutionContext,
     workspaceId: string,
   ): WorkspaceAcquisitionResult {
-    return this.resumeWorkspace(context, workspaceId);
+    return this.resumeCandidateWorkspace(context, workspaceId);
+  }
+
+  /** Resume only a Wave-4-style candidate workspace. */
+  resumeCandidateWorkspace(
+    context: AuthorizedProjectExecutionContext,
+    workspaceId: string,
+  ): WorkspaceAcquisitionResult {
+    return this.resumeWorkspace(context, workspaceId, "candidate");
+  }
+
+  /**
+   * Resume the same active inquiry experiment. A terminal experiment, a
+   * changed objective, a changed experiment id, or a changed recipe is never
+   * silently reused.
+   */
+  resumeInquiryWorkspace(
+    context: AuthorizedProjectExecutionContext,
+    workspaceId: string,
+    inquiry: InquiryWorkspaceContext,
+  ): WorkspaceAcquisitionResult {
+    const invalid = validateInquiryContext(inquiry);
+    if (invalid) return { ok: false, error: invalid };
+    return this.resumeWorkspace(context, workspaceId, "inquiry_experiment", inquiry);
+  }
+
+  /**
+   * Mark an inquiry terminal without deleting the workspace itself. The
+   * terminal marker prevents later reuse while preserving the durable control
+   * record and any separately owned receipts/evidence.
+   */
+  terminalizeInquiryWorkspace(
+    context: AuthorizedProjectExecutionContext,
+    workspaceId: string,
+    inquiry: InquiryWorkspaceContext,
+    reason: InquiryWorkspaceTerminalReason,
+  ): { ok: true; manifest: WorkspaceManifest } | { ok: false; error: string } {
+    const invalid = validateInquiryContext(inquiry, { allowExpiredBudget: true });
+    if (invalid) return { ok: false, error: invalid };
+    const resumed = this.resumeWorkspace(context, workspaceId, "inquiry_experiment", inquiry, {
+      touchLastUsedAt: false,
+    });
+    if (!resumed.ok) return resumed;
+    const manifestPath = join(this.managedRoot, workspaceId, "manifest.json");
+    const manifest: WorkspaceManifest = {
+      ...resumed.manifest,
+      lifecycle: "terminal",
+      terminalReason: reason,
+    };
+    try {
+      writeFileSync(manifestPath, JSON.stringify(manifest, null, 2), { encoding: "utf8", mode: 0o600 });
+      return { ok: true, manifest };
+    } catch {
+      return { ok: false, error: "workspace_terminalization_failed" };
+    }
+  }
+
+  /** Read one manifest without creating, resuming, or touching its lifecycle. */
+  getWorkspaceManifest(workspaceId: string): WorkspaceManifest | null {
+    if (!this.isValidWorkspaceId(workspaceId)) return null;
+    const manifestPath = join(this.managedRoot, workspaceId, "manifest.json");
+    if (!existsSync(manifestPath)) return null;
+    try {
+      const raw: unknown = JSON.parse(readFileSync(manifestPath, "utf8"));
+      return isWorkspaceManifest(raw, workspaceId) ? raw : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** True only for a manifest explicitly owned by the inquiry path. */
+  isInquiryExperimentWorkspace(workspaceId: string): boolean {
+    const manifest = this.getWorkspaceManifest(workspaceId);
+    return manifest !== null && workspaceKind(manifest) === "inquiry_experiment";
   }
 
   /**
@@ -197,6 +415,9 @@ export class WorkspaceManager {
   private resumeWorkspace(
     context: AuthorizedProjectExecutionContext,
     workspaceId: string,
+    expectedKind: "candidate" | "inquiry_experiment",
+    inquiry?: InquiryWorkspaceContext,
+    options: { touchLastUsedAt?: boolean } = {},
   ): WorkspaceAcquisitionResult {
     // Validate workspaceId string safety (must be opaque, alphanumeric/base64url, no slashes or ..)
     if (!this.isValidWorkspaceId(workspaceId)) {
@@ -226,15 +447,8 @@ export class WorkspaceManager {
 
     let manifest: WorkspaceManifest;
     try {
-      const raw = JSON.parse(readFileSync(manifestPath, "utf8"));
-      if (
-        !raw ||
-        typeof raw !== "object" ||
-        raw.schemaVersion !== 2 ||
-        typeof raw.workspaceId !== "string" ||
-        typeof raw.projectId !== "string" ||
-        typeof raw.sourceSnapshotId !== "string"
-      ) {
+      const raw: unknown = JSON.parse(readFileSync(manifestPath, "utf8"));
+      if (!isWorkspaceManifest(raw, workspaceId)) {
         return { ok: false, error: "workspace_corrupt" };
       }
       manifest = raw as WorkspaceManifest;
@@ -250,9 +464,35 @@ export class WorkspaceManager {
       return { ok: false, error: "workspace_project_mismatch" };
     }
 
+    if (workspaceKind(manifest) !== expectedKind) {
+      return {
+        ok: false,
+        error: expectedKind === "candidate"
+          ? "workspace_not_candidate"
+          : "workspace_not_inquiry_experiment",
+      };
+    }
+
+    if (expectedKind === "inquiry_experiment") {
+      if (!inquiry) return { ok: false, error: "inquiry_context_required" };
+      if (manifest.lifecycle !== "active") {
+        return { ok: false, error: "inquiry_workspace_terminal" };
+      }
+      if (
+        manifest.experimentId !== inquiry.experimentId ||
+        manifest.objectiveSha256 !== inquiryObjectiveSha256(inquiry.objective)
+      ) {
+        return { ok: false, error: "inquiry_workspace_mismatch" };
+      }
+      if (inquiry.recipeId && manifest.recipeId && inquiry.recipeId !== manifest.recipeId) {
+        return { ok: false, error: "inquiry_recipe_mismatch" };
+      }
+      if (inquiry.recipeId && !manifest.recipeId) manifest.recipeId = inquiry.recipeId;
+    }
+
     // Touch lastUsedAt
     try {
-      manifest.lastUsedAt = new Date().toISOString();
+      if (options.touchLastUsedAt !== false) manifest.lastUsedAt = new Date().toISOString();
       writeFileSync(manifestPath, JSON.stringify(manifest, null, 2), "utf8");
     } catch {}
 
@@ -271,6 +511,13 @@ export class WorkspaceManager {
   private async createWorkspace(
     context: AuthorizedProjectExecutionContext,
     originChildTaskId?: string,
+    metadata: {
+      workspaceKind: "candidate" | "inquiry_experiment";
+      lifecycle?: "active";
+      experimentId?: string;
+      objectiveSha256?: string;
+      recipeId?: string;
+    } = { workspaceKind: "candidate" },
   ): Promise<WorkspaceAcquisitionResult> {
     const workspaceId = randomBytes(16).toString("base64url");
     const finalDir = join(this.managedRoot, workspaceId);
@@ -323,6 +570,11 @@ export class WorkspaceManager {
           lastUsedAt: new Date().toISOString(),
           sourceSnapshotId,
           ...(originChildTaskId ? { originChildTaskId } : {}),
+          workspaceKind: metadata.workspaceKind,
+          ...(metadata.lifecycle ? { lifecycle: metadata.lifecycle } : {}),
+          ...(metadata.experimentId ? { experimentId: metadata.experimentId } : {}),
+          ...(metadata.objectiveSha256 ? { objectiveSha256: metadata.objectiveSha256 } : {}),
+          ...(metadata.recipeId ? { recipeId: metadata.recipeId } : {}),
         };
 
         const stagingManifestPath = join(stagingDir, "manifest.json");

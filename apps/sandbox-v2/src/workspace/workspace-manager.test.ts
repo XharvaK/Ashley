@@ -226,4 +226,88 @@ describe("Stage 2 — WorkspaceManager Lifecycle", () => {
     expect(listed).toHaveLength(before);
     expect(existsSync(join(bogusDir, "tree"))).toBe(false);
   });
+
+  describe("P-W3-03 inquiry experiment lifecycle", () => {
+    it("tags an inquiry workspace, resumes only the same active experiment, and blocks candidate reuse after terminalization", async () => {
+      const ctx = { ...context, canonicalRoot: sourceRoot };
+      const inquiry = {
+        experimentId: "inquiry-1",
+        objective: "Can the fixture compile without mutating the candidate?",
+        recipeId: "typescript_fixture_compile_v1",
+        budgetDeadlineAtMs: Date.now() + 60_000,
+      };
+
+      const created = await manager.acquireInquiryWorkspace(ctx, inquiry);
+      expect(created.ok).toBe(true);
+      if (!created.ok) return;
+
+      expect(created.manifest.workspaceKind).toBe("inquiry_experiment");
+      expect(created.manifest.experimentId).toBe("inquiry-1");
+      expect(created.manifest.lifecycle).toBe("active");
+      expect(created.manifest.objectiveSha256).toMatch(/^[a-f0-9]{64}$/);
+
+      const resumed = manager.resumeInquiryWorkspace(ctx, created.workspaceId, inquiry);
+      expect(resumed.ok).toBe(true);
+      if (!resumed.ok) return;
+      expect(resumed.isNew).toBe(false);
+
+      const wrongObjective = manager.resumeInquiryWorkspace(ctx, created.workspaceId, {
+        ...inquiry,
+        objective: "A different question",
+      });
+      expect(wrongObjective.ok).toBe(false);
+      if (!wrongObjective.ok) expect(wrongObjective.error).toBe("inquiry_workspace_mismatch");
+
+      const terminal = manager.terminalizeInquiryWorkspace(
+        ctx,
+        created.workspaceId,
+        inquiry,
+        "completed",
+      );
+      expect(terminal.ok).toBe(true);
+      if (!terminal.ok) return;
+      expect(terminal.manifest.lifecycle).toBe("terminal");
+      expect(terminal.manifest.terminalReason).toBe("completed");
+
+      const afterTerminal = manager.resumeInquiryWorkspace(ctx, created.workspaceId, inquiry);
+      expect(afterTerminal.ok).toBe(false);
+      if (!afterTerminal.ok) expect(afterTerminal.error).toBe("inquiry_workspace_terminal");
+
+      const candidateResume = manager.resumeExistingWorkspace(ctx, created.workspaceId);
+      expect(candidateResume.ok).toBe(false);
+      if (!candidateResume.ok) expect(candidateResume.error).toBe("workspace_not_candidate");
+      expect(manager.listProjectWorkspaces(ctx.projectId)).toEqual([]);
+
+      const retained = manager.getWorkspaceManifest(created.workspaceId);
+      expect(retained?.lifecycle).toBe("terminal");
+      expect(existsSync(join(created.workspaceTreeRoot, "src", "index.ts"))).toBe(true);
+    });
+
+    it("fails closed when inquiry authority or budget is no longer valid", async () => {
+      const ctx = { ...context, canonicalRoot: sourceRoot };
+      const inquiry = {
+        experimentId: "inquiry-2",
+        objective: "Does the bounded recipe produce a receipt?",
+        budgetDeadlineAtMs: Date.now() + 60_000,
+      };
+      const created = await manager.acquireInquiryWorkspace(ctx, inquiry);
+      expect(created.ok).toBe(true);
+      if (!created.ok) return;
+
+      const otherProject = manager.resumeInquiryWorkspace(
+        { ...ctx, projectId: "other-project" },
+        created.workspaceId,
+        inquiry,
+      );
+      expect(otherProject.ok).toBe(false);
+      if (!otherProject.ok) expect(otherProject.error).toBe("workspace_project_mismatch");
+
+      const expired = manager.resumeInquiryWorkspace(ctx, created.workspaceId, {
+        ...inquiry,
+        budgetDeadlineAtMs: Date.now() - 1,
+      });
+      expect(expired.ok).toBe(false);
+      if (!expired.ok) expect(expired.error).toBe("inquiry_budget_expired");
+    });
+  });
 });

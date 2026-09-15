@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   executeProjectInspectionV2,
   executeWorkspaceExperimentV2,
+  executeInquiryExperimentV2,
   executeReactiveSandboxTaskV2,
 } from "./v2-execution.js";
 import {
@@ -31,7 +32,41 @@ import type {
   SandboxV2Dispatcher,
   SandboxV2Request,
   SandboxV2Result,
+  SandboxV2OperationResult,
 } from "@composer-assistant/sandbox-v2";
+
+const INQUIRY_HASH = "ab".repeat(32);
+
+function inquiryVerificationReceipt(
+  workspaceId = "ws-inquiry-1",
+): Extract<SandboxV2OperationResult, { kind: "workspace.verify" }> {
+  return {
+    kind: "workspace.verify",
+    snapshotId: "vsnap-inquiry-1",
+    workspaceId,
+    projectId: "project-ashley",
+    candidateTreeHash: INQUIRY_HASH,
+    candidateTreeHashAfter: INQUIRY_HASH,
+    sourceSnapshotId: "snap-inquiry-1",
+    treeHashAlgorithm: "m4-provisional-tree-v0",
+    recipeId: "typescript_fixture_compile_v1",
+    recipeVersion: "1",
+    recipeDefinitionHash: INQUIRY_HASH,
+    executableIdentity: "/usr/bin/tsc",
+    argvIdentity: "--noEmit",
+    protocolState: "admitted",
+    verificationOutcome: "verified_success",
+    exitCode: 0,
+    timedOut: false,
+    stdoutTruncated: false,
+    stderrTruncated: false,
+    stdoutSha256: INQUIRY_HASH,
+    stderrSha256: INQUIRY_HASH,
+    cleanupCompleted: true,
+    projectionDiscarded: true,
+    candidateUnchanged: true,
+  };
+}
 
 describe("Sandbox V2 Execution Adapter & Operator Registry", () => {
   describe("Operator Project Registry & Offer Gating", () => {
@@ -956,6 +991,192 @@ describe("Sandbox V2 Execution Adapter & Operator Registry", () => {
       expect(result.license.state).toBe("failed");
       expect(result.license.error).toBe("workspace_not_allowed");
       expect(result.observation).toBeNull();
+    });
+
+    it("runs a Thought-named inquiry as M3 evidence followed by recipe-only M4 evidence", async () => {
+      const registry = new V2ProjectReadRegistry([
+        {
+          projectId: "project-ashley",
+          canonicalRoot: "/home/xarvak/project-ashley",
+          displayName: "Ashley",
+          enabled: true,
+          readAllowed: true,
+          candidateWorkspaceAllowed: true,
+          engineeringAllowed: false,
+          verificationAllowed: true,
+          allowedRecipeIds: ["typescript_fixture_compile_v1"],
+        },
+      ]);
+      const dispatched: string[] = [];
+      const dispatcher = {
+        dispatch: async (request: SandboxV2Request): Promise<SandboxV2Result> => {
+          dispatched.push(request.operation);
+          if (request.operation === "workspace.verify") {
+            const result = inquiryVerificationReceipt("ws-inquiry-1");
+            return {
+              outcome: "succeeded",
+              operation: request.operation,
+              result,
+              workspaceId: result.workspaceId,
+              sourceSnapshotId: result.sourceSnapshotId,
+              verificationReceipt: result,
+              executedAtMs: Date.now(),
+            };
+          }
+          return {
+            outcome: "succeeded",
+            operation: request.operation,
+            workspaceId: "ws-inquiry-1",
+            sourceSnapshotId: "snap-inquiry-1",
+            result: {
+              kind: "workspace.write_file",
+              path: "probe.txt",
+              bytesWritten: 7,
+              contentHash: INQUIRY_HASH,
+              readMatches: true,
+              deleted: false,
+              verifiedAbsent: false,
+              completedAtMs: Date.now(),
+            },
+            executionTruth: "effect_verified",
+            executedAtMs: Date.now(),
+          };
+        },
+      } as unknown as SandboxV2Dispatcher;
+
+      const result = await executeInquiryExperimentV2({
+        request: {
+          operation: "objective.operate",
+          projectId: "project-ashley",
+          experimentId: "inquiry-1",
+          objective: "Can the bounded fixture prove the requested behavior?",
+          steps: [
+            {
+              kind: "candidate_workspace_experiment",
+              request: {
+                version: 2,
+                operation: "workspace.write_file",
+                projectId: "project-ashley",
+                path: "probe.txt",
+                content: "fixture",
+                mustNotExist: true,
+              },
+            },
+            {
+              kind: "candidate_verification",
+              request: {
+                operation: "workspace.verify",
+                projectId: "project-ashley",
+                recipeId: "typescript_fixture_compile_v1",
+              },
+            },
+          ],
+          budget: { maxSteps: 2, deadlineAtMs: Date.now() + 60_000 },
+        },
+        registry,
+        dispatcher,
+        skipCapabilityGate: true,
+        envOverrides: { sandboxEngineeringLifecycleEnabled: true },
+      });
+
+      expect(result.state).toBe("succeeded");
+      expect(result.workspaceId).toBe("ws-inquiry-1");
+      expect(result.stepResults).toHaveLength(2);
+      expect(result.stepResults[0]?.observation?.verified).toBe(true);
+      expect(result.stepResults[1]?.license.verificationClaimEffect).toBeDefined();
+      expect(dispatched).toEqual(["workspace.write_file", "workspace.verify"]);
+    });
+
+    it("refuses an empty inquiry recipe allowlist before dispatch", async () => {
+      const registry = new V2ProjectReadRegistry([
+        {
+          projectId: "project-ashley",
+          canonicalRoot: "/home/xarvak/project-ashley",
+          displayName: "Ashley",
+          enabled: true,
+          readAllowed: true,
+          candidateWorkspaceAllowed: true,
+          engineeringAllowed: false,
+          verificationAllowed: true,
+          allowedRecipeIds: [],
+        },
+      ]);
+      let dispatches = 0;
+      const result = await executeInquiryExperimentV2({
+        request: {
+          operation: "objective.operate",
+          projectId: "project-ashley",
+          experimentId: "inquiry-no-recipe",
+          objective: "The recipe grant is intentionally absent.",
+          steps: [
+            {
+              kind: "candidate_workspace_experiment",
+              request: {
+                version: 2,
+                operation: "workspace.write_file",
+                projectId: "project-ashley",
+                path: "probe.txt",
+                content: "fixture",
+                mustNotExist: true,
+              },
+            },
+            {
+              kind: "candidate_verification",
+              request: {
+                operation: "workspace.verify",
+                projectId: "project-ashley",
+                workspaceId: "ws-inquiry-1",
+                recipeId: "typescript_fixture_compile_v1",
+              },
+            },
+          ],
+          budget: { maxSteps: 2, deadlineAtMs: Date.now() + 60_000 },
+        },
+        registry,
+        dispatcher: {
+          dispatch: async () => {
+            dispatches += 1;
+            throw new Error("recipe refusal must precede dispatch");
+          },
+        } as unknown as SandboxV2Dispatcher,
+        skipCapabilityGate: true,
+        envOverrides: { sandboxEngineeringLifecycleEnabled: true },
+      });
+
+      expect(result.state).toBe("failed");
+      expect(result.error).toBe("recipe_not_allowed");
+      expect(dispatches).toBe(0);
+    });
+
+    it("does not admit authorship or export steps on the inquiry path", async () => {
+      let dispatches = 0;
+      const result = await executeInquiryExperimentV2({
+        request: {
+          operation: "objective.operate",
+          projectId: "project-ashley",
+          experimentId: "inquiry-no-authorship",
+          objective: "This path must remain an inquiry only.",
+          steps: [
+            {
+              kind: "candidate_authorship",
+              request: { operation: "changeset.author", projectId: "project-ashley" },
+            } as never,
+          ],
+          budget: { maxSteps: 1, deadlineAtMs: Date.now() + 60_000 },
+        },
+        dispatcher: {
+          dispatch: async () => {
+            dispatches += 1;
+            throw new Error("forbidden inquiry step must not dispatch");
+          },
+        } as unknown as SandboxV2Dispatcher,
+        skipCapabilityGate: true,
+        envOverrides: { sandboxEngineeringLifecycleEnabled: true },
+      });
+
+      expect(result.state).toBe("failed");
+      expect(result.error).toBe("inquiry_step_forbidden");
+      expect(dispatches).toBe(0);
     });
   });
 });

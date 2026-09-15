@@ -1,4 +1,5 @@
 import type { Server, Socket } from "node:net";
+import { existsSync, rmSync } from "node:fs";
 
 type ClosableLoopbackServer = Pick<Server, "close">;
 type DestroyableLoopbackSocket = Pick<Socket, "destroy">;
@@ -21,6 +22,57 @@ export type ChildCloseDeadlineOptions = {
   setTimer?: (callback: () => void, delayMs: number) => unknown;
   clearTimer?: (timer: unknown) => void;
 };
+
+export type ProjectionCleanupResult = {
+  cleanupCompleted: boolean;
+  projectionDiscarded: boolean;
+  quarantinePreserved: boolean;
+};
+
+/**
+ * Apply the existing projection cleanup rule. A caller that has already
+ * admitted canonical quarantine may retain the material by returning true;
+ * ordinary deletion is then skipped. This helper owns no quarantine store.
+ */
+export function discardProjection(
+  projectionRoot: string,
+  options?: { quarantine?: (projectionRoot: string) => boolean },
+): ProjectionCleanupResult {
+  if (options?.quarantine) {
+    let quarantined = false;
+    try {
+      quarantined = options.quarantine(projectionRoot);
+    } catch {
+      return {
+        cleanupCompleted: false,
+        projectionDiscarded: false,
+        quarantinePreserved: false,
+      };
+    }
+    if (quarantined) {
+      return {
+        cleanupCompleted: true,
+        projectionDiscarded: false,
+        quarantinePreserved: true,
+      };
+    }
+  }
+
+  try {
+    rmSync(projectionRoot, { recursive: true, force: true });
+    return {
+      cleanupCompleted: true,
+      projectionDiscarded: !existsSync(projectionRoot),
+      quarantinePreserved: false,
+    };
+  } catch {
+    return {
+      cleanupCompleted: false,
+      projectionDiscarded: !existsSync(projectionRoot),
+      quarantinePreserved: false,
+    };
+  }
+}
 
 /**
  * Stop accepting connections and synchronously destroy every connection before

@@ -7,15 +7,20 @@
  */
 
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { V2_HOST_FACTS, V2_LIMITS } from "../limits.js";
-import { awaitChildCloseByDeadline, terminateChild } from "../settlement-cleanup.js";
+import {
+  awaitChildCloseByDeadline,
+  discardProjection,
+  terminateChild,
+} from "../settlement-cleanup.js";
 import type { V2ProjectReadRegistry } from "../registry.js";
 import {
   WorkspaceManager,
   type AuthorizedProjectExecutionContext,
+  type InquiryWorkspaceContext,
 } from "../workspace/workspace-manager.js";
 import {
   RecipeCatalog,
@@ -83,6 +88,8 @@ export type CandidateVerificationExecutorOptions = {
   childTerminationDeadlineAtMs?: number;
   settlementDeadlineAtMs?: number;
   clock?: { nowMs(): number };
+  /** When present, verify only the same active P-W3-03 inquiry workspace. */
+  inquiry?: InquiryWorkspaceContext;
 };
 
 export function isV2VerificationAvailable(): boolean {
@@ -277,7 +284,9 @@ export async function executeCandidateVerification(
     canonicalRoot: entry.canonicalRoot,
     protectedRoots: options.protectedRoots,
   };
-  const acquisition = workspaceManager.resumeExistingWorkspace(context, validated.workspaceId);
+  const acquisition = options.inquiry
+    ? workspaceManager.resumeInquiryWorkspace(context, validated.workspaceId, options.inquiry)
+    : workspaceManager.resumeCandidateWorkspace(context, validated.workspaceId);
   if (!acquisition.ok) return failed(acquisition.error);
 
   const snapshot = bindCandidateSnapshot({
@@ -338,14 +347,9 @@ export async function executeCandidateVerification(
 
   let cleanupCompleted = false;
   let projectionDiscarded = false;
-  try {
-    rmSync(projectionRoot, { recursive: true, force: true });
-    cleanupCompleted = true;
-    projectionDiscarded = !existsSync(projectionRoot);
-  } catch {
-    cleanupCompleted = false;
-    projectionDiscarded = !existsSync(projectionRoot);
-  }
+  const cleanup = discardProjection(projectionRoot);
+  cleanupCompleted = cleanup.cleanupCompleted;
+  projectionDiscarded = cleanup.projectionDiscarded;
   if (!cleanupCompleted || !projectionDiscarded) {
     protocolState = "cleanup_failure";
   } else if (!candidateUnchanged) {

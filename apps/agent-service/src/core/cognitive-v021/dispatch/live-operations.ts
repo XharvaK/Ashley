@@ -3,12 +3,15 @@ import { env } from "../../../env.js";
 import {
   executeCandidateAuthorshipV2,
   executeCandidateVerificationV2,
+  executeInquiryExperimentV2,
   executeProjectInspectionV2,
   executeWorkspaceExperimentV2,
   type ExecuteCandidateAuthorshipV2Result,
   type ExecuteCandidateVerificationV2Result,
+  type ExecuteInquiryExperimentV2Result,
   type ExecuteProjectInspectionV2Result,
   type ExecuteWorkspaceExperimentV2Result,
+  type InquiryExperimentRequest,
 } from "../../sandbox/v2-execution.js";
 import {
   loadOperatorProjectReadRegistry,
@@ -65,6 +68,7 @@ type LiveOperationAdapters = {
   executeWorkspaceExperimentV2: typeof executeWorkspaceExperimentV2;
   executeCandidateVerificationV2: typeof executeCandidateVerificationV2;
   executeCandidateAuthorshipV2: typeof executeCandidateAuthorshipV2;
+  executeInquiryExperimentV2: typeof executeInquiryExperimentV2;
 };
 
 export type V021LiveOperationExecutorOptions = {
@@ -199,6 +203,20 @@ function normalizeAuthorshipRequest(proposal: EffectProposal): CognitionAuthorsh
   };
 }
 
+function normalizeInquiryRequest(proposal: EffectProposal): InquiryExperimentRequest | null {
+  const value = requestRecord(proposal.request);
+  if (
+    !value ||
+    value.operation !== "objective.operate" ||
+    !stringValue(value.projectId) ||
+    !stringValue(value.experimentId) ||
+    !stringValue(value.objective) ||
+    !Array.isArray(value.steps) ||
+    !isRecord(value.budget)
+  ) return null;
+  return value as unknown as InquiryExperimentRequest;
+}
+
 function licenseClaims(license: OperationalClaimLicense): Record<string, unknown> {
   return {
     state: license.state,
@@ -303,6 +321,33 @@ function resultLicense(
   return result.license;
 }
 
+function inquiryResultLicense(
+  result: ExecuteInquiryExperimentV2Result,
+  taskId: string,
+  messageEntityUuid: string,
+): OperationalClaimLicense {
+  const workspaceStep = [...result.stepResults].reverse().find((step) => step.license.workspaceClaimEffect);
+  const verificationStep = [...result.stepResults].reverse().find((step) => step.license.verificationClaimEffect);
+  return {
+    state: result.state,
+    taskId,
+    profile: "inquiry_experiment",
+    ...(result.error ? { error: result.error } : {}),
+    ...(result.state === "succeeded"
+      ? { executionTruth: "effect_verified" as const }
+      : result.state === "outcome_unknown"
+        ? { executionTruth: "effect_indeterminate" as const }
+        : {}),
+    ...(workspaceStep?.license.workspaceClaimEffect
+      ? { workspaceClaimEffect: workspaceStep.license.workspaceClaimEffect }
+      : {}),
+    ...(verificationStep?.license.verificationClaimEffect
+      ? { verificationClaimEffect: verificationStep.license.verificationClaimEffect }
+      : {}),
+    sourceMessageEntityUuid: messageEntityUuid,
+  };
+}
+
 export function createV021LiveOperationExecutors(
   options: V021LiveOperationExecutorOptions,
 ): V021LiveOperationExecutors {
@@ -313,6 +358,7 @@ export function createV021LiveOperationExecutors(
     executeWorkspaceExperimentV2,
     executeCandidateVerificationV2,
     executeCandidateAuthorshipV2,
+    executeInquiryExperimentV2,
     ...options.adapters,
   };
 
@@ -426,7 +472,20 @@ export function createV021LiveOperationExecutors(
 
       let license: OperationalClaimLicense;
       try {
-        if (WORKSPACE_OPERATIONS.has(operation)) {
+        if (operation === "objective.operate") {
+          const request = normalizeInquiryRequest(proposal);
+          if (!request) license = unavailableLicense("inquiry_experiment", "invalid_request");
+          else {
+            const result = await adapters.executeInquiryExperimentV2({
+              ...common,
+              request,
+              ownerId: options.ownerId,
+              taskId: proposal.effectId,
+              messageEntityUuid: proposal.cycleId,
+            });
+            license = inquiryResultLicense(result, proposal.effectId, proposal.cycleId);
+          }
+        } else if (WORKSPACE_OPERATIONS.has(operation)) {
           const request = normalizeWorkspaceRequest(proposal, operation);
           if (!request) license = unavailableLicense("project_experimentation", "invalid_request");
           else {
