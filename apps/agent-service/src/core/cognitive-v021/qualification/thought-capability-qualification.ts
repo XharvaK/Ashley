@@ -361,6 +361,8 @@ const SUPPORTED_SCHEMA_KEYWORDS = new Set([
   "minProperties",
   "pattern",
   "maxItems",
+  "minimum",
+  "maximum",
 ]);
 
 function isRecord(value: unknown): value is SchemaRecord {
@@ -521,6 +523,14 @@ function validateSchemaNode(
   if (Object.prototype.hasOwnProperty.call(schema, "type")
     && !schemaTypeMatches(value, schema.type)) {
     return oracleFailure("type_mismatch:" + path, "type", path, `${schemaPath}/type`);
+  }
+  if (typeof value === "number") {
+    if (typeof schema.minimum === "number" && value < schema.minimum) {
+      return oracleFailure("minimum_mismatch:" + path, "minimum", path, `${schemaPath}/minimum`);
+    }
+    if (typeof schema.maximum === "number" && value > schema.maximum) {
+      return oracleFailure("maximum_mismatch:" + path, "maximum", path, `${schemaPath}/maximum`);
+    }
   }
   if (typeof value === "string") {
     if (typeof schema.minLength === "number" && [...value].length < schema.minLength) {
