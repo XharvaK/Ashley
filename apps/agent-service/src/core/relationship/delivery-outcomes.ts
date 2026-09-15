@@ -7,6 +7,7 @@ import {
 } from "./claims.js";
 import { markRepairCommitted } from "./repair.js";
 import { updateDocReminderStatus } from "./store.js";
+import { applyCommitmentDeliveryOutcome } from "./commitment-admission.js";
 import type { DeliveryState } from "../delivery/types.js";
 import type { FinalizeCause } from "../delivery/finalize.js";
 
@@ -83,6 +84,19 @@ export function applyRelationshipDeliveryOutcome(
     }
     if (ref.refType === "withdrawal" && committed && input.deliveryReceiptId) {
       markRepairCommitted(db, ref.refId, input.deliveryReceiptId);
+    }
+    if (ref.refType === "commitment" || ref.refType === "ashley_self_commitment") {
+      const state = input.state === "committed" || input.state === "partially_delivered"
+        || input.state === "aborted" || input.state === "cancelled"
+        ? input.state
+        : "aborted";
+      applyCommitmentDeliveryOutcome(db, {
+        ownerId: input.ownerId,
+        commitmentId: ref.refId,
+        state,
+        cause: input.cause,
+        receiptCount: input.receiptCount,
+      });
     }
   }
 }

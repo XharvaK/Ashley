@@ -358,6 +358,7 @@ export function publishSemanticTransaction(
         licensedText: settlement.speech.finalLicensedText ?? settlement.speech.surfaceDraft ?? "",
         origin: options.origin ?? "live",
         deliveryIntent: options.deliveryIntent,
+        commitmentBindings: settlement.commitmentBindings,
       });
       outboxId = outbox.outboxId;
     }

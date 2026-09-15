@@ -7,6 +7,7 @@ import {
   type OccupantId,
   type ThoughtSettlementDraft,
 } from "../types.js";
+import { isCommitmentsEnabled } from "../../relationship/commitment-admission.js";
 
 export type SettlementValidationKind = "ok" | "malformed" | "stale" | "conflict";
 
@@ -59,6 +60,7 @@ const PUBLISHED_ONLY_FIELDS = new Set([
   "projectionKey",
   "suppressed",
   "origin",
+  "commitmentBindings",
 ]);
 
 const CANONICAL_CONVERSATIONAL_COMMITMENTS = new Set([
@@ -173,6 +175,30 @@ function validateCommitments(
     && (!isStringArray(value.conversational)
       || value.conversational.some((item) => !CANONICAL_CONVERSATIONAL_COMMITMENTS.has(item)))
   ) return failure("malformed", "CONVERSATIONAL_COMMITMENT_INVALID");
+  if (value.commitmentProposals !== undefined) {
+    if (!isCommitmentsEnabled() || !Array.isArray(value.commitmentProposals) || value.commitmentProposals.length === 0 || value.commitmentProposals.length > 8) {
+      return failure("conflict", "commitment_contract_failure");
+    }
+    const ordinals = new Set<number>();
+    for (const item of value.commitmentProposals) {
+      if (!isRecord(item)) return failure("malformed", "COMMITMENT_PROPOSAL_INVALID");
+      const allowed = ["ordinal", "action", "beneficiary", "destination", "temporal", "realizationClause", "thoughtCycle"];
+      if (Object.keys(item).some((key) => !allowed.includes(key)) || !hasAll(item, allowed)) {
+        return failure("malformed", "COMMITMENT_PROPOSAL_INVALID");
+      }
+      if (typeof item.ordinal !== "number" || !Number.isInteger(item.ordinal) || item.ordinal < 0 || item.ordinal > 7
+        || ordinals.has(item.ordinal)
+        || !isString(item.action) || item.action.trim().length === 0
+        || !(item.beneficiary === "owner" || (isString(item.beneficiary) && item.beneficiary.trim().length > 0))
+        || !isCommitmentDestination(item.destination)
+        || !isCommitmentTemporal(item.temporal)
+        || !isString(item.realizationClause) || item.realizationClause.trim().length === 0
+        || !isCommitmentThoughtCycle(item.thoughtCycle)) {
+        return failure("malformed", "COMMITMENT_PROPOSAL_INVALID");
+      }
+      ordinals.add(item.ordinal);
+    }
+  }
   if (value.stance !== undefined) {
     if (!isRecord(value.stance)) return failure("malformed", "STANCE_INVALID");
     const stance = value.stance;
@@ -186,6 +212,31 @@ function validateCommitments(
     }
   }
   return null;
+}
+
+function isCommitmentDestination(value: unknown): boolean {
+  if (!isRecord(value) || typeof value.kind !== "string") return false;
+  if (value.kind === "owner_private") return Object.keys(value).length === 1;
+  if (value.kind === "dm") return Object.keys(value).length === 2 && isString(value.principalId) && value.principalId.trim().length > 0;
+  if (value.kind === "room") return Object.keys(value).length === 2 && isString(value.roomId) && value.roomId.trim().length > 0;
+  return false;
+}
+
+function isCommitmentTemporal(value: unknown): boolean {
+  if (!isRecord(value) || typeof value.kind !== "string") return false;
+  if (value.kind === "exact") return Object.keys(value).length === 2 && Number.isInteger(value.atMs);
+  if (value.kind === "bounded") return Object.keys(value).length === 3
+    && Number.isInteger(value.windowStartMs)
+    && Number.isInteger(value.windowEndMs)
+    && Number(value.windowEndMs) >= Number(value.windowStartMs);
+  return value.kind === "open" && Object.keys(value).length === 1;
+}
+
+function isCommitmentThoughtCycle(value: unknown): boolean {
+  return isRecord(value)
+    && Object.keys(value).length === 2
+    && isString(value.cycleId) && value.cycleId.trim().length > 0
+    && isString(value.attemptId) && value.attemptId.trim().length > 0;
 }
 
 function validateOperations(

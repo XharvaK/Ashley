@@ -285,8 +285,52 @@ function validStance(value: unknown): boolean {
     && typeof stance.uncertaintyDisplay === "boolean";
 }
 
+function integer(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && Number.isFinite(value);
+}
+
+function validCommitmentDestination(value: unknown): boolean {
+  const record = semanticRecord(value);
+  if (!record || typeof record.kind !== "string") return false;
+  if (record.kind === "owner_private") return Object.keys(record).length === 1;
+  if (record.kind === "dm") return Object.keys(record).length === 2 && nonEmptyString(record.principalId);
+  if (record.kind === "room") return Object.keys(record).length === 2 && nonEmptyString(record.roomId);
+  return false;
+}
+
+function validCommitmentTemporal(value: unknown): boolean {
+  const record = semanticRecord(value);
+  if (!record || typeof record.kind !== "string") return false;
+  if (record.kind === "exact") return Object.keys(record).length === 2 && integer(record.atMs);
+  if (record.kind === "bounded") {
+    return Object.keys(record).length === 3
+      && integer(record.windowStartMs)
+      && integer(record.windowEndMs)
+      && record.windowEndMs >= record.windowStartMs;
+  }
+  return record.kind === "open" && Object.keys(record).length === 1;
+}
+
+function validCommitmentProposal(value: unknown): boolean {
+  const record = recordShape(value, [
+    "ordinal", "action", "beneficiary", "destination", "temporal", "realizationClause", "thoughtCycle",
+  ]);
+  const thoughtCycle = record ? semanticRecord(record.thoughtCycle) : null;
+  return !!record
+    && integer(record.ordinal) && record.ordinal >= 0 && record.ordinal <= 7
+    && nonEmptyString(record.action)
+    && (record.beneficiary === "owner" || nonEmptyString(record.beneficiary))
+    && validCommitmentDestination(record.destination)
+    && validCommitmentTemporal(record.temporal)
+    && nonEmptyString(record.realizationClause)
+    && !!thoughtCycle
+    && Object.keys(thoughtCycle).length === 2
+    && nonEmptyString(thoughtCycle.cycleId)
+    && nonEmptyString(thoughtCycle.attemptId);
+}
+
 function validateCommitments(parent: SemanticRecord, allowlist: ReadonlySet<string>): ValidationResult {
-  const optional = optionalObject(parent, "commitments", ["epistemic", "operational", "conversational", "stance"]);
+  const optional = optionalObject(parent, "commitments", ["epistemic", "operational", "conversational", "commitmentProposals", "stance"]);
   if (!optional) return OK;
   if ("failure" in optional) return optional.failure;
   const record = optional.record;
@@ -303,6 +347,18 @@ function validateCommitments(parent: SemanticRecord, allowlist: ReadonlySet<stri
   if (!result.ok) return result;
   result = prefixFailure(optionalArray(record, "conversational", (item) => typeof item === "string" && conversational.includes(item)), "commitments");
   if (!result.ok) return result;
+  if (own(record, "commitmentProposals")) {
+    if (!Array.isArray(record.commitmentProposals)) return failure("wrong_type", "commitments.commitmentProposals");
+    if (record.commitmentProposals.length === 0) return failure("empty_when_present", "commitments.commitmentProposals");
+    if (record.commitmentProposals.length > 8) return failure("wrong_type", "commitments.commitmentProposals");
+    const ordinals = new Set<number>();
+    for (const [index, item] of (record.commitmentProposals as unknown[]).entries()) {
+      if (!validCommitmentProposal(item)) return failure("wrong_type", `commitments.commitmentProposals[${index}]`);
+      const ordinal = (item as { ordinal: number }).ordinal;
+      if (ordinals.has(ordinal)) return failure("commitment_binding_invalid", `commitments.commitmentProposals[${index}].ordinal`);
+      ordinals.add(ordinal);
+    }
+  }
   if (own(record, "stance") && !validStance(record.stance)) return failure("wrong_type", "commitments.stance");
   return OK;
 }

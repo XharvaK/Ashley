@@ -23,6 +23,7 @@ function profileForTriggerKind(kind: CycleTriggerKind): SemanticCompositionProfi
     case "observation_or_receipt":
       return "B";
     case "idle_opportunity":
+    case "commitment_due":
     case "subscription_item":
     case "future_trigger_due":
       return "C";
@@ -41,6 +42,8 @@ function triggerKindForEventKind(kind: string): ProfileTriggerKind | null {
       return "observation_or_receipt";
     case "idle_opportunity":
       return "idle_opportunity";
+    case "commitment_due":
+      return "commitment_due";
     case "subscription_item":
       return "subscription_item";
     case "future_trigger_due":

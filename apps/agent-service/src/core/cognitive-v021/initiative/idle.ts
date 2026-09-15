@@ -38,6 +38,14 @@ import {
   persistOrVerifyObservations,
   resolveObservationBinding,
 } from "../observation/persistence.js";
+import {
+  claimCommitmentOpportunity,
+  isCommitmentsEnabled,
+  listDueCommitmentOpportunities,
+  recoverCommitmentOpportunities,
+  recheckCommitmentOpportunity,
+  type CommitmentOpportunity,
+} from "../../relationship/commitment-admission.js";
 
 const GROUNDED_STATUSES = new Set(["active", "investigating", "waiting_for_evidence"]);
 type IdleRunnerResult = Partial<KernelRunResult> & {
@@ -51,7 +59,8 @@ export type IdleThoughtContext = {
   cycle: CycleRecord;
   wakeId: string;
   event: InboxEvent | null;
-  trigger: { kind: "idle_opportunity" | "subscription_item" | "future_trigger_due"; ref: string };
+  trigger: { kind: "idle_opportunity" | "commitment_due" | "subscription_item" | "future_trigger_due"; ref: string };
+  commitmentId?: string;
   occupancy: MindOccupancy[];
   observations: Observation[];
   dueTriggers: FutureTrigger[];
@@ -86,6 +95,10 @@ export type IdleTickOptions = {
    * env read inside the schedule evaluation (default OFF, fail closed).
    */
   periodicCognitionEnabled?: boolean;
+  /** Nuclear relationship store used only for admitted commitment opportunities. */
+  commitmentDb?: DatabaseSync;
+  commitmentOwnerId?: string;
+  commitment?: CommitmentOpportunity;
   /**
    * P1 pre-resolved periodic admission for this conversation (set only by
    * tickIdleOpportunity from a bound_runnable/admit_runnable decision).
@@ -111,6 +124,9 @@ export type IdleTickReason =
   | "private_compute_concurrent"
   | "thought_runner_missing"
   | "thought_failed"
+  | "commitment_deferred"
+  | "commitment_missed"
+  | "commitment_not_found"
   | "periodic_not_due"
   | "periodic_disabled"
   | "periodic_pending_retained"
@@ -447,12 +463,13 @@ async function tickConversation(
   const nowMs = options.nowMs ?? Date.now();
   const matched = collectSubscriptionObservations(db, conversationId, items, { nowMs: options.nowMs });
   const thought = runner(options);
+  const commitment = options.commitment;
   const staleSuppressed = suppressedTriggers.some((trigger) => trigger.conversationId === conversationId);
 
   // P1 periodic delegation: a pre-resolved bound/admitted occurrence runs on
   // its frozen binding (no re-selection, no re-acquisition, no re-admission,
   // and no empty-house short-circuit — bound work outlives occupancy).
-  if (options.periodic) {
+  if (options.periodic && !commitment) {
     return tickPeriodicConversation(db, conversationId, options, options.periodic, {
       occupancy,
       thought,
@@ -468,6 +485,7 @@ async function tickConversation(
     thought &&
     !activePrivateCalls.has(conversationId) &&
     dueTriggers.length === 0 &&
+    !commitment &&
     (!staleSuppressed || occupancy.length > 0 || matched.length > 0) &&
     options.curiosityObservationProvider
   ) {
@@ -477,7 +495,7 @@ async function tickConversation(
       acquired = [];
     }
   }
-  if (occupancy.length === 0 && dueTriggers.length === 0 && matched.length === 0 && acquired.length === 0) {
+  if (!commitment && occupancy.length === 0 && dueTriggers.length === 0 && matched.length === 0 && acquired.length === 0) {
     return emptyResult(conversationId, "empty_house", [], suppressedTriggers.filter((trigger) => trigger.conversationId === conversationId));
   }
 
@@ -492,12 +510,41 @@ async function tickConversation(
   }
   if (activePrivateCalls.has(conversationId)) return emptyResult(conversationId, "private_compute_concurrent", dueTriggers, []);
 
-  const triggerKind = dueTriggers.length > 0
+  if (commitment && !thought) {
+    return {
+      ...emptyResult(conversationId, "thought_runner_missing", [], suppressedTriggers.filter((trigger) => trigger.conversationId === conversationId)),
+      eligible: true,
+      idleEligible: true,
+      semanticAbsenceClaim: "no",
+      observations: matched,
+    };
+  }
+  if (commitment && options.commitmentDb) {
+    const wake = recheckCommitmentOpportunity(options.commitmentDb, {
+      ownerId: options.commitmentOwnerId ?? options.occupantId ?? "owner",
+      commitmentId: commitment.commitmentId,
+      nowMs,
+    });
+    if (wake.kind === "defer") return emptyResult(conversationId, "commitment_deferred", dueTriggers, []);
+    if (wake.kind === "missed") return emptyResult(conversationId, "commitment_missed", dueTriggers, []);
+    if (wake.kind === "not_found") return emptyResult(conversationId, "commitment_not_found", dueTriggers, []);
+    const claimed = claimCommitmentOpportunity(options.commitmentDb, {
+      ownerId: options.commitmentOwnerId ?? options.occupantId ?? "owner",
+      commitmentId: commitment.commitmentId,
+      nowMs,
+    });
+    if (!claimed) return emptyResult(conversationId, "private_compute_concurrent", dueTriggers, []);
+  }
+  const triggerKind = commitment
+    ? "commitment_due" as const
+    : dueTriggers.length > 0
     ? "future_trigger_due" as const
     : matched.length > 0
       ? "subscription_item" as const
       : "idle_opportunity" as const;
-  const triggerRef = dueTriggers.length > 0
+  const triggerRef = commitment
+    ? commitment.commitmentId
+    : dueTriggers.length > 0
     ? dueTriggers.map((trigger) => trigger.triggerId).join(",")
     : matched.length > 0
       ? matched.map((observation) => observation.observationId).join(",")
@@ -568,6 +615,7 @@ async function tickConversation(
     wakeId,
     event,
     trigger: { kind: triggerKind, ref: triggerRef },
+    ...(commitment ? { commitmentId: commitment.commitmentId } : {}),
     occupancy,
     observations,
     dueTriggers,
@@ -586,7 +634,8 @@ async function executeAdmittedThought(
     cycle: CycleRecord;
     wakeId: string;
     event: InboxEvent | null;
-    trigger: { kind: "idle_opportunity" | "subscription_item" | "future_trigger_due"; ref: string };
+    trigger: { kind: "idle_opportunity" | "commitment_due" | "subscription_item" | "future_trigger_due"; ref: string };
+    commitmentId?: string;
     occupancy: MindOccupancy[];
     observations: Observation[];
     dueTriggers: FutureTrigger[];
@@ -596,7 +645,7 @@ async function executeAdmittedThought(
     thought: IdleThoughtRunner;
   },
 ): Promise<IdleTickResult> {
-  const { conversationId, cycle, wakeId, event, trigger, occupancy, observations, dueTriggers, suppressedTriggers, reservation, nowMs, thought } = input;
+  const { conversationId, cycle, wakeId, event, trigger, commitmentId, occupancy, observations, dueTriggers, suppressedTriggers, reservation, nowMs, thought } = input;
   activePrivateCalls.add(conversationId);
   try {
     const result = await thought({
@@ -605,6 +654,7 @@ async function executeAdmittedThought(
       wakeId,
       event,
       trigger,
+      ...(commitmentId ? { commitmentId } : {}),
       occupancy,
       observations,
       dueTriggers,
@@ -706,6 +756,19 @@ export async function tickIdleOpportunity(
     return emptyResult(options.conversationId ?? null, "occupancy_unreachable", [], []);
   }
   const items = inputItems(options);
+  let commitment: CommitmentOpportunity | undefined = options.commitment;
+  if (!commitment && options.commitmentDb && isCommitmentsEnabled()) {
+    recoverCommitmentOpportunities(options.commitmentDb, {
+      ownerId: options.commitmentOwnerId ?? options.occupantId ?? "owner",
+      nowMs,
+    });
+    commitment = listDueCommitmentOpportunities(
+      options.commitmentDb,
+      options.commitmentOwnerId ?? options.occupantId ?? "owner",
+      nowMs,
+      1,
+    )[0];
+  }
   // P1 periodic evaluation (R7 §9.2 order): T8 already fired above and never
   // touches the schedule row. The schedule never gates a trigger.
   const periodicDecision = await evaluatePeriodicPoll(db, {
@@ -730,7 +793,7 @@ export async function tickIdleOpportunity(
   });
   let delegated: IdleTickResult | null = null;
   let delegatedConversation: string | null = null;
-  if (periodicDecision.kind === "bound_runnable" || periodicDecision.kind === "admit_runnable") {
+  if (!commitment && (periodicDecision.kind === "bound_runnable" || periodicDecision.kind === "admit_runnable")) {
     // The occurrence's Thought runs through the same per-conversation path
     // on its frozen binding; the conversation is skipped in the normal loop
     // below so the obligation executes exactly once.
@@ -778,7 +841,7 @@ export async function tickIdleOpportunity(
   if (delegated) results.push(delegated);
   for (const conversationId of conversations) {
     if (conversationId === delegatedConversation) continue;
-    results.push(await tickConversation(db, conversationId, { ...options, nowMs }, due.fired, due.suppressedStale, items, due.events));
+    results.push(await tickConversation(db, conversationId, { ...options, nowMs, ...(commitment ? { commitment } : {}) }, due.fired, due.suppressedStale, items, due.events));
   }
   const thoughtExecutionProvenance = results.reduce<ThoughtExecutionProvenance | null>(
     (current, result) => mergeExecutionProvenance(current, result.thoughtExecutionProvenance),

@@ -18,6 +18,7 @@ export const AUTHORITY_CODES = [
   "STALE_GENERATION",
   "DRAFT_COMMITMENT_CONFLICT",
   "EMPTY_COMMITMENTS_WITH_DRAFT",
+  "commitment_contract_failure",
   "AUTHORITY_TRANSITION_ACTIVE",
   "AUTHORITY_PACK_INCOMPLETE",
   "AUTHORITY_VECTOR_STALE",
@@ -46,6 +47,7 @@ export function describeAuthorityCode(code: AuthorityCode): string {
     case "STALE_GENERATION": return "the cycle generation is stale";
     case "DRAFT_COMMITMENT_CONFLICT": return "the draft conflicts with its commitments";
     case "EMPTY_COMMITMENTS_WITH_DRAFT": return "draft speech has no commitments";
+    case "commitment_contract_failure": return "the commitment proposal failed Host admission";
     case "AUTHORITY_TRANSITION_ACTIVE": return "an Authority transition is active";
     case "AUTHORITY_PACK_INCOMPLETE": return "the Authority pack is incomplete";
     case "AUTHORITY_VECTOR_STALE": return "the Authority version vector is stale";

@@ -3,10 +3,12 @@ import type {
   Stance,
   ThoughtSettlementDraft,
 } from "../types.js";
+import type { CommitmentRealizationBinding } from "../social/types.js";
 
 export type ExpressionAdapterInput = {
   draft: string;
   commitments?: ThoughtSettlementDraft["commitments"];
+  commitmentBindings?: readonly CommitmentRealizationBinding[];
   stance?: Stance;
   directives?: readonly string[];
   profile: string;
@@ -40,6 +42,7 @@ function promptParts(input: ExpressionAdapterInput): { system: string; user: str
   const user = JSON.stringify({
     draft: input.draft,
     commitments: input.commitments,
+    commitmentBindings: input.commitmentBindings,
     stance: input.stance,
     directives: [...(input.directives ?? [])],
     profile: input.profile,

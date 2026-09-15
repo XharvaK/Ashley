@@ -8,7 +8,11 @@ import type {
 import type { DataClassification } from "../privacy/classification.js";
 import type { SandboxV2CapabilitySpec } from "@composer-assistant/sandbox-v2";
 import type { ThoughtSourceCurrentness } from "./thought/source-currentness.js";
-import type { SocialAudience } from "./social/types.js";
+import type {
+  CommitmentProposal,
+  CommitmentRealizationBinding,
+  SocialAudience,
+} from "./social/types.js";
 
 export type { DataClassification } from "../privacy/classification.js";
 
@@ -198,6 +202,7 @@ export type CycleTriggerKind =
   | "owner_message"
   | "external_message"
   | "idle_opportunity"
+  | "commitment_due"
   | "subscription_item"
   | "future_trigger_due"
   | "observation_or_receipt"
@@ -699,6 +704,7 @@ export type ThoughtCommitments = {
   operational?: readonly OperationalStateClaim[];
   conversational?: readonly ConversationalCommitment[];
   stance?: Stance;
+  commitmentProposals?: readonly CommitmentProposal[];
 };
 
 export type ThoughtSpeechIntent =
@@ -908,6 +914,7 @@ export type AuthorityCode =
   | "STALE_GENERATION"
   | "DRAFT_COMMITMENT_CONFLICT"
   | "EMPTY_COMMITMENTS_WITH_DRAFT"
+  | "commitment_contract_failure"
   | "AUTHORITY_TRANSITION_ACTIVE"
   | "AUTHORITY_PACK_INCOMPLETE"
   | "AUTHORITY_VECTOR_STALE"
@@ -966,6 +973,7 @@ export type ThoughtSettlementDraft = {
     operational?: OperationalStateClaim[];
     conversational?: ConversationalCommitment[];
     stance?: Stance;
+    commitmentProposals?: CommitmentProposal[];
   };
   speech: ThoughtSpeechDraft;
   workingContextDelta?: WorkingContextDelta[];
@@ -995,6 +1003,8 @@ export type PublishedCognitiveSettlement = ThoughtSettlementDraft & {
   speech: PublishedSpeech;
   settlementId: string;
   wakeId?: string;
+  /** Host admission bindings; Thought cannot author or modify this field. */
+  commitmentBindings?: CommitmentRealizationBinding[];
 };
 export type CognitiveSettlement = PublishedCognitiveSettlement;
 
@@ -1314,6 +1324,7 @@ export type DeliveryIntent = {
     | "owner_message_reactive"
     | "external_message"
     | "idle"
+    | "commitment_due"
     | "future_trigger"
     | "subscription"
     | "recovery"
@@ -1335,6 +1346,8 @@ export type DeliveryIntent = {
     licenseRefs: string[];
     materialHash?: string;
   };
+  /** Host admission bindings carried through the existing outbox JSON. */
+  commitmentBindings?: CommitmentRealizationBinding[];
 };
 export type OutboxSendStatus =
   | "pending"
@@ -1460,6 +1473,7 @@ export type KernelDeps = {
   adaptExpression?: (input: {
     draft: string;
     commitments: ThoughtSettlementDraft["commitments"];
+    commitmentBindings?: readonly CommitmentRealizationBinding[];
     stance?: Stance;
     directives?: string[];
     profile: string;

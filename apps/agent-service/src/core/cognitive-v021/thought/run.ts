@@ -60,6 +60,13 @@ import {
   getCycleFreshnessState,
 } from "../cycle/inbox.js";
 import type { AttemptInputBasis } from "../social/types.js";
+import type { CommitmentRealizationBinding } from "../social/types.js";
+import {
+  commitmentBindingsForSettlement,
+  isCommitmentsEnabled,
+  persistCommitmentProposals,
+  settlePersistedCommitmentProposals,
+} from "../../relationship/commitment-admission.js";
 import { captureOwnerDispatchCoverage, proveExactOwnerSupersession } from "../cycle/owner-coverage.js";
 import { getConversationEvidence, listConversationEvidence } from "../evidence/conversation-log.js";
 import { listInFlight } from "../effect/in-flight.js";
@@ -989,6 +996,15 @@ function materializeSemanticSettlement(
         claimedState: item.claimedState,
       })) } : {}),
       ...(commitments.conversational ? { conversational: [...commitments.conversational] } : {}),
+      ...(commitments.commitmentProposals ? { commitmentProposals: commitments.commitmentProposals.map((proposal) => ({
+        ordinal: proposal.ordinal,
+        action: proposal.action,
+        beneficiary: proposal.beneficiary,
+        destination: { ...proposal.destination },
+        temporal: { ...proposal.temporal },
+        realizationClause: proposal.realizationClause,
+        thoughtCycle: { ...proposal.thoughtCycle },
+      })) } : {}),
       ...(commitments.stance ? { stance: { ...commitments.stance } } : {}),
     };
   }
@@ -1824,6 +1840,7 @@ function triggerKind(value: unknown): CycleTriggerKind {
     case "owner_message":
     case "external_message":
     case "idle_opportunity":
+    case "commitment_due":
     case "subscription_item":
     case "future_trigger_due":
     case "observation_or_receipt":
@@ -1844,6 +1861,7 @@ function deliveryIntentFor(
   const external = triggerKind === "external_message";
   const trigger: DeliveryIntent["trigger"] =
     triggerKind === "idle_opportunity" ? "idle" :
+      triggerKind === "commitment_due" ? "commitment_due" :
       triggerKind === "subscription_item" ? "subscription" :
         triggerKind === "future_trigger_due" ? "future_trigger" :
           triggerKind === "recovery" ? "recovery" :
@@ -2112,6 +2130,7 @@ const REVISABLE_AUTHORITY_CODES = new Set<AuthorityCode>([
   "DRAFT_COMMITMENT_CONFLICT",
   "EMPTY_COMMITMENTS_WITH_DRAFT",
   "OPERATIONAL_CLAIM_EFFECTREF_UNKNOWN",
+  "commitment_contract_failure",
 ]);
 
 function revisable(codes: readonly string[]): boolean {
@@ -3078,6 +3097,57 @@ export async function runCognitiveCycle(
       );
     }
 
+    let commitmentBindings: CommitmentRealizationBinding[] = [];
+    const commitmentProposals = validation.draft.commitments?.commitmentProposals ?? [];
+    if (commitmentProposals.length > 0) {
+      // TX-B1/TX-B2 are deliberately before Expression and before the
+      // publication transaction. A rejected promise returns to Thought and
+      // cannot become speech or an outbox row.
+      const settlementRef = `cycle:${cycle.cycleId}:generation:${cycle.generation}:pass:${pass}`;
+      try {
+        persistCommitmentProposals(nuclear, settlementRef, commitmentProposals);
+        const admission = settlePersistedCommitmentProposals(nuclear, settlementRef, {
+          ownerId: typeof payload.ownerId === "string" && payload.ownerId.trim()
+            ? payload.ownerId
+            : cycle.occupantId,
+          nowMs: deps.nowMs(),
+          enabled: isCommitmentsEnabled(),
+        });
+        const rejected = admission.filter((item) => item.settled !== true || item.admitted !== true);
+        if (rejected.length > 0 || admission.length !== commitmentProposals.length) {
+          if (counters.authorityRevisions >= MAX_AUTHORITY_REVISIONS) {
+            return emitFailure(
+              "revision_exhausted",
+              undefined,
+              makeThoughtTerminal("budget_exhausted", {
+                codes: ["revision_exhausted", "commitment_contract_failure"],
+                stage: "commitment_admission",
+              }),
+            );
+          }
+          authorityObjections = uniqueAuthorityCodes(["commitment_contract_failure"]);
+          incrementThoughtAttemptCounter(sidecar, cycle.cycleId, cycle.generation, "authorityRevisions");
+          pass += 1;
+          structuralRetriesForPass = persistedMalformedRetries(sidecar, cycle.cycleId, cycle.generation, pass);
+          continue;
+        }
+        commitmentBindings = commitmentBindingsForSettlement(nuclear, settlementRef);
+        if (commitmentBindings.length !== commitmentProposals.length) {
+          authorityObjections = uniqueAuthorityCodes(["commitment_contract_failure"]);
+          incrementThoughtAttemptCounter(sidecar, cycle.cycleId, cycle.generation, "authorityRevisions");
+          pass += 1;
+          structuralRetriesForPass = persistedMalformedRetries(sidecar, cycle.cycleId, cycle.generation, pass);
+          continue;
+        }
+      } catch (error) {
+        return emitFailure(
+          error instanceof Error ? error.message : "commitment_admission_failed",
+          undefined,
+          makeThoughtTerminal("authority", { codes: ["commitment_contract_failure"], stage: "commitment_admission" }),
+        );
+      }
+    }
+
     let speechText = validation.draft.speech.surfaceDraft;
     if (
       deps.expressionEnabled &&
@@ -3089,6 +3159,7 @@ export async function runCognitiveCycle(
         speechText = await deps.adaptExpression({
           draft: speechText,
           commitments: validation.draft.commitments,
+          commitmentBindings,
           stance: validation.draft.commitments?.stance,
           directives: validation.draft.speech.presentationDirectives ?? [],
           profile: "default",
@@ -3104,6 +3175,8 @@ export async function runCognitiveCycle(
       mustSay: validation.draft.speech.mustSay ?? [],
       mustNot: validation.draft.speech.mustNot ?? [],
       commitments: validation.draft.commitments,
+      commitmentBindings,
+      commitmentRealizationClauses: commitmentProposals.map((proposal) => proposal.realizationClause),
       observations: observationsForThought,
     });
     if (!fidelity.ok) {
@@ -3143,6 +3216,7 @@ export async function runCognitiveCycle(
       ...validation.draft,
       speech: { ...validation.draft.speech, surfaceDraft: speechText },
     }, randomUUID(), finalText);
+    if (commitmentBindings.length > 0) settlement.commitmentBindings = [...commitmentBindings];
     let externalPublication: DeliveryIntent["externalPublication"] | undefined;
     if (externalCycle) {
       const blockExternalCycle = (): KernelRunResult => {

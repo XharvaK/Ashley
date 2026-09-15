@@ -17,6 +17,7 @@ export type InsertOutboxPendingInput = {
   licensedText: string;
   origin?: OutboxOrigin;
   deliveryIntent?: DeliveryIntent;
+  commitmentBindings?: import("../social/types.js").CommitmentRealizationBinding[];
   nuclearReservationId?: ReservationId | null;
 };
 
@@ -28,7 +29,7 @@ function jsonArray(value: unknown): string[] {
   try { const parsed = JSON.parse(stringValue(value, "[]")); return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : []; } catch { return []; }
 }
 function defaultIntent(input: InsertOutboxPendingInput): DeliveryIntent {
-  return input.deliveryIntent ?? {
+  const intent = input.deliveryIntent ?? {
     ownerId: "unknown",
     channel: "discord",
     threadId: input.conversationId,
@@ -37,6 +38,9 @@ function defaultIntent(input: InsertOutboxPendingInput): DeliveryIntent {
     deliveryLane: "reactive",
     purpose: "licensed_speech",
   };
+  return input.commitmentBindings && input.commitmentBindings.length > 0
+    ? { ...intent, commitmentBindings: [...input.commitmentBindings] }
+    : intent;
 }
 function mapOutbox(row: unknown): SpeechOutboxRow | null {
   if (typeof row !== "object" || row === null) return null;

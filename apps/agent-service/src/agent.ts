@@ -189,6 +189,8 @@ export class AgentManager {
       conversationId,
       occupantId: ownerId,
       authorityEpoch,
+      commitmentDb: nuclear,
+      commitmentOwnerId: ownerId,
       periodicCognitionEnabled: isPeriodicCognitionEnabled(),
       curiosityObservationProvider: async () => {
         try { await scanConfiguredSources(nuclear); } catch { /* mechanical acquisition must not block Thought */ }
@@ -219,6 +221,7 @@ export class AgentManager {
             occupantId: ownerId,
             observations: input.observations,
             dueTriggers: input.dueTriggers.map((trigger) => trigger.triggerId),
+            ...(input.commitmentId ? { commitmentId: input.commitmentId } : {}),
           },
           createdAtMs: Date.now(),
         });

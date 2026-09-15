@@ -65,3 +65,29 @@ export type HardDependencyBundle = {
 export type DepRef = { table: string; key: string; rowRevision: number | null;
   barrier: { epoch: number; revision: number }; absentAsOfMs: number };
 export type InteractionIntent = "continue" | "initiate";
+
+/** Thought-owned future action proposal. The Host assigns the durable id. */
+export type CommitmentProposal = {
+  ordinal: number;
+  action: string;
+  beneficiary: SocialPrincipalId | "owner";
+  destination: SocialAudience;
+  temporal:
+    | { kind: "exact"; atMs: number }
+    | { kind: "bounded"; windowStartMs: number; windowEndMs: number }
+    | { kind: "open" };
+  /** Exact Thought-authored realization clause carried into Expression. */
+  realizationClause: string;
+  thoughtCycle: { cycleId: string; attemptId: string };
+};
+
+export type HostCommitmentProposal = CommitmentProposal & {
+  proposalId: string;
+  sourceRef: string;
+};
+
+export type CommitmentRealizationBinding = {
+  commitmentId: string;
+  realizationClauseHash: string;
+  admissionRevision: number;
+};

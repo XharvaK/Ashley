@@ -6,6 +6,7 @@ import type {
   SpeechMode,
   Stance,
 } from "../types.js";
+import type { CommitmentRealizationBinding } from "../social/types.js";
 import {
   claimsOwnConversationalReadActivity,
   claimsOwnReadingActivity,
@@ -19,6 +20,7 @@ export type FidelityCommitments = {
   operational?: readonly OperationalStateClaim[];
   conversational?: readonly ConversationalCommitment[];
   stance?: Stance;
+  commitmentProposals?: readonly import("../social/types.js").CommitmentProposal[];
 };
 
 export type FidelityInput = {
@@ -32,6 +34,9 @@ export type FidelityInput = {
    */
   acceptableRealizations?: readonly string[];
   commitments?: FidelityCommitments;
+  /** Host admission bindings and the exact Thought clauses they protect. */
+  commitmentBindings?: readonly CommitmentRealizationBinding[];
+  commitmentRealizationClauses?: readonly string[];
   /**
    * Bounded identity view: fidelity resolves Thought-authored observation
    * refs by exact ID and checks production modality compatibility. Payloads
@@ -227,8 +232,19 @@ function maskLicensedSpans(
  * this function only rejects an incompatible surface.
  */
 export function fidelityCheck(input: FidelityInput): FidelityResult {
+  const realizationClauses = input.commitmentRealizationClauses ?? [];
+  const realizationBindings = input.commitmentBindings ?? [];
+  if (realizationBindings.length !== realizationClauses.length) {
+    return fail("DRAFT_COMMITMENT_CONFLICT", "commitment realization binding count does not match admitted clauses");
+  }
+  if (realizationBindings.some((binding) =>
+    typeof binding.commitmentId !== "string" || binding.commitmentId.trim().length === 0
+    || typeof binding.realizationClauseHash !== "string" || binding.realizationClauseHash.trim().length === 0
+    || !Number.isInteger(binding.admissionRevision))) {
+    return fail("DRAFT_COMMITMENT_CONFLICT", "commitment realization binding is incomplete");
+  }
   if (input.mode === "none") {
-    return input.draft === null || input.draft.trim() === ""
+    return realizationClauses.length === 0 && (input.draft === null || input.draft.trim() === "")
       ? { ok: true, code: "ok", draft: null }
       : fail("NONE_SURFACE_FORBIDDEN", "mode=none requires a null surfaceDraft");
   }
@@ -238,6 +254,11 @@ export function fidelityCheck(input: FidelityInput): FidelityResult {
   }
 
   const draft = input.draft;
+  for (const clause of realizationClauses) {
+    if (clause.length === 0 || countSpanOccurrences(draft, clause) !== 1) {
+      return fail("DRAFT_COMMITMENT_CONFLICT", "admitted commitment realization clause is not preserved exactly once");
+    }
+  }
   const commitments = input.commitments ?? {};
   const mustSay = input.mustSay ?? [];
   const mustNot = input.mustNot ?? [];

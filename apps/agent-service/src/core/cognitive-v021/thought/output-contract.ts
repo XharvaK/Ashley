@@ -22,6 +22,7 @@ export const THOUGHT_FORBIDDEN_OUTPUT_FIELDS = [
   "projectionKey",
   "suppressed",
   "origin",
+  "commitmentBindings",
 ] as const;
 
 const strictObject = (
@@ -78,6 +79,36 @@ const operationalClaimSchema = strictObject({
   effectRef: { type: "string", minLength: 1 },
   claimedState: { enum: ["not_attempted", "in_progress", "outcome_unknown", "failed", "succeeded"] },
 }, ["effectRef", "claimedState"]);
+const commitmentDestinationSchema = {
+  oneOf: [
+    strictObject({ kind: { const: "owner_private" } }, ["kind"]),
+    strictObject({ kind: { const: "dm" }, principalId: { type: "string", minLength: 1 } }, ["kind", "principalId"]),
+    strictObject({ kind: { const: "room" }, roomId: { type: "string", minLength: 1 } }, ["kind", "roomId"]),
+  ],
+};
+const commitmentTemporalSchema = {
+  oneOf: [
+    strictObject({ kind: { const: "exact" }, atMs: { type: "integer" } }, ["kind", "atMs"]),
+    strictObject({
+      kind: { const: "bounded" },
+      windowStartMs: { type: "integer" },
+      windowEndMs: { type: "integer" },
+    }, ["kind", "windowStartMs", "windowEndMs"]),
+    strictObject({ kind: { const: "open" } }, ["kind"]),
+  ],
+};
+const commitmentProposalSchema = strictObject({
+  ordinal: { type: "integer", minimum: 0, maximum: 7 },
+  action: { type: "string", minLength: 1 },
+  beneficiary: { oneOf: [{ const: "owner" }, { type: "string", minLength: 1 }] },
+  destination: commitmentDestinationSchema,
+  temporal: commitmentTemporalSchema,
+  realizationClause: { type: "string", minLength: 1 },
+  thoughtCycle: strictObject({
+    cycleId: { type: "string", minLength: 1 },
+    attemptId: { type: "string", minLength: 1 },
+  }, ["cycleId", "attemptId"]),
+}, ["ordinal", "action", "beneficiary", "destination", "temporal", "realizationClause", "thoughtCycle"]);
 const referentBindingSchema = strictObject({
   span: { type: "string" }, concernRef: existingRefSchema, entityRef: existingRefSchema,
   sourceTurnRefs: stringArraySchema,
@@ -139,6 +170,7 @@ const semanticOutputSettlementSchema = strictObject({
     epistemic: { type: "array", minItems: 1, items: strictObject({ dimensions: dimensionsSchema, statement: { type: "string" }, surfaceSpan: { type: "string", minLength: 1 }, observationRefs: nonEmptyStringArraySchema }, ["dimensions", "statement"]) },
     operational: { type: "array", minItems: 1, items: operationalClaimSchema },
     conversational: { type: "array", minItems: 1, items: { enum: ["answer", "ask", "acknowledge", "disagree", "hold", "silence"] } },
+    commitmentProposals: { type: "array", minItems: 1, maxItems: 8, items: commitmentProposalSchema },
     stance: strictObject({
       warmth: { enum: ["low", "medium", "high"] },
       humorAllowed: { type: "boolean" }, disagreement: { type: "boolean" }, uncertaintyDisplay: { type: "boolean" },
@@ -337,6 +369,11 @@ function applyExperimentalWireBounds(schema: SchemaRecord): void {
   for (const field of ["fromSpan", "toSpan"]) property(record(property(interpretation, "corrections").items), field).maxLength = 400;
   property(record(property(commitments, "epistemic").items), "statement").maxLength = 500;
   property(record(property(commitments, "epistemic").items), "surfaceSpan").maxLength = 500;
+  const commitmentProposals = property(commitments, "commitmentProposals");
+  property(commitmentProposals, "items").maxItems = 8;
+  const commitmentItem = record(commitmentProposals.items);
+  property(commitmentItem, "action").maxLength = 800;
+  property(commitmentItem, "realizationClause").maxLength = 1200;
   for (const branch of record(property(settlement, "workingContextDeltas").items).oneOf as unknown[]) {
     const form = record(branch);
     for (const field of ["item", "replacement"]) {
@@ -412,6 +449,7 @@ export function thoughtOutputCompatibilityInstruction(): string {
     `Current page-backed example (structure only): {"dimensions":{"source":"tool","status":"asserted","time":"current","reliability":"fallible_observation"},"statement":"The page says the fixture marker is amber.","surfaceSpan":"I read the page: the F2 qualification fixture marker is amber.","observationRefs":["example-observation-id"]}; put the same claim refs in evidenceUse.observationRefsUsed. Use only observation IDs actually supplied in the current Thought input; example-observation-id is illustrative and MUST NOT be fabricated.`,
     "speech.mode:none means Ashley intentionally chooses not to communicate in this cycle; it is not the generic no-op for a turn with no other work. The absence of a new belief, commitment, state change, concern update, operation, or other structured act does not by itself imply silence: a settlement may carry speech.mode:draft alone, and ordinary conversation is itself a valid purpose for speech. When the Owner directly addresses Ashley or makes a conversational bid — such as a greeting, question, presence check, or remark directed at Ashley — participating is ordinarily a legitimate reason to speak even when no other update is required; silence remains fully valid when silence itself is the intended act, such as deliberate withdrawal, refusal, choosing not to interrupt, or a tick with nothing Ashley wants to say.",
     "Operational commitments are distinct from conversational continuation. Every operational effectRef must refer to one of the complete Host-admitted operational effect references supplied in allowedOperationalEffectRefs for this cycle. If allowedOperationalEffectRefs is empty, omit commitments.operational.",
+    "A future promise requires commitments.commitmentProposals. Each proposal is ordered by ordinal, contains no model-generated id, preserves the exact realizationClause, and is only publishable after Host feasibility admission. Omit commitmentProposals when no future action is being proposed. The Host may reject or defer a proposal without changing its meaning.",
     `Forbidden publication/delivery fields: ${THOUGHT_FORBIDDEN_OUTPUT_FIELDS.join(", ")}.`,
     "This contract describes output shape only; branch selection is Thought-owned, while Ashley code remains authoritative for identity, authority, licensing, and publication.",
   ].join(" ");

@@ -49,6 +49,11 @@ import { promoteEligiblePending } from "./core/cognitive-v021/social/dm-activati
 import { promoteEligibleRoomPending } from "./core/cognitive-v021/social/room-activation.js";
 import { recoverInitialContactEligibility } from "./core/cognitive-v021/social/continuity-memory.js";
 import { createLiveExpressionBinding } from "./core/cognitive-v021/speech/live-expression.js";
+import {
+  isCommitmentsEnabled,
+  recoverCommitmentOpportunities,
+  recoverPendingCommitmentProposals,
+} from "./core/relationship/commitment-admission.js";
 
 export function createAgentInboxConsumerHandler(
   manager: Pick<AgentManager, "dispatchCognitiveEvent">,
@@ -160,6 +165,14 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
         );
       }
     }
+    if (isCommitmentsEnabled()) {
+      try {
+        recoverPendingCommitmentProposals(nuclear, { ownerId, nowMs: Date.now(), enabled: true });
+        recoverCommitmentOpportunities(nuclear, { ownerId, nowMs: Date.now() });
+      } catch (error) {
+        console.warn("[cognitive-v021] commitment recovery deferred", error);
+      }
+    }
     const dmPromotion = promoteEligiblePending(cognitiveSidecar, nuclear, { ownerId });
     if (dmPromotion.rejected > 0) {
       console.warn(
@@ -243,6 +256,14 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
             }
           } catch (error) {
             console.warn("[cognitive-v021] initial external contact maintenance deferred", error);
+          }
+        }
+        if (isCommitmentsEnabled()) {
+          try {
+            recoverPendingCommitmentProposals(nuclear, { ownerId, nowMs, enabled: true });
+            recoverCommitmentOpportunities(nuclear, { ownerId, nowMs });
+          } catch (error) {
+            console.warn("[cognitive-v021] commitment maintenance deferred", error);
           }
         }
         try {
