@@ -5,6 +5,7 @@ import {
   openContinuityDb,
 } from "../continuity/db.js";
 import { NUCLEAR_SUPPORTED_VERSION, openNuclearDb } from "../db.js";
+import { MIGRATION_30_CANDIDATE_CHANGESET_DDL } from "../sandbox/migration-30.js";
 
 const EPOCH_TABLE = "memory_evidence_qualification_epochs";
 const EVENT_TABLE = "memory_evidence_qualification_events";
@@ -13,6 +14,23 @@ type MigrationFixture = {
   db: DatabaseSync;
   continuity: DatabaseSync;
 };
+
+function resetCandidateTablesToV48(db: DatabaseSync): void {
+  db.exec(`
+    DROP INDEX IF EXISTS idx_candidate_changesets_origin_child;
+    DROP INDEX IF EXISTS idx_candidate_changesets_entity_uuid;
+    DROP INDEX IF EXISTS idx_candidate_changesets_owner_status;
+    DROP INDEX IF EXISTS idx_candidate_changeset_events_entity_uuid;
+    DROP INDEX IF EXISTS idx_candidate_changeset_events_changeset;
+    DROP TABLE IF EXISTS candidate_changeset_events;
+    DROP TABLE IF EXISTS candidate_changesets;
+    ${MIGRATION_30_CANDIDATE_CHANGESET_DDL}
+    ALTER TABLE candidate_changesets ADD COLUMN origin_child_task_id TEXT;
+    CREATE UNIQUE INDEX idx_candidate_changesets_origin_child
+      ON candidate_changesets (origin_child_task_id)
+      WHERE origin_child_task_id IS NOT NULL;
+  `);
+}
 
 function databaseAtVersion40(): MigrationFixture {
   const continuity = openContinuityDb(new DatabaseSync(":memory:"));
@@ -24,8 +42,9 @@ function databaseAtVersion40(): MigrationFixture {
     DROP INDEX IF EXISTS memory_evidence_one_current_epoch;
     DROP TABLE IF EXISTS ${EVENT_TABLE};
     DROP TABLE IF EXISTS ${EPOCH_TABLE};
-    PRAGMA user_version = 40;
   `);
+  resetCandidateTablesToV48(db);
+  db.exec("PRAGMA user_version = 40");
   continuity
     .prepare("UPDATE lineage_state SET nuclear_schema_version = 40 WHERE id = 1")
     .run();
@@ -40,8 +59,9 @@ function migrateToVersion41(): MigrationFixture {
   fixture.db.exec(`
     DROP INDEX IF EXISTS delivery_reservations_v021_projection_key;
     ALTER TABLE delivery_reservations DROP COLUMN cognitive_v021_projection_key;
-    PRAGMA user_version = 41;
   `);
+  resetCandidateTablesToV48(fixture.db);
+  fixture.db.exec("PRAGMA user_version = 41");
   fixture.continuity
     .prepare("UPDATE lineage_state SET nuclear_schema_version = 41 WHERE id = 1")
     .run();
@@ -118,7 +138,7 @@ describe("nuclear schema v41 C1 qualification bootstrap", () => {
     try {
       // The historical W1 qualification packet recorded v42. Current source
       // also includes W4 migrations v43 through v47; db.ts is authoritative.
-      expect(NUCLEAR_SUPPORTED_VERSION).toBe(47);
+      expect(NUCLEAR_SUPPORTED_VERSION).toBe(49);
       expect(db.prepare("PRAGMA user_version").get()).toEqual({ user_version: 41 });
       expect(db.prepare(
         "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",

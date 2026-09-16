@@ -7,6 +7,7 @@ import {
   openContinuityDb,
 } from "../continuity/db.js";
 import { currentBuildIdentity } from "../rollout/capabilities.js";
+import { MIGRATION_30_CANDIDATE_CHANGESET_DDL } from "./migration-30.js";
 import { classifyTable } from "../qualification/state-inventory.js";
 import { persistAdmittedBoundedOperation, getBoundedOperationStatus } from "./bounded-operation-store.js";
 import { MIGRATION_31_BOUNDED_OPERATION_DDL } from "./migration-31.js";
@@ -36,6 +37,14 @@ function sourceV30Fixture(): Fixture {
     DROP INDEX IF EXISTS idx_bounded_operation_tasks_owner_status;
     DROP TABLE IF EXISTS bounded_operation_steps;
     DROP TABLE IF EXISTS bounded_operation_tasks;
+    DROP INDEX IF EXISTS idx_candidate_changesets_origin_child;
+    DROP INDEX IF EXISTS idx_candidate_changesets_entity_uuid;
+    DROP INDEX IF EXISTS idx_candidate_changesets_owner_status;
+    DROP INDEX IF EXISTS idx_candidate_changeset_events_entity_uuid;
+    DROP INDEX IF EXISTS idx_candidate_changeset_events_changeset;
+    DROP TABLE IF EXISTS candidate_changeset_events;
+    DROP TABLE IF EXISTS candidate_changesets;
+    ${MIGRATION_30_CANDIDATE_CHANGESET_DDL}
     PRAGMA user_version = 30;
   `);
   continuity

@@ -46,6 +46,15 @@ function sourceV27Fixture(): Fixture {
       .get() as { lineage_id: string }
   ).lineage_id;
   nuclear.exec(`ALTER TABLE decision_log DROP COLUMN thought_validation_json;`);
+  nuclear.exec(`
+    DROP INDEX IF EXISTS idx_candidate_changesets_origin_child;
+    DROP INDEX IF EXISTS idx_candidate_changesets_entity_uuid;
+    DROP INDEX IF EXISTS idx_candidate_changesets_owner_status;
+    DROP INDEX IF EXISTS idx_candidate_changeset_events_entity_uuid;
+    DROP INDEX IF EXISTS idx_candidate_changeset_events_changeset;
+    DROP TABLE IF EXISTS candidate_changeset_events;
+    DROP TABLE IF EXISTS candidate_changesets;
+  `);
   nuclear.exec(`PRAGMA user_version = 27;`);
   continuity
     .prepare("UPDATE lineage_state SET nuclear_schema_version = 27 WHERE id = 1")

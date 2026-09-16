@@ -53,6 +53,15 @@ function sourceV24Fixture(): Fixture {
   dropColumnIfPresent(nuclear, "open_cognitive_items", "generation_order");
   nuclear.exec("DROP TABLE IF EXISTS recall_qualification_events");
   nuclear.exec("DROP TABLE IF EXISTS recall_qualification_epochs");
+  nuclear.exec(`
+    DROP INDEX IF EXISTS idx_candidate_changesets_origin_child;
+    DROP INDEX IF EXISTS idx_candidate_changesets_entity_uuid;
+    DROP INDEX IF EXISTS idx_candidate_changesets_owner_status;
+    DROP INDEX IF EXISTS idx_candidate_changeset_events_entity_uuid;
+    DROP INDEX IF EXISTS idx_candidate_changeset_events_changeset;
+    DROP TABLE IF EXISTS candidate_changeset_events;
+    DROP TABLE IF EXISTS candidate_changesets;
+  `);
   nuclear.exec("PRAGMA user_version = 24");
   continuity
     .prepare("UPDATE lineage_state SET nuclear_schema_version = 24 WHERE id = 1")

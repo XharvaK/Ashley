@@ -309,6 +309,13 @@ describe("nuclear database migrations", () => {
     ).run(decisionId, now);
     db.exec("PRAGMA user_version = 6");
     db.exec(`
+      DROP INDEX IF EXISTS idx_candidate_changesets_origin_child;
+      DROP INDEX IF EXISTS idx_candidate_changesets_entity_uuid;
+      DROP INDEX IF EXISTS idx_candidate_changesets_owner_status;
+      DROP INDEX IF EXISTS idx_candidate_changeset_events_entity_uuid;
+      DROP INDEX IF EXISTS idx_candidate_changeset_events_changeset;
+      DROP TABLE IF EXISTS candidate_changeset_events;
+      DROP TABLE IF EXISTS candidate_changesets;
       DROP INDEX IF EXISTS idx_cur_takes_provenance;
       DROP INDEX IF EXISTS idx_cur_reads_provenance;
       DROP INDEX IF EXISTS idx_episodes_provenance;
@@ -343,6 +350,15 @@ describe("nuclear database migrations", () => {
     openNuclearDb(db);
     expect(schemaVersion(db)).toBe(NUCLEAR_SUPPORTED_VERSION);
     db.exec("PRAGMA user_version = 9");
+    db.exec(`
+      DROP INDEX IF EXISTS idx_candidate_changesets_origin_child;
+      DROP INDEX IF EXISTS idx_candidate_changesets_entity_uuid;
+      DROP INDEX IF EXISTS idx_candidate_changesets_owner_status;
+      DROP INDEX IF EXISTS idx_candidate_changeset_events_entity_uuid;
+      DROP INDEX IF EXISTS idx_candidate_changeset_events_changeset;
+      DROP TABLE IF EXISTS candidate_changeset_events;
+      DROP TABLE IF EXISTS candidate_changesets;
+    `);
     db.exec("DROP TABLE IF EXISTS own_time_sessions");
     db.exec("DROP TABLE IF EXISTS recall_live_cutovers");
     db.exec(`

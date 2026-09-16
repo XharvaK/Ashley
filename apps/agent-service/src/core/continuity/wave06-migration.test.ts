@@ -24,6 +24,13 @@ function resetCognitionTablesToV22(nuclear: DatabaseSync): void {
     DROP TABLE open_cognitive_items;
     DROP TABLE open_cognitive_item_review_cursor;
     DROP TABLE open_cognitive_item_wake_cursor;
+    DROP INDEX IF EXISTS idx_candidate_changesets_origin_child;
+    DROP INDEX IF EXISTS idx_candidate_changesets_entity_uuid;
+    DROP INDEX IF EXISTS idx_candidate_changesets_owner_status;
+    DROP INDEX IF EXISTS idx_candidate_changeset_events_entity_uuid;
+    DROP INDEX IF EXISTS idx_candidate_changeset_events_changeset;
+    DROP TABLE IF EXISTS candidate_changeset_events;
+    DROP TABLE IF EXISTS candidate_changesets;
   `);
 }
 

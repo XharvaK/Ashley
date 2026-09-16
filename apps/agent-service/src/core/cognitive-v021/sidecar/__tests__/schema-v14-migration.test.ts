@@ -131,7 +131,7 @@ describe("cognitive sidecar Schema V14 migration", () => {
       expect(getConversationEvidence(db, "evidence:legacy")).toMatchObject({
         role: "owner",
         speakerKind: "owner",
-        audienceAtCapture: "owner_private",
+        audienceAtCapture: "unknown",
         speakerPrincipalId: null,
         mentionIds: [],
         attachmentRefs: [],

@@ -8,7 +8,7 @@ describe("nuclear v42 cognitive projection migration", () => {
     try {
       // This migration remains v42; the current candidate continues through
       // the source-authoritative W4 migrations v43 through v47.
-      expect(NUCLEAR_SUPPORTED_VERSION).toBe(47);
+      expect(NUCLEAR_SUPPORTED_VERSION).toBe(49);
       expect(nuclearSchemaVersion(db)).toBe(NUCLEAR_SUPPORTED_VERSION);
       expect(db.prepare("PRAGMA table_info(delivery_reservations)").all()).toEqual(expect.arrayContaining([
         expect.objectContaining({ name: "cognitive_v021_projection_key" }),

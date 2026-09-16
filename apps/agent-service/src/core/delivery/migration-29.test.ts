@@ -67,6 +67,15 @@ describe("nuclear schema v29 phase lifecycle telemetry", () => {
       nuclear.exec(
         "ALTER TABLE delivery_reservations DROP COLUMN phase_lifecycle_json",
       );
+      nuclear.exec(`
+        DROP INDEX IF EXISTS idx_candidate_changesets_origin_child;
+        DROP INDEX IF EXISTS idx_candidate_changesets_entity_uuid;
+        DROP INDEX IF EXISTS idx_candidate_changesets_owner_status;
+        DROP INDEX IF EXISTS idx_candidate_changeset_events_entity_uuid;
+        DROP INDEX IF EXISTS idx_candidate_changeset_events_changeset;
+        DROP TABLE IF EXISTS candidate_changeset_events;
+        DROP TABLE IF EXISTS candidate_changesets;
+      `);
       nuclear.exec("PRAGMA user_version = 28");
       continuity
         .prepare(

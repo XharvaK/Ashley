@@ -35,6 +35,13 @@ function sourceV26Fixture(): Fixture {
     DROP INDEX idx_sandbox_task_admissions_decision;
     DROP TABLE sandbox_task_admissions;
     ALTER TABLE decision_log DROP COLUMN thought_validation_json;
+    DROP INDEX IF EXISTS idx_candidate_changesets_origin_child;
+    DROP INDEX IF EXISTS idx_candidate_changesets_entity_uuid;
+    DROP INDEX IF EXISTS idx_candidate_changesets_owner_status;
+    DROP INDEX IF EXISTS idx_candidate_changeset_events_entity_uuid;
+    DROP INDEX IF EXISTS idx_candidate_changeset_events_changeset;
+    DROP TABLE IF EXISTS candidate_changeset_events;
+    DROP TABLE IF EXISTS candidate_changesets;
     PRAGMA user_version = 26;
   `);
   continuity

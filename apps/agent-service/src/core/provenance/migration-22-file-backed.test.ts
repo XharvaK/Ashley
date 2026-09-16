@@ -73,6 +73,13 @@ function downgradeToV21(db: DatabaseSync): void {
       ON episodes (owner_id, provenance, status, id DESC);
     CREATE UNIQUE INDEX idx_episodes_entity_uuid
       ON episodes (entity_uuid) WHERE entity_uuid IS NOT NULL;
+    DROP INDEX IF EXISTS idx_candidate_changesets_origin_child;
+    DROP INDEX IF EXISTS idx_candidate_changesets_entity_uuid;
+    DROP INDEX IF EXISTS idx_candidate_changesets_owner_status;
+    DROP INDEX IF EXISTS idx_candidate_changeset_events_entity_uuid;
+    DROP INDEX IF EXISTS idx_candidate_changeset_events_changeset;
+    DROP TABLE IF EXISTS candidate_changeset_events;
+    DROP TABLE IF EXISTS candidate_changesets;
     PRAGMA user_version = 21;
   `);
   db.exec("COMMIT");

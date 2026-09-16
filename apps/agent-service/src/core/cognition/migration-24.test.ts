@@ -43,6 +43,13 @@ describe("nuclear schema v24 cognition continuity", () => {
       ALTER TABLE attention_requests DROP COLUMN accepted_build_identity;
       ALTER TABLE open_cognitive_items DROP COLUMN generation_order;
       ALTER TABLE open_cognitive_items DROP COLUMN model_identity;
+      DROP INDEX IF EXISTS idx_candidate_changesets_origin_child;
+      DROP INDEX IF EXISTS idx_candidate_changesets_entity_uuid;
+      DROP INDEX IF EXISTS idx_candidate_changesets_owner_status;
+      DROP INDEX IF EXISTS idx_candidate_changeset_events_entity_uuid;
+      DROP INDEX IF EXISTS idx_candidate_changeset_events_changeset;
+      DROP TABLE IF EXISTS candidate_changeset_events;
+      DROP TABLE IF EXISTS candidate_changesets;
       PRAGMA user_version = 23;
     `);
     continuity

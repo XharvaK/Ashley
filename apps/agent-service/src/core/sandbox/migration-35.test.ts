@@ -10,6 +10,7 @@ import {
   getPendingNuclearMigration,
 } from "../continuity/db.js";
 import { C1_INDEXES, C1_TABLES } from "../memory/migration.js";
+import { MIGRATION_30_CANDIDATE_CHANGESET_DDL } from "./migration-30.js";
 import { ensureNuclearV34Schema } from "./migration-34.js";
 
 function columnNames(db: DatabaseSync, table: string): string[] {
@@ -24,6 +25,23 @@ function schemaVersion(db: DatabaseSync): number {
     | { user_version?: number }
     | undefined;
   return Number(row?.user_version ?? 0);
+}
+
+function resetCandidateTablesToV48(db: DatabaseSync): void {
+  db.exec(`
+    DROP INDEX IF EXISTS idx_candidate_changesets_origin_child;
+    DROP INDEX IF EXISTS idx_candidate_changesets_entity_uuid;
+    DROP INDEX IF EXISTS idx_candidate_changesets_owner_status;
+    DROP INDEX IF EXISTS idx_candidate_changeset_events_entity_uuid;
+    DROP INDEX IF EXISTS idx_candidate_changeset_events_changeset;
+    DROP TABLE IF EXISTS candidate_changeset_events;
+    DROP TABLE IF EXISTS candidate_changesets;
+    ${MIGRATION_30_CANDIDATE_CHANGESET_DDL}
+    ALTER TABLE candidate_changesets ADD COLUMN origin_child_task_id TEXT;
+    CREATE UNIQUE INDEX idx_candidate_changesets_origin_child
+      ON candidate_changesets (origin_child_task_id)
+      WHERE origin_child_task_id IS NOT NULL;
+  `);
 }
 
 function removeCurrentC1Objects(db: DatabaseSync): void {
@@ -66,6 +84,7 @@ describe("Nuclear Migration 35 (delivery lane separation and interrupted recover
     try {
       // 1. Initialize up to v34 with continuity
       openNuclearDb(db, { continuity, migrate: true });
+      resetCandidateTablesToV48(db);
       db.exec(`PRAGMA user_version = 34;`);
       continuity
         .prepare("UPDATE lineage_state SET nuclear_schema_version = 34 WHERE id = 1")
@@ -125,6 +144,7 @@ describe("Nuclear Migration 35 (delivery lane separation and interrupted recover
       // Initialize up to v34 with continuity
       openNuclearDb(nuclear, { continuity, migrate: true });
       removeCurrentC1Objects(nuclear);
+      resetCandidateTablesToV48(nuclear);
       nuclear.exec(`PRAGMA user_version = 34;`);
       continuity
         .prepare("UPDATE lineage_state SET nuclear_schema_version = 34 WHERE id = 1")

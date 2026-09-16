@@ -3,6 +3,24 @@ import { describe, expect, it } from "vitest";
 import { openNuclearDb, NUCLEAR_SUPPORTED_VERSION } from "../db.js";
 import { validateNuclearSchemaContent } from "../cognition/schema-contract.js";
 import { C3_INDEXES, C3_TABLES } from "./migration-37.js";
+import { MIGRATION_30_CANDIDATE_CHANGESET_DDL } from "../sandbox/migration-30.js";
+
+function resetCandidateTablesToV48(db: DatabaseSync): void {
+  db.exec(`
+    DROP INDEX IF EXISTS idx_candidate_changesets_origin_child;
+    DROP INDEX IF EXISTS idx_candidate_changesets_entity_uuid;
+    DROP INDEX IF EXISTS idx_candidate_changesets_owner_status;
+    DROP INDEX IF EXISTS idx_candidate_changeset_events_entity_uuid;
+    DROP INDEX IF EXISTS idx_candidate_changeset_events_changeset;
+    DROP TABLE IF EXISTS candidate_changeset_events;
+    DROP TABLE IF EXISTS candidate_changesets;
+    ${MIGRATION_30_CANDIDATE_CHANGESET_DDL}
+    ALTER TABLE candidate_changesets ADD COLUMN origin_child_task_id TEXT;
+    CREATE UNIQUE INDEX idx_candidate_changesets_origin_child
+      ON candidate_changesets (origin_child_task_id)
+      WHERE origin_child_task_id IS NOT NULL;
+  `);
+}
 
 describe("C3 additive schema", () => {
   it("creates typed influence, evidence, receipt, and seed-lineage tables", () => {
@@ -10,7 +28,7 @@ describe("C3 additive schema", () => {
     try {
       // The historical C3 packet recorded v42. Current source also includes
       // W4 migrations v43 through v47; db.ts is the live schema authority.
-      expect(NUCLEAR_SUPPORTED_VERSION).toBe(47);
+      expect(NUCLEAR_SUPPORTED_VERSION).toBe(49);
       expect(db.prepare("PRAGMA user_version").get()).toEqual({
         user_version: NUCLEAR_SUPPORTED_VERSION,
       });
@@ -45,6 +63,7 @@ describe("C3 additive schema", () => {
   it("rejects a C5 object when a v39 reader validates newer content", () => {
     const db = openNuclearDb(new DatabaseSync(":memory:"));
     try {
+      resetCandidateTablesToV48(db);
       db.exec("PRAGMA user_version = 39");
       expect(() => validateNuclearSchemaContent(db, 39, { rejectNewerContent: true }))
         .toThrow(/unexpected_v40/);

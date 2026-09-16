@@ -7,6 +7,7 @@ import {
   openContinuityDb,
 } from "../continuity/db.js";
 import { currentBuildIdentity } from "../rollout/capabilities.js";
+import { MIGRATION_30_CANDIDATE_CHANGESET_DDL } from "./migration-30.js";
 import { classifyTable } from "../qualification/state-inventory.js";
 import { persistPatchExportRecord, getPatchExportRecord } from "./patch-export-store.js";
 import { MIGRATION_32_PATCH_EXPORT_DDL } from "./migration-32.js";
@@ -36,6 +37,14 @@ function sourceV31Fixture(): Fixture {
     DROP TABLE IF EXISTS operational_job_deliveries;
     DROP TABLE IF EXISTS operational_jobs;
     DROP TABLE IF EXISTS verification_receipts;
+    DROP INDEX IF EXISTS idx_candidate_changesets_origin_child;
+    DROP INDEX IF EXISTS idx_candidate_changesets_entity_uuid;
+    DROP INDEX IF EXISTS idx_candidate_changesets_owner_status;
+    DROP INDEX IF EXISTS idx_candidate_changeset_events_entity_uuid;
+    DROP INDEX IF EXISTS idx_candidate_changeset_events_changeset;
+    DROP TABLE IF EXISTS candidate_changeset_events;
+    DROP TABLE IF EXISTS candidate_changesets;
+    ${MIGRATION_30_CANDIDATE_CHANGESET_DDL}
     PRAGMA user_version = 31;
   `);
   continuity

@@ -29,6 +29,13 @@ function pendingV24Fixture(): Fixture {
     ALTER TABLE attention_requests DROP COLUMN accepted_contract_id;
     ALTER TABLE attention_requests DROP COLUMN accepted_build_identity;
     ALTER TABLE open_cognitive_items DROP COLUMN generation_order;
+    DROP INDEX IF EXISTS idx_candidate_changesets_origin_child;
+    DROP INDEX IF EXISTS idx_candidate_changesets_entity_uuid;
+    DROP INDEX IF EXISTS idx_candidate_changesets_owner_status;
+    DROP INDEX IF EXISTS idx_candidate_changeset_events_entity_uuid;
+    DROP INDEX IF EXISTS idx_candidate_changeset_events_changeset;
+    DROP TABLE IF EXISTS candidate_changeset_events;
+    DROP TABLE IF EXISTS candidate_changesets;
     PRAGMA user_version = 24;
   `);
   continuity
@@ -63,6 +70,13 @@ function sourceV23Fixture(): Fixture {
     ALTER TABLE open_cognitive_items DROP COLUMN continuity_generation;
     ALTER TABLE open_cognitive_item_attention DROP COLUMN review_attempt_count;
     ALTER TABLE open_cognitive_item_attention DROP COLUMN review_last_disposition;
+    DROP INDEX IF EXISTS idx_candidate_changesets_origin_child;
+    DROP INDEX IF EXISTS idx_candidate_changesets_entity_uuid;
+    DROP INDEX IF EXISTS idx_candidate_changesets_owner_status;
+    DROP INDEX IF EXISTS idx_candidate_changeset_events_entity_uuid;
+    DROP INDEX IF EXISTS idx_candidate_changeset_events_changeset;
+    DROP TABLE IF EXISTS candidate_changeset_events;
+    DROP TABLE IF EXISTS candidate_changesets;
     PRAGMA user_version = 23;
   `);
   continuity

@@ -10,6 +10,7 @@ import {
   insertMessage,
   resolveActiveThread,
 } from "./threads.js";
+import { MIGRATION_30_CANDIDATE_CHANGESET_DDL } from "../sandbox/migration-30.js";
 
 const OWNER_ID = "doc";
 const PRE_C1_SCHEMA_VERSION = 34;
@@ -156,12 +157,30 @@ const REQUIRED_COLUMNS: Record<string, string[]> = {
   ],
 };
 
+function resetCandidateTablesToV48(db: DatabaseSync): void {
+  db.exec(`
+    DROP INDEX IF EXISTS idx_candidate_changesets_origin_child;
+    DROP INDEX IF EXISTS idx_candidate_changesets_entity_uuid;
+    DROP INDEX IF EXISTS idx_candidate_changesets_owner_status;
+    DROP INDEX IF EXISTS idx_candidate_changeset_events_entity_uuid;
+    DROP INDEX IF EXISTS idx_candidate_changeset_events_changeset;
+    DROP TABLE IF EXISTS candidate_changeset_events;
+    DROP TABLE IF EXISTS candidate_changesets;
+    ${MIGRATION_30_CANDIDATE_CHANGESET_DDL}
+    ALTER TABLE candidate_changesets ADD COLUMN origin_child_task_id TEXT;
+    CREATE UNIQUE INDEX idx_candidate_changesets_origin_child
+      ON candidate_changesets (origin_child_task_id)
+      WHERE origin_child_task_id IS NOT NULL;
+  `);
+}
+
 function removeC1Tables(db: DatabaseSync): void {
   db.exec("PRAGMA foreign_keys = OFF");
   for (const table of [...C1_TABLES].reverse()) {
     db.exec(`DROP TABLE IF EXISTS ${table}`);
   }
   db.exec("PRAGMA foreign_keys = ON");
+  resetCandidateTablesToV48(db);
   db.exec(`PRAGMA user_version = ${PRE_C1_SCHEMA_VERSION}`);
 }
 
