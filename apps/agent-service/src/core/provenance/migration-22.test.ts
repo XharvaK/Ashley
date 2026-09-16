@@ -105,7 +105,17 @@ describe("wave10c migration-22 (recall authority hardening)", () => {
     const continuity = openContinuityDb(new DatabaseSync(":memory:"));
     const db = openNuclearDb(new DatabaseSync(":memory:"), { continuity });
     try {
-      db.exec("PRAGMA user_version = 21; DROP TABLE recall_live_cutovers;");
+      db.exec(`
+        DROP INDEX IF EXISTS idx_candidate_changesets_origin_child;
+        DROP INDEX IF EXISTS idx_candidate_changesets_entity_uuid;
+        DROP INDEX IF EXISTS idx_candidate_changesets_owner_status;
+        DROP INDEX IF EXISTS idx_candidate_changeset_events_entity_uuid;
+        DROP INDEX IF EXISTS idx_candidate_changeset_events_changeset;
+        DROP TABLE IF EXISTS candidate_changeset_events;
+        DROP TABLE IF EXISTS candidate_changesets;
+        DROP TABLE IF EXISTS recall_live_cutovers;
+        PRAGMA user_version = 21;
+      `);
       continuity.prepare(
         "UPDATE lineage_state SET nuclear_schema_version = 21 WHERE id = 1",
       ).run();

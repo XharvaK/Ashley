@@ -10,7 +10,7 @@ describe("wave05 migration", () => {
   it("migrates through v14 relationship tables to current schema with continuity", () => {
     const continuity = openContinuityDb(new DatabaseSync(":memory:"));
     const nuclear = openNuclearDb(new DatabaseSync(":memory:"), { continuity });
-    expect(NUCLEAR_SUPPORTED_VERSION).toBe(NUCLEAR_SUPPORTED_VERSION);
+    expect(NUCLEAR_SUPPORTED_VERSION).toBe(49);
     const version = (
       nuclear.prepare("PRAGMA user_version").get() as { user_version: number }
     ).user_version;

@@ -101,7 +101,7 @@ describe("wave10a migration-18 (model routing buckets)", () => {
   it("builds v18 schema on a fresh database", () => {
     const continuity = openContinuityDb(new DatabaseSync(":memory:"));
     const db = openNuclearDb(new DatabaseSync(":memory:"), { continuity });
-    expect(NUCLEAR_SUPPORTED_VERSION).toBe(NUCLEAR_SUPPORTED_VERSION);
+    expect(NUCLEAR_SUPPORTED_VERSION).toBe(49);
     const cols = tableColumns(db, "attention_requests");
     expect(cols).toContain("provider_id");
     expect(cols).toContain("route_alias");

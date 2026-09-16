@@ -30,7 +30,7 @@ function columnsOf(db: DatabaseSync, table: string): Array<{ name?: string }> {
 describe("migration-21 provenance (Wave 2 time-shift isolation)", () => {
   it("opens the current schema with the v21 provenance columns", () => {
     const db = openMigratedDb();
-    expect(NUCLEAR_SUPPORTED_VERSION).toBe(NUCLEAR_SUPPORTED_VERSION);
+    expect(NUCLEAR_SUPPORTED_VERSION).toBe(49);
     for (const table of PROVENANCE_TABLES) {
       const names = new Set(columnsOf(db, table).map((column) => column.name));
       expect(names.has("provenance")).toBe(true);

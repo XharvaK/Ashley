@@ -61,7 +61,7 @@ describe("Nuclear Migration 35 (delivery lane separation and interrupted recover
   it("migrates a fresh DB directly to supported version 35 with delivery_lane column and index", () => {
     const db = openNuclearDb(new DatabaseSync(":memory:"));
     try {
-      expect(NUCLEAR_SUPPORTED_VERSION).toBe(NUCLEAR_SUPPORTED_VERSION);
+      expect(NUCLEAR_SUPPORTED_VERSION).toBe(49);
       expect(schemaVersion(db)).toBe(NUCLEAR_SUPPORTED_VERSION);
 
       const columns = columnNames(db, "delivery_reservations");

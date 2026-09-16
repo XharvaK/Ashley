@@ -54,7 +54,7 @@ describe("nuclear schema v30 candidate change-sets", () => {
   it("installs control-plane tables with zero rows", () => {
     const db = openNuclearDb(new DatabaseSync(":memory:"));
     try {
-      expect(NUCLEAR_SUPPORTED_VERSION).toBe(NUCLEAR_SUPPORTED_VERSION);
+      expect(NUCLEAR_SUPPORTED_VERSION).toBe(49);
       expect(schemaVersion(db)).toBe(NUCLEAR_SUPPORTED_VERSION);
       expect(
         (db.prepare(`SELECT COUNT(*) AS c FROM candidate_changesets`).get() as { c: number }).c,

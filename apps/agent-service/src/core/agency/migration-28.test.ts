@@ -135,7 +135,7 @@ describe("nuclear schema v28 thought validation telemetry", () => {
   it("openNuclearDb preserves v28 telemetry in the current schema", () => {
     const db = openNuclearDb(new DatabaseSync(":memory:"));
     try {
-      expect(NUCLEAR_SUPPORTED_VERSION).toBe(NUCLEAR_SUPPORTED_VERSION);
+      expect(NUCLEAR_SUPPORTED_VERSION).toBe(49);
       expect(schemaVersion(db)).toBe(NUCLEAR_SUPPORTED_VERSION);
       expect(columnExists(db, "decision_log", "thought_validation_json")).toBe(true);
     } finally {
