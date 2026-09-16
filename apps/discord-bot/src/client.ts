@@ -52,6 +52,10 @@ export function createClient(): Client {
     }
   });
 
+  // MessageCreate is admission-time snapshot semantics: later Discord edits or
+  // deletes do not revoke admitted work; deletion is not forget; Ashley must
+  // not claim awareness of an edit she never received. Do not subscribe to
+  // MessageUpdate or MessageDelete.
   client.on(Events.MessageCreate, (message: Message) => {
     // Self-loop exclusion is structurally first: Ashley's own messages never
     // enter either the Owner path or the external capture path.
