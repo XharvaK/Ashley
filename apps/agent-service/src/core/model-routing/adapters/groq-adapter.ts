@@ -12,6 +12,7 @@ import type {
 import type { TrustedStructuredOutputControl } from "../../model-fabric/types.js";
 import { wireEvidenceFor } from "../../model-fabric/wire-evidence.js";
 import type { TrustedReasoningControl } from "../types.js";
+import { redactSecretShapes } from "../../privacy/redact-logs.js";
 
 type GroqErrorResponse = {
   error?: { type?: string; message?: string };
@@ -225,7 +226,15 @@ export function groqReasoningEffortForModel(
   return requested;
 }
 
-export function mapGroqError(err: unknown): AppError {
+function redactKnownSecrets(text: string, secrets: readonly string[]): string {
+  let safe = redactSecretShapes(text);
+  for (const secret of secrets) {
+    if (secret.length > 0) safe = safe.split(secret).join("[redacted-credential]");
+  }
+  return safe;
+}
+
+export function mapGroqError(err: unknown, knownSecrets: readonly string[] = []): AppError {
   if (err instanceof AppError) return err;
   if (err instanceof Error && (err.name === "AbortError" || err.name === "TimeoutError")) {
     throw err;
@@ -236,7 +245,7 @@ export function mapGroqError(err: unknown): AppError {
       : typeof (err as { message?: unknown }).message === "string"
         ? (err as { message: string }).message
         : String(err);
-  const msg = rawMessage;
+  const msg = redactKnownSecrets(rawMessage, knownSecrets);
   const status = statusCode(err);
   console.error("[groq]", status ?? "no-status", msg.slice(0, 500));
 
@@ -363,7 +372,7 @@ export function createGroqAdapter(
           statusCode: res.status,
           headers: res.headers,
           message: detail,
-        });
+        }, [env.groqApiKey]);
       }
       const json = (await res.json()) as GroqResponse;
       const choice = json.choices?.[0];

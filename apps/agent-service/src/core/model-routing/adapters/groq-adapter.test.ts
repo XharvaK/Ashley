@@ -379,6 +379,24 @@ describe("groq-adapter fixtures", () => {
 });
 
 describe("mapGroqError", () => {
+  it("redacts credential-shaped and configured secrets from diagnostics", () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const configuredSecret = "groq-configured-secret";
+
+    mapGroqError(
+      {
+        statusCode: 400,
+        message: `provider rejected ${configuredSecret} and sk-1234567890abcdef`,
+      },
+      [configuredSecret],
+    );
+
+    const rendered = log.mock.calls.flat().join(" ");
+    expect(rendered).not.toContain(configuredSecret);
+    expect(rendered).not.toContain("sk-1234567890abcdef");
+    expect(rendered).toContain("[redacted-credential]");
+  });
+
   it("maps 429 to rate_limited with retry-after", () => {
     const mapped = mapGroqError({
       statusCode: 429,

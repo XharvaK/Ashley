@@ -9,6 +9,7 @@ import type {
   TokenUsage,
 } from "../types.js";
 import { wireEvidenceFor } from "../../model-fabric/wire-evidence.js";
+import { redactSecretShapes } from "../../privacy/redact-logs.js";
 
 type ZenErrorResponse = {
   error?: { message?: string; type?: string };
@@ -85,17 +86,26 @@ function parseRetryAfterSec(err: unknown): number | undefined {
   return undefined;
 }
 
-export function mapZenError(err: unknown): AppError {
+function redactKnownSecrets(text: string, secrets: readonly string[]): string {
+  let safe = redactSecretShapes(text);
+  for (const secret of secrets) {
+    if (secret.length > 0) safe = safe.split(secret).join("[redacted-credential]");
+  }
+  return safe;
+}
+
+export function mapZenError(err: unknown, knownSecrets: readonly string[] = []): AppError {
   if (err instanceof AppError) return err;
   if (err instanceof Error && (err.name === "AbortError" || err.name === "TimeoutError")) {
     throw err;
   }
-  const message =
+  const rawMessage =
     err instanceof Error
       ? err.message
       : typeof (err as { message?: unknown }).message === "string"
         ? (err as { message: string }).message
         : String(err);
+  const message = redactKnownSecrets(rawMessage, knownSecrets);
   const status = statusCode(err);
   console.error("[opencode_zen]", status ?? "no-status", message.slice(0, 300));
   if (status === 429 || /429|rate.?limit/i.test(message)) {
@@ -251,7 +261,7 @@ export function createZenAdapter(
           },
         );
       } catch (error) {
-        throw mapZenError(error);
+        throw mapZenError(error, [env.opencodeZenApiKey]);
       }
 
       if (!response.ok) {
@@ -268,7 +278,7 @@ export function createZenAdapter(
           statusCode: response.status,
           headers: response.headers,
           message: detail,
-        });
+        }, [env.opencodeZenApiKey]);
       }
 
       let json: ZenResponse;

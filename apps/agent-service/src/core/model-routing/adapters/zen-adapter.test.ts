@@ -181,6 +181,24 @@ describe("MF-M4 OpenCode Zen adapter", () => {
     );
   });
 
+  it("redacts credential-shaped and configured secrets from diagnostics", () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const configuredSecret = "zen-configured-secret";
+
+    mapZenError(
+      {
+        statusCode: 400,
+        message: `provider rejected ${configuredSecret} and Bearer eyJ1234567890abcdef`,
+      },
+      [configuredSecret],
+    );
+
+    const rendered = log.mock.calls.flat().join(" ");
+    expect(rendered).not.toContain(configuredSecret);
+    expect(rendered).not.toContain("Bearer eyJ1234567890abcdef");
+    expect(rendered).toContain("[redacted-credential]");
+  });
+
   it("maps a Zen 429 response to a retryable provider error without retrying", async () => {
     env.opencodeZenApiKey = "zen-test";
     const fetchFn = vi.fn(async () =>
