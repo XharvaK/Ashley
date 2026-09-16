@@ -261,28 +261,24 @@ async function drainPendingDeliveries(
             // Partial: at least one bubble durably receipted
             await deps.finalize(delivery.reservationId, "send_failure").catch(() => {});
           } else {
-            // Zero receipts — distinguish before vs after dispatch
-            const externalAttempted =
-              r.failureCategory === "discord_send_failed" && r.attemptedOrdinal !== null;
-            if (externalAttempted) {
-              // Generic Discord rejection after dispatch => UNKNOWN
-              await deps.finalize(delivery.reservationId, "delivery_lease").catch(() => {});
-            } else if (
+            // Zero receipts after dispatch are ambiguous. Keep the nuclear
+            // reservation sending; a later receipt or explicit cancellation
+            // must resolve it. These categories prove no dispatch occurred.
+            if (
               r.failureCategory === "aborted" ||
               r.failureCategory === "deadline_expired" ||
               r.failureCategory === "empty_plan"
             ) {
               await deps.finalize(delivery.reservationId, "send_failure").catch(() => {});
-            } else {
-              // Default to UNKNOWN for safety
-              await deps.finalize(delivery.reservationId, "delivery_lease").catch(() => {});
+            } else if (!dispatchStarted && r.attemptedOrdinal === null) {
+              // The send boundary was never crossed, so failure is proven.
+              await deps.finalize(delivery.reservationId, "send_failure").catch(() => {});
             }
           }
         } else {
-          // Generic error: if dispatch started, treat as UNKNOWN (includes receipt persistence failure after Discord Message)
-          if (dispatchStarted) {
-            await deps.finalize(delivery.reservationId, "delivery_lease").catch(() => {});
-          } else {
+          // Generic error after dispatch is UNKNOWN. Leave the reservation
+          // sending because no durable evidence proves no external dispatch.
+          if (!dispatchStarted) {
             await deps.finalize(delivery.reservationId, "send_failure").catch(() => {});
           }
         }
@@ -315,20 +311,22 @@ async function drainPendingDeliveries(
       }
 
       if (receiptFailures > 0) {
-        // At least one durable receipt failed after bounded retries -> preserve UNKNOWN
-        await deps.finalize(delivery.reservationId, "delivery_lease").catch(() => {});
+        // A durable receipt proves partial delivery. With zero durable
+        // receipts, the successful Discord send remains ambiguous.
+        if (successfulReceipts > 0) {
+          await deps.finalize(delivery.reservationId, "delivery_lease").catch(() => {});
+        }
         continue;
       }
 
       if (successfulReceipts === 0 && receipts.length > 0) {
-        // Zero durable receipts survived despite dispatch success -> UNKNOWN, not empty_draft
-        await deps.finalize(delivery.reservationId, "delivery_lease").catch(() => {});
+        // Zero durable receipts survived despite dispatch success -> UNKNOWN.
+        // Keep the nuclear reservation sending until evidence resolves it.
         continue;
       }
 
       if (successfulReceipts === 0 && receipts.length === 0 && successResult.messages.length > 0) {
-        // Messages returned but no ordinals mapped -> UNKNOWN
-        await deps.finalize(delivery.reservationId, "delivery_lease").catch(() => {});
+        // Messages returned but no ordinals mapped -> UNKNOWN.
         continue;
       }
 

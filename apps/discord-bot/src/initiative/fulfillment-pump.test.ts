@@ -395,10 +395,11 @@ test("fulfillment pump never throws or halts on single item error", async () => 
   const count = await drainPendingCognitiveDeliveries(fakeClient, fakeDeps);
 
   assert.equal(count, 1);
-  assert.equal(finalizations.length, 2);
-  // generic network error after dispatchStarted => UNKNOWN (delivery_lease), not proven send_failure
-  assert.equal(finalizations[0].cause, "delivery_lease");
-  assert.equal(finalizations[1].cause, "complete");
+  assert.equal(finalizations.length, 1);
+  // generic network error after dispatchStarted remains UNKNOWN and keeps sending;
+  // only the later delivery with durable receipts finalizes.
+  assert.equal(finalizations[0].reservationId, 302);
+  assert.equal(finalizations[0].cause, "complete");
 });
 
 test("fulfillment pump returns zero when no cognitive deliveries are pending", async () => {
@@ -550,7 +551,7 @@ test("fulfillment pump skips consequential work while the agent is not ready", a
   assert.equal(claimCalls, 0);
 });
 
-test("generic Discord rejection after dispatch is UNKNOWN (delivery_lease), not proven not_sent", async () => {
+test("generic Discord rejection after dispatch stays UNKNOWN without finalizing", async () => {
   const finalizations: Array<{ cause: string }> = [];
   const pending: PendingDelivery[] = [
     { reservationId: 501, draftText: "unknown", bubbles: [{ ordinal: 0, text: "unknown", discordMessageId: null }], statusUrl: "/delivery/501" },
@@ -567,7 +568,7 @@ test("generic Discord rejection after dispatch is UNKNOWN (delivery_lease), not 
   };
   const client = makeFakeClient({ id: "dm-unknown" });
   await drainPendingCognitiveDeliveries(client, fakeDeps);
-  assert.equal(finalizations[0].cause, "delivery_lease");
+  assert.deepEqual(finalizations, []);
 });
 
 test("proven pre-dispatch failure (aborted before send) is safe send_failure", async () => {

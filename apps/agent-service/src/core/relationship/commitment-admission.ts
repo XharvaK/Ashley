@@ -630,6 +630,36 @@ export function recoverCommitmentOpportunities(
     if (!id) continue;
     const state = String(row.commitment_state ?? "");
     const leaseExpiresAtMs = row.lease_expires_at_ms == null ? null : Number(row.lease_expires_at_ms);
+
+    const deliveryRows = nuclearDb.prepare(
+      `SELECT r.state,
+              COUNT(b.id) AS planned_count,
+              COUNT(b.discord_message_id) AS receipt_count
+         FROM delivery_reservations r
+         LEFT JOIN delivery_bubbles b ON b.reservation_id = r.id
+        WHERE r.owner_id = ?
+          AND r.commitment_id = ?
+          AND r.state IN ('reserved', 'sending', 'committed', 'partially_delivered')
+        GROUP BY r.id
+        ORDER BY r.id DESC`,
+    ).all(options.ownerId, id) as Array<RecordValue>;
+    if (deliveryRows.length > 0) {
+      const committedWithFullReceipts = deliveryRows.find((delivery) => {
+        const plannedCount = Number(delivery.planned_count ?? 0);
+        const receiptCount = Number(delivery.receipt_count ?? 0);
+        return delivery.state === "committed" && plannedCount > 0 && receiptCount >= plannedCount;
+      });
+      if (committedWithFullReceipts) {
+        applyCommitmentDeliveryOutcome(nuclearDb, {
+          ownerId: options.ownerId,
+          commitmentId: id,
+          state: "committed",
+          receiptCount: Number(committedWithFullReceipts.receipt_count ?? 0),
+          nowMs,
+        });
+      }
+      continue;
+    }
     if (state === "attempted" && leaseExpiresAtMs != null && leaseExpiresAtMs > nowMs) continue;
     if (row.fire_at_ms != null && Number(row.fire_at_ms) + grace < nowMs) {
       const result = nuclearDb.prepare(

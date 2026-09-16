@@ -68,4 +68,42 @@ describe("v0.2.1 projected delivery claim", () => {
       nuclear.close();
     }
   });
+
+  it("keeps an expired zero-receipt sending reservation ambiguous", async () => {
+    const sidecar = openTestSidecar();
+    const nuclear = openNuclearDb(new DatabaseSync(":memory:"));
+    try {
+      const outbox = insertOutboxPending(sidecar, {
+        settlementId: "settlement-ambiguous-send",
+        cycleId: "cycle-ambiguous-send",
+        generation: 1,
+        conversationId: "thread-ambiguous-send",
+        licensedText: "possibly sent",
+        deliveryIntent: {
+          ownerId: "doc",
+          channel: "discord",
+          threadId: "thread-ambiguous-send",
+          conversationId: "thread-ambiguous-send",
+          trigger: "owner_message_reactive",
+          deliveryLane: "reactive",
+          purpose: "licensed_speech",
+        },
+      });
+      await new OutboxDeliveryProjector(sidecar, nuclear, { nowMs: () => 1_000 })
+        .project(outbox.outboxId);
+      const claimed = claimPendingCognitiveDeliveries(nuclear, { ownerId: "doc", nowMs: 2_000 });
+      expect(claimed).toHaveLength(1);
+
+      expect(claimPendingCognitiveDeliveries(nuclear, {
+        ownerId: "doc",
+        nowMs: 200_000,
+      })).toEqual([]);
+      expect(nuclear.prepare(
+        "SELECT state, first_sent_at FROM delivery_reservations WHERE id = ?",
+      ).get(claimed[0]!.reservationId)).toEqual({ state: "sending", first_sent_at: null });
+    } finally {
+      sidecar.close();
+      nuclear.close();
+    }
+  });
 });

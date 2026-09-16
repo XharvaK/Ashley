@@ -55,6 +55,8 @@ function listPendingByLane(
   const laneClause = lane === "social_notify"
     ? "delivery_lane = 'social_notify'"
     : "delivery_lane IN ('reactive', 'proactive')";
+  // Zero-receipt sending rows have no proof of no dispatch. They remain
+  // sending until receipt, cancellation, or an explicit no-dispatch proof.
   const rows = db.prepare(
     `SELECT id
        FROM delivery_reservations
@@ -106,6 +108,7 @@ function reconcileExpiredSending(
         AND cognitive_v021_projection_key IS NOT NULL
         AND ${laneClause}
         AND state = 'sending'
+        AND first_sent_at IS NOT NULL
         AND delivery_lease_expires_at IS NOT NULL
         AND delivery_lease_expires_at <= ?
       ORDER BY id ASC`,

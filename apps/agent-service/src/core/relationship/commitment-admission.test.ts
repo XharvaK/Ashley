@@ -283,6 +283,74 @@ describe("commitment admission and fidelity", () => {
     }
   });
 
+  it("does not re-admit an attempted commitment while its bound delivery is incomplete", () => {
+    const db = dbFixture();
+    try {
+      const settlementId = "recovery-partial-delivery";
+      const commitmentId = `cmt:${settlementId}:0`;
+      persistCommitmentProposals(db, settlementId, [proposal({ temporal: { kind: "open" } })]);
+      settlePersistedCommitmentProposals(db, settlementId, { ownerId, nowMs, enabled: true });
+      db.prepare(
+        `UPDATE ashley_self_commitments
+            SET commitment_state = 'attempted', lease_token = 'expired-lease', lease_expires_at_ms = ?
+          WHERE owner_id = ? AND entity_uuid = ?`,
+      ).run(nowMs - 1, ownerId, commitmentId);
+
+      const reservation = db.prepare(
+        `INSERT INTO delivery_reservations
+           (owner_id, channel, thread_id, trigger, delivery_lane, state,
+            draft_text, created_at, finalized_at, commitment_id)
+         VALUES (?, 'discord', 'thread-recovery-partial', 'reactive', 'reactive',
+                 'partially_delivered', 'first\n\nsecond', ?, ?, ?)`,
+      ).run(ownerId, new Date(nowMs).toISOString(), new Date(nowMs).toISOString(), commitmentId);
+      const reservationId = Number(reservation.lastInsertRowid);
+      db.prepare(
+        `INSERT INTO delivery_bubbles
+           (reservation_id, ordinal, text, discord_message_id, sent_at)
+         VALUES (?, 0, 'first', 'discord-first', ?),
+                (?, 1, 'second', NULL, NULL)`,
+      ).run(reservationId, new Date(nowMs).toISOString(), reservationId);
+
+      expect(recoverCommitmentOpportunities(db, { ownerId, nowMs: nowMs + 60_000 })).toEqual({ requeued: 0, missed: 0 });
+      expect(db.prepare(
+        "SELECT commitment_state, status FROM ashley_self_commitments WHERE entity_uuid = ?",
+      ).get(commitmentId)).toEqual({ commitment_state: "attempted", status: "motivated" });
+    } finally {
+      db.close();
+    }
+  });
+
+  it("leaves a fully receipted committed delivery fulfilled during recovery", () => {
+    const db = dbFixture();
+    try {
+      const settlementId = "recovery-committed-delivery";
+      const commitmentId = `cmt:${settlementId}:0`;
+      persistCommitmentProposals(db, settlementId, [proposal({ temporal: { kind: "open" } })]);
+      settlePersistedCommitmentProposals(db, settlementId, { ownerId, nowMs, enabled: true });
+
+      const reservation = db.prepare(
+        `INSERT INTO delivery_reservations
+           (owner_id, channel, thread_id, trigger, delivery_lane, state,
+            draft_text, created_at, finalized_at, commitment_id)
+         VALUES (?, 'discord', 'thread-recovery-committed', 'reactive', 'reactive',
+                 'committed', 'delivered', ?, ?, ?)`,
+      ).run(ownerId, new Date(nowMs).toISOString(), new Date(nowMs).toISOString(), commitmentId);
+      const reservationId = Number(reservation.lastInsertRowid);
+      db.prepare(
+        `INSERT INTO delivery_bubbles
+           (reservation_id, ordinal, text, discord_message_id, sent_at)
+         VALUES (?, 0, 'delivered', 'discord-delivered', ?)`,
+      ).run(reservationId, new Date(nowMs).toISOString());
+
+      expect(recoverCommitmentOpportunities(db, { ownerId, nowMs: nowMs + 60_000 })).toEqual({ requeued: 0, missed: 0 });
+      expect(db.prepare(
+        "SELECT commitment_state, status FROM ashley_self_commitments WHERE entity_uuid = ?",
+      ).get(commitmentId)).toEqual({ commitment_state: "completed", status: "fulfilled" });
+    } finally {
+      db.close();
+    }
+  });
+
   it("reconciles a pending settlement to an explicit provisional orphan without admitting a promise", () => {
     const db = dbFixture();
     try {
