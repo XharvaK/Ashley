@@ -72,7 +72,7 @@ describe("project root registry", () => {
     if (!r.ok) return;
     const entry = r.registry.entries.get("project-ashley");
     expect(entry).toBeDefined();
-    expect(entry?.canonicalRoot).toBe("/home/xarvak/project-ashley");
+    expect(entry?.canonicalRoot).toBe("/home/<user>/project-ashley");
     expect(entry?.engineeringAllowed).toBe(true);
     expect(entry?.verificationAllowed).toBe(false);
     expect(entry?.authorshipAllowed).toBe(false);
