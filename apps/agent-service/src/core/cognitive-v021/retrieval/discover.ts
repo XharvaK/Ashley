@@ -189,13 +189,15 @@ function retrievalHitEligible(
 
 function evidenceAudience(row: ReturnType<typeof getConversationEvidence>): SocialAudience | null {
   if (!row) return null;
+  if (row.audienceAtCapture === "unknown" || row.audienceAtCapture == null) return null;
+  if (row.audienceAtCapture === "owner_private") return { kind: "owner_private" };
   const location = row.location;
   if (!location || typeof location !== "object" || Array.isArray(location)) return null;
   const value = location as Record<string, unknown>;
-  if (value.kind === "external_dm" && typeof value.principalId === "string") {
+  if (row.audienceAtCapture === "dm" && value.kind === "external_dm" && typeof value.principalId === "string") {
     return { kind: "dm", principalId: value.principalId };
   }
-  if (value.kind === "room") {
+  if (row.audienceAtCapture === "room" && value.kind === "room") {
     if (typeof value.roomId === "string" && value.roomId.trim()) {
       return { kind: "room", roomId: value.roomId };
     }
@@ -215,6 +217,7 @@ type CrossSurfaceRawRow = {
   data_classification?: unknown;
   secret_omitted?: unknown;
   speaker_kind?: unknown;
+  audience_at_capture?: unknown;
   source_status?: unknown;
 };
 
@@ -232,7 +235,8 @@ function recheckCrossSurfaceLogHit(
 ): ReturnType<typeof getConversationEvidence> {
   const row = sidecarDb.prepare(
     `SELECT row_id, lineage_id, version, conversation_id, text,
-            data_classification, secret_omitted, speaker_kind, source_status
+            data_classification, secret_omitted, speaker_kind,
+            audience_at_capture, source_status
        FROM conversation_evidence_log
       WHERE row_id = ?`,
   ).get(rowId) as CrossSurfaceRawRow | undefined;
@@ -243,6 +247,8 @@ function recheckCrossSurfaceLogHit(
   // Raw-column check on purpose: a mapped record is not authority for
   // cross-surface attribution, so malformed raw attribution must fail closed.
   if (row.speaker_kind !== "owner" && row.speaker_kind !== "ashley") return null;
+  if (row.audience_at_capture !== "owner_private" &&
+      row.audience_at_capture !== "dm" && row.audience_at_capture !== "room") return null;
   if (row.data_classification === "secret") return null;
   if (Number(row.secret_omitted) === 1) return null;
   if (typeof row.text !== "string" || !row.text || row.text === "[redacted]") return null;
@@ -403,7 +409,7 @@ export function retrieveCandidates(
       // candidate at all. Same-conversation rows always resolve here because
       // searchConversationFts already fails closed on orphans.
       if (!evidence) return [];
-      const scope = evidenceAudience(evidence) ?? { kind: "owner_private" } as SocialAudience;
+      const scope = evidenceAudience(evidence);
       const metadata = {
         audienceScope: scope,
         protectionStatus: scope ? "admitted" as const : null,
@@ -411,7 +417,7 @@ export function retrieveCandidates(
         dataClassification: row.dataClassification,
       };
       if (audience.kind !== "owner_private" &&
-          (!evidence || evidence.dataClassification === "secret" || evidence.secretOmitted || !sameAudience(scope, audience))) return [];
+          (evidence.dataClassification === "secret" || evidence.secretOmitted || !scope || !sameAudience(scope, audience))) return [];
       if (!retrievalHitEligible(metadata, audience, licenses) && audience.kind !== "owner_private") return [];
       return [{
         kind: "log" as const,

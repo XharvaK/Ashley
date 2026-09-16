@@ -108,6 +108,32 @@ describe("v0.2.1 conversation evidence log", () => {
     }
   });
 
+  it("preserves unknown audience provenance when the stored value is NULL", () => {
+    const db = openTestSidecar();
+    try {
+      const unknown = appendOwnerUtterance(db, {
+        conversationId: "thread-unknown-audience",
+        text: "audience was not captured",
+      });
+      const ownerPrivate = appendOwnerUtterance(db, {
+        conversationId: "thread-known-audience",
+        text: "audience was explicitly private",
+        audienceAtCapture: "owner_private",
+      });
+
+      expect(unknown.audienceAtCapture).toBe("unknown");
+      expect(ownerPrivate.audienceAtCapture).toBe("owner_private");
+      expect(db.prepare(
+        "SELECT audience_at_capture FROM conversation_evidence_log WHERE row_id = ?",
+      ).get(unknown.rowId)).toEqual({ audience_at_capture: null });
+      expect(db.prepare(
+        "SELECT audience_at_capture FROM conversation_evidence_log WHERE row_id = ?",
+      ).get(ownerPrivate.rowId)).toEqual({ audience_at_capture: "owner_private" });
+    } finally {
+      db.close();
+    }
+  });
+
   it("rejects malformed speaker attribution without Owner-defaulting or persisting it", () => {
     const db = openTestSidecar();
     try {

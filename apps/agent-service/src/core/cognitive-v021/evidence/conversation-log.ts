@@ -44,7 +44,7 @@ export type AppendEvidenceInput = {
 export type EvidenceRole = "owner" | "ashley" | "system" | "external_dialog";
 
 type EvidenceSpeakerKind = "owner" | "external_human" | "external_bot" | "ashley";
-type EvidenceAudienceAtCapture = "owner_private" | "dm" | "room";
+type EvidenceAudienceAtCapture = "owner_private" | "dm" | "room" | "unknown";
 
 type EvidenceDbRow = {
   row_id?: unknown;
@@ -142,9 +142,10 @@ function mapEvidence(row: unknown): ConversationEvidenceRecord | null {
   const speakerKind = isSpeakerKind(value.speaker_kind) ? value.speaker_kind : undefined;
   if (speakerKind === undefined && role !== "system") return null;
   if (value.speaker_kind != null && speakerKind === undefined) return null;
-  const audienceAtCapture: EvidenceAudienceAtCapture = value.audience_at_capture === "dm" || value.audience_at_capture === "room"
+  const audienceAtCapture: EvidenceAudienceAtCapture = value.audience_at_capture === "owner_private" ||
+      value.audience_at_capture === "dm" || value.audience_at_capture === "room"
     ? value.audience_at_capture
-    : "owner_private";
+    : "unknown";
   let ids: string[] = [];
   try {
     const parsed = JSON.parse(asString(value.discord_message_ids_json, "[]"));

@@ -279,6 +279,42 @@ describe("owner-private cross-surface recall bridge", () => {
     }
   });
 
+  it("rejects unknown audience provenance from cross-surface extra scope", () => {
+    const fixture = seedFixture();
+    const unknownRoom = appendOwnerUtterance(fixture.sidecar, {
+      conversationId: ROOM,
+      text: "Vesper row without captured audience provenance",
+      speakerPrincipalId: "owner-1",
+      speakerKind: "owner",
+      location: { ...ROOM_LOCATION },
+    }).rowId;
+    const derived = openDerivedStore(":memory:");
+    const nuclear = openNuclearWithRooms();
+    try {
+      derived.reconcile(fixture.sidecar);
+      const result = retrieveCandidates(
+        fixture.sidecar,
+        {
+          conversationId: DM,
+          request: {
+            triggerTerms: ["vesper"],
+            workingContextTopics: [],
+            assertionKeys: [],
+            includeLogSearch: true,
+          },
+          crossSurfaceConversationIds: [ROOM],
+        },
+        derived,
+        { authorityDb: nuclear, ownerId: "owner-1", audience: { kind: "owner_private" } },
+      );
+      expect(logRefs(result)).not.toContain(unknownRoom);
+    } finally {
+      nuclear.close();
+      derived.close();
+      fixture.sidecar.close();
+    }
+  });
+
   it("D: excludes external-participant room rows from the cross-surface scope", () => {
     const fixture = seedFixture();
     const derived = openDerivedStore(":memory:");

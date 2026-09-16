@@ -540,7 +540,7 @@ export type ConversationEvidenceRecord = {
   speakerPrincipalId?: string | null;
   speakerKind?: "owner" | "external_human" | "external_bot" | "ashley";
   location?: unknown | null;
-  audienceAtCapture?: "owner_private" | "dm" | "room";
+  audienceAtCapture?: "owner_private" | "dm" | "room" | "unknown";
   sentAtMs?: number | null;
   replyToMessageId?: string | null;
   mentionIds?: string[];

@@ -48,6 +48,12 @@ function audienceKey(audience: SocialAudience): string {
   return `room:${audience.roomId}`;
 }
 
+function isKnownAudience(value: SocialAudience | null | undefined): value is SocialAudience {
+  if (!value || typeof value !== "object") return false;
+  return value.kind === "owner_private" || value.kind === "owner_dm" ||
+    value.kind === "dm" || value.kind === "room";
+}
+
 function addText(target: { dispositions: string[]; interests: string[] }, statement: string): void {
   if (statement.toLowerCase().startsWith("interest:")) {
     target.interests.push(statement.slice("interest:".length).trim());
@@ -68,7 +74,7 @@ function addEntry(slice: MutableSelfSlice, assertion: MemoryAssertion, db: Datab
   );
   slice.supportRefs.push(...supportRefs);
 
-  const scope = assertion.audienceScope;
+  const scope = isKnownAudience(assertion.audienceScope) ? assertion.audienceScope : null;
   if (scope && (scope.kind === "owner_dm" || scope.kind === "dm" || scope.kind === "room")) {
     const key = audienceKey(scope);
     const linked = slice.linked.get(key) ?? {
@@ -91,11 +97,11 @@ function addEntry(slice: MutableSelfSlice, assertion: MemoryAssertion, db: Datab
 
   addText({ dispositions: slice.broadDispositions, interests: slice.broadInterests }, statement);
   slice.broadSupportRefs.push(...supportRefs);
-  if (!assertion.audienceScope) {
+  if (!scope) {
     slice.broadHasUnscopedEvidence = true;
   } else if (slice.broadAudienceScope === null && !slice.broadHasUnscopedEvidence && !slice.broadScopeAmbiguous) {
-    slice.broadAudienceScope = assertion.audienceScope;
-  } else if (slice.broadAudienceScope && audienceKey(slice.broadAudienceScope) !== audienceKey(assertion.audienceScope)) {
+    slice.broadAudienceScope = scope;
+  } else if (slice.broadAudienceScope && audienceKey(slice.broadAudienceScope) !== audienceKey(scope)) {
     slice.broadScopeAmbiguous = true;
     slice.broadAudienceScope = null;
   }
