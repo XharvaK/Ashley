@@ -1,4 +1,59 @@
 import { describe, expect, it, vi } from "vitest";
+
+type MockLookupCallback = (
+  error: Error | null,
+  address?: string | Array<{ address: string; family: number }>,
+  family?: number,
+) => void;
+
+type MockConnect = {
+  lookup: (
+    hostname: string,
+    options: { all?: boolean; family?: number },
+    callback: MockLookupCallback,
+  ) => void;
+  servername?: string;
+};
+
+type MockAgentRecord = {
+  connect: MockConnect;
+  closeCalls: number;
+  destroyCalls: number;
+};
+
+const undiciHarness = vi.hoisted(() => ({
+  agents: [] as MockAgentRecord[],
+  fetch: vi.fn(),
+}));
+
+vi.mock("undici", () => {
+  class MockAgent {
+    readonly connect: MockConnect;
+    private readonly record: MockAgentRecord;
+
+    constructor(options: { connect: MockConnect }) {
+      this.connect = options.connect;
+      this.record = {
+        connect: options.connect,
+        closeCalls: 0,
+        destroyCalls: 0,
+      };
+      undiciHarness.agents.push(this.record);
+    }
+
+    close(): Promise<void> {
+      this.record.closeCalls += 1;
+      return Promise.resolve();
+    }
+
+    destroy(): void {
+      this.record.destroyCalls += 1;
+    }
+  }
+
+  return { Agent: MockAgent, fetch: undiciHarness.fetch };
+});
+
 import {
   FETCH_TIMEOUT_MS,
   MAX_REDIRECTS,
@@ -36,6 +91,43 @@ describe("curiosity network boundary", () => {
       resolve: async () => [{ address: "93.184.216.34", family: 4 }],
     })).rejects.toThrow("non_public_address");
     expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it("pins the production dispatcher lookup to the validated address set", async () => {
+    undiciHarness.agents.length = 0;
+    undiciHarness.fetch.mockReset();
+    undiciHarness.fetch.mockImplementation(async (_input: unknown, init: unknown) => {
+      const dispatcher = (init as { dispatcher: { connect: MockConnect } }).dispatcher;
+      const connect = dispatcher.connect;
+      const lookupResult = await new Promise<{ address: string; family: number }>((resolve, reject) => {
+        connect.lookup("public.test", { all: false }, (error, address, family) => {
+          if (error || typeof address !== "string" || family === undefined) {
+            reject(error ?? new Error("lookup_not_pinned"));
+            return;
+          }
+          resolve({ address, family });
+        });
+      });
+      expect(lookupResult).toEqual({ address: "93.184.216.34", family: 4 });
+      expect(lookupResult.address).not.toBe("public.test");
+      return new Response("pinned", { status: 200 });
+    });
+
+    const resolve = vi.fn(async () => [
+      { address: "93.184.216.34", family: 4 },
+    ]);
+    const result = await fetchValidatedResource("https://public.test/article", {
+      accept: "text/html",
+      resolve,
+    });
+
+    expect(new TextDecoder().decode(result.body)).toBe("pinned");
+    expect(resolve).toHaveBeenCalledOnce();
+    expect(undiciHarness.fetch).toHaveBeenCalledOnce();
+    expect(undiciHarness.agents).toHaveLength(1);
+    expect(undiciHarness.agents[0]!.connect.servername).toBe("public.test");
+    expect(undiciHarness.agents[0]!.closeCalls).toBe(1);
+    expect(undiciHarness.agents[0]!.destroyCalls).toBe(0);
   });
 
   it("cancels redirect bodies before following the next location", async () => {

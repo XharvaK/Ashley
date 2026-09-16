@@ -1,5 +1,6 @@
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
+import { Agent, fetch as undiciFetch } from "undici";
 import { assertOutboundAllowed } from "../continuity/process-guards.js";
 
 export const MAX_REDIRECTS = 5;
@@ -19,6 +20,11 @@ export type ResolveHost = (
   hostname: string,
 ) => Promise<Array<{ address: string; family: number }>>;
 export type FetchLike = typeof fetch;
+
+type ValidatedPublicEndpoint = {
+  url: URL;
+  addresses: Array<{ address: string; family: number }>;
+};
 
 export type LimitedFetchResult = {
   finalUrl: string;
@@ -143,10 +149,10 @@ const defaultResolve: ResolveHost = async (hostname) => {
   return records.map((record) => ({ address: record.address, family: record.family }));
 };
 
-export async function validatePublicUrl(
+async function resolvePublicEndpoint(
   input: string,
   resolve: ResolveHost = defaultResolve,
-): Promise<URL> {
+): Promise<ValidatedPublicEndpoint> {
   let url: URL;
   try {
     url = new URL(input);
@@ -164,7 +170,44 @@ export async function validatePublicUrl(
   if (addresses.length === 0 || addresses.some((record) => !isPublicAddress(record.address))) {
     throw new Error("non_public_address");
   }
-  return url;
+  return { url, addresses };
+}
+
+export async function validatePublicUrl(
+  input: string,
+  resolve: ResolveHost = defaultResolve,
+): Promise<URL> {
+  return (await resolvePublicEndpoint(input, resolve)).url;
+}
+
+function createPinnedAgent(endpoint: ValidatedPublicEndpoint): Agent {
+  if (endpoint.addresses.some((record) => !isPublicAddress(record.address))) {
+    throw new Error("non_public_address");
+  }
+  const hostname = endpoint.url.hostname.replace(/^\[|\]$/g, "");
+  const tlsServername = isIP(hostname) === 0 ? hostname : undefined;
+  return new Agent({
+    connect: {
+      lookup: (_lookupHostname, options, callback) => {
+        if (options.all) {
+          callback(null, endpoint.addresses);
+          return;
+        }
+        const address = endpoint.addresses[0];
+        if (!address) {
+          callback(new Error("non_public_address"), []);
+          return;
+        }
+        callback(null, address.address, address.family);
+      },
+      ...(tlsServername ? { servername: tlsServername } : {}),
+    },
+  });
+}
+
+async function closePinnedAgent(agent: Agent, destroyFirst: boolean): Promise<void> {
+  if (destroyFirst) agent.destroy();
+  await agent.close();
 }
 
 async function boundedBody(
@@ -240,7 +283,7 @@ export async function fetchWithLimits(
     truncateAtLimit?: boolean;
   },
 ): Promise<LimitedFetchResult> {
-  const fetcher = options.fetcher ?? fetch;
+  const fetcher = options.fetcher;
   // Explicit fetch/resolver injection is the deterministic fixture boundary
   // used by offline qualification tests. Outside that qualification mode the
   // process-level outbound gate remains mandatory; the phase0 transport guard
@@ -265,42 +308,61 @@ export async function fetchWithLimits(
     : MAX_REDIRECTS;
   try {
     for (let redirects = 0; redirects <= maxRedirects; redirects++) {
-      const url = await withAbort(
-        validatePublicUrl(current, options.resolve ?? defaultResolve),
+      const endpoint = await withAbort(
+        resolvePublicEndpoint(current, options.resolve ?? defaultResolve),
         controller.signal,
       );
-      const response = await withAbort(
-        Promise.resolve().then(() => fetcher(url, {
-          redirect: "manual",
-          headers: {
-            accept: options.accept,
-            "user-agent": options.userAgent ?? "AshleyCuriosity/1.0",
-          },
-          signal: controller.signal,
-        })),
-        controller.signal,
-      );
-      if ([301, 302, 303, 307, 308].includes(response.status)) {
-        if (redirects === maxRedirects) throw new Error("too_many_redirects");
-        const location = response.headers.get("location");
-        if (!location) throw new Error("redirect_without_location");
-        await response.body?.cancel();
-        current = new URL(location, url).toString();
-        continue;
+      let agent: Agent | undefined;
+      let hopFailed = false;
+      try {
+        const response = await withAbort(
+          Promise.resolve().then(() => {
+            const request = {
+              redirect: "manual" as const,
+              headers: {
+                accept: options.accept,
+                "user-agent": options.userAgent ?? "AshleyCuriosity/1.0",
+              },
+              signal: controller.signal,
+            };
+            if (fetcher) return fetcher(endpoint.url, request);
+            agent = createPinnedAgent(endpoint);
+            return undiciFetch(endpoint.url, {
+              ...request,
+              dispatcher: agent,
+            }) as unknown as Promise<Response>;
+          }),
+          controller.signal,
+        );
+        if ([301, 302, 303, 307, 308].includes(response.status)) {
+          if (redirects === maxRedirects) throw new Error("too_many_redirects");
+          const location = response.headers.get("location");
+          if (!location) throw new Error("redirect_without_location");
+          await response.body?.cancel();
+          current = new URL(location, endpoint.url).toString();
+          continue;
+        }
+        if (!response.ok) throw new Error(`http_${response.status}`);
+        const bounded = await withAbort(
+          boundedBody(response, options.maxBytes, options.truncateAtLimit ?? false),
+          controller.signal,
+        );
+        return {
+          finalUrl: endpoint.url.toString(),
+          contentType: response.headers.get("content-type")?.toLowerCase() ?? "",
+          body: bounded.body,
+          redirectDepth: redirects,
+          subrequests: redirects + 1,
+          truncated: bounded.truncated,
+        };
+      } catch (error) {
+        hopFailed = true;
+        throw error;
+      } finally {
+        if (agent) {
+          await closePinnedAgent(agent, hopFailed || controller.signal.aborted);
+        }
       }
-      if (!response.ok) throw new Error(`http_${response.status}`);
-      const bounded = await withAbort(
-        boundedBody(response, options.maxBytes, options.truncateAtLimit ?? false),
-        controller.signal,
-      );
-      return {
-        finalUrl: url.toString(),
-        contentType: response.headers.get("content-type")?.toLowerCase() ?? "",
-        body: bounded.body,
-        redirectDepth: redirects,
-        subrequests: redirects + 1,
-        truncated: bounded.truncated,
-      };
     }
     throw new Error("too_many_redirects");
   } catch (error) {
