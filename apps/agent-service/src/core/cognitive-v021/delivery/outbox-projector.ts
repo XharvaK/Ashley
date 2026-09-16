@@ -10,6 +10,7 @@ import {
 } from "../evidence/conversation-log.js";
 import {
   getSpeechOutbox,
+  registerCognitiveDeliveryDatabases,
   updateOutboxStatus,
 } from "../speech/outbox.js";
 import {
@@ -23,6 +24,7 @@ import {
   updateSystemNoticeStatus,
 } from "../speech/infrastructure-notice.js";
 import { recordDeliveryC3TerminalFailure } from "../failure/c3-recorder.js";
+import { cancelDeliveryReservation } from "../../delivery/abort-registry.js";
 import type {
   DeliveryIntent,
   OutboxDeliveryProjector as OutboxDeliveryProjectorContract,
@@ -481,7 +483,24 @@ export class OutboxDeliveryProjector implements OutboxDeliveryProjectorContract 
     private readonly sidecar: DatabaseSync,
     private readonly nuclear: DatabaseSync,
     private readonly options: OutboxDeliveryProjectorOptions = {},
-  ) {}
+  ) {
+    registerCognitiveDeliveryDatabases(sidecar, nuclear);
+  }
+
+  private cancelSuppressedReservation(row: SpeechOutboxRow | SystemNoticeOutbox): void {
+    if (row.sendStatus !== "suppressed" && row.sendStatus !== "suppressed_shadow") return;
+    const bound = row.nuclearReservationId == null
+      ? projectionReservation(this.nuclear, row.projectionKey)
+      : undefined;
+    const reservationId = row.nuclearReservationId ?? (bound ? number(bound.id) : null);
+    if (reservationId == null || reservationId <= 0) return;
+    const reservation = getDeliveryReservation(this.nuclear, reservationId);
+    if (!reservation || !["drafted", "reserved", "sending"].includes(reservation.state)) return;
+    cancelDeliveryReservation(this.nuclear, {
+      reservationId,
+      ownerId: reservation.ownerId,
+    });
+  }
 
   private reserve(row: SpeechOutboxRow | SystemNoticeOutbox, textValue: string): number {
     const key = row.projectionKey;
@@ -558,6 +577,7 @@ export class OutboxDeliveryProjector implements OutboxDeliveryProjectorContract 
   }
 
   private async projectRow(row: SpeechOutboxRow | SystemNoticeOutbox): Promise<void> {
+    this.cancelSuppressedReservation(row);
     const decision = shouldProject(row, this.options);
     if (!decision.ok) {
       if (decision.status === "suppressed") {

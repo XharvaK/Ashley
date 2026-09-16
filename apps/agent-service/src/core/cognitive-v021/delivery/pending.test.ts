@@ -69,6 +69,44 @@ describe("v0.2.1 projected delivery claim", () => {
     }
   });
 
+  it.each(["suppressed", "suppressed_shadow"] as const)(
+    "refuses a %s sidecar outbox even while its nuclear reservation is reserved",
+    async (status) => {
+      const sidecar = openTestSidecar();
+      const nuclear = openNuclearDb(new DatabaseSync(":memory:"));
+      try {
+        const outbox = insertOutboxPending(sidecar, {
+          settlementId: `settlement-${status}`,
+          cycleId: `cycle-${status}`,
+          generation: 1,
+          conversationId: `thread-${status}`,
+          licensedText: `suppressed ${status}`,
+          deliveryIntent: {
+            ownerId: "doc",
+            channel: "discord",
+            threadId: `thread-${status}`,
+            conversationId: `thread-${status}`,
+            trigger: "owner_message_reactive",
+            deliveryLane: "reactive",
+            purpose: "licensed_speech",
+          },
+        });
+        await new OutboxDeliveryProjector(sidecar, nuclear, { nowMs: () => 1_000 })
+          .project(outbox.outboxId);
+        sidecar.prepare(
+          "UPDATE speech_outbox SET send_status = ?, suppressed = 1 WHERE outbox_id = ?",
+        ).run(status, outbox.outboxId);
+
+        expect(listPendingCognitiveDeliveries(nuclear, "doc")).toEqual([]);
+        expect(claimPendingCognitiveDeliveries(nuclear, { ownerId: "doc" })).toEqual([]);
+        expect(nuclear.prepare("SELECT state FROM delivery_reservations").get()).toEqual({ state: "reserved" });
+      } finally {
+        sidecar.close();
+        nuclear.close();
+      }
+    },
+  );
+
   it("keeps an expired zero-receipt sending reservation ambiguous", async () => {
     const sidecar = openTestSidecar();
     const nuclear = openNuclearDb(new DatabaseSync(":memory:"));

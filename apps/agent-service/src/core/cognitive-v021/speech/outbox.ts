@@ -8,6 +8,26 @@ import type {
   ReservationId,
   SpeechOutboxRow,
 } from "../types.js";
+import { cancelDeliveryReservation } from "../../delivery/abort-registry.js";
+import { getDeliveryReservation } from "../../delivery/store.js";
+
+const nuclearBySidecar = new WeakMap<DatabaseSync, DatabaseSync>();
+const sidecarByNuclear = new WeakMap<DatabaseSync, DatabaseSync>();
+
+/** Bind the current sidecar and nuclear delivery owners for this process. */
+export function registerCognitiveDeliveryDatabases(
+  sidecar: DatabaseSync,
+  nuclear: DatabaseSync,
+): void {
+  nuclearBySidecar.set(sidecar, nuclear);
+  sidecarByNuclear.set(nuclear, sidecar);
+}
+
+export function getRegisteredCognitiveSidecar(
+  nuclear: DatabaseSync,
+): DatabaseSync | undefined {
+  return sidecarByNuclear.get(nuclear);
+}
 
 export type InsertOutboxPendingInput = {
   settlementId: string;
@@ -179,9 +199,33 @@ export function suppressUndeliveredOutbox(
   if (criteria.conversationId) { conditions.push("conversation_id = ?"); args.push(criteria.conversationId); }
   if (criteria.generation != null) { conditions.push("generation = ?"); args.push(criteria.generation); }
   if (criteria.outboxId != null) { conditions.push("outbox_id = ?"); args.push(criteria.outboxId); }
+  const rows = db.prepare(
+    `SELECT outbox_id, projection_key, nuclear_reservation_id
+       FROM speech_outbox
+      WHERE ${conditions.join(" AND ")}`,
+  ).all(...args) as Array<{ outbox_id?: unknown; projection_key?: unknown; nuclear_reservation_id?: unknown }>;
   const result = db.prepare(
     `UPDATE speech_outbox SET send_status = 'suppressed', suppressed = 1,
        nuclear_finalization_reason = ? WHERE ${conditions.join(" AND ")}`,
   ).run(criteria.reason ?? "preempted_by_new_generation", ...args);
+  const nuclear = nuclearBySidecar.get(db);
+  if (nuclear && numberValue(result.changes) > 0) {
+    for (const row of rows) {
+      let reservationId = numberValue(row.nuclear_reservation_id, 0);
+      if (reservationId <= 0 && typeof row.projection_key === "string") {
+        const projected = nuclear.prepare(
+          "SELECT id FROM delivery_reservations WHERE cognitive_v021_projection_key = ? LIMIT 1",
+        ).get(row.projection_key) as { id?: unknown } | undefined;
+        reservationId = numberValue(projected?.id, 0);
+      }
+      if (reservationId <= 0) continue;
+      const reservation = getDeliveryReservation(nuclear, reservationId);
+      if (!reservation || !["drafted", "reserved", "sending"].includes(reservation.state)) continue;
+      cancelDeliveryReservation(nuclear, {
+        reservationId,
+        ownerId: reservation.ownerId,
+      });
+    }
+  }
   return numberValue(result.changes);
 }

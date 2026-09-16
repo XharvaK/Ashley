@@ -3,10 +3,12 @@ import { describe, expect, it } from "vitest";
 import { openNuclearDb, nuclearSchemaVersion, NUCLEAR_SUPPORTED_VERSION } from "../../db.js";
 import { admitTestCycle, openTestSidecar } from "../test-support.js";
 import { insertOutboxPending } from "../speech/outbox.js";
+import { suppressUndeliveredOutbox } from "../speech/outbox.js";
 import { emitInfrastructureNotice, THOUGHT_UNAVAILABLE_NOTICE, updateSystemNoticeStatus } from "../speech/infrastructure-notice.js";
 import { OutboxDeliveryProjector } from "./outbox-projector.js";
 import { recheckOwnerRoomPublicationReservation } from "../settlement/publish.js";
 import { upsertTrustedRoom } from "../../relationship/social-authority.js";
+import { getDeliveryAbortSignal, registerDeliveryAbort } from "../../delivery/abort-registry.js";
 
 type PlannedBubbleFixture = {
   discordMessageId?: string | null;
@@ -271,6 +273,54 @@ describe("v0.2.1 cross-database outbox projection", () => {
       await projector.project(row.outboxId);
       expect(sidecar.prepare("SELECT send_status, nuclear_finalization_reason FROM speech_outbox WHERE outbox_id = ?").get(row.outboxId)).toMatchObject({ send_status: "suppressed", nuclear_finalization_reason: "superseded_generation" });
       expect(nuclear.prepare("SELECT COUNT(*) AS count FROM delivery_reservations").get()).toMatchObject({ count: 0 });
+    } finally {
+      sidecar.close();
+      nuclear.close();
+    }
+  });
+
+  it("cancels unsent nuclear reservations but preserves started-send uncertainty", async () => {
+    const sidecar = openTestSidecar();
+    const nuclear = openNuclearDb(new DatabaseSync(":memory:"));
+    try {
+      const reserved = insertOutboxPending(sidecar, {
+        settlementId: "settlement-preempt-reserved",
+        cycleId: "cycle-preempt-reserved",
+        generation: 1,
+        conversationId: "thread-preempt-reserved",
+        licensedText: "reserved before dispatch",
+      });
+      const projector = new OutboxDeliveryProjector(sidecar, nuclear, { nowMs: () => 1_000 });
+      await projector.project(reserved.outboxId);
+      suppressUndeliveredOutbox(sidecar, { outboxId: reserved.outboxId });
+      const reservedId = Number((sidecar.prepare(
+        "SELECT nuclear_reservation_id FROM speech_outbox WHERE outbox_id = ?",
+      ).get(reserved.outboxId) as { nuclear_reservation_id: number }).nuclear_reservation_id);
+      expect(nuclear.prepare("SELECT state, finalization_reason FROM delivery_reservations WHERE id = ?").get(reservedId)).toEqual({
+        state: "cancelled",
+        finalization_reason: "cancelled",
+      });
+
+      const started = insertOutboxPending(sidecar, {
+        settlementId: "settlement-preempt-sending",
+        cycleId: "cycle-preempt-sending",
+        generation: 1,
+        conversationId: "thread-preempt-sending",
+        licensedText: "already handed to transport",
+      });
+      await projector.project(started.outboxId);
+      const startedId = Number((sidecar.prepare(
+        "SELECT nuclear_reservation_id FROM speech_outbox WHERE outbox_id = ?",
+      ).get(started.outboxId) as { nuclear_reservation_id: number }).nuclear_reservation_id);
+      nuclear.prepare("UPDATE delivery_reservations SET state = 'sending' WHERE id = ?").run(startedId);
+      const signal = registerDeliveryAbort(startedId, "unknown");
+      suppressUndeliveredOutbox(sidecar, { outboxId: started.outboxId });
+      expect(signal.aborted).toBe(true);
+      expect(getDeliveryAbortSignal(startedId)).toBeNull();
+      expect(nuclear.prepare("SELECT state, finalization_reason FROM delivery_reservations WHERE id = ?").get(startedId)).toEqual({
+        state: "sending",
+        finalization_reason: null,
+      });
     } finally {
       sidecar.close();
       nuclear.close();

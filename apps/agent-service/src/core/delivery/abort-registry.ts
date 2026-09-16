@@ -1,6 +1,7 @@
 import type { DeliveryFinalizationReason } from "./types.js";
 import { finalizeDelivery, type FinalizeCause } from "./finalize.js";
 import type { DatabaseSync } from "node:sqlite";
+import { getDeliveryReservation } from "./store.js";
 
 type AbortEntry = {
   controller: AbortController;
@@ -58,7 +59,13 @@ export function cancelDeliveryReservation(
   if (entry && entry.ownerId !== input.ownerId) {
     return { ok: false };
   }
+  const reservation = getDeliveryReservation(db, input.reservationId);
+  if (!reservation || reservation.ownerId !== input.ownerId) return { ok: false };
   abortDelivery(input.reservationId);
+  if (reservation.state === "sending") {
+    clearDeliveryAbort(input.reservationId);
+    return { ok: false, state: reservation.state };
+  }
   try {
     const result = finalizeDelivery(db, {
       reservationId: input.reservationId,

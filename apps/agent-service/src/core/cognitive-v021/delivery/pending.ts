@@ -4,6 +4,7 @@ import {
   getDeliveryReservation,
   listDeliveryBubbles,
 } from "../../delivery/store.js";
+import { getRegisteredCognitiveSidecar } from "../speech/outbox.js";
 
 export type PendingCognitiveDelivery = {
   reservationId: number;
@@ -47,6 +48,37 @@ function deliveryForState(
   };
 }
 
+function speechOutboxStatus(
+  sidecar: DatabaseSync,
+  row: unknown,
+): string | null {
+  if (typeof row !== "object" || row === null) return null;
+  const value = row as { speech_outbox_id?: unknown; cognitive_v021_projection_key?: unknown };
+  const outboxId = Number(value.speech_outbox_id);
+  if (Number.isSafeInteger(outboxId) && outboxId > 0) {
+    const byId = sidecar.prepare(
+      "SELECT send_status FROM speech_outbox WHERE outbox_id = ? LIMIT 1",
+    ).get(outboxId) as { send_status?: unknown } | undefined;
+    if (byId) return typeof byId.send_status === "string" ? byId.send_status : null;
+  }
+  const key = typeof value.cognitive_v021_projection_key === "string"
+    ? value.cognitive_v021_projection_key
+    : "";
+  if (!key.startsWith("speech:")) return null;
+  const byKey = sidecar.prepare(
+    "SELECT send_status FROM speech_outbox WHERE projection_key = ? LIMIT 1",
+  ).get(key) as { send_status?: unknown } | undefined;
+  return byKey && typeof byKey.send_status === "string" ? byKey.send_status : null;
+}
+
+function speechClaimable(
+  sidecar: DatabaseSync,
+  row: unknown,
+): boolean {
+  const status = speechOutboxStatus(sidecar, row);
+  return status !== null && status !== "suppressed" && status !== "suppressed_shadow";
+}
+
 function listPendingByLane(
   db: DatabaseSync,
   ownerId: string,
@@ -57,8 +89,12 @@ function listPendingByLane(
     : "delivery_lane IN ('reactive', 'proactive')";
   // Zero-receipt sending rows have no proof of no dispatch. They remain
   // sending until receipt, cancellation, or an explicit no-dispatch proof.
+  const sidecar = lane === "cognitive_v021" ? getRegisteredCognitiveSidecar(db) : undefined;
+  if (lane === "cognitive_v021" && !sidecar) return [];
   const rows = db.prepare(
     `SELECT id
+          , cognitive_v021_projection_key
+          , speech_outbox_id
        FROM delivery_reservations
       WHERE owner_id = ?
         AND channel = 'discord'
@@ -69,7 +105,7 @@ function listPendingByLane(
   ).all(ownerId);
   return rows.flatMap((row) => {
     const id = reservationId(row);
-    if (id === null) return [];
+    if (id === null || (sidecar && !speechClaimable(sidecar, row))) return [];
     const pending = deliveryForState(db, id, "reserved");
     return pending ? [pending] : [];
   });
@@ -148,11 +184,13 @@ function claimPendingByLane(
   const laneClause = lane === "social_notify"
     ? "delivery_lane = 'social_notify'"
     : "delivery_lane IN ('reactive', 'proactive')";
+  const sidecar = lane === "cognitive_v021" ? getRegisteredCognitiveSidecar(db) : undefined;
+  if (lane === "cognitive_v021" && !sidecar) return [];
 
   db.exec("BEGIN IMMEDIATE");
   try {
     const row = db.prepare(
-      `SELECT id
+      `SELECT id, cognitive_v021_projection_key, speech_outbox_id
          FROM delivery_reservations
         WHERE owner_id = ?
           AND channel = 'discord'
@@ -164,7 +202,7 @@ function claimPendingByLane(
     ).get(input.ownerId);
     const id = reservationId(row);
     const claimed: PendingCognitiveDelivery[] = [];
-    if (id !== null) {
+    if (id !== null && (sidecar === undefined || speechClaimable(sidecar, row))) {
       const updated = db.prepare(
         `UPDATE delivery_reservations
             SET state = 'sending', delivery_lease_expires_at = ?

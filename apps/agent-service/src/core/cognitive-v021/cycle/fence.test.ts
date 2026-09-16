@@ -1,9 +1,12 @@
+import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
+import { openNuclearDb } from "../../db.js";
 import { appendOwnerUtterance } from "../evidence/conversation-log.js";
 import { updateCycleState } from "./inbox.js";
 import { composeOrPreempt } from "./fence.js";
 import { insertOutboxPending } from "../speech/outbox.js";
 import { admitTestCycle, openTestSidecar } from "../test-support.js";
+import { OutboxDeliveryProjector } from "../delivery/outbox-projector.js";
 
 describe("v0.2.1 cycle fence", () => {
   it("keeps an owner append composable while the cycle is thinking", () => {
@@ -28,19 +31,21 @@ describe("v0.2.1 cycle fence", () => {
     }
   });
 
-  it("preempts an unsent outbox and treats every in-flight effect as effectful", () => {
+  it("preempts an unsent outbox and cancels its nuclear reservation", async () => {
     const db = openTestSidecar();
+    const nuclear = openNuclearDb(new DatabaseSync(":memory:"));
     try {
       const cycle = admitTestCycle(db, {
         conversationId: "thread-1", triggerKind: "owner_message", triggerRef: "first",
         occupantId: "doc", authorityEpoch: 1, nowMs: 1,
       });
       updateCycleState(db, cycle.cycleId, "thinking", 2);
-      insertOutboxPending(db, {
+      const outbox = insertOutboxPending(db, {
         settlementId: "settlement-1", cycleId: cycle.cycleId, generation: 1,
         conversationId: "thread-1", licensedText: "hello", origin: "live",
         deliveryIntent: { ownerId: "doc", channel: "discord", threadId: "thread-1", conversationId: "thread-1", trigger: "owner_message_reactive", deliveryLane: "reactive", purpose: "licensed_speech" },
       });
+      await new OutboxDeliveryProjector(db, nuclear, { nowMs: () => 1_000 }).project(outbox.outboxId);
       db.prepare(`INSERT INTO in_flight_effects
         (effect_id, cycle_id, generation, correlation_id, idempotency_key, state, payload_json, dispatched_at_ms, origin_job_id)
         VALUES ('effect-1', ?, 1, 'corr', 'idem', 'in_flight', '{}', 2, NULL)`).run(cycle.cycleId);
@@ -50,9 +55,14 @@ describe("v0.2.1 cycle fence", () => {
       expect(result.action).toBe("preempt");
       expect(result.generation).toBe(2);
       expect(db.prepare("SELECT send_status FROM speech_outbox").get()).toMatchObject({ send_status: "suppressed" });
+      expect(nuclear.prepare("SELECT state, finalization_reason FROM delivery_reservations").get()).toEqual({
+        state: "cancelled",
+        finalization_reason: "cancelled",
+      });
       expect(db.prepare("SELECT state FROM wakes WHERE cycle_id = ?").get(cycle.cycleId)).toMatchObject({ state: "reconciling" });
     } finally {
       db.close();
+      nuclear.close();
     }
   });
 
