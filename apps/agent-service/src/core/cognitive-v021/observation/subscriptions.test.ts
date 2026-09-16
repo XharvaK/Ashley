@@ -172,6 +172,8 @@ describe("v0.2.1 mechanical observation subscriptions", () => {
         pollClaim: first,
       };
       persistOrVerifyObservations(db, [stale], 2_000);
+      expect(db.prepare("SELECT COUNT(*) AS count FROM observations WHERE observation_id = ?").get(stale.observationId))
+        .toEqual({ count: 0 });
       expect(db.prepare("SELECT poll_generation, ingested_frontier_at_ms, poll_claim_token FROM observation_subscriptions WHERE subscription_id = ?").get(external.subscriptionId))
         .toMatchObject({ poll_generation: second.generation, ingested_frontier_at_ms: null, poll_claim_token: second.claimToken });
     } finally {

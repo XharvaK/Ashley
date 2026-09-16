@@ -62,6 +62,17 @@ function completePollClaim(
   ).run(frontierAtMs, claim.subscriptionId, claim.generation, claim.claimToken);
 }
 
+function pollClaimHeld(db: DatabaseSync, claim: SubscriptionPollClaim): boolean {
+  const current = row(
+    db.prepare(
+      "SELECT poll_generation, poll_claim_token FROM observation_subscriptions WHERE subscription_id = ?",
+    ).get(claim.subscriptionId),
+  );
+  if (!current) return false;
+  return Number(current.poll_generation) === claim.generation
+    && String(current.poll_claim_token ?? "") === claim.claimToken;
+}
+
 function requiredText(value: unknown, code: string): string {
   if (typeof value !== "string" || value.trim() === "") throw new ObservationBindingError(code);
   return value;
@@ -257,20 +268,19 @@ export function persistOrVerifyObservations(
 ): PersistedObservationBinding {
   const canonicalObservations: CanonicalObservation[] = [];
   const observationIds = new Set<string>();
+  const claims = new Map<string, SubscriptionPollClaim>();
   for (const observation of observations) {
+    if (observation.pollClaim && !pollClaimHeld(db, observation.pollClaim)) continue;
     const canonical = persistOrVerifyObservation(db, observation, createdAtMs);
     if (observationIds.has(canonical.observationId)) {
       throw new ObservationBindingError("observation_binding_duplicate_id");
     }
     observationIds.add(canonical.observationId);
     canonicalObservations.push(canonical);
-  }
-  const ids = canonicalObservations.map((observation) => observation.observationId);
-  const claims = new Map<string, SubscriptionPollClaim>();
-  for (const observation of observations) {
     if (observation.pollClaim) claims.set(observation.pollClaim.subscriptionId, observation.pollClaim);
   }
   for (const claim of claims.values()) completePollClaim(db, claim, createdAtMs);
+  const ids = canonicalObservations.map((observation) => observation.observationId);
   return {
     canonicalObservations,
     observationIds: ids,
