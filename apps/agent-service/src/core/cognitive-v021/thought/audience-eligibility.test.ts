@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildLearnedSelfSlice } from "../identity/learned-self.js";
+import { appendMemorySupport } from "../memory/supports.js";
 import { admitTestCycle, openTestSidecar } from "../test-support.js";
 import { appendEvidenceInTransaction } from "../evidence/conversation-log.js";
 import { buildThoughtInput } from "./input.js";
@@ -102,6 +103,77 @@ describe("audience eligibility", () => {
 
   it("partitions learned self into broad orientation and person-linked slices", () => {
     const sidecar = openTestSidecar();
+    const adoptionDimensions = {
+      source: "ashley_interpretation" as const,
+      status: "interpreted" as const,
+      time: "current" as const,
+      reliability: "inferred" as const,
+    };
+    const adoptedNominations = [
+      {
+        nominationId: "evidence:broad",
+        assertionKey: "broad-1",
+        statement: "general orientation",
+      },
+      {
+        nominationId: "evidence:person",
+        assertionKey: "person-1",
+        statement: "person-linked orientation",
+      },
+    ].map((nomination) => ({
+      ...nomination,
+      cycleId: "cycle:audience",
+      generation: 1,
+      memoryKind: "learned_self_evidence" as const,
+      dimensions: adoptionDimensions,
+      dataClassification: "ordinary" as const,
+      supersedesAssertionKey: null,
+      concernId: null,
+      sourceRefs: [],
+    }));
+    for (const nomination of adoptedNominations) {
+      sidecar.prepare(
+        `INSERT INTO durable_nominations
+           (nomination_id, cycle_id, generation, assertion_key, statement, memory_kind,
+            dimensions_json, data_classification, supersedes_assertion_key, concern_id, admitted, source_refs_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`,
+      ).run(
+        nomination.nominationId,
+        nomination.cycleId,
+        nomination.generation,
+        nomination.assertionKey,
+        nomination.statement,
+        nomination.memoryKind,
+        JSON.stringify(nomination.dimensions),
+        nomination.dataClassification,
+        nomination.supersedesAssertionKey,
+        nomination.concernId,
+        JSON.stringify(nomination.sourceRefs),
+      );
+      appendMemorySupport(sidecar, {
+        supportId: `support:${nomination.assertionKey}`,
+        assertionKey: nomination.assertionKey,
+        source: "ashley_interpretation",
+        provenance: "native",
+        sourceArchitectureEpoch: "v0.2.1",
+        sourceRef: nomination.nominationId,
+        settlementId: "settlement:audience",
+        evidenceLineageId: `lineage:${nomination.assertionKey}`,
+        observationId: null,
+        receiptId: null,
+        dimensions: adoptionDimensions,
+        dataClassification: "ordinary",
+        createdAtMs: 1,
+      });
+    }
+    sidecar.prepare(
+      "INSERT INTO settlements (settlement_id, cycle_id, generation, payload_json) VALUES (?, ?, ?, ?)",
+    ).run(
+      "settlement:audience",
+      "cycle:audience",
+      1,
+      JSON.stringify({ durableNominations: adoptedNominations }),
+    );
     const slice = buildLearnedSelfSlice(sidecar, [
       {
         assertionKey: "broad-1",

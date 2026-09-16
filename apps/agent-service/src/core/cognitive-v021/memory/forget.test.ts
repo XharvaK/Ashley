@@ -81,6 +81,45 @@ describe("v0.2.1 forget matrix", () => {
         dimensions: { source: "owner_utterance", status: "asserted", time: "current", reliability: "owner_supplied" },
         dataClassification: "never_public",
       });
+      const adoptedNomination = {
+        nominationId: "evidence:forgotten",
+        cycleId: "cycle:forgotten-support",
+        generation: 1,
+        assertionKey: "self:forgotten-support",
+        statement: "disposition: preserve the support boundary.",
+        memoryKind: "learned_self_evidence" as const,
+        dimensions: { source: "ashley_interpretation" as const, status: "interpreted" as const, time: "current" as const, reliability: "inferred" as const },
+        dataClassification: "never_public" as const,
+        supersedesAssertionKey: null,
+        concernId: null,
+        sourceRefs: [],
+      };
+      db.prepare(
+        `INSERT INTO durable_nominations
+           (nomination_id, cycle_id, generation, assertion_key, statement, memory_kind,
+            dimensions_json, data_classification, supersedes_assertion_key, concern_id, admitted, source_refs_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`,
+      ).run(
+        adoptedNomination.nominationId,
+        adoptedNomination.cycleId,
+        adoptedNomination.generation,
+        adoptedNomination.assertionKey,
+        adoptedNomination.statement,
+        adoptedNomination.memoryKind,
+        JSON.stringify(adoptedNomination.dimensions),
+        adoptedNomination.dataClassification,
+        adoptedNomination.supersedesAssertionKey,
+        adoptedNomination.concernId,
+        JSON.stringify(adoptedNomination.sourceRefs),
+      );
+      db.prepare(
+        "INSERT INTO settlements (settlement_id, cycle_id, generation, payload_json) VALUES (?, ?, ?, ?)",
+      ).run(
+        "settlement:forgotten",
+        adoptedNomination.cycleId,
+        adoptedNomination.generation,
+        JSON.stringify({ durableNominations: [adoptedNomination] }),
+      );
       expect(buildLearnedSelfSlice(db).supportRefs).toEqual(["evidence:forgotten"]);
       expect(retrieveCandidates(db, {
         conversationId: "thread-forgotten-support",
