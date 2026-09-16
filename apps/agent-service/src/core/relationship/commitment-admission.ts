@@ -865,7 +865,10 @@ export function applyCommitmentDeliveryOutcome(
     return;
   }
   if (input.state === "cancelled") {
-    relinquishCommitment(nuclearDb, { ownerId: input.ownerId, commitmentId: input.commitmentId, reason: input.cause ?? "cancelled", nowMs });
+    // Zero-receipt cancel aborts the send attempt only. Host must not author Thought relinquishment.
+    if (input.receiptCount > 0) {
+      relinquishCommitment(nuclearDb, { ownerId: input.ownerId, commitmentId: input.commitmentId, reason: input.cause ?? "cancelled", nowMs });
+    }
     return;
   }
   const attempts = Number(row.attempt_count ?? 0);

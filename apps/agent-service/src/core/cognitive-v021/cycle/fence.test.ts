@@ -7,6 +7,10 @@ import { composeOrPreempt } from "./fence.js";
 import { insertOutboxPending } from "../speech/outbox.js";
 import { admitTestCycle, openTestSidecar } from "../test-support.js";
 import { OutboxDeliveryProjector } from "../delivery/outbox-projector.js";
+import {
+  persistCommitmentProposals,
+  settlePersistedCommitmentProposals,
+} from "../../relationship/commitment-admission.js";
 
 describe("v0.2.1 cycle fence", () => {
   it("keeps an owner append composable while the cycle is thinking", () => {
@@ -60,6 +64,66 @@ describe("v0.2.1 cycle fence", () => {
         finalization_reason: "cancelled",
       });
       expect(db.prepare("SELECT state FROM wakes WHERE cycle_id = ?").get(cycle.cycleId)).toMatchObject({ state: "reconciling" });
+    } finally {
+      db.close();
+      nuclear.close();
+    }
+  });
+
+  it("preempts an unsent commitment-bound reservation without relinquishing the commitment", async () => {
+    const db = openTestSidecar();
+    const nuclear = openNuclearDb(new DatabaseSync(":memory:"));
+    try {
+      persistCommitmentProposals(nuclear, "fence-preempt", [{
+        ordinal: 0,
+        action: "send the Owner a progress update",
+        beneficiary: "owner",
+        destination: { kind: "owner_private" },
+        temporal: { kind: "open" },
+        realizationClause: "I will send the Owner a progress update.",
+        thoughtCycle: { cycleId: "cycle-1", attemptId: "attempt-1" },
+      }]);
+      settlePersistedCommitmentProposals(nuclear, "fence-preempt", {
+        ownerId: "doc",
+        nowMs: 1,
+        enabled: true,
+      });
+      const cycle = admitTestCycle(db, {
+        conversationId: "thread-1", triggerKind: "owner_message", triggerRef: "first",
+        occupantId: "doc", authorityEpoch: 1, nowMs: 1,
+      });
+      updateCycleState(db, cycle.cycleId, "thinking", 2);
+      const outbox = insertOutboxPending(db, {
+        settlementId: "settlement-1", cycleId: cycle.cycleId, generation: 1,
+        conversationId: "thread-1", licensedText: "hello", origin: "live",
+        deliveryIntent: { ownerId: "doc", channel: "discord", threadId: "thread-1", conversationId: "thread-1", trigger: "owner_message_reactive", deliveryLane: "reactive", purpose: "licensed_speech" },
+        commitmentBindings: [{
+          commitmentId: "cmt:fence-preempt:0",
+          realizationClauseHash: "clause-hash",
+          admissionRevision: 0,
+        }],
+      });
+      await new OutboxDeliveryProjector(db, nuclear, { nowMs: () => 1_000 }).project(outbox.outboxId);
+      expect(nuclear.prepare("SELECT state, commitment_id FROM delivery_reservations").get()).toEqual({
+        state: "reserved",
+        commitment_id: "cmt:fence-preempt:0",
+      });
+      db.prepare(`INSERT INTO in_flight_effects
+        (effect_id, cycle_id, generation, correlation_id, idempotency_key, state, payload_json, dispatched_at_ms, origin_job_id)
+        VALUES ('effect-1', ?, 1, 'corr', 'idem', 'in_flight', '{}', 2, NULL)`).run(cycle.cycleId);
+      const reservationsBefore = nuclear.prepare("SELECT COUNT(*) AS count FROM delivery_reservations").get();
+      const result = composeOrPreempt(db, {
+        conversationId: "thread-1", triggerRef: "owner-2", occupantId: "doc", authorityEpoch: 1, nowMs: 3,
+      });
+      expect(result.action).toBe("preempt");
+      expect(db.prepare("SELECT send_status FROM speech_outbox").get()).toMatchObject({ send_status: "suppressed" });
+      expect(nuclear.prepare("SELECT state, finalization_reason FROM delivery_reservations").get()).toEqual({
+        state: "cancelled",
+        finalization_reason: "cancelled",
+      });
+      expect(nuclear.prepare("SELECT COUNT(*) AS count FROM delivery_reservations").get()).toEqual(reservationsBefore);
+      expect(nuclear.prepare("SELECT commitment_state, status FROM ashley_self_commitments WHERE entity_uuid = ?").get("cmt:fence-preempt:0"))
+        .toEqual({ commitment_state: "admitted", status: "motivated" });
     } finally {
       db.close();
       nuclear.close();

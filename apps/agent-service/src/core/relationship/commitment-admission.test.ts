@@ -52,6 +52,28 @@ describe("commitment admission and fidelity", () => {
     expect(isCommitmentsEnabled({ RA_COMMITMENTS: "TRUE" })).toBe(false);
   });
 
+  it("does not relinquish a live commitment when an unsent reservation is cancelled", () => {
+    const db = dbFixture();
+    try {
+      persistCommitmentProposals(db, "unsent-cancel", [proposal()]);
+      settlePersistedCommitmentProposals(db, "unsent-cancel", { ownerId, nowMs, enabled: true });
+
+      applyCommitmentDeliveryOutcome(db, {
+        ownerId,
+        commitmentId: "cmt:unsent-cancel:0",
+        state: "cancelled",
+        cause: "cancel",
+        receiptCount: 0,
+        nowMs,
+      });
+
+      expect(db.prepare("SELECT commitment_state, status FROM ashley_self_commitments WHERE entity_uuid = ?").get("cmt:unsent-cancel:0"))
+        .toEqual({ commitment_state: "admitted", status: "motivated" });
+    } finally {
+      db.close();
+    }
+  });
+
   it("does not fulfill a commitment from partial delivery", () => {
     const db = dbFixture();
     try {
