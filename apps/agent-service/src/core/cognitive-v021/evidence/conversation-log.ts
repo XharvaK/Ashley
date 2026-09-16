@@ -473,11 +473,14 @@ export function listConversationEvidence(
       `SELECT * FROM conversation_evidence_log
        WHERE conversation_id = ?
        ${options.includeOlderVersions === false ? "AND version = (SELECT MAX(e2.version) FROM conversation_evidence_log e2 WHERE e2.lineage_id = conversation_evidence_log.lineage_id)" : ""}
-       ORDER BY created_at_ms ASC, rowid ASC
+       ORDER BY created_at_ms DESC, rowid DESC
        LIMIT ?`,
     )
     .all(conversationId, limit);
-  return rows.map(mapEvidence).filter((row): row is ConversationEvidenceRecord => row !== null);
+  return rows
+    .map(mapEvidence)
+    .filter((row): row is ConversationEvidenceRecord => row !== null)
+    .reverse();
 }
 
 export function markEvidenceDelivered(db: DatabaseSync, rowId: string): void {

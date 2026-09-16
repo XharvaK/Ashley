@@ -9,6 +9,27 @@ import {
 import { openTestSidecar } from "../test-support.js";
 
 describe("v0.2.1 conversation evidence log", () => {
+  it("selects the newest bounded page and returns it chronologically", () => {
+    const db = openTestSidecar();
+    try {
+      const rows = Array.from({ length: 1001 }, (_, index) => appendOwnerUtterance(db, {
+        conversationId: "thread-newest-page",
+        text: `turn ${index}`,
+        nowMs: index + 1,
+      }));
+
+      const selected = listConversationEvidence(db, "thread-newest-page", { limit: 1000 });
+
+      expect(selected).toHaveLength(1000);
+      expect(selected.map((row) => row.rowId)).toEqual(rows.slice(1).map((row) => row.rowId));
+      expect(selected[0]?.text).toBe("turn 1");
+      expect(selected.at(-1)?.text).toBe("turn 1000");
+      expect(selected.map((row) => row.text)).not.toContain("turn 0");
+    } finally {
+      db.close();
+    }
+  });
+
   it("preserves rapid owner messages as separate evidence rows", () => {
     const db = openTestSidecar();
     try {
