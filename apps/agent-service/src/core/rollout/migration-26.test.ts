@@ -40,6 +40,13 @@ function sourceV25Fixture(): Fixture {
     DROP TABLE recall_qualification_events;
     DROP TABLE recall_qualification_epochs;
     ALTER TABLE decision_log DROP COLUMN thought_validation_json;
+    DROP INDEX IF EXISTS idx_candidate_changesets_origin_child;
+    DROP INDEX IF EXISTS idx_candidate_changesets_entity_uuid;
+    DROP INDEX IF EXISTS idx_candidate_changesets_owner_status;
+    DROP INDEX IF EXISTS idx_candidate_changeset_events_entity_uuid;
+    DROP INDEX IF EXISTS idx_candidate_changeset_events_changeset;
+    DROP TABLE IF EXISTS candidate_changeset_events;
+    DROP TABLE IF EXISTS candidate_changesets;
     PRAGMA user_version = 25;
   `);
   continuity
@@ -179,6 +186,13 @@ describe("nuclear schema v26 Recall qualification epochs", () => {
         ALTER TABLE attention_requests DROP COLUMN accepted_contract_id;
         ALTER TABLE attention_requests DROP COLUMN accepted_build_identity;
         ALTER TABLE open_cognitive_items DROP COLUMN generation_order;
+        DROP INDEX IF EXISTS idx_candidate_changesets_origin_child;
+        DROP INDEX IF EXISTS idx_candidate_changesets_entity_uuid;
+        DROP INDEX IF EXISTS idx_candidate_changesets_owner_status;
+        DROP INDEX IF EXISTS idx_candidate_changeset_events_entity_uuid;
+        DROP INDEX IF EXISTS idx_candidate_changeset_events_changeset;
+        DROP TABLE IF EXISTS candidate_changeset_events;
+        DROP TABLE IF EXISTS candidate_changesets;
         PRAGMA user_version = 24;
       `);
       continuity
