@@ -5,6 +5,7 @@ import {
   beginNuclearMigration,
   getPendingNuclearMigration,
   openContinuityDb,
+  CONTINUITY_SCHEMA_VERSION,
 } from "./db.js";
 import {
   DECLARED_CONTRACT_ID,
@@ -27,6 +28,23 @@ function resetCognitionTablesToV22(nuclear: DatabaseSync): void {
 }
 
 describe("wave06 migration", () => {
+  it("classifies a future continuity schema as operator-required", () => {
+    const continuity = new DatabaseSync(":memory:");
+    continuity.exec(`PRAGMA user_version = ${CONTINUITY_SCHEMA_VERSION + 1}`);
+    let failure: unknown;
+    try {
+      openContinuityDb(continuity);
+    } catch (error) {
+      failure = error;
+    }
+    expect(failure).toMatchObject({ code: "unsupported_continuity_schema" });
+    expect(failure).toBeInstanceOf(Error);
+    expect((failure as Error).message).toBe(
+      `unsupported_continuity_schema:${CONTINUITY_SCHEMA_VERSION + 1}>${CONTINUITY_SCHEMA_VERSION}`,
+    );
+    continuity.close();
+  });
+
   it("migrates fresh db to v16 with v3 contract and perception tables", () => {
     const continuity = openContinuityDb(new DatabaseSync(":memory:"));
     const nuclear = openNuclearDb(new DatabaseSync(":memory:"), { continuity });

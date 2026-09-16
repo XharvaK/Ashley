@@ -12,6 +12,24 @@ describe("classifyAgentStartupError", () => {
     expect(res.code).toBe("unsupported_nuclear_schema");
   });
 
+  it("classifies unsupported_cognitive_sidecar_schema as OPERATOR_REQUIRED", () => {
+    const err = new Error("unsupported_cognitive_sidecar_schema:18>17") as Error & { code?: string };
+    err.code = "unsupported_cognitive_sidecar_schema";
+    const res = classifyAgentStartupError(err);
+    expect(res.kind).toBe("OPERATOR_REQUIRED");
+    expect(res.exitCode).toBe(EXIT_CODES.OPERATOR_REQUIRED);
+    expect(res.code).toBe("unsupported_cognitive_sidecar_schema");
+  });
+
+  it("classifies unsupported_continuity_schema as OPERATOR_REQUIRED", () => {
+    const err = new Error("unsupported_continuity_schema:2>1") as Error & { code?: string };
+    err.code = "unsupported_continuity_schema";
+    const res = classifyAgentStartupError(err);
+    expect(res.kind).toBe("OPERATOR_REQUIRED");
+    expect(res.exitCode).toBe(EXIT_CODES.OPERATOR_REQUIRED);
+    expect(res.code).toBe("unsupported_continuity_schema");
+  });
+
   it("classifies nuclear_migration_authority_required as OPERATOR_REQUIRED", () => {
     const err = new Error("nuclear_migration_authority_required") as Error & { code?: string };
     err.code = "nuclear_migration_authority_required";

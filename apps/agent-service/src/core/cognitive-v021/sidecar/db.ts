@@ -357,6 +357,7 @@ export function openCognitiveSidecarDb(
   const version = userVersion(existing);
   if (version > COGNITIVE_SIDECAR_SCHEMA_VERSION) {
     throw sidecarError(
+      "unsupported_cognitive_sidecar_schema",
       `unsupported_cognitive_sidecar_schema:${version}>${COGNITIVE_SIDECAR_SCHEMA_VERSION}`,
     );
   }

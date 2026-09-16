@@ -473,7 +473,8 @@ export function migrateContinuity(
 ): void {
   const version = userVersion(db);
   if (version > CONTINUITY_SCHEMA_VERSION) {
-    throw new Error(
+    throw continuityError(
+      "unsupported_continuity_schema",
       `unsupported_continuity_schema:${version}>${CONTINUITY_SCHEMA_VERSION}`,
     );
   }

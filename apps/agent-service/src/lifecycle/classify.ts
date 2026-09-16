@@ -20,6 +20,8 @@ export type AgentFailureDisposition =
  */
 const OPERATOR_REQUIRED_CODES = new Set([
   "unsupported_nuclear_schema",
+  "unsupported_cognitive_sidecar_schema",
+  "unsupported_continuity_schema",
   "nuclear_migration_authority_required",
   "data_plane_required",
   "production_data_plane_required",

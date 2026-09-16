@@ -511,8 +511,15 @@ describe("cognitive v0.2.1 sidecar database", () => {
     const newer = new DatabaseSync(":memory:");
     try {
       newer.exec("PRAGMA user_version = 18");
-      expect(() => openCognitiveSidecarDb(newer, { dataPlane: { kind: "isolated" } }))
-        .toThrow("unsupported_cognitive_sidecar_schema:18>17");
+      let failure: unknown;
+      try {
+        openCognitiveSidecarDb(newer, { dataPlane: { kind: "isolated" } });
+      } catch (error) {
+        failure = error;
+      }
+      expect(failure).toMatchObject({ code: "unsupported_cognitive_sidecar_schema" });
+      expect(failure).toBeInstanceOf(Error);
+      expect((failure as Error).message).toBe("unsupported_cognitive_sidecar_schema:18>17");
     } finally {
       newer.close();
     }
