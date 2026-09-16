@@ -400,6 +400,45 @@ describe("per-source observer coverage", () => {
     sidecar.close();
   });
 
+  it("extracts persisted desk entries after the coverage query proves the surface", () => {
+    const sidecar = validSidecar(`
+      INSERT INTO desk_entries
+        (id, concern_ref, body, author_kind, source_refs_json, verbatim, form,
+         endorsement_ref, audience_scope_json, lifecycle, superseded_by,
+         updated_cycle, updated_generation, created_at_ms, updated_at_ms)
+        VALUES
+        ('desk:extracted', 'concern:one', 'private desk evidence', 'owner',
+         '["evidence:one"]', 0, 'note', NULL, '{"kind":"owner_private"}',
+         'active', NULL, 'cycle:one', 1,
+         ${window.start.getTime() + 500}, ${window.start.getTime() + 1_000});
+    `);
+
+    const result = extractEvidence({
+      nuclear: null,
+      continuity: null,
+      cognitiveSidecar: sidecar,
+      cognitiveObservability: null,
+      window,
+    });
+    const lifecycle = result.evidence.cognitive_lifecycle as Record<string, unknown>;
+
+    expect(lifecycle.desk_entries).toEqual([
+      expect.objectContaining({
+        id: "desk:extracted",
+        concern_ref: "concern:one",
+        body: "private desk evidence",
+        author_kind: "owner",
+        source_refs_json: '["evidence:one"]',
+        lifecycle: "active",
+        updated_cycle: "cycle:one",
+        updated_generation: 1,
+        updated_at_ms: window.start.getTime() + 1_000,
+      }),
+    ]);
+    expect(result.surfaces.tables.desk_entries).toBe("present");
+    sidecar.close();
+  });
+
   it("includes an open periodic occurrence whose eligibility is inside the field day", () => {
     const sidecar = validSidecar(`
       INSERT INTO periodic_cognition_occurrence_receipts

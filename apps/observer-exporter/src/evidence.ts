@@ -2,6 +2,7 @@ import type { DatabaseSync } from "node:sqlite";
 import { canonicalize } from "./canonical-json.js";
 import { fieldDayWhere, type FieldDayWhere } from "./coverage.js";
 import { captureModernConversation } from "./modern.js";
+import { redactObserverText } from "./privacy.js";
 import { allowlistedRows, pragmaUserVersion, tableColumns, tableExists } from "./sqlite.js";
 import { fieldDayWindow } from "./field-day.js";
 import type {
@@ -428,6 +429,16 @@ function lifecycleEvidence(input: {
       { where: fieldDayWhere("causal_ledger", input.window) },
     ),
   ];
+  const deskEntries = readRows(
+    input.cognitiveSidecar,
+    input.surfaces,
+    "desk_entries",
+    ["id", "concern_ref", "body", "author_kind", "source_refs_json", "verbatim", "form", "endorsement_ref", "audience_scope_json", "lifecycle", "superseded_by", "updated_cycle", "updated_generation", "created_at_ms", "updated_at_ms"],
+    { where: fieldDayWhere("desk_entries", input.window) },
+  ).map((row) => ({
+    ...row,
+    body: typeof row.body === "string" ? redactObserverText(row.body) : row.body,
+  }));
   const [inboxReport, wakeReport, cycleReport, settlementReport, speechReport, noticeReport, evidenceReport, observationReport, scheduleReport, occurrenceReport, causalReport] = sidecarReports;
   const cycles = cycleReport.rows;
   const cycleById = new Map(cycles.map((row) => [String(row.cycle_id), row]));
@@ -814,6 +825,7 @@ function lifecycleEvidence(input: {
     owner_obligations: ownerObligations,
     infrastructure_failures: infrastructureFailures,
     system_notices: systemNotices,
+    desk_entries: deskEntries,
     allocations,
     diagnostics,
     periodic,

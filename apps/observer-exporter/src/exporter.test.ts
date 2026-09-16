@@ -103,7 +103,7 @@ describe("deterministic observer export", () => {
       source_coverage: Record<string, { disposition: string }>;
     }>(join(first.bundleDir, "manifest.json"));
     expect(manifest.bundle_id).toBe(first.bundleId);
-    expect(manifest.bundle_schema_version).toBe(3);
+    expect(manifest.bundle_schema_version).toBe(4);
     expect(manifest.source_coverage.cognitive_sidecar.disposition).toBe("complete_empty");
     expect(manifest.source_coverage.cognitive_observability.disposition).toBe("complete_empty");
     expect(Object.keys(first.sourceCoverage).sort()).toEqual([
@@ -202,7 +202,7 @@ describe("deterministic observer export", () => {
 
   it("keeps volatile values out of the semantic hash and binds contract versions", () => {
     const base = {
-      bundle_schema_version: 3,
+      bundle_schema_version: 4,
       exporter_version: "observer-exporter@0.1.0",
       redaction_profile: "ashley-credential-omission-v1",
       field_day: "2026-08-26",
