@@ -9,6 +9,7 @@ import { splitMessage } from "../chat/split-message.js";
 import {
   claimPendingCognitiveDeliveries,
   claimPendingSocialNotifications,
+  checkHealth,
   finalizeDelivery,
   recheckExternalPublication,
   recheckOwnerRoomPublication,
@@ -27,6 +28,7 @@ export type FulfillmentPumpDependencies = {
   receipt: typeof receiptDeliveryBubble;
   finalize: typeof finalizeDelivery;
   send: typeof sendBubbles;
+  health?: typeof checkHealth;
   recheck?: (reservationId: number) => Promise<ExternalPublicationRecheckResult>;
   recheckOwnerRoom?: (reservationId: number) => Promise<ExternalPublicationRecheckResult>;
 };
@@ -409,6 +411,8 @@ export function startFulfillmentPump(
     if (pumpStopped || pumpRunning) return;
     pumpRunning = true;
     try {
+      const health = deps?.health ?? checkHealth;
+      if (!(await health())) return;
       await drainPendingCognitiveDeliveries(client, deps);
       // The social notification lane is independently gated. Existing test
       // seams that inject only the cognitive claim function do not acquire a

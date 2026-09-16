@@ -355,6 +355,12 @@ export function createServer(
     }
   }
 
+  function requireReady(): void {
+    if (manager.getState() !== "ready") {
+      throw new AppError("agent_not_ready", "Agent not ready", 503);
+    }
+  }
+
   let cognitiveSidecar = options.cognitiveSidecar ?? null;
   function getCognitiveSidecar(): DatabaseSync {
     if (cognitiveSidecar) return cognitiveSidecar;
@@ -1569,6 +1575,7 @@ export function createServer(
     "/chat/ingress",
     (req, res, next) => {
       try {
+        requireReady();
         createCognitiveIngressHandler({
           sidecar: getCognitiveSidecar(),
           nuclearDb: manager.core.getDatabase(),
@@ -1680,6 +1687,7 @@ export function createServer(
 
   app.post("/delivery/claim", (req, res) => {
     try {
+      requireReady();
       const owner = requireOwner((req.body as { userId?: string }).userId);
       const { lane } = (req.body ?? {}) as {
         lane?: string;
@@ -2263,6 +2271,7 @@ export function createServer(
 
   app.post("/initiative/idle", async (req, res) => {
     try {
+      requireReady();
       const { userId } = req.body as { userId?: string };
       const owner = requireOwner(userId);
       if (manager.isPaused()) {

@@ -114,14 +114,20 @@ export async function closeStartupResources(
 }
 
 export async function serveAgent(manager: AgentManager): Promise<void> {
-  await manager.init();
-  const cognitiveSidecar = manager.openCognitiveSidecar();
+  let cognitiveSidecar: DatabaseSync | null = null;
   let cognitiveConsumer: InboxConsumerHandle | null = null;
   let frontierCoordinator: FrontierCoordinatorHandle | null = null;
   let derivedStore: DerivedStore | null = null;
   let observabilityDb: DatabaseSync | null = null;
   let projectSystemNotice: ((noticeId: number) => Promise<void>) | undefined;
+  try {
+    await manager.init();
+    if (manager.getState() !== "booting") {
+      throw new Error("agent_not_ready");
+    }
+    cognitiveSidecar = manager.openCognitiveSidecar();
   if (cognitiveSidecar) {
+    const sidecar = cognitiveSidecar;
     const nuclear = manager.core.getDatabase();
     const ownerId = env.memoryOwnerId || env.discordOwnerId || "default";
     seedTrustedRoomsFromOwnerEnvironment(nuclear, { ownerId });
@@ -129,9 +135,9 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
     const liveOperationExecutors = createV021LiveOperationExecutors({
       nuclear,
       ownerId,
-      sidecar: cognitiveSidecar,
+      sidecar,
     });
-    const projector = createOutboxProjector(cognitiveSidecar, nuclear, {
+    const projector = createOutboxProjector(sidecar, nuclear, {
       gate: (deliveryIntent) => {
         if (deliveryIntent.deliveryLane !== "proactive") return { ok: true };
         const status = manager.core.getProactiveOperationalStatus(deliveryIntent.ownerId);
@@ -158,11 +164,11 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
     } catch (error) {
       console.warn("[cognitive-v021] thought_debug_startup_purge_deferred", error);
     }
-    registerDerivedStoreForSidecar(cognitiveSidecar, derivedStore, nuclear);
+    registerDerivedStoreForSidecar(sidecar, derivedStore, nuclear);
     let derivedReady = false;
     try {
-      reconcileDerivedInvalidationJournal(nuclear, cognitiveSidecar, derivedStore);
-      derivedReady = derivedStore.reconcileAtStartup(cognitiveSidecar, { authorityDb: nuclear });
+      reconcileDerivedInvalidationJournal(nuclear, sidecar, derivedStore);
+      derivedReady = derivedStore.reconcileAtStartup(sidecar, { authorityDb: nuclear });
     } catch {
       derivedStore.markInvalid();
     }
@@ -183,7 +189,7 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
       executeObservation: liveOperationExecutors.executeObservation,
       executeEffect: liveOperationExecutors.executeEffect,
       checkAuthority,
-    loadAuthorityPacks: () => loadAuthorityPacks(cognitiveSidecar, {
+    loadAuthorityPacks: () => loadAuthorityPacks(sidecar, {
       capability: getCapabilityReality(nuclear),
       authorityDb: nuclear,
       receiptLimit: 256,
@@ -196,11 +202,11 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
       observabilityDb,
     };
     manager.configureCognitiveDispatch({ deps, projector });
-    reconcileStartupOwnership(cognitiveSidecar);
+    reconcileStartupOwnership(sidecar);
     if (isExternalSocialCaptureEnabled()) {
-      const externalRecovery = await reconcileUnbatchedCaptures(cognitiveSidecar, {
+      const externalRecovery = await reconcileUnbatchedCaptures(sidecar, {
         batch: (input) => admitExternalBatch(
-          cognitiveSidecar,
+          sidecar,
           nuclear,
           input,
           { ownerId, projectSystemNotice },
@@ -211,7 +217,7 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
           `[cognitive-v021] unbatched external capture recovery deferred rows=${externalRecovery.failures}`,
         );
       }
-      const initialContactRecovery = recoverInitialContactEligibility(cognitiveSidecar, nuclear);
+      const initialContactRecovery = recoverInitialContactEligibility(sidecar, nuclear);
       if (initialContactRecovery.failures > 0) {
         console.warn(
           `[cognitive-v021] initial external contact recovery deferred rows=${initialContactRecovery.failures}`,
@@ -226,20 +232,20 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
         console.warn("[cognitive-v021] commitment recovery deferred", error);
       }
     }
-    const dmPromotion = promoteEligiblePending(cognitiveSidecar, nuclear, { ownerId });
+    const dmPromotion = promoteEligiblePending(sidecar, nuclear, { ownerId });
     if (dmPromotion.rejected > 0) {
       console.warn(
         `[cognitive-v021] external DM promotion deferred rows=${dmPromotion.rejected}`,
       );
     }
-    const roomPromotion = promoteEligibleRoomPending(cognitiveSidecar, nuclear, { ownerId });
+    const roomPromotion = promoteEligibleRoomPending(sidecar, nuclear, { ownerId });
     if (roomPromotion.rejected > 0) {
       console.warn(
         `[cognitive-v021] external room promotion deferred rows=${roomPromotion.rejected}`,
       );
     }
     const speechRecovery = await reconsiderPendingSpeechOutbox(
-      cognitiveSidecar,
+      sidecar,
       (outboxId) => projector.project(outboxId),
     );
     if (speechRecovery.failures > 0) {
@@ -248,7 +254,7 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
       );
     }
     const noticeRecovery = await reconsiderPendingSystemNotices(
-      cognitiveSidecar,
+      sidecar,
       (noticeId) => projector.projectSystem(noticeId),
       { lane: "social_notify" },
     );
@@ -257,36 +263,32 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
         `[cognitive-v021] pending social notification recovery deferred rows=${noticeRecovery.failures}`,
       );
     }
-    try {
-      const deliveryRecovery = reconcileProjectedDeliverySweep(cognitiveSidecar, nuclear, { limit: 50 });
-      if (deliveryRecovery.conflicts > 0) {
-        console.warn(
-          `[cognitive-v021] delivery reconciliation conflicts=${deliveryRecovery.conflicts}`,
-        );
-      }
-    } catch (error) {
-      console.warn("[cognitive-v021] delivery reconciliation startup sweep deferred", error);
+    const deliveryRecovery = reconcileProjectedDeliverySweep(sidecar, nuclear, { limit: 50 });
+    if (deliveryRecovery.conflicts > 0) {
+      console.warn(
+        `[cognitive-v021] delivery reconciliation conflicts=${deliveryRecovery.conflicts}`,
+      );
     }
     // Durable-work outcome reconciliation owns stranded outcome-unknown work.
     // It runs after cycle ownership reconciliation and before the inbox
     // consumer begins, so Gen15-like reconciling work can become pending only
     // through proof-gated durable-work authority. cycle/reconcile never calls
     // reconcileOutcomeUnknown.
-    reconcileStrandedOutcomeUnknownAtStartup(cognitiveSidecar, { nowMs: Date.now() });
+    reconcileStrandedOutcomeUnknownAtStartup(sidecar, { nowMs: Date.now() });
     try {
-      await repairMissingC3Experiences(cognitiveSidecar, nuclear, { nowMs: Date.now(), limit: 50 });
+      await repairMissingC3Experiences(sidecar, nuclear, { nowMs: Date.now(), limit: 50 });
     } catch (error) {
       console.warn("[cognitive-v021] c3_recovery_deferred_for_forward_repair", error);
     }
-    cognitiveConsumer = startInboxConsumer(cognitiveSidecar, {
+    cognitiveConsumer = startInboxConsumer(sidecar, {
       workerId: `agent-service:${process.pid}`,
       handler: createAgentInboxConsumerHandler(manager),
       onReconciliationMaintenance: (nowMs) => {
         if (isExternalSocialCaptureEnabled()) {
-          void reconcileUnbatchedCaptures(cognitiveSidecar, {
+          void reconcileUnbatchedCaptures(sidecar, {
             nowMs,
             batch: (input) => admitExternalBatch(
-              cognitiveSidecar,
+              sidecar,
               nuclear,
               input,
               { ownerId, projectSystemNotice },
@@ -301,7 +303,7 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
             console.warn("[cognitive-v021] external capture maintenance deferred", error);
           });
           try {
-            const initialContactRecovery = recoverInitialContactEligibility(cognitiveSidecar, nuclear, { nowMs });
+            const initialContactRecovery = recoverInitialContactEligibility(sidecar, nuclear, { nowMs });
             if (initialContactRecovery.failures > 0) {
               console.warn(
                 `[cognitive-v021] initial external contact maintenance deferred rows=${initialContactRecovery.failures}`,
@@ -320,7 +322,7 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
           }
         }
         try {
-          const deliveryRecovery = reconcileProjectedDeliverySweep(cognitiveSidecar, nuclear, { limit: 50 });
+          const deliveryRecovery = reconcileProjectedDeliverySweep(sidecar, nuclear, { limit: 50 });
           if (deliveryRecovery.conflicts > 0) {
             console.warn(
               `[cognitive-v021] delivery reconciliation conflicts=${deliveryRecovery.conflicts}`,
@@ -339,7 +341,7 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
       onError: (error, event) => console.error(`[cognitive-v021] event failed id=${event?.id ?? "?"}`, error),
     });
     frontierCoordinator = startFrontierCoordinator(
-      cognitiveSidecar,
+      sidecar,
       nuclear,
       deps,
       {
@@ -349,23 +351,12 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
     );
   }
   let server: ReturnType<typeof listen>;
-  try {
     const app = createServer(manager, {
       cognitiveSidecar,
       observabilityDb,
       projectSystemNotice,
     });
     server = listen(app);
-  } catch (error) {
-    await closeStartupResources(manager, {
-      cognitiveSidecar,
-      cognitiveConsumer,
-      frontierCoordinator,
-      derivedStore,
-      observabilityDb,
-    });
-    throw error;
-  }
   manager.markStartupComplete();
   console.log(
     `[agent-service] nuclear core enabled db=${manager.core.getHealth().dbPath} plane=${manager.dataPlane.kind}`,
@@ -385,4 +376,14 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
 
   process.on("SIGINT", () => void shutdown("SIGINT"));
   process.on("SIGTERM", () => void shutdown("SIGTERM"));
+  } catch (error) {
+    await closeStartupResources(manager, {
+      cognitiveSidecar,
+      cognitiveConsumer,
+      frontierCoordinator,
+      derivedStore,
+      observabilityDb,
+    });
+    throw error;
+  }
 }

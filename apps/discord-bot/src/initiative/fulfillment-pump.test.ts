@@ -505,6 +505,7 @@ test("fulfillment pump completion-relative pacing: does not overlap ticks", asyn
       anySubstantiveContentVisible: false,
       messages: [],
     }),
+    health: async () => true,
   };
 
   const fakeClient = makeFakeClient({ id: "dm-pacing" });
@@ -520,6 +521,33 @@ test("fulfillment pump completion-relative pacing: does not overlap ticks", asyn
 
   // Next ticks fired sequentially without storming.
   assert.ok(claimCalls >= 2 && claimCalls <= 4);
+});
+
+test("fulfillment pump skips consequential work while the agent is not ready", async () => {
+  stopFulfillmentPump();
+  let claimCalls = 0;
+  const fakeDeps: FulfillmentPumpDependencies = {
+    claim: async () => {
+      claimCalls += 1;
+      return { deliveries: [] };
+    },
+    receipt: async () => ({ ok: true }),
+    finalize: async () => ({ state: "committed", finalizationReason: "all_bubbles_delivered", deliveredText: "" }),
+    send: async () => ({
+      reservationId: null,
+      attemptedOrdinal: null,
+      receiptedOrdinals: [],
+      failureCategory: null,
+      anySubstantiveContentVisible: false,
+      messages: [],
+    }),
+    health: async () => false,
+  };
+
+  startFulfillmentPump(makeFakeClient({ id: "dm-not-ready" }), 20, fakeDeps);
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  stopFulfillmentPump();
+  assert.equal(claimCalls, 0);
 });
 
 test("generic Discord rejection after dispatch is UNKNOWN (delivery_lease), not proven not_sent", async () => {

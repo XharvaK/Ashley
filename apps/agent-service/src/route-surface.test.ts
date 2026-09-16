@@ -67,6 +67,54 @@ describe("route surface registry", () => {
     expect(() => createServer({} as AgentManager)).not.toThrow();
   });
 
+  it("keeps consequential routes unavailable while health is not ready", async () => {
+    const manager = {
+      getState: () => "booting" as const,
+      getUptimeSec: () => 0,
+      getProviderState: () => "configured" as const,
+      getCognitiveKernel: () => "v021" as const,
+      getReadinessSnapshot: () => ({
+        bootValidationSucceeded: true,
+        kernelInitialized: false,
+        activeConversationConfigured: true,
+        shadowFabricConfigured: "NOT_APPLICABLE" as const,
+        utilityRoleConfiguration: { exchangeCognition: false, curiosityConsolidation: false },
+        providerRemoteAvailability: "UNKNOWN" as const,
+      }),
+      core: {},
+    } as unknown as AgentManager;
+    const { server, url } = await startTestServer(createServer(manager));
+    try {
+      const health = await fetch(`${url}/health`);
+      expect(health.status).toBe(200);
+      expect(await health.json()).toMatchObject({ ready: false, state: "booting" });
+
+      const requests = await Promise.all([
+        fetch(`${url}/chat/ingress`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ userId: "owner", message: "not yet" }),
+        }),
+        fetch(`${url}/delivery/claim`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ userId: "owner" }),
+        }),
+        fetch(`${url}/initiative/idle`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ userId: "owner" }),
+        }),
+      ]);
+      for (const response of requests) {
+        expect(response.status).toBe(503);
+        expect(await response.json()).toMatchObject({ code: "agent_not_ready" });
+      }
+    } finally {
+      await stopTestServer(server);
+    }
+  });
+
   it("routes explicit C5 admission through the owner-authenticated runtime seam", async () => {
     const ownerId = env.discordOwnerId || "route-test-owner";
     let captured: Record<string, unknown> | null = null;

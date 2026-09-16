@@ -4,21 +4,24 @@ import {
   pauseProactiveRemote,
   resumeProactiveRemote,
   tickCognitiveIdle,
+  checkHealth,
 } from "../agent-client.js";
 
 let cognitiveIdleTimer: ReturnType<typeof setInterval> | null = null;
 let cognitiveIdleRunning = false;
 
 export type CognitiveIdleSchedulerCycleResult = {
-  outcome: "tick" | "error";
+  outcome: "tick" | "not_ready" | "error";
   result?: Awaited<ReturnType<typeof tickCognitiveIdle>>;
 };
 
 /** One private cognition tick. It never sends a Discord message directly. */
 export async function runCognitiveIdleSchedulerCycle(
   tick: typeof tickCognitiveIdle = tickCognitiveIdle,
+  health: typeof checkHealth = checkHealth,
 ): Promise<CognitiveIdleSchedulerCycleResult> {
   try {
+    if (!(await health())) return { outcome: "not_ready" };
     return { outcome: "tick", result: await tick() };
   } catch {
     return { outcome: "error" };
