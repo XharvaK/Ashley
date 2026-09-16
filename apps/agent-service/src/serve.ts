@@ -225,12 +225,15 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
       }),
       executeObservation: liveOperationExecutors.executeObservation,
       executeEffect: liveOperationExecutors.executeEffect,
-      checkAuthority,
-    loadAuthorityPacks: () => loadAuthorityPacks(sidecar, {
-      capability: getCapabilityReality(nuclear),
-      authorityDb: nuclear,
-      receiptLimit: 256,
-    }),
+      checkAuthority: (stage, input) => checkAuthority(stage, {
+        ...input,
+        receiptDb: sidecar,
+      }),
+      loadAuthorityPacks: () => loadAuthorityPacks(sidecar, {
+        capability: getCapabilityReality(nuclear),
+        authorityDb: nuclear,
+        receiptLimit: 256,
+      }),
       projectOutbox: (outboxId) => projector.project(outboxId),
       projectSystemNotice: (noticeId) => projector.projectSystem(noticeId),
       constitution: readIdentitySlice(nuclear, ownerId),

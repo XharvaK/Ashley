@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { makeThoughtDraft } from "../test-support.js";
+import { makeThoughtDraft, openTestSidecar } from "../test-support.js";
 import type { AuthorityPacks, EffectProposal, ThoughtSettlementDraft } from "../types.js";
 import { checkAuthority } from "./check.js";
+import { loadAuthorityPacks } from "./packs.js";
+import { recordEffectReceipt } from "../effect/in-flight.js";
 import { mintEffectRef } from "../effect/effect-ref.js";
 
 function packs(overrides: Partial<AuthorityPacks> = {}): AuthorityPacks {
@@ -23,6 +25,57 @@ function packs(overrides: Partial<AuthorityPacks> = {}): AuthorityPacks {
 }
 
 describe("v0.2.1 deterministic Authority", () => {
+  it("finds an older terminal receipt by exact effect id when the pack omits it", () => {
+    const sidecar = openTestSidecar();
+    try {
+      const effectId = "effect-oldest-receipt";
+      recordEffectReceipt(sidecar, {
+        receiptId: "receipt-oldest",
+        effectId,
+        idempotencyKey: "idem-oldest",
+        outcome: "succeeded",
+        claims: {},
+        atMs: 1,
+        dataClassification: "ordinary",
+        secretOmitted: false,
+      });
+      for (let index = 0; index < 256; index += 1) {
+        recordEffectReceipt(sidecar, {
+          receiptId: `receipt-newer-${index}`,
+          effectId: `effect-newer-${index}`,
+          idempotencyKey: `idem-newer-${index}`,
+          outcome: "succeeded",
+          claims: {},
+          atMs: index + 2,
+          dataClassification: "ordinary",
+          secretOmitted: false,
+        });
+      }
+
+      const packsWithBoundedReceipts = loadAuthorityPacks(sidecar, { receiptLimit: 256 });
+      expect(packsWithBoundedReceipts.receipt.receiptsByEffectId[effectId]).toBeUndefined();
+      const effectRef = mintEffectRef("cycle-oldest-receipt", 1, effectId);
+      const draft = makeThoughtDraft({
+        cycleId: "cycle-oldest-receipt",
+        generation: 1,
+        operations: { ...makeThoughtDraft().operations, effectsCompleted: [effectId] },
+        commitments: {
+          ...makeThoughtDraft().commitments,
+          operational: [{ effectRef, claimedState: "succeeded" }],
+        },
+      });
+
+      expect(checkAuthority("settlement", {
+        settlement: draft,
+        packs: packsWithBoundedReceipts,
+        authorityEpoch: 1,
+        receiptDb: sidecar,
+      })).toEqual({ ok: true });
+    } finally {
+      sidecar.close();
+    }
+  });
+
   it("rejects a latest claim without current observation and does not rewrite it", () => {
     const draft = makeThoughtDraft({ commitments: {
       ...makeThoughtDraft().commitments!,

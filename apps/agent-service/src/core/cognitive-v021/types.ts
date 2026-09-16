@@ -1660,6 +1660,7 @@ export type CheckAuthority = (
     packs: AuthorityPacks;
     authorityEpoch: AuthorityEpoch;
     authorityDb?: DatabaseSync;
+    receiptDb?: DatabaseSync;
     expectedCurrentness?: AuthorityCurrentnessBinding;
     /** Host-owned effects active for the cycle being settled. */
     activeEffects?: readonly InFlightRecord[];

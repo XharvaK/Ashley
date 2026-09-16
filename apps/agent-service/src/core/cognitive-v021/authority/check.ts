@@ -1,3 +1,4 @@
+import type { DatabaseSync } from "node:sqlite";
 import { MAX_AUTHORITY_REVISIONS } from "../types.js";
 import type {
   AuthorityCode,
@@ -14,6 +15,7 @@ import type {
 } from "../types.js";
 import { requireCurrentAuthorityBinding } from "./barrier.js";
 import { buildEffectRefMap } from "../effect/effect-ref.js";
+import { getEffectReceipt } from "../effect/in-flight.js";
 
 function unique(codes: AuthorityCode[]): AuthorityCode[] {
   return [...new Set(codes)];
@@ -29,12 +31,22 @@ function settlementText(settlement: ThoughtSettlementDraft | PublishedCognitiveS
 
 type HostEffectTruth = "missing" | "not_attempted" | "in_progress" | "outcome_unknown" | "failed" | "succeeded";
 
+function receiptFor(
+  effectId: string,
+  packs: AuthorityPacks,
+  receiptDb?: DatabaseSync,
+) {
+  return packs.receipt.receiptsByEffectId[effectId]
+    ?? (receiptDb ? getEffectReceipt(receiptDb, effectId) : null);
+}
+
 function resolveHostEffectTruth(
   effectId: string,
   packs: AuthorityPacks,
   activeEffects: readonly InFlightRecord[],
+  receiptDb?: DatabaseSync,
 ): HostEffectTruth {
-  const receipt = packs.receipt.receiptsByEffectId[effectId];
+  const receipt = receiptFor(effectId, packs, receiptDb);
   if (receipt) {
     if (receipt.outcome === "succeeded") return "succeeded";
     if (receipt.outcome === "failed") return "failed";
@@ -135,6 +147,7 @@ function checkSettlement(
   packs: AuthorityPacks,
   authorityEpoch: number,
   activeEffects: readonly InFlightRecord[] = [],
+  receiptDb?: DatabaseSync,
 ): AuthorityVerdict {
   const codes: AuthorityCode[] = [];
   if (settlement.authorityEpoch !== authorityEpoch) codes.push("DISPATCH_EPOCH_CHANGED");
@@ -172,14 +185,14 @@ function checkSettlement(
     }
     const effectId = effectRefMap.refToId.get(claim.effectRef)!;
     licensedEffectIds.add(effectId);
-    const hostTruth = resolveHostEffectTruth(effectId, packs, activeEffects);
+    const hostTruth = resolveHostEffectTruth(effectId, packs, activeEffects, receiptDb);
     const evaluation = evaluateClaimMatrix(claim.claimedState, hostTruth);
     if (!evaluation.ok) {
       codes.push(evaluation.code);
     }
     // NS-I1 bidirectional terminal binding:
     // If the host receipt is terminal (succeeded | failed), that effect's effectId MUST be in effectsCompleted before PASS is possible.
-    const receipt = packs.receipt.receiptsByEffectId[effectId];
+    const receipt = receiptFor(effectId, packs, receiptDb);
     if (
       evaluation.ok &&
       receipt != null &&
@@ -193,7 +206,7 @@ function checkSettlement(
   // Check active effects that are NOT licensed by an operational claim
   for (const effect of activeEffects) {
     if (licensedEffectIds.has(effect.effectId)) continue;
-    const receipt = packs.receipt.receiptsByEffectId[effect.effectId];
+    const receipt = receiptFor(effect.effectId, packs, receiptDb);
     if (!receipt) {
       if (effect.status === "unknown" || effect.status === "in_flight") {
         codes.push("IN_FLIGHT_UNKNOWN");
@@ -207,7 +220,7 @@ function checkSettlement(
 
   // Check effectsCompleted: each must have a terminal physical receipt
   for (const effectId of (settlement.operations.effectsCompleted ?? [])) {
-    const receipt = packs.receipt.receiptsByEffectId[effectId];
+    const receipt = receiptFor(effectId, packs, receiptDb);
     if (!receipt) {
       codes.push("RECEIPT_REQUIRED");
       continue;
@@ -277,7 +290,8 @@ export function checkAuthority(
     proposal?: EffectProposal | ObservationRequest;
     packs: AuthorityPacks;
     authorityEpoch: number;
-    authorityDb?: import("node:sqlite").DatabaseSync;
+    authorityDb?: DatabaseSync;
+    receiptDb?: DatabaseSync;
     expectedCurrentness?: AuthorityCurrentnessBinding;
     /** Host-owned effects active for the cycle being settled. */
     activeEffects?: readonly InFlightRecord[];
@@ -292,7 +306,13 @@ export function checkAuthority(
     input.expectedCurrentness ?? proposalCurrentness,
   );
   if (stage === "settlement" && input.settlement) {
-    const result = checkSettlement(input.settlement, input.packs, input.authorityEpoch, input.activeEffects);
+    const result = checkSettlement(
+      input.settlement,
+      input.packs,
+      input.authorityEpoch,
+      input.activeEffects,
+      input.receiptDb,
+    );
     return result.ok && currentness.length === 0
       ? result
       : { ok: false, codes: unique([...currentness, ...(result.ok ? [] : result.codes)]) };
