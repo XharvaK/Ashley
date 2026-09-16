@@ -53,6 +53,10 @@ export type DeliveryReservationRow = {
   phaseLifecycle: import("./phase-lifecycle.js").PhaseLifecycleEnvelope | null;
   createdAt: string;
   finalizedAt: string | null;
+  commitmentId: string | null;
+  commitmentOccurrenceId: string | null;
+  commitmentAttemptId: string | null;
+  speechOutboxId: number | null;
   /** RA-P13 destination and currentness binding; absent on legacy Owner rows. */
   destination?: unknown;
   attemptInputBasis?: unknown;

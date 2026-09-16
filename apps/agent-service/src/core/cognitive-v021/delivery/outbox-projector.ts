@@ -498,6 +498,10 @@ export class OutboxDeliveryProjector implements OutboxDeliveryProjectorContract 
     const external = row.deliveryIntent.externalPublication;
     const destination = external?.destination ?? row.deliveryIntent.destination;
     const initialState = external ? "drafted" : "reserved";
+    const commitmentBindings = row.deliveryIntent.commitmentBindings ?? [];
+    const commitmentBinding = commitmentBindings.length === 1 ? commitmentBindings[0] : undefined;
+    const commitmentId = commitmentBinding?.commitmentId ?? null;
+    const speechOutboxId = "outboxId" in row ? row.outboxId : null;
     this.nuclear.exec("BEGIN IMMEDIATE");
     try {
       const result = this.nuclear.prepare(
@@ -507,9 +511,12 @@ export class OutboxDeliveryProjector implements OutboxDeliveryProjectorContract 
             draft_text, first_bubble_deadline_at, first_sent_at,
             generation_lease_expires_at, delivery_lease_expires_at,
             created_at, finalized_at, cognitive_v021_projection_key,
+            commitment_id, commitment_occurrence_id, commitment_attempt_id, speech_outbox_id,
             destination_json, attempt_input_basis_json, hard_dependency_bundle_json, license_refs_json)
          VALUES (?, ?, ?, NULL, NULL, ?, ?, NULL, ?, NULL, NULL,
-                 ?, NULL, NULL, NULL, ?, ?, NULL, ?, ?, ?, ?, ?)`,
+                 ?, NULL, NULL, NULL, ?, ?, NULL,
+                 ?, ?, ?, ?, ?,
+                 ?, ?, ?, ?)`,
       ).run(
         row.deliveryIntent.ownerId,
         row.deliveryIntent.channel,
@@ -521,6 +528,10 @@ export class OutboxDeliveryProjector implements OutboxDeliveryProjectorContract 
         leaseIso,
         nowIso,
         key,
+        commitmentId,
+        null,
+        null,
+        speechOutboxId,
         destination ? JSON.stringify(destination) : null,
         external ? JSON.stringify(external.attemptInputBasis) : null,
         external ? JSON.stringify(external.hardDependencyBundle) : null,

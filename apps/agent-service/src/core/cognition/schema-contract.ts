@@ -44,6 +44,10 @@ import {
   V47_TABLE_COLUMNS,
   validateNuclearV47Schema,
 } from "../memory/migration-47.js";
+import {
+  V48_TABLE_COLUMNS,
+  validateNuclearV48Schema,
+} from "../delivery/migration-48.js";
 
 type TableInfoRow = {
   name?: string;
@@ -1146,9 +1150,19 @@ function requireNoV47Content(db: DatabaseSync, version: number): void {
   }
 }
 
+function requireNoV48Content(db: DatabaseSync, version: number): void {
+  for (const [table, columns] of Object.entries(V48_TABLE_COLUMNS)) {
+    for (const column of columns) {
+      if (tableInfo(db, table).some((row) => row.name === column)) {
+        fail(version, `unexpected_v48_column:${table}.${column}`);
+      }
+    }
+  }
+}
+
 export function validateNuclearSchemaContent(
   db: DatabaseSync,
-  version: 22 | 23 | 24 | 25 | 26 | 27 | 28 | 29 | 30 | 31 | 32 | 33 | 34 | 35 | 36 | 37 | 38 | 39 | 40 | 41 | 42 | 43 | 44 | 45 | 46 | 47,
+  version: 22 | 23 | 24 | 25 | 26 | 27 | 28 | 29 | 30 | 31 | 32 | 33 | 34 | 35 | 36 | 37 | 38 | 39 | 40 | 41 | 42 | 43 | 44 | 45 | 46 | 47 | 48,
   options: { rejectNewerContent?: boolean } = {},
 ): void {
   if (version === 22) {
@@ -1351,6 +1365,12 @@ export function validateNuclearSchemaContent(
   }
   if (version === 46) return;
   validateNuclearV47Schema(db, version);
+  if (version === 47 && options.rejectNewerContent === true) {
+    requireNoV48Content(db, version);
+    return;
+  }
+  if (version === 47) return;
+  validateNuclearV48Schema(db, version);
 }
 
 function addColumnIfMissing(

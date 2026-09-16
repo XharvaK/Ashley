@@ -155,6 +155,40 @@ describe("v0.2.1 cross-database outbox projection", () => {
     }
   });
 
+  it("binds the stored commitment identity and speech outbox id to the reservation", async () => {
+    const sidecar = openTestSidecar();
+    const nuclear = openNuclearDb(new DatabaseSync(":memory:"));
+    try {
+      const speech = insertOutboxPending(sidecar, {
+        settlementId: "settlement-commitment-identity",
+        cycleId: "cycle-commitment-identity",
+        generation: 1,
+        conversationId: "thread-commitment-identity",
+        licensedText: "commitment realization",
+        commitmentBindings: [{
+          commitmentId: "cmt:commitment-identity:0",
+          realizationClauseHash: "clause-hash",
+          admissionRevision: 7,
+        }],
+      });
+
+      await new OutboxDeliveryProjector(sidecar, nuclear, { nowMs: () => 1_000 }).project(speech.outboxId);
+
+      expect(nuclear.prepare(
+        "SELECT commitment_id, commitment_occurrence_id, commitment_attempt_id, speech_outbox_id, cognitive_v021_projection_key FROM delivery_reservations",
+      ).get()).toEqual({
+        commitment_id: "cmt:commitment-identity:0",
+        commitment_occurrence_id: null,
+        commitment_attempt_id: null,
+        speech_outbox_id: speech.outboxId,
+        cognitive_v021_projection_key: `speech:${speech.outboxId}`,
+      });
+    } finally {
+      sidecar.close();
+      nuclear.close();
+    }
+  });
+
   it("reconciles a destination reservation that already committed", async () => {
     const sidecar = openTestSidecar();
     const nuclear = openNuclearDb(new DatabaseSync(":memory:"));

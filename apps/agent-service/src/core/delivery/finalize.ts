@@ -1,5 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 import { setDecisionOutcome } from "../agency/log.js";
+import { applyCommitmentDeliveryOutcome } from "../relationship/commitment-admission.js";
 import { applyRelationshipDeliveryOutcome } from "../relationship/delivery-outcomes.js";
 import { insertMessage } from "../memory/threads.js";
 import { patchState } from "../state/store.js";
@@ -197,7 +198,19 @@ export function finalizeDelivery(
       });
     }
 
-    if (reservation.decisionId != null) {
+    if (reservation.commitmentId != null) {
+      const commitmentState = state === "committed" || state === "partially_delivered"
+        || state === "aborted" || state === "cancelled"
+        ? state
+        : "aborted";
+      applyCommitmentDeliveryOutcome(db, {
+        ownerId: input.ownerId,
+        commitmentId: reservation.commitmentId,
+        cause: input.cause,
+        state: commitmentState,
+        receiptCount,
+      });
+    } else if (reservation.decisionId != null) {
       setDecisionOutcome(db, reservation.decisionId, deliveredText);
       applyRelationshipDeliveryOutcome(db, {
         ownerId: input.ownerId,
