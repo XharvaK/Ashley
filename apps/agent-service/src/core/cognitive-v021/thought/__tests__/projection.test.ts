@@ -238,7 +238,7 @@ describe("Model-Visible Thought Projection", () => {
       "CapabilityReality field semantics: conversationalRead reports only whether an additional authorized user-requested URL/page read may be performed",
     );
     expect(messages[0]?.content).toContain(
-      "Every rawConversation entry included in this request is directly readable current context regardless of conversationalRead",
+      "every included rawConversation entry is directly readable current context regardless of conversationalRead",
     );
     expect(visibleInput.capabilityReality.conversationalRead).toBe(false);
     expect(visibleInput.rawConversation[0]?.text).toBe(ownerTurn.text);
