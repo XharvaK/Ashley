@@ -292,6 +292,31 @@ describe("per-source observer coverage", () => {
     sidecar.close();
   });
 
+  it("keeps source_capture as query-attempt metadata, not coverage completeness", () => {
+    const sidecar = validSidecar();
+    const nuclear = validNuclear();
+    const insert = nuclear.prepare("INSERT INTO mem_messages (created_at) VALUES (?)");
+    for (let index = 0; index < 501; index += 1) {
+      insert.run(new Date(window.start.getTime() + index * 1_000).toISOString());
+    }
+    const nuclearCoverage = sourceCoverageForDatabase({ db: nuclear, source: "nuclear", window });
+    expect(["complete_empty", "complete_nonempty"]).not.toContain(nuclearCoverage.disposition);
+    const result = extractEvidence({
+      nuclear,
+      continuity: null,
+      cognitiveSidecar: sidecar,
+      cognitiveObservability: null,
+      window,
+    });
+    const lifecycle = result.evidence.cognitive_lifecycle as Record<string, unknown>;
+    expect(lifecycle.source_capture).toMatchObject({ cognitive_sidecar: "complete" });
+    const coverageMap = completeMap("complete_nonempty");
+    coverageMap.nuclear = nuclearCoverage;
+    expect(aggregateCoverage(coverageMap)).toBe("DEGRADED_PARTIAL");
+    sidecar.close();
+    nuclear.close();
+  });
+
   it("does not mark cognitive-sidecar coverage complete when speech projection_key is missing", () => {
     const sidecar = validSidecar();
     sidecar.exec("DROP TABLE speech_outbox");
