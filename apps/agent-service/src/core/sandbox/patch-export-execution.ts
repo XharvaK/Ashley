@@ -54,7 +54,6 @@ function none(
   return {
     license: {
       state: error === "witness_mismatch" ? "outcome_unknown" : "none",
-      taskId: extras?.taskId ?? `v2-export-${Date.now()}`,
       profile: "patch_export",
       error,
       ...(messageEntityUuid ? { sourceMessageEntityUuid: messageEntityUuid } : {}),
@@ -67,7 +66,7 @@ export async function executePatchExportV2(
   input: ExecutePatchExportV2Input,
 ): Promise<ExecutePatchExportV2Result> {
   const { request, messageEntityUuid } = input;
-  const taskId = `v2-export-${Date.now()}`;
+  let taskId: string | undefined;
 
   if (request.adjudication !== "accept") {
     return none("thought_adjudication_required", { taskId }, messageEntityUuid);
@@ -155,6 +154,8 @@ export async function executePatchExportV2(
   if (!verificationReceipt) {
     return none("verification_receipt_required", { taskId }, messageEntityUuid);
   }
+
+  taskId = `v2-export:${request.changesetId}:${changeset.patch_sha256}`;
 
   try {
     const dispatcher =

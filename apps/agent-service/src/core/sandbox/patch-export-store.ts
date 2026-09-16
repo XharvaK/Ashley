@@ -35,7 +35,23 @@ export function persistPatchExportRecord(
        entity_uuid, data_classification, owner_id, task_id, project_id, changeset_id,
        artifact_ref, destination_path, expected_sha256, witness_sha256, bytes_written,
        status, error_code, applied, live_unwritten, git_unwritten, created_at, completed_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 1, 1, ?, ?)`,
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 1, 1, ?, ?)
+     ON CONFLICT(task_id) DO UPDATE SET
+       data_classification = excluded.data_classification,
+       owner_id = excluded.owner_id,
+       project_id = excluded.project_id,
+       changeset_id = excluded.changeset_id,
+       artifact_ref = excluded.artifact_ref,
+       destination_path = excluded.destination_path,
+       expected_sha256 = excluded.expected_sha256,
+       witness_sha256 = excluded.witness_sha256,
+       bytes_written = excluded.bytes_written,
+       status = excluded.status,
+       error_code = excluded.error_code,
+       applied = excluded.applied,
+       live_unwritten = excluded.live_unwritten,
+       git_unwritten = excluded.git_unwritten,
+       completed_at = excluded.completed_at`,
   ).run(
     newEntityUuid(),
     defaultUnclassifiedConversational(),

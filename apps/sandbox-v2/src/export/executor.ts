@@ -8,9 +8,9 @@
  *
  * This is not apply, merge, Git, deploy, or restart.
  */
-import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
-import { isAbsolute, relative } from "node:path";
+import { createHash, randomUUID } from "node:crypto";
+import { existsSync, lstatSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, isAbsolute, join, relative } from "node:path";
 import { isCanonicalForm, isPatchExportAllowed, isWithin } from "@composer-assistant/sandbox-policy";
 import type { V2ProjectReadRegistry } from "../registry.js";
 import type { SandboxV2PatchExportRequest, SandboxV2Result } from "../v2-types.js";
@@ -26,6 +26,38 @@ function nowMs(clock?: { nowMs(): number }): number {
 
 function sha256File(path: string): string {
   return createHash("sha256").update(readFileSync(path)).digest("hex");
+}
+
+function destinationState(
+  destRoot: string,
+  destPath: string,
+): { ok: true; exists: boolean } | { ok: false } {
+  try {
+    const rootStat = lstatSync(destRoot);
+    if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) return { ok: false };
+    const resolvedRoot = realpathSync(destRoot);
+    if (resolvedRoot !== destRoot || dirname(destPath) !== resolvedRoot) return { ok: false };
+
+    let destinationStat;
+    try {
+      destinationStat = lstatSync(destPath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return { ok: true, exists: false };
+      return { ok: false };
+    }
+    if (destinationStat.isSymbolicLink() || !destinationStat.isFile()) return { ok: false };
+    const resolvedDestination = realpathSync(destPath);
+    const resolvedRelative = relative(resolvedRoot, resolvedDestination);
+    if (dirname(resolvedDestination) !== resolvedRoot
+      || resolvedDestination === resolvedRoot
+      || resolvedRelative.startsWith("..")
+      || isAbsolute(resolvedRelative)) {
+      return { ok: false };
+    }
+    return { ok: true, exists: true };
+  } catch {
+    return { ok: false };
+  }
 }
 
 export function validatePatchExportRequest(
@@ -99,29 +131,34 @@ export function executePatchExport(
     return fail("destination_escape");
   }
 
-  mkdirSync(destRoot, { recursive: true, mode: 0o700 });
+  const initialDestination = destinationState(destRoot, destPath);
+  if (!initialDestination.ok) return fail("destination_escape");
 
-  if (existsSync(destPath)) {
+  if (initialDestination.exists) {
     const existing = sha256File(destPath);
     if (existing !== parsed.request.expectedSha256) return fail("destination_conflict");
     return succeeded(parsed.request, destPath, destName, existing, executedAtMs, readFileSync(destPath).byteLength);
   }
 
   const bytes = readFileSync(parsed.request.artifactRef);
-  writeFileSync(destPath, bytes, { mode: 0o600 });
+  const tempPath = join(destRoot, `.${destName}.${randomUUID()}.tmp`);
+  try {
+    writeFileSync(tempPath, bytes, { mode: 0o600, flag: "wx" });
+    const beforeRename = destinationState(destRoot, destPath);
+    if (!beforeRename.ok) return fail("destination_escape");
+    if (beforeRename.exists) return fail("destination_conflict");
+    renameSync(tempPath, destPath);
+  } catch {
+    return fail("destination_write_failed");
+  } finally {
+    try { rmSync(tempPath, { force: true }); } catch { /* preserve export result */ }
+  }
+
+  const afterRename = destinationState(destRoot, destPath);
+  if (!afterRename.ok || !afterRename.exists) return fail("destination_escape");
   const witnessed = sha256File(destPath);
   if (witnessed !== parsed.request.expectedSha256) {
     return fail("witness_mismatch");
-  }
-  try {
-    const resolvedRoot = realpathSync(destRoot);
-    const resolvedDest = realpathSync(destPath);
-    const resolvedRelative = relative(resolvedRoot, resolvedDest);
-    if (resolvedDest !== resolvedRoot && (resolvedRelative.startsWith("..") || isAbsolute(resolvedRelative))) {
-      return fail("destination_escape");
-    }
-  } catch {
-    return fail("destination_escape");
   }
 
   return succeeded(parsed.request, destPath, destName, witnessed, executedAtMs, bytes.byteLength);
