@@ -1,4 +1,5 @@
 import express from "express";
+import { request as httpRequest } from "node:http";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import {
@@ -84,6 +85,38 @@ function count(db: DatabaseSync, table: string): number {
   return Number(row.count ?? 0);
 }
 
+function postJson(port: number, path: string, body: unknown): Promise<{ status: number; json: unknown }> {
+  const payload = Buffer.from(JSON.stringify(body), "utf8");
+  return new Promise((resolve, reject) => {
+    const req = httpRequest({
+      hostname: "127.0.0.1",
+      port,
+      path,
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "content-length": payload.length,
+      },
+    }, (res) => {
+      const chunks: Buffer[] = [];
+      res.on("data", (chunk) => chunks.push(chunk as Buffer));
+      res.on("end", () => {
+        const text = Buffer.concat(chunks).toString("utf8");
+        let json: unknown = text;
+        try {
+          json = JSON.parse(text);
+        } catch {
+          /* keep raw text */
+        }
+        resolve({ status: res.statusCode ?? 0, json });
+      });
+    });
+    req.on("error", reject);
+    req.write(payload);
+    req.end();
+  });
+}
+
 describe("external social ingress (RA-P9)", () => {
   it("captures attributed evidence before any batch and deduplicates by Discord id", () => {
     const sidecar = openTestSidecar();
@@ -141,18 +174,14 @@ describe("external social ingress (RA-P9)", () => {
       await new Promise<void>((resolve) => server.once("listening", resolve));
       const address = server.address();
       if (!address || typeof address === "string") throw new Error("address_missing");
-      const response = await fetch(`http://127.0.0.1:${address.port}/chat/ingress-external/capture`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          envelope: { ...roomEnvelope("malformed"), location: { kind: "room", guildId: "", channelId: "room-1" } },
-          message: "not stored",
-          discordMessageId: "malformed",
-          attachments: [],
-        }),
+      const response = await postJson(address.port, "/chat/ingress-external/capture", {
+        envelope: { ...roomEnvelope("malformed"), location: { kind: "room", guildId: "", channelId: "room-1" } },
+        message: "not stored",
+        discordMessageId: "malformed",
+        attachments: [],
       });
       expect(response.status).toBe(400);
-      expect(await response.json()).toMatchObject({ error: "external_envelope_invalid" });
+      expect(response.json).toMatchObject({ error: "external_envelope_invalid" });
       expect(count(sidecar, "conversation_evidence_log")).toBe(0);
       expect(count(sidecar, "inbox_events")).toBe(0);
       expect(count(sidecar, "cycle_records")).toBe(0);
@@ -180,13 +209,9 @@ describe("external social ingress (RA-P9)", () => {
       await new Promise<void>((resolve) => server.once("listening", resolve));
       const address = server.address();
       if (!address || typeof address === "string") throw new Error("address_missing");
-      const response = await fetch(`http://127.0.0.1:${address.port}/chat/ingress-external/capture`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(captureInput(roomEnvelope("closed-1"))),
-      });
+      const response = await postJson(address.port, "/chat/ingress-external/capture", captureInput(roomEnvelope("closed-1")));
       expect(response.status).toBe(403);
-      expect(await response.json()).toMatchObject({ error: "external_admission_closed" });
+      expect(response.json).toMatchObject({ error: "external_admission_closed" });
       expect(count(sidecar, "conversation_evidence_log")).toBe(0);
     } finally {
       await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
