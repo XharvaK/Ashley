@@ -29,6 +29,7 @@ import {
 } from "./budget.js";
 import {
   allocationTokenComponent,
+  boundRequiredSectionData,
   buildAllocationCandidates,
   type AllocationCandidate,
 } from "./sections.js";
@@ -43,6 +44,8 @@ import {
   type CoverageManifest,
 } from "../coverage-manifest.js";
 import {
+  REQUIRED_LEARNED_SELF_BYTES,
+  REQUIRED_OBSERVATION_ITEM_BYTES,
   REQUIRED_WC_ITEM_BYTES,
   REQUIRED_WC_PROJECTED_POOL_BYTES,
   utf8JsonBytes,
@@ -203,6 +206,44 @@ export function allocateThoughtProjection(
     semanticBudgetTokens: opts.semanticBudgetTokens,
   });
 
+  const trigger = input.trigger as { kind?: unknown; ref?: unknown } | null | undefined;
+  if (trigger === null || trigger === undefined || typeof trigger.ref !== "string" || trigger.ref.trim() === "") {
+    throw new RequiredOverflowError(
+      "Required trigger evidence is missing",
+      {
+        section: "trigger_evidence",
+        estimatedInputTokens: 0,
+        semanticBudgetTokens: budget.semanticBudgetTokens,
+      },
+    );
+  }
+  const requiredSectionBounds = boundRequiredSectionData(input);
+  if (requiredSectionBounds.learnedSelfSlice === null) {
+    const learnedSelfBytes = utf8JsonBytes(input.learnedSelfSlice ?? null);
+    throw new RequiredOverflowError(
+      `Required learned-self slice exceeds the local byte bound (bytes: ${learnedSelfBytes}, limit: ${REQUIRED_LEARNED_SELF_BYTES})`,
+      {
+        section: "learned_self",
+        estimatedInputTokens: Math.ceil(learnedSelfBytes / BYTES_PER_TOKEN),
+        semanticBudgetTokens: budget.semanticBudgetTokens,
+      },
+    );
+  }
+  const boundedLearnedSelfSlice = requiredSectionBounds.learnedSelfSlice;
+  if (input.observations.length > 0 && requiredSectionBounds.observations.length === 0) {
+    const observationBytes = Math.max(
+      ...input.observations.map((observation) => utf8JsonBytes(observation)),
+    );
+    throw new RequiredOverflowError(
+      `No required observation fits the local item bound (largestBytes: ${observationBytes}, limit: ${REQUIRED_OBSERVATION_ITEM_BYTES})`,
+      {
+        section: "observations",
+        estimatedInputTokens: Math.ceil(observationBytes / BYTES_PER_TOKEN),
+        semanticBudgetTokens: budget.semanticBudgetTokens,
+      },
+    );
+  }
+
   // Prepare full provenance and compact retrieval hits
   const provenance = new Map<string, RetrievalHit>();
   const compactRetrievalHits: CompactRetrievalEvidence[] = [];
@@ -213,7 +254,12 @@ export function allocateThoughtProjection(
   }
 
   const continuityContext = opts.continuityDb ? continuityContextFor(opts.continuityDb) : undefined;
-  const allCandidates = buildAllocationCandidates(input, compactRetrievalHits, continuityContext);
+  const allCandidates = buildAllocationCandidates(
+    input,
+    compactRetrievalHits,
+    continuityContext,
+    requiredSectionBounds,
+  );
   const excludedCandidates = allCandidates.filter((candidate) =>
     candidate.continuityCandidate?.invalidationReason !== undefined,
   );
@@ -274,14 +320,14 @@ export function allocateThoughtProjection(
     conversationSelection?: ThoughtInput["conversationSelection"];
   };
   const messageMemo = buildThoughtProjectionMessageMemo(opts.structuralFeedback);
-  const projectedInFlight = input.inFlight.map((item) => ({
+  const projectedInFlight = requiredSectionBounds.inFlight.map((item) => ({
     effectRef: mintEffectRef(input.cycleId, input.generation, item.effectId),
     status: item.status,
   }));
   const operationalNamespace = buildOperationalEffectNamespace(
     input.cycleId,
     input.generation,
-    input.inFlight.map((item) => item.effectId),
+    requiredSectionBounds.inFlight.map((item) => item.effectId),
   );
 
   const structuralTokens = (value: unknown): number => {
@@ -319,7 +365,7 @@ export function allocateThoughtProjection(
       ...(includeOrientationKernel && c2Input.orientationKernel !== undefined
         ? { orientationKernel: c2Input.orientationKernel }
         : {}),
-      learnedSelfSlice: input.learnedSelfSlice,
+      learnedSelfSlice: boundedLearnedSelfSlice,
       occupantId: input.occupantId,
       authorityEpoch: input.authorityEpoch,
       constitution: input.constitution,
@@ -330,7 +376,7 @@ export function allocateThoughtProjection(
       }),
       workingContext: wc,
       ...(input.deskEntries === undefined ? {} : { deskEntries }),
-      occupancy: input.occupancy,
+      occupancy: requiredSectionBounds.occupancy,
       ...(includeDomainPointers && c2Input.domainPointers !== undefined
         ? { domainPointers: c2Input.domainPointers }
         : {}),
@@ -345,7 +391,7 @@ export function allocateThoughtProjection(
       generation: input.generation,
       trigger: input.trigger,
       ...(input.commitmentDue === undefined ? {} : { commitmentDue: input.commitmentDue }),
-      observations: input.observations,
+      observations: requiredSectionBounds.observations,
       inFlight: projectedInFlight,
       allowedOperationalEffectRefs: [...operationalNamespace.allowedOperationalEffectRefs],
       authorityObjections: input.authorityObjections,

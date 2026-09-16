@@ -9,6 +9,14 @@ export const PROTECTED_HISTORY_ALLOCATION_BYTES = 9_216;
 export const REQUIRED_WC_PROJECTED_POOL_BYTES = 2_560;
 export const REQUIRED_WC_ITEM_BYTES = 640;
 
+/** Local bounds for required section projections. These do not raise the
+ * logical semantic envelope; they keep individual model-visible sections
+ * mechanically bounded before the envelope allocator runs. */
+export const REQUIRED_LEARNED_SELF_BYTES = REQUIRED_WC_ITEM_BYTES;
+export const REQUIRED_OBSERVATION_COUNT = 8;
+export const REQUIRED_OBSERVATION_ITEM_BYTES = REQUIRED_WC_ITEM_BYTES;
+export const REQUIRED_OCCUPANCY_COUNT = 12;
+
 export const ATTACHMENT_AVAILABILITY = [
   "CONTENT_AVAILABLE",
   "PARTIALLY_AVAILABLE",

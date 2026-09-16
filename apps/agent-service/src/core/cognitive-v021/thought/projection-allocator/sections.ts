@@ -6,10 +6,12 @@ import type {
 import type {
   EpistemicDimensions,
   InFlightRecord,
+  LearnedSelfSlice,
   MindOccupancy,
   Observation,
   DeskEntry,
   ThoughtInput,
+  ThoughtOccupancy,
   WorkingContextItem,
 } from "../../types.js";
 import type { DomainPointersSection } from "../domain-pointers.js";
@@ -17,7 +19,12 @@ import type { IdentityOrientationKernel } from "../orientation-kernel.js";
 import type { C3ExperienceAdapterResult } from "../c3-adapter.js";
 import {
   PROTECTED_PRIOR_DIALOGUE_COUNT,
+  REQUIRED_LEARNED_SELF_BYTES,
+  REQUIRED_OBSERVATION_COUNT,
+  REQUIRED_OBSERVATION_ITEM_BYTES,
+  REQUIRED_OCCUPANCY_COUNT,
   type DialogueProtection,
+  utf8JsonBytes,
 } from "./composition-contract.js";
 import {
   applyAuthoritativeInvalidations,
@@ -27,6 +34,10 @@ import {
   type ContinuityLineageContext,
   type CoverageDisposition,
 } from "../continuity-candidate.js";
+import {
+  attachOccupiedConcernProjection,
+  getOccupiedConcernProjection,
+} from "../occupied-concerns.js";
 
 export type AllocationSectionId =
   | "orientation_kernel"
@@ -173,10 +184,97 @@ export function allocationTokenComponent(
   return "authority_revision_feedback_tokens";
 }
 
+export type RequiredSectionBounds = Readonly<{
+  learnedSelfSlice: LearnedSelfSlice | null;
+  observations: Observation[];
+  occupancy: ThoughtOccupancy[];
+  inFlight: InFlightRecord[];
+}>;
+
+function learnedSelfWithoutLinkedAudience(
+  slice: LearnedSelfSlice,
+): LearnedSelfSlice {
+  const descriptors = Object.getOwnPropertyDescriptors(slice);
+  delete descriptors.personLinked;
+  const broad = slice.broadOrientation;
+  if (broad !== undefined) {
+    if (descriptors.dispositions !== undefined) {
+      descriptors.dispositions = {
+        ...descriptors.dispositions,
+        value: [...broad.dispositions],
+      };
+    }
+    if (descriptors.interests !== undefined) {
+      descriptors.interests = {
+        ...descriptors.interests,
+        value: [...broad.interests],
+      };
+    }
+    if (broad.supportRefs !== undefined && broad.supportRefs.length > 0) {
+      descriptors.supportRefs = {
+        ...(descriptors.supportRefs ?? {
+          configurable: true,
+          enumerable: true,
+          writable: true,
+        }),
+        value: [...broad.supportRefs],
+      };
+    } else {
+      delete descriptors.supportRefs;
+    }
+  }
+  return Object.defineProperties({}, descriptors) as LearnedSelfSlice;
+}
+
+function boundLearnedSelfSlice(
+  slice: LearnedSelfSlice | undefined,
+): LearnedSelfSlice | null {
+  if (slice === undefined || slice === null || typeof slice !== "object") return null;
+  if (utf8JsonBytes(slice) <= REQUIRED_LEARNED_SELF_BYTES) return slice;
+  const broadOnly = learnedSelfWithoutLinkedAudience(slice);
+  return utf8JsonBytes(broadOnly) <= REQUIRED_LEARNED_SELF_BYTES
+    ? broadOnly
+    : null;
+}
+
+function boundObservations(observations: readonly Observation[]): Observation[] {
+  return [...observations]
+    .sort((left, right) => right.generation - left.generation
+      || left.observationId.localeCompare(right.observationId))
+    .filter((observation) => utf8JsonBytes(observation) <= REQUIRED_OBSERVATION_ITEM_BYTES)
+    .slice(0, REQUIRED_OBSERVATION_COUNT);
+}
+
+function boundOccupancy(occupancy: readonly ThoughtOccupancy[]): ThoughtOccupancy[] {
+  const selected = [...occupancy]
+    .sort((left, right) => right.priority - left.priority
+      || right.updatedGeneration - left.updatedGeneration
+      || left.concernId.localeCompare(right.concernId))
+    .slice(0, REQUIRED_OCCUPANCY_COUNT);
+  const existingProjection = getOccupiedConcernProjection(occupancy);
+  if (existingProjection === undefined) return selected;
+  const selectedIds = new Set(selected.map((row) => row.concernId));
+  return attachOccupiedConcernProjection(
+    selected,
+    existingProjection.filter((row) => selectedIds.has(row.concernId)),
+  );
+}
+
+export function boundRequiredSectionData(input: ThoughtInput): RequiredSectionBounds {
+  return Object.freeze({
+    learnedSelfSlice: boundLearnedSelfSlice(input.learnedSelfSlice),
+    observations: boundObservations(input.observations ?? []),
+    occupancy: boundOccupancy(input.occupancy ?? []),
+    inFlight: [...(input.inFlight ?? [])].sort((left, right) =>
+      left.effectId.localeCompare(right.effectId)),
+  });
+}
+
 export function buildAllocationCandidates(
   input: ThoughtInput,
   compactRetrievalHits: CompactRetrievalEvidence[],
   continuityContext?: ContinuityLineageContext,
+  requiredSectionBounds: RequiredSectionBounds = boundRequiredSectionData(input),
 ): AllocationCandidate[] {
   const candidates: AllocationCandidate[] = [];
 
@@ -315,7 +413,7 @@ export function buildAllocationCandidates(
     section: "learned_self",
     required: true,
     priority: 6,
-    data: input.learnedSelfSlice,
+    data: requiredSectionBounds.learnedSelfSlice ?? input.learnedSelfSlice,
   });
 
   // 6. Observations (required if non-empty)
@@ -325,7 +423,7 @@ export function buildAllocationCandidates(
       section: "observations",
       required: true,
       priority: 6,
-      data: input.observations,
+      data: requiredSectionBounds.observations,
     });
   }
 
@@ -336,7 +434,7 @@ export function buildAllocationCandidates(
       section: "in_flight_receipt",
       required: true,
       priority: 7,
-      data: input.inFlight.map((item) => ({
+      data: requiredSectionBounds.inFlight.map((item) => ({
         effectRef: mintEffectRef(input.cycleId, input.generation, item.effectId),
         status: item.status,
       })),
@@ -396,7 +494,7 @@ export function buildAllocationCandidates(
       section: "occupancy_compact",
       required: true,
       priority: 11,
-      data: input.occupancy,
+      data: requiredSectionBounds.occupancy,
     });
   }
 

@@ -14,6 +14,11 @@ import { buildOrientationKernel } from "../../orientation-kernel.js";
 import type { DomainPointersSection } from "../../domain-pointers.js";
 import { buildCoverageManifest } from "../../coverage-manifest.js";
 import { modelVisibleThoughtProjection } from "../../projection.js";
+import {
+  REQUIRED_LEARNED_SELF_BYTES,
+  REQUIRED_OBSERVATION_ITEM_BYTES,
+} from "../composition-contract.js";
+import { mintEffectRef } from "../../../effect/effect-ref.js";
 
 function makeThoughtInput(overrides: Partial<ThoughtInput> = {}): ThoughtInput {
   return {
@@ -1017,5 +1022,188 @@ describe("Whole-Thought Projection Allocator", () => {
         disposition: "OMITTED_FOR_BUDGET",
       }),
     ]));
+  });
+
+  it("bounds required observations by newest eligible generation and item bytes", () => {
+    const observations = [
+      {
+        observationId: "observation-too-large",
+        cycleId: "cycle-test-1",
+        generation: 100,
+        derived: false,
+        replaySafe: true,
+        modality: "text" as const,
+        payload: { text: "oversized observation ".repeat(100) },
+        provenance: "test:oversized",
+        dataClassification: "ordinary" as const,
+        secretOmitted: false,
+      },
+      ...Array.from({ length: 10 }, (_, index) => ({
+        observationId: `observation-${index + 1}`,
+        cycleId: "cycle-test-1",
+        generation: index + 1,
+        derived: false,
+        replaySafe: true,
+        modality: "text" as const,
+        payload: { text: `observation ${index + 1}` },
+        provenance: `test:${index + 1}`,
+        dataClassification: "ordinary" as const,
+        secretOmitted: false,
+      })),
+    ];
+
+    const allocated = allocateThoughtProjection({
+      thoughtInput: makeThoughtInput({ observations }),
+      semanticBudgetTokens: 32_768,
+      requestId: "req-required-observation-local-contract",
+    });
+    const visible = modelVisibleThoughtProjection(allocated.projected) as {
+      observations: typeof observations;
+    };
+
+    expect(visible.observations).toHaveLength(8);
+    expect(visible.observations.map((observation) => observation.observationId)).toEqual([
+      "observation-10",
+      "observation-9",
+      "observation-8",
+      "observation-7",
+      "observation-6",
+      "observation-5",
+      "observation-4",
+      "observation-3",
+    ]);
+    expect(visible.observations.every(
+      (observation) => JSON.stringify(observation).length <= REQUIRED_OBSERVATION_ITEM_BYTES,
+    )).toBe(true);
+    expect(visible.observations.some(
+      (observation) => observation.observationId === "observation-too-large",
+    )).toBe(false);
+  });
+
+  it("fails closed when no required observation can fit its local item bound", () => {
+    const observations = Array.from({ length: 2 }, (_, index) => ({
+      observationId: `observation-overflow-${index}`,
+      cycleId: "cycle-test-1",
+      generation: index + 1,
+      derived: false,
+      replaySafe: true,
+      modality: "text" as const,
+      payload: { text: "oversized observation ".repeat(100) },
+      provenance: `test:overflow:${index}`,
+      dataClassification: "ordinary" as const,
+      secretOmitted: false,
+    }));
+
+    expect(() => allocateThoughtProjection({
+      thoughtInput: makeThoughtInput({ observations }),
+      requestId: "req-required-observation-local-overflow",
+    })).toThrowError(expect.objectContaining({
+      section: "observations",
+    }));
+  });
+
+  it("drops linked learned-self entries before the broad slice at its local byte bound", () => {
+    const broadOrientation = {
+      dispositions: ["broad disposition"],
+      interests: ["broad interest"],
+      supportRefs: ["broad-support"],
+      audienceScope: { kind: "owner_private" as const },
+      protectionStatus: "admitted" as const,
+    };
+    const learnedSelfSlice = {
+      dispositions: ["broad disposition", "linked detail ".repeat(100)],
+      interests: ["broad interest"],
+      supportRefs: ["broad-support", "linked-support"],
+      broadOrientation,
+      personLinked: [{
+        audience: { kind: "dm" as const, principalId: "person-1" },
+        dispositions: ["linked detail ".repeat(100)],
+        interests: [],
+        sourceRefs: ["linked-source"],
+        supportRefs: ["linked-support"],
+        protectionStatus: "admitted" as const,
+      }],
+    };
+
+    const allocated = allocateThoughtProjection({
+      thoughtInput: makeThoughtInput({ learnedSelfSlice }),
+      semanticBudgetTokens: 32_768,
+      requestId: "req-learned-self-local-contract",
+    });
+    const visible = modelVisibleThoughtProjection(allocated.projected) as {
+      learnedSelfSlice: typeof learnedSelfSlice;
+    };
+
+    expect(Buffer.byteLength(JSON.stringify(visible.learnedSelfSlice), "utf8"))
+      .toBeLessThanOrEqual(REQUIRED_LEARNED_SELF_BYTES);
+    expect(visible.learnedSelfSlice.dispositions).toEqual(["broad disposition"]);
+    expect(visible.learnedSelfSlice.interests).toEqual(["broad interest"]);
+    expect(visible.learnedSelfSlice.supportRefs).toEqual(["broad-support"]);
+    expect(visible.learnedSelfSlice).not.toHaveProperty("personLinked");
+  });
+
+  it("fails closed when the broad learned-self slice remains over its local byte bound", () => {
+    const learnedSelfSlice = {
+      dispositions: ["broad disposition ".repeat(100)],
+      interests: [],
+      broadOrientation: {
+        dispositions: ["broad disposition ".repeat(100)],
+        interests: [],
+        audienceScope: { kind: "owner_private" as const },
+        protectionStatus: "admitted" as const,
+      },
+      personLinked: [],
+    };
+
+    expect(() => allocateThoughtProjection({
+      thoughtInput: makeThoughtInput({ learnedSelfSlice }),
+      requestId: "req-learned-self-local-overflow",
+    })).toThrowError(expect.objectContaining({
+      section: "learned_self",
+    }));
+  });
+
+  it("keeps the highest-priority newest occupancy rows and exact in-flight effect IDs", () => {
+    const occupancy = Array.from({ length: 15 }, (_, index) => ({
+      conversationId: "conv-1",
+      concernId: `concern-${index}`,
+      status: "active" as const,
+      priority: index % 5,
+      updatedCycle: "cycle-test-1",
+      updatedGeneration: index,
+    }));
+    const inFlight = ["effect-z", "effect-a", "effect-m"].map((effectId, index) => ({
+      effectId,
+      cycleId: "cycle-test-1",
+      generation: 1,
+      wakeId: null,
+      correlationId: `correlation-${effectId}`,
+      idempotencyKey: `idempotency-${effectId}`,
+      status: "in_flight" as const,
+      dispatchedAtMs: index + 1,
+      originJobId: null,
+      originEventId: null,
+      originAttemptId: null,
+    }));
+    const expectedOccupancy = [...occupancy]
+      .sort((left, right) => right.priority - left.priority
+        || right.updatedGeneration - left.updatedGeneration
+        || left.concernId.localeCompare(right.concernId))
+      .slice(0, 12)
+      .map((row) => row.concernId);
+
+    const allocated = allocateThoughtProjection({
+      thoughtInput: makeThoughtInput({ occupancy, inFlight }),
+      semanticBudgetTokens: 32_768,
+      requestId: "req-occupancy-inflight-local-contract",
+    });
+
+    expect(allocated.projected.occupancy.map((row) => row.concernId))
+      .toEqual(expectedOccupancy);
+    expect(allocated.projected.inFlight.map((row) => row.effectRef)).toEqual([
+      mintEffectRef("cycle-test-1", 1, "effect-a"),
+      mintEffectRef("cycle-test-1", 1, "effect-m"),
+      mintEffectRef("cycle-test-1", 1, "effect-z"),
+    ]);
   });
 });
