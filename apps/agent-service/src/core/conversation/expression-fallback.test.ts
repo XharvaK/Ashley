@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { DatabaseSync } from "node:sqlite";
 import { env } from "../../env.js";
 import { openNuclearDb } from "../db.js";
+import { getCapabilityReality } from "../cognitive-v021/thought/capability-reality.js";
 import { AppError } from "../../errors.js";
 import type { ChatMessage } from "../model-routing/types.js";
 import type { CognitiveDispatchOptions } from "../../mistral-client.js";
@@ -22,6 +23,7 @@ type SavedEnv = {
   enabled: boolean;
   kinds: string[];
   recentTurns: number;
+  sandboxEngineeringLifecycleEnabled: boolean;
 };
 
 function saveEnv(): SavedEnv {
@@ -29,6 +31,7 @@ function saveEnv(): SavedEnv {
     enabled: env.expressionFallbackEnabled,
     kinds: [...env.mistralOnlyKinds],
     recentTurns: env.expressionFallbackRecentTurns,
+    sandboxEngineeringLifecycleEnabled: env.sandboxEngineeringLifecycleEnabled,
   };
 }
 
@@ -37,6 +40,7 @@ function restoreEnv(saved: SavedEnv) {
   env.mistralOnlyKinds = [...saved.kinds];
   (env as { expressionFallbackRecentTurns: number }).expressionFallbackRecentTurns =
     saved.recentTurns;
+  env.sandboxEngineeringLifecycleEnabled = saved.sandboxEngineeringLifecycleEnabled;
 }
 
 function baseDecision(overrides: Partial<Decision> = {}): Decision {
@@ -188,6 +192,33 @@ describe("expression fallback (Wave 3)", () => {
     expect(fake.calls[0].options?.route).toBe("ashley_expression");
     expect(fake.calls[0].options?.attentionDb).toBe(db);
     expect(result.model).toBe("model");
+  });
+
+  it("uses effective CapabilityReality and hides unavailable inquiry and M6 from Expression", async () => {
+    setup();
+    env.sandboxEngineeringLifecycleEnabled = false;
+    const reality = getCapabilityReality(db);
+    const fake = makeFake({});
+
+    await expressSpeak(
+      makeTurn(),
+      baseDecision(),
+      USER_MARKER,
+      "discord",
+      { attentionDb: db },
+      fake.fn,
+    );
+
+    const system = String(fake.calls[0]?.messages[0]?.content ?? "");
+    expect(reality.canOfferInquiry).toBe(false);
+    expect(system).toContain("CapabilityReality (mechanical availability; not desire):");
+    expect(system).toContain(`- vision: ${reality.vision ? "available" : "unavailable"}`);
+    expect(system).toContain(`- attachment_text: ${reality.attachmentText ? "available" : "unavailable"}`);
+    expect(system).toContain(`- conversational_read: ${reality.conversationalRead ? "available" : "unavailable"}`);
+    expect(system).toContain(`- web_search: ${reality.webSearch ? "available" : "unavailable"}`);
+    expect(system).toContain("- bounded inquiry: unavailable under current authority gates.");
+    expect(system).not.toContain("Bounded operation (M6):");
+    expect(system).not.toContain("objective.operate");
   });
 
   it("T2 primary complete hop receives the same attentionDb expressSpeak was given", async () => {

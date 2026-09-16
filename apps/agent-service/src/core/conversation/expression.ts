@@ -20,7 +20,8 @@ import { stripPipelineNarration } from "../../lib/metadata-echo.js";
 import type { Decision } from "../types.js";
 import type { NuclearPromptChannel } from "./prompts.js";
 import { renderForTransport } from "./rendering.js";
-import { composeSelfCapabilityContext } from "../perception/capability-self-model.js";
+import { getCapabilityReality } from "../cognitive-v021/thought/capability-reality.js";
+import type { CapabilityReality } from "../cognitive-v021/types.js";
 import { renderMemoryContextMessage } from "../memory/context-role.js";
 import type { PerceptionInlinePart } from "../perception/types.js";
 import {
@@ -60,6 +61,23 @@ export type RenderedOutput = {
   model: string;
   readingLicensed: boolean;
 };
+
+function renderCapabilityReality(reality: CapabilityReality): string {
+  const availability = (value: boolean): string => value ? "available" : "unavailable";
+  return [
+    "CapabilityReality (mechanical availability; not desire):",
+    `- vision: ${availability(reality.vision)}`,
+    `- attachment_text: ${availability(reality.attachmentText)}`,
+    `- conversational_read: ${availability(reality.conversationalRead)}`,
+    `- web_search: ${availability(reality.webSearch)}`,
+    `- project_inspection: ${availability(reality.canOfferProjectInspection)}`,
+    `- candidate_workspace: ${availability(reality.canOfferWorkspace)}`,
+    `- candidate_verification: ${availability(reality.canOfferVerification)}`,
+    `- candidate_authorship: ${availability(reality.canOfferAuthorship)}`,
+    `- bounded inquiry: ${reality.canOfferInquiry ? "available" : "unavailable"} under current authority gates.`,
+    `- patch_export: ${availability(reality.canOfferPatchExport)}`,
+  ].join("\n");
+}
 
 function budgetExpressionMessages(
   db: DatabaseSync,
@@ -170,7 +188,7 @@ export async function expressSpeak(
     throw new DispatchDataPlaneMissingError();
   }
   const attentionDb = options.attentionDb;
-  const selfCapability = composeSelfCapabilityContext(attentionDb);
+  const selfCapability = renderCapabilityReality(getCapabilityReality(attentionDb));
 
   const system = [
     turn.systemPrompt,
