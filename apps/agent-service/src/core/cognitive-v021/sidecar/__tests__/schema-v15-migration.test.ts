@@ -1,6 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import { openCognitiveSidecarDb } from "../db.js";
+import { COGNITIVE_SIDECAR_SCHEMA_VERSION } from "../../types.js";
 import {
   COGNITIVE_SIDECAR_SCHEMA_V1,
   COGNITIVE_SIDECAR_SCHEMA_V2,
@@ -61,7 +62,7 @@ describe("cognitive sidecar Schema V15/V16 migration", () => {
     const db = createV14Fixture();
     try {
       openCognitiveSidecarDb(db, { dataPlane: { kind: "isolated" } });
-      expect((db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(16);
+      expect((db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(COGNITIVE_SIDECAR_SCHEMA_VERSION);
       expect(db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'desk_entries'").all())
         .toEqual([{ name: "desk_entries" }]);
       expect(db.prepare("PRAGMA table_info(desk_entries)").all()).toEqual(expect.arrayContaining([
@@ -83,7 +84,7 @@ describe("cognitive sidecar Schema V15/V16 migration", () => {
         expect.objectContaining({ name: "last_poll_outcome" }),
       ]));
       openCognitiveSidecarDb(db, { dataPlane: { kind: "isolated" } });
-      expect((db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(16);
+      expect((db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(COGNITIVE_SIDECAR_SCHEMA_VERSION);
       expect(db.prepare("SELECT COUNT(*) AS count FROM desk_entries").get()).toEqual({ count: 0 });
     } finally {
       db.close();

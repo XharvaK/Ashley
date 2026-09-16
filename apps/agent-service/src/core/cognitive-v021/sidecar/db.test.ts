@@ -214,8 +214,17 @@ describe("cognitive v0.2.1 sidecar database", () => {
       db.exec("DROP INDEX IF EXISTS idx_private_budget_consuming");
       db.exec("CREATE INDEX idx_private_budget_consuming ON private_budget_reservations(conversation_id, policy_id, policy_time_ms, state)");
       db.exec("DROP INDEX IF EXISTS idx_social_conv_lookup");
+      db.exec("DROP INDEX IF EXISTS idx_observation_subscriptions_external_poll");
       db.exec("DROP TABLE social_conversations");
       db.exec(`
+        ALTER TABLE observation_subscriptions DROP COLUMN expiry_opportunity_emitted_at_ms;
+        ALTER TABLE observation_subscriptions DROP COLUMN last_poll_outcome;
+        ALTER TABLE observation_subscriptions DROP COLUMN last_polled_at_ms;
+        ALTER TABLE observation_subscriptions DROP COLUMN requester_id;
+        ALTER TABLE observation_subscriptions DROP COLUMN expires_at_ms;
+        ALTER TABLE observation_subscriptions DROP COLUMN poll_interval_ms;
+        ALTER TABLE observation_subscriptions DROP COLUMN external_source_url_pattern;
+        ALTER TABLE observation_subscriptions DROP COLUMN external_source_type;
         ALTER TABLE conversation_evidence_log DROP COLUMN provenance_json;
         ALTER TABLE conversation_evidence_log DROP COLUMN attachment_refs_json;
         ALTER TABLE conversation_evidence_log DROP COLUMN mention_ids_json;
@@ -501,9 +510,9 @@ describe("cognitive v0.2.1 sidecar database", () => {
   it("rejects newer sidecar content and rolls back a failed v2 upgrade", () => {
     const newer = new DatabaseSync(":memory:");
     try {
-      newer.exec("PRAGMA user_version = 16");
+      newer.exec("PRAGMA user_version = 18");
       expect(() => openCognitiveSidecarDb(newer, { dataPlane: { kind: "isolated" } }))
-        .toThrow("unsupported_cognitive_sidecar_schema:16>15");
+        .toThrow("unsupported_cognitive_sidecar_schema:18>17");
     } finally {
       newer.close();
     }

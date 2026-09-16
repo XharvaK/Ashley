@@ -782,3 +782,9 @@ CREATE INDEX IF NOT EXISTS idx_observation_subscriptions_external_poll
   ON observation_subscriptions(cancelled, expires_at_ms, last_polled_at_ms, subscription_id);
 UPDATE cognitive_sidecar_meta SET schema_version = 16, projection_state = 'reconciling' WHERE id = 1;
 `;
+
+export const COGNITIVE_SIDECAR_SCHEMA_V17 = String.raw`
+UPDATE conversation_evidence_log SET speaker_kind = 'owner' WHERE role = 'owner' AND speaker_kind IS NULL;
+UPDATE conversation_evidence_log SET speaker_kind = 'ashley' WHERE role = 'ashley' AND speaker_kind IS NULL;
+UPDATE cognitive_sidecar_meta SET schema_version = 17, projection_state = 'reconciling' WHERE id = 1;
+`;
