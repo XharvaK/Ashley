@@ -177,7 +177,7 @@ describe("v0.2.1 ThoughtInput assembly", () => {
       expect(input.concernSnapshots).toEqual({ "concern-selected": "selected-v1" });
       expect(source.workingContextOrder).toEqual([]);
       expect(source.occupancySelection).toMatchObject({
-        limit: 8,
+        limit: 12,
         selected: [expect.objectContaining({ concernId: "concern-selected" })],
       });
       expect(source.concernDependencies).toMatchObject({
@@ -226,7 +226,7 @@ describe("v0.2.1 ThoughtInput assembly", () => {
       expect(input.rawConversation).toHaveLength(12);
       expect(input.rawConversation.at(-1)?.text).toBe("turn 19 HY19");
       expect(input.workingContext).toHaveLength(100);
-      expect(input.occupancy).toHaveLength(8);
+      expect(input.occupancy).toHaveLength(12);
       expect(input.occupancy[0]?.concernId).toBe("concern-0");
       expect(input.retrieval.request.triggerTerms).toEqual(expect.arrayContaining(["explain", "hy19", "carefully"]));
       expect(input.retrieval.hits).toEqual(expect.arrayContaining([
