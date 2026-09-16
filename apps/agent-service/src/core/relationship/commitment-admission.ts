@@ -6,6 +6,7 @@ import {
   markClaimOutcome,
   tryClaimRelationshipMotivation,
 } from "./claims.js";
+import { getRaEffectiveConfig, type RaEnvironment } from "./ra-effective-config.js";
 import type {
   CommitmentProposal,
   CommitmentRealizationBinding,
@@ -219,13 +220,9 @@ function resultWithReplay(result: CommitmentSettlement): CommitmentSettlement {
   return { ...result, idempotentReplay: true } as CommitmentSettlement;
 }
 
-function isCommitmentEnabledValue(value: unknown): boolean {
-  return value === true || value === "true" || value === "1";
-}
-
 /** Explicit activation is required; missing and malformed values fail closed. */
-export function isCommitmentsEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
-  return isCommitmentEnabledValue(env.RA_COMMITMENTS);
+export function isCommitmentsEnabled(env: RaEnvironment = process.env): boolean {
+  return getRaEffectiveConfig(env).commitmentsEnabled;
 }
 
 function activeCount(db: DatabaseSync, ownerId: string): number {

@@ -41,6 +41,7 @@ import {
 import { sanitizeFutureTriggerPayload } from "../initiative/future-triggers.js";
 import { beginConsequenceInTransaction, getWakeForCycle, getWake } from "../wake/ledger.js";
 import { isAuthorizedOwnerId } from "../../../owner-auth.js";
+import { getRaEffectiveConfig, type RaEnvironment } from "../../relationship/ra-effective-config.js";
 import {
   assertThoughtSourceCurrentness,
   isThoughtSourceCurrentnessError,
@@ -548,8 +549,8 @@ function boolFlag(value: unknown): boolean {
 }
 
 /** RA-P13 remains closed unless the explicit external-DM publication gate is set. */
-export function isExternalDmPublicationEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
-  return boolFlag(env.RA_DM_PUBLICATION);
+export function isExternalDmPublicationEnabled(env: RaEnvironment = process.env): boolean {
+  return getRaEffectiveConfig(env).dmPublicationEnabled;
 }
 
 function normalizeDestination(destination: ExternalPublicationDestination): ExternalDestination | null {

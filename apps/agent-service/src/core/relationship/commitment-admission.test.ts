@@ -14,6 +14,7 @@ import {
   settlePersistedCommitmentProposals,
   COMMITMENT_PROVISIONAL_ORPHAN,
   type CommitmentProposal,
+  isCommitmentsEnabled,
 } from "./commitment-admission.js";
 import { grantPerson, revokePerson } from "./social-authority.js";
 
@@ -42,6 +43,13 @@ function revision(db: DatabaseSync): number {
 }
 
 describe("commitment admission and fidelity", () => {
+  it("uses the explicit fail-closed RA_COMMITMENTS forms", () => {
+    expect(isCommitmentsEnabled({ RA_COMMITMENTS: "true" })).toBe(true);
+    expect(isCommitmentsEnabled({ RA_COMMITMENTS: "1" })).toBe(true);
+    expect(isCommitmentsEnabled({})).toBe(false);
+    expect(isCommitmentsEnabled({ RA_COMMITMENTS: "TRUE" })).toBe(false);
+  });
+
   it("persists Host-owned ids, admits once, and leaves M1R unchanged", () => {
     const db = dbFixture();
     try {

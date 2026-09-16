@@ -14,6 +14,7 @@ import {
   readEligibilityBundle,
   type EligibilityBundle,
 } from "../../relationship/social-authority.js";
+import { getRaEffectiveConfig, type RaEnvironment } from "../../relationship/ra-effective-config.js";
 
 type Row = Record<string, unknown>;
 
@@ -31,28 +32,26 @@ export type ExternalDmPromotionResult = Readonly<{
   eventIds: readonly string[];
 }>;
 
-function flag(env: NodeJS.ProcessEnv, name: string): boolean {
-  return env[name] === "true" || env[name] === "1";
+export function externalDmPrincipal(env: RaEnvironment = process.env): string | null {
+  return getRaEffectiveConfig(env).dmPrincipal;
 }
 
-export function externalDmPrincipal(env: NodeJS.ProcessEnv = process.env): string | null {
-  const value = env.RA_DM_PRINCIPAL?.trim();
-  return value ? value : null;
+export function isExternalDmCognitionEnabled(env: RaEnvironment = process.env): boolean {
+  const config = getRaEffectiveConfig(env);
+  return config.dmCognitionEnabled && config.dmPrincipal !== null;
 }
 
-export function isExternalDmCognitionEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
-  return flag(env, "RA_DM_COGNITION") && externalDmPrincipal(env) !== null;
+export function isExternalDmPublicationEnabled(env: RaEnvironment = process.env): boolean {
+  const config = getRaEffectiveConfig(env);
+  return config.dmPublicationEnabled && config.dmPrincipal !== null;
 }
 
-export function isExternalDmPublicationEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
-  return flag(env, "RA_DM_PUBLICATION") && externalDmPrincipal(env) !== null;
-}
-
-export function readExternalDmActivation(env: NodeJS.ProcessEnv = process.env): ExternalDmActivation {
+export function readExternalDmActivation(env: RaEnvironment = process.env): ExternalDmActivation {
+  const config = getRaEffectiveConfig(env);
   return {
-    principalId: externalDmPrincipal(env),
-    cognitionEnabled: isExternalDmCognitionEnabled(env),
-    publicationEnabled: isExternalDmPublicationEnabled(env),
+    principalId: config.dmPrincipal,
+    cognitionEnabled: config.dmCognitionEnabled && config.dmPrincipal !== null,
+    publicationEnabled: config.dmPublicationEnabled && config.dmPrincipal !== null,
   };
 }
 

@@ -3,6 +3,7 @@ import {
   upsertTrustedRoomInExistingTransaction,
   type TrustedRoom,
 } from "./social-authority.js";
+import { getRaEffectiveConfig } from "./ra-effective-config.js";
 
 export type OwnerRoomSeedSource = {
   ownerId: string;
@@ -39,7 +40,7 @@ function seedJson(sourceSpan: unknown, ambiguous: boolean): unknown {
 /** RA_ROOM_SEED_ACTIVE is deliberately false unless explicitly enabled. */
 export function isRoomSeedActive(source: SeedEnvironment = process.env): boolean {
   const raw = source.RA_ROOM_SEED_ACTIVE ?? source.raRoomSeedActive;
-  return raw === true || raw === "true" || raw === "1";
+  return getRaEffectiveConfig({ RA_ROOM_SEED_ACTIVE: raw }).roomSeedActive;
 }
 
 /**

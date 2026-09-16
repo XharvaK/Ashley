@@ -25,6 +25,7 @@ import {
   classifyEligibility,
   readEligibilityBundle,
 } from "../../relationship/social-authority.js";
+import { getRaEffectiveConfig, type RaEnvironment } from "../../relationship/ra-effective-config.js";
 import { isRoomSeedActive } from "../../relationship/room-seeding.js";
 import { isRoomPublicationEnabled, roomIdentity } from "../social/room-activation.js";
 
@@ -395,8 +396,8 @@ const MAX_EXTERNAL_MENTIONS = 100;
 const MAX_SOCIAL_NOTIFICATION_WINDOW_MS = 15 * 60_000;
 const MAX_SOCIAL_NOTIFICATIONS_PER_DAY = 20;
 
-export function isExternalSocialCaptureEnabled(): boolean {
-  return process.env.RA_SOCIAL_CAPTURE === "true" || process.env.RA_SOCIAL_CAPTURE === "1";
+export function isExternalSocialCaptureEnabled(env: RaEnvironment = process.env): boolean {
+  return getRaEffectiveConfig(env).socialCaptureEnabled;
 }
 
 function externalRecord(value: unknown): ExternalRecord | null {

@@ -7,12 +7,12 @@ import { absorbFreshMessagesInTransaction } from "../cycle/fence.js";
 import { getEvidenceByRowId } from "../evidence/conversation-log.js";
 import type { ConversationEvidenceRecord } from "../types.js";
 import type { DepRef, HardDependencyBundle } from "./types.js";
+import { getRaEffectiveConfig, type RaEnvironment } from "../../relationship/ra-effective-config.js";
 import {
   classifyEligibility,
   readEligibilityBundle,
   type EligibilityBundle,
 } from "../../relationship/social-authority.js";
-import { isRoomSeedActive } from "../../relationship/room-seeding.js";
 
 type Row = Record<string, unknown>;
 
@@ -46,18 +46,18 @@ export function roomIdentity(guildId: string, channelId: string): string {
   return `room:${guild}:${channel}`;
 }
 
-export function configuredRoomChannel(env: NodeJS.ProcessEnv = process.env): string | null {
-  const value = env.RA_ROOM_PUBLICATION?.trim();
-  return value || null;
+export function configuredRoomChannel(env: RaEnvironment = process.env): string | null {
+  return getRaEffectiveConfig(env).roomPublicationChannelId;
 }
 
 /** The staged room gate is one explicitly configured Discord channel. */
 export function isRoomPublicationEnabled(
-  env: NodeJS.ProcessEnv = process.env,
+  env: RaEnvironment = process.env,
   channelId?: string,
 ): boolean {
-  const configured = configuredRoomChannel(env);
-  return isRoomSeedActive(env) && configured !== null
+  const config = getRaEffectiveConfig(env);
+  const configured = config.roomPublicationChannelId;
+  return config.roomSeedActive && configured !== null
     && (channelId === undefined || configured === channelId.trim());
 }
 

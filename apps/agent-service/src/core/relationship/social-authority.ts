@@ -8,6 +8,7 @@ import { advanceRelationalHardPolicyRevisionInTransaction } from "./hard-policy-
 import type { AvailableSocialDestination } from "../cognitive-v021/social/types.js";
 import { resolveActiveThread } from "../memory/threads.js";
 import { isAuthorizedOwnerId } from "../../owner-auth.js";
+import { getRaEffectiveConfig, type RaEnvironment } from "./ra-effective-config.js";
 
 export type SocialPermitScope = "person_wide" | "dm_only" | "room_only";
 export type TrustedRoomMode = "trusted_social" | "observe_only" | "disengaged";
@@ -101,14 +102,13 @@ export type EligibilityBundle = {
 };
 
 /** Owner-set bot identity used only for person-wide DM admission. */
-export function configuredBotDmPrincipal(env: NodeJS.ProcessEnv = process.env): string | null {
-  const value = env.RA_BOT_DM?.trim();
-  return value ? value : null;
+export function configuredBotDmPrincipal(env: RaEnvironment = process.env): string | null {
+  return getRaEffectiveConfig(env).botDmPrincipal;
 }
 
 export function isConfiguredBotDmPrincipal(
   principalId: string,
-  env: NodeJS.ProcessEnv = process.env,
+  env: RaEnvironment = process.env,
 ): boolean {
   return configuredBotDmPrincipal(env) === principalId.trim();
 }

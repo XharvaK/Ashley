@@ -63,6 +63,44 @@ loadWindowsUserEnvFallback();
 
 const numericWarnings: string[] = [];
 
+export type DiscordRaEffectiveConfig = Readonly<{
+  commitmentsEnabled: boolean;
+  dmPublicationEnabled: boolean;
+  roomPublicationChannelId: string | null;
+  roomSeedActive: boolean;
+  socialCaptureEnabled: boolean;
+  botDmPrincipal: string | null;
+  dmPrincipal: string | null;
+  dmCognitionEnabled: boolean;
+}>;
+
+type RaEnvironment = Readonly<Record<string, unknown>>;
+
+function raFlag(value: unknown): boolean {
+  return value === true || value === "true" || value === "1";
+}
+
+function raPrincipal(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed || null;
+}
+
+export function getRaEffectiveConfig(env: RaEnvironment = process.env): DiscordRaEffectiveConfig {
+  return {
+    commitmentsEnabled: raFlag(env.RA_COMMITMENTS),
+    dmPublicationEnabled: raFlag(env.RA_DM_PUBLICATION),
+    roomPublicationChannelId: raPrincipal(env.RA_ROOM_PUBLICATION),
+    roomSeedActive: raFlag(env.RA_ROOM_SEED_ACTIVE),
+    socialCaptureEnabled: raFlag(env.RA_SOCIAL_CAPTURE),
+    botDmPrincipal: raPrincipal(env.RA_BOT_DM),
+    dmPrincipal: raPrincipal(env.RA_DM_PRINCIPAL),
+    dmCognitionEnabled: raFlag(env.RA_DM_COGNITION),
+  };
+}
+
+const raEffectiveConfig = getRaEffectiveConfig();
+
 const configuredAllowedChannels = (process.env.DISCORD_ALLOWED_CHANNELS ?? "")
   .split(",")
   .map((s) => s.trim())
@@ -105,11 +143,10 @@ export const config = {
   },
   // External social substrate remains closed unless explicitly activated by
   // the operator. A missing or malformed value is false.
-  socialCaptureEnabled:
-    process.env.RA_SOCIAL_CAPTURE === "true" || process.env.RA_SOCIAL_CAPTURE === "1",
+  socialCaptureEnabled: raEffectiveConfig.socialCaptureEnabled,
   // A single Owner-set bot identity may receive person-wide DM admission.
   // The agent-service repeats this check authoritatively.
-  botDmPrincipal: process.env.RA_BOT_DM?.trim() ?? "",
+  botDmPrincipal: raEffectiveConfig.botDmPrincipal ?? "",
   agentUrl: process.env.AGENT_SERVICE_URL ?? "http://127.0.0.1:3710",
   proactiveEnabled: process.env.PROACTIVE_ENABLED !== "false",
   proactiveCheckIntervalMin: numericEnv(

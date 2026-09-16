@@ -3,7 +3,7 @@ import {
   type DMChannel,
   type SendableChannels,
 } from "discord.js";
-import { config } from "../config.js";
+import { config, getRaEffectiveConfig } from "../config.js";
 import { channelQueue } from "../chat/channel-queue.js";
 import { splitMessage } from "../chat/split-message.js";
 import {
@@ -70,13 +70,13 @@ function deliveryTarget(destination: unknown): DeliveryTarget {
 }
 
 function externalDmPublicationEnabled(): boolean {
-  return process.env.RA_DM_PUBLICATION === "true" || process.env.RA_DM_PUBLICATION === "1";
+  return getRaEffectiveConfig().dmPublicationEnabled;
 }
 
 function roomPublicationEnabled(channelId: string): boolean {
-  const configured = process.env.RA_ROOM_PUBLICATION?.trim();
-  const seedActive = process.env.RA_ROOM_SEED_ACTIVE === "true" || process.env.RA_ROOM_SEED_ACTIVE === "1";
-  return seedActive && Boolean(configured) && configured === channelId;
+  const raConfig = getRaEffectiveConfig();
+  return raConfig.roomSeedActive
+    && raConfig.roomPublicationChannelId === channelId;
 }
 
 function externalTarget(target: DeliveryTarget): target is Extract<DeliveryTarget, { kind: "external_dm" | "room" }> {
@@ -413,7 +413,7 @@ export function startFulfillmentPump(
       // The social notification lane is independently gated. Existing test
       // seams that inject only the cognitive claim function do not acquire a
       // second remote lane accidentally.
-      if (config.socialCaptureEnabled && (deps === undefined || deps.claimSocial)) {
+      if (getRaEffectiveConfig().socialCaptureEnabled && (deps === undefined || deps.claimSocial)) {
         await drainPendingSocialNotifications(
           client,
           deps === undefined

@@ -1,4 +1,4 @@
-import { config } from "../config.js";
+import { config, getRaEffectiveConfig } from "../config.js";
 import type { Message } from "discord.js";
 
 export type GateVerdict = "drop" | "capture_quarantine" | "allow_social";
@@ -77,10 +77,11 @@ export function ownerRoomContextForMessage(
   const ownerId = (options.ownerId ?? config.ownerId).trim();
   const guildId = (options.guildId ?? config.trustedRoomSeed.guildId).trim();
   const channelIds = options.channelIds ?? config.trustedRoomSeed.channelIds;
+  const raConfig = getRaEffectiveConfig();
   const roomSeedActive = options.roomSeedActive
-    ?? (process.env.RA_ROOM_SEED_ACTIVE === "true" || process.env.RA_ROOM_SEED_ACTIVE === "1");
+    ?? raConfig.roomSeedActive;
   const publicationChannelId = options.publicationChannelId === undefined
-    ? process.env.RA_ROOM_PUBLICATION?.trim() || null
+    ? raConfig.roomPublicationChannelId
     : options.publicationChannelId?.trim() || null;
   const messageGuildId = message.guild?.id?.trim();
   const channelId = message.channel?.id?.trim();

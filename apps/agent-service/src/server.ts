@@ -83,6 +83,7 @@ import {
   readEligibilityBundle,
 } from "./core/relationship/social-authority.js";
 import { isRoomSeedActive } from "./core/relationship/room-seeding.js";
+import { getRaEffectiveConfig } from "./core/relationship/ra-effective-config.js";
 
 const C5_CLASSIFICATIONS = ["ordinary", "sensitive", "never_public", "secret"] as const;
 const C5_OPERATIONS = [
@@ -2373,7 +2374,10 @@ export function createServer(
           throw new AppError("forbidden", "Forbidden", 403);
         }
       }
-      res.json(manager.core.getProactiveStatus(ownerId));
+      res.json({
+        ...manager.core.getProactiveStatus(ownerId),
+        raEffectiveConfig: getRaEffectiveConfig(),
+      });
     } catch (err) {
       const { status, body } = toErrorResponse(err);
       res.status(status).json(body);

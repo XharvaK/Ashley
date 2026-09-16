@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Client, DMChannel, Message, User } from "discord.js";
+import { getRaEffectiveConfig } from "../config.js";
 import {
   drainPendingCognitiveDeliveries,
   startFulfillmentPump,
@@ -8,6 +9,15 @@ import {
   type FulfillmentPumpDependencies,
 } from "./fulfillment-pump.js";
 import type { PendingDelivery } from "../agent-client.js";
+
+test("Discord RA parser uses the same fail-closed forms", () => {
+  assert.equal(getRaEffectiveConfig({ RA_SOCIAL_CAPTURE: "true" }).socialCaptureEnabled, true);
+  assert.equal(getRaEffectiveConfig({ RA_SOCIAL_CAPTURE: "1" }).socialCaptureEnabled, true);
+  assert.equal(getRaEffectiveConfig({ RA_SOCIAL_CAPTURE: "TRUE" }).socialCaptureEnabled, false);
+  assert.equal(getRaEffectiveConfig({}).socialCaptureEnabled, false);
+  assert.equal(getRaEffectiveConfig({ RA_BOT_DM: " principal " }).botDmPrincipal, "principal");
+  assert.equal(getRaEffectiveConfig({ RA_BOT_DM: "   " }).botDmPrincipal, null);
+});
 
 function makeFakeClient(
   channel: Partial<DMChannel> & { id: string },
