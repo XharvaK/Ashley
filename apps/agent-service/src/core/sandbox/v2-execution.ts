@@ -1467,7 +1467,10 @@ export async function executeCandidateVerificationV2(
   if (!bound.ok) {
     return none(bound.error);
   }
-  if (input.workspaceManager?.isInquiryExperimentWorkspace(bound.workspaceId)) {
+  if (
+    input.workspaceManager?.isInquiryExperimentWorkspace(bound.workspaceId) &&
+    !input.inquiry
+  ) {
     return none("inquiry_workspace_forbidden");
   }
   const boundRequest = {

@@ -3,6 +3,7 @@ import {
   executeProjectInspectionV2,
   executeWorkspaceExperimentV2,
   executeInquiryExperimentV2,
+  executeCandidateAuthorshipV2,
   executeReactiveSandboxTaskV2,
 } from "./v2-execution.js";
 import {
@@ -16,7 +17,7 @@ import {
   formatSandboxV2LicenseAudit,
   type SandboxV2LicenseAuditRecord,
 } from "./v2-license-audit.js";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -34,6 +35,9 @@ import type {
   SandboxV2Result,
   SandboxV2OperationResult,
 } from "@composer-assistant/sandbox-v2";
+import { WorkspaceManager } from "@composer-assistant/sandbox-v2";
+import { executePatchExportV2 } from "./patch-export-execution.js";
+import { persistProposedChangeSet } from "./changeset-store.js";
 
 const INQUIRY_HASH = "ab".repeat(32);
 
@@ -991,6 +995,155 @@ describe("Sandbox V2 Execution Adapter & Operator Registry", () => {
       expect(result.license.state).toBe("failed");
       expect(result.license.error).toBe("workspace_not_allowed");
       expect(result.observation).toBeNull();
+    });
+
+    it("runs inquiry M4 through a real WorkspaceManager and keeps M5/M7 candidate refusal", async () => {
+      const root = mkdtempSync(join(tmpdir(), "ashley-p27-inquiry-"));
+      const sourceRoot = join(root, "project");
+      mkdirSync(sourceRoot, { recursive: true });
+      writeFileSync(join(sourceRoot, "package.json"), "{}", "utf8");
+      const projectId = "project-ashley";
+      const recipeId = "typescript_fixture_compile_v1";
+      const manager = new WorkspaceManager({ managedRoot: join(root, "workspaces") });
+      const inquiry = {
+        experimentId: "p27-real-manager",
+        objective: "Can the bounded fixture prove the requested behavior?",
+        recipeId,
+        budgetDeadlineAtMs: Date.now() + 60_000,
+      };
+      const acquired = await manager.acquireInquiryWorkspace(
+        { projectId, canonicalRoot: sourceRoot },
+        inquiry,
+      );
+      expect(acquired.ok).toBe(true);
+      if (!acquired.ok) return;
+
+      const registry = new V2ProjectReadRegistry([{
+        projectId,
+        canonicalRoot: "/srv/projects/project-ashley",
+        displayName: "Ashley",
+        enabled: true,
+        readAllowed: true,
+        candidateWorkspaceAllowed: true,
+        engineeringAllowed: true,
+        verificationAllowed: true,
+        allowedRecipeIds: [recipeId],
+        authorshipAllowed: true,
+        patchExportAllowed: true,
+        exportDestinationCanonicalRoot: "/srv/exports/project-ashley",
+      }]);
+      const result = await executeInquiryExperimentV2({
+        request: {
+          operation: "objective.operate",
+          projectId,
+          experimentId: inquiry.experimentId,
+          objective: inquiry.objective,
+          workspaceId: acquired.workspaceId,
+          steps: [{
+            kind: "candidate_verification",
+            request: {
+              operation: "workspace.verify",
+              projectId,
+              workspaceId: acquired.workspaceId,
+              recipeId,
+            },
+          }],
+          budget: { maxSteps: 1, deadlineAtMs: inquiry.budgetDeadlineAtMs },
+        },
+        registry,
+        workspaceManager: manager,
+        skipCapabilityGate: true,
+        envOverrides: {
+          sandboxEngineeringLifecycleEnabled: true,
+          sandboxAvailable: () => true,
+          spawnVerification: async () => ({
+            exitCode: 0,
+            stdout: "",
+            stderr: "",
+            timedOut: false,
+            stdoutOverflow: false,
+            stderrOverflow: false,
+          }),
+        },
+      });
+
+      expect(result.state).toBe("succeeded");
+      expect(result.stepResults).toHaveLength(1);
+      expect(result.stepResults[0]?.license).toMatchObject({
+        state: "succeeded",
+        verificationClaimEffect: { verificationOutcome: "verified_success" },
+      });
+
+      const authorship = await executeCandidateAuthorshipV2({
+        request: {
+          operation: "changeset.author",
+          projectId,
+          workspaceId: acquired.workspaceId,
+          objective: "adopt one bounded candidate objective",
+          rationale: "the candidate scope is explicit",
+          riskClass: "low",
+        },
+        ownerId: "owner-1",
+        registry,
+        workspaceManager: manager,
+        skipCapabilityGate: true,
+        envOverrides: {
+          sandboxEngineeringLifecycleEnabled: true,
+          sandboxAvailable: () => true,
+        },
+      });
+      expect(authorship.license.error).toBe("inquiry_workspace_forbidden");
+
+      const db = openNuclearDb(new DatabaseSync(":memory:"));
+      try {
+        const changesetId = "cs_p27_inquiry";
+        persistProposedChangeSet(db, {
+          ownerId: "owner-1",
+          changesetId,
+          projectId,
+          workspaceId: acquired.workspaceId,
+          sourceSnapshotId: "source-snapshot-1",
+          candidateSnapshotId: "candidate-snapshot-1",
+          candidateTreeHash: "ab".repeat(32),
+          baseTreeHash: "cd".repeat(32),
+          baseCommit: null,
+          sourceCleanliness: "clean",
+          treeHashAlgorithm: "m4-provisional-tree-v0",
+          objective: "bound one candidate change",
+          rationale: "the bounded candidate objective is adopted for this fixture",
+          riskClass: "low",
+          evidenceRefs: [],
+          verificationRecipeIds: [recipeId],
+          intendedPaths: ["src/a.ts"],
+          changedPaths: [{ path: "src/a.ts", changeKind: "modified" }],
+          linkedVerificationRefs: [],
+          patchSha256: "ef".repeat(32),
+          patchBytes: 1,
+          artifactRef: join(root, "candidate.patch"),
+        });
+        const patchExport = await executePatchExportV2({
+          request: {
+            operation: "patch_export",
+            projectId,
+            changesetId,
+            adjudication: "accept",
+          } as never,
+          ownerId: "owner-1",
+          db,
+          skipCapabilityGate: true,
+          registry,
+          workspaceManager: manager,
+          envOverrides: {
+            sandboxEngineeringLifecycleEnabled: true,
+            sandboxAvailable: () => true,
+          },
+        });
+        expect(patchExport.license.error).toBe("inquiry_workspace_forbidden");
+      } finally {
+        db.close();
+      }
+
+      rmSync(root, { recursive: true, force: true });
     });
 
     it("runs a Thought-named inquiry as M3 evidence followed by recipe-only M4 evidence", async () => {
