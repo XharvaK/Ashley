@@ -1,4 +1,4 @@
-# Dual consistent snapshot backup for Ashley (nuclear.db + continuity.db).
+# Consistent snapshot backup for Ashley (nuclear.db + continuity.db + cognitive-v021.db).
 # Prefer the Node package path for authenticated off-device transfer.
 # This script creates local VACUUM snapshots only — never naive WAL/SHM copy.
 param(
@@ -10,6 +10,7 @@ $ErrorActionPreference = "Stop"
 $DataRoot = Join-Path $env:USERPROFILE ".composer-assistant"
 $Nuclear = Join-Path $DataRoot "conversations\nuclear.db"
 $Continuity = Join-Path $DataRoot "continuity.db"
+$Sidecar = Join-Path $DataRoot "cognitive-v021.db"
 
 if (-not (Test-Path $Nuclear)) {
     Write-Error "Nuclear DB not found: $Nuclear"
@@ -17,6 +18,10 @@ if (-not (Test-Path $Nuclear)) {
 }
 if (-not (Test-Path $Continuity)) {
     Write-Error "Continuity DB not found: $Continuity"
+    exit 1
+}
+if (-not (Test-Path $Sidecar)) {
+    Write-Error "Cognitive sidecar DB not found: $Sidecar"
     exit 1
 }
 
@@ -37,7 +42,8 @@ const { DatabaseSync } = require('node:sqlite');
 const { mkdirSync } = require('node:fs');
 const nuclear = process.argv[1];
 const continuity = process.argv[2];
-const dest = process.argv[3];
+const sidecar = process.argv[3];
+const dest = process.argv[4];
 mkdirSync(dest, { recursive: true });
 const n = new DatabaseSync(nuclear);
 n.exec(`VACUUM INTO '\${dest.replace(/\\/g, '/').replace(/'/g, "''")}/nuclear.db'`);
@@ -45,10 +51,13 @@ n.close();
 const c = new DatabaseSync(continuity);
 c.exec(`VACUUM INTO '\${dest.replace(/\\/g, '/').replace(/'/g, "''")}/continuity.db'`);
 c.close();
+const s = new DatabaseSync(sidecar);
+s.exec(`VACUUM INTO '\${dest.replace(/\\/g, '/').replace(/'/g, "''")}/cognitive-v021.db'`);
+s.close();
 console.log('ok');
 "@
 
-node -e $Node -- $Nuclear $Continuity $Dest
+node -e $Node -- $Nuclear $Continuity $Sidecar $Dest
 if ($LASTEXITCODE -ne 0) {
     Write-Error "VACUUM snapshot failed"
     exit 1

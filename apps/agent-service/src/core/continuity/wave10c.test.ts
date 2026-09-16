@@ -4,9 +4,13 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import { openNuclearDb } from "../db.js";
+import { COGNITIVE_SIDECAR_SCHEMA_VERSION } from "../cognitive-v021/types.js";
+import { openCognitiveSidecarDb } from "../cognitive-v021/sidecar/db.js";
+import { recordEffectReceipt } from "../cognitive-v021/effect/in-flight.js";
 import {
   assessC1RestoreContinuity,
   createDualBackupPackage,
+  restoreDualBackupPackage,
   restoreVerifyPackage,
   verifyBackupPackage,
 } from "./backup-package.js";
@@ -54,8 +58,10 @@ describe("wave10c backup and restore assurance", () => {
     const dir = mkdtempSync(join(tmpdir(), "ashley-wave10c-"));
     const nuclearPath = join(dir, "nuclear.db");
     const continuityPath = join(dir, "continuity.db");
+    const sidecarPath = join(dir, "cognitive-v021.db");
     const continuity = openContinuityDb(new DatabaseSync(continuityPath));
     const nuclear = openNuclearDb(new DatabaseSync(nuclearPath), { continuity });
+    const sidecar = openCognitiveSidecarDb(new DatabaseSync(sidecarPath), { dataPlane: { kind: "isolated" } });
     const key = "b".repeat(64);
 
     try {
@@ -65,11 +71,13 @@ describe("wave10c backup and restore assurance", () => {
       const result = createDualBackupPackage({
         nuclearDbPath: nuclearPath,
         continuityDbPath: continuityPath,
+        sidecarDbPath: sidecarPath,
         continuity,
         outDir: join(dir, "backups"),
         transferKeyHex: key,
         nuclearSchemaVersion: 18,
         continuitySchemaVersion: 1,
+        sidecarSchemaVersion: COGNITIVE_SIDECAR_SCHEMA_VERSION,
         buildIdentity: "wave10c-test",
       });
 
@@ -80,6 +88,12 @@ describe("wave10c backup and restore assurance", () => {
       });
       expect(manifest.nuclearSchemaVersion).toBe(18);
       expect(manifest.continuitySchemaVersion).toBe(1);
+      expect(manifest.packageVersion).toBe(2);
+      expect(manifest.sidecarSchemaVersion).toBe(COGNITIVE_SIDECAR_SCHEMA_VERSION);
+      expect(manifest.sidecarHash).toMatch(/^[0-9a-f]{64}$/);
+      expect(manifest.nuclearSnapshotAt).toBe(manifest.continuitySnapshotAt);
+      expect(manifest.nuclearSnapshotAt).toBe(manifest.sidecarSnapshotAt);
+      expect(manifest.createdAt).toBe(manifest.nuclearSnapshotAt);
       expect(manifest.c1CorrectionSeq).toBe(0);
       const watermark = continuity.prepare(
         `SELECT detail_json FROM backup_watermarks
@@ -116,8 +130,93 @@ describe("wave10c backup and restore assurance", () => {
         otherContinuity.close();
       }
     } finally {
+      sidecar.close();
       nuclear.close();
       continuity.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("installs only a verified cohort and replays later tombstones and receipts", () => {
+    const dir = mkdtempSync(join(tmpdir(), "ashley-wave10c-restore-"));
+    const nuclearPath = join(dir, "nuclear.db");
+    const continuityPath = join(dir, "continuity.db");
+    const sidecarPath = join(dir, "cognitive-v021.db");
+    const key = "c".repeat(64);
+    const continuity = openContinuityDb(new DatabaseSync(continuityPath));
+    const nuclear = openNuclearDb(new DatabaseSync(nuclearPath), { continuity });
+    const sidecar = openCognitiveSidecarDb(new DatabaseSync(sidecarPath), { dataPlane: { kind: "isolated" } });
+    const assertionKey = "restore-assertion";
+    sidecar.prepare(
+      `INSERT INTO sidecar_memory_assertions
+       (assertion_key, statement, memory_kind, dimensions_json, data_classification,
+        lineage_parent_key, admitted_generation, live, content_hash)
+       VALUES (?, ?, 'learned_self', '{}', 'ordinary', NULL, 1, 1, 'hash')`,
+    ).run(assertionKey, "restore me");
+    const result = createDualBackupPackage({
+      nuclearDbPath: nuclearPath,
+      continuityDbPath: continuityPath,
+      sidecarDbPath: sidecarPath,
+      continuity,
+      outDir: join(dir, "backups"),
+      transferKeyHex: key,
+      nuclearSchemaVersion: 18,
+      continuitySchemaVersion: 1,
+      sidecarSchemaVersion: COGNITIVE_SIDECAR_SCHEMA_VERSION,
+      buildIdentity: "wave10c-restore-test",
+    });
+    const lineageId = getAuthoritativeLineageId(continuity);
+    const tombstoneId = "restore-tombstone";
+    const receipt = {
+      receiptId: "restore-receipt",
+      effectId: "restore-effect",
+      idempotencyKey: "restore-idempotency",
+      outcome: "succeeded" as const,
+      claims: { laterTruth: true },
+      atMs: 200,
+      dataClassification: "never_public" as const,
+      secretOmitted: true,
+    };
+    nuclear.close();
+    continuity.close();
+    sidecar.close();
+
+    const currentContinuity = openContinuityDb(new DatabaseSync(continuityPath));
+    const currentSidecar = openCognitiveSidecarDb(new DatabaseSync(sidecarPath), { dataPlane: { kind: "isolated" } });
+    currentContinuity.prepare(
+      `INSERT INTO forget_tombstones
+       (tombstone_id, owner_id, lineage_id, preview_id, receipt_id, status,
+        created_at, applied_at, category_counts_json, external_non_erasure_json)
+       VALUES (?, 'doc', ?, NULL, NULL, 'applied', ?, ?, '{}', '{}')`,
+    ).run(tombstoneId, lineageId, new Date().toISOString(), new Date().toISOString());
+    currentContinuity.prepare(
+      `INSERT INTO forget_tombstone_targets
+       (tombstone_id, entity_type, entity_uuid, action)
+       VALUES (?, 'v021_memory_assertion', ?, 'redact')`,
+    ).run(tombstoneId, assertionKey);
+    recordEffectReceipt(currentSidecar, receipt);
+    currentContinuity.close();
+    currentSidecar.close();
+
+    try {
+      expect(restoreDualBackupPackage({
+        packagePath: result.packagePath,
+        transferKeyHex: key,
+        nuclearDbPath: nuclearPath,
+        continuityDbPath: continuityPath,
+        sidecarDbPath: sidecarPath,
+        tempDir: join(dir, "restore-stage"),
+        derivedDbPath: join(dir, "derived.db"),
+      })).toMatchObject({ ready: true });
+
+      const restoredContinuity = openContinuityDb(new DatabaseSync(continuityPath));
+      const restoredSidecar = openCognitiveSidecarDb(new DatabaseSync(sidecarPath), { dataPlane: { kind: "isolated" } });
+      expect(restoredContinuity.prepare("SELECT tombstone_id FROM forget_tombstones WHERE tombstone_id = ?").get(tombstoneId)).toBeTruthy();
+      expect(restoredSidecar.prepare("SELECT statement, live FROM sidecar_memory_assertions WHERE assertion_key = ?").get(assertionKey)).toMatchObject({ statement: "[redacted]", live: 0 });
+      expect(restoredSidecar.prepare("SELECT claims_json, at_ms FROM effect_receipts WHERE effect_id = ?").get(receipt.effectId)).toMatchObject({ claims_json: JSON.stringify(receipt.claims), at_ms: receipt.atMs });
+      restoredSidecar.close();
+      restoredContinuity.close();
+    } finally {
       rmSync(dir, { recursive: true, force: true });
     }
   });

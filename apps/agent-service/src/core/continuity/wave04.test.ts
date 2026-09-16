@@ -4,6 +4,8 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
 import { openNuclearDb } from "../db.js";
+import { COGNITIVE_SIDECAR_SCHEMA_VERSION } from "../cognitive-v021/types.js";
+import { openCognitiveSidecarDb } from "../cognitive-v021/sidecar/db.js";
 import { AshleyCore } from "../runtime.js";
 import { claimReactiveDelivery } from "../delivery/store.js";
 import { insertMessage, resolveActiveThread } from "../memory/threads.js";
@@ -303,17 +305,21 @@ describe("wave04 backup package", () => {
     const dir = tempDir();
     const nuclearPath = join(dir, "nuclear.db");
     const continuityPath = join(dir, "continuity.db");
+    const sidecarPath = join(dir, "cognitive-v021.db");
     const continuity = openContinuityDb(new DatabaseSync(continuityPath));
     const nuclear = openNuclearDb(new DatabaseSync(nuclearPath), { continuity });
+    const sidecar = openCognitiveSidecarDb(new DatabaseSync(sidecarPath), { dataPlane: { kind: "isolated" } });
     const key = "a".repeat(64);
     const { packagePath } = createDualBackupPackage({
       nuclearDbPath: nuclearPath,
       continuityDbPath: continuityPath,
+      sidecarDbPath: sidecarPath,
       continuity,
       outDir: join(dir, "out"),
       transferKeyHex: key,
       nuclearSchemaVersion: 13,
       continuitySchemaVersion: 1,
+      sidecarSchemaVersion: COGNITIVE_SIDECAR_SCHEMA_VERSION,
     });
     const manifest = verifyBackupPackage({
       packagePath,
@@ -328,6 +334,7 @@ describe("wave04 backup package", () => {
       verifyBackupPackage({ packagePath, transferKeyHex: key }),
     ).toThrow(/backup_tamper_detected/);
     nuclear.close();
+    sidecar.close();
     continuity.close();
   });
 });
