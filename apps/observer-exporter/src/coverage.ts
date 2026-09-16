@@ -663,9 +663,9 @@ export function sourceCoverageForModernTranscript(input: {
       source_identity: MODERN_TRANSCRIPT_IDENTITY,
       requested_interval: requestedInterval(input.window),
       observed_interval: null,
-      disposition: "complete_empty",
+      disposition: "unavailable_or_unchecked",
       record_count: 0,
-      failure_omission_state: null,
+      failure_omission_state: "source_not_attempted",
     };
   }
   if (!input.transcript.modern_source_available) {

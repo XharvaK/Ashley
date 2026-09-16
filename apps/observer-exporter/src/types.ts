@@ -201,7 +201,7 @@ export type TranscriptDocument = {
       available: boolean;
       activity_count: number;
       record_count: number;
-      extraction_status: "complete" | "partial" | "empty" | "unavailable" | "UNKNOWN";
+      extraction_status: "complete" | "partial" | "empty" | "unavailable" | "not_attempted" | "UNKNOWN";
     };
   };
 };

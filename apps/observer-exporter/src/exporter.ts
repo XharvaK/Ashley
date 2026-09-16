@@ -33,8 +33,8 @@ import type {
 export type { ExportOptions } from "./types.js";
 
 export const EXPORTER_VERSION = "observer-exporter@0.1.0" as const;
-// P-W1-01 is the first exporter-visible surface addition after the v2 bundle.
-export const BUNDLE_SCHEMA_VERSION = 3 as const;
+// HARD-P00 is the first exporter-visible incompatibility: run completeness is explicit.
+export const BUNDLE_SCHEMA_VERSION = 4 as const;
 
 const BUNDLE_FILES = [
   "manifest.json",
@@ -229,6 +229,10 @@ export async function exportFieldObservation(options: ExportOptions): Promise<Ex
       cognitiveSidecar,
       identity: identityResult.identity,
     });
+    if (transcriptResult.modern_source_attempted === false) {
+      const modern = transcriptResult.transcript.source_inventory?.modern_cognitive;
+      if (modern?.extraction_status === "UNKNOWN") modern.extraction_status = "not_attempted";
+    }
     const jsonlAvailable = transcriptResult.legacy_source_available ?? existsSync(join(dataRoot, "conversations", "sessions"));
     const surfaces = combineSurfaceReports(identityResult.surfaces, evidenceResult.surfaces, {
       jsonlAvailable,

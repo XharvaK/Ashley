@@ -12,7 +12,7 @@ type PostRaContractModule = typeof coverageModule & {
   }[];
   resolvePostRaDimensionContract: () => readonly {
     dimension: string;
-    status: "COMPLETE" | "AWAITING-BEHAVIOR";
+    status: "SUPPORTED" | "AWAITING-BEHAVIOR";
   }[];
   hasRequiredDatabaseSurface: (source: "nuclear" | "cognitive_sidecar", table: string, columns: readonly string[]) => boolean;
 };
@@ -20,12 +20,13 @@ type PostRaContractModule = typeof coverageModule & {
 const contract = coverageModule as PostRaContractModule;
 
 describe("Post-RA Observer calibration contract", () => {
-  it("resolves all ten dimensions without silent status", () => {
+  it("resolves all ten declared dimensions without run-level completion", () => {
     const dimensions = contract.resolvePostRaDimensionContract();
 
     expect(dimensions).toHaveLength(10);
     expect(new Set(dimensions.map((dimension) => dimension.dimension)).size).toBe(10);
-    expect(dimensions.every((dimension) => ["COMPLETE", "AWAITING-BEHAVIOR"].includes(dimension.status))).toBe(true);
+    expect(dimensions.every((dimension) => ["SUPPORTED", "AWAITING-BEHAVIOR"].includes(dimension.status))).toBe(true);
+    expect(dimensions.some((dimension) => dimension.status === "COMPLETE")).toBe(false);
     expect(dimensions.every((dimension) => dimension.dimension.trim() !== "")).toBe(true);
   });
 
@@ -71,7 +72,7 @@ describe("Post-RA Observer calibration contract", () => {
   });
 
   it("binds the first desk surface addition to the bumped bundle schema", () => {
-    expect(BUNDLE_SCHEMA_VERSION).toBe(3);
+    expect(BUNDLE_SCHEMA_VERSION).toBe(4);
     expect(contract.hasRequiredDatabaseSurface("cognitive_sidecar", "desk_entries", ["id", "body", "updated_at_ms"])).toBe(true);
   });
 });

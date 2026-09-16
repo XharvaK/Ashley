@@ -12,7 +12,7 @@ export const POST_RA_COVERAGE_DIMENSIONS = [
 ] as const;
 
 export type PostRaCoverageDimension = (typeof POST_RA_COVERAGE_DIMENSIONS)[number];
-export type PostRaDimensionStatus = "COMPLETE" | "AWAITING-BEHAVIOR";
+export type PostRaDimensionStatus = "SUPPORTED" | "AWAITING-BEHAVIOR";
 
 export type PostRaDimensionContract = {
   dimension: PostRaCoverageDimension;
@@ -21,12 +21,12 @@ export type PostRaDimensionContract = {
 };
 
 export const POST_RA_DIMENSION_CONTRACT: readonly PostRaDimensionContract[] = [
-  { dimension: "meaningful_proactivity", status: "COMPLETE", basis: "existing_behavior" },
-  { dimension: "concern_lifecycle", status: "COMPLETE", basis: "existing_behavior" },
+  { dimension: "meaningful_proactivity", status: "SUPPORTED", basis: "existing_behavior" },
+  { dimension: "concern_lifecycle", status: "SUPPORTED", basis: "existing_behavior" },
   { dimension: "learned_personality", status: "AWAITING-BEHAVIOR", basis: "behavior_not_yet_present" },
   { dimension: "personal_workspace_use", status: "AWAITING-BEHAVIOR", basis: "behavior_not_yet_present" },
   { dimension: "current_world_awareness", status: "AWAITING-BEHAVIOR", basis: "behavior_not_yet_present" },
-  { dimension: "audience_aware_expression", status: "COMPLETE", basis: "existing_behavior" },
+  { dimension: "audience_aware_expression", status: "SUPPORTED", basis: "existing_behavior" },
   { dimension: "self_inspection", status: "AWAITING-BEHAVIOR", basis: "behavior_not_yet_present" },
   { dimension: "sustained_inquiry", status: "AWAITING-BEHAVIOR", basis: "behavior_not_yet_present" },
   { dimension: "candidate_improvement", status: "AWAITING-BEHAVIOR", basis: "behavior_not_yet_present" },

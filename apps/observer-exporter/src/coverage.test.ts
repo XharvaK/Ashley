@@ -115,6 +115,14 @@ function completeMap(transcriptDisposition: "complete_empty" | "complete_nonempt
 }
 
 describe("per-source observer coverage", () => {
+  it("does not mark modern coverage complete when the source was not attempted", () => {
+    const assembly = transcriptAssembly([]);
+    const coverage = sourceCoverageForModernTranscript({ window, transcript: assembly });
+
+    expect(["complete_empty", "complete_nonempty"]).not.toContain(coverage.disposition);
+    expect(coverage.failure_omission_state).toBe("source_not_attempted");
+  });
+
   it("classifies complete empty and complete nonempty database sources with bounded intervals", () => {
     const empty = validNuclear();
     const emptyCoverage = sourceCoverageForDatabase({ db: empty, source: "nuclear", window });
