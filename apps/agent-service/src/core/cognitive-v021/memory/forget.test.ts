@@ -7,6 +7,8 @@ import { insertOutboxPending } from "../speech/outbox.js";
 import { sendOutbox } from "../speech/send.js";
 import { openTestSidecar } from "../test-support.js";
 import { retrieveCandidates } from "../retrieval/discover.js";
+import { openDerivedStore, registerDerivedStoreForSidecar } from "../retrieval/derived-store.js";
+import { searchConversationFts, searchMemoryFts } from "../retrieval/fts.js";
 import { upsertMemoryAssertion } from "./assertions.js";
 import { buildOwnerKnowledgeView } from "./views.js";
 import { applyV021Forget, applyV021ForgetTargets } from "./forget.js";
@@ -15,6 +17,41 @@ import { admitTestCycle, makeThoughtDraft } from "../test-support.js";
 import type { PublishedCognitiveSettlement } from "../types.js";
 
 describe("v0.2.1 forget matrix", () => {
+  it("removes forgotten sidecar rows from the registered FTS store at commit", () => {
+    const sidecar = openTestSidecar();
+    const derived = openDerivedStore(":memory:");
+    const unregister = registerDerivedStoreForSidecar(sidecar, derived);
+    try {
+      appendOwnerUtterance(sidecar, {
+        conversationId: "thread-forget-fts",
+        text: "erasefts conversation marker",
+        nowMs: 1,
+      });
+      upsertMemoryAssertion(sidecar, {
+        assertionKey: "memory:erasefts",
+        statement: "erasefts memory marker",
+        memoryKind: "owner_world_claim",
+        dimensions: { source: "owner_utterance", status: "asserted", time: "current", reliability: "owner_supplied" },
+        dataClassification: "never_public",
+        lineageParentKey: null,
+        admittedGeneration: 1,
+        live: true,
+      });
+      expect(derived.reconcileIfNeeded(sidecar)).toBe(true);
+      expect(searchConversationFts(derived, sidecar, "thread-forget-fts", "erasefts").rows).toHaveLength(1);
+      expect(searchMemoryFts(derived, sidecar, "erasefts").rows).toHaveLength(1);
+
+      applyV021Forget(sidecar, { topic: "erasefts", nowMs: 2 });
+
+      expect(searchConversationFts(derived, sidecar, "thread-forget-fts", "erasefts").rows).toEqual([]);
+      expect(searchMemoryFts(derived, sidecar, "erasefts").rows).toEqual([]);
+    } finally {
+      unregister();
+      derived.close();
+      sidecar.close();
+    }
+  });
+
   it("prevents a forgotten curiosity observation from supporting later publication", () => {
     const db = openTestSidecar();
     try {

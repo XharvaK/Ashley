@@ -4,6 +4,7 @@ import { hashMemoryAssertion, getMemoryAssertion, REDACTED_MEMORY_STATEMENT } fr
 import { cancelDeliveryReservation } from "../../delivery/abort-registry.js";
 import { getDeliveryReservation } from "../../delivery/store.js";
 import { isTerminalDeliveryState } from "../../delivery/types.js";
+import { notifySidecarPostCommit } from "../retrieval/derived-store.js";
 
 type Row = Record<string, unknown>;
 
@@ -93,6 +94,7 @@ export function applyV021Forget(
   let changedRows = 0;
   const concernIds = new Set<string>();
   const redactedAssertionKeys = new Set<string>();
+  const changedRowIds = new Set<string>();
 
   db.exec("BEGIN IMMEDIATE");
   try {
@@ -101,6 +103,7 @@ export function applyV021Forget(
       if (!isRow(row) || !hasTopic(row.text, topic)) continue;
       const result = db.prepare("UPDATE conversation_evidence_log SET text = NULL, source_status = 'redacted' WHERE row_id = ?").run(text(row.row_id));
       changedRows += number(result.changes);
+      if (number(result.changes) > 0) changedRowIds.add(text(row.row_id));
       addTarget(targets, "v021_conversation_evidence", text(row.row_id));
     }
 
@@ -272,6 +275,10 @@ export function applyV021Forget(
     void safePayload;
     void nowMs;
     db.exec("COMMIT");
+    notifySidecarPostCommit(db, {
+      changedRowIds: [...changedRowIds],
+      changedAssertionKeys: [...redactedAssertionKeys],
+    });
   } catch (error) {
     try { db.exec("ROLLBACK"); } catch { /* preserve original */ }
     throw error;
@@ -419,6 +426,16 @@ export function planV021Forget(
 
 function targetIds(targets: V021ForgetTarget[], entityType: string): Set<string> {
   return new Set(targets.filter((target) => target.entityType === entityType).map((target) => target.entityUuid));
+}
+
+function notifyDerivedStoreForForgetTargets(
+  db: DatabaseSync,
+  targets: V021ForgetTarget[],
+): void {
+  notifySidecarPostCommit(db, {
+    changedRowIds: [...targetIds(targets, "v021_conversation_evidence")],
+    changedAssertionKeys: [...targetIds(targets, "v021_memory_assertion")],
+  });
 }
 
 export type V021ForgetDeliveryAuthority = {
@@ -606,6 +623,7 @@ export function applyV021ForgetTargets(
   try {
     const result = applyV021ForgetTargetsInTransaction(db, targets, nowMs);
     db.exec("COMMIT");
+    notifyDerivedStoreForForgetTargets(db, targets);
     return result;
   } catch (error) {
     try { db.exec("ROLLBACK"); } catch { /* preserve original */ }

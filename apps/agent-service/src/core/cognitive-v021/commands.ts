@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import {
   applyForgetTargets,
+  requireEntityUuid,
   type ForgetCounts,
   type ForgetHonesty,
   type ForgetResult,
@@ -294,6 +295,26 @@ function compatibilityForgetTargets(
     if (!entityUuid) throw new Error("compatibility_message_uuid_missing");
     targets.push({ entityType: "mem_messages", entityUuid, action: "redact" });
   }
+  const pattern = `%${topic.trim().toLowerCase()}%`;
+  const takes = nuclear.prepare(
+    `SELECT t.id, t.entity_uuid
+     FROM cur_takes t
+     JOIN cur_items i ON i.id = t.item_id
+     WHERE LOWER(t.take) LIKE ?
+        OR LOWER(i.title) LIKE ?
+        OR LOWER(i.excerpt) LIKE ?
+        OR LOWER(i.url) LIKE ?`,
+  ).all(pattern, pattern, pattern, pattern) as Array<{
+    id?: unknown;
+    entity_uuid?: unknown;
+  }>;
+  for (const row of takes) {
+    const id = number(row.id, -1);
+    const entityUuid =
+      id >= 0 ? requireEntityUuid(nuclear, "cur_takes", id) : text(row.entity_uuid);
+    if (!entityUuid) throw new Error("curiosity_take_uuid_missing");
+    targets.push({ entityType: "cur_takes", entityUuid, action: "redact" });
+  }
   return targets;
 }
 
@@ -409,7 +430,7 @@ export function confirmV021Forget(
       action: target.action,
     }));
   const compatibilityTargets = confirmed.targets.filter(
-    (target) => target.entityType === "mem_messages",
+    (target) => !target.entityType.startsWith("v021_"),
   );
   const sidecarResult = applyV021ForgetTargets(sidecar, sidecarTargets, {
     nowMs: input.nowMs,

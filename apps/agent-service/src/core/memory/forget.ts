@@ -153,7 +153,7 @@ function entityUuidOf(
 }
 
 /** Heal missing UUIDs on targetable rows (insert-path gaps) with a random UUID. */
-function requireEntityUuid(
+export function requireEntityUuid(
   db: DatabaseSync,
   table: string,
   id: number,
@@ -358,6 +358,24 @@ function buildTargetsForTopic(
   const messageIds = listMessageIdsMatchingTopic(db, ownerId, topic);
   const episodeMatches = matchingEpisodes(db, ownerId, topic, messageIds);
   const episodeIds = episodeMatches.map((episode) => episode.id);
+  const curiosityMatches = db
+    .prepare(
+      `SELECT t.id, t.take, i.title, i.excerpt, i.url
+       FROM cur_takes t
+       JOIN cur_items i ON i.id = t.item_id
+       WHERE LOWER(t.take) LIKE ?
+          OR LOWER(i.title) LIKE ?
+          OR LOWER(i.excerpt) LIKE ?
+          OR LOWER(i.url) LIKE ?
+       ORDER BY t.created_at DESC, t.id DESC`,
+    )
+    .all(...Array.from({ length: 4 }, () => `%${topic.trim().toLowerCase()}%`)) as Array<{
+    id: number;
+    take: string;
+    title: string;
+    excerpt: string;
+    url: string;
+  }>;
   const questionMatches = db
     .prepare(
       `SELECT id, text
@@ -378,6 +396,9 @@ function buildTargetsForTopic(
     ...matchedFacts.map((fact) => `fact: ${fact.key}: ${fact.value}`),
     ...previewEpisodeForget(db, ownerId, topic),
     ...messageIds.map((id) => `message: ${id}`),
+    ...curiosityMatches.map((take) =>
+      `curiosity: ${String(take.title ?? take.take ?? "").slice(0, 120)}`,
+    ),
     ...questionMatches.map((question) =>
       `question: ${String(question.text ?? "").slice(0, 120)}`,
     ),
@@ -403,6 +424,7 @@ function buildTargetsForTopic(
   };
   for (const id of messageIds) push("mem_messages", id, "redact");
   for (const id of episodeIds) push("episodes", id, "redact");
+  for (const take of curiosityMatches) push("cur_takes", Number(take.id), "redact");
   for (const id of questionIds) push("questions", id, "redact");
   for (const fact of matchedFacts) push("mem_facts", fact.id, "redact");
   for (const target of relationshipMatches.targets) targets.push(target);
@@ -468,6 +490,24 @@ function redactQuestions(
       )
       .run(now, now, ownerId, ...questionIds).changes,
   );
+}
+
+function redactCuriosityTakes(
+  db: DatabaseSync,
+  takeIds: number[],
+): number {
+  let changed = 0;
+  for (const takeId of [...new Set(takeIds)]) {
+    const row = db.prepare("SELECT item_id FROM cur_takes WHERE id = ?").get(takeId) as { item_id?: unknown } | undefined;
+    if (!row) continue;
+    changed += Number(db.prepare(
+      "UPDATE cur_takes SET take = ?, interest = ? WHERE id = ?",
+    ).run("[redacted]", "[redacted]", takeId).changes);
+    changed += Number(db.prepare(
+      "UPDATE cur_items SET title = ?, excerpt = ? WHERE id = ?",
+    ).run("[redacted]", "[redacted]", Number(row.item_id)).changes);
+  }
+  return changed;
 }
 
 function reconcileFacts(
@@ -883,12 +923,14 @@ function resolveIdsFromTargets(
   factIds: number[];
   revisionIds: number[];
   questionIds: number[];
+  takeIds: number[];
 } {
   const messageIds: number[] = [];
   const episodeIds: number[] = [];
   const factIds: number[] = [];
   const revisionIds: number[] = [];
   const questionIds: number[] = [];
+  const takeIds: number[] = [];
   for (const target of targets) {
     const id = idOfEntityUuid(
       db,
@@ -910,6 +952,9 @@ function resolveIdsFromTargets(
       case "questions":
         questionIds.push(id);
         break;
+      case "cur_takes":
+        takeIds.push(id);
+        break;
       case "learning_revisions":
         revisionIds.push(id);
         break;
@@ -926,6 +971,7 @@ function resolveIdsFromTargets(
     factIds: [...new Set(factIds)],
     revisionIds: [...new Set(revisionIds)],
     questionIds: [...new Set(questionIds)],
+    takeIds: [...new Set(takeIds)],
   };
 }
 
@@ -1009,7 +1055,7 @@ function applyForgetTargetsInTransaction(
     ownerId,
     targets,
   );
-  const { messageIds, episodeIds, factIds, revisionIds, questionIds } =
+  const { messageIds, episodeIds, factIds, revisionIds, questionIds, takeIds } =
     resolveIdsFromTargets(db, ownerId, effectiveTargets);
   const openCognitiveItemUuids = [
     ...new Set(
@@ -1102,6 +1148,7 @@ function applyForgetTargetsInTransaction(
     episodesForgotten = forgetEpisodesByIds(db, ownerId, episodeIds, true);
   }
   redactQuestions(db, ownerId, questionIds);
+  redactCuriosityTakes(db, takeIds);
   let messageEvidenceRemoved = 0;
   if (messageIds.length > 0) {
     messageEvidenceRemoved = Number(
