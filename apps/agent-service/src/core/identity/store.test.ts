@@ -12,6 +12,29 @@ import {
 } from "./store.js";
 
 describe("nuclear identity", () => {
+  it("selects newest current identity heads before presentation ordering", () => {
+    const db = openNuclearDb(new DatabaseSync(":memory:"));
+    try {
+      for (let index = 0; index < 41; index += 1) {
+        const timestamp = new Date(1_000 + index).toISOString();
+        db.prepare(
+          `INSERT INTO identity_entries
+             (owner_id, layer, kind, text, source, revised_from, created_at, updated_at)
+           VALUES (?, 'dynamic', 'interest', ?, 'organic', NULL, ?, ?)`,
+        ).run("doc", `identity ${index}`, timestamp, timestamp);
+      }
+
+      const entries = listIdentity(db, "doc", { layer: "dynamic", limit: 40, seed: false });
+
+      expect(entries).toHaveLength(40);
+      expect(entries[0]?.text).toBe("identity 1");
+      expect(entries.at(-1)?.text).toBe("identity 40");
+      expect(entries.map((entry) => entry.text)).not.toContain("identity 0");
+    } finally {
+      db.close();
+    }
+  });
+
   it("seeds stable identity once and accepts organic entries", () => {
     const db = openNuclearDb(new DatabaseSync(":memory:"));
     expect(seedIdentity(db, "doc")).toBeGreaterThan(0);

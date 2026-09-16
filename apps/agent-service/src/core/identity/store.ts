@@ -84,7 +84,7 @@ export function listIdentity(
                  WHERE newer.revised_from = e.id
                )
              ORDER BY CASE e.layer WHEN 'stable' THEN 0 ELSE 1 END,
-                      e.updated_at ASC, e.id ASC
+                      e.updated_at DESC, e.id DESC
              LIMIT ?`,
           )
           .all(ownerId, limit)
@@ -98,11 +98,21 @@ export function listIdentity(
                  SELECT 1 FROM identity_entries newer
                  WHERE newer.revised_from = e.id
                )
-             ORDER BY e.updated_at ASC, e.id ASC
+             ORDER BY e.updated_at DESC, e.id DESC
              LIMIT ?`,
           )
           .all(ownerId, options.layer, limit);
-  return rows.map(mapIdentity).filter((entry): entry is IdentityEntry => entry !== null);
+  return rows
+    .map(mapIdentity)
+    .filter((entry): entry is IdentityEntry => entry !== null)
+    .sort((left, right) => {
+      const leftLayer = left.layer === "stable" ? 0 : 1;
+      const rightLayer = right.layer === "stable" ? 0 : 1;
+      if (leftLayer !== rightLayer) return leftLayer - rightLayer;
+      if (left.updatedAt < right.updatedAt) return -1;
+      if (left.updatedAt > right.updatedAt) return 1;
+      return left.id - right.id;
+    });
 }
 
 type RecordIdentityInput = {
