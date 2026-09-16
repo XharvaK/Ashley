@@ -326,7 +326,6 @@ export function composeSelfCapabilityContext(
     `- ${describeCandidateWorkspaceAvailability({ db, masterMode: options?.masterMode })}`,
     `- ${describeCandidateVerificationAvailability({ db, masterMode: options?.masterMode })}`,
     `- ${describeCandidateAuthorshipAvailability({ db, masterMode: options?.masterMode })}`,
-    `- ${describeBoundedOperationAvailability({ db, masterMode: options?.masterMode })}`,
     `- ${describePatchExportAvailability({ db, masterMode: options?.masterMode })}`,
   ];
   return lines.join("\n");

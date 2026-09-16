@@ -77,6 +77,8 @@ describe("composeSelfCapabilityContext current Sandbox V2", () => {
     expect(context).not.toContain("Legacy sandbox broker (V1):");
     expect(context).toContain("Sandbox V2:");
     expect(context).not.toMatch(/^Sandboxed execution: broker IPC disabled/m);
+    expect(context).not.toContain("Bounded operation (M6):");
+    expect(context).not.toContain("offerable (bounded_operation");
     db.close();
   });
 });
