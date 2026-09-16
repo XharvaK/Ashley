@@ -307,6 +307,54 @@ describe("P-W4-01 proposal-only candidate improvement loop", () => {
     }
   });
 
+  it("does not mutate candidate rows when inquiry verification fails", async () => {
+    const db = openNuclearDb(new DatabaseSync(":memory:"));
+    const root = mkdtempSync(join(tmpdir(), "ashley-w4-inquiry-failure-"));
+    try {
+      activate(db);
+      const candidate = candidateFixture(db, root, "ws-inquiry-failure");
+      const sibling = candidateFixture(
+        db,
+        root,
+        candidate.workspaceId,
+        "de".repeat(32),
+      );
+      const beforeCandidate = db.prepare(
+        "SELECT status, review_status, updated_at FROM candidate_changesets WHERE changeset_id = ?",
+      ).get(candidate.changesetId);
+      const beforeSibling = db.prepare(
+        "SELECT status, review_status, updated_at FROM candidate_changesets WHERE changeset_id = ?",
+      ).get(sibling.changesetId);
+      const result = await executeCandidateVerificationV2({
+        request: { projectId: PROJECT_ID, workspaceId: candidate.workspaceId, recipeId: RECIPE_ID },
+        ownerId: OWNER_ID,
+        taskId: "verify-inquiry-failure-1",
+        db,
+        skipCapabilityGate: true,
+        inquiry: {
+          experimentId: "exp-inquiry-failure",
+          objective: "bounded inquiry verification",
+          recipeId: RECIPE_ID,
+        },
+        registry: registry(),
+        dispatcher: {
+          dispatch: async () => verificationResult(candidate.workspaceId, "verified_failure"),
+        } as unknown as SandboxV2Dispatcher,
+        envOverrides: { sandboxEngineeringLifecycleEnabled: true },
+      });
+      expect(result.license.verificationClaimEffect?.verificationOutcome).toBe("verified_failure");
+      expect(db.prepare("SELECT status, review_status, updated_at FROM candidate_changesets WHERE changeset_id = ?").get(candidate.changesetId))
+        .toEqual(beforeCandidate);
+      expect(db.prepare("SELECT status, review_status, updated_at FROM candidate_changesets WHERE changeset_id = ?").get(sibling.changesetId))
+        .toEqual(beforeSibling);
+      expect((db.prepare("SELECT COUNT(*) AS count FROM candidate_changeset_events WHERE event_type = 'verification_failed'").get() as { count: number }).count)
+        .toBe(0);
+    } finally {
+      db.close();
+      if (existsSync(root)) rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("marks only the verified candidate failed after a verified M4 failure", async () => {
     const db = openNuclearDb(new DatabaseSync(":memory:"));
     const root = mkdtempSync(join(tmpdir(), "ashley-w4-failure-"));
