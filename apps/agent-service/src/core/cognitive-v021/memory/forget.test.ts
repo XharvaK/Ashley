@@ -120,7 +120,10 @@ describe("v0.2.1 forget matrix", () => {
         adoptedNomination.generation,
         JSON.stringify({ durableNominations: [adoptedNomination] }),
       );
-      expect(buildLearnedSelfSlice(db).supportRefs).toEqual(["evidence:forgotten"]);
+      expect(buildLearnedSelfSlice(db)).toMatchObject({
+        dispositions: ["preserve the support boundary."],
+        supportRefs: ["evidence:forgotten"],
+      });
       expect(retrieveCandidates(db, {
         conversationId: "thread-forgotten-support",
         request: {
@@ -130,13 +133,21 @@ describe("v0.2.1 forget matrix", () => {
           includeLogSearch: true,
         },
       }).hits[0]?.supportRefs).toEqual(["evidence:forgotten"]);
+      const nominationsBefore = db.prepare("SELECT COUNT(*) AS count FROM durable_nominations").get();
+      const settlementsBefore = db.prepare("SELECT COUNT(*) AS count FROM settlements").get();
 
       applyV021ForgetTargets(db, [{ entityType: "v021_memory_support", entityUuid: "support:forgotten", action: "redact" }]);
 
-      expect(db.prepare("SELECT source_ref FROM sidecar_memory_supports WHERE support_id = ?").get("support:forgotten")).toEqual({ source_ref: null });
+      expect(db.prepare("SELECT source_ref, settlement_id FROM sidecar_memory_supports WHERE support_id = ?").get("support:forgotten"))
+        .toEqual({ source_ref: null, settlement_id: null });
       const slice = buildLearnedSelfSlice(db);
+      expect(slice.dispositions).toEqual(["preserve the support boundary."]);
       expect(slice).not.toHaveProperty("supportRefs");
       expect(slice.broadOrientation).not.toHaveProperty("supportRefs");
+      expect(db.prepare("SELECT COUNT(*) AS count FROM durable_nominations").get()).toEqual(nominationsBefore);
+      expect(db.prepare("SELECT COUNT(*) AS count FROM settlements").get()).toEqual(settlementsBefore);
+      expect(db.prepare("SELECT nomination_id, statement FROM durable_nominations WHERE nomination_id = 'evidence:forgotten'").get())
+        .toEqual({ nomination_id: "evidence:forgotten", statement: "disposition: preserve the support boundary." });
       expect(retrieveCandidates(db, {
         conversationId: "thread-forgotten-support",
         request: {

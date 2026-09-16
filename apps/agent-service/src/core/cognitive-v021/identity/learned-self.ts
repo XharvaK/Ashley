@@ -4,8 +4,7 @@ import type { LearnedSelfSlice, MemoryAssertion, MemoryKind } from "../types.js"
 import type { SocialAudience } from "../social/types.js";
 import { listMemoryAssertions } from "../memory/assertions.js";
 import { listMemorySupports } from "../memory/supports.js";
-import { getDurableNomination } from "../memory/nomination.js";
-import { isLearnedSelfThoughtAdopted } from "../memory/admission.js";
+import { hasLearnedSelfThoughtAdoption } from "../memory/admission.js";
 
 export type LearnedSelfEntry = {
   memoryKind: MemoryKind;
@@ -66,28 +65,10 @@ function addText(target: { dispositions: string[]; interests: string[] }, statem
   }
 }
 
-function hasThoughtAdoption(db: DatabaseSync, assertion: MemoryAssertion): boolean {
-  for (const support of listMemorySupports(db, assertion.assertionKey)) {
-    if (support.sourceRef == null || support.settlementId == null) continue;
-    const nomination = getDurableNomination(db, support.sourceRef);
-    if (!nomination || nomination.assertionKey !== assertion.assertionKey) continue;
-    const settlement = db.prepare(
-      "SELECT cycle_id, generation, payload_json FROM settlements WHERE settlement_id = ? LIMIT 1",
-    ).get(support.settlementId) as {
-      cycle_id?: unknown;
-      generation?: unknown;
-      payload_json?: unknown;
-    } | undefined;
-    if (!settlement || settlement.cycle_id !== nomination.cycleId || Number(settlement.generation) !== nomination.generation) continue;
-    if (isLearnedSelfThoughtAdopted(nomination, settlement)) return true;
-  }
-  return false;
-}
-
 function addEntry(slice: MutableSelfSlice, assertion: MemoryAssertion, db: DatabaseSync): void {
   if (!assertion.live || assertion.memoryKind !== "learned_self_evidence") return;
   if (!canEnterModelContext(assertion.dataClassification, "private")) return;
-  if (!hasThoughtAdoption(db, assertion)) return;
+  if (!hasLearnedSelfThoughtAdoption(db, assertion.assertionKey)) return;
   const statement = assertion.statement.trim();
   if (!statement) return;
   const supportRefs = listMemorySupports(db, assertion.assertionKey).flatMap(

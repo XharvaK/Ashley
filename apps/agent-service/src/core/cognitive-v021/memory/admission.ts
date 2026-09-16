@@ -82,6 +82,21 @@ export function isLearnedSelfThoughtAdopted(
   return published.some((item) => item !== candidate && isAshleyInterpretationForStatement(item, nomination.statement));
 }
 
+/** Adoption is proven by the published settlement/nomination, not by a support pointer. */
+export function hasLearnedSelfThoughtAdoption(db: DatabaseSync, assertionKey: string): boolean {
+  const rows = db.prepare(
+    "SELECT nomination_id FROM durable_nominations WHERE assertion_key = ? ORDER BY generation ASC, nomination_id ASC",
+  ).all(assertionKey) as Array<{ nomination_id?: unknown }>;
+  for (const row of rows) {
+    const nomination = getDurableNomination(db, String(row.nomination_id ?? ""));
+    if (!nomination || nomination.statement === REDACTED_MEMORY_STATEMENT) continue;
+    const settlement = settlementForNomination(db, nomination);
+    if (!settlement) continue;
+    if (isLearnedSelfThoughtAdopted(nomination, settlement)) return true;
+  }
+  return false;
+}
+
 export type AdmissionResult = {
   nominationId: string;
   assertionKey: string;
