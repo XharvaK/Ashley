@@ -14,7 +14,7 @@ const identity: IdentitySlice = { constitutional: ["truth first"], stableSelf: [
 const capability: CapabilityReality = {
   vision: false, attachmentText: false, conversationalRead: true, webSearch: false,
   canOfferProjectInspection: true, canOfferWorkspace: false, canOfferVerification: false,
-  canOfferAuthorship: false, canOfferBoundedOperation: false, canOfferPatchExport: false,
+  canOfferAuthorship: false, canOfferBoundedOperation: false, canOfferInquiry: true, canOfferPatchExport: false,
   approvedProjectIds: ["project-ashley"],
 };
 
@@ -89,6 +89,7 @@ describe("v0.2.1 ThoughtInput assembly", () => {
       expect(ownerInput.capabilityReality).toMatchObject({
         conversationalRead: true,
         canOfferProjectInspection: true,
+        canOfferInquiry: true,
       });
 
       const externalInput = makeInput(db, cycle, {
@@ -99,6 +100,7 @@ describe("v0.2.1 ThoughtInput assembly", () => {
       expect(externalInput.capabilityReality).toMatchObject({
         conversationalRead: false,
         canOfferProjectInspection: false,
+        canOfferInquiry: false,
       });
     } finally {
       db.close();
@@ -124,6 +126,7 @@ describe("v0.2.1 ThoughtInput assembly", () => {
 
     expect(filtered.approvedProjectIds).toEqual([]);
     expect(filtered.canOfferProjectInspection).toBe(false);
+    expect(filtered.canOfferInquiry).toBe(false);
     expect(filtered.operationCapabilities).toEqual([expect.objectContaining({
       available: false,
       authorizedProjectIds: [],

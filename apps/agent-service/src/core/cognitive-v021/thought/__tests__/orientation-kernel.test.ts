@@ -16,6 +16,7 @@ const capability: CapabilityReality = {
   canOfferVerification: false,
   canOfferAuthorship: false,
   canOfferBoundedOperation: false,
+  canOfferInquiry: false,
   canOfferPatchExport: false,
   approvedProjectIds: ["project-ashley"],
 };

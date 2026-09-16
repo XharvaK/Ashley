@@ -240,6 +240,7 @@ const CAPABILITY_REALITY: CapabilityReality = {
   canOfferVerification: true,
   canOfferAuthorship: false,
   canOfferBoundedOperation: true,
+  canOfferInquiry: false,
   canOfferPatchExport: false,
   approvedProjectIds: ["qualification-fixture"],
   operationCapabilities: [

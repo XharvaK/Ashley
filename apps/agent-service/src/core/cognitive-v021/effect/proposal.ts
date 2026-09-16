@@ -88,7 +88,7 @@ export async function dispatchEffect(
     capability: {
       vision: false, attachmentText: false, conversationalRead: false, webSearch: false,
       canOfferProjectInspection: false, canOfferWorkspace: false, canOfferVerification: false,
-      canOfferAuthorship: false, canOfferBoundedOperation: false, canOfferPatchExport: false,
+      canOfferAuthorship: false, canOfferBoundedOperation: false, canOfferInquiry: false, canOfferPatchExport: false,
       approvedProjectIds: [],
     },
     operational: { sandboxAvailable: true },

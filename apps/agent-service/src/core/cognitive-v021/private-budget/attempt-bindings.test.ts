@@ -677,6 +677,7 @@ describe("F1 append-only repair-attempt authorization", () => {
       canOfferVerification: false,
       canOfferAuthorship: false,
       canOfferBoundedOperation: false,
+      canOfferInquiry: false,
       canOfferPatchExport: false,
       approvedProjectIds: [],
     };

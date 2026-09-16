@@ -43,6 +43,7 @@ describe("v0.2.1 IdentitySlice", () => {
           canOfferVerification: false,
           canOfferAuthorship: false,
           canOfferBoundedOperation: false,
+          canOfferInquiry: false,
           canOfferPatchExport: false,
           approvedProjectIds: [],
         },

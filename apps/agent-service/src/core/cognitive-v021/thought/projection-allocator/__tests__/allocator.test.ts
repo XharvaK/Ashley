@@ -84,6 +84,7 @@ function makeThoughtInput(overrides: Partial<ThoughtInput> = {}): ThoughtInput {
       canOfferVerification: false,
       canOfferAuthorship: false,
       canOfferBoundedOperation: false,
+      canOfferInquiry: false,
       canOfferPatchExport: false,
       approvedProjectIds: [],
     },

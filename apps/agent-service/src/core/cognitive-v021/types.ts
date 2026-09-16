@@ -1280,6 +1280,7 @@ export type CapabilityReality = {
   canOfferVerification: boolean;
   canOfferAuthorship: boolean;
   canOfferBoundedOperation: boolean;
+  canOfferInquiry: boolean;
   canOfferPatchExport: boolean;
   approvedProjectIds: string[];
   /** Host-owned affordance facts exposed to Thought; never a selected branch. */

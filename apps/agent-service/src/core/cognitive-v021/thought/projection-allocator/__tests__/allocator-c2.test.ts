@@ -32,7 +32,7 @@ describe("MAT-II C2 allocator integration", () => {
         capabilityReality: {
           vision: false, attachmentText: false, conversationalRead: false, webSearch: false,
           canOfferProjectInspection: false, canOfferWorkspace: false, canOfferVerification: false,
-          canOfferAuthorship: false, canOfferBoundedOperation: false, canOfferPatchExport: false,
+          canOfferAuthorship: false, canOfferBoundedOperation: false, canOfferInquiry: false, canOfferPatchExport: false,
           approvedProjectIds: [],
         },
         learnedSelfSlice: { dispositions: [], interests: [] },
@@ -83,7 +83,7 @@ describe("MAT-II C2 allocator integration", () => {
         capabilityReality: {
           vision: false, attachmentText: false, conversationalRead: false, webSearch: false,
           canOfferProjectInspection: false, canOfferWorkspace: false, canOfferVerification: false,
-          canOfferAuthorship: false, canOfferBoundedOperation: false, canOfferPatchExport: false,
+          canOfferAuthorship: false, canOfferBoundedOperation: false, canOfferInquiry: false, canOfferPatchExport: false,
           approvedProjectIds: [],
         },
         learnedSelfSlice: { dispositions: [], interests: [] },
@@ -177,7 +177,7 @@ describe("MAT-II C2 allocator integration", () => {
       const capabilityReality = {
         vision: false, attachmentText: false, conversationalRead: false, webSearch: false,
         canOfferProjectInspection: true, canOfferWorkspace: true, canOfferVerification: true,
-        canOfferAuthorship: false, canOfferBoundedOperation: false, canOfferPatchExport: false,
+        canOfferAuthorship: false, canOfferBoundedOperation: false, canOfferInquiry: false, canOfferPatchExport: false,
         approvedProjectIds: Array.from({ length: 8 }, (_, index) => `approved-project-${index}`),
       };
       const input = buildThoughtInput({

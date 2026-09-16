@@ -69,6 +69,7 @@ describe("v0.2.1 CapabilityReality live-surface contract", () => {
         canOfferWorkspace: true,
         canOfferVerification: true,
         canOfferAuthorship: true,
+        canOfferInquiry: true,
       });
       expect(reality.operationCapabilities).toEqual([
         {
@@ -140,6 +141,29 @@ describe("v0.2.1 CapabilityReality live-surface contract", () => {
     }
   });
 
+  it("does not offer inquiry when the lifecycle gate is false", () => {
+    const db = activeDb();
+    try {
+      const reality = getCapabilityReality(db, {
+        registry: registry(),
+        masterMode: "apply",
+        lifecycleEnabled: false,
+        substrateAvailable: true,
+      });
+
+      expect(reality).toMatchObject({
+        canOfferWorkspace: false,
+        canOfferVerification: false,
+        canOfferInquiry: false,
+      });
+      expect(reality.reachability?.reasons).toMatchObject({
+        canOfferInquiry: "substrate_without_authority",
+      });
+    } finally {
+      db.close();
+    }
+  });
+
   it("projects reason-coded reachability for Owner and room audiences", () => {
     const db = activeDb();
     try {
@@ -170,6 +194,7 @@ describe("v0.2.1 CapabilityReality live-surface contract", () => {
         canOfferProjectInspection: "another_audience_only",
         canOfferWorkspace: "another_audience_only",
         canOfferVerification: "another_audience_only",
+        canOfferInquiry: "another_audience_only",
         canOfferPatchExport: "another_audience_only",
       });
       expect(room.operationCapabilities?.every((operation) =>

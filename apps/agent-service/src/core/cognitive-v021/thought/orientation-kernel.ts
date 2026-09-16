@@ -76,6 +76,7 @@ const CAPABILITY_BOOLEAN_FIELDS = [
   "canOfferVerification",
   "canOfferAuthorship",
   "canOfferBoundedOperation",
+  "canOfferInquiry",
   "canOfferPatchExport",
 ] as const;
 
@@ -197,6 +198,7 @@ function capabilityRealityOrFail(value: unknown): CapabilityReality {
     canOfferVerification: candidate.canOfferVerification as boolean,
     canOfferAuthorship: candidate.canOfferAuthorship as boolean,
     canOfferBoundedOperation: candidate.canOfferBoundedOperation as boolean,
+    canOfferInquiry: candidate.canOfferInquiry as boolean,
     canOfferPatchExport: candidate.canOfferPatchExport as boolean,
     approvedProjectIds: [...(candidate.approvedProjectIds as string[])],
     ...(candidate.operationCapabilities === undefined

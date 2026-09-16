@@ -127,6 +127,7 @@ describe("Thought Context Scale Qualification Harness (1K, 10K, 100K)", () => {
             canOfferVerification: false,
             canOfferAuthorship: false,
             canOfferBoundedOperation: false,
+            canOfferInquiry: false,
             canOfferPatchExport: false,
             approvedProjectIds: [],
           },

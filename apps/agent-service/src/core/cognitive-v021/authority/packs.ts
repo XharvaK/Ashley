@@ -7,7 +7,7 @@ type Row = Record<string, unknown>;
 const noCapability: CapabilityReality = {
   vision: false, attachmentText: false, conversationalRead: false, webSearch: false,
   canOfferProjectInspection: false, canOfferWorkspace: false, canOfferVerification: false,
-  canOfferAuthorship: false, canOfferBoundedOperation: false, canOfferPatchExport: false,
+  canOfferAuthorship: false, canOfferBoundedOperation: false, canOfferInquiry: false, canOfferPatchExport: false,
   approvedProjectIds: [],
 };
 

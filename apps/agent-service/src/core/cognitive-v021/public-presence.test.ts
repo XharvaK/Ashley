@@ -113,6 +113,7 @@ describe("autonomous public presence", () => {
       canOfferVerification: false,
       canOfferAuthorship: false,
       canOfferBoundedOperation: false,
+      canOfferInquiry: false,
       canOfferPatchExport: false,
       approvedProjectIds: [],
     };

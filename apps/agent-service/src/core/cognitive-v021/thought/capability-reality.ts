@@ -217,6 +217,7 @@ export function getCapabilityReality(
     canOfferVerification: !externalAudience && verificationAvailable,
     canOfferAuthorship: !externalAudience && authorshipAvailable,
     canOfferBoundedOperation: false,
+    canOfferInquiry: !externalAudience && workspaceAvailable && verificationAvailable,
     canOfferPatchExport: !externalAudience && patchExportAvailable,
   };
   const reachabilityReasons: Record<string, CapabilityRealityReasonCode> = {};
@@ -232,7 +233,7 @@ export function getCapabilityReality(
     });
   }
   const operationFacts: Array<{
-    name: "canOfferProjectInspection" | "canOfferWorkspace" | "canOfferVerification" | "canOfferAuthorship" | "canOfferPatchExport";
+    name: "canOfferProjectInspection" | "canOfferWorkspace" | "canOfferVerification" | "canOfferAuthorship" | "canOfferInquiry" | "canOfferPatchExport";
     value: boolean;
     rawValue: boolean;
   }> = [
@@ -240,6 +241,7 @@ export function getCapabilityReality(
     { name: "canOfferWorkspace", value: facts.canOfferWorkspace, rawValue: workspaceAvailable },
     { name: "canOfferVerification", value: facts.canOfferVerification, rawValue: verificationAvailable },
     { name: "canOfferAuthorship", value: facts.canOfferAuthorship, rawValue: authorshipAvailable },
+    { name: "canOfferInquiry", value: facts.canOfferInquiry, rawValue: workspaceAvailable && verificationAvailable },
     { name: "canOfferPatchExport", value: facts.canOfferPatchExport, rawValue: patchExportAvailable },
   ];
   for (const item of operationFacts) {

@@ -62,7 +62,7 @@ const identity: IdentitySlice = { constitutional: ["truth first"], stableSelf: [
 const capability: CapabilityReality = {
   vision: false, attachmentText: false, conversationalRead: true, webSearch: false,
   canOfferProjectInspection: false, canOfferWorkspace: false, canOfferVerification: false,
-  canOfferAuthorship: false, canOfferBoundedOperation: false, canOfferPatchExport: false,
+  canOfferAuthorship: false, canOfferBoundedOperation: false, canOfferInquiry: false, canOfferPatchExport: false,
   approvedProjectIds: [],
 };
 

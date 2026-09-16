@@ -597,6 +597,7 @@ describe("owner-private cross-surface recall bridge", () => {
         canOfferVerification: false,
         canOfferAuthorship: false,
         canOfferBoundedOperation: false,
+        canOfferInquiry: false,
         canOfferPatchExport: false,
         approvedProjectIds: [] as string[],
       };

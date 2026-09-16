@@ -310,6 +310,7 @@ export function filterCapabilityReality(
     canOfferVerification: false,
     canOfferAuthorship: false,
     canOfferBoundedOperation: false,
+    canOfferInquiry: false,
     canOfferPatchExport: false,
     approvedProjectIds: [],
     operationCapabilities: capability.operationCapabilities?.map((item) => ({
@@ -338,6 +339,7 @@ export function filterCapabilityReality(
     canOfferVerification: reasonFor("canOfferVerification", false, capability.canOfferVerification, { ownerOnly: true }),
     canOfferAuthorship: reasonFor("canOfferAuthorship", false, capability.canOfferAuthorship, { ownerOnly: true }),
     canOfferBoundedOperation: reasonFor("canOfferBoundedOperation", false, capability.canOfferBoundedOperation),
+    canOfferInquiry: reasonFor("canOfferInquiry", false, capability.canOfferInquiry, { ownerOnly: true }),
     canOfferPatchExport: reasonFor("canOfferPatchExport", false, capability.canOfferPatchExport),
   };
   for (const item of capability.operationCapabilities ?? []) {
