@@ -1,7 +1,4 @@
-/**
- * When generation produces nothing sendable, Doc still gets something in her
- * voice. One fixed string would become a tell within a week.
- */
+/** Host mechanical status lines for empty, failed, or in-progress work. */
 
 const TR_CHARS = /[ğşıçöüİĞŞÇÖÜ]/;
 const TR_WORDS =
@@ -13,41 +10,41 @@ export function detectLanguage(message: string): "en" | "tr" {
 }
 
 const LINES_EN = [
-  "blanked on that one, hit me again",
-  "lost the thread there. say it again?",
-  "that came out as nothing. one more time",
-  "nope, brain went somewhere else. again?",
-  "i had something and dropped it. repeat that",
+  "[system] No sendable output was produced. Please try again.",
+  "[system] The response was empty. Please repeat the request.",
+  "[system] No output was available. Please try again.",
+  "[system] The response could not be produced. Please retry.",
+  "[system] No response was returned. Please repeat the request.",
 ];
 
 const LINES_TR = [
-  "kafam boşaldı, bir daha dene",
-  "kaçırdım onu. tekrarlar mısın?",
-  "bir şey çıkmadı. bir kez daha?",
-  "beyin başka yere gitti. yine?",
-  "vardı bir şey, düşürdüm. tekrar et",
+  "[system] Gönderilebilir çıktı üretilmedi. Lütfen tekrar deneyin.",
+  "[system] Yanıt boştu. Lütfen isteği tekrarlayın.",
+  "[system] Kullanılabilir çıktı yok. Lütfen tekrar deneyin.",
+  "[system] Yanıt üretilemedi. Lütfen yeniden deneyin.",
+  "[system] Yanıt alınamadı. Lütfen isteği tekrarlayın.",
 ];
 
 const SEND_FAILED_EN = [
-  "that one didn't go through. say it again?",
-  "discord ate that. one more time",
+  "[system] Message delivery failed. Please try again.",
+  "[system] Message could not be delivered. Please repeat the request.",
 ];
 
 const SEND_FAILED_TR = [
-  "o gitmedi. bir daha dene?",
-  "discord yedi onu. bir kez daha",
+  "[system] Mesaj teslim edilemedi. Lütfen tekrar deneyin.",
+  "[system] Mesaj gönderilemedi. Lütfen isteği tekrarlayın.",
 ];
 
 const LOOKING_EN = [
-  "hang on, looking",
-  "one sec, checking",
-  "gimme a sec, pulling it up",
+  "[system] Checking the request.",
+  "[system] Retrieving the requested information.",
+  "[system] Request check in progress.",
 ];
 
 const LOOKING_TR = [
-  "bir saniye, bakıyorum",
-  "dur, bir bakayım",
-  "hemen, çekiyorum",
+  "[system] İstek kontrol ediliyor.",
+  "[system] İstenen bilgi alınıyor.",
+  "[system] İstek kontrolü sürüyor.",
 ];
 
 function rotate(lines: string[], state: { last: number }): string {

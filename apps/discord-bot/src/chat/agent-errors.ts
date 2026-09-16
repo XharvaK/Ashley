@@ -1,32 +1,30 @@
-/**
- * User-facing errors in her voice. Nothing here names infra services or vendors.
- */
+/** Host operational status messages. Nothing here speaks for Ashley. */
 export function agentErrorMessage(
   code?: string,
   retryAfterSec?: number,
 ): string {
   switch (code) {
     case "agent_not_ready":
-      return "I'm offline right now. Give me a minute and try again.";
+      return "System status: agent is not ready. Try again shortly.";
     case "mistral_unavailable":
       return retryAfterSec
-        ? `My brain's unreachable right now — I'll be able to answer in about ${retryAfterSec}s.`
-        : "My brain's unreachable right now. Try again in a bit.";
+        ? `System status: response service is unavailable. Try again in about ${retryAfterSec}s.`
+        : "System status: response service is unavailable. Try again shortly.";
     case "rate_limited":
       return retryAfterSec
-        ? `I'm getting rate-limited — try again in about ${retryAfterSec}s.`
-        : "I'm getting rate-limited — try again in a minute.";
+        ? `System status: request rate limit reached. Try again in about ${retryAfterSec}s.`
+        : "System status: request rate limit reached. Try again shortly.";
     case "message_too_long":
-      return "That message is too long for me.";
+      return "System status: message exceeds the allowed length.";
     case "forbidden":
-      return "Not authorized.";
+      return "System status: request is not authorized.";
     case "chat_in_progress":
-      return "Still on the last one — give me a sec.";
+      return "System status: a previous request is still in progress. Try again shortly.";
     case "agent_timeout":
-      return "That took too long — try again?";
+      return "System status: request timed out. Try again.";
     case "internal_error":
-      return "I glitched on that one — try again?";
+      return "System status: request failed. Try again.";
     default:
-      return "Something went wrong on my end. Try again?";
+      return "System status: request could not be completed. Try again.";
   }
 }

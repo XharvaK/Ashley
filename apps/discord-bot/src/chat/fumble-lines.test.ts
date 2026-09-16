@@ -4,6 +4,7 @@ import {
   detectLanguage,
   fumbleLine,
   lookingLine,
+  sendFailedLine,
 } from "./fumble-lines.js";
 
 describe("fumble-lines language", () => {
@@ -15,15 +16,25 @@ describe("fumble-lines language", () => {
   it("looking line matches language", () => {
     const en = lookingLine("what is the latest discord.js");
     const tr = lookingLine("son sürüme bir bak");
-    assert.match(en, /sec|hang|gimme|looking|checking|pulling/i);
-    assert.match(tr, /saniye|bak|çek/i);
-    assert.doesNotMatch(en, /bakıyorum/);
+    assert.match(en, /^\[system\] /);
+    assert.match(tr, /^\[system\] /);
+    assert.match(en, /checking|retrieving|in progress/i);
+    assert.match(tr, /kontrol|alınıyor/i);
   });
 
   it("fumble line matches language", () => {
     const en = fumbleLine("say that again");
     const tr = fumbleLine("bir daha söyler misin");
-    assert.match(en, /again|thread|brain|blanked|dropped|nothing|one more time/i);
-    assert.match(tr, /tekrar|kaçır|beyin|boşald|dene|çıkmad|kez daha/i);
+    assert.match(en, /^\[system\] /);
+    assert.match(tr, /^\[system\] /);
+    assert.match(en, /output|response|retry|repeat|try again/i);
+    assert.match(tr, /çıktı|yanıt|tekrar|deneyin/i);
+  });
+
+  it("attributes delivery failure mechanically", () => {
+    const en = sendFailedLine("send this");
+    const tr = sendFailedLine("bunu gönder");
+    assert.match(en, /^\[system\] /);
+    assert.match(tr, /^\[system\] /);
   });
 });

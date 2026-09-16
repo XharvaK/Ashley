@@ -12,6 +12,10 @@ import {
 } from "./infrastructure-notice.js";
 
 describe("v0.2.1 Thought outage notices", () => {
+  it("uses mechanical system attribution", () => {
+    expect(THOUGHT_UNAVAILABLE_NOTICE).toMatch(/^\[system\] /);
+  });
+
   it.each([
     ["rate_limited", "RATE_LIMITED"],
     ["provider_unavailable", "PROVIDER_UNAVAILABLE"],

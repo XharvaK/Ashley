@@ -8,7 +8,7 @@ export async function execute(
   const includePrivate = interaction.options.getBoolean("private") ?? false;
   const data = await memorySummary(includePrivate);
 
-  const lines: string[] = ["Here's what I've got:", ""];
+  const lines: string[] = ["Stored memory summary:", ""];
   if (data.narrative) {
     lines.push("Where we left off:", data.narrative, "");
   }
