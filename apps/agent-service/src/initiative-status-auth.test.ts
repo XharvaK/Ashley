@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { env } from "./env.js";
 import { createServer } from "./server.js";
 import type { AgentManager } from "./agent.js";
+import { getRaEffectiveConfig } from "./core/relationship/ra-effective-config.js";
 
 describe("initiative status authorization", () => {
   it("allows the configured owner and denies a non-owner", async () => {
@@ -47,7 +48,16 @@ describe("initiative status authorization", () => {
         `http://127.0.0.1:${address.port}/initiative/status?owner_id=doc`,
       );
       expect(ownerResponse.status).toBe(200);
-      expect(await ownerResponse.json()).not.toHaveProperty("cognitiveContinuity");
+      const ownerBody = await ownerResponse.json() as Record<string, unknown>;
+      expect(ownerBody).not.toHaveProperty("cognitiveContinuity");
+      expect(ownerBody.raEffectiveConfig).toEqual(getRaEffectiveConfig());
+      expect(ownerBody.raEffectiveConfig).toEqual(expect.objectContaining({
+        commitmentsEnabled: expect.any(Boolean),
+        dmPublicationEnabled: expect.any(Boolean),
+        socialCaptureEnabled: expect.any(Boolean),
+        roomSeedActive: expect.any(Boolean),
+        dmCognitionEnabled: expect.any(Boolean),
+      }));
 
       const operationalResponse = await fetch(
         `http://127.0.0.1:${address.port}/initiative/operational-status?owner_id=doc`,
