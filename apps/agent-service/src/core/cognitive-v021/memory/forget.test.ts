@@ -12,6 +12,8 @@ import { searchConversationFts, searchMemoryFts } from "../retrieval/fts.js";
 import { upsertMemoryAssertion } from "./assertions.js";
 import { buildOwnerKnowledgeView } from "./views.js";
 import { applyV021Forget, applyV021ForgetTargets } from "./forget.js";
+import { appendMemorySupport } from "./supports.js";
+import { buildLearnedSelfSlice } from "../identity/learned-self.js";
 import { publishSemanticTransaction } from "../settlement/publish.js";
 import { admitTestCycle, makeThoughtDraft } from "../test-support.js";
 import type { PublishedCognitiveSettlement } from "../types.js";
@@ -49,6 +51,64 @@ describe("v0.2.1 forget matrix", () => {
       unregister();
       derived.close();
       sidecar.close();
+    }
+  });
+
+  it("does not project a support id after forget clears its source ref", () => {
+    const db = openTestSidecar();
+    try {
+      upsertMemoryAssertion(db, {
+        assertionKey: "self:forgotten-support",
+        statement: "disposition: preserve the support boundary.",
+        memoryKind: "learned_self_evidence",
+        dimensions: { source: "ashley_interpretation", status: "interpreted", time: "current", reliability: "inferred" },
+        dataClassification: "never_public",
+        lineageParentKey: null,
+        admittedGeneration: 1,
+        live: true,
+      });
+      appendMemorySupport(db, {
+        supportId: "support:forgotten",
+        assertionKey: "self:forgotten-support",
+        source: "owner_utterance",
+        provenance: "native",
+        sourceArchitectureEpoch: "v0.2.1",
+        sourceRef: "evidence:forgotten",
+        settlementId: "settlement:forgotten",
+        evidenceLineageId: "lineage:forgotten",
+        observationId: null,
+        receiptId: null,
+        dimensions: { source: "owner_utterance", status: "asserted", time: "current", reliability: "owner_supplied" },
+        dataClassification: "never_public",
+      });
+      expect(buildLearnedSelfSlice(db).supportRefs).toEqual(["evidence:forgotten"]);
+      expect(retrieveCandidates(db, {
+        conversationId: "thread-forgotten-support",
+        request: {
+          triggerTerms: [],
+          workingContextTopics: [],
+          assertionKeys: ["self:forgotten-support"],
+          includeLogSearch: true,
+        },
+      }).hits[0]?.supportRefs).toEqual(["evidence:forgotten"]);
+
+      applyV021ForgetTargets(db, [{ entityType: "v021_memory_support", entityUuid: "support:forgotten", action: "redact" }]);
+
+      expect(db.prepare("SELECT source_ref FROM sidecar_memory_supports WHERE support_id = ?").get("support:forgotten")).toEqual({ source_ref: null });
+      const slice = buildLearnedSelfSlice(db);
+      expect(slice).not.toHaveProperty("supportRefs");
+      expect(slice.broadOrientation).not.toHaveProperty("supportRefs");
+      expect(retrieveCandidates(db, {
+        conversationId: "thread-forgotten-support",
+        request: {
+          triggerTerms: [],
+          workingContextTopics: [],
+          assertionKeys: ["self:forgotten-support"],
+          includeLogSearch: true,
+        },
+      }).hits[0]?.supportRefs).toEqual([]);
+    } finally {
+      db.close();
     }
   });
 

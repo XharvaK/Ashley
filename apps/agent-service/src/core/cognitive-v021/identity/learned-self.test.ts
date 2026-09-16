@@ -53,9 +53,11 @@ describe("v0.2.1 LearnedSelf Option B", () => {
       appendMemorySupport(db, { ...supportBase, supportId: "support:one", createdAtMs: 1 });
       appendMemorySupport(db, { ...supportBase, supportId: "support:two", sourceRef: null, createdAtMs: 2 });
 
-      const expected = listMemorySupports(db, "self:supported").map((support) => support.sourceRef ?? support.supportId);
+      const expected = listMemorySupports(db, "self:supported")
+        .flatMap((support) => support.sourceRef == null ? [] : [support.sourceRef]);
       const slice = buildLearnedSelfSlice(db);
 
+      expect(expected).toEqual(["episode:one"]);
       expect(slice.supportRefs).toEqual(expected);
       expect(slice).not.toHaveProperty("score");
       expect(slice).not.toHaveProperty("count");

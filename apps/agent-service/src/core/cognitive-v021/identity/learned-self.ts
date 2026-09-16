@@ -63,8 +63,8 @@ function addEntry(slice: MutableSelfSlice, assertion: MemoryAssertion, db: Datab
   if (!canEnterModelContext(assertion.dataClassification, "private")) return;
   const statement = assertion.statement.trim();
   if (!statement) return;
-  const supportRefs = listMemorySupports(db, assertion.assertionKey).map(
-    (support) => support.sourceRef ?? support.supportId,
+  const supportRefs = listMemorySupports(db, assertion.assertionKey).flatMap(
+    (support) => support.sourceRef == null ? [] : [support.sourceRef],
   );
   slice.supportRefs.push(...supportRefs);
 

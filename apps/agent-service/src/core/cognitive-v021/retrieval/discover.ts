@@ -73,9 +73,7 @@ function fetchExactKeyHits(
       dataClassification: assertion.dataClassification,
     }, audience, licenses)) continue;
 
-    const supportRefs = listMemorySupports(sidecarDb, assertion.assertionKey).map(
-      (support) => support.sourceRef ?? support.supportId,
-    );
+    const supportRefs = modelVisibleSupportRefs(sidecarDb, assertion.assertionKey);
 
     hits.push({
       kind: "key",
@@ -105,6 +103,15 @@ function audienceKey(audience: SocialAudience): string {
   if (audience.kind === "owner_dm") return `owner_dm:${audience.threadId}`;
   if (audience.kind === "dm") return `dm:${audience.principalId}`;
   return `room:${audience.roomId}`;
+}
+
+function modelVisibleSupportRefs(
+  sidecarDb: DatabaseSync,
+  assertionKey: string,
+): string[] {
+  return listMemorySupports(sidecarDb, assertionKey).flatMap(
+    (support) => support.sourceRef == null ? [] : [support.sourceRef],
+  );
 }
 
 function sameAudience(left: SocialAudience | null | undefined, right: SocialAudience): boolean {
@@ -331,9 +338,7 @@ export function retrieveCandidates(
       dimensions: row.dimensions,
       dataClassification: row.dataClassification,
       live: row.live,
-      supportRefs: listMemorySupports(sidecarDb, row.assertionKey).map(
-        (s) => s.sourceRef ?? s.supportId,
-      ),
+      supportRefs: modelVisibleSupportRefs(sidecarDb, row.assertionKey),
       source: assertion?.sourcePrincipal ?? null,
       subject: assertion?.subject ?? null,
       audienceScope: metadata.audienceScope,
@@ -367,9 +372,7 @@ export function retrieveCandidates(
       dimensions: row.dimensions,
       dataClassification: row.dataClassification,
       live: row.live,
-      supportRefs: listMemorySupports(sidecarDb, row.assertionKey).map(
-        (s) => s.sourceRef ?? s.supportId,
-      ),
+      supportRefs: modelVisibleSupportRefs(sidecarDb, row.assertionKey),
       source: assertion?.sourcePrincipal ?? null,
       subject: assertion?.subject ?? null,
       audienceScope: metadata.audienceScope,
