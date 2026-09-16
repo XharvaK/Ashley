@@ -48,6 +48,7 @@ import {
   V48_TABLE_COLUMNS,
   validateNuclearV48Schema,
 } from "../delivery/migration-48.js";
+import { validateNuclearV49Schema } from "../sandbox/migration-49.js";
 
 type TableInfoRow = {
   name?: string;
@@ -1160,9 +1161,21 @@ function requireNoV48Content(db: DatabaseSync, version: number): void {
   }
 }
 
+function requireNoV49Content(db: DatabaseSync, version: number): void {
+  for (const [table, fragment] of [
+    ["candidate_changesets", "'verification_failed'"],
+    ["candidate_changeset_events", "'verification_failed'"],
+  ] as const) {
+    const sql = masterRow(db, "table", table)?.sql;
+    if (typeof sql === "string" && normalizeSql(sql).includes(fragment)) {
+      fail(version, `unexpected_v49_content:${table}`);
+    }
+  }
+}
+
 export function validateNuclearSchemaContent(
   db: DatabaseSync,
-  version: 22 | 23 | 24 | 25 | 26 | 27 | 28 | 29 | 30 | 31 | 32 | 33 | 34 | 35 | 36 | 37 | 38 | 39 | 40 | 41 | 42 | 43 | 44 | 45 | 46 | 47 | 48,
+  version: 22 | 23 | 24 | 25 | 26 | 27 | 28 | 29 | 30 | 31 | 32 | 33 | 34 | 35 | 36 | 37 | 38 | 39 | 40 | 41 | 42 | 43 | 44 | 45 | 46 | 47 | 48 | 49,
   options: { rejectNewerContent?: boolean } = {},
 ): void {
   if (version === 22) {
@@ -1240,7 +1253,23 @@ export function validateNuclearSchemaContent(
   for (const table of V30_TABLES) requireTable(db, version, table);
   for (const [table, columns] of Object.entries(V30_COLUMNS)) {
     requireColumns(db, version, table, columns);
-    requireFragments(db, version, table, V30_TABLE_FRAGMENTS[table] ?? []);
+    const fragments = V30_TABLE_FRAGMENTS[table] ?? [];
+    requireFragments(
+      db,
+      version,
+      table,
+      version === 49 && table === "candidate_changesets"
+        ? [
+            "check(status in('proposed','quarantined','stale_base','superseded','abandoned','verification_failed'))",
+            ...fragments.slice(1),
+          ]
+        : version === 49 && table === "candidate_changeset_events"
+          ? [
+              "check(event_type in('created','sealed','proposed','secret_quarantined','verification_failed'))",
+              ...fragments.slice(1),
+            ]
+          : fragments,
+    );
   }
   for (const index of V30_INDEXES) requireIndex(db, version, index);
   if (version === 30 && options.rejectNewerContent === true) {
@@ -1371,6 +1400,12 @@ export function validateNuclearSchemaContent(
   }
   if (version === 47) return;
   validateNuclearV48Schema(db, version);
+  if (version === 48 && options.rejectNewerContent === true) {
+    requireNoV49Content(db, version);
+    return;
+  }
+  if (version === 48) return;
+  validateNuclearV49Schema(db, version);
 }
 
 function addColumnIfMissing(

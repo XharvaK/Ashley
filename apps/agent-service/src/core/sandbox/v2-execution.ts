@@ -83,7 +83,8 @@ import {
 } from "./verification-license.js";
 import { issueCandidateAuthorshipLicense } from "./authorship-license.js";
 import {
-  markChangeSetsAbandonedAfterVerificationFailure,
+  getChangeSetForVerification,
+  markChangeSetVerificationFailed,
   persistProposedChangeSet,
   persistQuarantinedChangeSet,
 } from "./changeset-store.js";
@@ -1569,13 +1570,23 @@ export async function executeCandidateVerificationV2(
     if (
       input.db &&
       input.ownerId &&
+      !input.inquiry &&
       license.verificationClaimEffect?.verificationOutcome === "verified_failure"
     ) {
       try {
-        markChangeSetsAbandonedAfterVerificationFailure(input.db, {
+        const verification = license.verificationClaimEffect;
+        const changeset = getChangeSetForVerification(input.db, {
           ownerId: input.ownerId,
-          workspaceId: boundRequest.workspaceId ?? "unknown",
+          projectId: verification.projectId,
+          workspaceId: verification.workspaceId,
+          candidateTreeHash: verification.candidateTreeHash,
         });
+        if (changeset) {
+          markChangeSetVerificationFailed(input.db, {
+            ownerId: input.ownerId,
+            changesetId: changeset.changesetId,
+          });
+        }
       } catch {
         /* verification receipt remains the authoritative failure audit */
       }

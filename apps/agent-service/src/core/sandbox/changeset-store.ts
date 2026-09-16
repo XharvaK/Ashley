@@ -12,13 +12,15 @@ export type ChangeSetStatus =
   | "quarantined"
   | "stale_base"
   | "superseded"
-  | "abandoned";
+  | "abandoned"
+  | "verification_failed";
 
 export type ChangeSetEventType =
   | "created"
   | "sealed"
   | "proposed"
-  | "secret_quarantined";
+  | "secret_quarantined"
+  | "verification_failed";
 
 export type PersistedChangeSet = {
   changesetId: string;
@@ -268,16 +270,53 @@ export function getChangeSet(
   );
 }
 
-export function markChangeSetsAbandonedAfterVerificationFailure(
+export function getChangeSetForVerification(
   db: DatabaseSync,
-  input: { ownerId: string; workspaceId: string },
+  input: {
+    ownerId: string;
+    projectId: string;
+    workspaceId: string;
+    candidateTreeHash: string;
+  },
+): { changesetId: string } | null {
+  const rows = db
+    .prepare(
+      `SELECT changeset_id AS changesetId
+         FROM candidate_changesets
+        WHERE owner_id = ?
+          AND project_id = ?
+          AND workspace_id = ?
+          AND candidate_tree_hash = ?
+          AND status = 'proposed'
+        ORDER BY id ASC
+        LIMIT 2`,
+    )
+    .all(input.ownerId, input.projectId, input.workspaceId, input.candidateTreeHash) as Array<{
+    changesetId?: unknown;
+  }>;
+  if (rows.length !== 1 || typeof rows[0]?.changesetId !== "string") return null;
+  return { changesetId: rows[0].changesetId };
+}
+
+export function markChangeSetVerificationFailed(
+  db: DatabaseSync,
+  input: { ownerId: string; changesetId: string },
 ): number {
   const result = db.prepare(
     `UPDATE candidate_changesets
-        SET status = 'abandoned', review_status = NULL, updated_at = ?
-      WHERE owner_id = ? AND workspace_id = ? AND status = 'proposed'`,
-  ).run(nowIso(), input.ownerId, input.workspaceId) as { changes: number };
-  return Number(result.changes);
+        SET status = 'verification_failed', review_status = NULL, updated_at = ?
+      WHERE owner_id = ? AND changeset_id = ? AND status = 'proposed'`,
+  ).run(nowIso(), input.ownerId, input.changesetId) as { changes: number };
+  const changes = Number(result.changes);
+  if (changes === 1) {
+    appendChangeSetEvent(db, {
+      ownerId: input.ownerId,
+      changesetId: input.changesetId,
+      eventType: "verification_failed",
+      metadata: { verificationOutcome: "verified_failure" },
+    });
+  }
+  return changes;
 }
 
 export function listChangeSetEventTypes(db: DatabaseSync, changesetId: string): string[] {

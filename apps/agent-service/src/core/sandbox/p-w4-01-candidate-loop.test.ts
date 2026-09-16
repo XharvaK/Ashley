@@ -94,13 +94,14 @@ function patchExportResult(
 function verificationResult(
   workspaceId: string,
   outcome: "verified_success" | "verified_failure",
+  candidateTreeHash = CANDIDATE_TREE_HASH,
 ): SandboxV2Result {
   const receipt = {
     kind: "workspace.verify" as const,
     snapshotId: "snapshot-1",
     workspaceId,
     projectId: PROJECT_ID,
-    candidateTreeHash: CANDIDATE_TREE_HASH,
+    candidateTreeHash,
     candidateTreeHashAfter: CANDIDATE_TREE_HASH,
     sourceSnapshotId: "source-snapshot-1",
     treeHashAlgorithm: "m4-provisional-tree-v0",
@@ -130,7 +131,12 @@ function verificationResult(
   };
 }
 
-function candidateFixture(db: DatabaseSync, root: string, workspaceId = "ws-candidate-1") {
+function candidateFixture(
+  db: DatabaseSync,
+  root: string,
+  workspaceId = "ws-candidate-1",
+  candidateTreeHash = CANDIDATE_TREE_HASH,
+) {
   const body = "diff --git a/src/a.ts b/src/a.ts\n";
   const artifactRef = join(root, `${workspaceId}.patch`);
   writeFileSync(artifactRef, body, "utf8");
@@ -143,7 +149,7 @@ function candidateFixture(db: DatabaseSync, root: string, workspaceId = "ws-cand
     workspaceId,
     sourceSnapshotId: "source-snapshot-1",
     candidateSnapshotId: "candidate-snapshot-1",
-    candidateTreeHash: CANDIDATE_TREE_HASH,
+    candidateTreeHash,
     baseTreeHash: BASE_TREE_HASH,
     baseCommit: null,
     sourceCleanliness: "clean",
@@ -301,12 +307,18 @@ describe("P-W4-01 proposal-only candidate improvement loop", () => {
     }
   });
 
-  it("marks the candidate abandoned after a verified M4 failure", async () => {
+  it("marks only the verified candidate failed after a verified M4 failure", async () => {
     const db = openNuclearDb(new DatabaseSync(":memory:"));
     const root = mkdtempSync(join(tmpdir(), "ashley-w4-failure-"));
     try {
       activate(db);
       const candidate = candidateFixture(db, root, "ws-candidate-failure");
+      const sibling = candidateFixture(
+        db,
+        root,
+        candidate.workspaceId,
+        "de".repeat(32),
+      );
       const result = await executeCandidateVerificationV2({
         request: { projectId: PROJECT_ID, workspaceId: candidate.workspaceId, recipeId: RECIPE_ID },
         ownerId: OWNER_ID,
@@ -321,7 +333,28 @@ describe("P-W4-01 proposal-only candidate improvement loop", () => {
       });
       expect(result.license.verificationClaimEffect?.verificationOutcome).toBe("verified_failure");
       expect((db.prepare("SELECT status, review_status FROM candidate_changesets WHERE changeset_id = ?").get(candidate.changesetId) as { status: string; review_status: string | null }))
-        .toEqual({ status: "abandoned", review_status: null });
+        .toEqual({ status: "verification_failed", review_status: null });
+      expect((db.prepare("SELECT status, review_status FROM candidate_changesets WHERE changeset_id = ?").get(sibling.changesetId) as { status: string; review_status: string | null }))
+        .toEqual({ status: "proposed", review_status: "submitted" });
+      expect((db.prepare("SELECT event_type FROM candidate_changeset_events WHERE changeset_id = ? ORDER BY id DESC LIMIT 1").get(candidate.changesetId) as { event_type: string }).event_type)
+        .toBe("verification_failed");
+      expect((db.prepare("SELECT COUNT(*) AS count FROM candidate_changeset_events WHERE changeset_id = ? AND event_type = 'verification_failed'").get(sibling.changesetId) as { count: number }).count)
+        .toBe(0);
+
+      const exportAttempt = await executePatchExportV2({
+        request: patchRequest(candidate.changesetId, "accept") as never,
+        ownerId: OWNER_ID,
+        db,
+        masterMode: "apply",
+        registry: registry(),
+        dispatcher: {
+          dispatch: async () => {
+            throw new Error("m7_dispatch_should_not_run");
+          },
+        } as unknown as SandboxV2Dispatcher,
+        envOverrides: { sandboxEngineeringLifecycleEnabled: true },
+      });
+      expect(exportAttempt.license.error).toBe("changeset_not_exportable");
     } finally {
       db.close();
       if (existsSync(root)) rmSync(root, { recursive: true, force: true });
