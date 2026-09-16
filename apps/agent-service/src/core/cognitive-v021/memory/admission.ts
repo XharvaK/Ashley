@@ -26,6 +26,62 @@ import {
 
 type DbRow = Record<string, unknown>;
 
+function record(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function publishedDurableNominations(
+  settlement: { payload_json?: unknown } | null,
+): Record<string, unknown>[] {
+  if (!settlement || typeof settlement.payload_json !== "string") return [];
+  try {
+    const payload = record(JSON.parse(settlement.payload_json));
+    return Array.isArray(payload?.durableNominations)
+      ? payload.durableNominations.map(record).filter((value): value is Record<string, unknown> => value !== null)
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function publishedNominationMatches(
+  published: Record<string, unknown>,
+  nomination: DurableNomination,
+): boolean {
+  return published.nominationId === nomination.nominationId
+    && published.assertionKey === nomination.assertionKey
+    && published.statement === nomination.statement
+    && published.memoryKind === nomination.memoryKind;
+}
+
+function isAshleyInterpretationForStatement(
+  published: Record<string, unknown>,
+  statement: string,
+): boolean {
+  const dimensions = record(published.dimensions);
+  return published.memoryKind === "learned_self_evidence"
+    && published.statement === statement
+    && dimensions?.source === "ashley_interpretation";
+}
+
+/** Published Thought durable nominations are the only learned-self adoption witness. */
+export function isLearnedSelfThoughtAdopted(
+  nomination: DurableNomination,
+  settlement: { payload_json?: unknown } | null,
+): boolean {
+  const published = publishedDurableNominations(settlement);
+  const candidate = published.find((item) => publishedNominationMatches(item, nomination));
+  if (!candidate) return false;
+
+  const ownerOrigin = nomination.dimensions.source === "owner_utterance"
+    && nomination.dimensions.reliability === "owner_supplied";
+  if (!ownerOrigin) return true;
+
+  return published.some((item) => item !== candidate && isAshleyInterpretationForStatement(item, nomination.statement));
+}
+
 export type AdmissionResult = {
   nominationId: string;
   assertionKey: string;
@@ -208,6 +264,19 @@ function admitOne(
     const result = noAssertion("admission_skipped_unpublished");
     logAdmission(db, result, nowMs);
     return result;
+  }
+  if (nomination.memoryKind === "learned_self_evidence") {
+    const published = publishedDurableNominations(settlement);
+    if (!published.some((item) => publishedNominationMatches(item, nomination))) {
+      const result = noAssertion("admission_skipped_unpublished");
+      logAdmission(db, result, nowMs);
+      return result;
+    }
+    if (!isLearnedSelfThoughtAdopted(nomination, settlement)) {
+      const result = noAssertion("admission_skipped_provenance");
+      logAdmission(db, result, nowMs);
+      return result;
+    }
   }
   const current = currentConversationGeneration(db, nomination.cycleId);
   if (!current) {

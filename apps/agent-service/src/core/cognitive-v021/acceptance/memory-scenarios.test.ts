@@ -9,9 +9,12 @@ import { upsertMemoryAssertion } from "../memory/assertions.js";
 import { buildOwnerKnowledgeView } from "../memory/views.js";
 import { buildLearnedSelfSlice } from "../identity/learned-self.js";
 import { appendOwnerUtterance } from "../evidence/conversation-log.js";
-import { admitTestCycle } from "../test-support.js";
+import { admitTestCycle, makeThoughtDraft } from "../test-support.js";
 import { applyWorkingContextDelta, listWorkingContext } from "../evidence/working-context.js";
 import { applyV021Forget } from "../memory/forget.js";
+import { publishSemanticTransaction } from "../settlement/publish.js";
+import { runGovernedAdmissionCatchup } from "../memory/admission.js";
+import type { DurableNomination } from "../types.js";
 
 describe("v0.2.1 memory causal acceptance", () => {
   it("does not define a persistable AshleyBelief type", () => {
@@ -58,6 +61,43 @@ describe("v0.2.1 memory causal acceptance", () => {
       expect(existsSync(path)).toBe(true);
     } finally {
       rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps Owner evidence separate from learned-self adoption", () => {
+    const db = openCognitiveSidecarDb(new DatabaseSync(":memory:"), { dataPlane: { kind: "isolated" } });
+    try {
+      const cycle = admitTestCycle(db, { cycleId: "cycle-adoption", conversationId: "thread-adoption", generation: 1, triggerKind: "owner_message", triggerRef: "adoption", occupantId: "doc", nowMs: 1 });
+      const ownerEvidence = appendOwnerUtterance(db, { conversationId: "thread-adoption", text: "I value careful summaries.", discordMessageIds: ["adoption-message"], nowMs: 2 });
+      const ownerOrigin: DurableNomination = {
+        nominationId: "nomination-owner-copy",
+        cycleId: cycle.cycleId,
+        generation: cycle.generation,
+        assertionKey: "self:owner-copy",
+        statement: "I value careful summaries.",
+        memoryKind: "learned_self_evidence",
+        dimensions: { source: "owner_utterance", status: "asserted", time: "historical", reliability: "owner_supplied" },
+        dataClassification: "ordinary",
+        supersedesAssertionKey: null,
+        concernId: null,
+        sourceRefs: [ownerEvidence.rowId],
+      };
+      const draft = makeThoughtDraft({
+        cycleId: cycle.cycleId,
+        generation: cycle.generation,
+        durableNominations: [ownerOrigin],
+        speech: { ...makeThoughtDraft().speech, mode: "none", mustSay: [], surfaceDraft: null },
+      });
+      expect(publishSemanticTransaction(db, { ...draft, settlementId: "settlement-adoption", speech: { ...draft.speech, finalLicensedText: null } }).published).toBe(true);
+
+      const result = runGovernedAdmissionCatchup(db, { nowMs: 3 });
+
+      expect(result.admitted).toBe(0);
+      expect(result.skippedProvenance).toBe(1);
+      expect(buildLearnedSelfSlice(db)).toEqual({ dispositions: [], interests: [] });
+      expect(db.prepare("SELECT COUNT(*) AS count FROM conversation_evidence_log WHERE row_id = ?").get(ownerEvidence.rowId)).toMatchObject({ count: 1 });
+    } finally {
+      db.close();
     }
   });
 });

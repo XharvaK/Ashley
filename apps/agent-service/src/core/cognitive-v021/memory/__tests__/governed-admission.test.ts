@@ -32,10 +32,10 @@ function nomination(overrides: Partial<DurableNomination> = {}): DurableNominati
   };
 }
 
-function publishNomination(db: Parameters<typeof runGovernedAdmissionCatchup>[0], value: DurableNomination, settlementId: string): void {
+function publishNominations(db: Parameters<typeof runGovernedAdmissionCatchup>[0], values: DurableNomination[], settlementId: string): void {
   const draft = makeThoughtDraft({
-    cycleId: value.cycleId,
-    generation: value.generation,
+    cycleId: values[0].cycleId,
+    generation: values[0].generation,
     speech: {
       mode: "none",
       mustSay: [],
@@ -48,7 +48,7 @@ function publishNomination(db: Parameters<typeof runGovernedAdmissionCatchup>[0]
       ...makeThoughtDraft().operations,
       observationsConsumed: [],
     },
-    durableNominations: [value],
+    durableNominations: values,
   });
   const result = publishSemanticTransaction(db, {
     ...draft,
@@ -56,6 +56,10 @@ function publishNomination(db: Parameters<typeof runGovernedAdmissionCatchup>[0]
     speech: { ...draft.speech, finalLicensedText: null },
   });
   expect(result.published).toBe(true);
+}
+
+function publishNomination(db: Parameters<typeof runGovernedAdmissionCatchup>[0], value: DurableNomination, settlementId: string): void {
+  publishNominations(db, [value], settlementId);
 }
 
 describe("MAT-II governed automatic admission", () => {
@@ -133,6 +137,178 @@ describe("MAT-II governed automatic admission", () => {
         .toMatchObject({ admitted: 0 });
       expect(db.prepare("SELECT COUNT(*) AS count FROM sidecar_memory_assertions").get())
         .toMatchObject({ count: 0 });
+    } finally {
+      db.close();
+    }
+  });
+
+  it("does not infer learned-self adoption from verified Owner evidence", () => {
+    const db = openTestSidecar();
+    try {
+      const evidence = appendOwnerUtterance(db, {
+        conversationId: "owner-origin-thread",
+        text: "I value precise explanations.",
+        discordMessageIds: ["owner-origin-message"],
+        nowMs: 1,
+      });
+      admitTestCycle(db, {
+        cycleId: "cycle-owner-origin",
+        conversationId: "owner-origin-thread",
+        generation: 1,
+        triggerKind: "owner_message",
+        triggerRef: evidence.rowId,
+        occupantId: "doc",
+        nowMs: 1,
+      });
+      const ownerOrigin = nomination({
+        nominationId: "nomination-owner-origin",
+        cycleId: "cycle-owner-origin",
+        assertionKey: "learned:owner-origin",
+        statement: "I value precise explanations.",
+        dimensions: {
+          source: "owner_utterance",
+          status: "asserted",
+          time: "historical",
+          reliability: "owner_supplied",
+        },
+        sourceRefs: [evidence.rowId],
+      });
+      publishNomination(db, ownerOrigin, "settlement-owner-origin");
+
+      const result = runGovernedAdmissionCatchup(db, { nowMs: 2 });
+
+      expect(result.admitted).toBe(0);
+      expect(result.skippedProvenance).toBe(1);
+      expect(db.prepare("SELECT admitted FROM durable_nominations WHERE nomination_id = ?").get(ownerOrigin.nominationId))
+        .toMatchObject({ admitted: 0 });
+      expect(db.prepare("SELECT COUNT(*) AS count FROM sidecar_memory_assertions").get())
+        .toMatchObject({ count: 0 });
+      expect(buildLearnedSelfSlice(db)).toEqual({ dispositions: [], interests: [] });
+    } finally {
+      db.close();
+    }
+  });
+
+  it("requires the nomination to be present in the published Thought settlement", () => {
+    const db = openTestSidecar();
+    try {
+      admitTestCycle(db, {
+        cycleId: "cycle-unpublished-nomination",
+        conversationId: "unpublished-nomination-thread",
+        generation: 1,
+        triggerKind: "owner_message",
+        triggerRef: "unpublished-nomination",
+        occupantId: "doc",
+        nowMs: 1,
+      });
+      const candidate = nomination({
+        nominationId: "nomination-not-in-payload",
+        cycleId: "cycle-unpublished-nomination",
+        assertionKey: "learned:not-in-payload",
+      });
+      db.prepare(
+        `INSERT INTO durable_nominations
+           (nomination_id, cycle_id, generation, assertion_key, statement, memory_kind,
+            dimensions_json, data_classification, supersedes_assertion_key, concern_id, admitted, source_refs_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`
+      ).run(
+        candidate.nominationId,
+        candidate.cycleId,
+        candidate.generation,
+        candidate.assertionKey,
+        candidate.statement,
+        candidate.memoryKind,
+        JSON.stringify(candidate.dimensions),
+        candidate.dataClassification,
+        candidate.supersedesAssertionKey,
+        candidate.concernId,
+        JSON.stringify(candidate.sourceRefs),
+      );
+      const draft = makeThoughtDraft({
+        cycleId: candidate.cycleId,
+        generation: candidate.generation,
+        speech: {
+          mode: "none",
+          mustSay: [],
+          mustNot: [],
+          surfaceDraft: null,
+          acceptableRealizations: [],
+          presentationDirectives: [],
+        },
+        operations: {
+          ...makeThoughtDraft().operations,
+          observationsConsumed: [],
+        },
+        durableNominations: [],
+      });
+      expect(publishSemanticTransaction(db, {
+        ...draft,
+        settlementId: "settlement-without-nomination",
+        speech: { ...draft.speech, finalLicensedText: null },
+      }).published).toBe(true);
+
+      const result = runGovernedAdmissionCatchup(db, { nowMs: 2 });
+
+      expect(result.admitted).toBe(0);
+      expect(result.skippedProvenance).toBe(0);
+      expect(result.skippedUnpublished).toBe(1);
+      expect(db.prepare("SELECT admitted FROM durable_nominations WHERE nomination_id = ?").get(candidate.nominationId))
+        .toMatchObject({ admitted: 0 });
+    } finally {
+      db.close();
+    }
+  });
+
+  it("allows an Owner-origin nomination only with Thought's Ashley-source interpretation", () => {
+    const db = openTestSidecar();
+    try {
+      const evidence = appendOwnerUtterance(db, {
+        conversationId: "owner-exception-thread",
+        text: "I value precise explanations.",
+        discordMessageIds: ["owner-exception-message"],
+        nowMs: 1,
+      });
+      admitTestCycle(db, {
+        cycleId: "cycle-owner-exception",
+        conversationId: "owner-exception-thread",
+        generation: 1,
+        triggerKind: "owner_message",
+        triggerRef: evidence.rowId,
+        occupantId: "doc",
+        nowMs: 1,
+      });
+      const ownerOrigin = nomination({
+        nominationId: "nomination-owner-exception",
+        cycleId: "cycle-owner-exception",
+        assertionKey: "learned:owner-exception",
+        statement: "I value precise explanations.",
+        dimensions: {
+          source: "owner_utterance",
+          status: "asserted",
+          time: "historical",
+          reliability: "owner_supplied",
+        },
+        sourceRefs: [evidence.rowId],
+      });
+      const adoption = nomination({
+        nominationId: "nomination-ashley-adoption",
+        cycleId: "cycle-owner-exception",
+        assertionKey: "learned:ashley-adoption",
+        statement: ownerOrigin.statement,
+        dimensions: {
+          source: "ashley_interpretation",
+          status: "interpreted",
+          time: "historical",
+          reliability: "inferred",
+        },
+      });
+      publishNominations(db, [ownerOrigin, adoption], "settlement-owner-exception");
+
+      const result = runGovernedAdmissionCatchup(db, { nowMs: 2 });
+
+      expect(result.admitted).toBe(2);
+      expect(db.prepare("SELECT COUNT(*) AS count FROM sidecar_memory_assertions").get())
+        .toMatchObject({ count: 2 });
     } finally {
       db.close();
     }
