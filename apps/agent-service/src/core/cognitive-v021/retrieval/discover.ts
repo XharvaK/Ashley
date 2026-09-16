@@ -136,11 +136,8 @@ function canonicalRetrievalScope(
 ): { audience: SocialAudience; conversationIds: string[] } {
   if (!authorityDb) {
     return {
-      audience: requestedAudience,
-      conversationIds: requestedAudience.kind === "owner_private"
-        ? [...new Set((input.crossSurfaceConversationIds ?? []).filter((id) =>
-          typeof id === "string" && id.trim() && id !== input.conversationId))]
-        : [],
+      audience: directConversationAudience(input.conversationId),
+      conversationIds: [],
     };
   }
 

@@ -200,7 +200,7 @@ export function searchConversationFts(
   // primary conversation is always in scope; nothing is inferred from ID
   // prefixes. Each scoped conversation witnesses its own source-currentness
   // below, so adding a scope cannot weaken invalidation checks.
-  let additionalConversationIds = options.additionalConversationIds ?? [];
+  let additionalConversationIds: readonly string[] = [];
   if (options.authorityDb) {
     additionalConversationIds = options.ownerId?.trim()
       ? listOwnerTrustedRoomConversationIds(options.authorityDb, options.ownerId)

@@ -8,6 +8,7 @@ import {
 } from "../evidence/conversation-log.js";
 import { retrieveCandidates } from "./discover.js";
 import { openDerivedStore } from "./derived-store.js";
+import { searchConversationFts } from "./fts.js";
 import { listOwnerTrustedRoomConversationIds } from "../../relationship/social-authority.js";
 import { buildThoughtInput } from "../thought/input.js";
 
@@ -208,7 +209,7 @@ describe("owner-private cross-surface recall bridge", () => {
     }
   });
 
-  it("B+C: returns eligible Owner and Ashley room rows to an authenticated Owner-private cycle", () => {
+  it("ignores caller-provided cross-surface IDs when authorityDb is absent", () => {
     const fixture = seedFixture();
     const derived = openDerivedStore(":memory:");
     try {
@@ -228,10 +229,51 @@ describe("owner-private cross-surface recall bridge", () => {
         derived,
       );
       expect(result.state).toBe("ready");
+      expect(logRefs(result)).not.toContain(fixture.roomOwner);
+      expect(logRefs(result)).not.toContain(fixture.roomAshley);
+
+      const direct = searchConversationFts(
+        derived,
+        fixture.sidecar,
+        DM,
+        "vesper",
+        { additionalConversationIds: [ROOM] },
+      );
+      expect(direct.state).toBe("ready");
+      expect(direct.rows.map((row) => row.rowId)).not.toContain(fixture.roomOwner);
+    } finally {
+      derived.close();
+      fixture.sidecar.close();
+    }
+  });
+
+  it("B+C: returns eligible Owner and Ashley room rows to an authenticated Owner-private cycle", () => {
+    const fixture = seedFixture();
+    const derived = openDerivedStore(":memory:");
+    const nuclear = openNuclearWithRooms();
+    try {
+      derived.reconcile(fixture.sidecar);
+      const result = retrieveCandidates(
+        fixture.sidecar,
+        {
+          conversationId: DM,
+          request: {
+            triggerTerms: ["vesper"],
+            workingContextTopics: [],
+            assertionKeys: [],
+            includeLogSearch: true,
+          },
+          crossSurfaceConversationIds: [ROOM],
+        },
+        derived,
+        { authorityDb: nuclear, ownerId: "owner-1", audience: { kind: "owner_private" } },
+      );
+      expect(result.state).toBe("ready");
       const refs = logRefs(result);
       expect(refs).toContain(fixture.roomOwner);
       expect(refs).toContain(fixture.roomAshley);
     } finally {
+      nuclear.close();
       derived.close();
       fixture.sidecar.close();
     }
@@ -505,6 +547,7 @@ describe("owner-private cross-surface recall bridge", () => {
   it("projects the cross-surface scope through Thought input for Owner-private only", () => {
     const fixture = seedFixture();
     const derived = openDerivedStore(":memory:");
+    const nuclear = openNuclearWithRooms();
     try {
       derived.reconcile(fixture.sidecar);
       const constitution = { constitutional: ["truth first"], stableSelf: [] as string[] };
@@ -527,7 +570,7 @@ describe("owner-private cross-surface recall bridge", () => {
         conversationId: DM,
         generation: 1,
         triggerKind: "owner_message",
-        occupantId: "doc",
+        occupantId: "owner-1",
         authorityEpoch: 1,
         architectureEpoch: "v0.2.1",
         preemptedGeneration: null,
@@ -540,6 +583,7 @@ describe("owner-private cross-surface recall bridge", () => {
         constitution,
         capabilityReality,
         derivedStore: derived,
+        authorityDb: nuclear,
         crossSurfaceConversationIds: [ROOM],
       });
       const ownerRefs = ownerPrivate.retrieval.hits
@@ -552,7 +596,7 @@ describe("owner-private cross-surface recall bridge", () => {
         conversationId: ROOM,
         generation: 1,
         triggerKind: "owner_message",
-        occupantId: "doc",
+        occupantId: "owner-1",
         authorityEpoch: 1,
         architectureEpoch: "v0.2.1",
         preemptedGeneration: null,
@@ -565,6 +609,7 @@ describe("owner-private cross-surface recall bridge", () => {
         constitution,
         capabilityReality,
         derivedStore: derived,
+        authorityDb: nuclear,
         audience: { kind: "room", roomId: ROOM },
         crossSurfaceConversationIds: [DM],
       });
@@ -573,6 +618,7 @@ describe("owner-private cross-surface recall bridge", () => {
         .map((hit) => hit.ref);
       expect(roomRefs).not.toContain(fixture.dmOwner);
     } finally {
+      nuclear.close();
       derived.close();
       fixture.sidecar.close();
     }
