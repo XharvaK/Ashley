@@ -40,13 +40,14 @@ export function applyOccupancyDelta(
      VALUES (?, ?, ?, ?, ?, ?)
      ON CONFLICT(conversation_id, concern_id) DO UPDATE SET status=excluded.status,
        priority=excluded.priority, updated_cycle=excluded.updated_cycle,
-       updated_generation=excluded.updated_generation`,
+       updated_generation=excluded.updated_generation
+       WHERE updated_generation <= excluded.updated_generation`,
   ).run(
     occupancy.conversationId,
     occupancy.concernId,
     occupancy.status,
     occupancy.priority,
     publication.cycleId,
-    occupancy.updatedGeneration,
+    publication.generation,
   );
 }
