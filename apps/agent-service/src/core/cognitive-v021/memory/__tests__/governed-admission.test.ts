@@ -90,6 +90,7 @@ describe("MAT-II governed automatic admission", () => {
       expect(buildLearnedSelfSlice(db)).toEqual({
         dispositions: ["prefers precise explanations"],
         interests: [],
+        supportRefs: ["nomination-learned"],
       });
     } finally {
       db.close();
