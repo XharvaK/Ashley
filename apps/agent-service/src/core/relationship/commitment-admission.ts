@@ -779,10 +779,13 @@ export function reviseCommitment(
   ).get(input.ownerId, input.commitmentId) as { evidence_json?: unknown } | undefined;
   if (!row) return false;
   const evidence = record(parseJson(row.evidence_json)) ?? {};
-  nuclearDb.prepare(
+  const result = nuclearDb.prepare(
     `UPDATE ashley_self_commitments SET commitment_state = 'revised', status = 'released',
-       evidence_json = ?, lease_token = NULL, lease_expires_at_ms = NULL, updated_at = ? WHERE owner_id = ? AND entity_uuid = ?`,
+       evidence_json = ?, lease_token = NULL, lease_expires_at_ms = NULL, updated_at = ?
+       WHERE owner_id = ? AND entity_uuid = ?
+         AND commitment_state IN ('admitted','communicated','attempted','deferred_blocked')`,
   ).run(stableJson({ ...evidence, supersededBySourceRef: input.replacementSourceRef }), new Date(nowMs).toISOString(), input.ownerId, input.commitmentId);
+  if (Number(result.changes) !== 1) return false;
   markClaimOutcome(nuclearDb, input.commitmentId, "released", "revised");
   return true;
 }
@@ -821,10 +824,13 @@ export function applyCommitmentDeliveryOutcome(
   // finalizeDelivery emits committed only after its planned-count proof;
   // partial delivery is evidence, never fulfillment.
   if (input.receiptCount > 0 && input.state === "committed") {
-    nuclearDb.prepare(
+    const result = nuclearDb.prepare(
       `UPDATE ashley_self_commitments SET commitment_state = 'completed', status = 'fulfilled',
-         lease_token = NULL, lease_expires_at_ms = NULL, updated_at = ? WHERE owner_id = ? AND entity_uuid = ?`,
+         lease_token = NULL, lease_expires_at_ms = NULL, updated_at = ?
+         WHERE owner_id = ? AND entity_uuid = ?
+           AND commitment_state IN ('admitted','communicated','attempted','deferred_blocked')`,
     ).run(new Date(nowMs).toISOString(), input.ownerId, input.commitmentId);
+    if (Number(result.changes) !== 1) return;
     markClaimOutcome(nuclearDb, input.commitmentId, "committed");
     return;
   }

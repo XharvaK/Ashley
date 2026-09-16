@@ -12,6 +12,7 @@ import {
   recoverPendingCommitmentProposals,
   recoverCommitmentOpportunities,
   recheckCommitmentOpportunity,
+  reviseCommitment,
   settlePersistedCommitmentProposals,
   COMMITMENT_PROVISIONAL_ORPHAN,
   type CommitmentProposal,
@@ -76,6 +77,47 @@ describe("commitment admission and fidelity", () => {
       });
       expect(db.prepare("SELECT commitment_state, status FROM ashley_self_commitments WHERE entity_uuid = ?").get("cmt:delivery-outcome:0"))
         .toEqual({ commitment_state: "completed", status: "fulfilled" });
+    } finally {
+      db.close();
+    }
+  });
+
+  it("does not overwrite incompatible commitment terminals", () => {
+    const db = dbFixture();
+    try {
+      const terminals = [
+        ["completed", "fulfilled"],
+        ["relinquished", "released"],
+        ["revised", "released"],
+        ["missed_overdue", "released"],
+      ] as const;
+      for (const [state, status] of terminals) {
+        const settlementId = `terminal-${state}`;
+        const commitmentId = `cmt:${settlementId}:0`;
+        persistCommitmentProposals(db, settlementId, [proposal()]);
+        settlePersistedCommitmentProposals(db, settlementId, { ownerId, nowMs, enabled: true });
+        db.prepare(
+          "UPDATE ashley_self_commitments SET commitment_state = ?, status = ? WHERE owner_id = ? AND entity_uuid = ?",
+        ).run(state, status, ownerId, commitmentId);
+
+        applyCommitmentDeliveryOutcome(db, {
+          ownerId,
+          commitmentId,
+          state: "committed",
+          receiptCount: 1,
+          nowMs,
+        });
+        expect(db.prepare("SELECT commitment_state, status FROM ashley_self_commitments WHERE entity_uuid = ?").get(commitmentId))
+          .toEqual({ commitment_state: state, status });
+        expect(reviseCommitment(db, {
+          ownerId,
+          commitmentId,
+          replacementSourceRef: `replacement:${state}`,
+          nowMs,
+        })).toBe(false);
+        expect(db.prepare("SELECT commitment_state, status FROM ashley_self_commitments WHERE entity_uuid = ?").get(commitmentId))
+          .toEqual({ commitment_state: state, status });
+      }
     } finally {
       db.close();
     }
