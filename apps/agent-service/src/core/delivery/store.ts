@@ -4,6 +4,8 @@ import {
   resolveActiveThread,
 } from "../memory/threads.js";
 import type { DeliveryReservationRow, DeliveryTrigger } from "./types.js";
+import { isTerminalDeliveryState } from "./types.js";
+import { applyBoundCommitmentDeliveryOutcome } from "../relationship/delivery-outcomes.js";
 import {
   CREDENTIAL_OMITTED_PLACEHOLDER,
   detectCredentialShape,
@@ -468,7 +470,7 @@ export function recordBubbleReceipt(
         `UPDATE delivery_reservations SET state = 'sending' WHERE id = ?`,
       ).run(reservationId);
     }
-    if (reservation && reservation.firstSentAt == null) {
+    if (reservation && !isTerminalDeliveryState(reservation.state) && reservation.firstSentAt == null) {
       db.prepare(
         `UPDATE delivery_reservations SET first_sent_at = ? WHERE id = ? AND first_sent_at IS NULL`,
       ).run(sentAt, reservationId);
@@ -487,6 +489,21 @@ export function recordBubbleReceipt(
           statusCode: deadlineMissed
             ? "first_bubble_deadline_missed"
             : "first_bubble_receipted",
+        });
+      }
+    }
+    if (reservation && isTerminalDeliveryState(reservation.state)) {
+      const bubbles = listDeliveryBubbles(db, reservationId);
+      const receiptCount = bubbles.filter((bubble) => bubble.discordMessageId).length;
+      const completionProven = bubbles.length > 0 && receiptCount >= bubbles.length;
+      if (completionProven) {
+        applyBoundCommitmentDeliveryOutcome(db, {
+          ownerId: reservation.ownerId,
+          commitmentId: reservation.commitmentId,
+          state: reservation.state,
+          cause: "late_receipt",
+          receiptCount,
+          completionProven: true,
         });
       }
     }

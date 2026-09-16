@@ -3,6 +3,11 @@ import { describe, expect, it } from "vitest";
 import { openNuclearDb } from "../../db.js";
 import { finalizeDelivery } from "../../delivery/finalize.js";
 import { recordBubbleReceipt } from "../../delivery/store.js";
+import {
+  persistCommitmentProposals,
+  settlePersistedCommitmentProposals,
+  type CommitmentProposal,
+} from "../../relationship/commitment-admission.js";
 import { openTestSidecar } from "../test-support.js";
 import { emitInfrastructureNotice } from "../speech/infrastructure-notice.js";
 import { insertOutboxPending } from "../speech/outbox.js";
@@ -488,6 +493,100 @@ describe("v0.2.1 delivery reconciliation", () => {
         failure_class: "delivery_partially_delivered",
         external_effect_truth: "effect_indeterminate",
       });
+    } finally {
+      sidecar.close();
+      nuclear.close();
+    }
+  });
+
+  it("admits a late receipt as evidence without reopening the terminal reservation", async () => {
+    const sidecar = openTestSidecar();
+    const nuclear = openNuclearDb(new DatabaseSync(":memory:"));
+    try {
+      const nowMs = Date.parse("2026-09-15T12:00:00.000Z");
+      const settlementId = "settlement-late-receipt";
+      const lateCommitment: CommitmentProposal = {
+        ordinal: 0,
+        action: "send the Owner a progress update",
+        beneficiary: "owner",
+        destination: { kind: "owner_private" },
+        temporal: { kind: "exact", atMs: nowMs + 60_000 },
+        realizationClause: "I will send the Owner a progress update tomorrow.",
+        thoughtCycle: { cycleId: "cycle-late-receipt", attemptId: "attempt-late-receipt" },
+      };
+      persistCommitmentProposals(nuclear, settlementId, [lateCommitment]);
+      expect(settlePersistedCommitmentProposals(nuclear, settlementId, {
+        ownerId: "doc",
+        nowMs,
+        enabled: true,
+      })).toMatchObject([{ admitted: true, commitmentId: "cmt:settlement-late-receipt:0" }]);
+
+      const outbox = insertOutboxPending(sidecar, {
+        settlementId,
+        cycleId: "cycle-late-receipt",
+        generation: 1,
+        conversationId: "thread-late-receipt",
+        licensedText: "first bubble\n\nsecond bubble",
+        deliveryIntent: {
+          ownerId: "doc",
+          channel: "discord",
+          threadId: "thread-late-receipt",
+          conversationId: "thread-late-receipt",
+          trigger: "owner_message_reactive",
+          deliveryLane: "reactive",
+          purpose: "licensed_speech",
+        },
+        commitmentBindings: [{
+          commitmentId: "cmt:settlement-late-receipt:0",
+          realizationClauseHash: "hash-late-receipt",
+          admissionRevision: 0,
+        }],
+      });
+      const { OutboxDeliveryProjector } = await import("./outbox-projector.js");
+      await new OutboxDeliveryProjector(sidecar, nuclear, { nowMs: () => 1_000 })
+        .project(outbox.outboxId);
+      const reservationId = Number(
+        (sidecar.prepare(
+          "SELECT nuclear_reservation_id FROM speech_outbox WHERE outbox_id = ?",
+        ).get(outbox.outboxId) as { nuclear_reservation_id: number }).nuclear_reservation_id,
+      );
+
+      recordBubbleReceipt(nuclear, reservationId, 0, "discord-late-first", 2_000);
+      finalizeDelivery(nuclear, {
+        reservationId,
+        ownerId: "doc",
+        cause: "send_failure",
+      });
+      expect(nuclear.prepare(
+        "SELECT state FROM delivery_reservations WHERE id = ?",
+      ).get(reservationId)).toEqual({ state: "partially_delivered" });
+      expect(nuclear.prepare(
+        "SELECT commitment_state, status FROM ashley_self_commitments WHERE entity_uuid = ?",
+      ).get("cmt:settlement-late-receipt:0")).toEqual({ commitment_state: "admitted", status: "motivated" });
+
+      recordBubbleReceipt(nuclear, reservationId, 1, "discord-late-second", 2_001);
+      expect(nuclear.prepare(
+        "SELECT state, first_sent_at FROM delivery_reservations WHERE id = ?",
+      ).get(reservationId)).toMatchObject({ state: "partially_delivered", first_sent_at: "1970-01-01T00:00:02.000Z" });
+      expect(nuclear.prepare(
+        "SELECT discord_message_id FROM delivery_bubbles WHERE reservation_id = ? AND ordinal = 1",
+      ).get(reservationId)).toEqual({ discord_message_id: "discord-late-second" });
+      expect(nuclear.prepare(
+        "SELECT commitment_state, status FROM ashley_self_commitments WHERE entity_uuid = ?",
+      ).get("cmt:settlement-late-receipt:0")).toEqual({ commitment_state: "completed", status: "fulfilled" });
+
+      expect(finalizeDelivery(nuclear, {
+        reservationId,
+        ownerId: "doc",
+        cause: "complete",
+      })).toMatchObject({
+        state: "partially_delivered",
+        receiptCount: 2,
+        plannedCount: 2,
+      });
+      expect(nuclear.prepare(
+        "SELECT state FROM delivery_reservations WHERE id = ?",
+      ).get(reservationId)).toEqual({ state: "partially_delivered" });
     } finally {
       sidecar.close();
       nuclear.close();

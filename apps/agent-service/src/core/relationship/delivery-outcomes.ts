@@ -101,6 +101,33 @@ export function applyRelationshipDeliveryOutcome(
   }
 }
 
+export function applyBoundCommitmentDeliveryOutcome(
+  db: DatabaseSync,
+  input: {
+    ownerId: string;
+    commitmentId: string | null | undefined;
+    state: DeliveryState;
+    cause?: string;
+    receiptCount: number;
+    completionProven?: boolean;
+  },
+): void {
+  if (!input.commitmentId) return;
+  const state = input.completionProven
+    ? "committed"
+    : input.state === "committed" || input.state === "partially_delivered"
+      || input.state === "aborted" || input.state === "cancelled"
+      ? input.state
+      : "aborted";
+  applyCommitmentDeliveryOutcome(db, {
+    ownerId: input.ownerId,
+    commitmentId: input.commitmentId,
+    state,
+    cause: input.cause,
+    receiptCount: input.receiptCount,
+  });
+}
+
 export function markMissedDueReminders(
   db: DatabaseSync,
   ownerId: string,

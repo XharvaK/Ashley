@@ -1,7 +1,9 @@
 import type { DatabaseSync } from "node:sqlite";
 import { setDecisionOutcome } from "../agency/log.js";
-import { applyCommitmentDeliveryOutcome } from "../relationship/commitment-admission.js";
-import { applyRelationshipDeliveryOutcome } from "../relationship/delivery-outcomes.js";
+import {
+  applyBoundCommitmentDeliveryOutcome,
+  applyRelationshipDeliveryOutcome,
+} from "../relationship/delivery-outcomes.js";
 import { insertMessage } from "../memory/threads.js";
 import { patchState } from "../state/store.js";
 import {
@@ -136,6 +138,17 @@ export function finalizeDelivery(
         .filter((b) => b.discordMessageId)
         .map((b) => b.text)
         .join("\n\n");
+      const completionProven = bubbles.length > 0 && receiptCount >= bubbles.length;
+      if (completionProven) {
+        applyBoundCommitmentDeliveryOutcome(db, {
+          ownerId: input.ownerId,
+          commitmentId: reservation.commitmentId,
+          state: reservation.state,
+          cause: input.cause,
+          receiptCount,
+          completionProven: true,
+        });
+      }
       db.exec("COMMIT");
       return {
         state: reservation.state,
@@ -199,15 +212,11 @@ export function finalizeDelivery(
     }
 
     if (reservation.commitmentId != null) {
-      const commitmentState = state === "committed" || state === "partially_delivered"
-        || state === "aborted" || state === "cancelled"
-        ? state
-        : "aborted";
-      applyCommitmentDeliveryOutcome(db, {
+      applyBoundCommitmentDeliveryOutcome(db, {
         ownerId: input.ownerId,
         commitmentId: reservation.commitmentId,
         cause: input.cause,
-        state: commitmentState,
+        state,
         receiptCount,
       });
     } else if (reservation.decisionId != null) {
