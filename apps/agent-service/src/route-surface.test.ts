@@ -6,6 +6,8 @@ import { assertRegisteredRoutes, routeSurface } from "./route-surface.js";
 import { createServer } from "./server.js";
 import { env } from "./env.js";
 import { openCognitiveSidecarDb } from "./core/cognitive-v021/sidecar/db.js";
+import { openTestSidecar } from "./core/cognitive-v021/test-support.js";
+import { openNuclearDb } from "./core/db.js";
 import { openObservabilityStore, RAW_DEBUG_RETENTION_MAX_MS } from "./core/cognitive-v021/thought/diagnostics.js";
 import { applyPublicPresenceDecision } from "./core/cognitive-v021/public-presence.js";
 import type { Server } from "node:http";
@@ -112,6 +114,91 @@ describe("route surface registry", () => {
       }
     } finally {
       await stopTestServer(server);
+    }
+  });
+
+  it("rejects external capture while the agent is not ready", async () => {
+    const sidecar = openTestSidecar();
+    const manager = {
+      getState: () => "booting" as const,
+      getUptimeSec: () => 0,
+      getProviderState: () => "configured" as const,
+      getCognitiveKernel: () => "v021" as const,
+      getReadinessSnapshot: () => ({
+        bootValidationSucceeded: true,
+        kernelInitialized: false,
+        activeConversationConfigured: true,
+        shadowFabricConfigured: "NOT_APPLICABLE" as const,
+        utilityRoleConfiguration: { exchangeCognition: false, curiosityConsolidation: false },
+        providerRemoteAvailability: "UNKNOWN" as const,
+      }),
+      core: {
+        getDatabase: () => {
+          throw new Error("nuclear_unavailable_while_booting");
+        },
+      },
+    } as unknown as AgentManager;
+    const { server, url } = await startTestServer(createServer(manager, {
+      botServiceToken: "bot-token",
+      cognitiveSidecar: sidecar,
+    }));
+    try {
+      const capture = await fetch(`${url}/chat/ingress-external/capture`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "X-Ashley-Bot-Service": "bot-token",
+        },
+        body: JSON.stringify({ message: "should not admit" }),
+      });
+      expect(capture.status).toBe(503);
+      expect(await capture.json()).toMatchObject({ code: "agent_not_ready" });
+      expect(sidecar.prepare("SELECT COUNT(*) AS count FROM inbox_events").get()).toEqual({ count: 0 });
+    } finally {
+      await stopTestServer(server);
+      sidecar.close();
+    }
+  });
+
+  it("does not ready-gate external capture after startup is complete", async () => {
+    const sidecar = openTestSidecar();
+    const nuclear = openNuclearDb(new DatabaseSync(":memory:"));
+    const manager = {
+      getState: () => "ready" as const,
+      getUptimeSec: () => 1,
+      getProviderState: () => "configured" as const,
+      getCognitiveKernel: () => "v021" as const,
+      getReadinessSnapshot: () => ({
+        bootValidationSucceeded: true,
+        kernelInitialized: true,
+        activeConversationConfigured: true,
+        shadowFabricConfigured: "NOT_APPLICABLE" as const,
+        utilityRoleConfiguration: { exchangeCognition: false, curiosityConsolidation: false },
+        providerRemoteAvailability: "UNKNOWN" as const,
+      }),
+      core: {
+        getDatabase: () => nuclear,
+      },
+    } as unknown as AgentManager;
+    const { server, url } = await startTestServer(createServer(manager, {
+      botServiceToken: "bot-token",
+      cognitiveSidecar: sidecar,
+    }));
+    try {
+      const capture = await fetch(`${url}/chat/ingress-external/capture`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "X-Ashley-Bot-Service": "bot-token",
+        },
+        body: JSON.stringify({ message: "invalid capture body" }),
+      });
+      expect(capture.status).not.toBe(503);
+      expect(capture.status).toBeGreaterThanOrEqual(400);
+    } finally {
+      await stopTestServer(server);
+      sidecar.close();
+      nuclear.close();
     }
   });
 

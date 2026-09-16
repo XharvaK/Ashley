@@ -1594,6 +1594,7 @@ export function createServer(
     "/chat/ingress-external/capture",
     (req, res, next) => {
       try {
+        requireReady();
         requireBotService(req);
         createExternalCaptureHandler({
           sidecar: getCognitiveSidecar(),
@@ -1613,6 +1614,7 @@ export function createServer(
     "/chat/ingress-external",
     (req, res, next) => {
       try {
+        requireReady();
         requireBotService(req);
         createExternalBatchHandler({
           sidecar: getCognitiveSidecar(),
