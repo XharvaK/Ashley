@@ -788,3 +788,13 @@ UPDATE conversation_evidence_log SET speaker_kind = 'owner' WHERE role = 'owner'
 UPDATE conversation_evidence_log SET speaker_kind = 'ashley' WHERE role = 'ashley' AND speaker_kind IS NULL;
 UPDATE cognitive_sidecar_meta SET schema_version = 17, projection_state = 'reconciling' WHERE id = 1;
 `;
+
+export const COGNITIVE_SIDECAR_SCHEMA_V18 = String.raw`
+ALTER TABLE observation_subscriptions ADD COLUMN poll_claim_token TEXT;
+ALTER TABLE observation_subscriptions ADD COLUMN poll_claim_expires_at_ms INTEGER;
+ALTER TABLE observation_subscriptions ADD COLUMN poll_generation INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE observation_subscriptions ADD COLUMN ingested_frontier_at_ms INTEGER;
+CREATE INDEX IF NOT EXISTS idx_observation_subscriptions_poll_claim
+  ON observation_subscriptions(cancelled, poll_claim_expires_at_ms, subscription_id);
+UPDATE cognitive_sidecar_meta SET schema_version = 18, projection_state = 'reconciling' WHERE id = 1;
+`;

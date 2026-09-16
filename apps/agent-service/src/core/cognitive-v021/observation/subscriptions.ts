@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import {
   htmlToText,
@@ -30,10 +30,11 @@ import {
   type Observation,
   type ObservationSubscription,
   type SubscriptionMutationAuthority,
+  type SubscriptionPollClaim,
   type SubscriptionPollOutcomeKind,
   type SubscriptionDelta,
 } from "../types.js";
-import { persistOrVerifyObservation } from "./persistence.js";
+import { persistOrVerifyObservations } from "./persistence.js";
 
 type Row = Record<string, unknown>;
 
@@ -79,6 +80,7 @@ export type SubscriptionItem = {
   pollOutcome?: PollOutcomeItemKind;
   pollSubscriptionId?: string;
   pollReason?: string;
+  pollClaim?: SubscriptionPollClaim;
 };
 
 export type MatchSubscriptionItemOptions = {
@@ -181,6 +183,10 @@ function mapSubscription(value: unknown): ObservationSubscription | null {
     lastPolledAtMs: nullableNumber(value.last_polled_at_ms),
     lastPollOutcome: parsePollOutcome(value.last_poll_outcome),
     expiryOpportunityEmittedAtMs: nullableNumber(value.expiry_opportunity_emitted_at_ms),
+    pollClaimToken: value.poll_claim_token == null ? null : text(value.poll_claim_token),
+    pollClaimExpiresAtMs: nullableNumber(value.poll_claim_expires_at_ms),
+    pollGeneration: number(value.poll_generation),
+    ingestedFrontierAtMs: nullableNumber(value.ingested_frontier_at_ms),
   };
 }
 
@@ -190,6 +196,10 @@ function subscriptionSpec(input: CreateObservationSubscriptionInput): Record<str
     lastPolledAtMs: _lastPolledAtMs,
     lastPollOutcome: _lastPollOutcome,
     expiryOpportunityEmittedAtMs: _expiryOpportunityEmittedAtMs,
+    pollClaimToken: _pollClaimToken,
+    pollClaimExpiresAtMs: _pollClaimExpiresAtMs,
+    pollGeneration: _pollGeneration,
+    ingestedFrontierAtMs: _ingestedFrontierAtMs,
     ...spec
   } = input;
   return spec;
@@ -274,7 +284,8 @@ export function listObservationSubscriptions(
     `SELECT subscription_id, conversation_id, spec_json, cancelled,
             external_source_type, external_source_url_pattern, poll_interval_ms,
             expires_at_ms, requester_id, last_polled_at_ms, last_poll_outcome,
-            expiry_opportunity_emitted_at_ms
+            expiry_opportunity_emitted_at_ms, poll_claim_token,
+            poll_claim_expires_at_ms, poll_generation, ingested_frontier_at_ms
        FROM observation_subscriptions
       ${clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : ""}
       ORDER BY subscription_id ASC LIMIT ?`,
@@ -308,8 +319,9 @@ export function createObservationSubscription(
        (subscription_id, conversation_id, spec_json, cancelled,
         external_source_type, external_source_url_pattern, poll_interval_ms,
         expires_at_ms, requester_id, last_polled_at_ms, last_poll_outcome,
-        expiry_opportunity_emitted_at_ms)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        expiry_opportunity_emitted_at_ms, poll_claim_token,
+        poll_claim_expires_at_ms, poll_generation, ingested_frontier_at_ms)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(subscription_id) DO UPDATE SET conversation_id=excluded.conversation_id,
        spec_json=excluded.spec_json, cancelled=excluded.cancelled,
        external_source_type=excluded.external_source_type,
@@ -319,7 +331,11 @@ export function createObservationSubscription(
        requester_id=excluded.requester_id,
        last_polled_at_ms=excluded.last_polled_at_ms,
        last_poll_outcome=excluded.last_poll_outcome,
-       expiry_opportunity_emitted_at_ms=excluded.expiry_opportunity_emitted_at_ms`,
+       expiry_opportunity_emitted_at_ms=excluded.expiry_opportunity_emitted_at_ms,
+       poll_claim_token=excluded.poll_claim_token,
+       poll_claim_expires_at_ms=excluded.poll_claim_expires_at_ms,
+       poll_generation=excluded.poll_generation,
+       ingested_frontier_at_ms=excluded.ingested_frontier_at_ms`,
   ).run(
     input.subscriptionId,
     input.conversationId,
@@ -333,6 +349,10 @@ export function createObservationSubscription(
     resetPollState ? null : existing?.lastPolledAtMs ?? null,
     resetPollState ? null : existing?.lastPollOutcome ?? null,
     resetPollState ? null : existing?.expiryOpportunityEmittedAtMs ?? null,
+    resetPollState ? null : existing?.pollClaimToken ?? null,
+    resetPollState ? null : existing?.pollClaimExpiresAtMs ?? null,
+    resetPollState ? 0 : existing?.pollGeneration ?? 0,
+    resetPollState ? null : existing?.ingestedFrontierAtMs ?? null,
   );
   const result = listObservationSubscriptions(db, input.conversationId, { includeCancelled: true })
     .find((subscription) => subscription.subscriptionId === input.subscriptionId);
@@ -612,22 +632,27 @@ function recordPollState(
   subscriptionId: string,
   nowMs: number,
   outcome: SubscriptionPollOutcomeKind,
+  claim?: SubscriptionPollClaim,
   expiryOpportunityEmittedAtMs?: number | null,
 ): void {
-  if (expiryOpportunityEmittedAtMs === undefined) {
-    db.prepare(
-      `UPDATE observation_subscriptions
-          SET last_polled_at_ms = ?, last_poll_outcome = ?
-        WHERE subscription_id = ?`,
-    ).run(nowMs, outcome, subscriptionId);
-    return;
-  }
+  const expiryAssignment = expiryOpportunityEmittedAtMs === undefined
+    ? ""
+    : ", expiry_opportunity_emitted_at_ms = ?";
+  const claimAssignment = claim && outcome !== "matched"
+    ? ", poll_claim_token = NULL, poll_claim_expires_at_ms = NULL"
+    : "";
+  const claimGuard = claim
+    ? " AND poll_generation = ? AND poll_claim_token = ?"
+    : "";
+  const args: Array<string | number | null> = [nowMs, outcome];
+  if (expiryOpportunityEmittedAtMs !== undefined) args.push(expiryOpportunityEmittedAtMs);
+  args.push(subscriptionId);
+  if (claim) args.push(claim.generation, claim.claimToken);
   db.prepare(
     `UPDATE observation_subscriptions
-        SET last_polled_at_ms = ?, last_poll_outcome = ?,
-            expiry_opportunity_emitted_at_ms = ?
-      WHERE subscription_id = ?`,
-  ).run(nowMs, outcome, expiryOpportunityEmittedAtMs, subscriptionId);
+        SET last_polled_at_ms = ?, last_poll_outcome = ?${expiryAssignment}${claimAssignment}
+      WHERE subscription_id = ?${claimGuard}`,
+  ).run(...args);
 }
 
 async function pollOneExternalSubscription(
@@ -651,7 +676,7 @@ async function pollOneExternalSubscription(
     if (subscription.expiryOpportunityEmittedAtMs != null) {
       return { outcome: { subscriptionId: subscription.subscriptionId, kind: "expired", atMs: nowMs }, items: [] };
     }
-    recordPollState(db, subscription.subscriptionId, nowMs, "expired", nowMs);
+    recordPollState(db, subscription.subscriptionId, nowMs, "expired", undefined, nowMs);
     return {
       outcome: { subscriptionId: subscription.subscriptionId, kind: "expired", atMs: nowMs, reason: "admitted_watch_expired" },
       items: [outcomeItem(subscription, "operational_expiry", nowMs, "admitted_watch_expired")],
@@ -675,6 +700,10 @@ async function pollOneExternalSubscription(
       items: [],
     };
   }
+  const claim = claimObservationSubscriptionPoll(db, subscription.subscriptionId, nowMs);
+  if (!claim) {
+    return { outcome: { subscriptionId: subscription.subscriptionId, kind: "not_due", atMs: nowMs }, items: [] };
+  }
   try {
     const aggregate = await fetchWithAggregateLimits([requestedUrl], {
       accept: sourceAcceptHeader(externalSource.kind),
@@ -690,7 +719,7 @@ async function pollOneExternalSubscription(
     });
     const page = aggregate.pages[0];
     if (!page || !externalUrlMatches(externalSource.urlPattern, page.finalUrl)) {
-      recordPollState(db, subscription.subscriptionId, nowMs, "rejected");
+      recordPollState(db, subscription.subscriptionId, nowMs, "rejected", claim);
       return {
         outcome: { subscriptionId: subscription.subscriptionId, kind: "rejected", atMs: nowMs, reason: "source_descriptor_violation" },
         items: [],
@@ -698,14 +727,14 @@ async function pollOneExternalSubscription(
     }
     if (aggregate.envelope.incomplete || aggregate.envelope.truncated) {
       const kind: "timeout" | "partial" = aggregate.envelope.incomplete && !aggregate.envelope.truncated ? "timeout" : "partial";
-      recordPollState(db, subscription.subscriptionId, nowMs, kind);
+      recordPollState(db, subscription.subscriptionId, nowMs, kind, claim);
       return {
         outcome: { subscriptionId: subscription.subscriptionId, kind, atMs: nowMs, reason: aggregate.envelope.truncationMarker ?? "incomplete_capture" },
         items: [outcomeItem(subscription, kind, nowMs, aggregate.envelope.truncationMarker ?? "incomplete_capture")],
       };
     }
     if (!contentTypeAllowed(externalSource.kind, page.contentType)) {
-      recordPollState(db, subscription.subscriptionId, nowMs, "unavailable");
+      recordPollState(db, subscription.subscriptionId, nowMs, "unavailable", claim);
       return {
         outcome: { subscriptionId: subscription.subscriptionId, kind: "unavailable", atMs: nowMs, reason: "unsupported_content_type" },
         items: [outcomeItem(subscription, "unavailable", nowMs, "unsupported_content_type")],
@@ -714,7 +743,7 @@ async function pollOneExternalSubscription(
     const raw = new TextDecoder("utf-8", { fatal: false }).decode(page.body);
     const items = parseExternalBody(subscription, raw, page.finalUrl, nowMs);
     if (items === null) {
-      recordPollState(db, subscription.subscriptionId, nowMs, "unavailable");
+      recordPollState(db, subscription.subscriptionId, nowMs, "unavailable", claim);
       return {
         outcome: { subscriptionId: subscription.subscriptionId, kind: "unavailable", atMs: nowMs, reason: "source_parse_failed" },
         items: [outcomeItem(subscription, "unavailable", nowMs, "source_parse_failed")],
@@ -722,20 +751,20 @@ async function pollOneExternalSubscription(
     }
     const matchingItems = items.filter((item) => matchSubscriptionItem(subscription, item, { nowMs }) !== null);
     if (matchingItems.length === 0) {
-      recordPollState(db, subscription.subscriptionId, nowMs, "complete_no_match");
+      recordPollState(db, subscription.subscriptionId, nowMs, "complete_no_match", claim);
       return {
         outcome: { subscriptionId: subscription.subscriptionId, kind: "complete_no_match", atMs: nowMs, itemCount: 0 },
         items: [],
       };
     }
-    recordPollState(db, subscription.subscriptionId, nowMs, "matched");
+    recordPollState(db, subscription.subscriptionId, nowMs, "matched", claim);
     return {
       outcome: { subscriptionId: subscription.subscriptionId, kind: "matched", atMs: nowMs, itemCount: matchingItems.length },
-      items: matchingItems,
+      items: matchingItems.map((item) => ({ ...item, pollClaim: claim })),
     };
   } catch (error) {
     const kind = pollErrorKind(error);
-    recordPollState(db, subscription.subscriptionId, nowMs, kind);
+    recordPollState(db, subscription.subscriptionId, nowMs, kind, claim);
     const reason = error instanceof Error ? error.message : "fetch_failed";
     return {
       outcome: { subscriptionId: subscription.subscriptionId, kind, atMs: nowMs, reason },
@@ -764,6 +793,38 @@ export async function pollObservationSubscriptions(
     result.items.push(...polled.items);
   }
   return result;
+}
+
+export function claimObservationSubscriptionPoll(
+  db: DatabaseSync,
+  subscriptionId: string,
+  nowMs: number,
+  leaseMs = 120_000,
+): SubscriptionPollClaim | null {
+  const claimToken = randomUUID();
+  const expiresAtMs = nowMs + Math.max(1, Math.floor(leaseMs));
+  const updated = db.prepare(
+    `UPDATE observation_subscriptions
+        SET poll_claim_token = ?, poll_claim_expires_at_ms = ?,
+            poll_generation = poll_generation + 1
+      WHERE subscription_id = ? AND cancelled = 0
+        AND external_source_type IS NOT NULL
+        AND (poll_claim_token IS NULL OR poll_claim_expires_at_ms IS NULL
+             OR poll_claim_expires_at_ms <= ?)`,
+  ).run(claimToken, expiresAtMs, subscriptionId, nowMs);
+  if (number(updated.changes) !== 1) return null;
+  const row = db.prepare(
+    `SELECT poll_generation
+       FROM observation_subscriptions
+      WHERE subscription_id = ? AND poll_claim_token = ?`,
+  ).get(subscriptionId, claimToken) as Row | undefined;
+  if (!row) return null;
+  return {
+    subscriptionId,
+    claimToken,
+    generation: number(row.poll_generation),
+    expiresAtMs,
+  };
 }
 
 function validClassification(value: unknown): DataClassification {
@@ -877,6 +938,7 @@ export function matchSubscriptionItem(
     provenance: externalProvenance(subscription),
     dataClassification,
     secretOmitted,
+    ...(typeof item !== "string" && item.pollClaim ? { pollClaim: item.pollClaim } : {}),
   };
 }
 
@@ -904,5 +966,5 @@ export function collectSubscriptionObservations(
 }
 
 export function persistSubscriptionObservation(db: DatabaseSync, observation: Observation, createdAtMs = Date.now()): void {
-  persistOrVerifyObservation(db, observation, createdAtMs);
+  persistOrVerifyObservations(db, [observation], createdAtMs);
 }

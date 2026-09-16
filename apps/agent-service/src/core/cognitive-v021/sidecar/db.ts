@@ -73,6 +73,31 @@ function userVersion(existing: DatabaseSync): number {
   return Number(row.user_version ?? 0);
 }
 
+function hasColumn(existing: DatabaseSync, table: string, column: string): boolean {
+  return (existing.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name?: unknown }>)
+    .some((row) => row.name === column);
+}
+
+function migrateWatchPollingToV18(existing: DatabaseSync): void {
+  if (!hasColumn(existing, "observation_subscriptions", "poll_claim_token")) {
+    existing.exec("ALTER TABLE observation_subscriptions ADD COLUMN poll_claim_token TEXT");
+  }
+  if (!hasColumn(existing, "observation_subscriptions", "poll_claim_expires_at_ms")) {
+    existing.exec("ALTER TABLE observation_subscriptions ADD COLUMN poll_claim_expires_at_ms INTEGER");
+  }
+  if (!hasColumn(existing, "observation_subscriptions", "poll_generation")) {
+    existing.exec("ALTER TABLE observation_subscriptions ADD COLUMN poll_generation INTEGER NOT NULL DEFAULT 0");
+  }
+  if (!hasColumn(existing, "observation_subscriptions", "ingested_frontier_at_ms")) {
+    existing.exec("ALTER TABLE observation_subscriptions ADD COLUMN ingested_frontier_at_ms INTEGER");
+  }
+  existing.exec(`
+    CREATE INDEX IF NOT EXISTS idx_observation_subscriptions_poll_claim
+      ON observation_subscriptions(cancelled, poll_claim_expires_at_ms, subscription_id)
+  `);
+  existing.exec("UPDATE cognitive_sidecar_meta SET schema_version = 18, projection_state = 'reconciling' WHERE id = 1");
+}
+
 function ensureMeta(existing: DatabaseSync): void {
   const row = existing
     .prepare("SELECT * FROM cognitive_sidecar_meta WHERE id = 1")
@@ -399,7 +424,8 @@ export function openCognitiveSidecarDb(
       existing.exec(COGNITIVE_SIDECAR_SCHEMA_V15);
       existing.exec(COGNITIVE_SIDECAR_SCHEMA_V16);
       existing.exec(COGNITIVE_SIDECAR_SCHEMA_V17);
-      existing.exec("PRAGMA user_version = 17");
+      migrateWatchPollingToV18(existing);
+      existing.exec("PRAGMA user_version = 18");
       existing.exec("COMMIT");
     } catch (error) {
       try { existing.exec("ROLLBACK"); } catch { /* preserve original schema error */ }
@@ -414,6 +440,7 @@ export function openCognitiveSidecarDb(
       if (version < 15) existing.exec(COGNITIVE_SIDECAR_SCHEMA_V15);
       if (version < 16) existing.exec(COGNITIVE_SIDECAR_SCHEMA_V16);
       if (version < 17) existing.exec(COGNITIVE_SIDECAR_SCHEMA_V17);
+      if (version < 18) migrateWatchPollingToV18(existing);
       existing.exec(`PRAGMA user_version = ${COGNITIVE_SIDECAR_SCHEMA_VERSION}`);
       ensureMeta(existing);
       existing.exec("COMMIT");

@@ -33,6 +33,7 @@ import {
   evaluatePeriodicPoll,
 } from "./periodic-schedule.js";
 import type { IdleObservationDraft } from "./idle.js";
+import { createObservationSubscription, MIN_EXTERNAL_WATCH_POLL_INTERVAL_MS } from "../observation/subscriptions.js";
 
 const BASE = 10_000_000;
 const CADENCE = 14_400_000;
@@ -177,6 +178,41 @@ describe("P1 periodic schedule ledger (R7 §§5–14)", () => {
       const minted = mintPendingOccurrence(db, { nowMs });
       expect(minted.effectiveEligibleAtMs).toBe(nowMs);
       expect(listReceipts(db)).toEqual([]);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("persists a claimed external-watch observation before advancing its frontier", async () => {
+    const db = openTestSidecar();
+    try {
+      createObservationSubscription(db, {
+        subscriptionId: "periodic-watch-claim",
+        conversationId: "thread-periodic-watch",
+        concernId: null,
+        source: "external_watch",
+        scope: "owner-thread",
+        topicKeys: ["HY3"],
+        match: "substring",
+        expiresAtMs: BASE + CADENCE + 100_000,
+        externalSource: { kind: "url", urlPattern: "https://public.test/periodic" },
+        pollIntervalMs: MIN_EXTERNAL_WATCH_POLL_INTERVAL_MS,
+      });
+      createSchedule(db, { authorityEpoch: 1, nowMs: BASE });
+      const decision = await evaluatePeriodicPoll(db, baseInput({
+        nowMs: BASE + CADENCE,
+        scopeConversationId: "thread-periodic-watch",
+        externalWatchPoll: {
+          fetcher: async () => new Response("<html><body>HY3 changed</body></html>", {
+            status: 200,
+            headers: { "content-type": "text/html" },
+          }),
+          resolve: async () => [{ address: "93.184.216.34", family: 4 }],
+        },
+      }));
+      expect(decision.kind).toBe("admit_runnable");
+      expect(db.prepare("SELECT poll_claim_token, poll_generation, ingested_frontier_at_ms FROM observation_subscriptions WHERE subscription_id = ?").get("periodic-watch-claim"))
+        .toMatchObject({ poll_claim_token: null, poll_generation: 1, ingested_frontier_at_ms: BASE + CADENCE });
     } finally {
       db.close();
     }

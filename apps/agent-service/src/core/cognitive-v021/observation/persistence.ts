@@ -1,7 +1,7 @@
 import type { DatabaseSync } from "node:sqlite";
 import { sha256, stableJson } from "../../model-fabric/hash.js";
 import type { DataClassification } from "../../privacy/classification.js";
-import type { Observation } from "../types.js";
+import type { Observation, SubscriptionPollClaim } from "../types.js";
 
 export type CanonicalObservation = {
   observationId: string;
@@ -47,6 +47,19 @@ function row(value: unknown): Record<string, unknown> | null {
   return typeof value === "object" && value !== null && !Array.isArray(value)
     ? value as Record<string, unknown>
     : null;
+}
+
+function completePollClaim(
+  db: DatabaseSync,
+  claim: SubscriptionPollClaim,
+  frontierAtMs: number,
+): void {
+  db.prepare(
+    `UPDATE observation_subscriptions
+        SET ingested_frontier_at_ms = ?,
+            poll_claim_token = NULL, poll_claim_expires_at_ms = NULL
+      WHERE subscription_id = ? AND poll_generation = ? AND poll_claim_token = ?`,
+  ).run(frontierAtMs, claim.subscriptionId, claim.generation, claim.claimToken);
 }
 
 function requiredText(value: unknown, code: string): string {
@@ -253,6 +266,11 @@ export function persistOrVerifyObservations(
     canonicalObservations.push(canonical);
   }
   const ids = canonicalObservations.map((observation) => observation.observationId);
+  const claims = new Map<string, SubscriptionPollClaim>();
+  for (const observation of observations) {
+    if (observation.pollClaim) claims.set(observation.pollClaim.subscriptionId, observation.pollClaim);
+  }
+  for (const claim of claims.values()) completePollClaim(db, claim, createdAtMs);
   return {
     canonicalObservations,
     observationIds: ids,

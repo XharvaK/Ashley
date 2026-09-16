@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Observation } from "../types.js";
 import { openTestSidecar } from "../test-support.js";
+import { claimObservationSubscriptionPoll, createObservationSubscription, MIN_EXTERNAL_WATCH_POLL_INTERVAL_MS } from "./subscriptions.js";
 import {
   observationBindingHash,
   persistOrVerifyObservation,
@@ -26,6 +27,33 @@ function observation(overrides: Partial<Observation> = {}): Observation {
 }
 
 describe("P2 observation persistence and binding", () => {
+  it("advances an external-watch frontier only for the claiming generation after persistence", () => {
+    const db = openTestSidecar();
+    try {
+      createObservationSubscription(db, {
+        subscriptionId: "persistence-watch",
+        conversationId: "thread-persistence",
+        concernId: null,
+        source: "external_watch",
+        scope: "owner-thread",
+        topicKeys: ["evidence"],
+        match: "substring",
+        expiresAtMs: 100_000,
+        externalSource: { kind: "url", urlPattern: "https://public.test/evidence" },
+        pollIntervalMs: MIN_EXTERNAL_WATCH_POLL_INTERVAL_MS,
+      });
+      const claim = claimObservationSubscriptionPoll(db, "persistence-watch", 10_000)!;
+      persistOrVerifyObservations(db, [{
+        ...observation({ observationId: "observation:persistence-watch", cycleId: "cycle:persistence", generation: 2 }),
+        pollClaim: claim,
+      }], 10_000);
+      expect(db.prepare("SELECT poll_claim_token, poll_generation, ingested_frontier_at_ms FROM observation_subscriptions WHERE subscription_id = ?").get("persistence-watch"))
+        .toMatchObject({ poll_claim_token: null, poll_generation: claim.generation, ingested_frontier_at_ms: 10_000 });
+    } finally {
+      db.close();
+    }
+  });
+
   it("preserves canonical semantics while remapping an identical reused ID", () => {
     const db = openTestSidecar();
     try {

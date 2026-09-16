@@ -8,9 +8,11 @@ import {
   listObservationSubscriptions,
   matchSubscriptionItem,
   collectSubscriptionObservations,
+  claimObservationSubscriptionPoll,
   MIN_EXTERNAL_WATCH_POLL_INTERVAL_MS,
   pollObservationSubscriptions,
 } from "./subscriptions.js";
+import { persistOrVerifyObservations } from "./persistence.js";
 
 const subscription: ObservationSubscription = {
   subscriptionId: "subscription-hy3",
@@ -106,6 +108,72 @@ describe("v0.2.1 mechanical observation subscriptions", () => {
       expect(second.outcomes).toEqual([expect.objectContaining({ subscriptionId: "watch-hy3", kind: "not_due" })]);
       expect(fetcher).toHaveBeenCalledOnce();
       expect(observations[0]?.payload).not.toHaveProperty("interest");
+    } finally {
+      db.close();
+    }
+  });
+
+  it("claims an external watch once and releases only after durable observation ingest", async () => {
+    const db = openTestSidecar();
+    const external = {
+      ...subscription,
+      subscriptionId: "watch-claim",
+      externalSource: { kind: "url" as const, urlPattern: "https://public.test/claim" },
+      pollIntervalMs: MIN_EXTERNAL_WATCH_POLL_INTERVAL_MS,
+      expiresAtMs: 1_000_000,
+    };
+    const fetcher = vi.fn(async () => new Response("<html><body>HY3 claimed</body></html>", {
+      status: 200,
+      headers: { "content-type": "text/html" },
+    }));
+    const resolve = async () => [{ address: "93.184.216.34", family: 4 }];
+    try {
+      createObservationSubscription(db, external);
+      const polled = await pollObservationSubscriptions(db, { nowMs: 1_000, fetcher, resolve });
+      expect(polled.items).toHaveLength(1);
+      const claimed = claimObservationSubscriptionPoll(db, "watch-claim", 1_000);
+      expect(claimed).toBeNull();
+      expect(db.prepare("SELECT poll_claim_token, poll_generation, ingested_frontier_at_ms FROM observation_subscriptions WHERE subscription_id = ?").get("watch-claim"))
+        .toMatchObject({ poll_generation: 1, ingested_frontier_at_ms: null });
+      const observations = collectSubscriptionObservations(db, "thread-subscription", polled.items, { cycleId: "cycle:claim", generation: 1, nowMs: 1_000 });
+      persistOrVerifyObservations(db, observations, 1_000);
+      expect(db.prepare("SELECT poll_claim_token, poll_claim_expires_at_ms, poll_generation, ingested_frontier_at_ms FROM observation_subscriptions WHERE subscription_id = ?").get("watch-claim"))
+        .toMatchObject({ poll_claim_token: null, poll_claim_expires_at_ms: null, poll_generation: 1, ingested_frontier_at_ms: 1_000 });
+    } finally {
+      db.close();
+    }
+  });
+
+  it("allows a lease-expired worker to retry but rejects stale frontier advancement", () => {
+    const db = openTestSidecar();
+    const external = {
+      ...subscription,
+      subscriptionId: "watch-stale-claim",
+      externalSource: { kind: "url" as const, urlPattern: "https://public.test/stale" },
+      pollIntervalMs: MIN_EXTERNAL_WATCH_POLL_INTERVAL_MS,
+      expiresAtMs: 10_000,
+    };
+    try {
+      createObservationSubscription(db, external);
+      const first = claimObservationSubscriptionPoll(db, external.subscriptionId, 1_000)!;
+      const second = claimObservationSubscriptionPoll(db, external.subscriptionId, first.expiresAtMs + 1)!;
+      expect(second.generation).toBe(first.generation + 1);
+      const stale = {
+        observationId: "observation:stale-claim",
+        cycleId: "cycle:stale-claim",
+        generation: 1,
+        derived: true,
+        replaySafe: true,
+        modality: "subscription" as const,
+        payload: { text: "stale" },
+        provenance: "subscription:watch-stale-claim",
+        dataClassification: "ordinary" as const,
+        secretOmitted: false,
+        pollClaim: first,
+      };
+      persistOrVerifyObservations(db, [stale], 2_000);
+      expect(db.prepare("SELECT poll_generation, ingested_frontier_at_ms, poll_claim_token FROM observation_subscriptions WHERE subscription_id = ?").get(external.subscriptionId))
+        .toMatchObject({ poll_generation: second.generation, ingested_frontier_at_ms: null, poll_claim_token: second.claimToken });
     } finally {
       db.close();
     }
