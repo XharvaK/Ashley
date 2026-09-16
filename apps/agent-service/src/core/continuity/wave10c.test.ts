@@ -14,6 +14,7 @@ import {
   getAuthoritativeLineageId,
   openContinuityDb,
 } from "./db.js";
+import { cleanShutdownSession, startRuntimeSession } from "./sessions.js";
 
 function pragmaValue(db: DatabaseSync, pragma: string, key: string): unknown {
   const row = db.prepare(`PRAGMA ${pragma}`).get() as Record<string, unknown>;
@@ -26,6 +27,29 @@ function assertDatabaseIntegrity(db: DatabaseSync): void {
 }
 
 describe("wave10c backup and restore assurance", () => {
+  it("records a clean shutdown only for the active runtime session", () => {
+    const continuity = openContinuityDb(new DatabaseSync(":memory:"));
+    const nuclear = openNuclearDb(new DatabaseSync(":memory:"), { continuity });
+    const lineageId = getAuthoritativeLineageId(continuity);
+    const sessionId = startRuntimeSession(continuity, { lineageId, nuclearSchemaVersion: 47 });
+    try {
+      cleanShutdownSession(continuity, { sessionId, lineageId });
+      expect(
+        continuity
+          .prepare("SELECT clean_shutdown_at FROM runtime_sessions WHERE session_id = ?")
+          .get(sessionId),
+      ).toMatchObject({ clean_shutdown_at: expect.any(String) });
+      expect(
+        continuity
+          .prepare("SELECT kind, session_id, lineage_id FROM continuity_events WHERE kind = 'shutdown_clean' ORDER BY id DESC LIMIT 1")
+          .get(),
+      ).toEqual({ kind: "shutdown_clean", session_id: sessionId, lineage_id: lineageId });
+    } finally {
+      nuclear.close();
+      continuity.close();
+    }
+  });
+
   it("packages both temporary databases and fails closed for a mismatched sidecar", () => {
     const dir = mkdtempSync(join(tmpdir(), "ashley-wave10c-"));
     const nuclearPath = join(dir, "nuclear.db");

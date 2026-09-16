@@ -119,6 +119,7 @@ export class AgentManager {
   private readonly bootedAt = Date.now();
   private bootValidationSucceeded = false;
   private startupComplete = false;
+  private shuttingDown = false;
   private expressionEnabled = false;
 
   constructor(dataPlane: DataPlaneContext, existingNuclear?: DatabaseSync) {
@@ -365,10 +366,11 @@ export class AgentManager {
   }
 
   private readinessSatisfied(): boolean {
-    return this.bootValidationSucceeded && this.startupComplete && this.activeConversationPathConfigured();
+    return !this.shuttingDown && this.bootValidationSucceeded && this.startupComplete && this.activeConversationPathConfigured();
   }
 
   async init(): Promise<void> {
+    this.shuttingDown = false;
     this.startupComplete = false;
     const { ok, errors, warnings } = validateBoot();
     for (const w of warnings) console.warn(`[agent-service] ${w}`);
@@ -405,10 +407,16 @@ export class AgentManager {
     this.broadcast({ type: "status", status: this.state });
   }
 
-  async shutdown(): Promise<void> {
+  beginShutdown(): void {
+    if (this.shuttingDown) return;
+    this.shuttingDown = true;
     this.startupComplete = false;
     this.state = "offline";
     this.broadcast({ type: "status", status: "offline" });
+  }
+
+  async shutdown(): Promise<void> {
+    this.beginShutdown();
   }
 
   cancel(reservationId?: number, ownerId?: string): {

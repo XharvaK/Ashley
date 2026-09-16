@@ -113,6 +113,43 @@ export async function closeStartupResources(
   }
 }
 
+type ShutdownResources = Pick<
+  StartupCleanupResources,
+  "cognitiveConsumer" | "frontierCoordinator" | "derivedStore" | "observabilityDb"
+>;
+
+type ShutdownServer = {
+  close: (callback: (error?: Error) => void) => void;
+};
+
+export async function shutdownAgent(
+  manager: Pick<AgentManager, "beginShutdown" | "shutdown" | "core">,
+  resources: ShutdownResources,
+  server: ShutdownServer,
+  signal: string,
+  exit: (code: number) => void = (code) => process.exit(code),
+): Promise<void> {
+  console.log(`[agent-service] ${signal}`);
+  try {
+    manager.beginShutdown();
+    resources.cognitiveConsumer?.stop();
+    if (resources.cognitiveConsumer) await resources.cognitiveConsumer.done;
+    resources.frontierCoordinator?.stop();
+    resources.derivedStore?.close();
+    resources.observabilityDb?.close();
+    await manager.shutdown();
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+    manager.core.shutdownContinuityClean();
+  } catch (error) {
+    console.error(`[agent-service] ${signal} shutdown failed`, error);
+    exit(1);
+    return;
+  }
+  exit(0);
+}
+
 export async function serveAgent(manager: AgentManager): Promise<void> {
   let cognitiveSidecar: DatabaseSync | null = null;
   let cognitiveConsumer: InboxConsumerHandle | null = null;
@@ -362,16 +399,16 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
     `[agent-service] nuclear core enabled db=${manager.core.getHealth().dbPath} plane=${manager.dataPlane.kind}`,
   );
 
+  let shuttingDown = false;
   const shutdown = async (signal: string) => {
-    console.log(`[agent-service] ${signal}`);
-    cognitiveConsumer?.stop();
-    frontierCoordinator?.stop();
-    if (cognitiveConsumer) await cognitiveConsumer.done;
-    derivedStore?.close();
-    try { observabilityDb?.close(); } catch { /* ignore */ }
-    await manager.shutdown();
-    server.close();
-    process.exit(0);
+    if (shuttingDown) return;
+    shuttingDown = true;
+    await shutdownAgent(
+      manager,
+      { cognitiveConsumer, frontierCoordinator, derivedStore, observabilityDb },
+      server,
+      signal,
+    );
   };
 
   process.on("SIGINT", () => void shutdown("SIGINT"));
