@@ -647,7 +647,9 @@ export function recoverCommitmentOpportunities(
       const committedWithFullReceipts = deliveryRows.find((delivery) => {
         const plannedCount = Number(delivery.planned_count ?? 0);
         const receiptCount = Number(delivery.receipt_count ?? 0);
-        return delivery.state === "committed" && plannedCount > 0 && receiptCount >= plannedCount;
+        const completionProven = plannedCount > 0 && receiptCount >= plannedCount;
+        const state = String(delivery.state ?? "");
+        return completionProven && (state === "committed" || state === "partially_delivered");
       });
       if (committedWithFullReceipts) {
         applyCommitmentDeliveryOutcome(nuclearDb, {
