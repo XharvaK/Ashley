@@ -1097,6 +1097,13 @@ type DispatchRecheckOptions = {
   cognitiveSidecar?: DatabaseSync;
 };
 
+function isOwnerDmDestination(value: unknown): boolean {
+  if (value === undefined) return true;
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const candidate = value as Record<string, unknown>;
+  return candidate.kind === "owner" && Object.keys(candidate).length === 1;
+}
+
 function dispatchBasisReason(
   db: DatabaseSync,
   reservation: NonNullable<ReturnType<typeof getDeliveryReservation>>,
@@ -1266,6 +1273,62 @@ export function recheckOwnerRoomPublicationReservation(
   ) {
     return { ok: false, reason: "owner_room_not_authorized" };
   }
+  return { ok: true };
+}
+
+/** Recheck an Owner-DM reservation against the current cognitive sidecar without S5 admission. */
+export function recheckOwnerDmPublicationReservation(
+  db: DatabaseSync,
+  reservationId: number,
+  _nowMs = Date.now(),
+  options: DispatchRecheckOptions = {},
+): { ok: true } | { ok: false; reason: string } {
+  const reservation = getDeliveryReservation(db, reservationId);
+  if (!reservation) return { ok: false, reason: "delivery_reservation_missing" };
+  if (!isOwnerDmDestination(reservation.destination)) {
+    return { ok: false, reason: "owner_dm_destination_invalid" };
+  }
+  if (reservation.state !== "reserved" && reservation.state !== "sending") {
+    return { ok: false, reason: "delivery_not_sendable" };
+  }
+  const cognitiveSidecar = options.cognitiveSidecar;
+  if (!cognitiveSidecar) return { ok: false, reason: "cognitive_sidecar_unavailable" };
+
+  let speechOutboxId = reservation.speechOutboxId;
+  if (speechOutboxId == null) {
+    const row = db.prepare(
+      "SELECT cognitive_v021_projection_key FROM delivery_reservations WHERE id = ?",
+    ).get(reservationId) as DbRow | undefined;
+    const match = /^speech:(\d+)$/.exec(stringValue(row?.cognitive_v021_projection_key).trim());
+    speechOutboxId = match ? Number(match[1]) : null;
+  }
+  if (speechOutboxId == null || !Number.isSafeInteger(speechOutboxId) || speechOutboxId < 1) {
+    return { ok: false, reason: "speech_outbox_missing" };
+  }
+
+  const speech = getSpeechOutbox(cognitiveSidecar, speechOutboxId);
+  if (!speech) return { ok: false, reason: "speech_outbox_missing" };
+  if (
+    speech.suppressed
+    || speech.sendStatus === "suppressed"
+    || speech.sendStatus === "suppressed_shadow"
+  ) {
+    return { ok: false, reason: "speech_outbox_suppressed" };
+  }
+  if (
+    speech.sendStatus === "delivered"
+    || speech.sendStatus === "partially_delivered"
+    || speech.sendStatus === "send_failure"
+  ) {
+    return { ok: false, reason: "speech_outbox_not_sendable" };
+  }
+
+  const current = getCurrentCycle(cognitiveSidecar, speech.conversationId, { includeIdle: true });
+  if (!current || current.cycleId !== speech.cycleId || current.generation !== speech.generation) {
+    return { ok: false, reason: "stale_generation" };
+  }
+  const basisReason = dispatchBasisReason(db, reservation, cognitiveSidecar);
+  if (basisReason) return { ok: false, reason: basisReason };
   return { ok: true };
 }
 

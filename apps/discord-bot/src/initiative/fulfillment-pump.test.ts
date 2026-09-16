@@ -34,6 +34,8 @@ function makeFakeClient(
   } as unknown as Client;
 }
 
+const ownerDmAllowed = async () => ({ ok: true as const });
+
 test("fulfillment pump drains, receipts and finalizes pending cognitive deliveries", async () => {
   const receipts: Array<{ reservationId: number; ordinal: number; messageId: string }> = [];
   const finalizations: Array<{ reservationId: number; cause: string }> = [];
@@ -60,6 +62,7 @@ test("fulfillment pump drains, receipts and finalizes pending cognitive deliveri
 
   const fakeDeps: FulfillmentPumpDependencies = {
     claim: async () => ({ deliveries: pending }),
+    recheckOwnerDm: ownerDmAllowed,
     receipt: async (reservationId, ordinal, discordMessageId) => {
       receipts.push({ reservationId, ordinal, messageId: discordMessageId });
       return { ok: true };
@@ -110,6 +113,7 @@ test("fulfillment pump uses the same receipt/finalize flow for cognitive deliver
   }];
   const deps: FulfillmentPumpDependencies = {
     claim: async () => ({ deliveries: pending }),
+    recheckOwnerDm: ownerDmAllowed,
     receipt: async () => {
       events.push("receipt");
       return { ok: true };
@@ -310,6 +314,62 @@ test("fulfillment pump does not fall back to Owner DM when Owner-room recheck cl
   }
 });
 
+test("fulfillment pump rechecks Owner-DM before every bubble and blocks a superseded second bubble", async () => {
+  const rechecks: number[] = [];
+  const sent: string[] = [];
+  const receipts: number[] = [];
+  const finalizations: string[] = [];
+  const pending: PendingDelivery[] = [{
+    reservationId: 178,
+    draftText: "Owner-DM first\nOwner-DM second",
+    bubbles: [
+      { ordinal: 0, text: "Owner-DM first", discordMessageId: null },
+      { ordinal: 1, text: "Owner-DM second", discordMessageId: null },
+    ],
+    statusUrl: "/delivery/178",
+    destination: { kind: "owner" },
+  }];
+  const deps: FulfillmentPumpDependencies = {
+    claim: async () => ({ deliveries: pending }),
+    recheckOwnerDm: async (reservationId) => {
+      rechecks.push(reservationId);
+      return rechecks.length < 3
+        ? { ok: true }
+        : { ok: false, reason: "stale_generation" };
+    },
+    receipt: async (_reservationId, ordinal) => {
+      receipts.push(ordinal);
+      return { ok: true };
+    },
+    finalize: async (_reservationId, cause) => {
+      finalizations.push(cause);
+      return { state: "partially_delivered", finalizationReason: "send_failure_after_partial", deliveredText: "Owner-DM first" };
+    },
+    send: async (channel, chunks, gifUrl, pacing, onFirstSend, options) => {
+      return (await import("../chat/send-bubbles.js")).sendBubbles(
+        {
+          ...channel,
+          send: async (payload: unknown) => {
+            sent.push(typeof payload === "string" ? payload : JSON.stringify(payload));
+            return { id: `owner-dm-${sent.length}` } as Message;
+          },
+        } as typeof channel,
+        chunks,
+        gifUrl,
+        pacing,
+        onFirstSend,
+        options,
+      );
+    },
+  };
+
+  assert.equal(await drainPendingCognitiveDeliveries(makeFakeClient({ id: "dm-owner" }), deps), 0);
+  assert.deepEqual(rechecks, [178, 178, 178]);
+  assert.deepEqual(sent, ["Owner-DM first"]);
+  assert.deepEqual(receipts, [0]);
+  assert.deepEqual(finalizations, ["send_failure"]);
+});
+
 test("fulfillment pump records send_failure when Discord send has no visible content", async () => {
   const finalizations: Array<{ reservationId: number; cause: string }> = [];
 
@@ -324,6 +384,7 @@ test("fulfillment pump records send_failure when Discord send has no visible con
 
   const fakeDeps: FulfillmentPumpDependencies = {
     claim: async () => ({ deliveries: pending }),
+    recheckOwnerDm: ownerDmAllowed,
     receipt: async () => ({ ok: true }),
     finalize: async (reservationId, cause) => {
       finalizations.push({ reservationId, cause });
@@ -370,6 +431,7 @@ test("fulfillment pump never throws or halts on single item error", async () => 
   let first = true;
   const fakeDeps: FulfillmentPumpDependencies = {
     claim: async () => ({ deliveries: pending }),
+    recheckOwnerDm: ownerDmAllowed,
     receipt: async () => ({ ok: true }),
     finalize: async (reservationId, cause) => {
       finalizations.push({ reservationId, cause });
@@ -448,6 +510,7 @@ test("fulfillment pump double-drain protection: send function called exactly onc
       }
       return { deliveries: [] };
     },
+    recheckOwnerDm: ownerDmAllowed,
     receipt: async () => ({ ok: true }),
     finalize: async () => ({ state: "committed", finalizationReason: "all_bubbles_delivered", deliveredText: "" }),
     send: async () => {
@@ -559,6 +622,7 @@ test("generic Discord rejection after dispatch stays UNKNOWN without finalizing"
   const { DeliverySendError } = await import("../chat/send-bubbles.js");
   const fakeDeps: FulfillmentPumpDependencies = {
     claim: async () => ({ deliveries: pending }),
+    recheckOwnerDm: ownerDmAllowed,
     receipt: async () => ({ ok: true }),
     finalize: async (_id, cause) => { finalizations.push({ cause }); return { state: "expired", finalizationReason: "delivery_lease_expired", deliveredText: "" }; },
     send: async (_ch, _chunks, _gif, _pacing, _onFirst, opts) => {
@@ -579,6 +643,7 @@ test("proven pre-dispatch failure (aborted before send) is safe send_failure", a
   const { DeliverySendError } = await import("../chat/send-bubbles.js");
   const fakeDeps: FulfillmentPumpDependencies = {
     claim: async () => ({ deliveries: pending }),
+    recheckOwnerDm: ownerDmAllowed,
     receipt: async () => ({ ok: true }),
     finalize: async (_id, cause) => { finalizations.push({ cause }); return { state: "aborted", finalizationReason: "send_failure", deliveredText: "" }; },
     send: async () => {
@@ -663,6 +728,7 @@ test("partial success persists first bubble incrementally and finalizes partiall
   const { DeliverySendError } = await import("../chat/send-bubbles.js");
   const fakeDeps: FulfillmentPumpDependencies = {
     claim: async () => ({ deliveries: pending }),
+    recheckOwnerDm: ownerDmAllowed,
     receipt: async (_id, ordinal) => { receipts.push({ ordinal }); return { ok: true }; },
     finalize: async (_id, cause) => { finalizations.push({ cause }); return { state: "partially_delivered", finalizationReason: "send_failure_after_partial", deliveredText: "" }; },
     send: async (_ch, _chunks, _gif, _pacing, _onFirst, opts) => {

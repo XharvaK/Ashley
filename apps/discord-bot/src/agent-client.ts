@@ -246,6 +246,18 @@ export async function recheckOwnerRoomPublication(
   );
 }
 
+export async function recheckOwnerDmPublication(
+  reservationId: number,
+): Promise<ExternalPublicationRecheckResult> {
+  return agentFetch<ExternalPublicationRecheckResult>(
+    `/delivery/${reservationId}/recheck-owner-room`,
+    {
+      method: "POST",
+      body: JSON.stringify({ userId: config.ownerId }),
+    },
+  );
+}
+
 export async function receiptDeliveryBubble(
   reservationId: number,
   ordinal: number,

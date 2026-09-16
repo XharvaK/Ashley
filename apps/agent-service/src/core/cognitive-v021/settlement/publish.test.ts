@@ -14,6 +14,8 @@ import { upsertMemoryAssertion } from "../memory/assertions.js";
 import { captureThoughtSourceCurrentness } from "../thought/source-currentness.js";
 import { captureThoughtSourcePackage } from "../thought/input.js";
 import { createObservationSubscription } from "../observation/subscriptions.js";
+import { insertOutboxPending } from "../speech/outbox.js";
+import { recheckOwnerDmPublicationReservation } from "./publish.js";
 
 function settlement(overrides: Partial<PublishedCognitiveSettlement> = {}): PublishedCognitiveSettlement {
   return {
@@ -29,7 +31,107 @@ function settlement(overrides: Partial<PublishedCognitiveSettlement> = {}): Publ
   };
 }
 
+function ownerDmRecheckFixture(destinationJson: string | null = null) {
+  const sidecar = openTestSidecar();
+  const nuclear = openNuclearDb(new DatabaseSync(":memory:"));
+  const cycle = admitTestCycle(sidecar, {
+    cycleId: "cycle-owner-dm-recheck",
+    conversationId: "thread-owner-dm-recheck",
+    triggerKind: "owner_message",
+    triggerRef: "owner-dm-recheck",
+    occupantId: "doc",
+    authorityEpoch: 1,
+    nowMs: 1,
+  });
+  const outbox = insertOutboxPending(sidecar, {
+    settlementId: "settlement-owner-dm-recheck",
+    cycleId: cycle.cycleId,
+    generation: cycle.generation,
+    conversationId: cycle.conversationId,
+    licensedText: "Owner-DM answer",
+    deliveryIntent: {
+      ownerId: "doc",
+      channel: "discord",
+      threadId: cycle.conversationId,
+      conversationId: cycle.conversationId,
+      trigger: "owner_message_reactive",
+      deliveryLane: "reactive",
+      purpose: "licensed_speech",
+    },
+  });
+  sidecar.prepare("UPDATE speech_outbox SET send_status = 'sending' WHERE outbox_id = ?").run(outbox.outboxId);
+  const inserted = nuclear.prepare(
+    `INSERT INTO delivery_reservations
+       (owner_id, channel, thread_id, trigger, delivery_lane, state,
+        draft_text, created_at, cognitive_v021_projection_key,
+        speech_outbox_id, destination_json)
+     VALUES ('doc', 'discord', ?, 'reactive', 'reactive', 'reserved', ?, ?, ?, ?, ?)`,
+  ).run(
+    cycle.conversationId,
+    outbox.licensedText,
+    "1970-01-01T00:00:01.000Z",
+    outbox.projectionKey,
+    outbox.outboxId,
+    destinationJson,
+  );
+  return { sidecar, nuclear, cycle, outbox, reservationId: Number(inserted.lastInsertRowid) };
+}
+
 describe("v0.2.1 semantic publication transaction", () => {
+  it.each([null, JSON.stringify({ kind: "owner" })])(
+    "accepts an Owner-DM reservation without an S5 admission (%s)",
+    (destinationJson) => {
+      const fixture = ownerDmRecheckFixture(destinationJson);
+      try {
+        expect(recheckOwnerDmPublicationReservation(
+          fixture.nuclear,
+          fixture.reservationId,
+          2,
+          { cognitiveSidecar: fixture.sidecar },
+        )).toEqual({ ok: true });
+      } finally {
+        fixture.nuclear.close();
+        fixture.sidecar.close();
+      }
+    },
+  );
+
+  it("blocks Owner-DM dispatch after sidecar suppression or generation supersession", () => {
+    const fixture = ownerDmRecheckFixture();
+    try {
+      fixture.sidecar.prepare(
+        "UPDATE speech_outbox SET send_status = 'suppressed', suppressed = 1 WHERE outbox_id = ?",
+      ).run(fixture.outbox.outboxId);
+      expect(recheckOwnerDmPublicationReservation(
+        fixture.nuclear,
+        fixture.reservationId,
+        2,
+        { cognitiveSidecar: fixture.sidecar },
+      )).toEqual({ ok: false, reason: "speech_outbox_suppressed" });
+
+      fixture.sidecar.prepare(
+        "UPDATE speech_outbox SET send_status = 'sending', suppressed = 0 WHERE outbox_id = ?",
+      ).run(fixture.outbox.outboxId);
+      admitTestCycle(fixture.sidecar, {
+        conversationId: fixture.cycle.conversationId,
+        triggerKind: "owner_message",
+        triggerRef: "owner-dm-new-generation",
+        occupantId: "doc",
+        authorityEpoch: 1,
+        nowMs: 3,
+      });
+      expect(recheckOwnerDmPublicationReservation(
+        fixture.nuclear,
+        fixture.reservationId,
+        4,
+        { cognitiveSidecar: fixture.sidecar },
+      )).toEqual({ ok: false, reason: "stale_generation" });
+    } finally {
+      fixture.nuclear.close();
+      fixture.sidecar.close();
+    }
+  });
+
   it("rejects a settlement that consumes a missing observation before semantic writes", () => {
     const db = openTestSidecar();
     try {

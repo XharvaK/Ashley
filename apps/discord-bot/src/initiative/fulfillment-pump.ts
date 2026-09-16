@@ -12,6 +12,7 @@ import {
   checkHealth,
   finalizeDelivery,
   recheckExternalPublication,
+  recheckOwnerDmPublication,
   recheckOwnerRoomPublication,
   receiptDeliveryBubble,
   type ExternalPublicationRecheckResult,
@@ -30,6 +31,7 @@ export type FulfillmentPumpDependencies = {
   send: typeof sendBubbles;
   health?: typeof checkHealth;
   recheck?: (reservationId: number) => Promise<ExternalPublicationRecheckResult>;
+  recheckOwnerDm?: (reservationId: number) => Promise<ExternalPublicationRecheckResult>;
   recheckOwnerRoom?: (reservationId: number) => Promise<ExternalPublicationRecheckResult>;
 };
 
@@ -55,6 +57,7 @@ function deliveryTarget(destination: unknown): DeliveryTarget {
     channelId?: unknown;
     ownerRoom?: unknown;
   };
+  if (value.kind === "owner") return { kind: "owner" };
   if ((value.kind === "external_dm" || value.kind === "dm") &&
       typeof value.principalId === "string" && value.principalId.trim()) {
     return { kind: "external_dm", principalId: value.principalId.trim() };
@@ -104,6 +107,20 @@ function ownerRoomDispatchBlocked(
   reason: string,
 ): DeliverySendError {
   return new DeliverySendError(`owner_room_publication_blocked:${reason}`, {
+    reservationId,
+    attemptedOrdinal: null,
+    receiptedOrdinals: [],
+    failureCategory: "aborted",
+    anySubstantiveContentVisible: false,
+    messages: [],
+  });
+}
+
+function ownerDmDispatchBlocked(
+  reservationId: number,
+  reason: string,
+): DeliverySendError {
+  return new DeliverySendError(`owner_dm_publication_blocked:${reason}`, {
     reservationId,
     attemptedOrdinal: null,
     receiptedOrdinals: [],
@@ -196,7 +213,14 @@ async function drainPendingDeliveries(
 
       try {
         await channelQueue.enqueueOrThrow(queueId, async ({ signal }) => {
-          if (target.kind === "owner_room") {
+          if (target.kind === "owner") {
+            const verdict = deps.recheckOwnerDm
+              ? await deps.recheckOwnerDm(delivery.reservationId)
+              : { ok: false as const, reason: "owner_dm_recheck_unavailable" };
+            if (!verdict.ok) {
+              throw ownerDmDispatchBlocked(delivery.reservationId, verdict.reason);
+            }
+          } else if (target.kind === "owner_room") {
             const verdict = deps.recheckOwnerRoom
               ? await deps.recheckOwnerRoom(delivery.reservationId)
               : { ok: false as const, reason: "owner_room_recheck_unavailable" };
@@ -226,7 +250,16 @@ async function drainPendingDeliveries(
               onBubbleSent: async (ordinal, msg) => {
                 await persistReceiptWithRetry(deps.receipt, delivery.reservationId, ordinal, msg.id);
               },
-              beforeBubbleSend: target.kind === "owner_room"
+              beforeBubbleSend: target.kind === "owner"
+                ? async () => {
+                    const verdict = deps.recheckOwnerDm
+                      ? await deps.recheckOwnerDm(delivery.reservationId)
+                      : { ok: false as const, reason: "owner_dm_recheck_unavailable" };
+                    if (!verdict.ok) {
+                      throw new Error(`owner_dm_publication_blocked:${verdict.reason}`);
+                    }
+                  }
+                : target.kind === "owner_room"
                 ? async () => {
                     const verdict = deps.recheckOwnerRoom
                       ? await deps.recheckOwnerRoom(delivery.reservationId)
@@ -362,6 +395,7 @@ export async function drainPendingCognitiveDeliveries(
     finalize: finalizeDelivery,
     send: sendBubbles,
     recheck: recheckExternalPublication,
+    recheckOwnerDm: recheckOwnerDmPublication,
     recheckOwnerRoom: recheckOwnerRoomPublication,
   },
 ): Promise<number> {
@@ -376,6 +410,7 @@ export async function drainPendingSocialNotifications(
     finalize: finalizeDelivery,
     send: sendBubbles,
     recheck: recheckExternalPublication,
+    recheckOwnerDm: recheckOwnerDmPublication,
     recheckOwnerRoom: recheckOwnerRoomPublication,
   },
 ): Promise<number> {

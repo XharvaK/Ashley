@@ -20,6 +20,7 @@ import { getCognitiveHealthSnapshot } from "./core/cognitive-v021/dispatch/healt
 import { markProjectedDeliverySending } from "./core/cognitive-v021/delivery/outbox-projector.js";
 import {
   recheckExternalPublicationReservation,
+  recheckOwnerDmPublicationReservation,
   recheckOwnerRoomPublicationReservation,
 } from "./core/cognitive-v021/settlement/publish.js";
 import { reconcilePolicyClock } from "./core/cognitive-v021/private-budget/policy-time-ledger.js";
@@ -1796,9 +1797,21 @@ export function createServer(
       if (!status) {
         throw new AppError("not_found", "reservation not found", 404);
       }
-      res.json(recheckOwnerRoomPublicationReservation(manager.core.getDatabase(), id, Date.now(), {
-        cognitiveSidecar: getCognitiveSidecar(),
-      }));
+      const destination = status.reservation.destination;
+      const ownerDm = destination === undefined
+        || (
+          typeof destination === "object"
+          && destination !== null
+          && !Array.isArray(destination)
+          && (destination as Record<string, unknown>).kind === "owner"
+        );
+      res.json(ownerDm
+        ? recheckOwnerDmPublicationReservation(manager.core.getDatabase(), id, Date.now(), {
+            cognitiveSidecar: getCognitiveSidecar(),
+          })
+        : recheckOwnerRoomPublicationReservation(manager.core.getDatabase(), id, Date.now(), {
+            cognitiveSidecar: getCognitiveSidecar(),
+          }));
     } catch (err) {
       const { status, body } = toErrorResponse(err);
       res.status(status).json(body);
