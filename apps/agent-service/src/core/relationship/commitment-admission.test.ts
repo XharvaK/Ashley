@@ -7,6 +7,7 @@ import { fidelityCheck } from "../cognitive-v021/speech/fidelity.js";
 import {
   claimCommitmentOpportunity,
   commitmentBindingsForSettlement,
+  applyCommitmentDeliveryOutcome,
   persistCommitmentProposals,
   recoverPendingCommitmentProposals,
   recoverCommitmentOpportunities,
@@ -48,6 +49,36 @@ describe("commitment admission and fidelity", () => {
     expect(isCommitmentsEnabled({ RA_COMMITMENTS: "1" })).toBe(true);
     expect(isCommitmentsEnabled({})).toBe(false);
     expect(isCommitmentsEnabled({ RA_COMMITMENTS: "TRUE" })).toBe(false);
+  });
+
+  it("does not fulfill a commitment from partial delivery", () => {
+    const db = dbFixture();
+    try {
+      persistCommitmentProposals(db, "delivery-outcome", [proposal()]);
+      settlePersistedCommitmentProposals(db, "delivery-outcome", { ownerId, nowMs, enabled: true });
+
+      applyCommitmentDeliveryOutcome(db, {
+        ownerId,
+        commitmentId: "cmt:delivery-outcome:0",
+        state: "partially_delivered",
+        receiptCount: 1,
+        nowMs,
+      });
+      expect(db.prepare("SELECT commitment_state, status FROM ashley_self_commitments WHERE entity_uuid = ?").get("cmt:delivery-outcome:0"))
+        .toEqual({ commitment_state: "admitted", status: "motivated" });
+
+      applyCommitmentDeliveryOutcome(db, {
+        ownerId,
+        commitmentId: "cmt:delivery-outcome:0",
+        state: "committed",
+        receiptCount: 1,
+        nowMs,
+      });
+      expect(db.prepare("SELECT commitment_state, status FROM ashley_self_commitments WHERE entity_uuid = ?").get("cmt:delivery-outcome:0"))
+        .toEqual({ commitment_state: "completed", status: "fulfilled" });
+    } finally {
+      db.close();
+    }
   });
 
   it("persists Host-owned ids, admits once, and leaves M1R unchanged", () => {

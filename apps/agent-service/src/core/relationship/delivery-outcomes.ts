@@ -59,7 +59,7 @@ export function applyRelationshipDeliveryOutcome(
   const refs = motivationRefsForDecision(db, input.decisionId);
   const committed =
     input.receiptCount > 0 &&
-    (input.state === "committed" || input.state === "partially_delivered");
+    input.state === "committed";
   const retryableFailure =
     input.receiptCount === 0 &&
     (input.cause === "send_failure" || input.cause === "delivery_lease");

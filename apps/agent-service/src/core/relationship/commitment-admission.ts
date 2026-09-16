@@ -818,7 +818,9 @@ export function applyCommitmentDeliveryOutcome(
     "SELECT attempt_count FROM ashley_self_commitments WHERE owner_id = ? AND entity_uuid = ?",
   ).get(input.ownerId, input.commitmentId) as { attempt_count?: unknown } | undefined;
   if (!row) return;
-  if (input.receiptCount > 0 && (input.state === "committed" || input.state === "partially_delivered")) {
+  // finalizeDelivery emits committed only after its planned-count proof;
+  // partial delivery is evidence, never fulfillment.
+  if (input.receiptCount > 0 && input.state === "committed") {
     nuclearDb.prepare(
       `UPDATE ashley_self_commitments SET commitment_state = 'completed', status = 'fulfilled',
          lease_token = NULL, lease_expires_at_ms = NULL, updated_at = ? WHERE owner_id = ? AND entity_uuid = ?`,

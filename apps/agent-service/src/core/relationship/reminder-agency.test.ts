@@ -2,13 +2,73 @@ import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import { openNuclearDb } from "../db.js";
 import { openContinuityDb } from "../continuity/db.js";
+import { logDecision } from "../agency/log.js";
 import { collectMotivations } from "../agency/motivations.js";
 import { tryClaimRelationshipMotivation } from "./claims.js";
 import { upsertDocReminder } from "./store.js";
-import { markMissedDueReminders } from "./delivery-outcomes.js";
+import { applyRelationshipDeliveryOutcome, markMissedDueReminders } from "./delivery-outcomes.js";
 import { env } from "../../env.js";
 
 describe("reminder agency claims", () => {
+  it("does not fulfill a reminder for a partial delivery outcome", () => {
+    const continuity = openContinuityDb(new DatabaseSync(":memory:"));
+    const db = openNuclearDb(new DatabaseSync(":memory:"), { continuity });
+    const reminderUuid = upsertDocReminder(db, {
+      ownerId: "doc",
+      text: "Water plants",
+      dueAt: "2026-09-15T12:00:00.000Z",
+      sourceEntityType: "message",
+      sourceEntityUuid: "partial-reminder",
+      classification: "ordinary",
+      status: "due",
+    });
+    const motivationId = Number(db.prepare(
+      `INSERT INTO motivations
+         (owner_id, kind, score, ref_type, ref_id, summary, created_at, consumed_at, data_classification)
+       VALUES (?, 'callback', 1, 'doc_reminder', ?, ?, ?, NULL, NULL)`,
+    ).run("doc", reminderUuid, "Water plants", new Date().toISOString()).lastInsertRowid);
+    const decisionId = logDecision(db, {
+      ownerId: "doc",
+      channel: "discord",
+      trigger: "proactive",
+      decision: {
+        trigger: "proactive",
+        kind: "speak",
+        motivationIds: [motivationId],
+        score: 1,
+        reason: "reminder delivery test",
+        evidenceRefs: [{ type: "doc_reminder", id: reminderUuid }],
+        uncertainty: 0,
+        urgency: 1,
+        thoughtSource: "deterministic",
+        thoughtError: null,
+        affectLicense: { permitted: false, valence: 0, activation: 0, openness: 0, tension: 0, reason: "test" },
+        cognitiveAllocation: { shouldSpeak: true, effort: "low", completion: "complete" },
+        authorizedClaims: { readingRecordIds: [], readingTitles: [], readingClaims: [] },
+      },
+    });
+
+    applyRelationshipDeliveryOutcome(db, {
+      ownerId: "doc",
+      decisionId,
+      cause: "complete",
+      state: "partially_delivered",
+      receiptCount: 1,
+    });
+    expect(db.prepare("SELECT status FROM doc_reminders WHERE entity_uuid = ?").get(reminderUuid)).toEqual({ status: "due" });
+
+    applyRelationshipDeliveryOutcome(db, {
+      ownerId: "doc",
+      decisionId,
+      cause: "complete",
+      state: "committed",
+      receiptCount: 1,
+    });
+    expect(db.prepare("SELECT status FROM doc_reminders WHERE entity_uuid = ?").get(reminderUuid)).toEqual({ status: "fulfilled" });
+    db.close();
+    continuity.close();
+  });
+
   it("dedupes active claims", () => {
     const continuity = openContinuityDb(new DatabaseSync(":memory:"));
     const db = openNuclearDb(new DatabaseSync(":memory:"), { continuity });
