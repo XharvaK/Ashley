@@ -7,6 +7,7 @@ import { openNuclearDb } from "./core/db.js";
 import { openTestSidecar } from "./core/cognitive-v021/test-support.js";
 
 const recovery = vi.hoisted(() => ({ reached: false }));
+const systemNoticeRecovery = vi.hoisted(() => ({ options: undefined as unknown }));
 
 vi.mock("./server.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./server.js")>();
@@ -26,6 +27,18 @@ vi.mock("./core/cognitive-v021/retry/startup-outcome-recovery.js", async (import
       recovery.reached = true;
       throw new Error("required_recovery_failed");
     },
+  };
+});
+
+vi.mock("./core/cognitive-v021/sidecar/recovery.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./core/cognitive-v021/sidecar/recovery.js")>();
+  return {
+    ...actual,
+    reconsiderPendingSpeechOutbox: vi.fn(async () => ({ reconsidered: 0, failures: 0 })),
+    reconsiderPendingSystemNotices: vi.fn(async (_db, _project, options) => {
+      systemNoticeRecovery.options = options;
+      return { reconsidered: 0, failures: 0 };
+    }),
   };
 });
 
@@ -64,6 +77,7 @@ describe("P04 required recovery before listen", () => {
   afterEach(() => {
     for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
     recovery.reached = false;
+    systemNoticeRecovery.options = undefined;
     vi.mocked(server.listen).mockClear();
   });
 
@@ -97,5 +111,6 @@ describe("P04 required recovery before listen", () => {
     expect(markStartupComplete).not.toHaveBeenCalled();
     expect(state).toBe("booting");
     expect(server.listen).not.toHaveBeenCalled();
+    expect(systemNoticeRecovery.options).toBeUndefined();
   });
 });

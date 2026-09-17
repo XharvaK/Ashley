@@ -2,10 +2,12 @@ import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import { openNuclearDb } from "../../db.js";
 import { openTestSidecar } from "../test-support.js";
-import { insertOutboxPending } from "../speech/outbox.js";
+import { insertOutboxPending, suppressUndeliveredOutbox } from "../speech/outbox.js";
+import { emitInfrastructureNotice } from "../speech/infrastructure-notice.js";
 import { OutboxDeliveryProjector } from "./outbox-projector.js";
 import {
   claimPendingCognitiveDeliveries,
+  claimPendingSystemNotifications,
   listPendingCognitiveDeliveries,
 } from "./pending.js";
 
@@ -139,6 +141,169 @@ describe("v0.2.1 projected delivery claim", () => {
       expect(nuclear.prepare(
         "SELECT state, first_sent_at FROM delivery_reservations WHERE id = ?",
       ).get(claimed[0]!.reservationId)).toEqual({ state: "sending", first_sent_at: null });
+    } finally {
+      sidecar.close();
+      nuclear.close();
+    }
+  });
+
+  it("claims the oldest eligible speech reservation past an older system reservation", async () => {
+    const sidecar = openTestSidecar();
+    const nuclear = openNuclearDb(new DatabaseSync(":memory:"));
+    try {
+      const system = emitInfrastructureNotice(sidecar, {
+        ownerId: "doc",
+        channel: "discord",
+        threadId: "thread-starvation",
+        conversationId: "thread-starvation",
+        reason: "thought_deadline",
+      });
+      const speech = insertOutboxPending(sidecar, {
+        settlementId: "settlement-after-system",
+        cycleId: "cycle-after-system",
+        generation: 1,
+        conversationId: "thread-starvation",
+        licensedText: "current speech",
+        deliveryIntent: {
+          ownerId: "doc",
+          channel: "discord",
+          threadId: "thread-starvation",
+          conversationId: "thread-starvation",
+          trigger: "owner_message_reactive",
+          deliveryLane: "reactive",
+          purpose: "licensed_speech",
+        },
+      });
+      const projector = new OutboxDeliveryProjector(sidecar, nuclear, { nowMs: () => 1_000 });
+      await projector.projectSystem(system.noticeId);
+      await projector.project(speech.outboxId);
+
+      expect(listPendingCognitiveDeliveries(nuclear, "doc").map((item) => item.draftText))
+        .toEqual(["current speech"]);
+      const claimed = claimPendingCognitiveDeliveries(nuclear, {
+        ownerId: "doc",
+        nowMs: 2_000,
+      });
+
+      expect(claimed.map((item) => item.draftText)).toEqual(["current speech"]);
+      expect(nuclear.prepare(
+        "SELECT state FROM delivery_reservations WHERE cognitive_v021_projection_key = ?",
+      ).get(system.projectionKey)).toEqual({ state: "reserved" });
+    } finally {
+      sidecar.close();
+      nuclear.close();
+    }
+  });
+
+  it("keeps system notices independent across stale speech preemption and current speech selection", async () => {
+    const sidecar = openTestSidecar();
+    const nuclear = openNuclearDb(new DatabaseSync(":memory:"));
+    try {
+      const system = emitInfrastructureNotice(sidecar, {
+        ownerId: "doc",
+        channel: "discord",
+        threadId: "thread-cross-composition",
+        conversationId: "thread-cross-composition",
+        reason: "thought_deadline",
+      });
+      const staleSpeech = insertOutboxPending(sidecar, {
+        settlementId: "settlement-stale-speech",
+        cycleId: "cycle-stale-speech",
+        generation: 1,
+        conversationId: "thread-cross-composition",
+        licensedText: "stale speech",
+        deliveryIntent: {
+          ownerId: "doc",
+          channel: "discord",
+          threadId: "thread-cross-composition",
+          conversationId: "thread-cross-composition",
+          trigger: "owner_message_reactive",
+          deliveryLane: "reactive",
+          purpose: "licensed_speech",
+        },
+      });
+      const currentSpeech = insertOutboxPending(sidecar, {
+        settlementId: "settlement-current-speech",
+        cycleId: "cycle-current-speech",
+        generation: 2,
+        conversationId: "thread-cross-composition",
+        licensedText: "current speech",
+        deliveryIntent: {
+          ownerId: "doc",
+          channel: "discord",
+          threadId: "thread-cross-composition",
+          conversationId: "thread-cross-composition",
+          trigger: "owner_message_reactive",
+          deliveryLane: "reactive",
+          purpose: "licensed_speech",
+        },
+      });
+      const projector = new OutboxDeliveryProjector(sidecar, nuclear, { nowMs: () => 1_000 });
+      await projector.projectSystem(system.noticeId);
+      await projector.project(staleSpeech.outboxId);
+      await projector.project(currentSpeech.outboxId);
+
+      expect(suppressUndeliveredOutbox(sidecar, { outboxId: staleSpeech.outboxId })).toBe(1);
+      const systemClaim = claimPendingSystemNotifications(nuclear, {
+        ownerId: "doc",
+        nowMs: 2_000,
+      });
+      const speechClaim = claimPendingCognitiveDeliveries(nuclear, {
+        ownerId: "doc",
+        nowMs: 2_000,
+      });
+
+      expect(systemClaim.map((item) => item.draftText)).toEqual([
+        system.noticeText,
+      ]);
+      expect(speechClaim.map((item) => item.draftText)).toEqual(["current speech"]);
+      expect(nuclear.prepare(
+        "SELECT cognitive_v021_projection_key, state FROM delivery_reservations ORDER BY id",
+      ).all()).toEqual([
+        { cognitive_v021_projection_key: system.projectionKey, state: "sending" },
+        { cognitive_v021_projection_key: `speech:${staleSpeech.outboxId}`, state: "cancelled" },
+        { cognitive_v021_projection_key: `speech:${currentSpeech.outboxId}`, state: "sending" },
+      ]);
+    } finally {
+      sidecar.close();
+      nuclear.close();
+    }
+  });
+
+  it("gives reactive system reservations a typed owner without collapsing them into speech", async () => {
+    const sidecar = openTestSidecar();
+    const nuclear = openNuclearDb(new DatabaseSync(":memory:"));
+    try {
+      const system = emitInfrastructureNotice(sidecar, {
+        ownerId: "doc",
+        channel: "discord",
+        threadId: "thread-system-owner",
+        conversationId: "thread-system-owner",
+        reason: "unavailable",
+      });
+      const projector = new OutboxDeliveryProjector(sidecar, nuclear, { nowMs: () => 1_000 });
+      await projector.projectSystem(system.noticeId);
+
+      const pendingModule = await import("./pending.js") as unknown as {
+        claimPendingSystemNotifications?: typeof claimPendingCognitiveDeliveries;
+      };
+      expect(typeof pendingModule.claimPendingSystemNotifications).toBe("function");
+      if (!pendingModule.claimPendingSystemNotifications) throw new Error("system_claim_owner_missing");
+
+      const claimed = pendingModule.claimPendingSystemNotifications(nuclear, {
+        ownerId: "doc",
+        nowMs: 2_000,
+      });
+
+      expect(claimed.map((item) => item.draftText)).toEqual([
+        "[system] Thought did not complete. Please send the message again. Error code: UNKNOWN",
+      ]);
+      expect(nuclear.prepare(
+        "SELECT cognitive_v021_projection_key, state FROM delivery_reservations",
+      ).all()).toEqual([{
+        cognitive_v021_projection_key: system.projectionKey,
+        state: "sending",
+      }]);
     } finally {
       sidecar.close();
       nuclear.close();

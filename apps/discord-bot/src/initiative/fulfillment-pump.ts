@@ -9,6 +9,7 @@ import { splitMessage } from "../chat/split-message.js";
 import {
   claimPendingCognitiveDeliveries,
   claimPendingSocialNotifications,
+  claimPendingSystemNotifications,
   checkHealth,
   finalizeDelivery,
   recheckExternalPublication,
@@ -25,6 +26,7 @@ type FulfillmentDelivery = Awaited<
 
 export type FulfillmentPumpDependencies = {
   claim: () => Promise<{ deliveries: FulfillmentDelivery[] }>;
+  claimSystem?: () => Promise<{ deliveries: FulfillmentDelivery[] }>;
   claimSocial?: () => Promise<{ deliveries: FulfillmentDelivery[] }>;
   receipt: typeof receiptDeliveryBubble;
   finalize: typeof finalizeDelivery;
@@ -402,6 +404,21 @@ export async function drainPendingCognitiveDeliveries(
   return drainPendingDeliveries(client, deps);
 }
 
+export async function drainPendingSystemNotifications(
+  client: Client,
+  deps: FulfillmentPumpDependencies = {
+    claim: claimPendingSystemNotifications,
+    receipt: receiptDeliveryBubble,
+    finalize: finalizeDelivery,
+    send: sendBubbles,
+    recheck: recheckExternalPublication,
+    recheckOwnerDm: recheckOwnerDmPublication,
+    recheckOwnerRoom: recheckOwnerRoomPublication,
+  },
+): Promise<number> {
+  return drainPendingDeliveries(client, deps);
+}
+
 export async function drainPendingSocialNotifications(
   client: Client,
   deps: FulfillmentPumpDependencies = {
@@ -447,6 +464,14 @@ export function startFulfillmentPump(
       const health = deps?.health ?? checkHealth;
       if (!(await health())) return;
       await drainPendingCognitiveDeliveries(client, deps);
+      if (deps === undefined || deps.claimSystem) {
+        await drainPendingSystemNotifications(
+          client,
+          deps === undefined
+            ? undefined
+            : { ...deps, claim: deps.claimSystem! },
+        );
+      }
       // The social notification lane is independently gated. Existing test
       // seams that inject only the cognitive claim function do not acquire a
       // second remote lane accidentally.

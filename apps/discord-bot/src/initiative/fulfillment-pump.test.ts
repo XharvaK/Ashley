@@ -144,6 +144,52 @@ test("fulfillment pump uses the same receipt/finalize flow for cognitive deliver
   assert.deepEqual(events, ["receipt", "finalize:complete"]);
 });
 
+test("fulfillment pump has a separate system-notice drain over the common transport lifecycle", async () => {
+  const fulfillmentModule = await import("./fulfillment-pump.js") as unknown as {
+    drainPendingSystemNotifications?: typeof drainPendingCognitiveDeliveries;
+  };
+  assert.equal(typeof fulfillmentModule.drainPendingSystemNotifications, "function");
+  if (!fulfillmentModule.drainPendingSystemNotifications) throw new Error("system_drain_owner_missing");
+
+  const events: string[] = [];
+  const deps: FulfillmentPumpDependencies = {
+    claim: async () => ({ deliveries: [{
+      reservationId: 152,
+      draftText: "[system] mechanical notice",
+      bubbles: [{ ordinal: 0, text: "[system] mechanical notice", discordMessageId: null }],
+      statusUrl: "/delivery/152",
+    }] }),
+    receipt: async () => {
+      events.push("receipt");
+      return { ok: true };
+    },
+    finalize: async (_reservationId, cause) => {
+      events.push(`finalize:${cause}`);
+      return {
+        state: "committed",
+        finalizationReason: "all_bubbles_delivered",
+        deliveredText: "[system] mechanical notice",
+      };
+    },
+    send: async () => ({
+      reservationId: null,
+      attemptedOrdinal: null,
+      receiptedOrdinals: [0],
+      failureCategory: null,
+      anySubstantiveContentVisible: true,
+      messages: [{ id: "system-msg" } as Message],
+    }),
+    recheckOwnerDm: ownerDmAllowed,
+  };
+
+  const count = await fulfillmentModule.drainPendingSystemNotifications(
+    makeFakeClient({ id: "dm-system" }),
+    deps,
+  );
+  assert.equal(count, 1);
+  assert.deepEqual(events, ["receipt", "finalize:complete"]);
+});
+
 test("fulfillment pump sends a room-bound reservation through the channel queue", async () => {
   const previousSeed = process.env.RA_ROOM_SEED_ACTIVE;
   const previousRoom = process.env.RA_ROOM_PUBLICATION;

@@ -1698,7 +1698,7 @@ export function createServer(
       const claimed = manager.core.claimPendingDeliveries(owner, {
         lane,
       });
-      if (lane === "cognitive_v021" || lane === "social_notify") {
+      if (lane === "cognitive_v021" || lane === "system_notice" || lane === "social_notify") {
         const sidecar = getCognitiveSidecar();
         for (const delivery of claimed) {
           markProjectedDeliverySending(

@@ -196,7 +196,7 @@ export type PendingDelivery = {
 };
 
 export async function claimPendingDeliveries(options?: {
-  lane?: "cognitive_v021" | "social_notify";
+  lane?: "cognitive_v021" | "system_notice" | "social_notify";
 }) {
   return agentFetch<{ deliveries: PendingDelivery[] }>(
     `/delivery/claim`,
@@ -216,6 +216,10 @@ export async function claimPendingCognitiveDeliveries() {
 
 export async function claimPendingSocialNotifications() {
   return claimPendingDeliveries({ lane: "social_notify" });
+}
+
+export async function claimPendingSystemNotifications() {
+  return claimPendingDeliveries({ lane: "system_notice" });
 }
 
 export type ExternalPublicationRecheckResult =

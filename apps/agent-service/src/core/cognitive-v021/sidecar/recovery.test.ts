@@ -6,11 +6,16 @@ import { describe, expect, it } from "vitest";
 import { appendInboxEvent, claimInboxEvent } from "../cycle/inbox.js";
 import { admitTestCycle, openTestSidecar } from "../test-support.js";
 import { openCognitiveSidecarDb } from "./db.js";
-import { recoverCognitiveSidecar, reconsiderPendingSpeechOutbox } from "./recovery.js";
+import {
+  recoverCognitiveSidecar,
+  reconsiderPendingSpeechOutbox,
+  reconsiderPendingSystemNotices,
+} from "./recovery.js";
 import { putInFlight } from "../effect/in-flight.js";
 import { openNuclearDb } from "../../db.js";
 import { OutboxDeliveryProjector } from "../delivery/outbox-projector.js";
 import { insertOutboxPending } from "../speech/outbox.js";
+import { emitInfrastructureNotice, updateSystemNoticeStatus } from "../speech/infrastructure-notice.js";
 
 describe("cognitive sidecar reopen recovery", () => {
   it("returns expired inbox claims and orphaned live projections to retryable states", () => {
@@ -244,6 +249,66 @@ describe("cognitive sidecar reopen recovery", () => {
       expect(sidecar.prepare(
         "SELECT send_status, nuclear_reservation_id FROM speech_outbox WHERE outbox_id = ?",
       ).get(row.outboxId)).toMatchObject({ send_status: "pending", nuclear_reservation_id: null });
+    } finally {
+      sidecar.close();
+    }
+  });
+
+  it("reconsiders reactive and proactive system notices, but not stale terminal notices", async () => {
+    const sidecar = openTestSidecar();
+    try {
+      const reactive = emitInfrastructureNotice(sidecar, {
+        ownerId: "doc",
+        channel: "discord",
+        threadId: "thread-system-recovery-reactive",
+        conversationId: "thread-system-recovery-reactive",
+        reason: "thought_deadline",
+      });
+      const proactive = emitInfrastructureNotice(sidecar, {
+        ownerId: "doc",
+        channel: "discord",
+        threadId: "thread-system-recovery-proactive",
+        conversationId: "thread-system-recovery-proactive",
+        reason: "provider",
+        trigger: "idle",
+        deliveryLane: "proactive",
+      });
+      const delivered = emitInfrastructureNotice(sidecar, {
+        ownerId: "doc",
+        channel: "discord",
+        threadId: "thread-system-recovery-delivered",
+        conversationId: "thread-system-recovery-delivered",
+        reason: "allocation",
+      });
+      updateSystemNoticeStatus(sidecar, delivered.noticeId, "delivered", { discordMessageId: "old-system-message" });
+      const suppressed = emitInfrastructureNotice(sidecar, {
+        ownerId: "doc",
+        channel: "discord",
+        threadId: "thread-system-recovery-suppressed",
+        conversationId: "thread-system-recovery-suppressed",
+        reason: "authority",
+      });
+      updateSystemNoticeStatus(sidecar, suppressed.noticeId, "suppressed");
+
+      const projectedIds: number[] = [];
+      const project = async (noticeId: number) => {
+        projectedIds.push(noticeId);
+        updateSystemNoticeStatus(sidecar, noticeId, "projected");
+      };
+      const first = await reconsiderPendingSystemNotices(sidecar, project);
+      const second = await reconsiderPendingSystemNotices(sidecar, project);
+
+      expect(first).toEqual({ reconsidered: 2, failures: 0 });
+      expect(second).toEqual({ reconsidered: 0, failures: 0 });
+      expect(projectedIds).toEqual([reactive.noticeId, proactive.noticeId]);
+      expect(sidecar.prepare(
+        "SELECT notice_id, notice_text, send_status, discord_message_id FROM system_notice_outbox ORDER BY notice_id",
+      ).all()).toEqual([
+        { notice_id: reactive.noticeId, notice_text: reactive.noticeText, send_status: "projected", discord_message_id: null },
+        { notice_id: proactive.noticeId, notice_text: proactive.noticeText, send_status: "projected", discord_message_id: null },
+        { notice_id: delivered.noticeId, notice_text: delivered.noticeText, send_status: "delivered", discord_message_id: "old-system-message" },
+        { notice_id: suppressed.noticeId, notice_text: suppressed.noticeText, send_status: "suppressed", discord_message_id: null },
+      ]);
     } finally {
       sidecar.close();
     }

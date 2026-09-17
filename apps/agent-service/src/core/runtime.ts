@@ -182,8 +182,10 @@ import { cancelDeliveryReservation } from "./delivery/abort-registry.js";
 import {
   claimPendingCognitiveDeliveries,
   claimPendingSocialNotifications,
+  claimPendingSystemNotifications,
   listPendingCognitiveDeliveries,
   listPendingSocialNotifications,
+  listPendingSystemNotifications,
 } from "./cognitive-v021/delivery/pending.js";
 
 export type ProactiveDiagnosticStage =
@@ -377,6 +379,7 @@ export class AshleyCore {
   getPendingDeliveries(ownerId: string, options: { lane?: string } = {}) {
     const lane = options.lane?.trim();
     if (lane === "social_notify") return listPendingSocialNotifications(this.db, ownerId);
+    if (lane === "system_notice") return listPendingSystemNotifications(this.db, ownerId);
     return lane === undefined || lane === "cognitive_v021"
       ? listPendingCognitiveDeliveries(this.db, ownerId)
       : [];
@@ -389,6 +392,9 @@ export class AshleyCore {
     const lane = options.lane?.trim();
     if (lane === "social_notify") {
       return claimPendingSocialNotifications(this.db, { ownerId });
+    }
+    if (lane === "system_notice") {
+      return claimPendingSystemNotifications(this.db, { ownerId });
     }
     return lane === undefined || lane === "cognitive_v021"
       ? claimPendingCognitiveDeliveries(this.db, { ownerId })

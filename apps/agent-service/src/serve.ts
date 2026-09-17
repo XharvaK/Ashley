@@ -296,11 +296,10 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
     const noticeRecovery = await reconsiderPendingSystemNotices(
       sidecar,
       (noticeId) => projector.projectSystem(noticeId),
-      { lane: "social_notify" },
     );
     if (noticeRecovery.failures > 0) {
       console.warn(
-        `[cognitive-v021] pending social notification recovery deferred rows=${noticeRecovery.failures}`,
+        `[cognitive-v021] pending system notice recovery deferred rows=${noticeRecovery.failures}`,
       );
     }
     const deliveryRecovery = reconcileProjectedDeliverySweep(sidecar, nuclear, { limit: 50 });

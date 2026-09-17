@@ -17,6 +17,9 @@ export type PendingCognitiveDelivery = {
 
 export const COGNITIVE_DELIVERY_LEASE_MS = 120_000;
 
+type PendingLane = "cognitive_v021" | "system_notice" | "social_notify";
+type ProjectionKind = "speech" | "system";
+
 function clampLeaseMs(value: number | undefined): number {
   if (typeof value !== "number" || !Number.isFinite(value)) {
     return COGNITIVE_DELIVERY_LEASE_MS;
@@ -48,49 +51,79 @@ function deliveryForState(
   };
 }
 
-function speechOutboxStatus(
-  sidecar: DatabaseSync,
-  row: unknown,
-): string | null {
+function projectionKind(row: unknown): ProjectionKind | null {
   if (typeof row !== "object" || row === null) return null;
   const value = row as { speech_outbox_id?: unknown; cognitive_v021_projection_key?: unknown };
-  const outboxId = Number(value.speech_outbox_id);
-  if (Number.isSafeInteger(outboxId) && outboxId > 0) {
-    const byId = sidecar.prepare(
-      "SELECT send_status FROM speech_outbox WHERE outbox_id = ? LIMIT 1",
-    ).get(outboxId) as { send_status?: unknown } | undefined;
-    if (byId) return typeof byId.send_status === "string" ? byId.send_status : null;
-  }
   const key = typeof value.cognitive_v021_projection_key === "string"
     ? value.cognitive_v021_projection_key
     : "";
-  if (!key.startsWith("speech:")) return null;
+  if (key.startsWith("speech:")) return "speech";
+  if (key.startsWith("system:")) return "system";
+  const outboxId = Number(value.speech_outbox_id);
+  return Number.isSafeInteger(outboxId) && outboxId > 0 ? "speech" : null;
+}
+
+function projectionStatus(
+  sidecar: DatabaseSync,
+  row: unknown,
+  kind: ProjectionKind,
+): string | null {
+  if (typeof row !== "object" || row === null) return null;
+  const value = row as { speech_outbox_id?: unknown; cognitive_v021_projection_key?: unknown };
+  const key = typeof value.cognitive_v021_projection_key === "string"
+    ? value.cognitive_v021_projection_key
+    : "";
+  if (kind === "speech") {
+    const outboxId = Number(value.speech_outbox_id);
+    if (Number.isSafeInteger(outboxId) && outboxId > 0) {
+      const byId = sidecar.prepare(
+        "SELECT send_status FROM speech_outbox WHERE outbox_id = ? LIMIT 1",
+      ).get(outboxId) as { send_status?: unknown } | undefined;
+      if (byId) return typeof byId.send_status === "string" ? byId.send_status : null;
+    }
+    if (!key.startsWith("speech:")) return null;
+  } else if (!key.startsWith("system:")) {
+    return null;
+  }
+  const table = kind === "speech" ? "speech_outbox" : "system_notice_outbox";
   const byKey = sidecar.prepare(
-    "SELECT send_status FROM speech_outbox WHERE projection_key = ? LIMIT 1",
+    `SELECT send_status FROM ${table} WHERE projection_key = ? LIMIT 1`,
   ).get(key) as { send_status?: unknown } | undefined;
   return byKey && typeof byKey.send_status === "string" ? byKey.send_status : null;
 }
 
-function speechClaimable(
+function projectionClaimable(
   sidecar: DatabaseSync,
   row: unknown,
+  kind: ProjectionKind,
 ): boolean {
-  const status = speechOutboxStatus(sidecar, row);
+  if (projectionKind(row) !== kind) return false;
+  const status = projectionStatus(sidecar, row, kind);
   return status !== null && status !== "suppressed" && status !== "suppressed_shadow";
+}
+
+function laneClause(lane: PendingLane): string {
+  return lane === "social_notify"
+    ? "delivery_lane = 'social_notify'"
+    : "delivery_lane IN ('reactive', 'proactive')";
+}
+
+function laneProjectionKind(lane: PendingLane): ProjectionKind | null {
+  if (lane === "cognitive_v021") return "speech";
+  if (lane === "system_notice") return "system";
+  return null;
 }
 
 function listPendingByLane(
   db: DatabaseSync,
   ownerId: string,
-  lane: "cognitive_v021" | "social_notify",
+  lane: PendingLane,
 ): PendingCognitiveDelivery[] {
-  const laneClause = lane === "social_notify"
-    ? "delivery_lane = 'social_notify'"
-    : "delivery_lane IN ('reactive', 'proactive')";
   // Zero-receipt sending rows have no proof of no dispatch. They remain
   // sending until receipt, cancellation, or an explicit no-dispatch proof.
-  const sidecar = lane === "cognitive_v021" ? getRegisteredCognitiveSidecar(db) : undefined;
-  if (lane === "cognitive_v021" && !sidecar) return [];
+  const kind = laneProjectionKind(lane);
+  const sidecar = kind ? getRegisteredCognitiveSidecar(db) : undefined;
+  if (kind && !sidecar) return [];
   const rows = db.prepare(
     `SELECT id
           , cognitive_v021_projection_key
@@ -99,13 +132,13 @@ function listPendingByLane(
       WHERE owner_id = ?
         AND channel = 'discord'
         AND cognitive_v021_projection_key IS NOT NULL
-        AND ${laneClause}
+        AND ${laneClause(lane)}
         AND state = 'reserved'
       ORDER BY id ASC`,
   ).all(ownerId);
   return rows.flatMap((row) => {
     const id = reservationId(row);
-    if (id === null || (sidecar && !speechClaimable(sidecar, row))) return [];
+    if (id === null || (kind && sidecar && !projectionClaimable(sidecar, row, kind))) return [];
     const pending = deliveryForState(db, id, "reserved");
     return pending ? [pending] : [];
   });
@@ -127,22 +160,27 @@ export function listPendingSocialNotifications(
   return listPendingByLane(db, ownerId, "social_notify");
 }
 
+/** Read-only listing of reactive/proactive Host system notices awaiting transport. */
+export function listPendingSystemNotifications(
+  db: DatabaseSync,
+  ownerId: string,
+): PendingCognitiveDelivery[] {
+  return listPendingByLane(db, ownerId, "system_notice");
+}
+
 function reconcileExpiredSending(
   db: DatabaseSync,
   ownerId: string,
   nowIso: string,
-  lane: "cognitive_v021" | "social_notify",
+  lane: PendingLane,
 ): void {
-  const laneClause = lane === "social_notify"
-    ? "delivery_lane = 'social_notify'"
-    : "delivery_lane IN ('reactive', 'proactive')";
   const rows = db.prepare(
     `SELECT id
        FROM delivery_reservations
       WHERE owner_id = ?
         AND channel = 'discord'
         AND cognitive_v021_projection_key IS NOT NULL
-        AND ${laneClause}
+        AND ${laneClause(lane)}
         AND state = 'sending'
         AND first_sent_at IS NOT NULL
         AND delivery_lease_expires_at IS NOT NULL
@@ -171,7 +209,7 @@ function claimPendingByLane(
     leaseMs?: number;
     nowMs?: number;
   },
-  lane: "cognitive_v021" | "social_notify",
+  lane: PendingLane,
 ): PendingCognitiveDelivery[] {
   const nowMs = input.nowMs ?? Date.now();
   const nowIso = new Date(nowMs).toISOString();
@@ -181,28 +219,29 @@ function claimPendingByLane(
 
   reconcileExpiredSending(db, input.ownerId, nowIso, lane);
 
-  const laneClause = lane === "social_notify"
-    ? "delivery_lane = 'social_notify'"
-    : "delivery_lane IN ('reactive', 'proactive')";
-  const sidecar = lane === "cognitive_v021" ? getRegisteredCognitiveSidecar(db) : undefined;
-  if (lane === "cognitive_v021" && !sidecar) return [];
+  const kind = laneProjectionKind(lane);
+  const sidecar = kind ? getRegisteredCognitiveSidecar(db) : undefined;
+  if (kind && !sidecar) return [];
 
   db.exec("BEGIN IMMEDIATE");
   try {
-    const row = db.prepare(
+    const rows = db.prepare(
       `SELECT id, cognitive_v021_projection_key, speech_outbox_id
          FROM delivery_reservations
         WHERE owner_id = ?
           AND channel = 'discord'
           AND cognitive_v021_projection_key IS NOT NULL
-          AND ${laneClause}
+          AND ${laneClause(lane)}
           AND state = 'reserved'
-        ORDER BY id ASC
-        LIMIT 1`,
-    ).get(input.ownerId);
+        ORDER BY id ASC`,
+    ).all(input.ownerId);
+    const row = rows.find((candidate) => {
+      const id = reservationId(candidate);
+      return id !== null && (!kind || (sidecar && projectionClaimable(sidecar, candidate, kind)));
+    });
     const id = reservationId(row);
     const claimed: PendingCognitiveDelivery[] = [];
-    if (id !== null && (sidecar === undefined || speechClaimable(sidecar, row))) {
+    if (id !== null && (!kind || (sidecar && projectionClaimable(sidecar, row, kind)))) {
       const updated = db.prepare(
         `UPDATE delivery_reservations
             SET state = 'sending', delivery_lease_expires_at = ?
@@ -248,4 +287,16 @@ export function claimPendingSocialNotifications(
   },
 ): PendingCognitiveDelivery[] {
   return claimPendingByLane(db, input, "social_notify");
+}
+
+/** Atomically checks out one projected reactive/proactive system notice. */
+export function claimPendingSystemNotifications(
+  db: DatabaseSync,
+  input: {
+    ownerId: string;
+    leaseMs?: number;
+    nowMs?: number;
+  },
+): PendingCognitiveDelivery[] {
+  return claimPendingByLane(db, input, "system_notice");
 }
