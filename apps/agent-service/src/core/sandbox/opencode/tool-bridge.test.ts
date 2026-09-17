@@ -59,7 +59,7 @@ describe("OpenCode V2 tool bridge", () => {
   it("defaults list_directory to the project root when path is omitted", async () => {
     const executeProjectInspectionV2 = vi.fn(async () => ({
       license: { state: "succeeded" as const, profile: "project_investigation" },
-      observation: { projectId: "project-ashley", operation: "project.list_directory" },
+      observation: null,
       dispatchAttempted: true,
     }));
     const executeWorkspaceExperimentV2 = vi.fn();

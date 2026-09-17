@@ -4,6 +4,7 @@ import { OPENCODE_PINNED_VERSION } from "./catalog.js";
 import { createTempIsolationRoot } from "./isolation.js";
 import { createQuotaRouter, resetOpenCodeProcessQuotaMemory } from "./quota-router.js";
 import { emptyQuotaState, recordClassExhausted } from "./quota-state.js";
+import type { ExecuteProjectInspectionV2Input } from "../v2-execution.js";
 import { decodeOpenCodeRunStdout, executeModeBWorker, type OpenCodeTransport } from "./worker-adapter.js";
 
 const roots: string[] = [];
@@ -33,7 +34,7 @@ function baseInput() {
     quota,
     router: createQuotaRouter({ state: quota.state }),
     dispatchers: {
-      executeProjectInspectionV2: async () => ({
+      executeProjectInspectionV2: async (_input: ExecuteProjectInspectionV2Input) => ({
         license: { state: "succeeded" as const, profile: "project_investigation" },
         observation: null,
         dispatchAttempted: true,
@@ -225,17 +226,20 @@ describe("Mode-B worker adapter", () => {
       childTerminationDeadlineAtMs: 3,
       settlementDeadlineAtMs: 4,
     };
-    base.dispatchers.executeProjectInspectionV2 = async (input) => {
-      captured.push(input.projectInspectionPreparationDeadlineAtMs);
-      return {
-        license: { state: "succeeded" as const, profile: "project_investigation" },
-        observation: { projectId: "project-ashley", operation: "project.list_directory" },
-        dispatchAttempted: true,
-      };
-    };
     let calls = 0;
     await executeModeBWorker({
       ...base,
+      dispatchers: {
+        ...base.dispatchers,
+        executeProjectInspectionV2: async (input) => {
+          captured.push(input.projectInspectionPreparationDeadlineAtMs);
+          return {
+            license: { state: "succeeded" as const, profile: "project_investigation" },
+            observation: null,
+            dispatchAttempted: true,
+          };
+        },
+      },
       kind: "project.investigate",
       request: { projectId: "project-ashley" },
       purpose: "look",
