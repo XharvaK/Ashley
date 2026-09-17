@@ -20,6 +20,13 @@ import type {
   ThoughtOperationCapability,
 } from "../types.js";
 import type { SocialAudience } from "../social/types.js";
+import {
+  C1_OPENCODE_FREE_CATALOG,
+  createQuotaRouter,
+  loadQuotaState,
+  offerWorkerTask,
+  type WorkerOfferReason,
+} from "../../sandbox/opencode/index.js";
 
 /** Capabilities with an actual v0.2.1 production adapter in this candidate. */
 const V021_LIVE_OPERATION_CAPABILITIES: ReadonlySet<CapabilityName> = new Set([
@@ -40,6 +47,10 @@ export type CapabilityRealityOptions = {
   substrateAvailable?: boolean;
   audience?: SocialAudience;
   licenses?: readonly string[];
+  opencodeWorkerEnabled?: boolean;
+  opencodeQuotaStatePath?: string;
+  opencodeCandidateDevelopAllowsNvidia?: boolean;
+  nowMs?: number;
 };
 
 function reasonForCapability(input: {
@@ -72,18 +83,28 @@ function authorizedProjectIds(
     .sort();
 }
 
+function workerReason(reason: WorkerOfferReason): CapabilityRealityReasonCode {
+  if (reason === "capability_exists" || reason === "capacity_unproven" || reason === "worker_capacity_exhausted" || reason === "unavailable") {
+    return reason;
+  }
+  return "unavailable";
+}
+
 function thoughtOperationCapabilities(input: {
   registry: V2ProjectReadRegistry;
   projectInspectionAvailable: boolean;
   verificationAvailable: boolean;
   patchExportAvailable: boolean;
+  delegatedInvestigationAvailable: boolean;
+  iterativeEngineeringAvailable: boolean;
 }): readonly ThoughtOperationCapability[] {
   const projectReadFileSpec = v2CapabilitySpec("project.read_file");
   const projectListDirectorySpec = v2CapabilitySpec("project.list_directory");
   const projectSearchTextSpec = v2CapabilitySpec("project.search_text");
   const workspaceVerifySpec = v2CapabilitySpec("workspace.verify");
   const patchExportSpec = v2CapabilitySpec("patch_export");
-  if (!projectReadFileSpec || !projectListDirectorySpec || !projectSearchTextSpec || !workspaceVerifySpec || !patchExportSpec) {
+  const workspaceWriteSpec = v2CapabilitySpec("workspace.write_file");
+  if (!projectReadFileSpec || !projectListDirectorySpec || !projectSearchTextSpec || !workspaceVerifySpec || !patchExportSpec || !workspaceWriteSpec) {
     throw new Error("sandbox_v2_operation_capability_spec_missing");
   }
   const approvedProjectIds = authorizedProjectIds(input.registry, () => true);
@@ -134,6 +155,20 @@ function thoughtOperationCapabilities(input: {
       operatorBoundRequestFields: Object.freeze([]),
       authorizedProjectIds: Object.freeze(approvedProjectIds),
     }),
+    ...(input.delegatedInvestigationAvailable
+      ? [Object.freeze({
+        operationKind: "project.investigate",
+        semanticClass: "observation" as const,
+        family: projectReadFileSpec.family,
+        readOnly: true,
+        requiresProject: true,
+        available: true,
+        requiredRequestFields: Object.freeze(["projectId"]),
+        optionalRequestFields: Object.freeze(["focus", "maxSteps"]),
+        operatorBoundRequestFields: Object.freeze([]),
+        authorizedProjectIds: Object.freeze(approvedProjectIds),
+      })]
+      : []),
     Object.freeze({
       operationKind: "workspace.verify",
       semanticClass: "effect" as const,
@@ -158,6 +193,23 @@ function thoughtOperationCapabilities(input: {
       operatorBoundRequestFields: Object.freeze(["changesetId"]),
       authorizedProjectIds: Object.freeze(patchExportProjectIds),
     }),
+    ...(input.iterativeEngineeringAvailable
+      ? [Object.freeze({
+        operationKind: "candidate.develop",
+        semanticClass: "effect" as const,
+        family: workspaceWriteSpec.family,
+        readOnly: false,
+        requiresProject: true,
+        available: true,
+        requiredRequestFields: Object.freeze(["projectId"]),
+        optionalRequestFields: Object.freeze(["focus", "maxSteps", "workspaceId"]),
+        operatorBoundRequestFields: Object.freeze(["workspaceId"]),
+        authorizedProjectIds: Object.freeze(authorizedProjectIds(
+          input.registry,
+          (entry) => entry.candidateWorkspaceAllowed === true,
+        )),
+      })]
+      : []),
   ]);
 }
 
@@ -201,11 +253,32 @@ export function getCapabilityReality(
     canOfferCandidateAuthorship(db, sandboxOptions);
   const patchExportAvailable = V021_LIVE_OPERATION_CAPABILITIES.has("patch_export") &&
     canOfferPatchExport(db, sandboxOptions);
+  const workerEnabled = options.opencodeWorkerEnabled ?? env.opencodeWorkerEnabled;
+  const catalog = {
+    ...C1_OPENCODE_FREE_CATALOG,
+    candidateDevelopAllowsNvidia:
+      options.opencodeCandidateDevelopAllowsNvidia ?? env.opencodeCandidateDevelopAllowsNvidia,
+  };
+  const workerRouter = createQuotaRouter({
+    catalog,
+    state: loadQuotaState(options.opencodeQuotaStatePath ?? env.opencodeQuotaStatePath),
+    nowMs: options.nowMs ?? Date.now(),
+  });
+  const readOffer = workerEnabled && projectInspectionAvailable
+    ? offerWorkerTask(workerRouter, "delegated_read")
+    : { offerable: false, reason: "unavailable" as const };
+  const engineeringOffer = workerEnabled && workspaceAvailable
+    ? offerWorkerTask(workerRouter, "iterative_engineering")
+    : { offerable: false, reason: "unavailable" as const };
+  const delegatedInvestigationAvailable = readOffer.offerable;
+  const iterativeEngineeringAvailable = engineeringOffer.offerable;
   const operationCapabilities = thoughtOperationCapabilities({
     registry,
     projectInspectionAvailable,
     verificationAvailable,
     patchExportAvailable,
+    delegatedInvestigationAvailable,
+    iterativeEngineeringAvailable,
   });
   const facts = {
     vision: audienceCapabilityAllowed("vision") && perceptionFacts.vision,
@@ -219,6 +292,12 @@ export function getCapabilityReality(
     canOfferBoundedOperation: false,
     canOfferInquiry: !externalAudience && workspaceAvailable && verificationAvailable,
     canOfferPatchExport: !externalAudience && patchExportAvailable,
+    ...(workerEnabled
+      ? {
+        canOfferDelegatedInvestigation: !externalAudience && delegatedInvestigationAvailable,
+        canOfferIterativeEngineering: !externalAudience && iterativeEngineeringAvailable,
+      }
+      : {}),
   };
   const reachabilityReasons: Record<string, CapabilityRealityReasonCode> = {};
   for (const name of ["vision", "attachmentText", "conversationalRead", "webSearch"] as const) {
@@ -263,6 +342,18 @@ export function getCapabilityReality(
     substrateWithoutAuthority,
     audienceAllowed: audienceCapabilityAllowed,
   });
+  if (workerEnabled) {
+    reachabilityReasons.canOfferDelegatedInvestigation = facts.canOfferDelegatedInvestigation
+      ? workerReason(readOffer.reason)
+      : (externalAudience && delegatedInvestigationAvailable
+        ? "another_audience_only"
+        : workerReason(readOffer.reason));
+    reachabilityReasons.canOfferIterativeEngineering = facts.canOfferIterativeEngineering
+      ? workerReason(engineeringOffer.reason)
+      : (externalAudience && iterativeEngineeringAvailable
+        ? "another_audience_only"
+        : workerReason(engineeringOffer.reason));
+  }
   const projectedOperationCapabilities = externalAudience
     ? operationCapabilities.map((capability) => ({
       ...capability,

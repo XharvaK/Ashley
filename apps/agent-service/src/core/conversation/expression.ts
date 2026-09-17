@@ -71,6 +71,8 @@ function renderCapabilityReality(reality: CapabilityReality): string {
     `- conversational_read: ${availability(reality.conversationalRead)}`,
     `- web_search: ${availability(reality.webSearch)}`,
     `- project_inspection: ${availability(reality.canOfferProjectInspection)}`,
+    `- delegated_investigation: ${availability(reality.canOfferDelegatedInvestigation === true)}`,
+    `- iterative_engineering: ${availability(reality.canOfferIterativeEngineering === true)}`,
     `- candidate_workspace: ${availability(reality.canOfferWorkspace)}`,
     `- candidate_verification: ${availability(reality.canOfferVerification)}`,
     `- candidate_authorship: ${availability(reality.canOfferAuthorship)}`,

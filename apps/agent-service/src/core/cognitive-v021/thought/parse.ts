@@ -24,6 +24,7 @@ import type {
   WorkingContextSemanticDelta,
 } from "../types.js";
 import { isMemoryKind } from "../memory/kinds.js";
+import { validateModeBRequest } from "../../sandbox/opencode/mode-b-request.js";
 
 export type ThoughtSemanticParseFailureCode =
   | "invalid_json"
@@ -56,6 +57,7 @@ const REGISTERED_OPERATION_KINDS = new Set([
   "conversation.read",
   "memory.lookup",
   "project.inspect",
+  "project.investigate",
   "project.list_directory",
   "project.read_file",
   "project.search_text",
@@ -71,6 +73,7 @@ const REGISTERED_OPERATION_KINDS = new Set([
   "changeset.author",
   "patch_export",
   "objective.operate",
+  "candidate.develop",
   "discord.public_presence",
 ]);
 
@@ -748,6 +751,10 @@ function parseOperationSemantic(
   if (!jsonObject(record.request)) return semanticFailure("wrong_type", "request");
   if (record.operationKind === "project.inspect" && !validProjectInspectionObjective(record.request)) {
     return semanticFailure("wrong_type", "request");
+  }
+  if (record.operationKind === "project.investigate" || record.operationKind === "candidate.develop") {
+    const modeB = validateModeBRequest({ kind: record.operationKind, request: record.request });
+    if (!modeB.ok) return semanticFailure("wrong_type", modeB.field ?? "request");
   }
   if (!nonEmptyString(record.purpose)) return semanticFailure("wrong_type", "purpose");
   if (!stringArray(record.existingRefs)) return semanticFailure("wrong_type", "existingRefs");

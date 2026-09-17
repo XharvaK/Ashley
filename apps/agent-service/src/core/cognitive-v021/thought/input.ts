@@ -312,6 +312,8 @@ export function filterCapabilityReality(
     canOfferBoundedOperation: false,
     canOfferInquiry: false,
     canOfferPatchExport: false,
+    canOfferDelegatedInvestigation: false,
+    canOfferIterativeEngineering: false,
     approvedProjectIds: [],
     operationCapabilities: capability.operationCapabilities?.map((item) => ({
       ...item,
@@ -341,6 +343,18 @@ export function filterCapabilityReality(
     canOfferBoundedOperation: reasonFor("canOfferBoundedOperation", false, capability.canOfferBoundedOperation),
     canOfferInquiry: reasonFor("canOfferInquiry", false, capability.canOfferInquiry, { ownerOnly: true }),
     canOfferPatchExport: reasonFor("canOfferPatchExport", false, capability.canOfferPatchExport),
+    canOfferDelegatedInvestigation: reasonFor(
+      "canOfferDelegatedInvestigation",
+      false,
+      capability.canOfferDelegatedInvestigation === true,
+      { ownerOnly: true },
+    ),
+    canOfferIterativeEngineering: reasonFor(
+      "canOfferIterativeEngineering",
+      false,
+      capability.canOfferIterativeEngineering === true,
+      { ownerOnly: true },
+    ),
   };
   for (const item of capability.operationCapabilities ?? []) {
     reasons[item.operationKind] = reasonFor(item.operationKind, false, item.available, { ownerOnly: true });

@@ -1240,6 +1240,8 @@ export const CAPABILITY_REALITY_REASON_CODES = [
   "needs_owner_approval",
   "substrate_without_authority",
   "evidence_not_acquired",
+  "capacity_unproven",
+  "worker_capacity_exhausted",
 ] as const;
 
 export type CapabilityRealityReasonCode = (typeof CAPABILITY_REALITY_REASON_CODES)[number];
@@ -1282,6 +1284,10 @@ export type CapabilityReality = {
   canOfferBoundedOperation: boolean;
   canOfferInquiry: boolean;
   canOfferPatchExport: boolean;
+  /** Host-effective delegated investigation worker; not a quota-class name. */
+  canOfferDelegatedInvestigation?: boolean;
+  /** Host-effective iterative candidate worker; not a quota-class name. */
+  canOfferIterativeEngineering?: boolean;
   approvedProjectIds: string[];
   /** Host-owned affordance facts exposed to Thought; never a selected branch. */
   operationCapabilities?: readonly ThoughtOperationCapability[];

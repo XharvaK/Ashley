@@ -7,6 +7,7 @@ const READ_OPERATIONS = new Set([
   "project.list_directory",
   "project.search_text",
   "project.inspect",
+  "project.investigate",
   "workspace.read_file",
   "read_file",
   "conversation.read",

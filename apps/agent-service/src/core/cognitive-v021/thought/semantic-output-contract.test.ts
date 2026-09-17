@@ -66,6 +66,22 @@ describe("Thought semantic output contract", () => {
       existingRefs: ["turn-1"],
     }, refs)).toMatchObject({ ok: true, value: { kind: "effect_intent" } });
     expect(parseThoughtSemanticOutput({
+      kind: "observation_intent",
+      operationKind: "project.investigate",
+      request: { projectId: "project-ashley", focus: "apps/agent-service" },
+      purpose: "investigate the current project",
+      evidenceNeed: "bounded file evidence",
+      existingRefs: ["turn-1"],
+    }, refs)).toMatchObject({ ok: true, value: { kind: "observation_intent" } });
+    expect(parseThoughtSemanticOutput({
+      kind: "observation_intent",
+      operationKind: "project.investigate",
+      request: { projectId: "project-ashley", model: "opencode/nemotron-3-ultra-free" },
+      purpose: "investigate the current project",
+      evidenceNeed: "bounded file evidence",
+      existingRefs: ["turn-1"],
+    }, refs)).toMatchObject({ ok: false });
+    expect(parseThoughtSemanticOutput({
       kind: "abstain",
       reason: "insufficient_evidence",
       explanation: "The current evidence is not enough.",
@@ -485,11 +501,11 @@ describe("Thought semantic output contract", () => {
 
   it("keeps protected semantic, wire, and capability fingerprints exact", () => {
     expect(THOUGHT_SEMANTIC_SCHEMA_FINGERPRINT).toBe(
-      "sha256:89cb5048209cbb58769fc592aa4f3a85bcae8bf4ba90327e9a030697ca804a8c",
+      "sha256:60564654983fb4974c13df4c5236253488cf72163aaf96e12c2115640cf52633",
     );
     const zeroOp = constrainThoughtOutputSchema(buildOperationalEffectNamespaceFromRefs([]));
     expect(zeroOp.wireSchemaFingerprint).toBe(
-      "sha256:7a8951782f288f6d5ccc8583c65724ad51a4558eb2cd86d818a9ee2e74238f3e",
+      "sha256:37349ea44f5e921a1d652a55290b66c4f4c6e9249adda59a4c3d02868bcf341c",
     );
     expect(zeroOp.namespaceConstraintFingerprint).toBe(
       "sha256:d277b3804b25361994107886d1f33f779a7501298b01fe483ebe7c795b6e19c6",

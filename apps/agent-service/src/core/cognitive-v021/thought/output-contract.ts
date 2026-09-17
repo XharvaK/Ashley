@@ -53,6 +53,7 @@ const REGISTERED_OPERATION_KINDS = [
   "conversation.read",
   "memory.lookup",
   "project.inspect",
+  "project.investigate",
   "project.list_directory",
   "project.read_file",
   "project.search_text",
@@ -68,6 +69,7 @@ const REGISTERED_OPERATION_KINDS = [
   "changeset.author",
   "patch_export",
   "objective.operate",
+  "candidate.develop",
   "discord.public_presence",
 ] as const;
 const dimensionsSchema = strictObject({

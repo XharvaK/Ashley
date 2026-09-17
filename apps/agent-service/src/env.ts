@@ -240,6 +240,23 @@ function createEnv() {
     "ASHLEY_SANDBOX_PROJECT_REGISTRY",
     join(homedir(), ".composer-assistant", "sandbox", "project-roots.json"),
   ),
+  // OpenCode Track B worker. Fail-closed. Not a Thought provider and not Zen.
+  opencodeWorkerEnabled: strictBoolean("ASHLEY_OPENCODE_WORKER_ENABLED", false),
+  opencodeBinaryPath: process.env.ASHLEY_OPENCODE_BIN?.trim() ?? "",
+  opencodePinnedVersion: strictTrimmed("ASHLEY_OPENCODE_PINNED_VERSION", "1.18.30"),
+  opencodeHomeDir: strictTrimmed(
+    "ASHLEY_OPENCODE_HOME",
+    join(homedir(), ".composer-assistant", "sandbox", "opencode-home"),
+  ),
+  opencodeQuotaStatePath: strictTrimmed(
+    "ASHLEY_OPENCODE_QUOTA_STATE",
+    join(homedir(), ".composer-assistant", "sandbox", "opencode-quota-state.json"),
+  ),
+  // Current implementation policy for candidate.develop, not Owner L3 law.
+  opencodeCandidateDevelopAllowsNvidia: strictBoolean(
+    "ASHLEY_OPENCODE_CANDIDATE_DEVELOP_NVIDIA",
+    false,
+  ),
   };
 }
 

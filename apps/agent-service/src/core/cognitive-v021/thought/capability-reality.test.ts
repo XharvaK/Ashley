@@ -204,4 +204,25 @@ describe("v0.2.1 CapabilityReality live-surface contract", () => {
       db.close();
     }
   });
+
+  it("keeps M6 dark and L1-direct independent of OpenCode quota", () => {
+    const db = activeDb();
+    try {
+      const reality = getCapabilityReality(db, {
+        registry: registry(),
+        masterMode: "apply",
+        lifecycleEnabled: true,
+        substrateAvailable: true,
+        opencodeWorkerEnabled: true,
+        opencodeQuotaStatePath: "this-path-does-not-exist.json",
+      } as Parameters<typeof getCapabilityReality>[1]);
+      expect(reality.canOfferBoundedOperation).toBe(false);
+      expect(reality.canOfferProjectInspection).toBe(true);
+      expect(reality.canOfferDelegatedInvestigation).toBe(true);
+      expect(reality.operationCapabilities?.some((operation) => operation.operationKind === "project.investigate")).toBe(true);
+      expect(JSON.stringify(reality)).not.toMatch(/NVIDIA_FREE|OTHER_FREE|Nemotron|Muse/);
+    } finally {
+      db.close();
+    }
+  });
 });

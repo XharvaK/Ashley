@@ -478,4 +478,56 @@ describe("v0.2.1 live Sandbox V2 operation construction", () => {
     nuclear.close();
     sidecar.close();
   });
+
+  it("runs Mode-B candidate.develop through the worker adapter and records Host model evidence", async () => {
+    const nuclear = new DatabaseSync(":memory:");
+    const executeModeBWorker = vi.fn(async () => ({
+      license: { state: "succeeded" as const, profile: "opencode_mode_b", executionTruth: "effect_verified" as const },
+      selectedModelId: "opencode/muse-spark-1.3-contributor-free",
+      quotaClass: "OTHER_FREE" as const,
+      steps: [],
+      summary: "worker prose is not proof",
+      payload: { steps: [] },
+    }));
+    const executors = createV021LiveOperationExecutors({
+      nuclear,
+      adapters: { executeModeBWorker },
+    });
+    const receipt = await executors.executeEffect(effectProposal({
+      kind: "candidate.develop",
+      request: { projectId: "project-ashley", workspaceId: "ws-1" },
+    }));
+    expect(executeModeBWorker).toHaveBeenCalledTimes(1);
+    expect(receipt.outcome).toBe("succeeded");
+    expect(receipt.claims.selectedModelId).toBe("opencode/muse-spark-1.3-contributor-free");
+    expect(receipt.claims.summary).toBe("worker prose is not proof");
+    nuclear.close();
+  });
+
+  it("maps pre-tool worker exhaustion to not_attempted", async () => {
+    const nuclear = new DatabaseSync(":memory:");
+    const executeModeBWorker = vi.fn(async () => ({
+      license: {
+        state: "none" as const,
+        profile: "opencode_mode_b",
+        error: "worker_capacity_exhausted",
+        executionTruth: "no_effect_proven" as const,
+      },
+      selectedModelId: null,
+      quotaClass: null,
+      steps: [],
+      summary: null,
+      payload: { error: "worker_capacity_exhausted" },
+    }));
+    const executors = createV021LiveOperationExecutors({
+      nuclear,
+      adapters: { executeModeBWorker },
+    });
+    const receipt = await executors.executeEffect(effectProposal({
+      kind: "candidate.develop",
+      request: { projectId: "project-ashley", workspaceId: "ws-1" },
+    }));
+    expect(receipt.outcome).toBe("not_attempted");
+    nuclear.close();
+  });
 });

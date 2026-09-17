@@ -303,7 +303,7 @@ describe("P1 occupied-concern projection", () => {
   it("keeps the Thought output semantic schema identity pinned", () => {
     expect(THOUGHT_OUTPUT_SCHEMA_FINGERPRINT).toBe(THOUGHT_SEMANTIC_SCHEMA_FINGERPRINT);
     expect(THOUGHT_OUTPUT_SCHEMA_FINGERPRINT).toBe(
-      "sha256:89cb5048209cbb58769fc592aa4f3a85bcae8bf4ba90327e9a030697ca804a8c",
+      "sha256:60564654983fb4974c13df4c5236253488cf72163aaf96e12c2115640cf52633",
     );
   });
 });

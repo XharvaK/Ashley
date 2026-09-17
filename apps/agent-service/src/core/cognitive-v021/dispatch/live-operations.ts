@@ -14,6 +14,16 @@ import {
   type InquiryExperimentRequest,
 } from "../../sandbox/v2-execution.js";
 import {
+  C1_OPENCODE_FREE_CATALOG,
+  createQuotaRouter,
+  executeModeBWorker,
+  loadQuotaState,
+  saveQuotaState,
+  MODE_B_DEVELOP,
+  MODE_B_INVESTIGATE,
+  type ModeBWorkerResult,
+} from "../../sandbox/opencode/index.js";
+import {
   executePatchExportV2,
   type ExecutePatchExportV2Result,
 } from "../../sandbox/patch-export-execution.js";
@@ -75,6 +85,7 @@ type LiveOperationAdapters = {
   executeCandidateAuthorshipV2: typeof executeCandidateAuthorshipV2;
   executeInquiryExperimentV2: typeof executeInquiryExperimentV2;
   executePatchExportV2: typeof executePatchExportV2;
+  executeModeBWorker: typeof executeModeBWorker;
 };
 
 export type V021LiveOperationExecutorOptions = {
@@ -269,7 +280,16 @@ function inferDispatchEvidence(
     license.error === "patch_export_not_allowed" ||
     license.error === "changeset_missing" ||
     license.error === "changeset_not_exportable" ||
-    license.error === "changeset_project_mismatch"
+    license.error === "changeset_project_mismatch" ||
+    license.error === "worker_disabled" ||
+    license.error === "worker_capacity_exhausted" ||
+    license.error === "capacity_unproven" ||
+    license.error === "unavailable" ||
+    license.error === "forbidden_field" ||
+    license.error === "unknown_field" ||
+    license.error === "missing_project" ||
+    license.error === "missing_workspace" ||
+    license.error === "opencode_pin_mismatch"
   ) {
     return { provenNotStarted: true };
   }
@@ -389,6 +409,7 @@ export function createV021LiveOperationExecutors(
     executeCandidateAuthorshipV2,
     executeInquiryExperimentV2,
     executePatchExportV2,
+    executeModeBWorker,
     ...options.adapters,
   };
 
@@ -401,8 +422,77 @@ export function createV021LiveOperationExecutors(
     workspaceManager: options.workspaceManager,
   };
 
+  async function runModeB(
+    kind: typeof MODE_B_INVESTIGATE | typeof MODE_B_DEVELOP,
+    request: unknown,
+    cycleId: string,
+    purpose: string,
+    workspaceId?: string,
+  ): Promise<ModeBWorkerResult> {
+    const catalog = {
+      ...C1_OPENCODE_FREE_CATALOG,
+      candidateDevelopAllowsNvidia: env.opencodeCandidateDevelopAllowsNvidia,
+    };
+    const quotaState = loadQuotaState(env.opencodeQuotaStatePath);
+    const router = createQuotaRouter({ catalog, state: quotaState, nowMs: nowMs() });
+    const base = operationBase(nowMs);
+    return adapters.executeModeBWorker({
+      kind,
+      request,
+      purpose,
+      isolationRoot: env.opencodeHomeDir,
+      binaryPath: env.opencodeBinaryPath,
+      pinnedVersion: env.opencodePinnedVersion,
+      quotaPath: env.opencodeQuotaStatePath,
+      router,
+      persistQuota: (state) => saveQuotaState(env.opencodeQuotaStatePath, state),
+      dispatchers: {
+        executeProjectInspectionV2: adapters.executeProjectInspectionV2,
+        executeWorkspaceExperimentV2: adapters.executeWorkspaceExperimentV2,
+      },
+      inspectionBase: {
+        ...common,
+        ...inspectionDeadlines(nowMs),
+        messageEntityUuid: cycleId,
+      },
+      workspaceBase: {
+        ...common,
+        deadlineAtMs: base + 60_000,
+        childExecutionDeadlineAtMs: base + 30_000,
+        childTerminationDeadlineAtMs: base + 45_000,
+        settlementDeadlineAtMs: base + 60_000,
+        messageEntityUuid: cycleId,
+      },
+      workspaceId,
+      pathEnv: process.env.PATH ?? "",
+      nowMs,
+      deadlineAtMs: base + 60_000,
+      workerEnabled: env.opencodeWorkerEnabled,
+    });
+  }
+
   return {
     async executeObservation(req): Promise<Observation> {
+      if (req.kind === MODE_B_INVESTIGATE) {
+        let result: ModeBWorkerResult;
+        try {
+          result = await runModeB(req.kind, req.request, req.cycleId, "investigate");
+        } catch {
+          throw new Error("observation_unavailable");
+        }
+        return {
+          observationId: `v021:observation:${req.requestId}`,
+          cycleId: req.cycleId,
+          generation: req.generation,
+          derived: false,
+          replaySafe: true,
+          modality: "tool",
+          payload: result.payload,
+          provenance: "opencode-worker:project.investigate",
+          dataClassification: "never_public",
+          secretOmitted: true,
+        };
+      }
       const request = normalizeProjectRequest(req);
       if (!request) throw new Error("observation_unavailable");
       let result: ExecuteProjectInspectionV2Result;
@@ -501,6 +591,7 @@ export function createV021LiveOperationExecutors(
       }
 
       let license: OperationalClaimLicense;
+      let modeBResult: ModeBWorkerResult | null = null;
       try {
         if (operation === "objective.operate") {
           const request = normalizeInquiryRequest(proposal);
@@ -566,6 +657,25 @@ export function createV021LiveOperationExecutors(
             });
             license = resultLicense(result);
           }
+        } else if (operation === MODE_B_DEVELOP) {
+          try {
+            const value = requestRecord(proposal.request);
+            const result = await runModeB(
+              MODE_B_DEVELOP,
+              proposal.request,
+              proposal.cycleId,
+              "develop",
+              stringValue(value?.workspaceId) ?? undefined,
+            );
+            modeBResult = result;
+            license = {
+              ...result.license,
+              taskId: proposal.effectId,
+              sourceMessageEntityUuid: proposal.cycleId,
+            };
+          } catch {
+            license = unavailableLicense("opencode_mode_b", "effect_unavailable");
+          }
         } else if (operation === "patch_export") {
           const request = normalizePatchExportRequest(proposal);
           if (!request) license = unavailableLicense("patch_export", "invalid_request");
@@ -585,7 +695,17 @@ export function createV021LiveOperationExecutors(
       } catch {
         license = unavailableLicense("cognitive_effect", "effect_unavailable");
       }
-      return receiptFromLicense(proposal, license, nowMs, options.sidecar);
+      const receipt = receiptFromLicense(proposal, license, nowMs, options.sidecar);
+      if (!modeBResult) return receipt;
+      return {
+        ...receipt,
+        claims: {
+          ...receipt.claims,
+          selectedModelId: modeBResult.selectedModelId,
+          summary: modeBResult.summary,
+          steps: modeBResult.payload.steps,
+        },
+      };
     },
   };
 }
