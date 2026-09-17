@@ -3120,24 +3120,29 @@ export async function runCognitiveCycle(
       if (
         invocation.output.observationRequest.kind === "project.investigate"
         && invocation.semantic?.kind === "observation_intent"
-        && deps.detachInvestigate
       ) {
         // Detached V1 async investigate: durable admission + interim
         // ownership first, then delivery and worker dispatch proceed as
         // independent Host activities. Thought A yields here; its wall-clock
         // never includes worker execution.
-        const detach = deps.detachInvestigate({
-          intent: invocation.semantic,
-          cycleId: cycle.cycleId,
-          generation: cycle.generation,
-          conversationId: cycle.conversationId,
-          originOwnerEventId: event.id,
-          originEvidenceRowId: triggerEvidence?.rowId ?? cycle.composeLogIds.at(-1) ?? null,
-          ownerId: typeof payload.ownerId === "string" && payload.ownerId.length > 0
-            ? payload.ownerId
-            : (cycle.occupantId ?? ""),
-          nowMs: deps.nowMs(),
-        });
+        const detach = (() => {
+          try {
+            return deps.detachInvestigate?.({
+              intent: invocation.semantic,
+              cycleId: cycle.cycleId,
+              generation: cycle.generation,
+              conversationId: cycle.conversationId,
+              originOwnerEventId: event.id,
+              originEvidenceRowId: triggerEvidence?.rowId ?? cycle.composeLogIds.at(-1) ?? null,
+              ownerId: typeof payload.ownerId === "string" && payload.ownerId.length > 0
+                ? payload.ownerId
+                : (cycle.occupantId ?? ""),
+              nowMs: deps.nowMs(),
+            }) ?? { detached: false as const, reason: "detach_unavailable" as const };
+          } catch {
+            return { detached: false as const, reason: "detach_unavailable" as const };
+          }
+        })();
         if (detach.detached) {
           if (detach.interimId != null && deps.projectInterim) {
             try {
@@ -3185,8 +3190,13 @@ export async function runCognitiveCycle(
             makeThoughtTerminal("operation_dispatch", { codes: ["operation_already_pending"], stage: "observation_dispatch" }),
           );
         }
-        // Any other non-detach (offerable check, malformed input) keeps
-        // today's synchronous execution below.
+        // Investigate is an asynchronous operation. Without a usable
+        // detachment seam, fail closed instead of blocking Thought on it.
+        return emitFailure(
+          "observation_unavailable",
+          undefined,
+          makeThoughtTerminal("operation_dispatch", { codes: ["observation_unavailable"], stage: "observation_dispatch" }),
+        );
       }
       incrementThoughtAttemptCounter(sidecar, cycle.cycleId, cycle.generation, "observationRounds");
       updateCycleState(sidecar, cycle.cycleId, "awaiting_operation", deps.nowMs());

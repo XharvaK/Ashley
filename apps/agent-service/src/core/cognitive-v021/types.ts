@@ -1678,7 +1678,8 @@ export type KernelDeps = {
    * project.investigate observation intent, the kernel offers durable
    * detachment (admission + interim ownership) instead of blocking on the
    * worker. Absent (all existing tests, worker-unavailable hosts), the
-   * synchronous observation path is preserved exactly.
+   * an unavailable detachment seam fails closed; project.inspect and other
+   * direct inspection operations retain their existing synchronous path.
    */
   detachInvestigate?: (
     input: import("./operation/dispatch.js").DetachInvestigateInput,

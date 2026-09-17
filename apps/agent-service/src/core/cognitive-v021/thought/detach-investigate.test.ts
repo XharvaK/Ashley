@@ -251,7 +251,7 @@ describe("detached investigate Thought A", () => {
     }
   });
 
-  it("stays synchronous when no detach hook is wired", async () => {
+  it("fails closed when no detach hook is wired", async () => {
     const { sidecar, attentionDb, nuclear, event } = setupThread("thread-detach-nohook");
     const completeChat = vi.fn()
       .mockResolvedValueOnce(investigateCompletion({ interimSpeech: { mode: "none" } }))
@@ -277,13 +277,87 @@ describe("detached investigate Thought A", () => {
       secretOmitted: true,
     }));
     try {
-      await runCognitiveCycle(sidecar, attentionDb, event, deps({
+      const result = await runCognitiveCycle(sidecar, attentionDb, event, deps({
         attentionDb,
         completeChat,
         executeObservation,
       }));
-      // No hook: today's synchronous execution path runs the worker inline.
-      expect(executeObservation).toHaveBeenCalledTimes(1);
+      expect(result.published).toBe(false);
+      expect(result.infrastructureNotice).toBe(
+        `${THOUGHT_UNAVAILABLE_NOTICE} Error code: OPERATION_DISPATCH_FAILED`,
+      );
+      // Investigate has no synchronous fallback when detachment is absent.
+      expect(executeObservation).not.toHaveBeenCalled();
+      expect(sidecar.prepare("SELECT COUNT(*) AS count FROM detached_operations").get())
+        .toMatchObject({ count: 0 });
+    } finally {
+      sidecar.close();
+      attentionDb.close();
+      nuclear.close();
+    }
+  });
+
+  it("fails closed when detachment is explicitly unavailable", async () => {
+    const { sidecar, attentionDb, nuclear, event } = setupThread("thread-detach-unavailable");
+    const completeChat = vi.fn()
+      .mockResolvedValueOnce(investigateCompletion({ interimSpeech: { mode: "none" } }))
+      .mockResolvedValue({
+        text: JSON.stringify({
+          kind: "abstain",
+          reason: "insufficient_evidence",
+          explanation: "Not enough to answer.",
+          evidenceRefs: [],
+        }),
+        model: "fake", modelAlias: "thought", resolvedModelId: null,
+      });
+    const executeObservation = vi.fn();
+    try {
+      const result = await runCognitiveCycle(sidecar, attentionDb, event, deps({
+        attentionDb,
+        completeChat,
+        executeObservation,
+        detachInvestigate: () => ({ detached: false, reason: "detach_unavailable" }),
+      }));
+      expect(result.published).toBe(false);
+      expect(result.infrastructureNotice).toBe(
+        `${THOUGHT_UNAVAILABLE_NOTICE} Error code: OPERATION_DISPATCH_FAILED`,
+      );
+      expect(executeObservation).not.toHaveBeenCalled();
+      expect(sidecar.prepare("SELECT COUNT(*) AS count FROM detached_operations").get())
+        .toMatchObject({ count: 0 });
+    } finally {
+      sidecar.close();
+      attentionDb.close();
+      nuclear.close();
+    }
+  });
+
+  it("fails closed when the detachment seam throws", async () => {
+    const { sidecar, attentionDb, nuclear, event } = setupThread("thread-detach-throws");
+    const completeChat = vi.fn()
+      .mockResolvedValueOnce(investigateCompletion({ interimSpeech: { mode: "none" } }))
+      .mockResolvedValue({
+        text: JSON.stringify({
+          kind: "abstain",
+          reason: "insufficient_evidence",
+          explanation: "Not enough to answer.",
+          evidenceRefs: [],
+        }),
+        model: "fake", modelAlias: "thought", resolvedModelId: null,
+      });
+    const executeObservation = vi.fn();
+    try {
+      const result = await runCognitiveCycle(sidecar, attentionDb, event, deps({
+        attentionDb,
+        completeChat,
+        executeObservation,
+        detachInvestigate: () => { throw new Error("detach_seam_failed"); },
+      }));
+      expect(result.published).toBe(false);
+      expect(result.infrastructureNotice).toBe(
+        `${THOUGHT_UNAVAILABLE_NOTICE} Error code: OPERATION_DISPATCH_FAILED`,
+      );
+      expect(executeObservation).not.toHaveBeenCalled();
       expect(sidecar.prepare("SELECT COUNT(*) AS count FROM detached_operations").get())
         .toMatchObject({ count: 0 });
     } finally {
