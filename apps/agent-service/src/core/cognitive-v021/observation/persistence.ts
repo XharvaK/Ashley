@@ -204,6 +204,22 @@ export function canonicalObservation(observation: Observation): CanonicalObserva
   return canonicalFromObservation(observation);
 }
 
+/** Read one stored observation by id for completion binding (null when absent/invalid). */
+export function getCanonicalObservationById(
+  db: DatabaseSync,
+  observationId: string,
+): CanonicalObservation | null {
+  if (typeof observationId !== "string" || observationId.length === 0) return null;
+  const found = rowFor(db, observationId);
+  if (!found) return null;
+  try {
+    const canonical = canonicalFromRow(found);
+    return canonical.observationId === observationId ? canonical : null;
+  } catch {
+    return null;
+  }
+}
+
 export function observationBindingHash(input: {
   observationIds: readonly string[];
   observations: readonly CanonicalObservation[];

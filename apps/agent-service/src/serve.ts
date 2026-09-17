@@ -27,6 +27,7 @@ import {
   detachInvestigateIntent,
   dispatchDetachedOperation,
 } from "./core/cognitive-v021/operation/dispatch.js";
+import { reconcileMissingCompletions } from "./core/cognitive-v021/operation/completion.js";
 import {
   openDerivedStore,
   defaultDerivedIndexDbPath,
@@ -357,6 +358,19 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
       await repairMissingC3Experiences(sidecar, nuclear, { nowMs: Date.now(), limit: 50 });
     } catch (error) {
       console.warn("[cognitive-v021] c3_recovery_deferred_for_forward_repair", error);
+    }
+    // Detached-operation completion backfill: terminal truth already stands;
+    // this fills completion opportunities lost between terminal commit and
+    // completion production (crash boundary), before the consumer begins.
+    try {
+      const completions = reconcileMissingCompletions(sidecar, { nowMs: Date.now(), limit: 50 });
+      if (completions.failures.length > 0) {
+        console.warn(
+          `[cognitive-v021] detached completion backfill deferred rows=${completions.failures.length}`,
+        );
+      }
+    } catch (error) {
+      console.warn("[cognitive-v021] detached_completion_backfill_deferred", error);
     }
     cognitiveConsumer = startInboxConsumer(sidecar, {
       workerId: `agent-service:${process.pid}`,

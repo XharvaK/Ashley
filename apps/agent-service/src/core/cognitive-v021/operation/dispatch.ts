@@ -12,6 +12,7 @@ import {
   setDetachedOperationTerminal,
   type DetachedOperationRecord,
 } from "./detached.js";
+import { produceOperationCompletion } from "./completion.js";
 import { authorizeInterimSpeech } from "./interim.js";
 
 /** Own bounded wall-clock for a detached operation: outside any Thought budget. */
@@ -172,6 +173,24 @@ function workerObservationId(operationId: string): string {
 }
 
 /**
+ * Best-effort completion production after terminal truth lands. A completion
+ * failure never un-terminates the operation: crash reconciliation backfills
+ * the missing event from the same terminal truth.
+ */
+function completeAfterTerminal(
+  sidecar: DatabaseSync,
+  operationId: string,
+  terminal: DetachedOperationRecord,
+): DetachedOperationRecord {
+  try {
+    produceOperationCompletion(sidecar, operationId);
+  } catch {
+    // Reconciliation backfills; terminal truth already stands.
+  }
+  return getDetachedOperation(sidecar, operationId) ?? terminal;
+}
+
+/**
  * Execute one admitted detached operation to terminal truth. Exactly-once
  * via the admitted→started CAS: a duplicate dispatch observes the lost CAS
  * and never reruns the worker. Worker failure is terminal failed; a thrown
@@ -179,7 +198,8 @@ function workerObservationId(operationId: string): string {
  * a blind rerun. Total: never throws.
  *
  * Terminal truth is persisted first; the completion opportunity for Thought B
- * is produced by the completion owner from that truth (Wave 3 seam).
+ * is produced from that truth immediately after, with reconciliation as the
+ * crash backfill (a completion failure never un-terminates the operation).
  */
 export async function dispatchDetachedOperation(
   sidecar: DatabaseSync,
@@ -224,9 +244,8 @@ export async function dispatchDetachedOperation(
         errorCode: "worker_dispatch_failed",
         nowMs: Date.now(),
       });
-      return terminal.ok
-        ? { ok: true, operation: terminal.operation }
-        : { ok: false, reason: terminal.reason, operation: started.operation };
+      if (!terminal.ok) return { ok: false, reason: terminal.reason, operation: started.operation };
+      return { ok: true, operation: completeAfterTerminal(sidecar, operationId, terminal.operation) };
     }
 
     if (!result.ok) {
@@ -235,9 +254,8 @@ export async function dispatchDetachedOperation(
         errorCode: result.errorCode,
         nowMs: Date.now(),
       });
-      return terminal.ok
-        ? { ok: true, operation: terminal.operation }
-        : { ok: false, reason: terminal.reason, operation: started.operation };
+      if (!terminal.ok) return { ok: false, reason: terminal.reason, operation: started.operation };
+      return { ok: true, operation: completeAfterTerminal(sidecar, operationId, terminal.operation) };
     }
 
     let observationRef: string | null = null;
@@ -265,9 +283,8 @@ export async function dispatchDetachedOperation(
       observationRef,
       nowMs: Date.now(),
     });
-    return terminal.ok
-      ? { ok: true, operation: terminal.operation }
-      : { ok: false, reason: terminal.reason, operation: started.operation };
+    if (!terminal.ok) return { ok: false, reason: terminal.reason, operation: started.operation };
+    return { ok: true, operation: completeAfterTerminal(sidecar, operationId, terminal.operation) };
   } catch {
     return { ok: false, reason: "detached_dispatch_failed" };
   }
