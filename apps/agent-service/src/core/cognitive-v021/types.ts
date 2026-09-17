@@ -20,7 +20,7 @@ export type { DataClassification } from "../privacy/classification.js";
 export const ARCHITECTURE_EPOCH = "v0.2.1" as const;
 export const IMPLEMENTATION_SPEC_VERSION = "0.2.1.r6" as const;
 export const THOUGHT_CONTRACT_VERSION = 2 as const;
-export const COGNITIVE_SIDECAR_SCHEMA_VERSION = 19 as const;
+export const COGNITIVE_SIDECAR_SCHEMA_VERSION = 20 as const;
 export const CAPACITY_WAIT_MAX_DURATION_MS = 120_000 as const;
 export const MECHANICAL_SPIN_GUARD_LIMIT = 12 as const;
 
@@ -1555,9 +1555,34 @@ export type SystemNoticeOutbox = {
   discordMessageId: string | null;
   origin: OutboxOrigin;
 };
+/**
+ * Durable publication ownership for a detached-operation interim hold
+ * draft. Interim speech is Ashley speech owned by the operation, never by a
+ * settlement: it carries no findings and resolves no obligation. Projection
+ * key `interim:<id>` keeps it typed apart from `speech:` settlements and
+ * `system:` Host notices.
+ */
+export type OperationInterimOutbox = {
+  interimId: number;
+  operationId: string;
+  projectionKey: DeliveryProjectionKey;
+  conversationId: ConversationId;
+  cycleId: CycleId;
+  generation: Generation;
+  surfaceDraft: string;
+  presentationDirectives: readonly string[];
+  sendStatus: OutboxSendStatus;
+  suppressed: boolean;
+  deliveryIntent: DeliveryIntent;
+  nuclearReservationId: ReservationId | null;
+  discordMessageId: string | null;
+  origin: OutboxOrigin;
+};
 export interface OutboxDeliveryProjector {
   project(outboxId: OutboxId): Promise<void>;
   projectSystem(noticeId: NoticeId): Promise<void>;
+  /** Optional until all projector fakes adopt the interim family. */
+  projectInterim?: (interimId: number) => Promise<void>;
 }
 export type ExternalizationGateReason =
   | "ok"
@@ -1647,6 +1672,24 @@ export type KernelDeps = {
   }) => Promise<string>;
   projectOutbox: (outboxId: OutboxId) => Promise<void>;
   projectSystemNotice?: (noticeId: NoticeId) => Promise<void>;
+  projectInterim?: (interimId: number) => Promise<void>;
+  /**
+   * Detached V1 async investigate hook. When present and Thought authors a
+   * project.investigate observation intent, the kernel offers durable
+   * detachment (admission + interim ownership) instead of blocking on the
+   * worker. Absent (all existing tests, worker-unavailable hosts), the
+   * synchronous observation path is preserved exactly.
+   */
+  detachInvestigate?: (
+    input: import("./operation/dispatch.js").DetachInvestigateInput,
+  ) => import("./operation/dispatch.js").DetachInvestigateResult;
+  /**
+   * Fire-and-forget worker dispatch trigger for an admitted detached
+   * operation. The dispatcher owns exactly-once execution via the
+   * admitted→started CAS; a missing hook leaves the operation durably
+   * admitted for later dispatch or expiry reconciliation.
+   */
+  dispatchDetached?: (operationId: string) => void;
   /** Shadow supplies `shadow`; live/default execution remains `live`. */
   origin?: OutboxOrigin;
   constitution: IdentitySlice;
@@ -1676,6 +1719,12 @@ export type KernelRunResult = {
   nextEligibleAtMs?: number;
   conversationId?: string;
   latestEvidenceRowId?: string;
+  /**
+   * Durably admitted detached operation that Thought A yielded to. Set only
+   * on the detach path; the Owner obligation transfers to
+   * detached_operation:<id> with remainingResponsibility operation_pending.
+   */
+  detachedOperationId?: string;
 };
 
 export type CognitiveDispatchResult = KernelRunResult | null;

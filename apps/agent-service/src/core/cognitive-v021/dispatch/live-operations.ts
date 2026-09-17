@@ -18,6 +18,7 @@ import {
   createQuotaRouter,
   executeModeBWorker,
   loadQuotaState,
+  resolveOpenCodeBinary,
   saveQuotaState,
   MODE_B_DEVELOP,
   MODE_B_INVESTIGATE,
@@ -107,6 +108,18 @@ export type V021LiveOperationExecutorOptions = {
 export type V021LiveOperationExecutors = {
   executeObservation(req: ObservationRequest): Promise<Observation>;
   executeEffect(proposal: EffectProposal): Promise<EffectReceipt>;
+  /**
+   * Raw Mode-B investigate execution for detached dispatch. Returns the
+   * worker result unwrapped (no Observation envelope): the detached
+   * dispatcher owns start proof, evidence persistence, and terminal truth.
+   */
+  runDetachedInvestigate(input: {
+    request: unknown;
+    cycleId: string;
+    purpose: string;
+  }): Promise<ModeBWorkerResult>;
+  /** Whether a Thought-authored investigate may detach right now. */
+  canOfferDetachedInvestigate(): boolean;
 };
 
 type RecordValue = Record<string, unknown>;
@@ -491,6 +504,26 @@ export function createV021LiveOperationExecutors(
   }
 
   return {
+    canOfferDetachedInvestigate(): boolean {
+      if (options.adapters?.executeModeBWorker) return true;
+      if (env.opencodeWorkerEnabled !== true) return false;
+      if (resolveOpenCodeBinary(env.opencodeBinaryPath) == null) return false;
+      return canOfferWorkerBackedProjectInspection({
+        registry,
+        masterMode: env.cognitionMode,
+        lifecycleEnabled: options.envOverrides?.sandboxEngineeringLifecycleEnabled ?? env.sandboxEngineeringLifecycleEnabled,
+        substrateAvailable: options.envOverrides?.substrateAvailable,
+      });
+    },
+
+    async runDetachedInvestigate(input: {
+      request: unknown;
+      cycleId: string;
+      purpose: string;
+    }): Promise<ModeBWorkerResult> {
+      return runModeB(MODE_B_INVESTIGATE, input.request, input.cycleId, input.purpose);
+    },
+
     async executeObservation(req): Promise<Observation> {
       if (req.kind === MODE_B_INVESTIGATE) {
         let result: ModeBWorkerResult;

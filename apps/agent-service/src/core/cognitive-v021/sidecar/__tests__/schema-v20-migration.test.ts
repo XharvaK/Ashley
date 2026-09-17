@@ -3,8 +3,8 @@ import { openTestSidecar } from "../../test-support.js";
 import { openCognitiveSidecarDb } from "../db.js";
 import { COGNITIVE_SIDECAR_SCHEMA_VERSION } from "../../types.js";
 
-describe("cognitive sidecar Schema V19 migration", () => {
-  it("creates detached_operations with single-active enforcement and is idempotent", () => {
+describe("cognitive sidecar Schema V20 migration", () => {
+  it("creates operation_interim_outbox and is idempotent", () => {
     const db = openTestSidecar();
     try {
       db.exec("PRAGMA user_version = 19");
@@ -13,21 +13,16 @@ describe("cognitive sidecar Schema V19 migration", () => {
       openCognitiveSidecarDb(db, { dataPlane: { kind: "isolated" } });
       expect((db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(20);
       expect(COGNITIVE_SIDECAR_SCHEMA_VERSION).toBe(20);
-      const columns = (db.prepare("PRAGMA table_info(detached_operations)").all() as Array<{ name: string }>)
+      const columns = (db.prepare("PRAGMA table_info(operation_interim_outbox)").all() as Array<{ name: string }>)
         .map((column) => column.name);
       for (const column of [
-        "operation_id", "conversation_id", "origin_cycle_id", "origin_generation",
-        "origin_owner_event_id", "operation_kind", "request_json", "purpose",
-        "evidence_need", "admission_at_ms", "operation_deadline_at_ms",
-        "idempotency_key", "state", "terminal_state", "interim_outbox_ref",
-        "completion_event_ref", "cancel_requested_at_ms", "superseded_by",
-        "successor_operation_id",
+        "interim_id", "operation_id", "projection_key", "conversation_id",
+        "cycle_id", "generation", "surface_draft", "presentation_directives_json",
+        "send_status", "suppressed", "delivery_intent_json", "nuclear_reservation_id",
+        "discord_message_id", "origin", "authorized_at_ms",
       ]) {
         expect(columns).toContain(column);
       }
-      const indexes = (db.prepare("PRAGMA index_list(detached_operations)").all() as Array<{ name: string }>)
-        .map((index) => index.name);
-      expect(indexes).toContain("idx_detached_operations_active_conversation");
 
       openCognitiveSidecarDb(db, { dataPlane: { kind: "isolated" } });
       expect((db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(20);

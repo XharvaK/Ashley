@@ -151,11 +151,15 @@ function withProjector(
   projector: OutboxDeliveryProjector | undefined,
 ): KernelDeps {
   if (!projector) return { ...deps, origin: "live" };
+  const projectInterim = projector.projectInterim
+    ? (interimId: number) => projector.projectInterim!(interimId)
+    : undefined;
   return {
     ...deps,
     origin: "live",
     projectOutbox: (outboxId) => projector.project(outboxId),
     projectSystemNotice: (noticeId) => projector.projectSystem(noticeId),
+    ...(projectInterim ? { projectInterim } : {}),
   };
 }
 

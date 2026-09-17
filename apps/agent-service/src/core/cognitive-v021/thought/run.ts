@@ -3103,6 +3103,77 @@ export async function runCognitiveCycle(
           makeThoughtTerminal("budget_exhausted", { codes: ["pass_exhausted"], stage: "observation_rounds" }),
         );
       }
+      if (
+        invocation.output.observationRequest.kind === "project.investigate"
+        && invocation.semantic?.kind === "observation_intent"
+        && deps.detachInvestigate
+      ) {
+        // Detached V1 async investigate: durable admission + interim
+        // ownership first, then delivery and worker dispatch proceed as
+        // independent Host activities. Thought A yields here; its wall-clock
+        // never includes worker execution.
+        const detach = deps.detachInvestigate({
+          intent: invocation.semantic,
+          cycleId: cycle.cycleId,
+          generation: cycle.generation,
+          conversationId: cycle.conversationId,
+          originOwnerEventId: event.id,
+          originEvidenceRowId: triggerEvidence?.rowId ?? cycle.composeLogIds.at(-1) ?? null,
+          ownerId: typeof payload.ownerId === "string" && payload.ownerId.length > 0
+            ? payload.ownerId
+            : (cycle.occupantId ?? ""),
+          nowMs: deps.nowMs(),
+        });
+        if (detach.detached) {
+          if (detach.interimId != null && deps.projectInterim) {
+            try {
+              await deps.projectInterim(detach.interimId);
+            } catch {
+              // Interim delivery is independent: a projection failure leaves
+              // the operation admitted and the worker still dispatches below.
+            }
+          }
+          if (deps.dispatchDetached) {
+            try {
+              deps.dispatchDetached(detach.operation.operationId);
+            } catch {
+              // The admitted operation remains durable; expiry reconciliation
+              // classifies it if no dispatch ever claims it.
+            }
+          }
+          return {
+            cycleId: cycle.cycleId,
+            generation: cycle.generation,
+            published: false,
+            outboxId: null,
+            infrastructureNotice: null,
+            thoughtModelAttempts: counters.thoughtModelAttempts,
+            acceptedThoughtPasses: counters.acceptedThoughtPasses,
+            composeCancelledAttempts: counters.composeCancelledAttempts,
+            acceptedSettlements: 0,
+            deferred: false,
+            detachedOperationId: detach.operation.operationId,
+            conversationId: cycle.conversationId,
+            latestEvidenceRowId: triggerEvidence?.rowId ?? cycle.composeLogIds.at(-1) ?? "unknown",
+            thoughtExecutionProvenance: currentExecutionProvenance(),
+            ownerObligationResolution: ownerResolutionFor("deferred", {
+              detachedOperationId: detach.operation.operationId,
+              interimSpeechAuthored: detach.interimAuthored,
+            }),
+          };
+        }
+        if (detach.reason === "operation_already_pending") {
+          // A second investigate never queues and never runs concurrently:
+          // refuse truthfully instead of executing synchronously behind it.
+          return emitFailure(
+            "observation_unavailable",
+            undefined,
+            makeThoughtTerminal("operation_dispatch", { codes: ["operation_already_pending"], stage: "observation_dispatch" }),
+          );
+        }
+        // Any other non-detach (offerable check, malformed input) keeps
+        // today's synchronous execution below.
+      }
       incrementThoughtAttemptCounter(sidecar, cycle.cycleId, cycle.generation, "observationRounds");
       updateCycleState(sidecar, cycle.cycleId, "awaiting_operation", deps.nowMs());
       try {

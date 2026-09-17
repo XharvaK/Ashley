@@ -7,6 +7,7 @@ import { recoverWakes } from "../wake/ledger.js";
 import { recoverPrivateBudget } from "../private-budget/recovery.js";
 import { listEligiblePendingSpeechOutbox } from "../speech/outbox.js";
 import { listSystemNotices } from "../speech/infrastructure-notice.js";
+import { listInterimOutboxByStatus } from "../operation/interim.js";
 
 export type CognitiveSidecarRecoveryResult = {
   inboxClaimsRecovered: number;
@@ -47,6 +48,24 @@ export async function reconsiderPendingSpeechOutbox(
   for (const row of rows) {
     try {
       await project(row.outboxId);
+    } catch {
+      failures += 1;
+    }
+  }
+  return { reconsidered: rows.length, failures };
+}
+
+/** Re-project committed interim holds that were left pending by a process stop. */
+export async function reconsiderPendingInterim(
+  db: DatabaseSync,
+  project: SpeechOutboxRecoveryProjector,
+  options: { limit?: number } = {},
+): Promise<PendingSystemNoticeRecoveryResult> {
+  const rows = listInterimOutboxByStatus(db, ["pending"], options.limit ?? 50);
+  let failures = 0;
+  for (const row of rows) {
+    try {
+      await project(row.interimId);
     } catch {
       failures += 1;
     }

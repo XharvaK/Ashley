@@ -14,6 +14,10 @@ import {
   updateOutboxStatus,
 } from "../speech/outbox.js";
 import {
+  getInterimOutbox,
+  updateInterimStatus,
+} from "../operation/interim.js";
+import {
   admitExternalPublication,
   type ExternalPublicationCandidate,
 } from "../settlement/publish.js";
@@ -27,6 +31,7 @@ import { recordDeliveryC3TerminalFailure } from "../failure/c3-recorder.js";
 import { cancelDeliveryReservation } from "../../delivery/abort-registry.js";
 import type {
   DeliveryIntent,
+  OperationInterimOutbox,
   OutboxDeliveryProjector as OutboxDeliveryProjectorContract,
   OutboxSendStatus,
   SpeechOutboxRow,
@@ -35,10 +40,12 @@ import type {
 
 export type ProjectionGate = (intent: DeliveryIntent) => { ok: true } | { ok: false; reason: string };
 
+export type ProjectableRow = SpeechOutboxRow | SystemNoticeOutbox | OperationInterimOutbox;
+
 export type OutboxDeliveryProjectorOptions = {
   nowMs?: () => number;
   gate?: ProjectionGate;
-  isCurrentGeneration?: (row: SpeechOutboxRow | SystemNoticeOutbox) => boolean;
+  isCurrentGeneration?: (row: ProjectableRow) => boolean;
   leaseMs?: number;
 };
 
@@ -160,10 +167,24 @@ function updateSystemReconciliation(
   });
 }
 
+function updateInterimReconciliation(
+  sidecar: DatabaseSync,
+  row: OperationInterimOutbox,
+  status: OutboxSendStatus,
+  assessment: ReceiptAssessment,
+  reservationId: number,
+): void {
+  if (isTerminal(row.sendStatus)) return;
+  updateInterimStatus(sidecar, row.interimId, status, {
+    discordMessageId: assessment.conflict ? null : assessment.confirmedPrefix[0]?.discordMessageId ?? null,
+    nuclearReservationId: reservationId,
+  });
+}
+
 function markTerminalFromDestination(
   sidecar: DatabaseSync,
   nuclear: DatabaseSync,
-  row: SpeechOutboxRow | SystemNoticeOutbox,
+  row: ProjectableRow,
   destination: Row,
 ): ReceiptAssessment {
   const state = text(destination.state);
@@ -178,8 +199,10 @@ function markTerminalFromDestination(
     const finalizationReason = terminal.finalizationReason ?? (text(destination.finalization_reason) || null);
     if ("outboxId" in row) {
       updateSpeechReconciliation(sidecar, row, terminal.status, assessment, reservationId, finalizationReason);
-    } else {
+    } else if ("noticeId" in row) {
       updateSystemReconciliation(sidecar, row, terminal.status, assessment, reservationId);
+    } else {
+      updateInterimReconciliation(sidecar, row, terminal.status, assessment, reservationId);
     }
   } else if (state === "sending") {
     if ("outboxId" in row) {
@@ -189,16 +212,23 @@ function markTerminalFromDestination(
           .filter((id): id is string => Boolean(id)),
         nuclearReservationId: reservationId,
       });
-    } else {
+    } else if ("noticeId" in row) {
       updateSystemNoticeStatus(sidecar, row.noticeId, "sending", {
+        discordMessageId: assessment.complete ? assessment.confirmedPrefix[0]?.discordMessageId ?? null : null,
+        nuclearReservationId: reservationId,
+      });
+    } else {
+      updateInterimStatus(sidecar, row.interimId, "sending", {
         discordMessageId: assessment.complete ? assessment.confirmedPrefix[0]?.discordMessageId ?? null : null,
         nuclearReservationId: reservationId,
       });
     }
   } else if ("outboxId" in row) {
     updateOutboxStatus(sidecar, row.outboxId, "projected", { nuclearReservationId: reservationId, finalizationReason: null });
-  } else {
+  } else if ("noticeId" in row) {
     updateSystemNoticeStatus(sidecar, row.noticeId, "projected", { nuclearReservationId: reservationId });
+  } else {
+    updateInterimStatus(sidecar, row.interimId, "projected", { nuclearReservationId: reservationId });
   }
   return assessment;
 }
@@ -207,7 +237,7 @@ function projectedRow(
   sidecar: DatabaseSync,
   nuclear: DatabaseSync,
   reservationId: number,
-): SpeechOutboxRow | SystemNoticeOutbox | null {
+): ProjectableRow | null {
   const destination = nuclear.prepare(
     "SELECT cognitive_v021_projection_key FROM delivery_reservations WHERE id = ?",
   ).get(reservationId) as Row | undefined;
@@ -220,6 +250,10 @@ function projectedRow(
     const id = Number(key.slice("system:".length));
     return Number.isFinite(id) ? getSystemNotice(sidecar, id) : null;
   }
+  if (key.startsWith("interim:")) {
+    const id = Number(key.slice("interim:".length));
+    return Number.isFinite(id) ? getInterimOutbox(sidecar, id) : null;
+  }
   return null;
 }
 
@@ -227,7 +261,7 @@ function markDeliveredEvidence(
   sidecar: DatabaseSync,
   nuclear: DatabaseSync,
   reservationId: number,
-  row: SpeechOutboxRow | SystemNoticeOutbox,
+  row: ProjectableRow,
   assessment: ReceiptAssessment,
 ): void {
   const destination = getDeliveryReservation(nuclear, reservationId);
@@ -240,7 +274,9 @@ function markDeliveredEvidence(
   if (destination.state === "partially_delivered" && assessment.complete) return;
   const delivered = assessment.confirmedPrefix;
   if (delivered.length === 0) return;
-  const role = "outboxId" in row ? "ashley" : "system";
+  // Interim hold drafts are Ashley speech owned by a detached operation, so
+  // delivered interim text joins Ashley evidence like settlement speech.
+  const role = "outboxId" in row || "interimId" in row ? "ashley" : "system";
   const existing = sidecar.prepare(
     `SELECT row_id FROM conversation_evidence_log
       WHERE reservation_id = ? AND role = ? LIMIT 1`,
@@ -255,7 +291,7 @@ function markDeliveredEvidence(
     delivered: true,
     dataClassification: "never_public" as const,
   };
-  if ("outboxId" in row) appendAshleyEvidence(sidecar, input);
+  if ("outboxId" in row || "interimId" in row) appendAshleyEvidence(sidecar, input);
   else appendSystemEvent(sidecar, input);
 }
 
@@ -271,8 +307,12 @@ export function markProjectedDeliverySending(
     updateOutboxStatus(sidecar, row.outboxId, "sending", {
       nuclearReservationId: reservationId,
     });
-  } else {
+  } else if ("noticeId" in row) {
     updateSystemNoticeStatus(sidecar, row.noticeId, "sending", {
+      nuclearReservationId: reservationId,
+    });
+  } else {
+    updateInterimStatus(sidecar, row.interimId, "sending", {
       nuclearReservationId: reservationId,
     });
   }
@@ -312,7 +352,7 @@ function reconcileProjectedDeliveryInternal(
     const cycle = row.cycleId
       ? sidecar.prepare("SELECT generation FROM cycle_records WHERE cycle_id = ? LIMIT 1").get(row.cycleId) as Row | undefined
       : undefined;
-    const generation = "outboxId" in row
+    const generation = "outboxId" in row || "interimId" in row
       ? row.generation
       : cycle ? number(cycle.generation) : null;
     if (row.cycleId && generation != null) {
@@ -356,20 +396,20 @@ type ReservationSweepPage = Readonly<{
 function projectedSourceRow(
   sidecar: DatabaseSync,
   projectionKey: string,
-): SpeechOutboxRow | SystemNoticeOutbox | null {
-  const match = /^(speech|system):(\d+)$/.exec(projectionKey);
+): ProjectableRow | null {
+  const match = /^(speech|system|interim):(\d+)$/.exec(projectionKey);
   if (!match) return null;
   const id = Number(match[2]);
   if (!Number.isSafeInteger(id) || id <= 0) return null;
-  return match[1] === "speech"
-    ? getSpeechOutbox(sidecar, id)
-    : getSystemNotice(sidecar, id);
+  if (match[1] === "speech") return getSpeechOutbox(sidecar, id);
+  if (match[1] === "system") return getSystemNotice(sidecar, id);
+  return getInterimOutbox(sidecar, id);
 }
 
 function explicitSourceRow(
   sidecar: DatabaseSync,
   reservationId: number,
-): SpeechOutboxRow | SystemNoticeOutbox | null {
+): ProjectableRow | null {
   const speech = sidecar.prepare(
     "SELECT outbox_id FROM speech_outbox WHERE nuclear_reservation_id = ? LIMIT 1",
   ).get(reservationId) as Row | undefined;
@@ -377,7 +417,11 @@ function explicitSourceRow(
   const notice = sidecar.prepare(
     "SELECT notice_id FROM system_notice_outbox WHERE nuclear_reservation_id = ? LIMIT 1",
   ).get(reservationId) as Row | undefined;
-  return notice ? getSystemNotice(sidecar, number(notice.notice_id)) : null;
+  if (notice) return getSystemNotice(sidecar, number(notice.notice_id));
+  const interim = sidecar.prepare(
+    "SELECT interim_id FROM operation_interim_outbox WHERE nuclear_reservation_id = ? LIMIT 1",
+  ).get(reservationId) as Row | undefined;
+  return interim ? getInterimOutbox(sidecar, number(interim.interim_id)) : null;
 }
 
 function sweepReservationIds(
@@ -387,6 +431,7 @@ function sweepReservationIds(
 ): ReservationSweepPage {
   const speech: number[] = [];
   const notices: number[] = [];
+  const interim: number[] = [];
   const afterReservationId = reconciliationCursorByNuclearOwner.get(nuclear) ?? 0;
   const owners = nuclear.prepare(
     `SELECT id, cognitive_v021_projection_key
@@ -405,21 +450,24 @@ function sweepReservationIds(
     if (!row || !ACTIVE_RECONCILIATION_STATUSES.includes(row.sendStatus)) continue;
     if ("outboxId" in row) {
       if (speech.length < limit) speech.push(ownerId);
-    } else if (notices.length < limit) {
-      notices.push(ownerId);
+    } else if ("noticeId" in row) {
+      if (notices.length < limit) notices.push(ownerId);
+    } else if (interim.length < limit) {
+      interim.push(ownerId);
     }
   }
 
   // Read candidates from the durable nuclear owner, then reserve output slots
   // for both sidecar families. The final fill keeps the sweep bounded while
-  // preventing one family from consuming every slot.
+  // preventing one family from consuming every slot. Interim hold rows fill
+  // only leftover slots, so existing speech/notice selection is unchanged.
   const speechQuota = Math.ceil(limit / 2);
   const noticeQuota = Math.floor(limit / 2);
   const selected = [
     ...speech.slice(0, speechQuota),
     ...notices.slice(0, noticeQuota),
   ];
-  for (const id of [...speech.slice(speechQuota), ...notices.slice(noticeQuota)]) {
+  for (const id of [...speech.slice(speechQuota), ...notices.slice(noticeQuota), ...interim]) {
     if (selected.length >= limit) break;
     selected.push(id);
   }
@@ -462,7 +510,7 @@ export function reconcileProjectedDeliverySweep(
 }
 
 function shouldProject(
-  row: SpeechOutboxRow | SystemNoticeOutbox,
+  row: ProjectableRow,
   options: OutboxDeliveryProjectorOptions,
 ): { ok: true } | { ok: false; status?: "pending" | "suppressed"; reason: string } {
   if (isTerminal(row.sendStatus)) return { ok: false, reason: "terminal" };
@@ -487,7 +535,7 @@ export class OutboxDeliveryProjector implements OutboxDeliveryProjectorContract 
     registerCognitiveDeliveryDatabases(sidecar, nuclear);
   }
 
-  private cancelSuppressedReservation(row: SpeechOutboxRow | SystemNoticeOutbox): void {
+  private cancelSuppressedReservation(row: ProjectableRow): void {
     if (row.sendStatus !== "suppressed" && row.sendStatus !== "suppressed_shadow") return;
     const bound = row.nuclearReservationId == null
       ? projectionReservation(this.nuclear, row.projectionKey)
@@ -502,7 +550,7 @@ export class OutboxDeliveryProjector implements OutboxDeliveryProjectorContract 
     });
   }
 
-  private reserve(row: SpeechOutboxRow | SystemNoticeOutbox, textValue: string): number {
+  private reserve(row: ProjectableRow, textValue: string): number {
     const key = row.projectionKey;
     const existing = projectionReservation(this.nuclear, key);
     if (existing) {
@@ -576,19 +624,24 @@ export class OutboxDeliveryProjector implements OutboxDeliveryProjectorContract 
     }
   }
 
-  private async projectRow(row: SpeechOutboxRow | SystemNoticeOutbox): Promise<void> {
+  private async projectRow(row: ProjectableRow): Promise<void> {
     this.cancelSuppressedReservation(row);
     const decision = shouldProject(row, this.options);
     if (!decision.ok) {
       if (decision.status === "suppressed") {
         if ("outboxId" in row) updateOutboxStatus(this.sidecar, row.outboxId, "suppressed", { finalizationReason: decision.reason });
-        else updateSystemNoticeStatus(this.sidecar, row.noticeId, "suppressed");
+        else if ("noticeId" in row) updateSystemNoticeStatus(this.sidecar, row.noticeId, "suppressed");
+        else updateInterimStatus(this.sidecar, row.interimId, "suppressed");
       }
       return;
     }
     if ("outboxId" in row) updateOutboxStatus(this.sidecar, row.outboxId, "projecting");
-    else updateSystemNoticeStatus(this.sidecar, row.noticeId, "projecting");
-    const reservationId = this.reserve(row, "outboxId" in row ? row.licensedText : row.noticeText);
+    else if ("noticeId" in row) updateSystemNoticeStatus(this.sidecar, row.noticeId, "projecting");
+    else updateInterimStatus(this.sidecar, row.interimId, "projecting");
+    const reservationId = this.reserve(
+      row,
+      "outboxId" in row ? row.licensedText : "noticeId" in row ? row.noticeText : row.surfaceDraft,
+    );
     const external = row.deliveryIntent.externalPublication;
     if (external) {
       const candidate: ExternalPublicationCandidate = {
@@ -621,8 +674,10 @@ export class OutboxDeliveryProjector implements OutboxDeliveryProjectorContract 
             nuclearReservationId: reservationId,
             finalizationReason: `external_publication_blocked:${admission.reason ?? "unknown"}`,
           });
-        } else {
+        } else if ("noticeId" in row) {
           updateSystemNoticeStatus(this.sidecar, row.noticeId, "suppressed");
+        } else {
+          updateInterimStatus(this.sidecar, row.interimId, "suppressed");
         }
         return;
       }
@@ -632,8 +687,10 @@ export class OutboxDeliveryProjector implements OutboxDeliveryProjectorContract 
       markTerminalFromDestination(this.sidecar, this.nuclear, row, destination);
     } else if ("outboxId" in row) {
       updateOutboxStatus(this.sidecar, row.outboxId, "projected", { nuclearReservationId: reservationId, finalizationReason: null });
-    } else {
+    } else if ("noticeId" in row) {
       updateSystemNoticeStatus(this.sidecar, row.noticeId, "projected", { nuclearReservationId: reservationId });
+    } else {
+      updateInterimStatus(this.sidecar, row.interimId, "projected", { nuclearReservationId: reservationId });
     }
   }
 
@@ -646,6 +703,12 @@ export class OutboxDeliveryProjector implements OutboxDeliveryProjectorContract 
   async projectSystem(noticeId: number): Promise<void> {
     const row = getSystemNotice(this.sidecar, noticeId);
     if (!row) throw new Error("system_notice_missing");
+    await this.projectRow(row);
+  }
+
+  async projectInterim(interimId: number): Promise<void> {
+    const row = getInterimOutbox(this.sidecar, interimId);
+    if (!row) throw new Error("interim_missing");
     await this.projectRow(row);
   }
 }

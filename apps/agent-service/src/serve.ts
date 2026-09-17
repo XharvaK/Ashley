@@ -24,6 +24,10 @@ import {
 import type { KernelDeps, Observation } from "./core/cognitive-v021/types.js";
 import { createV021LiveOperationExecutors } from "./core/cognitive-v021/dispatch/live-operations.js";
 import {
+  detachInvestigateIntent,
+  dispatchDetachedOperation,
+} from "./core/cognitive-v021/operation/dispatch.js";
+import {
   openDerivedStore,
   defaultDerivedIndexDbPath,
   registerDerivedStoreForSidecar,
@@ -38,6 +42,7 @@ import {
 import { DatabaseSync } from "node:sqlite";
 import { reconcileAuthorityBarrierOnStartup } from "./core/cognitive-v021/authority/barrier.js";
 import {
+  reconsiderPendingInterim,
   reconsiderPendingSpeechOutbox,
   reconsiderPendingSystemNotices,
 } from "./core/cognitive-v021/sidecar/recovery.js";
@@ -236,6 +241,31 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
       }),
       projectOutbox: (outboxId) => projector.project(outboxId),
       projectSystemNotice: (noticeId) => projector.projectSystem(noticeId),
+      projectInterim: (interimId) => projector.projectInterim(interimId),
+      detachInvestigate: (input) => liveOperationExecutors.canOfferDetachedInvestigate()
+        ? detachInvestigateIntent(sidecar, input)
+        : { detached: false as const, reason: "detach_unavailable" },
+      dispatchDetached: (operationId) => {
+        void dispatchDetachedOperation(sidecar, operationId, async (workerInput) => {
+          const result = await liveOperationExecutors.runDetachedInvestigate({
+            request: workerInput.request,
+            cycleId: workerInput.operation.originCycleId,
+            purpose: workerInput.purpose,
+          });
+          if (result.license.state === "succeeded") {
+            return { ok: true, payload: result.payload };
+          }
+          return {
+            ok: false,
+            errorCode: typeof result.license.error === "string" && result.license.error.length > 0
+              ? result.license.error
+              : `worker_${result.license.state}`,
+          };
+        }).catch(() => {
+          // dispatchDetachedOperation is total and persists terminal truth
+          // itself; this guards only against unexpected trigger bugs.
+        });
+      },
       constitution: readIdentitySlice(nuclear, ownerId),
       capabilityReality,
       derivedStore,
@@ -300,6 +330,15 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
     if (noticeRecovery.failures > 0) {
       console.warn(
         `[cognitive-v021] pending system notice recovery deferred rows=${noticeRecovery.failures}`,
+      );
+    }
+    const interimRecovery = await reconsiderPendingInterim(
+      sidecar,
+      (interimId) => projector.projectInterim(interimId),
+    );
+    if (interimRecovery.failures > 0) {
+      console.warn(
+        `[cognitive-v021] pending interim recovery deferred rows=${interimRecovery.failures}`,
       );
     }
     const deliveryRecovery = reconcileProjectedDeliverySweep(sidecar, nuclear, { limit: 50 });

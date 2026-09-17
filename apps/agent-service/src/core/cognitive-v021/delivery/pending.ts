@@ -18,7 +18,7 @@ export type PendingCognitiveDelivery = {
 export const COGNITIVE_DELIVERY_LEASE_MS = 120_000;
 
 type PendingLane = "cognitive_v021" | "system_notice" | "social_notify";
-type ProjectionKind = "speech" | "system";
+type ProjectionKind = "speech" | "system" | "interim";
 
 function clampLeaseMs(value: number | undefined): number {
   if (typeof value !== "number" || !Number.isFinite(value)) {
@@ -59,6 +59,7 @@ function projectionKind(row: unknown): ProjectionKind | null {
     : "";
   if (key.startsWith("speech:")) return "speech";
   if (key.startsWith("system:")) return "system";
+  if (key.startsWith("interim:")) return "interim";
   const outboxId = Number(value.speech_outbox_id);
   return Number.isSafeInteger(outboxId) && outboxId > 0 ? "speech" : null;
 }
@@ -81,11 +82,17 @@ function projectionStatus(
       ).get(outboxId) as { send_status?: unknown } | undefined;
       if (byId) return typeof byId.send_status === "string" ? byId.send_status : null;
     }
-    if (!key.startsWith("speech:")) return null;
-  } else if (!key.startsWith("system:")) {
+    if (!key.startsWith("speech:") && !key.startsWith("interim:")) return null;
+  } else if (kind === "system") {
+    if (!key.startsWith("system:")) return null;
+  } else if (!key.startsWith("interim:")) {
     return null;
   }
-  const table = kind === "speech" ? "speech_outbox" : "system_notice_outbox";
+  const table = kind === "speech"
+    ? (key.startsWith("interim:") ? "operation_interim_outbox" : "speech_outbox")
+    : kind === "system"
+      ? "system_notice_outbox"
+      : "operation_interim_outbox";
   const byKey = sidecar.prepare(
     `SELECT send_status FROM ${table} WHERE projection_key = ? LIMIT 1`,
   ).get(key) as { send_status?: unknown } | undefined;
@@ -97,8 +104,15 @@ function projectionClaimable(
   row: unknown,
   kind: ProjectionKind,
 ): boolean {
-  if (projectionKind(row) !== kind) return false;
-  const status = projectionStatus(sidecar, row, kind);
+  const rowKind = projectionKind(row);
+  // The cognitive Owner-DM lane carries both settlement speech and detached
+  // interim holds: both are Ashley speech to the Owner, typed apart by key.
+  if (kind === "speech") {
+    if (rowKind !== "speech" && rowKind !== "interim") return false;
+  } else if (rowKind !== kind) {
+    return false;
+  }
+  const status = projectionStatus(sidecar, row, rowKind ?? kind);
   return status !== null && status !== "suppressed" && status !== "suppressed_shadow";
 }
 

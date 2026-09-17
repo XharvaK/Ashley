@@ -2,6 +2,7 @@ import type { DatabaseSync } from "node:sqlite";
 import { readAuthorityBarrier, requireCurrentAuthorityBinding } from "../authority/barrier.js";
 import { getSpeechOutbox, insertOutboxPending } from "../speech/outbox.js";
 import { getSystemNotice } from "../speech/infrastructure-notice.js";
+import { recheckInterimPublicationReservation } from "../operation/interim.js";
 import { getCurrentCycle } from "../cycle/inbox.js";
 import type {
   CycleTriggerKind,
@@ -1401,10 +1402,11 @@ export function recheckSystemNoticePublicationReservation(
 
 /**
  * Owner-publication recheck routed by typed projection identity.
- * `system:<id>` selects the system-notice recheck; every other key preserves
- * the existing destination-shaped routing (Owner-DM speech vs Owner room).
- * Both surfaces can target the Owner, so the persisted projection key — not
- * the destination shape — selects the recheck owner.
+ * `system:<id>` selects the system-notice recheck, `interim:<id>` selects the
+ * detached-operation interim-hold recheck; every other key preserves the
+ * existing destination-shaped routing (Owner-DM speech vs Owner room).
+ * All three surfaces can target the Owner, so the persisted projection key —
+ * not the destination shape — selects the recheck owner.
  */
 export function recheckOwnerPublicationReservation(
   db: DatabaseSync,
@@ -1415,8 +1417,12 @@ export function recheckOwnerPublicationReservation(
   const row = db.prepare(
     "SELECT cognitive_v021_projection_key FROM delivery_reservations WHERE id = ?",
   ).get(reservationId) as DbRow | undefined;
-  if (/^system:(\d+)$/.test(stringValue(row?.cognitive_v021_projection_key).trim())) {
+  const key = stringValue(row?.cognitive_v021_projection_key).trim();
+  if (/^system:(\d+)$/.test(key)) {
     return recheckSystemNoticePublicationReservation(db, reservationId, nowMs, options);
+  }
+  if (/^interim:(\d+)$/.test(key)) {
+    return recheckInterimPublicationReservation(db, reservationId, nowMs, options);
   }
   const reservation = getDeliveryReservation(db, reservationId);
   if (!reservation) return { ok: false, reason: "delivery_reservation_missing" };

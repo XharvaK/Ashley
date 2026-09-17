@@ -839,3 +839,30 @@ CREATE INDEX IF NOT EXISTS idx_detached_operations_deadline
   ON detached_operations(state, operation_deadline_at_ms);
 UPDATE cognitive_sidecar_meta SET schema_version = 19, projection_state = 'reconciling' WHERE id = 1;
 `;
+
+export const COGNITIVE_SIDECAR_SCHEMA_V20 = String.raw`
+CREATE TABLE IF NOT EXISTS operation_interim_outbox (
+  interim_id INTEGER PRIMARY KEY AUTOINCREMENT,
+  operation_id TEXT NOT NULL UNIQUE,
+  projection_key TEXT NOT NULL UNIQUE,
+  conversation_id TEXT NOT NULL,
+  cycle_id TEXT NOT NULL,
+  generation INTEGER NOT NULL,
+  surface_draft TEXT NOT NULL,
+  presentation_directives_json TEXT NOT NULL CHECK(json_valid(presentation_directives_json)),
+  send_status TEXT NOT NULL CHECK(send_status IN ('pending', 'projecting', 'projected', 'sending', 'delivered', 'partially_delivered', 'send_failure', 'suppressed', 'suppressed_shadow')),
+  suppressed INTEGER NOT NULL DEFAULT 0 CHECK(suppressed IN (0, 1)),
+  delivery_intent_json TEXT NOT NULL CHECK(json_valid(delivery_intent_json)),
+  nuclear_reservation_id INTEGER,
+  discord_message_id TEXT,
+  origin TEXT NOT NULL CHECK(origin IN ('live', 'shadow')),
+  authorized_at_ms INTEGER NOT NULL,
+  created_at_ms INTEGER NOT NULL,
+  updated_at_ms INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_operation_interim_outbox_operation
+  ON operation_interim_outbox(operation_id);
+CREATE INDEX IF NOT EXISTS idx_operation_interim_outbox_status
+  ON operation_interim_outbox(send_status, interim_id);
+UPDATE cognitive_sidecar_meta SET schema_version = 20, projection_state = 'reconciling' WHERE id = 1;
+`;
