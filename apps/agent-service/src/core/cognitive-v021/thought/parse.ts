@@ -414,6 +414,35 @@ function validateSpeech(value: unknown): ValidationResult {
   return prefixFailure(optionalArray(record, "presentationDirectives", nonEmptyString), "speech");
 }
 
+/**
+ * Structural bound for a detached-operation interim hold draft. Short
+ * acknowledgement/intent text only; the wire schema carries the same bound
+ * for provider-side enforcement.
+ */
+export const INTERIM_SURFACE_DRAFT_MAX_LENGTH = 600;
+
+function validateInterimSpeech(value: unknown): ValidationResult {
+  const record = semanticRecord(value);
+  if (!record) return failure("wrong_type", "interimSpeech");
+  const unknown = Object.keys(record).find((key) => ![
+    "mode", "surfaceDraft", "presentationDirectives",
+  ].includes(key));
+  if (unknown) return failure("unknown_field", `interimSpeech.${unknown}`);
+  if (!own(record, "mode")) return failure("required_field_missing", "interimSpeech.mode");
+  if (record.mode !== "none" && record.mode !== "hold") return failure("invalid_enum", "interimSpeech.mode");
+  if (record.mode === "none") {
+    return Object.keys(record).length === 1
+      ? OK
+      : failure("unknown_field", `interimSpeech.${Object.keys(record).find((key) => key !== "mode") ?? "field"}`);
+  }
+  if (!own(record, "surfaceDraft")) return failure("required_field_missing", "interimSpeech.surfaceDraft");
+  if (!nonEmptyString(record.surfaceDraft)) return failure("wrong_type", "interimSpeech.surfaceDraft");
+  if (record.surfaceDraft.length > INTERIM_SURFACE_DRAFT_MAX_LENGTH) {
+    return failure("wrong_type", "interimSpeech.surfaceDraft");
+  }
+  return prefixFailure(optionalArray(record, "presentationDirectives", nonEmptyString), "interimSpeech");
+}
+
 function validWorkingContextItem(value: unknown, allowlist: ReadonlySet<string>): boolean {
   const record = recordShape(value, ["identity", "type", "text", "concernRef", "sourceTurnRefs", "status", "supersedesRef"]);
   const types = ["topic", "referent", "correction", "owner_teaching", "question", "commitment_temp", "repair"];
@@ -743,7 +772,11 @@ function parseOperationSemantic(
   const required = kind === "observation_intent"
     ? ["kind", "operationKind", "request", "purpose", "evidenceNeed", "existingRefs"]
     : ["kind", "operationKind", "request", "purpose", "expectedOutcome", "existingRefs"];
-  const record = recordShape(value, required);
+  const record = recordShape(
+    value,
+    required,
+    kind === "observation_intent" ? ["interimSpeech"] : [],
+  );
   if (!record || record.kind !== kind) return semanticFailure("wrong_kind", "kind");
   if (typeof record.operationKind !== "string" || !REGISTERED_OPERATION_KINDS.has(record.operationKind)) {
     return semanticFailure("operation_not_registered", "operationKind");
@@ -761,6 +794,17 @@ function parseOperationSemantic(
   if (!refArray(record.existingRefs, allowlist)) return semanticFailure("reference_not_allowlisted", "existingRefs");
   if (kind === "observation_intent") {
     if (!nonEmptyString(record.evidenceNeed)) return semanticFailure("wrong_type", "evidenceNeed");
+    if (own(record, "interimSpeech")) {
+      // An interim hold belongs only to detached V1 async project.investigate.
+      // Every other branch rejects it structurally: settlement and abstain
+      // through unknown-field rejection, effect_intent through the shape
+      // above, and non-investigate observations here.
+      if (record.operationKind !== "project.investigate") {
+        return semanticFailure("wrong_type", "interimSpeech");
+      }
+      const interim = validateInterimSpeech(record.interimSpeech);
+      if (!interim.ok) return semanticFailure(interim.code, interim.field);
+    }
     return { ok: true, value: record as unknown as ObservationIntentSemanticOutput };
   }
   if (!nonEmptyString(record.expectedOutcome)) return semanticFailure("wrong_type", "expectedOutcome");

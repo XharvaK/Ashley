@@ -1,6 +1,7 @@
 import type { DatabaseSync } from "node:sqlite";
 import { appendInboxEventInTransaction } from "../cycle/inbox.js";
 import { recoverInFlight } from "../effect/recovery.js";
+import { reconcileDetachedOperations } from "../operation/detached.js";
 import { recoverDurableWork } from "../retry/ledger.js";
 import { recoverWakes } from "../wake/ledger.js";
 import { recoverPrivateBudget } from "../private-budget/recovery.js";
@@ -11,6 +12,7 @@ export type CognitiveSidecarRecoveryResult = {
   inboxClaimsRecovered: number;
   speechProjectionsRequeued: number;
   noticeProjectionsRequeued: number;
+  detachedOperationsExpired: number;
 };
 
 export type PendingSpeechOutboxRecoveryResult = {
@@ -82,6 +84,7 @@ export function recoverCognitiveSidecar(
     inboxClaimsRecovered: 0,
     speechProjectionsRequeued: 0,
     noticeProjectionsRequeued: 0,
+    detachedOperationsExpired: 0,
   };
   const recoveredEffects = recoverInFlight(db, nowMs);
   // Recover wake state before the transaction that emits reference-only
@@ -89,6 +92,12 @@ export function recoverCognitiveSidecar(
   recoverWakes(db, nowMs);
   const recoveredDurableWork = recoverDurableWork(db, nowMs);
   recoverPrivateBudget(db, { wallClockNowMs: nowMs });
+  // Expired ambiguous detached work becomes OUTCOME_UNKNOWN here. Terminal
+  // truth is classified first; the completion opportunity for newly expired
+  // work is produced by the completion owner, which backfills terminals that
+  // lack a completion event reference.
+  result.detachedOperationsExpired =
+    reconcileDetachedOperations(db, nowMs).transitionedOperationIds.length;
   result.inboxClaimsRecovered = recoveredDurableWork.reclaimed
     + recoveredDurableWork.reconciling
     + recoveredDurableWork.quarantined;

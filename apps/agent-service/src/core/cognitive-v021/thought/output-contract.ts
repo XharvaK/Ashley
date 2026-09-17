@@ -218,12 +218,23 @@ const semanticOutputSettlementForm = {
   ...semanticOutputSettlementSchema,
   description: "Use settlement only when the current supplied evidence and context are sufficient to author the semantic answer without first acquiring additional evidence or performing a governed effect. Do not use settlement as a placeholder for an unperformed observation or effect.",
 };
+const interimSpeechSchema = {
+  oneOf: [
+    strictObject({ mode: { const: "none" } }, ["mode"]),
+    strictObject({
+      mode: { const: "hold" },
+      surfaceDraft: { type: "string", minLength: 1 },
+      presentationDirectives: stringArraySchema,
+    }, ["mode", "surfaceDraft"]),
+  ],
+};
 const semanticOutputObservationForm = {
   ...strictObject({
     kind: { const: "observation_intent" }, operationKind: { enum: REGISTERED_OPERATION_KINDS }, request: jsonObjectSchema,
     purpose: { type: "string", minLength: 1 }, evidenceNeed: { type: "string", minLength: 1 }, existingRefs: stringArraySchema,
+    interimSpeech: interimSpeechSchema,
   }, ["kind", "operationKind", "request", "purpose", "evidenceNeed", "existingRefs"]),
-  description: "Use observation_intent when the answer requires additional read-only evidence acquisition through a registered observation capability. For a bounded project inspection objective, use operationKind project.inspect and a request containing projectId, one concrete M2 operation (project.read_file, project.list_directory, or project.search_text), and only that operation's bounded fields.",
+  description: "Use observation_intent when the answer requires additional read-only evidence acquisition through a registered observation capability. For a bounded project inspection objective, use operationKind project.inspect and a request containing projectId, one concrete M2 operation (project.read_file, project.list_directory, or project.search_text), and only that operation's bounded fields. For a multi-step adaptive bounded investigation, use operationKind project.investigate; only a project.investigate intent may carry interimSpeech, and then only as mode none or a short hold draft that acknowledges the request and states the intent to return, claiming no findings, success, or unproven worker start. Interim speech is never a settlement and never resolves the Owner request by itself.",
 };
 const semanticOutputEffectForm = {
   ...strictObject({
@@ -413,6 +424,20 @@ function applyExperimentalWireBounds(schema: SchemaRecord): void {
   property(property(record((record(property(settlement, "concernDeltas").items).oneOf as unknown[])[0]), "record"), "statement").maxLength = 500;
   property(record((record(property(settlement, "futureTriggerDeltas").items).oneOf as unknown[])[0]), "purpose").maxLength = 300;
   property(record(property(settlement, "durableNominations").items), "statement").maxLength = 800;
+  const observation = record((schema.oneOf as unknown[])[1]);
+  const interimSpeech = property(observation, "interimSpeech");
+  if (Object.keys(interimSpeech).length > 0) {
+    const holdForms = record(interimSpeech).oneOf;
+    if (Array.isArray(holdForms)) {
+      for (const form of holdForms as unknown[]) {
+        const hold = record(form);
+        if (valueDescription(property(hold, "mode")) !== JSON.stringify("hold")) continue;
+        property(hold, "surfaceDraft").maxLength = 600;
+        const directives = property(hold, "presentationDirectives");
+        if (Object.keys(directives).length > 0) record(directives.items).maxLength = 200;
+      }
+    }
+  }
 }
 
 export function constrainThoughtOutputSchema(
@@ -463,7 +488,8 @@ export function thoughtOutputCompatibilityInstruction(): string {
     "Epistemic time is a governed evidence status, not ordinary conversational recency. Use time:current only for a factual claim whose present truth is supported by a governed observation supplied in the current Thought input, and nominate the supporting observation in evidenceUse.observationRefsUsed; a source reference, a retrieval reference, or the fact that the owner just sent a message does not by itself license current, and the host may still reject a current claim whose currentness binding is incomplete. Use time:historical for a claim about a past state or event that does not assert it is still true now. Use time:unknown_freshness when evidence supports a claim but its present truth has not been established by governed current observation. If a conversational response such as an acknowledgment does not need to assert an epistemic fact, omit the epistemic commitment (omit unused arrays) rather than inventing one.",
     "For an occupied concern, use its supplied dimensions.status and dimensions.reliability as uncertainty context; uncertaintyDisplay is Thought-authored presentation, not a Host inference. Budget exhaustion is operational evidence and never a semantic conclusion.",
     "Capability reality is host-owned input: operationCapabilities identify available operations, their canonical family, readOnly and requiresProject properties, observation/effect class, request fields, operator-bound fields, and authorized project IDs. Use only available operations and authorized IDs; operation metadata never selects an operation.",
-    'Semantic class binding: semanticClass:"observation" requires observation_intent; semanticClass:"effect" requires effect_intent. readOnly describes whether the governed operation mutates its bound project or candidate; readOnly does not convert an effect-class operation into an observation. project.inspect is the bounded Thought-adopted inspection objective whose request selects exactly one concrete M2 read surface (project.read_file, project.list_directory, or project.search_text) via observation_intent. workspace.verify is project_verification governed recipe execution and uses effect_intent even when read-only.',
+    'Semantic class binding: semanticClass:"observation" requires observation_intent; semanticClass:"effect" requires effect_intent. readOnly describes whether the governed operation mutates its bound project or candidate; readOnly does not convert an effect-class operation into an observation. project.inspect is the bounded Thought-adopted inspection objective whose request selects exactly one concrete M2 read surface (project.read_file, project.list_directory, or project.search_text) via observation_intent. project.investigate is the multi-step adaptive bounded investigation objective whose request carries only projectId, an optional focus, and an optional Host-capped maxSteps; it never names a provider, model, shell, or network path. workspace.verify is project_verification governed recipe execution and uses effect_intent even when read-only.',
+    "Interim-hold law: only an observation_intent with operationKind project.investigate may carry interimSpeech, and only as mode none or mode hold with a short surfaceDraft. A hold draft may acknowledge the request, state the investigative intent, and commit to attempting a return; it must not claim findings, success, evidence not acquired, or that worker execution has started. A hold draft is publishable only after the Host durably admits the detached operation, and it never resolves the Owner request: the interim response leaves remainingResponsibility operation_pending until a later Thought settlement, valid supersession, or valid silence resolves it.",
     "A bounded inquiry experiment pairs M3 workspace steps with a recipe-only M4 workspace.verify step under one objective and budget; recipes are default-deny, and a failed verification receipt is Thought evidence rather than a verdict on Ashley. This inquiry path admits neither changeset.author nor patch_export. A separate proposal path adopts one bounded candidate objective in an Owner-private conversation with a separately admitted candidate workspace, requires a matching successful M4 receipt and Thought adjudication, then emits patch_export with adjudication:\"accept\" as a retained witnessed artifact only: it never applies, commits, pushes, deploys, or notifies, and Owner notification remains a separate Thought-authored publication effect that may be omitted.",
     'During an autonomous idle opportunity only, capabilityReality.publicPresence may expose operationKind:"discord.public_presence" with audience:"FULLY_PUBLIC". You may choose effect_intent with request {"action":"set","text":"<exact public text>"} or {"action":"clear"}, or choose no effect_intent, which leaves the current state unchanged. The public text is deliberate self-presentation visible to anyone; it is not hidden reasoning or private material. You decide what it means. The Host may reject mechanically unsafe content but never rewrites it.',
     "CapabilityReality field semantics: conversationalRead reports only whether an additional authorized user-requested URL/page read may be performed, not whether supplied conversation content is visible; every included rawConversation entry is directly readable current context regardless of conversationalRead.",

@@ -798,3 +798,44 @@ CREATE INDEX IF NOT EXISTS idx_observation_subscriptions_poll_claim
   ON observation_subscriptions(cancelled, poll_claim_expires_at_ms, subscription_id);
 UPDATE cognitive_sidecar_meta SET schema_version = 18, projection_state = 'reconciling' WHERE id = 1;
 `;
+
+export const COGNITIVE_SIDECAR_SCHEMA_V19 = String.raw`
+CREATE TABLE IF NOT EXISTS detached_operations (
+  operation_id TEXT PRIMARY KEY,
+  conversation_id TEXT NOT NULL,
+  origin_cycle_id TEXT NOT NULL,
+  origin_generation INTEGER NOT NULL,
+  origin_owner_event_id TEXT NOT NULL,
+  origin_evidence_row_id TEXT,
+  operation_kind TEXT NOT NULL CHECK(operation_kind IN ('project.investigate')),
+  request_json TEXT NOT NULL CHECK(json_valid(request_json)),
+  purpose TEXT NOT NULL,
+  evidence_need TEXT NOT NULL,
+  admission_at_ms INTEGER NOT NULL,
+  operation_deadline_at_ms INTEGER NOT NULL,
+  idempotency_key TEXT NOT NULL UNIQUE,
+  worker_binding_json TEXT CHECK(worker_binding_json IS NULL OR json_valid(worker_binding_json)),
+  start_at_ms INTEGER,
+  start_proof_ref TEXT,
+  terminal_state TEXT CHECK(terminal_state IS NULL OR terminal_state IN ('succeeded', 'failed', 'outcome_unknown', 'cancelled', 'stopped')),
+  terminal_at_ms INTEGER,
+  observation_ref TEXT,
+  receipt_ref TEXT,
+  error_code TEXT,
+  interim_outbox_ref TEXT,
+  completion_event_ref TEXT,
+  cancel_requested_at_ms INTEGER,
+  superseded_by TEXT,
+  successor_operation_id TEXT,
+  state TEXT NOT NULL CHECK(state IN ('admitted', 'started', 'succeeded', 'failed', 'outcome_unknown', 'cancelled', 'stopped')),
+  created_at_ms INTEGER NOT NULL,
+  updated_at_ms INTEGER NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_detached_operations_active_conversation
+  ON detached_operations(conversation_id) WHERE state IN ('admitted', 'started');
+CREATE INDEX IF NOT EXISTS idx_detached_operations_idempotency
+  ON detached_operations(idempotency_key);
+CREATE INDEX IF NOT EXISTS idx_detached_operations_deadline
+  ON detached_operations(state, operation_deadline_at_ms);
+UPDATE cognitive_sidecar_meta SET schema_version = 19, projection_state = 'reconciling' WHERE id = 1;
+`;

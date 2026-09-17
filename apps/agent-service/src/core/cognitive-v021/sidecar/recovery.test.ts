@@ -30,7 +30,7 @@ describe("cognitive sidecar reopen recovery", () => {
         'hello', 'projecting', 0, 'live', '{}')`,
     ).run();
     const result = recoverCognitiveSidecar(db, 20);
-    expect(result).toEqual({ inboxClaimsRecovered: 1, speechProjectionsRequeued: 1, noticeProjectionsRequeued: 0 });
+    expect(result).toEqual({ inboxClaimsRecovered: 1, speechProjectionsRequeued: 1, noticeProjectionsRequeued: 0, detachedOperationsExpired: 0 });
     expect(db.prepare("SELECT status, state, last_error FROM inbox_events").get()).toMatchObject({ status: "pending", state: "pending", last_error: "recovered_before_dispatch" });
     expect(db.prepare("SELECT send_status FROM speech_outbox").get()).toMatchObject({ send_status: "pending" });
     db.close();

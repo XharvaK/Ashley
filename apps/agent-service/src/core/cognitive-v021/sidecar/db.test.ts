@@ -60,8 +60,9 @@ describe("cognitive v0.2.1 sidecar database", () => {
         )
         .all() as Array<{ name: string }>
     ).map((row) => row.name);
-    expect(tables).toHaveLength(39);
+    expect(tables).toHaveLength(40);
     expect(tables).toContain("speech_outbox");
+    expect(tables).toContain("detached_operations");
     expect(tables).toContain("thought_attempt_counters");
     expect(tables).toContain("wakes");
     expect(tables).toContain("wake_legacy_quarantine");
@@ -510,7 +511,7 @@ describe("cognitive v0.2.1 sidecar database", () => {
   it("rejects newer sidecar content and rolls back a failed v2 upgrade", () => {
     const newer = new DatabaseSync(":memory:");
     try {
-      newer.exec("PRAGMA user_version = 19");
+      newer.exec("PRAGMA user_version = 20");
       let failure: unknown;
       try {
         openCognitiveSidecarDb(newer, { dataPlane: { kind: "isolated" } });
@@ -519,7 +520,7 @@ describe("cognitive v0.2.1 sidecar database", () => {
       }
       expect(failure).toMatchObject({ code: "unsupported_cognitive_sidecar_schema" });
       expect(failure).toBeInstanceOf(Error);
-      expect((failure as Error).message).toBe("unsupported_cognitive_sidecar_schema:19>18");
+      expect((failure as Error).message).toBe("unsupported_cognitive_sidecar_schema:20>19");
     } finally {
       newer.close();
     }

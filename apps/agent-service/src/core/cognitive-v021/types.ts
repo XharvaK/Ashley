@@ -20,7 +20,7 @@ export type { DataClassification } from "../privacy/classification.js";
 export const ARCHITECTURE_EPOCH = "v0.2.1" as const;
 export const IMPLEMENTATION_SPEC_VERSION = "0.2.1.r6" as const;
 export const THOUGHT_CONTRACT_VERSION = 2 as const;
-export const COGNITIVE_SIDECAR_SCHEMA_VERSION = 18 as const;
+export const COGNITIVE_SIDECAR_SCHEMA_VERSION = 19 as const;
 export const CAPACITY_WAIT_MAX_DURATION_MS = 120_000 as const;
 export const MECHANICAL_SPIN_GUARD_LIMIT = 12 as const;
 
@@ -915,7 +915,28 @@ export type ObservationIntentSemanticOutput = {
   purpose: string;
   evidenceNeed: string;
   existingRefs: readonly ExistingRef[];
+  /**
+   * Optional bounded interim hold. Valid only on detached V1 async
+   * project.investigate. It is acknowledgement/intent, never a settlement:
+   * publishable only after durable operation admission, and it never
+   * resolves the originating Owner obligation.
+   */
+  interimSpeech?: ThoughtInterimSpeech;
 };
+
+/**
+ * Thought-authored interim hold for a detached operation. mode "none" is
+ * explicitly no interim speech; mode "hold" carries a short
+ * acknowledgement/intent draft that claims no findings, success, or
+ * unproven worker start.
+ */
+export type ThoughtInterimSpeech =
+  | { mode: "none" }
+  | {
+      mode: "hold";
+      surfaceDraft: string;
+      presentationDirectives?: readonly string[];
+    };
 
 export type EffectIntentSemanticOutput = {
   kind: "effect_intent";

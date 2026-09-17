@@ -25,6 +25,14 @@ export type OwnerObligationInput = Readonly<{
   outboxId?: number | null;
   deliveryOwnerExists?: boolean;
   remainingConsequence?: boolean;
+  /**
+   * Detached V1 async operation identity (detached-operation:<id> suffix).
+   * Set only when Thought yields to a durably admitted detached
+   * project.investigate. Never a generic deferred continuation.
+   */
+  detachedOperationId?: string | null;
+  /** True when Thought authored an interim hold draft bound to the operation. */
+  interimSpeechAuthored?: boolean;
 }>;
 
 type CoverageFields = Pick<OwnerDispatchCoverage, "primaryEventId" | "coveredOwnerEventIds" | "uncoveredOwnerEventIds">;
@@ -107,6 +115,20 @@ export function resolveOwnerObligation(input: OwnerObligationInput): OwnerObliga
   }
 
   if (input.attemptOutcome !== "published") {
+    if (input.attemptOutcome === "deferred" && typeof input.detachedOperationId === "string"
+      && input.detachedOperationId.length > 0) {
+      // Thought yielded to a durably admitted detached operation. The Owner
+      // request stays open as operation_pending under the detached successor;
+      // only a later Thought-B settlement, valid supersession, or valid
+      // silence resolves it. This never reuses generic deferred_continuation.
+      return {
+        ...base,
+        ownerObligationOutcome: "transferred",
+        successorIdentity: `detached_operation:${input.detachedOperationId}`,
+        remainingResponsibility: "operation_pending",
+        deliveryDisposition: input.interimSpeechAuthored === true ? "delivery_pending" : "not_applicable",
+      };
+    }
     return {
       ...base,
       remainingResponsibility: input.attemptOutcome === "abstained"

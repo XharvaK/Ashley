@@ -302,8 +302,9 @@ describe("P1 occupied-concern projection", () => {
 
   it("keeps the Thought output semantic schema identity pinned", () => {
     expect(THOUGHT_OUTPUT_SCHEMA_FINGERPRINT).toBe(THOUGHT_SEMANTIC_SCHEMA_FINGERPRINT);
+    // Rotation earned by the optional interimSpeech hold on observation_intent.
     expect(THOUGHT_OUTPUT_SCHEMA_FINGERPRINT).toBe(
-      "sha256:60564654983fb4974c13df4c5236253488cf72163aaf96e12c2115640cf52633",
+      "sha256:a39bbabf5d3af18fce4b32cb5dba794ab4b26f81aa882d5c5a7d9997ddf1d592",
     );
   });
 });

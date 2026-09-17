@@ -671,7 +671,11 @@ describe("Whole-Thought Projection Allocator", () => {
         rawConversation: tinyRows,
         trigger: { kind: "owner_message", ref: tinyRows.at(-1)!.rowId },
       }),
-      semanticBudgetTokens: 9_500,
+      // Calibrated above the legacy 9_500 default: the normative interim-hold
+      // law in the code-owned Thought instruction moved fixed contract
+      // overhead, so the fit case carries matching headroom. The pressure
+      // behavior below (large rows trim, tiny rows fit) is unchanged.
+      semanticBudgetTokens: 10_000,
       requestId: "req-token-driven-tiny-rows",
     });
 
