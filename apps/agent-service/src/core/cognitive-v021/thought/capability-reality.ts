@@ -9,6 +9,7 @@ import {
   canOfferCandidateWorkspace,
   canOfferPatchExport,
   canOfferProjectInspection,
+  canOfferWorkerBackedProjectInspection,
   listApprovedReadProjectIds,
   loadOperatorProjectReadRegistry,
   type V2ProjectReadRegistry,
@@ -268,7 +269,13 @@ export function getCapabilityReality(
     state: loadQuotaState(options.opencodeQuotaStatePath ?? env.opencodeQuotaStatePath),
     nowMs: options.nowMs ?? Date.now(),
   });
-  const readOffer = workerReady && projectInspectionAvailable
+  const workerInspectionReady = canOfferWorkerBackedProjectInspection({
+    registry,
+    masterMode,
+    lifecycleEnabled: options.lifecycleEnabled,
+    substrateAvailable: options.substrateAvailable,
+  });
+  const readOffer = workerReady && workerInspectionReady
     ? offerWorkerTask(workerRouter, "delegated_read")
     : { offerable: false, reason: "unavailable" as const };
   const engineeringOffer = workerReady && workspaceAvailable

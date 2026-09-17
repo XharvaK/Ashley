@@ -29,7 +29,7 @@ import {
 } from "../../sandbox/patch-export-execution.js";
 import {
   canOfferCandidateWorkspace,
-  canOfferProjectInspection,
+  canOfferWorkerBackedProjectInspection,
   loadOperatorProjectReadRegistry,
   type V2ProjectReadRegistry,
 } from "../../sandbox/project-registry.js";
@@ -451,7 +451,7 @@ export function createV021LiveOperationExecutors(
     const gateOk = options.adapters?.executeModeBWorker
       ? true
       : kind === MODE_B_INVESTIGATE
-        ? canOfferProjectInspection(options.nuclear, sandboxGate)
+        ? canOfferWorkerBackedProjectInspection(sandboxGate)
         : canOfferCandidateWorkspace(options.nuclear, sandboxGate);
     return adapters.executeModeBWorker({
       kind,

@@ -19,12 +19,12 @@ describe("Thought operation binding", () => {
     });
     expect(result.requestId).toMatch(/^observation:/);
     expect(result.correlationId).toBe(result.requestId);
-    expect(result.deadlineAtMs).toBe(10_000);
+    expect(result.deadlineAtMs).toBe(122_000);
     expect(result.replaySafe).toBe(true);
     expect(result.request).toEqual({ path: "README.md" });
   });
 
-  it("creates kernel-owned effect identity and rejects an expired parent", () => {
+  it("creates kernel-owned effect identity with an operation-owned deadline", () => {
     const result = bindEffectIntent({
       intent: {
         kind: "effect_intent",
@@ -43,13 +43,14 @@ describe("Thought operation binding", () => {
     expect(result.effectId).toMatch(/^effect:/);
     expect(result.idempotencyKey).toMatch(/^thought-effect:/);
     expect(result.authorityEpoch).toBe(2);
-    expect(() => bindEffectIntent({
+    expect(result.deadlineAtMs).toBe(122_000);
+    expect(bindEffectIntent({
       intent: result.intent,
       cycleId: "cycle-1",
       generation: 1,
       authorityEpoch: 2,
       parentDeadlineAtMs: 2_000,
       nowMs: 2_000,
-    })).toThrow("deadline_exhausted");
+    }).deadlineAtMs).toBe(122_000);
   });
 });

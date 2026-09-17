@@ -2636,7 +2636,10 @@ export async function runCognitiveCycle(
   let structuralRetriesForPass = persistedMalformedRetries(sidecar, cycle.cycleId, cycle.generation, pass);
   let authorityObjections: AuthorityCode[] = [];
   let settlementRevisionFeedback: SettlementRevisionFeedback | undefined;
-  const thoughtDeadlineAtMs = deps.nowMs() + ORDINARY_THOUGHT_BUDGET_MS;
+  let thoughtDeadlineAtMs = deps.nowMs() + ORDINARY_THOUGHT_BUDGET_MS;
+  const beginThoughtLeg = () => {
+    thoughtDeadlineAtMs = deps.nowMs() + ORDINARY_THOUGHT_BUDGET_MS;
+  };
   let structuralFeedback: ThoughtStructuralFeedback | null = null;
   const projectionCache = new ProjectionCache<AllocatedThoughtProjection>();
   let cycleTokenMetrics = createThoughtCycleTokenMetrics();
@@ -3126,6 +3129,7 @@ export async function runCognitiveCycle(
           makeThoughtTerminal("operation_dispatch", { codes: ["observation_unavailable"], stage: "observation_dispatch" }),
         );
       }
+      beginThoughtLeg();
       pass += 1;
       structuralRetriesForPass = persistedMalformedRetries(sidecar, cycle.cycleId, cycle.generation, pass);
       continue;
@@ -3214,6 +3218,7 @@ export async function runCognitiveCycle(
         );
       }
       inFlight = listInFlight(sidecar, cycle.cycleId);
+      beginThoughtLeg();
       pass += 1;
       structuralRetriesForPass = persistedMalformedRetries(sidecar, cycle.cycleId, cycle.generation, pass);
       continue;

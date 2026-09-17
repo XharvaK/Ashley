@@ -599,7 +599,7 @@ describe("v0.2.1 Thought run", () => {
         expect(operationalSchema).toBeUndefined();
         expect(JSON.parse(messages[1]?.content ?? "{}").allowedOperationalEffectRefs).toEqual([]);
         requests.push({ messages, deadline: options.deadlineAtMs });
-        now = outcome === "deadline" ? 181_000 : now + 10_000;
+        now = outcome === "deadline" ? 301_000 : now + 10_000;
         return {
           text: JSON.stringify(requests.length === 1 || outcome !== "corrected" ? bad : corrected),
           model: "fake", modelAlias: "thought", resolvedModelId: null,
@@ -621,7 +621,7 @@ describe("v0.2.1 Thought run", () => {
         expect(counters.structuralRetries).toBe(0);
         expect(counters.authorityRevisions).toBe(outcome === "still_invalid" ? 2 : 1);
         expect(requests.map((r) => r.deadline)).toEqual(
-          Array(outcome === "corrected" ? 2 : outcome === "still_invalid" ? 3 : 1).fill(181_000),
+          Array(outcome === "corrected" ? 2 : outcome === "still_invalid" ? 3 : 1).fill(301_000),
         );
         if (outcome !== "deadline") {
           expect(JSON.parse(requests[1].messages[1].content).authorityObjections)
@@ -700,7 +700,7 @@ describe("v0.2.1 Thought run", () => {
         acceptedThoughtPasses: 1,
       });
       expect(requests).toHaveLength(2);
-      expect(requests.map((request) => request.deadline)).toEqual([181_000, 181_000]);
+      expect(requests.map((request) => request.deadline)).toEqual([301_000, 301_000]);
       expect(JSON.parse(requests[1].messages[1].content).authorityObjections)
         .toEqual(["OPERATIONAL_CLAIM_EFFECTREF_UNKNOWN"]);
       const feedback = requests[1].messages.map((message) => {
@@ -1406,7 +1406,7 @@ describe("v0.2.1 Thought run", () => {
       nowMs: () => now,
     }));
     expect(result.published).toBe(true);
-    expect(deadlines).toEqual([181_000, 181_000]);
+    expect(deadlines).toEqual([301_000, 301_000]);
     expect(maxTokens).toEqual([undefined, 16_384]);
     expect(temperatures).toEqual([1.0, 1.0]);
     expect(structuredContractIds).toEqual(["ashley.thought.semantic.v2", "ashley.thought.semantic.v2"]);

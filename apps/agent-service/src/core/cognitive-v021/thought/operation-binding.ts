@@ -27,7 +27,7 @@ export type BoundObservationRequest = ObservationRequest & {
 };
 
 export function bindObservationIntent(input: ObservationBindingInput): BoundObservationRequest {
-  const deadlineAtMs = Math.min(input.parentDeadlineAtMs, input.nowMs + OPERATION_DEADLINE_CAP_MS);
+  const deadlineAtMs = input.nowMs + OPERATION_DEADLINE_CAP_MS;
   if (deadlineAtMs <= input.nowMs) throw new Error("deadline_exhausted");
   const requestId = `observation:${randomUUID()}`;
   return {
@@ -63,7 +63,7 @@ export type BoundEffectProposal = EffectProposal & {
 };
 
 export function bindEffectIntent(input: EffectBindingInput): BoundEffectProposal {
-  const deadlineAtMs = Math.min(input.parentDeadlineAtMs, input.nowMs + OPERATION_DEADLINE_CAP_MS);
+  const deadlineAtMs = input.nowMs + OPERATION_DEADLINE_CAP_MS;
   if (deadlineAtMs <= input.nowMs) throw new Error("deadline_exhausted");
   const identity = sha256({ cycleId: input.cycleId, generation: input.generation, intent: input.intent });
   const effectId = `effect:${randomUUID()}`;

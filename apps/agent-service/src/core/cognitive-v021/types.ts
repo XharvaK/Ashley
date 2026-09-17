@@ -59,7 +59,7 @@ export const DEFAULT_IDLE_TICK_MS = 60_000 as const;
 export const DEFAULT_MAX_SUBSCRIPTIONS = 16 as const;
 export const DEFAULT_MISS_ROUND_CAP = 1 as const;
 export const DEFAULT_TOOL_CYCLE_LEASE_MS = 120_000 as const;
-export const ORDINARY_THOUGHT_BUDGET_MS = 180_000 as const;
+export const ORDINARY_THOUGHT_BUDGET_MS = 300_000 as const;
 export const THOUGHT_UNAVAILABLE_NOTICE =
   "[system] Thought did not complete. Please send the message again." as const;
 

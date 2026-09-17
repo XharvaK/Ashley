@@ -10,6 +10,7 @@ import {
   loadOperatorProjectReadRegistry,
   listApprovedReadProjectIds,
   canOfferProjectInspection,
+  canOfferWorkerBackedProjectInspection,
   canOfferCandidateWorkspace,
   V2ProjectReadRegistry,
 } from "./project-registry.js";
@@ -206,6 +207,25 @@ describe("Sandbox V2 Execution Adapter & Operator Registry", () => {
             substrateAvailable: true,
           }),
         ).toBe(false);
+
+        expect(canOfferWorkerBackedProjectInspection({
+          registry,
+          masterMode: "apply",
+          lifecycleEnabled: true,
+          substrateAvailable: true,
+        })).toBe(true);
+        expect(canOfferWorkerBackedProjectInspection({
+          registry,
+          masterMode: "apply",
+          lifecycleEnabled: false,
+          substrateAvailable: true,
+        })).toBe(false);
+        expect(canOfferWorkerBackedProjectInspection({
+          registry,
+          masterMode: "observe",
+          lifecycleEnabled: true,
+          substrateAvailable: true,
+        })).toBe(false);
       } finally {
         db.close();
         try {

@@ -26,7 +26,7 @@ describe("Shared Estimator Authority", () => {
     expect(STABLE_RESERVE_TOKENS).toBe(0);
     expect(INTERACTIVE_THOUGHT_MAX_OUTPUT).toBe(16384);
     expect(STRUCTURAL_RETRY_MAX_OUTPUT).toBe(16384);
-    expect(ORDINARY_THOUGHT_BUDGET_MS).toBe(180000);
+    expect(ORDINARY_THOUGHT_BUDGET_MS).toBe(300000);
     expect(ORDINARY_THOUGHT_BUDGET_MS).toBe(KERNEL_ORDINARY_THOUGHT_BUDGET_MS);
   });
 

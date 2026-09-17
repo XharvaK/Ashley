@@ -67,6 +67,24 @@ export type CanOfferProjectInspectionOptions = {
 };
 
 /**
+ * Lifecycle + substrate + registry gates for project-read execution.
+ * This is not Thought-facing graduation of direct L1 inspection.
+ */
+export function projectInspectionExecutionReady(
+  options?: CanOfferProjectInspectionOptions,
+): boolean {
+  const lifecycle =
+    options?.lifecycleEnabled ?? env.sandboxEngineeringLifecycleEnabled;
+  if (!lifecycle) return false;
+
+  const substrate =
+    options?.substrateAvailable ?? isSandboxV2Available();
+  if (!substrate) return false;
+
+  return listApprovedReadProjectIds(options?.registry).length > 0;
+}
+
+/**
  * Checks all four conditions for offering M2 project inspection to Thought:
  * 1. project_inspection release state permits live influence;
  * 2. sandbox lifecycle permits execution;
@@ -86,16 +104,19 @@ export function canOfferProjectInspection(
       return false;
     }
   }
-  const lifecycle =
-    options?.lifecycleEnabled ?? env.sandboxEngineeringLifecycleEnabled;
-  if (!lifecycle) return false;
+  return projectInspectionExecutionReady(options);
+}
 
-  const substrate =
-    options?.substrateAvailable ?? isSandboxV2Available();
-  if (!substrate) return false;
-
-  const approved = listApprovedReadProjectIds(options?.registry);
-  return approved.length > 0;
+/**
+ * Worker-backed project.investigate may run when V2 execution is ready.
+ * It does not require project_inspection Thought-facing influence.
+ */
+export function canOfferWorkerBackedProjectInspection(
+  options?: CanOfferProjectInspectionOptions,
+): boolean {
+  const masterMode = options?.masterMode ?? env.cognitionMode;
+  if (masterMode !== "apply") return false;
+  return projectInspectionExecutionReady(options);
 }
 
 /**

@@ -379,7 +379,7 @@ describe("P0 coordination-lease coverage (R7 §22)", () => {
     expect(DURABLE_WORK_COORDINATION_LEASE_MS).toBe(360_000);
     // Exclusion constants are unchanged by P0 (no global 120 s replacement).
     expect(DEFAULT_TOOL_CYCLE_LEASE_MS).toBe(120_000);
-    expect(ORDINARY_THOUGHT_BUDGET_MS).toBe(180_000);
+    expect(ORDINARY_THOUGHT_BUDGET_MS).toBe(300_000);
 
     const sidecar = db();
     try {

@@ -2,7 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import { V2ProjectReadRegistry } from "@composer-assistant/sandbox-v2";
 import { openNuclearDb } from "../../db.js";
-import { listCapabilityStatuses } from "../../rollout/capabilities.js";
+import { graduationPolicyFor, listCapabilityStatuses } from "../../rollout/capabilities.js";
 import { getCapabilityReality } from "./capability-reality.js";
 
 function activeDb(): DatabaseSync {
@@ -235,6 +235,48 @@ describe("v0.2.1 CapabilityReality live-surface contract", () => {
       expect(notReady.canOfferProjectInspection).toBe(true);
       expect(notReady.canOfferDelegatedInvestigation).toBe(false);
       expect(notReady.operationCapabilities?.some((operation) => operation.operationKind === "project.investigate")).toBe(false);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("offers worker-backed project.investigate without graduating direct L1", () => {
+    const db = openNuclearDb(new DatabaseSync(":memory:"));
+    listCapabilityStatuses(db, "apply");
+    db.prepare("UPDATE capability_releases SET state = 'active' WHERE capability != 'project_inspection'").run();
+    try {
+      const ready = getCapabilityReality(db, {
+        registry: registry(),
+        masterMode: "apply",
+        lifecycleEnabled: true,
+        substrateAvailable: true,
+        opencodeWorkerEnabled: true,
+        opencodeBinaryPath: process.execPath,
+        opencodeQuotaStatePath: "this-path-does-not-exist.json",
+      } as Parameters<typeof getCapabilityReality>[1]);
+      expect(ready.canOfferBoundedOperation).toBe(false);
+      expect(ready.canOfferProjectInspection).toBe(false);
+      expect(ready.canOfferDelegatedInvestigation).toBe(true);
+      expect(ready.operationCapabilities?.find((operation) => operation.operationKind === "project.read_file")).toMatchObject({
+        available: false,
+      });
+      expect(ready.operationCapabilities?.find((operation) => operation.operationKind === "project.investigate")).toMatchObject({
+        available: true,
+      });
+
+      const lifecycleOff = getCapabilityReality(db, {
+        registry: registry(),
+        masterMode: "apply",
+        lifecycleEnabled: false,
+        substrateAvailable: true,
+        opencodeWorkerEnabled: true,
+        opencodeBinaryPath: process.execPath,
+        opencodeQuotaStatePath: "this-path-does-not-exist.json",
+      } as Parameters<typeof getCapabilityReality>[1]);
+      expect(lifecycleOff.canOfferProjectInspection).toBe(false);
+      expect(lifecycleOff.canOfferDelegatedInvestigation).toBe(false);
+      expect(lifecycleOff.operationCapabilities?.some((operation) => operation.operationKind === "project.investigate")).toBe(false);
+      expect(graduationPolicyFor("project_inspection").kind).toBe("live_shadow");
     } finally {
       db.close();
     }

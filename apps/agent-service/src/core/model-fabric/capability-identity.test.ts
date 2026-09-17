@@ -37,7 +37,7 @@ describe("Thought capability identity", () => {
   it("binds the frozen resource policy and rejects malformed fingerprints", () => {
     const policy = thoughtResourcePolicyIdentity();
     expect(policy).toMatchObject({
-      ordinaryThoughtBudgetMs: 180000,
+      ordinaryThoughtBudgetMs: 300000,
       interactiveMaxOutput: 16384,
       durableProactiveMaxOutput: 16384,
       structuralRetryMaxOutput: 16384,
@@ -83,10 +83,10 @@ describe("Thought capability identity", () => {
       };
     };
 
-    expect(() => assertThoughtCapabilityEvidence(makeEvidence({ deadlineMs: 180000, maxOutputTokens: 16384, attempts: 3 }))).not.toThrow();
-    expect(() => assertThoughtCapabilityEvidence(makeEvidence({ deadlineMs: 180000, maxOutputTokens: 4096, attempts: 3 }))).not.toThrow();
-    expect(() => assertThoughtCapabilityEvidence(makeEvidence({ deadlineMs: 180000, maxOutputTokens: 16385, attempts: 3 }))).toThrow("qualification_resource_evidence_mismatch");
-    expect(() => assertThoughtCapabilityEvidence(makeEvidence({ deadlineMs: 180000, maxOutputTokens: 16384, attempts: 4 }))).toThrow("qualification_resource_evidence_mismatch");
+    expect(() => assertThoughtCapabilityEvidence(makeEvidence({ deadlineMs: 300000, maxOutputTokens: 16384, attempts: 3 }))).not.toThrow();
+    expect(() => assertThoughtCapabilityEvidence(makeEvidence({ deadlineMs: 300000, maxOutputTokens: 4096, attempts: 3 }))).not.toThrow();
+    expect(() => assertThoughtCapabilityEvidence(makeEvidence({ deadlineMs: 300000, maxOutputTokens: 16385, attempts: 3 }))).toThrow("qualification_resource_evidence_mismatch");
+    expect(() => assertThoughtCapabilityEvidence(makeEvidence({ deadlineMs: 300000, maxOutputTokens: 16384, attempts: 4 }))).toThrow("qualification_resource_evidence_mismatch");
     expect(() => assertThoughtCapabilityEvidence(makeEvidence({ deadlineMs: 60000, maxOutputTokens: 16384, attempts: 3 }))).toThrow("qualification_resource_evidence_mismatch");
   });
 
@@ -124,6 +124,6 @@ describe("Thought capability identity", () => {
       structuralRetryMaxOutput: 8_192,
       structuralRetriesMaxPerSemanticPass: 2,
     })}`);
-    expect(policy.ordinaryThoughtBudgetMs).toBe(180_000);
+    expect(policy.ordinaryThoughtBudgetMs).toBe(300_000);
   });
 });

@@ -479,6 +479,37 @@ describe("v0.2.1 live Sandbox V2 operation construction", () => {
     sidecar.close();
   });
 
+  it("routes project.investigate through the Mode-B worker without claiming direct L1", async () => {
+    const nuclear = new DatabaseSync(":memory:");
+    const executeModeBWorker = vi.fn(async () => ({
+      license: { state: "succeeded" as const, profile: "opencode_mode_b" },
+      selectedModelId: "opencode/nemotron-3.5-lightning-free",
+      quotaClass: "NVIDIA_FREE" as const,
+      steps: [{ operation: "project.read_file", license: { state: "succeeded" as const, profile: "project_investigation" } }],
+      summary: "worker prose is not proof",
+      payload: { steps: 1 },
+    }));
+    const executors = createV021LiveOperationExecutors({
+      nuclear,
+      adapters: { executeModeBWorker },
+    });
+    const observation = await executors.executeObservation({
+      requestId: "investigate-1",
+      cycleId: "cycle-1",
+      generation: 1,
+      kind: "project.investigate",
+      request: { projectId: "project-ashley", focus: "what inspection can do" },
+      replaySafe: true,
+    });
+    expect(executeModeBWorker).toHaveBeenCalledTimes(1);
+    expect(observation).toMatchObject({
+      observationId: "v021:observation:investigate-1",
+      provenance: "opencode-worker:project.investigate",
+      payload: { steps: 1 },
+    });
+    nuclear.close();
+  });
+
   it("runs Mode-B candidate.develop through the worker adapter and records Host model evidence", async () => {
     const nuclear = new DatabaseSync(":memory:");
     const executeModeBWorker = vi.fn(async () => ({
