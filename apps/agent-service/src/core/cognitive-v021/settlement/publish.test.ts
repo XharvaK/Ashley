@@ -15,7 +15,12 @@ import { captureThoughtSourceCurrentness } from "../thought/source-currentness.j
 import { captureThoughtSourcePackage } from "../thought/input.js";
 import { createObservationSubscription } from "../observation/subscriptions.js";
 import { insertOutboxPending } from "../speech/outbox.js";
-import { recheckOwnerDmPublicationReservation } from "./publish.js";
+import { emitInfrastructureNotice, updateSystemNoticeStatus } from "../speech/infrastructure-notice.js";
+import {
+  recheckOwnerDmPublicationReservation,
+  recheckOwnerPublicationReservation,
+  recheckSystemNoticePublicationReservation,
+} from "./publish.js";
 
 function settlement(overrides: Partial<PublishedCognitiveSettlement> = {}): PublishedCognitiveSettlement {
   return {
@@ -717,6 +722,230 @@ describe("v0.2.1 semantic publication transaction", () => {
     } finally {
       nuclear.close();
       sidecar.close();
+    }
+  });
+});
+
+function systemNoticeRecheckFixture(reason = "context_allocation_required_overflow") {
+  const sidecar = openTestSidecar();
+  const nuclear = openNuclearDb(new DatabaseSync(":memory:"));
+  const cycle = admitTestCycle(sidecar, {
+    cycleId: "cycle-system-recheck",
+    conversationId: "thread-system-recheck",
+    triggerKind: "owner_message",
+    triggerRef: "system-recheck",
+    occupantId: "doc",
+    authorityEpoch: 1,
+    nowMs: 1,
+  });
+  const notice = emitInfrastructureNotice(sidecar, {
+    ownerId: "doc",
+    channel: "discord",
+    threadId: cycle.conversationId,
+    conversationId: cycle.conversationId,
+    cycleId: cycle.cycleId,
+    generation: cycle.generation,
+    reason,
+  });
+  const inserted = nuclear.prepare(
+    `INSERT INTO delivery_reservations
+       (owner_id, channel, thread_id, trigger, delivery_lane, state,
+        draft_text, created_at, cognitive_v021_projection_key,
+        speech_outbox_id, destination_json)
+     VALUES ('doc', 'discord', ?, 'reactive', 'reactive', 'reserved', ?, ?, ?, NULL, NULL)`,
+  ).run(
+    cycle.conversationId,
+    notice.noticeText,
+    "1970-01-01T00:00:01.000Z",
+    notice.projectionKey,
+  );
+  return { sidecar, nuclear, cycle, notice, reservationId: Number(inserted.lastInsertRowid) };
+}
+
+describe("P0 system-notice Owner-DM recheck split", () => {
+  it("A: accepts a valid system notice with no speech_outbox row", () => {
+    const fixture = systemNoticeRecheckFixture();
+    try {
+      expect(fixture.sidecar.prepare("SELECT COUNT(*) AS count FROM speech_outbox").get())
+        .toMatchObject({ count: 0 });
+      expect(recheckSystemNoticePublicationReservation(
+        fixture.nuclear,
+        fixture.reservationId,
+        2,
+        { cognitiveSidecar: fixture.sidecar },
+      )).toEqual({ ok: true });
+    } finally {
+      fixture.nuclear.close();
+      fixture.sidecar.close();
+    }
+  });
+
+  it("B: missing system notice refuses with a system reason, never speech_outbox_missing", () => {
+    const fixture = systemNoticeRecheckFixture();
+    try {
+      const inserted = fixture.nuclear.prepare(
+        `INSERT INTO delivery_reservations
+           (owner_id, channel, thread_id, trigger, delivery_lane, state,
+            draft_text, created_at, cognitive_v021_projection_key,
+            speech_outbox_id, destination_json)
+         VALUES ('doc', 'discord', ?, 'reactive', 'reactive', 'reserved', ?, ?, ?, NULL, NULL)`,
+      ).run(
+        fixture.cycle.conversationId,
+        "missing notice",
+        "1970-01-01T00:00:01.000Z",
+        "system:999999",
+      );
+      expect(recheckSystemNoticePublicationReservation(
+        fixture.nuclear,
+        Number(inserted.lastInsertRowid),
+        2,
+        { cognitiveSidecar: fixture.sidecar },
+      )).toEqual({ ok: false, reason: "system_notice_missing" });
+    } finally {
+      fixture.nuclear.close();
+      fixture.sidecar.close();
+    }
+  });
+
+  it("C: suppressed and terminal system notices refuse truthfully", () => {
+    const suppressed = systemNoticeRecheckFixture("context_allocation_required_overflow");
+    try {
+      updateSystemNoticeStatus(suppressed.sidecar, suppressed.notice.noticeId, "suppressed");
+      expect(recheckSystemNoticePublicationReservation(
+        suppressed.nuclear,
+        suppressed.reservationId,
+        2,
+        { cognitiveSidecar: suppressed.sidecar },
+      )).toEqual({ ok: false, reason: "system_notice_suppressed" });
+    } finally {
+      suppressed.nuclear.close();
+      suppressed.sidecar.close();
+    }
+    const terminal = systemNoticeRecheckFixture("observation_unavailable");
+    try {
+      updateSystemNoticeStatus(terminal.sidecar, terminal.notice.noticeId, "send_failure");
+      expect(recheckSystemNoticePublicationReservation(
+        terminal.nuclear,
+        terminal.reservationId,
+        2,
+        { cognitiveSidecar: terminal.sidecar },
+      )).toEqual({ ok: false, reason: "system_notice_not_sendable" });
+    } finally {
+      terminal.nuclear.close();
+      terminal.sidecar.close();
+    }
+  });
+
+  it("D: stale-generation system notice refuses", () => {
+    const fixture = systemNoticeRecheckFixture();
+    try {
+      admitTestCycle(fixture.sidecar, {
+        conversationId: fixture.cycle.conversationId,
+        triggerKind: "owner_message",
+        triggerRef: "system-recheck-new-generation",
+        occupantId: "doc",
+        authorityEpoch: 1,
+        nowMs: 3,
+      });
+      expect(recheckSystemNoticePublicationReservation(
+        fixture.nuclear,
+        fixture.reservationId,
+        4,
+        { cognitiveSidecar: fixture.sidecar },
+      )).toEqual({ ok: false, reason: "stale_generation" });
+    } finally {
+      fixture.nuclear.close();
+      fixture.sidecar.close();
+    }
+  });
+
+  it("E: speech path still requires its speech row", () => {
+    const fixture = ownerDmRecheckFixture();
+    try {
+      const inserted = fixture.nuclear.prepare(
+        `INSERT INTO delivery_reservations
+           (owner_id, channel, thread_id, trigger, delivery_lane, state,
+            draft_text, created_at, cognitive_v021_projection_key,
+            speech_outbox_id, destination_json)
+         VALUES ('doc', 'discord', ?, 'reactive', 'reactive', 'reserved', ?, ?, ?, NULL, NULL)`,
+      ).run(
+        fixture.cycle.conversationId,
+        "missing speech",
+        "1970-01-01T00:00:01.000Z",
+        "speech:999999",
+      );
+      expect(recheckOwnerDmPublicationReservation(
+        fixture.nuclear,
+        Number(inserted.lastInsertRowid),
+        2,
+        { cognitiveSidecar: fixture.sidecar },
+      )).toEqual({ ok: false, reason: "speech_outbox_missing" });
+    } finally {
+      fixture.nuclear.close();
+      fixture.sidecar.close();
+    }
+  });
+
+  it("F: interleaved speech + system reservations route to the correct recheck", () => {
+    const speech = ownerDmRecheckFixture();
+    const system = systemNoticeRecheckFixture();
+    try {
+      // Each surface validates through the typed dispatcher.
+      expect(recheckOwnerPublicationReservation(
+        speech.nuclear,
+        speech.reservationId,
+        2,
+        { cognitiveSidecar: speech.sidecar },
+      )).toEqual({ ok: true });
+      expect(recheckOwnerPublicationReservation(
+        system.nuclear,
+        system.reservationId,
+        2,
+        { cognitiveSidecar: system.sidecar },
+      )).toEqual({ ok: true });
+      // Missing rows prove which owner each key reached: the system key must
+      // never surface a speech reason, and vice versa.
+      const missingSpeech = speech.nuclear.prepare(
+        `INSERT INTO delivery_reservations
+           (owner_id, channel, thread_id, trigger, delivery_lane, state,
+            draft_text, created_at, cognitive_v021_projection_key,
+            speech_outbox_id, destination_json)
+         VALUES ('doc', 'discord', ?, 'reactive', 'reactive', 'reserved', ?, ?, ?, NULL, NULL)`,
+      ).run(
+        speech.cycle.conversationId,
+        "missing speech",
+        "1970-01-01T00:00:01.000Z",
+        "speech:999999",
+      );
+      expect(recheckOwnerPublicationReservation(
+        speech.nuclear,
+        Number(missingSpeech.lastInsertRowid),
+        2,
+        { cognitiveSidecar: speech.sidecar },
+      )).toEqual({ ok: false, reason: "speech_outbox_missing" });
+      const missingSystem = system.nuclear.prepare(
+        `INSERT INTO delivery_reservations
+           (owner_id, channel, thread_id, trigger, delivery_lane, state,
+            draft_text, created_at, cognitive_v021_projection_key,
+            speech_outbox_id, destination_json)
+         VALUES ('doc', 'discord', ?, 'reactive', 'reactive', 'reserved', ?, ?, ?, NULL, NULL)`,
+      ).run(
+        system.cycle.conversationId,
+        "missing notice",
+        "1970-01-01T00:00:01.000Z",
+        "system:999999",
+      );
+      expect(recheckOwnerPublicationReservation(
+        system.nuclear,
+        Number(missingSystem.lastInsertRowid),
+        2,
+        { cognitiveSidecar: system.sidecar },
+      )).toEqual({ ok: false, reason: "system_notice_missing" });
+    } finally {
+      speech.nuclear.close();
+      speech.sidecar.close();
+      system.nuclear.close();
+      system.sidecar.close();
     }
   });
 });

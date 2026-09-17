@@ -1,6 +1,7 @@
 import type { DatabaseSync } from "node:sqlite";
 import { readAuthorityBarrier, requireCurrentAuthorityBinding } from "../authority/barrier.js";
 import { getSpeechOutbox, insertOutboxPending } from "../speech/outbox.js";
+import { getSystemNotice } from "../speech/infrastructure-notice.js";
 import { getCurrentCycle } from "../cycle/inbox.js";
 import type {
   CycleTriggerKind,
@@ -1330,6 +1331,106 @@ export function recheckOwnerDmPublicationReservation(
   const basisReason = dispatchBasisReason(db, reservation, cognitiveSidecar);
   if (basisReason) return { ok: false, reason: basisReason };
   return { ok: true };
+}
+
+/**
+ * Recheck an Owner-DM system-notice reservation against the current cognitive
+ * sidecar. This is the typed counterpart to
+ * recheckOwnerDmPublicationReservation: Host/system infrastructure truth owns
+ * system_notice_outbox rows (projection key `system:<id>`) and must never be
+ * forced through Ashley speech ownership. Reasons are system-notice-specific;
+ * `speech_outbox_missing` is never returned here.
+ */
+export function recheckSystemNoticePublicationReservation(
+  db: DatabaseSync,
+  reservationId: number,
+  _nowMs = Date.now(),
+  options: DispatchRecheckOptions = {},
+): { ok: true } | { ok: false; reason: string } {
+  const reservation = getDeliveryReservation(db, reservationId);
+  if (!reservation) return { ok: false, reason: "delivery_reservation_missing" };
+  if (!isOwnerDmDestination(reservation.destination)) {
+    return { ok: false, reason: "owner_dm_destination_invalid" };
+  }
+  if (reservation.state !== "reserved" && reservation.state !== "sending") {
+    return { ok: false, reason: "delivery_not_sendable" };
+  }
+  const cognitiveSidecar = options.cognitiveSidecar;
+  if (!cognitiveSidecar) return { ok: false, reason: "cognitive_sidecar_unavailable" };
+
+  let noticeId: number | null = null;
+  {
+    const row = db.prepare(
+      "SELECT cognitive_v021_projection_key FROM delivery_reservations WHERE id = ?",
+    ).get(reservationId) as DbRow | undefined;
+    const match = /^system:(\d+)$/.exec(stringValue(row?.cognitive_v021_projection_key).trim());
+    noticeId = match ? Number(match[1]) : null;
+  }
+  if (noticeId == null || !Number.isSafeInteger(noticeId) || noticeId < 1) {
+    return { ok: false, reason: "system_notice_missing" };
+  }
+
+  const notice = getSystemNotice(cognitiveSidecar, noticeId);
+  if (!notice) return { ok: false, reason: "system_notice_missing" };
+  if (
+    notice.sendStatus === "suppressed"
+    || notice.sendStatus === "suppressed_shadow"
+  ) {
+    return { ok: false, reason: "system_notice_suppressed" };
+  }
+  if (
+    notice.sendStatus === "delivered"
+    || notice.sendStatus === "partially_delivered"
+    || notice.sendStatus === "send_failure"
+  ) {
+    return { ok: false, reason: "system_notice_not_sendable" };
+  }
+
+  // System notices carry no generation of their own; the bound cycle is the
+  // currentness fence. A cycle-less notice has no cycle identity to compare.
+  if (notice.cycleId !== null) {
+    const current = getCurrentCycle(cognitiveSidecar, notice.conversationId, { includeIdle: true });
+    if (!current || current.cycleId !== notice.cycleId) {
+      return { ok: false, reason: "stale_generation" };
+    }
+  }
+  const basisReason = dispatchBasisReason(db, reservation, cognitiveSidecar);
+  if (basisReason) return { ok: false, reason: basisReason };
+  return { ok: true };
+}
+
+/**
+ * Owner-publication recheck routed by typed projection identity.
+ * `system:<id>` selects the system-notice recheck; every other key preserves
+ * the existing destination-shaped routing (Owner-DM speech vs Owner room).
+ * Both surfaces can target the Owner, so the persisted projection key — not
+ * the destination shape — selects the recheck owner.
+ */
+export function recheckOwnerPublicationReservation(
+  db: DatabaseSync,
+  reservationId: number,
+  nowMs = Date.now(),
+  options: DispatchRecheckOptions = {},
+): { ok: true } | { ok: false; reason: string } {
+  const row = db.prepare(
+    "SELECT cognitive_v021_projection_key FROM delivery_reservations WHERE id = ?",
+  ).get(reservationId) as DbRow | undefined;
+  if (/^system:(\d+)$/.test(stringValue(row?.cognitive_v021_projection_key).trim())) {
+    return recheckSystemNoticePublicationReservation(db, reservationId, nowMs, options);
+  }
+  const reservation = getDeliveryReservation(db, reservationId);
+  if (!reservation) return { ok: false, reason: "delivery_reservation_missing" };
+  const destination = reservation.destination;
+  const ownerDm = destination === undefined
+    || (
+      typeof destination === "object"
+      && destination !== null
+      && !Array.isArray(destination)
+      && (destination as Record<string, unknown>).kind === "owner"
+    );
+  return ownerDm
+    ? recheckOwnerDmPublicationReservation(db, reservationId, nowMs, options)
+    : recheckOwnerRoomPublicationReservation(db, reservationId, nowMs, options);
 }
 
 /**

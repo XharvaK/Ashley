@@ -20,8 +20,7 @@ import { getCognitiveHealthSnapshot } from "./core/cognitive-v021/dispatch/healt
 import { markProjectedDeliverySending } from "./core/cognitive-v021/delivery/outbox-projector.js";
 import {
   recheckExternalPublicationReservation,
-  recheckOwnerDmPublicationReservation,
-  recheckOwnerRoomPublicationReservation,
+  recheckOwnerPublicationReservation,
 } from "./core/cognitive-v021/settlement/publish.js";
 import { reconcilePolicyClock } from "./core/cognitive-v021/private-budget/policy-time-ledger.js";
 import { PRIVATE_THOUGHT_POLICY_ID } from "./core/cognitive-v021/private-budget/ledger.js";
@@ -1799,21 +1798,13 @@ export function createServer(
       if (!status) {
         throw new AppError("not_found", "reservation not found", 404);
       }
-      const destination = status.reservation.destination;
-      const ownerDm = destination === undefined
-        || (
-          typeof destination === "object"
-          && destination !== null
-          && !Array.isArray(destination)
-          && (destination as Record<string, unknown>).kind === "owner"
-        );
-      res.json(ownerDm
-        ? recheckOwnerDmPublicationReservation(manager.core.getDatabase(), id, Date.now(), {
-            cognitiveSidecar: getCognitiveSidecar(),
-          })
-        : recheckOwnerRoomPublicationReservation(manager.core.getDatabase(), id, Date.now(), {
-            cognitiveSidecar: getCognitiveSidecar(),
-          }));
+      // Routed by typed projection identity inside publish.ts: system:<id>
+      // selects the system-notice recheck, speech keys keep the existing
+      // Owner-DM-speech vs Owner-room routing. Both surfaces can target the
+      // Owner, so the destination shape alone must not select the recheck.
+      res.json(recheckOwnerPublicationReservation(manager.core.getDatabase(), id, Date.now(), {
+        cognitiveSidecar: getCognitiveSidecar(),
+      }));
     } catch (err) {
       const { status, body } = toErrorResponse(err);
       res.status(status).json(body);
