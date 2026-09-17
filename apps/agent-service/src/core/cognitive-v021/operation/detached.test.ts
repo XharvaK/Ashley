@@ -3,10 +3,12 @@ import { admitTestCycle, openTestSidecar } from "../test-support.js";
 import {
   admitDetachedOperation,
   detachedOperationIdFor,
+  getActiveDetachedOperation,
   getDetachedOperation,
   markDetachedOperationStarted,
   reconcileDetachedOperations,
   requestDetachedOperationCancel,
+  resolveDetachedOperationCancel,
   setDetachedOperationTerminal,
   supersedeDetachedOperation,
   type AdmitDetachedOperationInput,
@@ -249,6 +251,108 @@ describe("detached operation ownership", () => {
         sidecar,
         admission("key-bad-kind", { operationKind: "project.inspect" as "project.investigate" }),
       )).toEqual({ ok: false, reason: "invalid_admission" });
+    } finally {
+      sidecar.close();
+    }
+  });
+});
+
+describe("detached operation cancellation truth", () => {
+  it("cancels admitted never-started work on endorsement", () => {
+    const { sidecar } = origin();
+    try {
+      const admitted = admitDetachedOperation(sidecar, admission("key-cancel"));
+      if (!admitted.ok) throw new Error("admission failed");
+      const opId = admitted.operation.operationId;
+      expect(getActiveDetachedOperation(sidecar, "thread-detached-op")?.operationId).toBe(opId);
+      const resolved = resolveDetachedOperationCancel(sidecar, opId, {
+        cancelledBy: "cycle-cancel",
+        nowMs: 2_000,
+      });
+      expect(resolved).toMatchObject({ ok: true, operation: { state: "cancelled", terminalState: "cancelled" } });
+      expect(getActiveDetachedOperation(sidecar, "thread-detached-op")).toBe(null);
+      // Terminal wins over later stops.
+      expect(resolveDetachedOperationCancel(sidecar, opId, { cancelledBy: "cycle-late", nowMs: 3_000 }))
+        .toEqual({ ok: false, reason: "detached_operation_terminal_immutable" });
+    } finally {
+      sidecar.close();
+    }
+  });
+
+  it("keeps cancel requested distinct from cancelled and stopped", () => {
+    const { sidecar } = origin();
+    try {
+      const admitted = admitDetachedOperation(sidecar, admission("key-request"));
+      if (!admitted.ok) throw new Error("admission failed");
+      const opId = admitted.operation.operationId;
+      // Request alone changes no state.
+      expect(requestDetachedOperationCancel(sidecar, opId, 1_500)).toMatchObject({
+        ok: true,
+        operation: { state: "admitted", cancelRequestedAtMs: 1_500 },
+      });
+      expect(markDetachedOperationStarted(sidecar, opId, { startProofRef: "s", nowMs: 2_000 }).ok).toBe(true);
+      // Started work without a stop proof refuses: a sent stop is not stopped.
+      expect(resolveDetachedOperationCancel(sidecar, opId, { cancelledBy: "cycle-stop", nowMs: 2_500 }))
+        .toEqual({ ok: false, reason: "stop_proof_required" });
+      expect(getDetachedOperation(sidecar, opId)?.state).toBe("started");
+      // A stop proof stops started work.
+      expect(resolveDetachedOperationCancel(sidecar, opId, {
+        cancelledBy: "cycle-stop",
+        stopProofRef: "worker-stop-ack-1",
+        nowMs: 3_000,
+      })).toMatchObject({ ok: true, operation: { state: "stopped" } });
+    } finally {
+      sidecar.close();
+    }
+  });
+
+  it("reconciles requested-but-never-started expiry as cancelled, not unknown", () => {
+    const { sidecar } = origin();
+    try {
+      const requested = admitDetachedOperation(sidecar, admission("key-req-exp", {
+        conversationId: "thread-req",
+        operationDeadlineAtMs: 5_000,
+        nowMs: 1_000,
+      }));
+      if (!requested.ok) throw new Error("admission failed");
+      expect(requestDetachedOperationCancel(sidecar, requested.operation.operationId, 2_000).ok).toBe(true);
+      const unrequested = admitDetachedOperation(sidecar, admission("key-unreq-exp", {
+        conversationId: "thread-unreq",
+        operationDeadlineAtMs: 5_000,
+        nowMs: 1_000,
+      }));
+      if (!unrequested.ok) throw new Error("admission failed");
+      const reconciled = reconcileDetachedOperations(sidecar, 10_000);
+      expect(reconciled.transitionedOperationIds.sort()).toEqual(
+        [requested.operation.operationId, unrequested.operation.operationId].sort(),
+      );
+      // Requested + provably never started → cancelled; ambiguous → unknown.
+      expect(getDetachedOperation(sidecar, requested.operation.operationId)).toMatchObject({
+        state: "cancelled",
+        terminalState: "cancelled",
+      });
+      expect(getDetachedOperation(sidecar, unrequested.operation.operationId)).toMatchObject({
+        state: "outcome_unknown",
+      });
+    } finally {
+      sidecar.close();
+    }
+  });
+
+  it("records supersession on terminal rows without erasing truth", () => {
+    const { sidecar } = origin();
+    try {
+      const admitted = admitDetachedOperation(sidecar, admission("key-sup"));
+      if (!admitted.ok) throw new Error("admission failed");
+      const opId = admitted.operation.operationId;
+      expect(markDetachedOperationStarted(sidecar, opId, { startProofRef: "s", nowMs: 2_000 }).ok).toBe(true);
+      expect(setDetachedOperationTerminal(sidecar, opId, { terminalState: "failed", errorCode: "worker_failed", nowMs: 3_000 }).ok)
+        .toBe(true);
+      const superseded = supersedeDetachedOperation(sidecar, opId, { supersededBy: "owner-turn-9", nowMs: 4_000 });
+      expect(superseded).toMatchObject({
+        ok: true,
+        operation: { state: "failed", terminalState: "failed", errorCode: "worker_failed", supersededBy: "owner-turn-9" },
+      });
     } finally {
       sidecar.close();
     }

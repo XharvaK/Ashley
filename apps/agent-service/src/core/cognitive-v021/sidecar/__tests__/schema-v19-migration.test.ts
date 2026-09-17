@@ -11,8 +11,8 @@ describe("cognitive sidecar Schema V19 migration", () => {
       db.prepare("UPDATE cognitive_sidecar_meta SET schema_version = 19 WHERE id = 1").run();
 
       openCognitiveSidecarDb(db, { dataPlane: { kind: "isolated" } });
-      expect((db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(20);
-      expect(COGNITIVE_SIDECAR_SCHEMA_VERSION).toBe(20);
+      expect((db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(21);
+      expect(COGNITIVE_SIDECAR_SCHEMA_VERSION).toBe(21);
       const columns = (db.prepare("PRAGMA table_info(detached_operations)").all() as Array<{ name: string }>)
         .map((column) => column.name);
       for (const column of [
@@ -30,7 +30,7 @@ describe("cognitive sidecar Schema V19 migration", () => {
       expect(indexes).toContain("idx_detached_operations_active_conversation");
 
       openCognitiveSidecarDb(db, { dataPlane: { kind: "isolated" } });
-      expect((db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(20);
+      expect((db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(21);
     } finally {
       db.close();
     }

@@ -114,6 +114,7 @@ export function produceOperationCompletion(
     receiptRef: operation.receiptRef,
     supersededBy: operation.supersededBy,
     successorOperationId: operation.successorOperationId,
+    cancelRequestedAtMs: operation.cancelRequestedAtMs,
     observationsCapture,
     observationIds,
     observationCount: observationIds.length,

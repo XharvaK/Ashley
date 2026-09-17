@@ -62,6 +62,10 @@ import {
   currentAttemptIs,
   getCycleFreshnessState,
 } from "../cycle/inbox.js";
+import {
+  activeThoughtMayFinishWhileDetachedCompletionQueued,
+  CONVERSATION_COGNITION_OCCUPIED,
+} from "../cycle/cognition-claim.js";
 import type { AttemptInputBasis } from "../social/types.js";
 import type { CommitmentRealizationBinding } from "../social/types.js";
 import {
@@ -2270,8 +2274,11 @@ function currentLifecycleIs(
   db: DatabaseSync,
   cycle: { cycleId: string; conversationId: string; generation: number },
   attemptBinding: AttemptLifecycleBinding | null,
+  allowDetachedCompletionQueue = false,
 ): boolean {
-  if (!currentGenerationIs(db, cycle)) return false;
+  if (!currentGenerationIs(db, cycle)) {
+    return allowDetachedCompletionQueue && activeThoughtMayFinishWhileDetachedCompletionQueued(db, cycle);
+  }
   if (!attemptBinding) return true;
   if (!attemptBinding.attemptId || !attemptBinding.attemptInputBasis) return false;
   return currentAttemptIs(db, {
@@ -2563,7 +2570,7 @@ export async function runCognitiveCycle(
     terminal?: ThoughtTerminalDescriptor,
   ): Promise<KernelRunResult> => {
     const counters = getThoughtAttemptCounters(sidecar, admittedCycle.cycleId, admittedCycle.generation);
-    if (!currentLifecycleIs(sidecar, admittedCycle, attemptLifecycleBinding)) {
+    if (!currentLifecycleIs(sidecar, admittedCycle, attemptLifecycleBinding, deps.origin !== "shadow")) {
       return resultWithCounters(
         admittedCycle.cycleId,
         admittedCycle.generation,
@@ -2651,7 +2658,13 @@ export async function runCognitiveCycle(
     for (;;) {
     counters = getThoughtAttemptCounters(sidecar, cycle.cycleId, cycle.generation);
     structuralRetriesForPass = persistedMalformedRetries(sidecar, cycle.cycleId, cycle.generation, pass);
-    if (!currentLifecycleIs(sidecar, cycle, attemptLifecycleBinding)) {
+    if (deps.renewConversationCognition && !deps.renewConversationCognition()) {
+      // The conversation cognition holder was lost (expiry + takeover by a
+      // newer turn). Stop at once: no further provider work may dispatch
+      // under a lost holder. The winning turn owns the conversation now.
+      throw new Error(CONVERSATION_COGNITION_OCCUPIED);
+    }
+    if (!currentLifecycleIs(sidecar, cycle, attemptLifecycleBinding, deps.origin !== "shadow")) {
       return resultWithCounters(cycle.cycleId, cycle.generation, null, counters, staleOwnerResultOptions());
     }
     if (socialResourcePrecheck && !socialResourcePrecheck.accepted) {
@@ -3524,7 +3537,7 @@ export async function runCognitiveCycle(
         makeThoughtTerminal("fidelity", { codes: [fidelity.code], stage: "fidelity" }),
       );
     }
-    if (!currentLifecycleIs(sidecar, cycle, attemptLifecycleBinding)) {
+    if (!currentLifecycleIs(sidecar, cycle, attemptLifecycleBinding, deps.origin !== "shadow")) {
       counters = getThoughtAttemptCounters(sidecar, cycle.cycleId, cycle.generation);
       return resultWithCounters(cycle.cycleId, cycle.generation, null, counters, staleOwnerResultOptions());
     }
@@ -3629,6 +3642,7 @@ export async function runCognitiveCycle(
       wakeId: cycle.wakeId,
       wakeLeaseToken: event.claimToken,
       semanticPass: pass,
+      allowQueuedDetachedCompletion: deps.origin !== "shadow",
     });
     if (!publication.published) {
       counters = getThoughtAttemptCounters(sidecar, cycle.cycleId, cycle.generation);

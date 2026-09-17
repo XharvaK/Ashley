@@ -184,3 +184,59 @@ export function proveExactOwnerSupersession(
     }),
   };
 }
+
+/**
+ * Prove the stale-to-superseded transition for an in-flight Owner Thought
+ * displaced by a waiting detached-operation completion. A completion admits
+ * a newer cycle, so an active Owner Thought would otherwise fail transient
+ * and retry against the same stale cycle forever: each retry re-runs the
+ * staleness check before any provider work, while the completion (newer,
+ * pending) can never run first under fair ordering. Yielding terminally to
+ * the oldest pending completion converges quietly: the completion Thought
+ * carries the displaced Owner turn in conversation evidence and answers it.
+ * Owner succession (proveExactOwnerSupersession) always wins first; this is
+ * the fallback only when no valid owner successor exists.
+ */
+export function proveCompletionSuccession(
+  db: DatabaseSync,
+  event: InboxEvent,
+  coverage: OwnerDispatchCoverage,
+): SupersessionResult | null {
+  if (!isOwnerObligationEventKind(event.kind)) return null;
+  if (coverage.primaryEventId !== event.id) return null;
+  if (coverage.coveredOwnerEventIds.length === 0 || coverage.uncoveredOwnerEventIds.length > 0) return null;
+  if (ownerCoverageHash(coverage) !== coverage.coverageHash) return null;
+  if (!coverage.coveredOwnerEventIds.includes(event.id)) return null;
+  if (new Set(coverage.coveredOwnerEventIds).size !== coverage.coveredOwnerEventIds.length
+    || new Set(coverage.uncoveredOwnerEventIds).size !== coverage.uncoveredOwnerEventIds.length
+    || coverage.coveredOwnerEventIds.some((id) => coverage.uncoveredOwnerEventIds.includes(id))) return null;
+
+  const successor = db.prepare(
+    `SELECT id, wake_id
+       FROM inbox_events
+      WHERE conversation_id = ?
+        AND kind = 'observation_or_receipt'
+        AND json_extract(payload_json, '$.detachedOperationId') IS NOT NULL
+        AND TRIM(COALESCE(json_extract(payload_json, '$.detachedOperationId'), '')) <> ''
+        AND state NOT IN ('terminal', 'quarantined')
+      ORDER BY created_at_ms ASC, id ASC LIMIT 1`,
+  ).get(event.conversationId) as Row | undefined;
+  const successorEventId = text(successor?.id);
+  const successorWakeId = text(successor?.wake_id);
+  if (!successorEventId || !successorWakeId || successorWakeId === event.wakeId) return null;
+  const successorWake = db.prepare("SELECT state FROM wakes WHERE wake_id = ? LIMIT 1").get(successorWakeId) as Row | undefined;
+  if (!successorWake || text(successorWake.state) === "terminal") return null;
+
+  const covered = [...coverage.coveredOwnerEventIds];
+  return {
+    kind: "superseded",
+    successorIdentity: { wakeId: successorWakeId, eventId: successorEventId },
+    coveredOwnerEventIds: covered,
+    uncoveredOwnerEventIds: [],
+    coverageHash: ownerCoverageHash({
+      primaryEventId: event.id,
+      coveredOwnerEventIds: covered,
+      uncoveredOwnerEventIds: [],
+    }),
+  };
+}

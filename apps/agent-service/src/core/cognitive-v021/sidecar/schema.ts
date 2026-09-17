@@ -866,3 +866,18 @@ CREATE INDEX IF NOT EXISTS idx_operation_interim_outbox_status
   ON operation_interim_outbox(send_status, interim_id);
 UPDATE cognitive_sidecar_meta SET schema_version = 20, projection_state = 'reconciling' WHERE id = 1;
 `;
+
+export const COGNITIVE_SIDECAR_SCHEMA_V21 = String.raw`
+CREATE TABLE IF NOT EXISTS cognition_claims (
+  conversation_id TEXT PRIMARY KEY,
+  holder_event_id TEXT NOT NULL,
+  holder_wake_id TEXT,
+  cycle_id TEXT,
+  generation INTEGER,
+  claim_token TEXT NOT NULL,
+  lease_expires_at_ms INTEGER NOT NULL,
+  created_at_ms INTEGER NOT NULL,
+  updated_at_ms INTEGER NOT NULL
+);
+UPDATE cognitive_sidecar_meta SET schema_version = 21, projection_state = 'reconciling' WHERE id = 1;
+`;

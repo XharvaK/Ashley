@@ -166,6 +166,22 @@ export function getDetachedOperation(
   return row ? mapRow(row) : null;
 }
 
+/** The single active (admitted or started) operation for a conversation, if any. */
+export function getActiveDetachedOperation(
+  sidecar: DatabaseSync,
+  conversationId: string,
+): DetachedOperationRead {
+  if (!conversationId) return null;
+  const row = sidecar
+    .prepare(
+      `SELECT * FROM detached_operations
+        WHERE conversation_id = ? AND state IN ('admitted', 'started')
+        ORDER BY updated_at_ms DESC, operation_id ASC LIMIT 1`,
+    )
+    .get(conversationId) as DetachedRow | undefined;
+  return row ? mapRow(row) : null;
+}
+
 function getByIdempotencyKey(
   sidecar: DatabaseSync,
   idempotencyKey: string,
@@ -400,6 +416,74 @@ export function requestDetachedOperationCancel(
   return { ok: true, operation: updated, created: false };
 }
 
+export type ResolveDetachedCancelInput = {
+  /** Endorsement identity (Thought cycle, owner turn, or reconciler). */
+  cancelledBy: string;
+  /** Proof the worker actually stopped. Required once work started. */
+  stopProofRef?: string | null;
+  nowMs?: number;
+};
+
+/**
+ * Resolve an endorsed cancellation to terminal truth. The distinctions are
+ * load-bearing and never collapsed:
+ * - cancel requested is intent, never outcome;
+ * - admitted + provably never started (no start proof exists) → cancelled;
+ * - started + stop proof → stopped;
+ * - started without stop proof → refused (a sent stop signal is not stopped);
+ * - anything terminal already → immutable (terminal wins over late stops).
+ */
+export function resolveDetachedOperationCancel(
+  sidecar: DatabaseSync,
+  operationId: string,
+  input: ResolveDetachedCancelInput,
+): DetachedOperationResult {
+  const nowMs = input.nowMs ?? Date.now();
+  if (!nonEmptyString(operationId) || !nonEmptyString(input.cancelledBy) || !safeMs(nowMs)) {
+    return { ok: false, reason: "invalid_cancel_resolution" };
+  }
+  const current = getDetachedOperation(sidecar, operationId);
+  if (!current) return { ok: false, reason: "detached_operation_missing" };
+  if (isTerminalState(current.state)) {
+    return { ok: false, reason: "detached_operation_terminal_immutable" };
+  }
+  if (current.state === "admitted" && current.startAtMs == null) {
+    sidecar
+      .prepare(
+        `UPDATE detached_operations
+            SET state = 'cancelled', terminal_state = 'cancelled', terminal_at_ms = ?,
+                cancel_requested_at_ms = COALESCE(cancel_requested_at_ms, ?),
+                updated_at_ms = ?
+          WHERE operation_id = ? AND state = 'admitted'`,
+      )
+      .run(nowMs, nowMs, nowMs, operationId);
+    const updated = getDetachedOperation(sidecar, operationId);
+    if (!updated || updated.state !== "cancelled") {
+      return { ok: false, reason: "detached_operation_transition_invalid" };
+    }
+    return { ok: true, operation: updated, created: false };
+  }
+  if (current.state === "started") {
+    if (!nonEmptyString(input.stopProofRef)) {
+      return { ok: false, reason: "stop_proof_required" };
+    }
+    sidecar
+      .prepare(
+        `UPDATE detached_operations
+            SET state = 'stopped', terminal_state = 'stopped', terminal_at_ms = ?,
+                updated_at_ms = ?
+          WHERE operation_id = ? AND state = 'started'`,
+      )
+      .run(nowMs, nowMs, operationId);
+    const updated = getDetachedOperation(sidecar, operationId);
+    if (!updated || updated.state !== "stopped") {
+      return { ok: false, reason: "detached_operation_transition_invalid" };
+    }
+    return { ok: true, operation: updated, created: false };
+  }
+  return { ok: false, reason: "detached_operation_transition_invalid" };
+}
+
 /**
  * Record supersession. Superseded work keeps its evidence and terminal
  * truth; only relevance/currentness changes. Never erases.
@@ -430,8 +514,11 @@ export function supersedeDetachedOperation(
 
 /**
  * Startup/reconciliation classification: expired ambiguous work becomes
- * OUTCOME_UNKNOWN when no stronger evidence exists. Terminal rows are never
- * touched, and nothing is rerun.
+ * OUTCOME_UNKNOWN when no stronger evidence exists — except Owner-endorsed
+ * cancel requests on work that provably never started, which become
+ * CANCELLED (a requested stop plus proof of no execution is terminal
+ * cancellation, not ambiguity). Terminal rows are never touched, and
+ * nothing is rerun.
  */
 export function reconcileDetachedOperations(
   sidecar: DatabaseSync,
@@ -449,6 +536,23 @@ export function reconcileDetachedOperations(
     .map((row) => row.operation_id)
     .filter((id): id is string => typeof id === "string" && id.length > 0);
   for (const operationId of ids) {
+    const current = getDetachedOperation(sidecar, operationId);
+    if (!current || isTerminalState(current.state)) continue;
+    if (
+      current.state === "admitted"
+      && current.startAtMs == null
+      && current.cancelRequestedAtMs != null
+    ) {
+      sidecar
+        .prepare(
+          `UPDATE detached_operations
+              SET state = 'cancelled', terminal_state = 'cancelled', terminal_at_ms = ?,
+                  updated_at_ms = ?
+            WHERE operation_id = ? AND state = 'admitted'`,
+        )
+        .run(nowMs, nowMs, operationId);
+      continue;
+    }
     sidecar
       .prepare(
         `UPDATE detached_operations

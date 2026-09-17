@@ -20,7 +20,7 @@ export type { DataClassification } from "../privacy/classification.js";
 export const ARCHITECTURE_EPOCH = "v0.2.1" as const;
 export const IMPLEMENTATION_SPEC_VERSION = "0.2.1.r6" as const;
 export const THOUGHT_CONTRACT_VERSION = 2 as const;
-export const COGNITIVE_SIDECAR_SCHEMA_VERSION = 20 as const;
+export const COGNITIVE_SIDECAR_SCHEMA_VERSION = 21 as const;
 export const CAPACITY_WAIT_MAX_DURATION_MS = 120_000 as const;
 export const MECHANICAL_SPIN_GUARD_LIMIT = 12 as const;
 
@@ -1690,6 +1690,14 @@ export type KernelDeps = {
    * admitted for later dispatch or expiry reconciliation.
    */
   dispatchDetached?: (operationId: string) => void;
+  /**
+   * Per-pass cognition-claim renewal, provided by the live dispatcher when
+   * this turn holds the conversation claim. False (or a throw) means the
+   * holder was lost: the cycle must stop dispatching provider work at once.
+   * Absent in direct-kernel uses (tests, shadow replays), which skip the
+   * check exactly as before.
+   */
+  renewConversationCognition?: () => boolean;
   /** Shadow supplies `shadow`; live/default execution remains `live`. */
   origin?: OutboxOrigin;
   constitution: IdentitySlice;

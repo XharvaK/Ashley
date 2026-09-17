@@ -4,6 +4,7 @@ import { getSpeechOutbox, insertOutboxPending } from "../speech/outbox.js";
 import { getSystemNotice } from "../speech/infrastructure-notice.js";
 import { recheckInterimPublicationReservation } from "../operation/interim.js";
 import { getCurrentCycle } from "../cycle/inbox.js";
+import { activeThoughtMayFinishWhileDetachedCompletionQueued } from "../cycle/cognition-claim.js";
 import type {
   CycleTriggerKind,
   DeliveryIntent,
@@ -64,6 +65,8 @@ export type PublicationOptions = {
   wakeId?: string;
   wakeLeaseToken?: string | null;
   semanticPass?: number;
+  /** Allow only the exact live-claim completion-queue exception. */
+  allowQueuedDetachedCompletion?: boolean;
 };
 
 export type PublicationResult = {
@@ -146,15 +149,24 @@ function publicationFence(
   db: DatabaseSync,
   settlement: PublishedCognitiveSettlement,
   conversationId: string,
+  options?: PublicationOptions,
 ): boolean {
   const cycle = db.prepare(
     "SELECT generation, authority_epoch, wake_id FROM cycle_records WHERE cycle_id = ? LIMIT 1",
   ).get(settlement.cycleId) as DbRow | undefined;
-  return cycle != null
+  const exactCycle = cycle != null
     && numberValue(cycle.generation, -1) === settlement.generation
     && numberValue(cycle.authority_epoch, -1) === settlement.authorityEpoch
-    && (!settlement.wakeId || String(cycle.wake_id ?? "") === settlement.wakeId)
-    && currentGeneration(db, conversationId) === settlement.generation;
+    && (!settlement.wakeId || String(cycle.wake_id ?? "") === settlement.wakeId);
+  if (!exactCycle) return false;
+  if (currentGeneration(db, conversationId) === settlement.generation) return true;
+  return options?.allowQueuedDetachedCompletion === true
+    && activeThoughtMayFinishWhileDetachedCompletionQueued(db, {
+      conversationId,
+      cycleId: settlement.cycleId,
+      generation: settlement.generation,
+      nowMs: options.nowMs,
+    });
 }
 
 function applyFutureTriggerDelta(db: DatabaseSync, delta: FutureTriggerDelta): void {
@@ -288,7 +300,7 @@ export function publishSemanticTransaction(
       return { published: false, replayed: false, reason: "consequence_exists", settlementId: null, outboxId: null };
     }
     const conversationId = awaitlessConversation(settlement, db);
-    if (!publicationFence(db, settlement, conversationId)) {
+    if (!publicationFence(db, settlement, conversationId, options)) {
       db.exec("COMMIT");
       sidecarTransactionOpen = false;
       commitAuthority();
@@ -342,7 +354,7 @@ export function publishSemanticTransaction(
       rollbackAuthority();
       return { published: false, replayed: false, reason: secondAuthorityFailure, settlementId: null, outboxId: null };
     }
-    if (!publicationFence(db, settlement, conversationId)) {
+    if (!publicationFence(db, settlement, conversationId, options)) {
       // The semantic deltas above are provisional. A stale second fence must
       // roll back those writes together with the refused publication.
       db.exec("ROLLBACK");

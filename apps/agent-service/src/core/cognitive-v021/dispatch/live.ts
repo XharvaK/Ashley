@@ -10,6 +10,12 @@ import {
 } from "../types.js";
 import { runCognitiveCycle } from "../thought/run.js";
 import { createOutboxProjector } from "../delivery/outbox-projector.js";
+import {
+  CONVERSATION_COGNITION_OCCUPIED,
+  claimConversationCognition,
+  releaseConversationCognition,
+  renewConversationCognition,
+} from "../cycle/cognition-claim.js";
 import { getCycle } from "../cycle/inbox.js";
 import { getWake } from "../wake/ledger.js";
 import {
@@ -265,13 +271,51 @@ export async function runLiveCognitiveTurn(
       })()
     : undefined;
   const projector = input.projector ?? createOutboxProjector(input.sidecar, input.nuclear);
-  return runCognitiveCycle(
-    input.sidecar,
-    input.nuclear,
-    input.event,
-    withProjector(input.deps, projector),
-    { privateBudgetBinding },
-  );
+  // Single-active-Thought gate (same store): at most one live cognition
+  // execution per conversation. A refused turn performs zero provider work;
+  // its event retries naturally through the durable ledger. Shadow replays
+  // never claim. The Host worker never claims and is never fenced.
+  const shadowRun = input.deps.origin === "shadow";
+  const cognitionClaim = shadowRun
+    ? null
+    : claimConversationCognition(input.sidecar, {
+        conversationId: input.event.conversationId,
+        eventId: input.event.id,
+        wakeId: input.event.wakeId ?? wake.wakeId,
+        cycleId,
+        generation: cycle.generation,
+        nowMs: Date.now(),
+      });
+  if (cognitionClaim && !cognitionClaim.ok) {
+    throw new Error(CONVERSATION_COGNITION_OCCUPIED);
+  }
+  try {
+    return await runCognitiveCycle(
+      input.sidecar,
+      input.nuclear,
+      input.event,
+      {
+        ...withProjector(input.deps, projector),
+        ...(cognitionClaim
+          ? {
+              renewConversationCognition: () => renewConversationCognition(input.sidecar, {
+                conversationId: input.event.conversationId,
+                claimToken: cognitionClaim.claimToken,
+                nowMs: Date.now(),
+              }),
+            }
+          : {}),
+      },
+      { privateBudgetBinding },
+    );
+  } finally {
+    if (cognitionClaim) {
+      releaseConversationCognition(input.sidecar, {
+        conversationId: input.event.conversationId,
+        claimToken: cognitionClaim.claimToken,
+      });
+    }
+  }
 }
 
 /** Factory form used by the durable inbox worker. */
