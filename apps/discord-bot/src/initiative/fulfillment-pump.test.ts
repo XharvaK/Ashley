@@ -4,11 +4,15 @@ import type { Client, DMChannel, Message, User } from "discord.js";
 import { getRaEffectiveConfig } from "../config.js";
 import {
   drainPendingCognitiveDeliveries,
+  drainPendingSystemNotifications,
   startFulfillmentPump,
   stopFulfillmentPump,
   type FulfillmentPumpDependencies,
 } from "./fulfillment-pump.js";
-import type { PendingDelivery } from "../agent-client.js";
+import {
+  recheckOwnerDmPublication,
+  type PendingDelivery,
+} from "../agent-client.js";
 
 test("Discord RA parser uses the same fail-closed forms", () => {
   assert.equal(getRaEffectiveConfig({ RA_SOCIAL_CAPTURE: "true" }).socialCaptureEnabled, true);
@@ -187,6 +191,63 @@ test("fulfillment pump has a separate system-notice drain over the common transp
     deps,
   );
   assert.equal(count, 1);
+  assert.deepEqual(events, ["receipt", "finalize:complete"]);
+});
+
+test("production-shaped system notice 31 uses the Owner typed recheck before fulfillment", async () => {
+  const previousFetch = globalThis.fetch;
+  const requests: string[] = [];
+  const events: string[] = [];
+  globalThis.fetch = async (input, init) => {
+    requests.push(String(input));
+    assert.equal(init?.method, "POST");
+    return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+  const productionNoticeText =
+    "[system] Thought did not complete. Please send the message again. Error code: THOUGHT_DEADLINE_EXCEEDED";
+  const deps: FulfillmentPumpDependencies = {
+    claim: async () => ({ deliveries: [{
+      reservationId: 329,
+      draftText: productionNoticeText,
+      bubbles: [{ ordinal: 0, text: productionNoticeText, discordMessageId: null }],
+      statusUrl: "/delivery/329",
+    }] }),
+    recheckOwnerDm: recheckOwnerDmPublication,
+    receipt: async () => {
+      events.push("receipt");
+      return { ok: true };
+    },
+    finalize: async (_reservationId, cause) => {
+      events.push(`finalize:${cause}`);
+      return {
+        state: "committed",
+        finalizationReason: "all_bubbles_delivered",
+        deliveredText: productionNoticeText,
+      };
+    },
+    send: async () => ({
+      reservationId: null,
+      attemptedOrdinal: null,
+      receiptedOrdinals: [0],
+      failureCategory: null,
+      anySubstantiveContentVisible: true,
+      messages: [{ id: "discord-system-31" } as Message],
+    }),
+  };
+  try {
+    const count = await drainPendingSystemNotifications(
+      makeFakeClient({ id: "dm-system-production" }),
+      deps,
+    );
+    assert.equal(count, 1);
+  } finally {
+    globalThis.fetch = previousFetch;
+  }
+  assert.equal(requests.length, 1);
+  assert.match(requests[0]!, /\/delivery\/329\/recheck-owner-room$/);
   assert.deepEqual(events, ["receipt", "finalize:complete"]);
 });
 

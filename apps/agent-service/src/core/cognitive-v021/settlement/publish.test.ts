@@ -762,6 +762,78 @@ function systemNoticeRecheckFixture(reason = "context_allocation_required_overfl
   return { sidecar, nuclear, cycle, notice, reservationId: Number(inserted.lastInsertRowid) };
 }
 
+const PRODUCTION_SYSTEM_NOTICE_FIXTURE = {
+  ownerId: "212123686923272192",
+  conversationId: "2d445d64-ca17-4fd7-91e3-9f3578062a16",
+  cycleId: "cycle:e79cf81d3b8ae97ea2561828e7e39bd6f09db9ec931ef1c1787bf3b09d207ef8",
+  noticeKey: "thought_failure:2d445d64-ca17-4fd7-91e3-9f3578062a16:cycle:e79cf81d3b8ae97ea2561828e7e39bd6f09db9ec931ef1c1787bf3b09d207ef8:125:thought_deadline",
+  noticeText: "[system] Thought did not complete. Please send the message again. Error code: THOUGHT_DEADLINE_EXCEEDED",
+  projectionKey: "system:31",
+  noticeId: 31,
+  reservationId: 329,
+} as const;
+
+function productionSystemNoticeFailureFixture(options: { terminal: boolean }): {
+  sidecar: DatabaseSync;
+  nuclear: DatabaseSync;
+} {
+  const sidecar = openTestSidecar();
+  const nuclear = openNuclearDb(new DatabaseSync(":memory:"));
+  const fixture = PRODUCTION_SYSTEM_NOTICE_FIXTURE;
+  admitTestCycle(sidecar, {
+    cycleId: fixture.cycleId,
+    conversationId: fixture.conversationId,
+    generation: 125,
+    triggerKind: "owner_message",
+    triggerRef: "production-system-notice-31",
+    occupantId: fixture.ownerId,
+    authorityEpoch: 1,
+    nowMs: 1,
+  });
+  sidecar.prepare(
+    `INSERT INTO system_notice_outbox
+       (notice_id, notice_key, projection_key, cycle_id, conversation_id, notice_text,
+        send_status, nuclear_reservation_id, discord_message_id, origin, delivery_intent_json)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, 'live', ?)`,
+  ).run(
+    fixture.noticeId,
+    fixture.noticeKey,
+    fixture.projectionKey,
+    fixture.cycleId,
+    fixture.conversationId,
+    fixture.noticeText,
+    options.terminal ? "send_failure" : "pending",
+    fixture.reservationId,
+    JSON.stringify({
+      ownerId: fixture.ownerId,
+      channel: "discord",
+      threadId: fixture.conversationId,
+      conversationId: fixture.conversationId,
+      trigger: "owner_message_reactive",
+      deliveryLane: "reactive",
+      purpose: "system_notice",
+    }),
+  );
+  nuclear.prepare(
+    `INSERT INTO delivery_reservations
+       (id, owner_id, channel, thread_id, trigger, delivery_lane, state,
+        error_category, finalization_reason, draft_text, created_at,
+        cognitive_v021_projection_key, speech_outbox_id, destination_json)
+     VALUES (?, ?, 'discord', ?, 'reactive', 'reactive', ?, ?, ?, ?, ?, ?, NULL, NULL)`,
+  ).run(
+    fixture.reservationId,
+    fixture.ownerId,
+    fixture.conversationId,
+    options.terminal ? "aborted" : "reserved",
+    options.terminal ? "aborted" : null,
+    options.terminal ? "send_failure" : null,
+    fixture.noticeText,
+    "2026-09-17T00:31:13.857Z",
+    fixture.projectionKey,
+  );
+  return { sidecar, nuclear };
+}
+
 describe("P0 system-notice Owner-DM recheck split", () => {
   it("A: accepts a valid system notice with no speech_outbox row", () => {
     const fixture = systemNoticeRecheckFixture();
@@ -946,6 +1018,56 @@ describe("P0 system-notice Owner-DM recheck split", () => {
       speech.sidecar.close();
       system.nuclear.close();
       system.sidecar.close();
+    }
+  });
+});
+
+describe("production-shaped system-notice failure 31", () => {
+  it("keeps the historical aborted reservation terminal and speech-free", () => {
+    const fixture = productionSystemNoticeFailureFixture({ terminal: true });
+    try {
+      expect(fixture.sidecar.prepare(
+        "SELECT notice_id, projection_key, cycle_id, conversation_id, send_status, nuclear_reservation_id FROM system_notice_outbox",
+      ).get()).toMatchObject({
+        notice_id: 31,
+        projection_key: "system:31",
+        cycle_id: PRODUCTION_SYSTEM_NOTICE_FIXTURE.cycleId,
+        conversation_id: PRODUCTION_SYSTEM_NOTICE_FIXTURE.conversationId,
+        send_status: "send_failure",
+        nuclear_reservation_id: 329,
+      });
+      expect(fixture.sidecar.prepare("SELECT COUNT(*) AS count FROM speech_outbox").get())
+        .toMatchObject({ count: 0 });
+      expect(recheckOwnerPublicationReservation(
+        fixture.nuclear,
+        PRODUCTION_SYSTEM_NOTICE_FIXTURE.reservationId,
+        2,
+        { cognitiveSidecar: fixture.sidecar },
+      )).toEqual({ ok: false, reason: "delivery_not_sendable" });
+    } finally {
+      fixture.nuclear.close();
+      fixture.sidecar.close();
+    }
+  });
+
+  it("routes the same projection identity through system truth when still pending", () => {
+    const fixture = productionSystemNoticeFailureFixture({ terminal: false });
+    try {
+      expect(recheckOwnerPublicationReservation(
+        fixture.nuclear,
+        PRODUCTION_SYSTEM_NOTICE_FIXTURE.reservationId,
+        2,
+        { cognitiveSidecar: fixture.sidecar },
+      )).toEqual({ ok: true });
+      expect(recheckOwnerDmPublicationReservation(
+        fixture.nuclear,
+        PRODUCTION_SYSTEM_NOTICE_FIXTURE.reservationId,
+        2,
+        { cognitiveSidecar: fixture.sidecar },
+      )).toEqual({ ok: false, reason: "speech_outbox_missing" });
+    } finally {
+      fixture.nuclear.close();
+      fixture.sidecar.close();
     }
   });
 });
