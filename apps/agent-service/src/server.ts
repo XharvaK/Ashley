@@ -63,6 +63,10 @@ import {
 } from "./core/cognitive-v021/thought/diagnostics.js";
 import { listPeriodicDiagnostics } from "./core/cognitive-v021/initiative/periodic-diagnostics.js";
 import {
+  buildProactiveOperatorStatus,
+  unavailableProactiveOperatorStatus,
+} from "./core/cognitive-v021/initiative/operator-status.js";
+import {
   readPublicPresenceContext,
   readPublicPresenceState,
   recordPublicPresenceProjection,
@@ -2389,8 +2393,29 @@ export function createServer(
           throw new AppError("forbidden", "Forbidden", 403);
         }
       }
+      const legacy = manager.core.getProactiveStatus(ownerId);
+      const nuclear = typeof manager.core.getDatabase === "function"
+        ? manager.core.getDatabase()
+        : null;
+      let status;
+      if (cognitiveSidecar && observabilityDb && nuclear) {
+        try {
+          status = buildProactiveOperatorStatus({
+            sidecar: cognitiveSidecar,
+            nuclear,
+            observabilityDb,
+            ownerId,
+            legacy,
+            nowMs: Date.now(),
+          });
+        } catch {
+          status = unavailableProactiveOperatorStatus({ legacy });
+        }
+      } else {
+        status = unavailableProactiveOperatorStatus({ legacy });
+      }
       res.json({
-        ...manager.core.getProactiveStatus(ownerId),
+        ...status,
         raEffectiveConfig: getRaEffectiveConfig(),
       });
     } catch (err) {

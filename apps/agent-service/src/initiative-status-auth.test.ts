@@ -50,6 +50,11 @@ describe("initiative status authorization", () => {
       expect(ownerResponse.status).toBe(200);
       const ownerBody = await ownerResponse.json() as Record<string, unknown>;
       expect(ownerBody).not.toHaveProperty("cognitiveContinuity");
+      expect(ownerBody).toHaveProperty("legacyProactiveEnabled", true);
+      expect(ownerBody).toHaveProperty("periodicCognitionEnabled");
+      expect(ownerBody).toHaveProperty("nextEligibleAt");
+      expect(ownerBody).toHaveProperty("eligibleOccupiedConcernCount");
+      expect(ownerBody).not.toHaveProperty("lastUserMessageAt");
       expect(ownerBody.raEffectiveConfig).toEqual(getRaEffectiveConfig());
       expect(ownerBody.raEffectiveConfig).toEqual(expect.objectContaining({
         commitmentsEnabled: expect.any(Boolean),

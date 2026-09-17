@@ -57,6 +57,20 @@ export function stopProactiveScheduler(): void {
   cognitiveIdleRunning = false;
 }
 
+export type CognitiveIdleSchedulerStatus = {
+  active: boolean;
+  running: boolean;
+  cadenceMinutes: number;
+};
+
+export function getCognitiveIdleSchedulerStatus(): CognitiveIdleSchedulerStatus {
+  return {
+    active: cognitiveIdleTimer !== null,
+    running: cognitiveIdleRunning,
+    cadenceMinutes: config.proactiveCheckIntervalMin,
+  };
+}
+
 export async function pauseProactive(): Promise<void> {
   await pauseProactiveRemote();
 }

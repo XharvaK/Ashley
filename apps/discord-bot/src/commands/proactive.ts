@@ -1,9 +1,49 @@
 import type { ChatInputCommandInteraction } from "discord.js";
+import type { InitiativeStatus } from "../agent-client.js";
 import {
+  getCognitiveIdleSchedulerStatus,
   getProactiveStatus,
   pauseProactive,
   resumeProactive,
 } from "../initiative/scheduler.js";
+
+type SchedulerStatus = ReturnType<typeof getCognitiveIdleSchedulerStatus>;
+
+function at(value: string | null): string {
+  return value ?? "unknown";
+}
+
+export function renderProactiveStatus(
+  status: InitiativeStatus,
+  scheduler: SchedulerStatus,
+): string {
+  const periodic = status.statusAvailability === "available"
+    ? status.periodicCognitionEnabled ? "enabled" : "disabled"
+    : "unavailable";
+  const schedulerState = scheduler.active
+    ? scheduler.running ? "active (running)" : "active"
+    : "inactive";
+  const occurrence = status.lastPeriodicOccurrence
+    ? `${status.lastPeriodicOccurrence.outcome}${status.lastPeriodicOccurrence.detail ? ` (${status.lastPeriodicOccurrence.detail})` : ""} at ${status.lastPeriodicOccurrence.closedAt}`
+    : "none";
+  const thought = status.lastProactiveThought
+    ? `${status.lastProactiveThought.state} at ${status.lastProactiveThought.admittedAt}`
+    : "none";
+  const delivery = status.lastProactiveDelivery
+    ? `${status.lastProactiveDelivery.status} (outbox #${status.lastProactiveDelivery.outboxId})`
+    : "none";
+  return [
+    `Legacy proactive switch: ${status.legacyProactiveEnabled ? "on" : "off"}`,
+    `Periodic cognition: ${periodic}`,
+    `Scheduler: ${schedulerState}; poll: ${status.periodicScheduleState}`,
+    `Cadence: ~${scheduler.cadenceMinutes} minutes`,
+    `Next opportunity: ${at(status.nextEligibleAt)}`,
+    `Last opportunity: ${occurrence}`,
+    `Eligible occupied concerns: ${status.statusAvailability === "available" ? status.eligibleOccupiedConcernCount : "unknown"}`,
+    `Last proactive Thought: ${thought}`,
+    `Last proactive message: ${delivery}`,
+  ].join("\n");
+}
 
 export async function execute(
   interaction: ChatInputCommandInteraction,
@@ -12,15 +52,7 @@ export async function execute(
 
   if (action === "status") {
     const status = await getProactiveStatus();
-    const lines = [
-      `Unprompted messages: ${status.enabled ? "on" : "off"}`,
-      status.paused ? "Paused right now." : "Not paused.",
-      `Sent today: ${status.sentToday}/${status.maxPerDay}`,
-      `Quiet until you've been idle ~${status.minIdleHours}h`,
-      `Last time I texted first: ${status.lastSentAt ?? "never"}`,
-      `Last thing you said: ${status.lastUserMessageAt ?? "never"}`,
-    ];
-    await interaction.editReply(lines.join("\n"));
+    await interaction.editReply(renderProactiveStatus(status, getCognitiveIdleSchedulerStatus()));
     return;
   }
 

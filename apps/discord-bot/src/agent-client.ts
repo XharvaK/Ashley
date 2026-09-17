@@ -608,24 +608,51 @@ export async function resumeProactiveRemote() {
   });
 }
 
-export async function initiativeStatus() {
+export type InitiativeStatus = {
+  statusAvailability: "available" | "unavailable";
+  legacyProactiveEnabled: boolean;
+  legacyPaused: boolean;
+  legacySentToday: number;
+  legacyMaxPerDay: number;
+  legacyLastSentAt: string | null;
+  legacyMinIdleHours: number;
+  periodicCognitionEnabled: boolean;
+  periodicScheduleState: "unavailable" | "not_initialized" | "waiting" | "pending" | "disabled";
+  periodicCadenceMs: number;
+  nextEligibleAt: string | null;
+  pendingOccurrenceId: string | null;
+  activeConversationId: string | null;
+  lastOwnerEvidenceAt: string | null;
+  eligibleOccupiedConcernCount: number;
+  lastPeriodicOccurrence: {
+    outcome: string;
+    detail: string | null;
+    eligibleAt: string;
+    closedAt: string;
+  } | null;
+  lastProactiveThought: {
+    cycleId: string;
+    generation: number;
+    conversationId: string;
+    triggerKind: string;
+    state: string;
+    admittedAt: string;
+  } | null;
+  lastProactiveDelivery: {
+    outboxId: number;
+    cycleId: string;
+    generation: number;
+    status: string;
+    suppressed: boolean;
+    nuclearReservationId: number | null;
+  } | null;
+};
+
+export async function initiativeStatus(): Promise<InitiativeStatus> {
   const q = new URLSearchParams({
     owner_id: config.ownerId,
   });
-  return agentFetch<{
-    enabled: boolean;
-    paused: boolean;
-    sentToday: number;
-    maxPerDay: number;
-    lastSentAt: string | null;
-    lastUserMessageAt: string | null;
-    minIdleHours: number;
-    lastDiagnostic: {
-      at: string;
-      stage: string;
-      code: string;
-    } | null;
-  }>(`/initiative/status?${q}`);
+  return agentFetch<InitiativeStatus>(`/initiative/status?${q}`);
 }
 
 export type IdentityReview = {
