@@ -300,6 +300,9 @@ describe("Thought semantic output contract", () => {
     expect(instruction).toContain("readOnly does not convert an effect-class operation into an observation");
     expect(instruction).toContain("workspace.verify");
     expect(instruction).toContain("Operational commitments are distinct from conversational continuation");
+    expect(instruction).toContain("Thought authors concern and occupancy deltas");
+    expect(instruction).toContain("Set occupancy only for explicitly authored or supplied concerns");
+    expect(instruction).toContain("resolved and quarantined concerns are not eligible for occupied projection");
     expect(instruction).toContain("Every operational effectRef must refer to one of the complete Host-admitted operational effect references supplied in allowedOperationalEffectRefs");
     expect(instruction).toContain("If allowedOperationalEffectRefs is empty, omit commitments.operational");
     expect(instruction).toContain("This contract describes output shape only");

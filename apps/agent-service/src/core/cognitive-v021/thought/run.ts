@@ -862,7 +862,8 @@ function materializeSemanticSettlement(
   // Local semantic aliases are resolved to ordinary durable IDs in this
   // kernel projection. The aliases themselves never become a lookup namespace.
   const localAliases = new Map<string, LocalAliasBinding>();
-  const conversationId = input.rawConversation[0]?.conversationId
+  const conversationId = input.sourceCurrentness?.conversationId
+    ?? input.rawConversation[0]?.conversationId
     ?? input.occupancy[0]?.conversationId
     ?? input.cycleId;
   // Register declaration identities before resolving cross-domain references.

@@ -23,6 +23,10 @@ import { getThoughtAttemptCounters } from "./counters.js";
 import { computeDispatchMessagesHash } from "./projection.js";
 import { initObservabilitySchema, openObservabilityStore } from "./diagnostics.js";
 import { THOUGHT_UNAVAILABLE_NOTICE } from "../speech/infrastructure-notice.js";
+import { listConcerns } from "../concerns/lineage.js";
+import { listOccupancy } from "../concerns/occupancy.js";
+import { buildOccupiedConcernProjection } from "./occupied-concerns.js";
+import { createSchedule, evaluatePeriodicPoll } from "../initiative/periodic-schedule.js";
 import {
   createThoughtCycleTokenMetrics,
   executionProvenanceFromMetadata,
@@ -949,6 +953,176 @@ describe("v0.2.1 Thought run", () => {
         intentsStillInFlight: [],
       });
       expect(sidecar.prepare("SELECT COUNT(*) AS count FROM speech_outbox").get()).toMatchObject({ count: 1 });
+    } finally {
+      sidecar.close();
+      attentionDb.close();
+    }
+  });
+
+  it("carries a Thought-authored concern and occupancy delta through publication into periodic eligibility", async () => {
+    const sidecar = openTestSidecar();
+    const attentionDb = openTestSidecar();
+    const conversationId = "thread-concern-handoff";
+    const cycle = admitTestCycle(sidecar, {
+      cycleId: "cycle-concern-handoff",
+      conversationId,
+      triggerKind: "owner_message",
+      triggerRef: "owner-concern-handoff",
+      occupantId: "doc",
+      authorityEpoch: 1,
+      nowMs: 1,
+    });
+    const evidence = appendOwnerUtterance(sidecar, {
+      conversationId,
+      text: "Keep the project follow-up in view.",
+      discordMessageIds: ["concern-handoff-message"],
+      nowMs: 2,
+    });
+    const event = appendInboxEvent(sidecar, {
+      wakeId: cycle.wakeId,
+      conversationId,
+      kind: "owner_message",
+      payload: { cycleId: cycle.cycleId, evidenceRowId: evidence.rowId, ownerMessage: evidence.text },
+      createdAtMs: 2,
+    });
+
+    try {
+      const result = await runCognitiveCycle(sidecar, attentionDb, event, deps({
+        attentionDb,
+        completeChat: vi.fn(async () => ({
+          text: JSON.stringify(makeSemanticSettlement({
+            speech: { mode: "none" },
+            concernDeltas: [{
+              op: "upsert",
+              record: {
+                identity: { kind: "local", alias: "projectFollowUp" },
+                statement: "The project follow-up still needs attention.",
+                sourceTurnRefs: [evidence.rowId],
+                dimensions: {
+                  source: "owner_utterance",
+                  status: "asserted",
+                  time: "historical",
+                  reliability: "owner_supplied",
+                },
+                status: "active",
+              },
+            }],
+            occupancyDeltas: [{
+              op: "set",
+              concernRef: { kind: "local", alias: "projectFollowUp" },
+              status: "active",
+              priority: 7,
+            }],
+          })),
+          model: "fake",
+          modelAlias: "thought",
+          resolvedModelId: null,
+        })),
+      }));
+
+      expect(result.published).toBe(true);
+      const concerns = listConcerns(sidecar, conversationId);
+      const occupancy = listOccupancy(sidecar, conversationId);
+      expect(concerns).toHaveLength(1);
+      expect(concerns[0]).toMatchObject({
+        conversationId,
+        statement: "The project follow-up still needs attention.",
+        status: "active",
+        sourceTurnIds: [evidence.rowId],
+      });
+      expect(occupancy).toHaveLength(1);
+      expect(occupancy[0]).toMatchObject({ conversationId, status: "active", priority: 7 });
+      expect(buildOccupiedConcernProjection(occupancy, concerns)).toEqual([{
+        concernId: concerns[0]!.concernId,
+        statement: "The project follow-up still needs attention.",
+        status: "active",
+        priority: 7,
+        dimensions: { status: "asserted", reliability: "owner_supplied" },
+        provenance: "cognitive_sidecar.concerns",
+      }]);
+
+      const schedule = createSchedule(sidecar, { authorityEpoch: 1, nowMs: 100 });
+      const decision = await evaluatePeriodicPoll(sidecar, {
+        enabled: true,
+        authorityEpoch: 1,
+        nowMs: schedule.nextEligibleAtMs,
+        scopeConversationId: conversationId,
+        occupantId: "doc",
+        acquireObservations: vi.fn(async () => []),
+      });
+      expect(decision.kind).toBe("admit_runnable");
+      expect(listConcerns(sidecar, "unrelated-conversation")).toEqual([]);
+      expect(listOccupancy(sidecar, "unrelated-conversation")).toEqual([]);
+    } finally {
+      sidecar.close();
+      attentionDb.close();
+    }
+  });
+
+  it("binds newly authored concern and occupancy rows to the cycle conversation when no evidence row is present", async () => {
+    const sidecar = openTestSidecar();
+    const attentionDb = openTestSidecar();
+    const conversationId = "thread-empty-evidence-identity";
+    const cycle = admitTestCycle(sidecar, {
+      cycleId: "cycle-empty-evidence-identity",
+      conversationId,
+      triggerKind: "idle_opportunity",
+      triggerRef: "idle-empty-evidence-identity",
+      occupantId: "doc",
+      authorityEpoch: 1,
+      nowMs: 1,
+    });
+    const event = appendInboxEvent(sidecar, {
+      wakeId: cycle.wakeId,
+      conversationId,
+      kind: "idle_opportunity",
+      payload: { cycleId: cycle.cycleId, ownerId: "doc" },
+      createdAtMs: 2,
+    });
+
+    try {
+      const result = await runCognitiveCycle(sidecar, attentionDb, event, deps({
+        attentionDb,
+        completeChat: vi.fn(async () => ({
+          text: JSON.stringify(makeSemanticSettlement({
+            speech: { mode: "none" },
+            concernDeltas: [{
+              op: "upsert",
+              record: {
+                identity: { kind: "local", alias: "emptyEvidenceConcern" },
+                statement: "A periodic concern authored without a raw evidence row.",
+                sourceTurnRefs: [],
+                dimensions: {
+                  source: "ashley_interpretation",
+                  status: "interpreted",
+                  time: "historical",
+                  reliability: "inferred",
+                },
+                status: "active",
+              },
+            }],
+            occupancyDeltas: [{
+              op: "set",
+              concernRef: { kind: "local", alias: "emptyEvidenceConcern" },
+              status: "active",
+              priority: 3,
+            }],
+          })),
+          model: "fake",
+          modelAlias: "thought",
+          resolvedModelId: null,
+        })),
+      }));
+
+      expect(result.published).toBe(true);
+      expect(listConcerns(sidecar, conversationId)).toEqual([
+        expect.objectContaining({ conversationId, statement: "A periodic concern authored without a raw evidence row." }),
+      ]);
+      expect(listOccupancy(sidecar, conversationId)).toEqual([
+        expect.objectContaining({ conversationId, status: "active", priority: 3 }),
+      ]);
+      expect(listConcerns(sidecar, cycle.cycleId)).toEqual([]);
+      expect(listOccupancy(sidecar, cycle.cycleId)).toEqual([]);
     } finally {
       sidecar.close();
       attentionDb.close();
