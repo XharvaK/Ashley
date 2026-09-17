@@ -6,6 +6,7 @@ import { C1_OPENCODE_FREE_CATALOG } from "./catalog.js";
 import {
   createQuotaRouter,
   offerWorkerTask,
+  resetOpenCodeProcessQuotaMemory,
   routeWorkerTask,
   setModelHealth,
 } from "./quota-router.js";
@@ -19,6 +20,7 @@ import {
 const paths: string[] = [];
 
 afterEach(() => {
+  resetOpenCodeProcessQuotaMemory();
   for (const path of paths.splice(0)) rmSync(path, { recursive: true, force: true });
 });
 
@@ -119,6 +121,25 @@ describe("OpenCode quota router", () => {
     expect(JSON.parse(readFileSync(path, "utf8")).OTHER_FREE.capacity).toBe("quota_exhausted");
     const router = createQuotaRouter({ state: reloaded, nowMs: 51 });
     expect(routeWorkerTask(router, "iterative_engineering").ok).toBe(false);
+  });
+
+  it("keeps model health process-local across router instances", () => {
+    let router = createQuotaRouter({
+      state: {
+        NVIDIA_FREE: { capacity: "available", providerResetAtMs: null, hostNextProbeAtMs: null },
+        OTHER_FREE: { capacity: "available", providerResetAtMs: null, hostNextProbeAtMs: null },
+      },
+    });
+    for (const modelId of C1_OPENCODE_FREE_CATALOG.classes.NVIDIA_FREE) {
+      router = setModelHealth(router, modelId, "temporarily_unavailable");
+    }
+    const next = createQuotaRouter({
+      state: {
+        NVIDIA_FREE: { capacity: "available", providerResetAtMs: null, hostNextProbeAtMs: null },
+        OTHER_FREE: { capacity: "available", providerResetAtMs: null, hostNextProbeAtMs: null },
+      },
+    });
+    expect(routeWorkerTask(next, "delegated_read")).toEqual({ ok: false, reason: "unavailable" });
   });
 
   it("keeps providerResetAtMs unknown unless supplied", () => {

@@ -28,6 +28,8 @@ import {
   type ExecutePatchExportV2Result,
 } from "../../sandbox/patch-export-execution.js";
 import {
+  canOfferCandidateWorkspace,
+  canOfferProjectInspection,
   loadOperatorProjectReadRegistry,
   type V2ProjectReadRegistry,
 } from "../../sandbox/project-registry.js";
@@ -76,6 +78,7 @@ const WORKSPACE_OPERATIONS = new Set([
 
 type LiveSandboxOverrides = Partial<SandboxV2Environment> & {
   sandboxEngineeringLifecycleEnabled?: boolean;
+  substrateAvailable?: boolean;
 };
 
 type LiveOperationAdapters = {
@@ -289,7 +292,10 @@ function inferDispatchEvidence(
     license.error === "unknown_field" ||
     license.error === "missing_project" ||
     license.error === "missing_workspace" ||
-    license.error === "opencode_pin_mismatch"
+    license.error === "opencode_pin_mismatch" ||
+    license.error === "worker_gate_denied" ||
+    license.error === "opencode_binary_missing" ||
+    license.error === "native_tool_forbidden"
   ) {
     return { provenNotStarted: true };
   }
@@ -436,6 +442,17 @@ export function createV021LiveOperationExecutors(
     const quotaState = loadQuotaState(env.opencodeQuotaStatePath);
     const router = createQuotaRouter({ catalog, state: quotaState, nowMs: nowMs() });
     const base = operationBase(nowMs);
+    const sandboxGate = {
+      registry,
+      masterMode: env.cognitionMode,
+      lifecycleEnabled: options.envOverrides?.sandboxEngineeringLifecycleEnabled ?? env.sandboxEngineeringLifecycleEnabled,
+      substrateAvailable: options.envOverrides?.substrateAvailable,
+    };
+    const gateOk = options.adapters?.executeModeBWorker
+      ? true
+      : kind === MODE_B_INVESTIGATE
+        ? canOfferProjectInspection(options.nuclear, sandboxGate)
+        : canOfferCandidateWorkspace(options.nuclear, sandboxGate);
     return adapters.executeModeBWorker({
       kind,
       request,
@@ -468,6 +485,8 @@ export function createV021LiveOperationExecutors(
       nowMs,
       deadlineAtMs: base + 60_000,
       workerEnabled: env.opencodeWorkerEnabled,
+      gateOk,
+      gateError: gateOk ? undefined : "worker_gate_denied",
     });
   }
 

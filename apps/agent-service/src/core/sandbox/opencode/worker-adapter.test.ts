@@ -2,13 +2,14 @@ import { rmSync } from "node:fs";
 import { afterEach, describe, expect, it } from "vitest";
 import { OPENCODE_PINNED_VERSION } from "./catalog.js";
 import { createTempIsolationRoot } from "./isolation.js";
-import { createQuotaRouter } from "./quota-router.js";
+import { createQuotaRouter, resetOpenCodeProcessQuotaMemory } from "./quota-router.js";
 import { emptyQuotaState, recordClassExhausted } from "./quota-state.js";
-import { executeModeBWorker, type OpenCodeTransport } from "./worker-adapter.js";
+import { decodeOpenCodeRunStdout, executeModeBWorker, type OpenCodeTransport } from "./worker-adapter.js";
 
 const roots: string[] = [];
 
 afterEach(() => {
+  resetOpenCodeProcessQuotaMemory();
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
@@ -119,6 +120,54 @@ describe("Mode-B worker adapter", () => {
     expect(result.steps).toHaveLength(0);
     expect(result.license.executionTruth).toBe("no_effect_proven");
     expect(base.dispatchers.executeWorkspaceExperimentV2).toBeDefined();
+  });
+
+  it("parses OpenCode JSONL text events into the Host protocol", async () => {
+    const decoded = decodeOpenCodeRunStdout([
+      JSON.stringify({ type: "step_start" }),
+      JSON.stringify({ type: "text", text: "{\"type\":\"complete\",\"summary\":\"done\"}" }),
+      JSON.stringify({ type: "step_finish" }),
+    ].join("\n"));
+    expect(decoded.nativeTool).toBe(false);
+    expect(decoded.text).toContain("\"type\":\"complete\"");
+  });
+
+  it("does not spawn when V2 gates refuse admission", async () => {
+    const base = baseInput();
+    let spawned = 0;
+    const result = await executeModeBWorker({
+      ...base,
+      kind: "project.investigate",
+      request: { projectId: "project-ashley" },
+      purpose: "look",
+      gateOk: false,
+      gateError: "worker_gate_denied",
+      transport: {
+        async complete() {
+          spawned += 1;
+          return { text: "{\"type\":\"complete\",\"summary\":\"no\"}" };
+        },
+      },
+    });
+    expect(spawned).toBe(0);
+    expect(result.license.error).toBe("worker_gate_denied");
+  });
+
+  it("does not mark a quota class available after malformed inference", async () => {
+    const base = baseInput();
+    base.router = createQuotaRouter({ state: emptyQuotaState() });
+    await executeModeBWorker({
+      ...base,
+      kind: "project.investigate",
+      request: { projectId: "project-ashley" },
+      purpose: "look",
+      transport: {
+        async complete() {
+          return { text: "not-json", status: 1 };
+        },
+      },
+    });
+    expect(base.quota.state.NVIDIA_FREE.capacity).not.toBe("available");
   });
 
   it("refuses NVIDIA engineering when OTHER_FREE is exhausted before spawn", async () => {

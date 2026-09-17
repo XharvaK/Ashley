@@ -27,6 +27,7 @@ import {
   type QuotaStateFile,
 } from "./quota-state.js";
 import {
+  rememberClassInFlight,
   routeWorkerTask,
   setModelHealth,
   type QuotaRouter,
@@ -92,6 +93,40 @@ function extractJsonObject(text: string): Record<string, unknown> | null {
       return null;
     }
   }
+}
+
+export function decodeOpenCodeRunStdout(stdout: string): { text: string; nativeTool: boolean } {
+  const lines = stdout.split(/\r?\n/).map((line) => line.trim()).filter((line) => line.length > 0);
+  if (lines.length === 0) return { text: stdout, nativeTool: false };
+  let text = "";
+  let nativeTool = false;
+  let parsedAny = false;
+  for (const line of lines) {
+    try {
+      const event = JSON.parse(line) as unknown;
+      if (!isRecord(event)) continue;
+      parsedAny = true;
+      const type = String(event.type ?? event.kind ?? "");
+      if (type === "tool_use" || type === "tool_call" || type === "tool") nativeTool = true;
+      const part = isRecord(event.part) ? event.part : null;
+      const chunk = typeof event.text === "string"
+        ? event.text
+        : part && typeof part.text === "string"
+          ? part.text
+          : "";
+      if (chunk) text += chunk;
+    } catch {
+      // non-JSONL residue is ignored when any event parsed
+    }
+  }
+  if (!parsedAny) return { text: stdout, nativeTool: false };
+  if (text.length === 0) {
+    const host = extractJsonObject(stdout);
+    if (host && (host.type === "tool_request" || host.type === "complete")) {
+      return { text: stdout, nativeTool };
+    }
+  }
+  return { text, nativeTool };
 }
 
 function parseWorkerMessage(text: string):
@@ -164,7 +199,11 @@ export function spawnOpenCodeTransport(): OpenCodeTransport {
         });
         child.on("close", (status) => {
           clearTimeout(timer);
-          resolve({ text: stdout || stderr, status });
+          const decoded = decodeOpenCodeRunStdout(stdout || stderr);
+          resolve({
+            text: decoded.nativeTool ? "{\"type\":\"native_tool_forbidden\"}" : decoded.text,
+            status,
+          });
         });
       });
     },
@@ -195,6 +234,8 @@ export type ExecuteModeBWorkerInput = {
   deadlineAtMs: number;
   transport?: OpenCodeTransport;
   workerEnabled: boolean;
+  gateOk?: boolean;
+  gateError?: string;
 };
 
 function taskClassFor(kind: string): WorkerTaskClass {
@@ -216,8 +257,12 @@ export async function executeModeBWorker(input: ExecuteModeBWorkerInput): Promis
   });
 
   if (!input.workerEnabled) return empty("worker_disabled");
+  if (input.gateOk === false) return empty(input.gateError ?? "worker_gate_denied");
   if (input.pinnedVersion !== input.router.catalog.pinnedOpenCodeVersion) {
     return empty("opencode_pin_mismatch");
+  }
+  if (!input.transport && !resolveOpenCodeBinary(input.binaryPath)) {
+    return empty("opencode_binary_missing");
   }
   const parsed = validateModeBRequest({ kind: input.kind, request: input.request });
   if (!parsed.ok) return empty(parsed.error);
@@ -235,6 +280,7 @@ export async function executeModeBWorker(input: ExecuteModeBWorkerInput): Promis
 
   if (routed.bootstrap) {
     router.inFlightFirstAttempt[routed.quotaClass] = true;
+    rememberClassInFlight(routed.quotaClass, true);
   }
 
   const admissionId = randomUUID();
@@ -288,12 +334,19 @@ export async function executeModeBWorker(input: ExecuteModeBWorkerInput): Promis
         terminalError = "worker_capacity_exhausted";
         break;
       }
-      quotaState = recordClassAvailable(quotaState, selected.quotaClass);
-      const message = parseWorkerMessage(turn.text);
+      const decoded = decodeOpenCodeRunStdout(turn.text);
+      if (decoded.nativeTool) {
+        router = setModelHealth(router, selected.modelId, "temporarily_unavailable");
+        terminalError = "native_tool_forbidden";
+        break;
+      }
+      const message = parseWorkerMessage(decoded.text);
       if (message.type === "malformed") {
+        router = setModelHealth(router, selected.modelId, "temporarily_unavailable");
         terminalError = "malformed_worker_output";
         break;
       }
+      quotaState = recordClassAvailable(quotaState, selected.quotaClass);
       if (message.type === "complete") {
         summary = message.summary;
         break;
@@ -338,7 +391,10 @@ export async function executeModeBWorker(input: ExecuteModeBWorkerInput): Promis
       destroyAdmission(layout);
     }
     input.persistQuota(quotaState);
-    if (selected.bootstrap) delete router.inFlightFirstAttempt[selected.quotaClass];
+    if (selected.bootstrap) {
+      delete router.inFlightFirstAttempt[selected.quotaClass];
+      rememberClassInFlight(selected.quotaClass, false);
+    }
   }
 
   const childFailed = steps.some((step) => step.license.state === "failed");

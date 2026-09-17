@@ -43,12 +43,29 @@ export type QuotaRouter = {
   nowMs: number;
 };
 
+let processModelHealth: Record<string, ModelHealth> = {};
+let processInFlight: Partial<Record<QuotaClass, boolean>> = {};
+
+export function resetOpenCodeProcessQuotaMemory(): void {
+  processModelHealth = {};
+  processInFlight = {};
+}
+
+export function rememberModelHealth(modelId: string, health: ModelHealth): void {
+  processModelHealth[modelId] = health;
+}
+
+export function rememberClassInFlight(quotaClass: QuotaClass, inFlight: boolean): void {
+  if (inFlight) processInFlight[quotaClass] = true;
+  else delete processInFlight[quotaClass];
+}
+
 export function createQuotaRouter(input: Partial<QuotaRouter> = {}): QuotaRouter {
   return {
     catalog: input.catalog ?? C1_OPENCODE_FREE_CATALOG,
     state: input.state ?? emptyQuotaState(),
-    modelHealth: input.modelHealth ?? {},
-    inFlightFirstAttempt: input.inFlightFirstAttempt ?? {},
+    modelHealth: { ...processModelHealth, ...(input.modelHealth ?? {}) },
+    inFlightFirstAttempt: { ...processInFlight, ...(input.inFlightFirstAttempt ?? {}) },
     nowMs: input.nowMs ?? Date.now(),
   };
 }
@@ -234,6 +251,7 @@ export function setModelHealth(
   modelId: string,
   health: ModelHealth,
 ): QuotaRouter {
+  rememberModelHealth(modelId, health);
   return {
     ...router,
     modelHealth: { ...router.modelHealth, [modelId]: health },
