@@ -75,23 +75,27 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+const NATIVE_TOOL_TYPES = new Set([
+  "tool_use",
+  "tool_call",
+  "tool",
+  "bash",
+  "shell",
+  "edit",
+  "write",
+  "patch",
+  "webfetch",
+]);
+
 function extractJsonObject(text: string): Record<string, unknown> | null {
   const trimmed = text.trim();
-  const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  const fenced = trimmed.match(/^```json\s*([\s\S]*?)```$/i);
   const candidate = fenced ? fenced[1].trim() : trimmed;
   try {
     const parsed = JSON.parse(candidate) as unknown;
     return isRecord(parsed) ? parsed : null;
   } catch {
-    const start = candidate.lastIndexOf("{");
-    const end = candidate.lastIndexOf("}");
-    if (start < 0 || end <= start) return null;
-    try {
-      const parsed = JSON.parse(candidate.slice(start, end + 1)) as unknown;
-      return isRecord(parsed) ? parsed : null;
-    } catch {
-      return null;
-    }
+    return null;
   }
 }
 
@@ -107,8 +111,9 @@ export function decodeOpenCodeRunStdout(stdout: string): { text: string; nativeT
       if (!isRecord(event)) continue;
       parsedAny = true;
       const type = String(event.type ?? event.kind ?? "");
-      if (type === "tool_use" || type === "tool_call" || type === "tool") nativeTool = true;
       const part = isRecord(event.part) ? event.part : null;
+      const partType = part && typeof part.type === "string" ? part.type : "";
+      if (NATIVE_TOOL_TYPES.has(type) || NATIVE_TOOL_TYPES.has(partType)) nativeTool = true;
       const chunk = typeof event.text === "string"
         ? event.text
         : part && typeof part.text === "string"
@@ -160,6 +165,7 @@ function hostProtocolPrompt(input: {
     `Allowed tool operations: ${tools}.`,
     "To request a tool: {\"type\":\"tool_request\",\"operation\":\"<operation>\",\"request\":{...}}",
     "To finish: {\"type\":\"complete\",\"summary\":\"<short mechanical summary>\"}.",
+    "Paths in request must be project-relative with no leading slash and no .. segments.",
     "Do not claim that a file was read or written unless a tool result in this prompt says so.",
     `projectId: ${input.request.projectId}`,
     input.request.focus ? `focus: ${input.request.focus}` : "",
@@ -179,6 +185,7 @@ export function spawnOpenCodeTransport(): OpenCodeTransport {
             cwd: input.cwd,
             env: input.env,
             windowsHide: true,
+            stdio: ["ignore", "pipe", "pipe"],
           },
         );
         let stdout = "";
@@ -244,6 +251,36 @@ function taskClassFor(kind: string): WorkerTaskClass {
 
 function profileFor(kind: string): WorkerToolProfile {
   return kind === MODE_B_INVESTIGATE ? "read" : "candidate";
+}
+
+function remainingDeadlines(
+  base: ExecuteModeBWorkerInput["inspectionBase"],
+  nowMs: number,
+  deadlineAtMs: number,
+): ExecuteModeBWorkerInput["inspectionBase"] {
+  const remaining = Math.max(1, deadlineAtMs - nowMs);
+  return {
+    ...base,
+    projectInspectionPreparationDeadlineAtMs: nowMs + Math.min(8_000, Math.max(1, Math.floor(remaining * 0.2))),
+    childExecutionDeadlineAtMs: nowMs + Math.min(20_000, Math.max(1, Math.floor(remaining * 0.5))),
+    childTerminationDeadlineAtMs: nowMs + Math.min(35_000, Math.max(1, Math.floor(remaining * 0.75))),
+    settlementDeadlineAtMs: nowMs + remaining,
+  };
+}
+
+function remainingWorkspaceDeadlines(
+  base: ExecuteModeBWorkerInput["workspaceBase"],
+  nowMs: number,
+  deadlineAtMs: number,
+): ExecuteModeBWorkerInput["workspaceBase"] {
+  const remaining = Math.max(1, deadlineAtMs - nowMs);
+  return {
+    ...base,
+    deadlineAtMs: nowMs + remaining,
+    childExecutionDeadlineAtMs: nowMs + Math.min(20_000, Math.max(1, Math.floor(remaining * 0.5))),
+    childTerminationDeadlineAtMs: nowMs + Math.min(35_000, Math.max(1, Math.floor(remaining * 0.75))),
+    settlementDeadlineAtMs: nowMs + remaining,
+  };
 }
 
 export async function executeModeBWorker(input: ExecuteModeBWorkerInput): Promise<ModeBWorkerResult> {
@@ -357,8 +394,8 @@ export async function executeModeBWorker(input: ExecuteModeBWorkerInput): Promis
         workspaceId,
         call: message.call,
         dispatchers: input.dispatchers,
-        inspectionBase: input.inspectionBase,
-        workspaceBase: input.workspaceBase,
+        inspectionBase: remainingDeadlines(input.inspectionBase, input.nowMs(), input.deadlineAtMs),
+        workspaceBase: remainingWorkspaceDeadlines(input.workspaceBase, input.nowMs(), input.deadlineAtMs),
       });
       if (!tool.ok) {
         steps.push({

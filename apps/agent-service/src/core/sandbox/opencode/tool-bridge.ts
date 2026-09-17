@@ -105,7 +105,11 @@ function normalizeInspection(
       ...(typeof call.request.maxMatches === "number" ? { maxMatches: call.request.maxMatches } : {}),
     };
   }
-  if (operation === "project.read_file" || operation === "project.list_directory") {
+  if (operation === "project.list_directory") {
+    const path = stringValue(call.request.path) ?? ".";
+    return { operation, projectId, path };
+  }
+  if (operation === "project.read_file") {
     const path = stringValue(call.request.path);
     if (!path) return null;
     return { operation, projectId, path };

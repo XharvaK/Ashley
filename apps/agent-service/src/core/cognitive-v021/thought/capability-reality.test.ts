@@ -214,6 +214,7 @@ describe("v0.2.1 CapabilityReality live-surface contract", () => {
         lifecycleEnabled: true,
         substrateAvailable: true,
         opencodeWorkerEnabled: true,
+        opencodeBinaryPath: process.execPath,
         opencodeQuotaStatePath: "this-path-does-not-exist.json",
       } as Parameters<typeof getCapabilityReality>[1]);
       expect(reality.canOfferBoundedOperation).toBe(false);
@@ -221,6 +222,19 @@ describe("v0.2.1 CapabilityReality live-surface contract", () => {
       expect(reality.canOfferDelegatedInvestigation).toBe(true);
       expect(reality.operationCapabilities?.some((operation) => operation.operationKind === "project.investigate")).toBe(true);
       expect(JSON.stringify(reality)).not.toMatch(/NVIDIA_FREE|OTHER_FREE|Nemotron|Muse/);
+
+      const notReady = getCapabilityReality(db, {
+        registry: registry(),
+        masterMode: "apply",
+        lifecycleEnabled: true,
+        substrateAvailable: true,
+        opencodeWorkerEnabled: true,
+        opencodeBinaryPath: "",
+        opencodeQuotaStatePath: "this-path-does-not-exist.json",
+      } as Parameters<typeof getCapabilityReality>[1]);
+      expect(notReady.canOfferProjectInspection).toBe(true);
+      expect(notReady.canOfferDelegatedInvestigation).toBe(false);
+      expect(notReady.operationCapabilities?.some((operation) => operation.operationKind === "project.investigate")).toBe(false);
     } finally {
       db.close();
     }

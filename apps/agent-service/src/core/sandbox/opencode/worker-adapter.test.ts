@@ -132,6 +132,133 @@ describe("Mode-B worker adapter", () => {
     expect(decoded.text).toContain("\"type\":\"complete\"");
   });
 
+  it("parses the Mint 1.18.30 JSONL shape for Host tool_request and complete", () => {
+    const tool = decodeOpenCodeRunStdout([
+      JSON.stringify({
+        type: "step_start",
+        timestamp: 1789618041886,
+        sessionID: "ses_c1",
+        part: { id: "prt_1", messageID: "msg_1", sessionID: "ses_c1", type: "step-start" },
+      }),
+      JSON.stringify({
+        type: "text",
+        timestamp: 1789618043631,
+        sessionID: "ses_c1",
+        part: {
+          id: "prt_2",
+          messageID: "msg_1",
+          sessionID: "ses_c1",
+          type: "text",
+          text: "{\"type\":\"tool_request\",\"operation\":\"project.list_directory\",\"request\":{\"path\":\".\"}}",
+        },
+      }),
+      JSON.stringify({
+        type: "step_finish",
+        timestamp: 1789618043631,
+        sessionID: "ses_c1",
+        part: {
+          id: "prt_3",
+          reason: "stop",
+          messageID: "msg_1",
+          sessionID: "ses_c1",
+          type: "step-finish",
+          tokens: { total: 1, input: 1, output: 1, reasoning: 0, cache: { write: 0, read: 0 } },
+          cost: 0,
+        },
+      }),
+    ].join("\n"));
+    expect(tool.nativeTool).toBe(false);
+    expect(JSON.parse(tool.text)).toEqual({
+      type: "tool_request",
+      operation: "project.list_directory",
+      request: { path: "." },
+    });
+
+    const complete = decodeOpenCodeRunStdout(
+      JSON.stringify({
+        type: "text",
+        sessionID: "ses_c1",
+        part: { type: "text", text: "{\"type\":\"complete\",\"summary\":\"c1-ok\"}" },
+      }),
+    );
+    expect(JSON.parse(complete.text)).toEqual({ type: "complete", summary: "c1-ok" });
+  });
+
+  it("does not treat JSON buried in bash-fenced prose as a Host complete", async () => {
+    const base = baseInput();
+    const transport: OpenCodeTransport = {
+      async complete() {
+        return {
+          text: [
+            JSON.stringify({ type: "step_start", part: { type: "step-start" } }),
+            JSON.stringify({
+              type: "text",
+              part: {
+                type: "text",
+                text: "Let me start by running the test script.\n```bash\necho '{\"type\":\"complete\",\"summary\":\"c1-ok\"}'\n```",
+              },
+            }),
+            JSON.stringify({ type: "step_finish", part: { type: "step-finish", reason: "stop" } }),
+          ].join("\n"),
+        };
+      },
+    };
+    const result = await executeModeBWorker({
+      ...base,
+      kind: "project.investigate",
+      request: { projectId: "project-ashley" },
+      purpose: "look",
+      transport,
+    });
+    expect(result.steps).toHaveLength(0);
+    expect(result.license.error).toBe("malformed_worker_output");
+    expect(result.license.executionTruth).toBe("no_effect_proven");
+  });
+
+  it("refreshes V2 inspection deadlines at each tool dispatch", async () => {
+    const base = baseInput();
+    const captured: number[] = [];
+    base.inspectionBase = {
+      ...base.inspectionBase,
+      projectInspectionPreparationDeadlineAtMs: 1,
+      childExecutionDeadlineAtMs: 2,
+      childTerminationDeadlineAtMs: 3,
+      settlementDeadlineAtMs: 4,
+    };
+    base.dispatchers.executeProjectInspectionV2 = async (input) => {
+      captured.push(input.projectInspectionPreparationDeadlineAtMs);
+      return {
+        license: { state: "succeeded" as const, profile: "project_investigation" },
+        observation: { projectId: "project-ashley", operation: "project.list_directory" },
+        dispatchAttempted: true,
+      };
+    };
+    let calls = 0;
+    await executeModeBWorker({
+      ...base,
+      kind: "project.investigate",
+      request: { projectId: "project-ashley" },
+      purpose: "look",
+      transport: {
+        async complete() {
+          calls += 1;
+          if (calls === 1) {
+            return {
+              text: JSON.stringify({
+                type: "tool_request",
+                operation: "project.list_directory",
+                request: {},
+              }),
+            };
+          }
+          return { text: JSON.stringify({ type: "complete", summary: "done" }) };
+        },
+      },
+    });
+    expect(captured).toHaveLength(1);
+    expect(captured[0]).toBeGreaterThan(Date.now() - 2_000);
+  });
+
   it("does not spawn when V2 gates refuse admission", async () => {
     const base = baseInput();
     let spawned = 0;

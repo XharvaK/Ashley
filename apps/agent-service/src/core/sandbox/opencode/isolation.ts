@@ -172,7 +172,13 @@ export function buildWorkerEnv(input: WorkerEnvBuildInput): Record<string, strin
   mkdirSync(env.APPDATA, { recursive: true });
   mkdirSync(env.LOCALAPPDATA, { recursive: true });
   if (input.tz) env.TZ = input.tz;
-  if (input.sslCertFile) env.SSL_CERT_FILE = input.sslCertFile;
+  else if (process.env.TZ) env.TZ = process.env.TZ;
+  env.LANG = process.env.LANG ?? "C.UTF-8";
+  const certFile = input.sslCertFile ??
+    (existsSync("/etc/ssl/certs/ca-certificates.crt")
+      ? "/etc/ssl/certs/ca-certificates.crt"
+      : undefined);
+  if (certFile) env.SSL_CERT_FILE = certFile;
   for (const key of WINDOWS_SPAWN_KEYS) {
     const value = process.env[key];
     if (value) env[key] = value;

@@ -56,6 +56,31 @@ describe("OpenCode V2 tool bridge", () => {
     expect(executeProjectInspectionV2).not.toHaveBeenCalled();
   });
 
+  it("defaults list_directory to the project root when path is omitted", async () => {
+    const executeProjectInspectionV2 = vi.fn(async () => ({
+      license: { state: "succeeded" as const, profile: "project_investigation" },
+      observation: { projectId: "project-ashley", operation: "project.list_directory" },
+      dispatchAttempted: true,
+    }));
+    const executeWorkspaceExperimentV2 = vi.fn();
+    const result = await executeWorkerTool({
+      profile: "read",
+      projectId: "project-ashley",
+      call: { operation: "project.list_directory", request: {} },
+      dispatchers: { executeProjectInspectionV2, executeWorkspaceExperimentV2 },
+      inspectionBase,
+      workspaceBase,
+    });
+    expect(result.ok).toBe(true);
+    expect(executeProjectInspectionV2).toHaveBeenCalledWith(expect.objectContaining({
+      request: expect.objectContaining({
+        operation: "project.list_directory",
+        projectId: "project-ashley",
+        path: ".",
+      }),
+    }));
+  });
+
   it("dispatches authorized candidate workspace ops only with the Host workspace id", async () => {
     const executeProjectInspectionV2 = vi.fn();
     const executeWorkspaceExperimentV2 = vi.fn(async () => ({

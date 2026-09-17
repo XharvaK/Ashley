@@ -25,6 +25,7 @@ import {
   createQuotaRouter,
   loadQuotaState,
   offerWorkerTask,
+  resolveOpenCodeBinary,
   type WorkerOfferReason,
 } from "../../sandbox/opencode/index.js";
 
@@ -49,6 +50,7 @@ export type CapabilityRealityOptions = {
   licenses?: readonly string[];
   opencodeWorkerEnabled?: boolean;
   opencodeQuotaStatePath?: string;
+  opencodeBinaryPath?: string;
   opencodeCandidateDevelopAllowsNvidia?: boolean;
   nowMs?: number;
 };
@@ -254,6 +256,8 @@ export function getCapabilityReality(
   const patchExportAvailable = V021_LIVE_OPERATION_CAPABILITIES.has("patch_export") &&
     canOfferPatchExport(db, sandboxOptions);
   const workerEnabled = options.opencodeWorkerEnabled ?? env.opencodeWorkerEnabled;
+  const workerReady = workerEnabled &&
+    resolveOpenCodeBinary(options.opencodeBinaryPath ?? env.opencodeBinaryPath) !== null;
   const catalog = {
     ...C1_OPENCODE_FREE_CATALOG,
     candidateDevelopAllowsNvidia:
@@ -264,10 +268,10 @@ export function getCapabilityReality(
     state: loadQuotaState(options.opencodeQuotaStatePath ?? env.opencodeQuotaStatePath),
     nowMs: options.nowMs ?? Date.now(),
   });
-  const readOffer = workerEnabled && projectInspectionAvailable
+  const readOffer = workerReady && projectInspectionAvailable
     ? offerWorkerTask(workerRouter, "delegated_read")
     : { offerable: false, reason: "unavailable" as const };
-  const engineeringOffer = workerEnabled && workspaceAvailable
+  const engineeringOffer = workerReady && workspaceAvailable
     ? offerWorkerTask(workerRouter, "iterative_engineering")
     : { offerable: false, reason: "unavailable" as const };
   const delegatedInvestigationAvailable = readOffer.offerable;

@@ -36,6 +36,11 @@ describe("OpenCode isolation", () => {
     expect(env.HOME).not.toBe(process.env.HOME);
     expect(env.COMPOSER_ENV_FILE).toBeUndefined();
     expect(env.OPENCODE_CONFIG).toBe(layout.admissionConfigPath);
+    expect(env.CLOUDFLARE_API_TOKEN).toBeUndefined();
+    expect(env.LANG).toBeTruthy();
+    if (existsSync("/etc/ssl/certs/ca-certificates.crt")) {
+      expect(env.SSL_CERT_FILE).toBe("/etc/ssl/certs/ca-certificates.crt");
+    }
   });
 
   it("keeps durable auth and discards admission conversation state", () => {
