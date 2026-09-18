@@ -15,6 +15,7 @@ import {
   reconcileUnbatchedCaptures,
 } from "./core/cognitive-v021/cycle/reconcile.js";
 import { reconcileStrandedOutcomeUnknownAtStartup } from "./core/cognitive-v021/retry/startup-outcome-recovery.js";
+import { serviceUnansweredOwnerRecovery } from "./core/cognitive-v021/retry/owner-recovery.js";
 import { repairMissingC3Experiences } from "./core/cognitive-v021/failure/c3-recovery.js";
 import { startFrontierCoordinator, type FrontierCoordinatorHandle } from "./core/cognitive-v021/frontier/index.js";
 import {
@@ -354,6 +355,25 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
     // through proof-gated durable-work authority. cycle/reconcile never calls
     // reconcileOutcomeUnknown.
     reconcileStrandedOutcomeUnknownAtStartup(sidecar, { nowMs: Date.now() });
+    // R1 unanswered-Owner recovery: discover terminal/quarantined Owner
+    // obligations with no ordinary continuation and materialize at most one
+    // conversation-coalesced repair undertaking per conversation, then
+    // converge mechanically orphaned pending wakes. Runs after ownership and
+    // outcome-unknown reconciliation so eligibility sees settled truth, and
+    // before the inbox consumer begins so repairs enter ordinary claim flow.
+    try {
+      const ownerRecovery = serviceUnansweredOwnerRecovery(sidecar, { nowMs: Date.now() });
+      if (ownerRecovery.createdRepairs.length > 0
+        || ownerRecovery.wakesConverged.length > 0
+        || ownerRecovery.failedConversations.length > 0
+        || ownerRecovery.lineageExhaustedConversations.length > 0) {
+        console.warn(
+          `[cognitive-v021] unanswered owner recovery eligible=${ownerRecovery.eligibleConversations} repairs=${ownerRecovery.createdRepairs.length} wakes_converged=${ownerRecovery.wakesConverged.length} failed=${ownerRecovery.failedConversations.length} lineage_exhausted=${ownerRecovery.lineageExhaustedConversations.length}`,
+        );
+      }
+    } catch (error) {
+      console.warn("[cognitive-v021] unanswered_owner_recovery_deferred", error);
+    }
     try {
       await repairMissingC3Experiences(sidecar, nuclear, { nowMs: Date.now(), limit: 50 });
     } catch (error) {
@@ -422,6 +442,13 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
           }
         } catch (error) {
           console.warn("[cognitive-v021] delivery reconciliation maintenance deferred", error);
+        }
+        // R1 steady-state opportunity: newly terminalized eligible obligations
+        // materialize a repair here; the pass is bounded and idempotent.
+        try {
+          serviceUnansweredOwnerRecovery(sidecar, { nowMs });
+        } catch (error) {
+          console.warn("[cognitive-v021] unanswered owner recovery maintenance deferred", error);
         }
         try {
           sweepExpiredArtifacts(nuclear, { nowMs, limit: 50 });

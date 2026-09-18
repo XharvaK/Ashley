@@ -43,6 +43,7 @@ import {
   type OwnerObligationAttemptOutcome,
   type OwnerObligationResolution,
   type ConversationalCommitment,
+  type ThoughtContinuityRecovery,
 } from "../types.js";
 import {
   createThoughtStructuralFeedback,
@@ -127,6 +128,7 @@ import { validateThoughtSettlementDraft } from "../settlement/validate.js";
 import { getPublishedSettlementIdentity, publishSemanticTransaction } from "../settlement/publish.js";
 import { getWake } from "../wake/ledger.js";
 import { resolveOriginProfile } from "../cycle/origin-profile.js";
+import { resolveRepairContinuityRecovery } from "../retry/owner-recovery.js";
 import { admitOwnerSuppliedClaim, runGovernedAdmissionCatchup } from "../memory/admission.js";
 import { hasStructuredCurrentnessEntitlement } from "../authority/check.js";
 import {
@@ -2408,6 +2410,24 @@ export async function runCognitiveCycle(
     ? getConversationEvidence(sidecar, payload.evidenceRowId)
     : null;
   if (triggerEvidence) cycle = appendCycleLogIds(sidecar, cycle.cycleId, [triggerEvidence.rowId], deps.nowMs());
+  // R1 continuity recovery: a repair event carries no new Owner message. When
+  // it carries validated recovery references, project the mechanical frame
+  // into Thought input and cycle coverage, and address the primary
+  // outstanding row as the current trigger. The Host states only the factual
+  // continuity situation; Thought authors all meaning and response. Legacy
+  // repairs without references run as plain recovery triggers (unchanged).
+  let continuityRecovery: ThoughtContinuityRecovery | null = null;
+  if (event.kind === "repair") {
+    const resolved = resolveRepairContinuityRecovery(sidecar, event);
+    continuityRecovery = resolved.frame;
+    cycle = appendCycleLogIds(
+      sidecar,
+      cycle.cycleId,
+      resolved.evidence.map((item) => item.rowId),
+      deps.nowMs(),
+    );
+    triggerEvidence = resolved.primary;
+  }
   const externalCycle = cycle.triggerKind === "external_message" || event.kind === "external_utterance";
   const externalDestination = externalCycle ? externalDestinationFor(payload) : null;
   const ownerRoomContextPresent = Object.prototype.hasOwnProperty.call(payload, "ownerRoomContext");
@@ -2707,6 +2727,7 @@ export async function runCognitiveCycle(
       triggerKindOverride: originProfile.triggerKind,
       triggerText: ownerMessage,
       triggerEvidence,
+      ...(continuityRecovery ? { continuityRecovery } : {}),
       constitution: deps.constitution,
       capabilityReality: cycleCapabilityReality,
       ...(publicPresence === undefined ? {} : { publicPresence }),

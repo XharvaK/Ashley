@@ -138,6 +138,16 @@ export type CreateRepairEventInput = {
   nowMs: number;
   eventId?: string;
   payload?: unknown;
+  /**
+   * R1 continuity-recovery references stored on the repair payload (no new
+   * store): the ledger fills repairEventId. Absent for legacy repairs, which
+   * run as plain recovery triggers.
+   */
+  continuityRecovery?: {
+    primaryPredecessorEventId: string;
+    outstandingOwnerEvidenceRefs: readonly string[];
+    reason: "unanswered_owner_obligation_recovery";
+  };
 };
 
 export type RepairEvent = {
@@ -1281,8 +1291,18 @@ export function createRepairEvent(db: DatabaseSync, input: CreateRepairEventInpu
     const existing = existingRepair(db, input.predecessorEventId, input.authorizationRef);
     if (existing) return existing;
     const predecessor = event(db, input.predecessorEventId);
-    if (predecessor.state !== "reconciling" && predecessor.state !== "quarantined") {
+    const predecessorTerminalFailed = predecessor.state === "terminal" && predecessor.status === "failed_terminal";
+    if (predecessor.state !== "reconciling" && predecessor.state !== "quarantined" && !predecessorTerminalFailed) {
       throw new Error("repair_predecessor_not_reconciling");
+    }
+    if (input.continuityRecovery) {
+      const refs = input.continuityRecovery.outstandingOwnerEvidenceRefs;
+      if (!Array.isArray(refs) || refs.length === 0
+        || refs.some((ref) => typeof ref !== "string" || !ref.trim())
+        || input.continuityRecovery.reason !== "unanswered_owner_obligation_recovery"
+        || !input.continuityRecovery.primaryPredecessorEventId.trim()) {
+        throw new Error("repair_continuity_recovery_invalid");
+      }
     }
     const admission = admitWakeInTransaction(db, {
       occurrenceId: occurrenceIdFor({ sourceKind: "inbox", triggerRef: deterministicId, conversationId: predecessor.conversation_id }),
@@ -1299,6 +1319,16 @@ export function createRepairEvent(db: DatabaseSync, input: CreateRepairEventInpu
       referenceOnly: true,
       repairOfEventId: input.predecessorEventId,
       authorizationRef: input.authorizationRef,
+      ...(input.continuityRecovery
+        ? {
+            continuityRecovery: {
+              repairEventId: deterministicId,
+              primaryPredecessorEventId: input.continuityRecovery.primaryPredecessorEventId,
+              outstandingOwnerEvidenceRefs: [...input.continuityRecovery.outstandingOwnerEvidenceRefs],
+              reason: input.continuityRecovery.reason,
+            },
+          }
+        : {}),
     });
     db.prepare(
       `INSERT INTO inbox_events

@@ -89,6 +89,7 @@ export type ProjectedThoughtInput = {
   trigger: {
     kind: CycleTriggerKind;
     ref: string;
+    continuityRecovery?: ThoughtInput["trigger"]["continuityRecovery"];
   };
   commitmentDue?: ThoughtInput["commitmentDue"];
   rawConversation: ThoughtInput["rawConversation"];

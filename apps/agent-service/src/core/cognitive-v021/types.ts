@@ -1341,12 +1341,26 @@ export type CommitmentDueProjection = Readonly<{
   evidenceCompleteness: CommitmentEvidenceCompleteness;
 }>;
 
+/**
+ * Host-projected continuity-recovery frame for a repair Thought. Mechanical
+ * references only: which repair this is, which predecessor Owner obligation
+ * failed, and which canonical Owner evidence rows remain outstanding. The
+ * Host states the factual continuity situation; Thought authors all meaning,
+ * wording, interpretation, and response. Present only on repair-kind turns.
+ */
+export type ThoughtContinuityRecovery = Readonly<{
+  repairEventId: string;
+  primaryPredecessorEventId: string;
+  outstandingOwnerEvidenceRefs: readonly string[];
+  reason: "unanswered_owner_obligation_recovery";
+}>;
+
 export type ThoughtInput = {
   cycleId: CycleId;
   generation: Generation;
   occupantId: OccupantId;
   authorityEpoch: AuthorityEpoch;
-  trigger: { kind: CycleTriggerKind; ref: string };
+  trigger: { kind: CycleTriggerKind; ref: string; continuityRecovery?: ThoughtContinuityRecovery };
   /** Stored commitment meaning plus fire-time evidence completeness for Thought. */
   commitmentDue?: CommitmentDueProjection;
   rawConversation: ConversationEvidenceRecord[];

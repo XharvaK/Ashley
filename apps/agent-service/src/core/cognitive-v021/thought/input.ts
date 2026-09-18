@@ -93,6 +93,11 @@ export type BuildThoughtInputOptions = {
   stableSelfBound?: number;
   /** Host-derived recovery/profile trigger. It is not a new persisted authority. */
   triggerKindOverride?: CycleTriggerKind;
+  /**
+   * Host-projected continuity-recovery frame for a repair Thought. Mechanical
+   * references only; Thought authors all meaning. Set only for repair-kind turns.
+   */
+  continuityRecovery?: ThoughtInput["trigger"]["continuityRecovery"] | null;
   /** Set only for the autonomous idle-opportunity public-presence affordance. */
   publicPresence?: PublicPresenceContext;
   /** One coherent source package for the current semantic pass. */
@@ -848,6 +853,14 @@ export function buildThoughtInput(options: BuildThoughtInputOptions): ThoughtInp
     trigger: {
       kind: options.triggerKindOverride ?? options.cycle.triggerKind as CycleTriggerKind,
       ref: options.cycle.triggerRef,
+      ...(options.continuityRecovery
+        ? {
+            continuityRecovery: {
+              ...options.continuityRecovery,
+              outstandingOwnerEvidenceRefs: [...options.continuityRecovery.outstandingOwnerEvidenceRefs],
+            },
+          }
+        : {}),
     },
     ...(options.commitmentDue === undefined ? {} : { commitmentDue: { ...options.commitmentDue } }),
     rawConversation,
