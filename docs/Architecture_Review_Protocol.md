@@ -75,6 +75,8 @@ Every boundary review must answer the following questions:
 - Which dependency or ownership inversion disappeared?
 - Were any new peer dependencies introduced?
 - Was observable runtime behavior preserved?
+- For any claimed current wiring, were producer + consumer + reachable source
+  path + gate established from source rather than assumed from prose?
 - Does the implementation satisfy every Definition of Done item?
 - Were obsolete forwarding wrappers removed (if applicable)?
 - Was the smallest implementation algorithm step used (Move → Rename → Extract → New abstraction)?

@@ -11,13 +11,14 @@ relevant domain owners own and enforce them. Naming the profile is not a
 Freeze-map amendment.
 
 **Cognitive reconstruction (accepted 2026-08-29):** Project Ashley Cognitive
-Architecture v0.2.1 is `ACCEPTED ARCHITECTURE / IMPLEMENTATION PLANNED`. It
+Architecture v0.2.1 is `ACCEPTED ARCHITECTURE / IMPLEMENTED IN CURRENT SOURCE`. It
 does not add a freeze-map owner. Thought owns semantic judgment. Agency owns
 executive mechanics. Table cells below that send **meaning** “through Agency”
 are **SUPERSEDED** for cognitive authorship. Effect **admission/dispatch**
 may still be described as Agency/kernel mechanics. Focused contract:
 [`cognitive/Ashley_Cognitive_Architecture_v0.2.1.md`](cognitive/Ashley_Cognitive_Architecture_v0.2.1.md).
-Not implemented, qualified, deployed, or production accepted.
+Present implementation status lives in exact source; qualification,
+deployment, and production claims live in bound evidence.
 
 **Scope:** Architecture and documentation only. This document grants no
 implementation, installation, activation, provider, Mint, deployment,

@@ -17,9 +17,10 @@ Operational Continuity inbox and a future Event Spine.
 
 Cognitive reconstruction (owner-accepted 2026-08-29):
 [`architecture/cognitive/Ashley_Cognitive_Architecture_v0.2.1.md`](architecture/cognitive/Ashley_Cognitive_Architecture_v0.2.1.md).
-That contract is `ACCEPTED ARCHITECTURE / IMPLEMENTATION PLANNED`. It owns the
-Thought / Agency split below. It is not implemented, qualified, deployed, or
-production accepted.
+That contract is `ACCEPTED ARCHITECTURE / IMPLEMENTED IN CURRENT SOURCE`. It owns the
+Thought / Agency split below. Implementation, qualification, deployment, and
+production acceptance are separate facts; resolve them from exact current
+source and bound evidence.
 
 ---
 

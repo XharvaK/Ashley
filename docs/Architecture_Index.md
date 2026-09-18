@@ -74,15 +74,23 @@ an explicitly audited Routing Status snapshot, not in this implementation map.
 
 Two processes: `agent-service` (:3710) + `discord-bot` (gateway).
 
+CURRENT SOURCE TOPOLOGY (resolve live state from source and bound evidence,
+not from this map):
+
 ```
-Discord DM → /chat/text → Identity + Mind State + Recall → Thought → Agency / Expression → delivery
-Proactive tick → Agency.decide → draft → reserve → send → receipt / reconcile → commit / finalize
-Curiosity feed → nuclear.db takes → Agency motivations
-Committed proactive reaction → Reflection → bounded future Thought calibration
-Completed exchange → durable cognition job → episode → Mind State / affect / learning proposal
-Urgent concern or commitment → Discord wake poll → normal Agency send pipeline
-Grounded engineering intent → admission → direct unprivileged Bubblewrap → receipt / reconcile
+Discord → POST /chat/ingress → inbox → wake/cycle → runLiveCognitiveTurn → Thought → settlement → speech outbox → delivery projector/pump → receipt/finalize
+Periodic: scheduler → POST /initiative/idle → schedule/inquiry gate → wake only when admitted → Thought → normal settlement/delivery
+Due commitments: commitment store → `commitment_due` wake → Thought projection → normal settlement/delivery (gated by RA_COMMITMENTS)
+Engineering: Thought-visible typed project operations are capability-bound; the generic M6 Thought offer remains hard false
 ```
+
+Reflection owns post-outcome interpretation/calibration; it has no
+current-turn authority and has no live calibration consumer in Thought.
+The following are gone or superseded — do not treat them as current:
+`POST /chat/text`; the Agency.decide proactive pipeline (draft → reserve →
+send; the module is source-present but no non-test source reaches it);
+the nuclear cognition-job endpoints; the old urgent-wake poll path and its
+send pipeline.
 
 SQLite: `~/.composer-assistant/conversations/nuclear.db`.
 

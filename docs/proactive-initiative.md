@@ -1,6 +1,8 @@
-# Proactive messages (nuclear)
+# Proactive messages / periodic initiative (nuclear)
 
-Ashley messages first when Agency decides she has something to say. Empty material means silence — no filler path.
+Current mechanism: the Discord bot polls on `PROACTIVE_CHECK_INTERVAL_MIN`
+and asks the agent for idle work. The scheduler never sends a Discord
+message directly.
 
 ## Surface
 
@@ -8,42 +10,48 @@ Ashley messages first when Agency decides she has something to say. Empty materi
 - Cap: `PROACTIVE_MAX_PER_DAY`, idle floor: `PROACTIVE_MIN_IDLE_HOURS`
 - Disable: `PROACTIVE_ENABLED=false`, `/proactive pause`, or ask her to stop
 
-## Pipeline
+## Pipeline (current v0.2.1 source)
 
-1. **Scheduler** — Discord bot polls every `PROACTIVE_CHECK_INTERVAL_MIN` minutes (`apps/discord-bot/src/initiative/scheduler.ts`)
-2. **Decide** — `AshleyCore.tickProactive` → Agency motivations + `decide`
-3. **Reserve** — row in `initiative_reservations` (wire shape kept for the bot)
-4. **Send** — bot DMs bubbles, then `/initiative/commit` (or abort on failure)
-5. **Reflect** — explicit 👍/👎 on a committed message updates bounded motivation-kind calibration for future proactive decisions
+1. **Scheduler** — discord-bot interval calls `POST /initiative/idle`
+   (`apps/discord-bot/src/initiative/scheduler.ts` via `tickCognitiveIdle`).
+   It never sends directly.
+2. **Gate** — the v021 idle handler checks the periodic schedule and the
+   inquiry gate (`apps/agent-service/src/core/cognitive-v021/initiative/`);
+   a wake is admitted only when the gate allows it (wake ledger admission).
+3. **Thought** — an admitted wake runs Thought through the bound runner.
+4. **Settlement/delivery** — normal settlement → speech outbox → delivery
+   projector/pump → receipt/finalize, same as the reactive path.
+5. **Due commitments** — due self-commitments surface as `commitment_due`
+   wakes into Thought (gated by `RA_COMMITMENTS`).
 
-Grounded commitments or concerns with urgency at least `0.85` can wake the bot's
-local urgent check instead of waiting for the normal jittered poll. This only
-accelerates evaluation: pause, daily cap, Agency, reservation, deduplication,
-send, commit, and Reflection remain mandatory.
+Silence is the default: empty or unadmitted material means no message —
+no filler path.
 
-Relational initiative is also capability-gated. The cognition master mode must
-permit influence, and `relational_initiative` plus its dependencies must have
-passed release qualification and live-shadow promotion.
+## Operator status
 
-Urgent wakes are edge-triggered (`pending → claimed → consumed`). A claim has a
-five-minute lease; a logged Agency decision consumes it even when Ashley stays
-silent. Failures before a decision retry after 5, 10, 20, 40, then 60 minutes.
-An active item only re-arms when new source-grounded text arrives, it crosses
-the urgency threshold, or urgency rises materially. This permits one wake for
-a concern; further contact needs new evidence or increased urgency. Explicit
-pause and space requests remain authoritative. The urgent endpoint is read-only and
-returns false whenever proactive safeguards or another live claim block work.
+- `GET /initiative/status?owner_id=` — legacy + periodic state
+  (`operator-status.ts`; status only, never proof of delivery)
+- `GET /initiative/periodic/diagnostics`, `GET /initiative/urgent?owner_id=`
+  (local wake signal; never sends directly)
+- `POST /initiative/pause`, `POST /initiative/resume`
+- `GET /nuclear/decisions?owner_id=`, `GET /nuclear/reflections?owner_id=`
 
-Reflection is deterministic and defaults to `ASHLEY_REFLECTION_MODE=observe`.
-Observe mode records and calculates without changing Thought scores; `apply`
-enables the bounded adjustment.
+## Superseded (do not treat as current)
 
-## Observability
+The legacy proactive endpoints are gone: `/initiative/tick`,
+`/initiative/commit`, `/initiative/abort`, `/initiative/evaluate`,
+`/initiative/generate`. There is no current Agency.decide → draft →
+reserve → send pipeline (the decide module is source-present but no
+non-test source reaches it).
 
-- `GET /initiative/status?owner_id=`
-- `GET /nuclear/decisions?owner_id=`
-- `GET /nuclear/reflections?owner_id=`
-- `GET /health` → minimal public liveness/readiness and provider state
-- `GET /initiative/urgent?owner_id=` → local wake signal; never sends directly
+## Reflection note
+
+Reflection owns post-outcome interpretation; it has no current-turn
+authority and no live calibration consumer in Thought. The
+`ASHLEY_REFLECTION_MODE=apply` switch feeds only `applyInitiativeLearning`
+(a legacy motivation-score adjustment with no live caller) — it is
+unrelated to cognitive-graduation C4 `apply` (which throws; live
+application is not authorized and `dark_apply` is fixture-only) and does
+not touch Thought.
 
 See [Architecture_Index.md](Architecture_Index.md).

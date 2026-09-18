@@ -627,7 +627,9 @@ Thought, Memory / Evidence, Reflection, and Evaluation retain ownership.
 bounded future Thought calibration; no current-turn authority. **Current
 runtime is thinner than that architectural sentence:** (1) initiative emoji
 calibration (`initiative_reaction`, last 20 events, ±8 score delta, apply
-mode only); (2) advisory open-cognitive-item review (KEEP/WITHDRAW/
+mode only) — with the applier (`applyInitiativeLearning`) having no live
+caller in current source, so no adjustment reaches any decision path and
+learning rows are evidence only; (2) advisory open-cognitive-item review (KEEP/WITHDRAW/
 SUPERSEDE/RESOLVE; item transition remains fail-closed). Cognition
 consolidation does **not** invoke Reflection. There is no persisted
 predicted-vs-observed Thought-quality record. Thought-observation is a

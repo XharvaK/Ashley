@@ -54,8 +54,11 @@ forbids adding a faculty. Project Ashley Cognitive Architecture v0.2.1
 matures the existing **Thought** and **Agency** owners. It does not add a
 box. Thought owns semantic judgment. Agency owns executive mechanics. Focused
 contract: [`cognitive/Ashley_Cognitive_Architecture_v0.2.1.md`](cognitive/Ashley_Cognitive_Architecture_v0.2.1.md).
-Status: `ACCEPTED ARCHITECTURE / IMPLEMENTATION PLANNED`. Not implemented,
-qualified, deployed, or production accepted.
+Status: `ACCEPTED ARCHITECTURE`; present implementation status lives in
+exact source, and qualification/deployment/production claims live in
+bound evidence — see the currentness rule in the v0.2.1 contract. The
+"IMPLEMENTATION PLANNED / not implemented" sentence described the
+2026-08-29 acceptance point and is preserved there as history.
 
 ## 2. Frozen owner map
 

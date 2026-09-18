@@ -28,6 +28,10 @@ through.
 - Implementation presence never implies production activation. A passing
   test never implies promotion. `RELEASE_QUALIFIED` is not
   `PRODUCTION_ACCEPTED`.
+- A current wiring claim requires a current producer, a current consumer, a
+  reachable source path, and its gate. Architecture prose never establishes
+  that path. If docs and source conflict on current software, report
+  `DOCUMENT_SOURCE_DIVERGENCE` — source wins.
 - `UNKNOWN` is a legitimate, complete answer when the evidence owner cannot
   be inspected. Never paper over it with the latest confident prose.
 - Production observation describes what is live. It does not override
@@ -113,20 +117,25 @@ npm run dev:discord    # agent + discord bot (conflicts with Mint)
 | `~/.composer-assistant/continuity.db` | Authoritative continuity sidecar (lineage, forget, sessions) |
 | `workspace/prompts/nuclear/` | Thin nuclear identity prompts |
 
-Runtime orientation (stable vocabulary; ownership details live in the
-freeze and domain contracts):
+Runtime orientation (current v0.2.1 source topology; ownership details live in
+the freeze and domain contracts; resolve live state from source, not prose):
 
 ```
-Discord DM → POST /chat/text → Identity + Mind State + Recall → Thought → Agency / Expression → delivery
-Proactive tick → Agency.decide → draft → reserve → send → receipt / reconcile → commit / finalize
-Grounded engineering intent → admission → direct unprivileged Bubblewrap → receipt / reconcile
+Discord → POST /chat/ingress → inbox → wake/cycle → runLiveCognitiveTurn → Thought → settlement → speech outbox → delivery projector/pump → receipt/finalize
+Periodic: scheduler → POST /initiative/idle → schedule/inquiry gate → wake only when admitted → Thought → normal settlement/delivery
+Engineering: Thought-visible typed project operations are capability-bound; the generic M6 Thought offer remains hard false
 ```
+
+(`POST /chat/text` is gone. The legacy nuclear Agency.decide proactive
+pipeline is not the current path.)
 
 Identity and Mind State are joint inputs to Thought — neither produces the
 other. Thought owns semantic meaning; the host must not invent it.
 Expression realizes an authorized intent as language. Rendering is platform
-mechanics only. Reflection calibrates future Thought; it has no
-current-turn authority.
+mechanics only. Reflection owns post-outcome interpretation/calibration; it
+has no current-turn authority. Any future-Thought influence remains
+capability/contract gated — establish it from current source, never assume
+it from architecture prose.
 
 When adding behavior, implement it at the lowest layer that naturally owns
 it: stable identity, current mind state, reasoning/effort allocation,

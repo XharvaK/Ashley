@@ -1,12 +1,20 @@
 # Project Ashley Cognitive Architecture v0.2.1
 
-**Status:** `ACCEPTED ARCHITECTURE / IMPLEMENTATION PLANNED`
+**Status:** `ACCEPTED ARCHITECTURE / IMPLEMENTED IN CURRENT SOURCE`
 
 **Accepted:** 2026-08-29 by explicit owner direction (implementation-packet correction request). Prior architecture discovery verdict: READY FOR IMPLEMENTATION-GRADE SPECIFICATION.
 
 **Kind:** Focused cognitive-reconstruction contract. This document does **not** add a freeze-map owner, faculty, kernel, or authority boundary. It reconstructs the existing Thought and Agency owners.
 
-**This is not:** implemented, qualified, deployed, production accepted, or production active.
+**Currentness note:** This contract owns the Thought/Agency semantic split.
+Implementation, deployment, qualification, and production witness are
+separate facts; resolve them from exact current source and bound evidence.
+Source presence never implies production acceptance.
+
+**Historical note:** The "IMPLEMENTATION PLANNED / not implemented" and
+"legacy inverted production path" statements below described the
+2026-08-29 acceptance point and are no longer current implementation
+facts. They are preserved as acceptance-point history, not present truth.
 
 The packet paths below are pre-publication history and are not in the current
 tree. They are provenance references, not current execution routes.
@@ -34,7 +42,10 @@ For the cognitive reconstruction, this contract outranks:
 
 It does **not** outrank Vision, Core Principles, Constitution (identity/ethics), Stewardship Compact, Ethics, or the frozen owner **map**. Thought and Agency remain the same freeze-map boxes. Their internal split is now this contract.
 
-Live production source remains the legacy inverted path until configuration-only cutover of an exact qualified SHA.
+> Historical (2026-08-29 acceptance point, no longer a current
+> implementation fact): "Live production source remains the legacy
+> inverted path until configuration-only cutover of an exact qualified
+> SHA."
 
 ```text
 ACCEPTED ARCHITECTURE
@@ -76,9 +87,14 @@ Agency may block or defer **mechanically**. Agency may not originate semantic in
 
 Luna must not treat `docs/Ashley_Glossary.md`’s pre-2026-08-29 Agency wording, Constitution §Agency, or Cross-Phase “through Agency” cells as superior semantic law. Those texts are superseded for cognitive authorship as of this acceptance. Historical copies remain historical evidence.
 
-## Implementation status
+## Implementation status (historical execution plan)
 
-Owned by the v0.2.1 implementation packet. Execution requires:
+The checklist below is the 2026-08-29 acceptance-point execution plan,
+preserved as history. It is not a statement of what is still pending:
+resolve current implementation, qualification, deployment, and production
+status from exact current source and bound evidence.
+
+Owned by the v0.2.1 implementation packet. Execution required:
 
 1. independently approved packet SHA (`APPROVED_PACKET_REVIEW_SHA`);
 2. owner-selected source baseline SHA (`OWNER_SELECTED_SOURCE_BASELINE_SHA`);

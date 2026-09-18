@@ -349,9 +349,10 @@ authorize promotion, and they do not report present maturity.
 **Cognitive reconstruction v0.2.1 (accepted 2026-08-29):** Owner-accepted
 target architecture for reconstructing Thought (semantic author) and Agency
 (executive kernel). Acceptance (recorded 2026-08-29): `ACCEPTED ARCHITECTURE
-/ IMPLEMENTATION PLANNED`.
-Not a new freeze-map owner. Not implemented, qualified, deployed, or
-production accepted. Does not promote C1–C5. Implementation packet
+/ IMPLEMENTED IN CURRENT SOURCE`.
+Not a new freeze-map owner. Does not promote C1–C5. Present implementation
+status lives in exact source; qualification, deployment, and production
+claims live in bound evidence. Implementation packet
 (pre-publication history; not in the current tree):
 `docs/cognitive-rework/v0.2.1/README.md`.
 Focused contract:

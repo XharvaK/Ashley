@@ -156,7 +156,7 @@ During ordinary owner–Ashley interactions: **do nothing**. Analysis is after t
 
 Forbidden always:
 
-1. Speak in Ashley's channels (Discord, `/chat/text`, any session).
+1. Speak in Ashley's channels (Discord, `/chat/ingress`, any session).
 2. POST to Ashley control surfaces (list in §21).
 3. Start, tick, or enqueue cognition, curiosity, initiative, or Expression.
 4. Open SSE `GET /events` (registers a live client; not a bundle).
@@ -901,7 +901,7 @@ Emergency stop of **Ashley** is Stewardship Compact, not Observer.
 
 Do not POST:
 
-- `/chat/text`
+- `/chat/ingress`
 - `/nuclear/capabilities/evaluation`
 - `/nuclear/capabilities/memory-evidence/evaluation`
 - `/nuclear/capabilities/memory-evidence/qualification-epoch/start`
