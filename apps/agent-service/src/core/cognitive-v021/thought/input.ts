@@ -100,6 +100,8 @@ export type BuildThoughtInputOptions = {
   continuityRecovery?: ThoughtInput["trigger"]["continuityRecovery"] | null;
   /** Set only for the autonomous idle-opportunity public-presence affordance. */
   publicPresence?: PublicPresenceContext;
+  /** Host factual context for the one semantic capacity-wait turn. */
+  capacityWait?: ThoughtInput["capacityWait"];
   /** One coherent source package for the current semantic pass. */
   sourceCapture?: ThoughtSourceCapture;
   /** Audience for this lifecycle. Legacy Owner callers default to Owner-private. */
@@ -891,6 +893,7 @@ export function buildThoughtInput(options: BuildThoughtInputOptions): ThoughtInp
     learnedSelfSlice,
     capabilityReality,
     ...(options.publicPresence === undefined ? {} : { publicPresence: options.publicPresence }),
+    ...(options.capacityWait === undefined ? {} : { capacityWait: { ...options.capacityWait } }),
     ...(options.availableDestinations === undefined ? {} : {
       availableDestinations: options.availableDestinations.map((item) => ({
         audience: { ...item.audience },

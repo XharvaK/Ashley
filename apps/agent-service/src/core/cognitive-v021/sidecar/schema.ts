@@ -881,3 +881,285 @@ CREATE TABLE IF NOT EXISTS cognition_claims (
 );
 UPDATE cognitive_sidecar_meta SET schema_version = 21, projection_state = 'reconciling' WHERE id = 1;
 `;
+
+/**
+ * V22 is the final WQ-compatible schema for the uncommitted candidate. No
+ * persistent candidate-V22 database was found during the implementation
+ * audit, so this migration replaces the candidate design in place rather
+ * than adding a reconciliation-only V23.
+ *
+ * Queue undertakings own retained intent and global scheduling. Detached
+ * operations own one concrete execution. Historical detached identities and
+ * terminal truth are copied verbatim, with legacy rows classified as
+ * OWNER_REQUEST by their required owner-event identity.
+ */
+export const COGNITIVE_SIDECAR_SCHEMA_V22 = String.raw`
+DROP INDEX IF EXISTS idx_detached_operations_active_conversation;
+DROP INDEX IF EXISTS idx_detached_operations_idempotency;
+DROP INDEX IF EXISTS idx_detached_operations_deadline;
+DROP INDEX IF EXISTS idx_detached_operations_capacity_wait;
+ALTER TABLE detached_operations RENAME TO detached_operations_v21;
+CREATE TABLE detached_operations (
+  operation_id TEXT PRIMARY KEY,
+  conversation_id TEXT NOT NULL,
+  origin_cycle_id TEXT NOT NULL,
+  origin_generation INTEGER NOT NULL,
+  origin_kind TEXT NOT NULL CHECK(origin_kind IN ('OWNER_REQUEST', 'ASHLEY_COMMITMENT', 'ASHLEY_CURIOSITY')),
+  origin_ref TEXT NOT NULL,
+  origin_owner_event_id TEXT,
+  origin_evidence_row_id TEXT,
+  operation_kind TEXT NOT NULL CHECK(operation_kind IN ('project.investigate')),
+  request_json TEXT NOT NULL CHECK(json_valid(request_json)),
+  purpose TEXT NOT NULL,
+  evidence_need TEXT NOT NULL,
+  admission_at_ms INTEGER NOT NULL,
+  operation_deadline_at_ms INTEGER NOT NULL,
+  idempotency_key TEXT NOT NULL UNIQUE,
+  worker_binding_json TEXT CHECK(worker_binding_json IS NULL OR json_valid(worker_binding_json)),
+  start_at_ms INTEGER,
+  start_proof_ref TEXT,
+  terminal_state TEXT CHECK(terminal_state IS NULL OR terminal_state IN ('succeeded', 'failed', 'outcome_unknown', 'cancelled', 'stopped')),
+  terminal_at_ms INTEGER,
+  observation_ref TEXT,
+  receipt_ref TEXT,
+  error_code TEXT,
+  interim_outbox_ref TEXT,
+  completion_event_ref TEXT,
+  cancel_requested_at_ms INTEGER,
+  superseded_by TEXT,
+  successor_operation_id TEXT,
+  worker_undertaking_id TEXT UNIQUE,
+  capacity_wait_reason TEXT,
+  capacity_wait_started_at_ms INTEGER,
+  capacity_wait_next_probe_at_ms INTEGER,
+  state TEXT NOT NULL CHECK(state IN ('admitted', 'waiting_capacity', 'started', 'succeeded', 'failed', 'outcome_unknown', 'cancelled', 'stopped')),
+  created_at_ms INTEGER NOT NULL,
+  updated_at_ms INTEGER NOT NULL
+  ,CHECK (
+    (origin_kind = 'OWNER_REQUEST'
+      AND origin_owner_event_id IS NOT NULL
+      AND length(origin_owner_event_id) > 0
+      AND origin_owner_event_id = origin_ref)
+    OR (origin_kind IN ('ASHLEY_COMMITMENT', 'ASHLEY_CURIOSITY')
+      AND origin_owner_event_id IS NULL)
+  )
+);
+INSERT INTO detached_operations (
+  operation_id, conversation_id, origin_cycle_id, origin_generation,
+  origin_kind, origin_ref, origin_owner_event_id, origin_evidence_row_id, operation_kind,
+  request_json, purpose, evidence_need, admission_at_ms,
+  operation_deadline_at_ms, idempotency_key, worker_binding_json,
+  start_at_ms, start_proof_ref, terminal_state, terminal_at_ms,
+  observation_ref, receipt_ref, error_code, interim_outbox_ref,
+  completion_event_ref, cancel_requested_at_ms, superseded_by,
+  successor_operation_id, worker_undertaking_id, state, created_at_ms, updated_at_ms
+)
+SELECT
+  operation_id, conversation_id, origin_cycle_id, origin_generation,
+  'OWNER_REQUEST', origin_owner_event_id, origin_owner_event_id, origin_evidence_row_id, operation_kind,
+  request_json, purpose, evidence_need, admission_at_ms,
+  operation_deadline_at_ms, idempotency_key, worker_binding_json,
+  start_at_ms, start_proof_ref, terminal_state, terminal_at_ms,
+  observation_ref, receipt_ref, error_code, interim_outbox_ref,
+  completion_event_ref, cancel_requested_at_ms, superseded_by,
+  successor_operation_id, NULL, state, created_at_ms, updated_at_ms
+FROM detached_operations_v21;
+DROP TABLE detached_operations_v21;
+CREATE INDEX idx_detached_operations_idempotency
+  ON detached_operations(idempotency_key);
+CREATE INDEX idx_detached_operations_deadline
+  ON detached_operations(state, operation_deadline_at_ms);
+CREATE INDEX idx_detached_operations_capacity_wait
+  ON detached_operations(state, capacity_wait_next_probe_at_ms, operation_id);
+
+DROP INDEX IF EXISTS idx_operation_interim_outbox_operation;
+DROP INDEX IF EXISTS idx_operation_interim_outbox_status;
+ALTER TABLE operation_interim_outbox RENAME TO operation_interim_outbox_v20;
+CREATE TABLE operation_interim_outbox (
+  interim_id INTEGER PRIMARY KEY AUTOINCREMENT,
+  operation_id TEXT UNIQUE,
+  undertaking_id TEXT UNIQUE,
+  projection_key TEXT NOT NULL UNIQUE,
+  conversation_id TEXT NOT NULL,
+  cycle_id TEXT NOT NULL,
+  generation INTEGER NOT NULL,
+  surface_draft TEXT NOT NULL,
+  presentation_directives_json TEXT NOT NULL CHECK(json_valid(presentation_directives_json)),
+  send_status TEXT NOT NULL CHECK(send_status IN ('pending', 'projecting', 'projected', 'sending', 'delivered', 'partially_delivered', 'send_failure', 'suppressed', 'suppressed_shadow')),
+  suppressed INTEGER NOT NULL DEFAULT 0 CHECK(suppressed IN (0, 1)),
+  delivery_intent_json TEXT NOT NULL CHECK(json_valid(delivery_intent_json)),
+  nuclear_reservation_id INTEGER,
+  discord_message_id TEXT,
+  origin TEXT NOT NULL CHECK(origin IN ('live', 'shadow')),
+  authorized_at_ms INTEGER NOT NULL,
+  created_at_ms INTEGER NOT NULL,
+  updated_at_ms INTEGER NOT NULL,
+  CHECK ((operation_id IS NOT NULL AND undertaking_id IS NULL)
+      OR (operation_id IS NULL AND undertaking_id IS NOT NULL))
+);
+INSERT INTO operation_interim_outbox (
+  interim_id, operation_id, undertaking_id, projection_key, conversation_id,
+  cycle_id, generation, surface_draft, presentation_directives_json,
+  send_status, suppressed, delivery_intent_json, nuclear_reservation_id,
+  discord_message_id, origin, authorized_at_ms, created_at_ms, updated_at_ms
+)
+SELECT
+  interim_id, operation_id, NULL, projection_key, conversation_id,
+  cycle_id, generation, surface_draft, presentation_directives_json,
+  send_status, suppressed, delivery_intent_json, nuclear_reservation_id,
+  discord_message_id, origin, authorized_at_ms, created_at_ms, updated_at_ms
+FROM operation_interim_outbox_v20;
+DROP TABLE operation_interim_outbox_v20;
+CREATE INDEX idx_operation_interim_outbox_operation
+  ON operation_interim_outbox(operation_id);
+CREATE INDEX idx_operation_interim_outbox_undertaking
+  ON operation_interim_outbox(undertaking_id);
+CREATE INDEX idx_operation_interim_outbox_status
+  ON operation_interim_outbox(send_status, interim_id);
+
+CREATE TABLE worker_undertakings (
+  undertaking_id TEXT PRIMARY KEY,
+  semantic_kind TEXT NOT NULL CHECK(semantic_kind IN ('project.inspect')),
+  origin_kind TEXT NOT NULL CHECK(origin_kind IN ('OWNER_REQUEST', 'ASHLEY_COMMITMENT', 'ASHLEY_CURIOSITY')),
+  origin_ref TEXT NOT NULL,
+  owner_id TEXT NOT NULL,
+  conversation_id TEXT,
+  origin_cycle_id TEXT NOT NULL,
+  origin_generation INTEGER NOT NULL,
+  origin_owner_event_id TEXT,
+  origin_evidence_row_id TEXT,
+  request_json TEXT NOT NULL CHECK(json_valid(request_json)),
+  purpose TEXT NOT NULL,
+  evidence_need TEXT NOT NULL,
+  admission_key TEXT NOT NULL UNIQUE,
+  state TEXT NOT NULL CHECK(state IN ('queued', 'dispatching', 'running', 'succeeded', 'failed', 'outcome_unknown', 'cancelled', 'superseded', 'expired')),
+  blocked_reason TEXT CHECK(blocked_reason IS NULL OR blocked_reason IN ('worker_busy', 'capacity')),
+  queued_at_ms INTEGER NOT NULL,
+  updated_at_ms INTEGER NOT NULL,
+  curiosity_expires_at_ms INTEGER,
+  selected_operation_id TEXT UNIQUE,
+  selected_calendar_index INTEGER,
+  acknowledgement_ref TEXT,
+  cancel_requested_at_ms INTEGER,
+  superseded_by TEXT,
+  terminal_reason TEXT,
+  terminal_at_ms INTEGER,
+  dispatch_claim_token TEXT,
+  dispatch_claim_expires_at_ms INTEGER,
+  capacity_wait_started_at_ms INTEGER,
+  capacity_next_probe_at_ms INTEGER,
+  CHECK (
+    (origin_kind = 'OWNER_REQUEST'
+      AND origin_owner_event_id IS NOT NULL
+      AND length(origin_owner_event_id) > 0
+      AND origin_owner_event_id = origin_ref)
+    OR (origin_kind IN ('ASHLEY_COMMITMENT', 'ASHLEY_CURIOSITY')
+      AND origin_owner_event_id IS NULL)
+  ),
+  CHECK (origin_kind <> 'ASHLEY_CURIOSITY' OR curiosity_expires_at_ms IS NOT NULL)
+);
+CREATE INDEX idx_worker_undertakings_queue
+  ON worker_undertakings(state, origin_kind, queued_at_ms, undertaking_id);
+CREATE INDEX idx_worker_undertakings_conversation
+  ON worker_undertakings(conversation_id, origin_kind, state, origin_cycle_id);
+CREATE INDEX idx_worker_undertakings_operation
+  ON worker_undertakings(selected_operation_id);
+CREATE INDEX idx_worker_undertakings_expiry
+  ON worker_undertakings(state, origin_kind, curiosity_expires_at_ms, undertaking_id);
+
+-- V21 detached work was admitted before queue ownership existed. Preserve its
+-- exact operation identity and terminal/start truth under typed queue ownership.
+INSERT INTO worker_undertakings (
+  undertaking_id, semantic_kind, origin_kind, origin_ref, owner_id,
+  conversation_id, origin_cycle_id, origin_generation,
+  origin_owner_event_id, origin_evidence_row_id, request_json,
+  purpose, evidence_need, admission_key, state, blocked_reason,
+  queued_at_ms, updated_at_ms, curiosity_expires_at_ms,
+  selected_operation_id, selected_calendar_index, acknowledgement_ref,
+  cancel_requested_at_ms, superseded_by, terminal_reason, terminal_at_ms,
+  dispatch_claim_token, dispatch_claim_expires_at_ms,
+  capacity_wait_started_at_ms, capacity_next_probe_at_ms
+)
+SELECT
+  'worker-undertaking:v21:' || operation_id,
+  'project.inspect',
+  'OWNER_REQUEST',
+  origin_ref,
+  'legacy-v21-migration',
+  conversation_id,
+  origin_cycle_id,
+  origin_generation,
+  origin_owner_event_id,
+  origin_evidence_row_id,
+  request_json,
+  purpose,
+  evidence_need,
+  'legacy-v21:' || operation_id,
+  CASE state
+    WHEN 'admitted' THEN 'queued'
+    WHEN 'started' THEN 'running'
+    WHEN 'stopped' THEN 'failed'
+    ELSE state
+  END,
+  NULL,
+  admission_at_ms,
+  updated_at_ms,
+  NULL,
+  operation_id,
+  NULL,
+  NULL,
+  cancel_requested_at_ms,
+  superseded_by,
+  CASE WHEN terminal_state IS NULL THEN NULL ELSE COALESCE(error_code, terminal_state) END,
+  terminal_at_ms,
+  NULL,
+  NULL,
+  NULL,
+  NULL
+FROM detached_operations;
+
+UPDATE detached_operations
+   SET worker_undertaking_id = 'worker-undertaking:v21:' || operation_id;
+
+CREATE TABLE worker_undertaking_scheduler (
+  scheduler_id INTEGER PRIMARY KEY CHECK(scheduler_id = 1),
+  cursor INTEGER NOT NULL CHECK(cursor >= 0 AND cursor < 7),
+  updated_at_ms INTEGER NOT NULL
+);
+INSERT OR IGNORE INTO worker_undertaking_scheduler (scheduler_id, cursor, updated_at_ms)
+VALUES (1, 0, 0);
+
+CREATE TABLE worker_execution_slot (
+  slot_id INTEGER PRIMARY KEY CHECK(slot_id = 1),
+  undertaking_id TEXT,
+  operation_id TEXT,
+  claim_token TEXT,
+  claim_expires_at_ms INTEGER,
+  updated_at_ms INTEGER NOT NULL
+);
+INSERT OR IGNORE INTO worker_execution_slot
+  (slot_id, undertaking_id, operation_id, claim_token, claim_expires_at_ms, updated_at_ms)
+VALUES (1, NULL, NULL, NULL, NULL, 0);
+
+UPDATE worker_execution_slot
+   SET undertaking_id = (
+         SELECT undertaking_id FROM worker_undertakings
+          WHERE state = 'running'
+          ORDER BY queued_at_ms ASC, undertaking_id ASC LIMIT 1),
+       operation_id = (
+         SELECT selected_operation_id FROM worker_undertakings
+          WHERE state = 'running'
+          ORDER BY queued_at_ms ASC, undertaking_id ASC LIMIT 1),
+       claim_token = CASE WHEN EXISTS (
+         SELECT 1 FROM worker_undertakings WHERE state = 'running'
+       ) THEN 'v21-migration' ELSE NULL END,
+       claim_expires_at_ms = NULL,
+       updated_at_ms = CASE WHEN EXISTS (
+         SELECT 1 FROM worker_undertakings WHERE state = 'running'
+       ) THEN COALESCE((SELECT updated_at_ms FROM worker_undertakings
+          WHERE state = 'running'
+          ORDER BY queued_at_ms ASC, undertaking_id ASC LIMIT 1), 0) ELSE 0 END
+ WHERE slot_id = 1;
+
+UPDATE cognitive_sidecar_meta SET schema_version = 22, projection_state = 'reconciling' WHERE id = 1;
+`;

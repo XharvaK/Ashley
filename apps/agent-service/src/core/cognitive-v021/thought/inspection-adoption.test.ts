@@ -117,8 +117,7 @@ describe("P-W3-01 Thought-adopted read-only inspection", () => {
             operationKind: "project.inspect",
             request: {
               projectId: "project-ashley",
-              operation: "project.read_file",
-              path: "README.md",
+              locator: { kind: "file", path: "README.md" },
             },
             purpose: "inspect the bounded project source relevant to the question",
             evidenceNeed: "the current README source contents",

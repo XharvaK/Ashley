@@ -73,14 +73,11 @@ describe("detached operation ownership", () => {
     }
   });
 
-  it("refuses a second active operation for the same conversation, then allows one after terminal", () => {
+  it("allows multiple detached identities for one conversation while keeping each idempotent", () => {
     const { sidecar } = origin();
     try {
       expect(admitDetachedOperation(sidecar, admission("key-1")).ok).toBe(true);
-      expect(admitDetachedOperation(sidecar, admission("key-2"))).toEqual({
-        ok: false,
-        reason: "operation_already_pending",
-      });
+      expect(admitDetachedOperation(sidecar, admission("key-2"))).toMatchObject({ ok: true, created: true });
       const first = admitDetachedOperation(sidecar, admission("key-1"));
       if (!first.ok) throw new Error("admission failed");
       const opId = first.operation.operationId;
@@ -90,10 +87,7 @@ describe("detached operation ownership", () => {
         opId,
         { terminalState: "succeeded", observationRef: "obs-1", nowMs: 3_000 },
       ).ok).toBe(true);
-      const next = admitDetachedOperation(sidecar, admission("key-2"));
-      expect(next.ok).toBe(true);
-      if (!next.ok) return;
-      expect(next.created).toBe(true);
+      expect(admitDetachedOperation(sidecar, admission("key-2"))).toMatchObject({ ok: true, created: false });
     } finally {
       sidecar.close();
     }
@@ -193,14 +187,8 @@ describe("detached operation ownership", () => {
       if (!fresh.ok) throw new Error("admission failed");
 
       const reconciled = reconcileDetachedOperations(sidecar, 10_000);
-      expect(reconciled.transitionedOperationIds.sort()).toEqual(
-        [admitted.operation.operationId, started.operation.operationId].sort(),
-      );
-      expect(getDetachedOperation(sidecar, admitted.operation.operationId)).toMatchObject({
-        state: "outcome_unknown",
-        terminalState: "outcome_unknown",
-        errorCode: "operation_deadline_expired",
-      });
+      expect(reconciled.transitionedOperationIds).toEqual([started.operation.operationId]);
+      expect(getDetachedOperation(sidecar, admitted.operation.operationId)?.state).toBe("admitted");
       expect(getDetachedOperation(sidecar, started.operation.operationId)?.state).toBe("outcome_unknown");
       expect(getDetachedOperation(sidecar, fresh.operation.operationId)?.state).toBe("admitted");
 
@@ -229,7 +217,8 @@ describe("detached operation ownership", () => {
       expect(superseded).toMatchObject({
         ok: true,
         operation: {
-          state: "admitted",
+          state: "cancelled",
+          terminalState: "cancelled",
           supersededBy: "owner-turn-2",
           successorOperationId: "detached-operation:next",
         },
@@ -322,18 +311,14 @@ describe("detached operation cancellation truth", () => {
         nowMs: 1_000,
       }));
       if (!unrequested.ok) throw new Error("admission failed");
-      const reconciled = reconcileDetachedOperations(sidecar, 10_000);
-      expect(reconciled.transitionedOperationIds.sort()).toEqual(
-        [requested.operation.operationId, unrequested.operation.operationId].sort(),
-      );
-      // Requested + provably never started → cancelled; ambiguous → unknown.
+      expect(reconcileDetachedOperations(sidecar, 10_000)).toEqual({ transitionedOperationIds: [] });
+      // Queue ownership, not an execution deadline, owns admitted work that
+      // has not yet started. Cancellation is resolved by the queue/dispatcher.
       expect(getDetachedOperation(sidecar, requested.operation.operationId)).toMatchObject({
-        state: "cancelled",
-        terminalState: "cancelled",
+        state: "admitted",
+        cancelRequestedAtMs: 2_000,
       });
-      expect(getDetachedOperation(sidecar, unrequested.operation.operationId)).toMatchObject({
-        state: "outcome_unknown",
-      });
+      expect(getDetachedOperation(sidecar, unrequested.operation.operationId)?.state).toBe("admitted");
     } finally {
       sidecar.close();
     }

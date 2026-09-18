@@ -6,10 +6,10 @@ import { appendOwnerUtterance } from "../evidence/conversation-log.js";
 import { admitTestCycle, openTestSidecar } from "../test-support.js";
 import type { CapabilityReality, IdentitySlice, KernelDeps, Observation } from "../types.js";
 import { createOutboxProjector } from "../delivery/outbox-projector.js";
-import { detachInvestigateIntent, dispatchDetachedOperation } from "../operation/dispatch.js";
+import { enqueueWorkerUndertakingIntent, serviceWorkerUndertakings } from "../operation/dispatch.js";
 import { getDetachedOperation } from "../operation/detached.js";
-import { getInterimOutboxByOperation } from "../operation/interim.js";
-import { THOUGHT_UNAVAILABLE_NOTICE } from "../speech/infrastructure-notice.js";
+import { getInterimOutboxByUndertaking } from "../operation/interim.js";
+import { getWorkerUndertaking } from "../operation/worker-queue.js";
 import { runCognitiveCycle } from "./run.js";
 
 const constitution: IdentitySlice = { constitutional: ["truth first"], stableSelf: ["curious"] };
@@ -85,9 +85,9 @@ function investigateCompletion(overrides: Record<string, unknown> = {}) {
   return {
     text: JSON.stringify({
       kind: "observation_intent",
-      operationKind: "project.investigate",
+      operationKind: "project.inspect",
       request: { projectId: "project-ashley", focus: "apps/agent-service" },
-      purpose: "investigate the current project",
+      purpose: "inspect the current project",
       evidenceNeed: "bounded file evidence",
       existingRefs: [],
       interimSpeech: { mode: "hold", surfaceDraft: "Yeah, give me a bit. I'm going to look through it." },
@@ -98,7 +98,7 @@ function investigateCompletion(overrides: Record<string, unknown> = {}) {
 }
 
 describe("detached investigate Thought A", () => {
-  it("yields to a durably admitted operation before the worker completes", async () => {
+  it("yields to a durably admitted queue undertaking before the worker completes", async () => {
     const { sidecar, attentionDb, nuclear, event } = setupThread("thread-detach-yield");
     const projector = createOutboxProjector(sidecar, nuclear);
     const completeChat = vi.fn(async () => investigateCompletion());
@@ -110,43 +110,87 @@ describe("detached investigate Thought A", () => {
         attentionDb,
         completeChat,
         executeObservation,
-        detachInvestigate: (input) => detachInvestigateIntent(sidecar, input),
+        enqueueWorkerUndertaking: (input) => enqueueWorkerUndertakingIntent(sidecar, input),
         projectInterim: (interimId) => projector.projectInterim(interimId),
-        dispatchDetached: (operationId) => {
-          workerCalls.push(operationId);
-          void dispatchDetachedOperation(sidecar, operationId, () => gate.promise);
-        },
       }));
 
-      // Thought A yielded: durable operation identity, pending obligation.
+      // Thought A yielded: durable queue identity, pending obligation.
       expect(result.published).toBe(false);
-      expect(typeof result.detachedOperationId).toBe("string");
-      const operationId = result.detachedOperationId!;
+      expect(typeof result.workerUndertakingId).toBe("string");
+      const undertakingId = result.workerUndertakingId!;
       expect(result.ownerObligationResolution).toMatchObject({
         ownerObligationOutcome: "transferred",
-        successorIdentity: `detached_operation:${operationId}`,
+        successorIdentity: `worker_undertaking:${undertakingId}`,
         remainingResponsibility: "operation_pending",
       });
       // The synchronous observation path never ran.
       expect(executeObservation).not.toHaveBeenCalled();
       // Interim hold is durably owned and projected for delivery.
-      const interim = getInterimOutboxByOperation(sidecar, operationId);
+      const interim = getInterimOutboxByUndertaking(sidecar, undertakingId);
       expect(interim?.surfaceDraft).toBe("Yeah, give me a bit. I'm going to look through it.");
       expect(interim?.sendStatus).toBe("projected");
-      // Worker wall-clock lives outside Thought A: dispatched but incomplete.
-      expect(workerCalls).toEqual([operationId]);
-      expect(getDetachedOperation(sidecar, operationId)?.state).toBe("started");
+      expect(workerCalls).toEqual([]);
+
+      const service = serviceWorkerUndertakings(sidecar, {
+        nowMs: 20,
+        worker: async ({ operation }) => {
+          workerCalls.push(operation.operationId);
+          return gate.promise;
+        },
+        capacityProbe: () => ({ available: true as const }),
+      });
+      while (workerCalls.length === 0) await new Promise((resolve) => setTimeout(resolve, 5));
+      const operationId = getWorkerUndertaking(sidecar, undertakingId)?.selectedOperationId;
+      expect(operationId).toBeTruthy();
+      expect(getDetachedOperation(sidecar, operationId ?? "")?.state).toBe("started");
 
       gate.release({ ok: true, payload: { summary: "done" } });
-      await new Promise((resolve) => setTimeout(resolve, 50));
-      expect(getDetachedOperation(sidecar, operationId)).toMatchObject({
+      await service;
+      expect(getDetachedOperation(sidecar, operationId ?? "")).toMatchObject({
         state: "succeeded",
         terminalState: "succeeded",
       });
+      expect(getWorkerUndertaking(sidecar, undertakingId)?.state).toBe("succeeded");
     } finally {
       sidecar.close();
       attentionDb.close();
       nuclear.close();
+    }
+  });
+
+  it("routes a semantic worker-required project.inspect without direct-read fallback", async () => {
+    const { sidecar, attentionDb, nuclear, event } = setupThread("thread-semantic-worker");
+    const completeChat = vi.fn(async () => investigateCompletion({
+      operationKind: "project.inspect",
+      request: {
+        projectId: "project-ashley",
+        locator: { kind: "file", path: "README.md" },
+        question: "Explain why this file matters to the service",
+      },
+    }));
+    const executeObservation = vi.fn();
+    try {
+      const result = await runCognitiveCycle(sidecar, attentionDb, event, deps({
+        attentionDb,
+        completeChat,
+        executeObservation,
+        capabilityReality: {
+          ...capabilityReality,
+          canOfferProjectInspection: true,
+          approvedProjectIds: ["project-ashley"],
+        },
+        enqueueWorkerUndertaking: (input) => enqueueWorkerUndertakingIntent(sidecar, input),
+      }));
+      expect(result.published).toBe(false);
+      expect(result.workerUndertakingId).toBeTruthy();
+      expect(executeObservation).not.toHaveBeenCalled();
+      expect(getWorkerUndertaking(sidecar, result.workerUndertakingId!)).toMatchObject({
+        state: "queued",
+        semanticKind: "project.inspect",
+      });
+    } finally {
+      sidecar.close();
+      attentionDb.close();
     }
   });
 
@@ -169,7 +213,7 @@ describe("detached investigate Thought A", () => {
         text: JSON.stringify({
           kind: "observation_intent",
           operationKind: "project.inspect",
-          request: { projectId: "project-ashley", operation: "project.read_file", path: "README.md" },
+          request: { projectId: "project-ashley", locator: { kind: "file", path: "README.md" } },
           purpose: "read one known file",
           evidenceNeed: "the file contents",
           existingRefs: [],
@@ -191,7 +235,6 @@ describe("detached investigate Thought A", () => {
         attentionDb,
         completeChat,
         executeObservation,
-        detachInvestigate: (input) => detachInvestigateIntent(sidecar, input),
       }));
       expect(executeObservation).toHaveBeenCalledTimes(1);
       expect(result.detachedOperationId).toBeUndefined();
@@ -202,52 +245,46 @@ describe("detached investigate Thought A", () => {
     }
   });
 
-  it("refuses a second investigate while one operation is pending", async () => {
-    const { sidecar, attentionDb, nuclear, cycle, event } = setupThread("thread-detach-second");
-    const projector = createOutboxProjector(sidecar, nuclear);
+  it("deduplicates the same Owner queue admission without minting a second execution", async () => {
+    const { sidecar, attentionDb, cycle, evidence, event } = setupThread("thread-detach-second");
     const completeChat = vi.fn(async () => investigateCompletion());
     try {
-      // A different-cycle operation is already active for this conversation.
-      const pre = detachInvestigateIntent(sidecar, {
+      const pre = enqueueWorkerUndertakingIntent(sidecar, {
+        semanticKind: "project.inspect",
         intent: {
           kind: "observation_intent",
-          operationKind: "project.investigate",
-          request: { projectId: "project-ashley" },
-          purpose: "earlier investigation",
-          evidenceNeed: "evidence",
+          operationKind: "project.inspect",
+          request: { projectId: "project-ashley", focus: "apps/agent-service" },
+           purpose: "inspect the current project",
+          evidenceNeed: "bounded file evidence",
           existingRefs: [],
         },
-        cycleId: "cycle-thread-detach-second-earlier",
-        generation: 1,
-        conversationId: cycle.conversationId,
-        originOwnerEventId: "owner-0",
+        origin: { kind: "OWNER_REQUEST", ref: event.id, ownerEventId: event.id, evidenceRowId: evidence.rowId },
         ownerId: "doc",
+        conversationId: cycle.conversationId,
+        originCycleId: cycle.cycleId,
+        originGeneration: cycle.generation,
+        request: { projectId: "project-ashley", focus: "apps/agent-service" },
+         purpose: "inspect the current project",
+        evidenceNeed: "bounded file evidence",
         nowMs: 5,
       });
-      expect(pre.detached).toBe(true);
+      expect(pre.queued).toBe(true);
+      if (!pre.queued) return;
 
       const result = await runCognitiveCycle(sidecar, attentionDb, event, deps({
         attentionDb,
         completeChat,
         executeObservation: vi.fn(),
-        detachInvestigate: (input) => detachInvestigateIntent(sidecar, input),
-        projectInterim: (interimId) => projector.projectInterim(interimId),
+        enqueueWorkerUndertaking: (input) => enqueueWorkerUndertakingIntent(sidecar, input),
       }));
       expect(result.published).toBe(false);
-      expect(result.detachedOperationId).toBeUndefined();
-      // The refusal surfaces through the existing operation-dispatch failure
-      // vocabulary; the exact cause survives in the terminal codes.
-      expect(result.infrastructureNotice).toBe(
-        `${THOUGHT_UNAVAILABLE_NOTICE} Error code: OPERATION_DISPATCH_FAILED`,
-      );
-      const ledger = JSON.parse(
-        (sidecar.prepare("SELECT payload_json FROM causal_ledger WHERE cycle_id = ? AND generation = ?").get(cycle.cycleId, cycle.generation) as { payload_json: string }).payload_json,
-      ) as { thoughtTerminal?: { codes?: unknown } };
-      expect(ledger.thoughtTerminal?.codes).toEqual(expect.arrayContaining(["operation_already_pending"]));
+      expect(result.workerUndertakingId).toBe(pre.undertaking.undertakingId);
+      expect(result.infrastructureNotice).toBeNull();
+      expect(sidecar.prepare("SELECT COUNT(*) AS count FROM worker_undertakings").get()).toMatchObject({ count: 1 });
     } finally {
       sidecar.close();
       attentionDb.close();
-      nuclear.close();
     }
   });
 
@@ -283,9 +320,7 @@ describe("detached investigate Thought A", () => {
         executeObservation,
       }));
       expect(result.published).toBe(false);
-      expect(result.infrastructureNotice).toBe(
-        `${THOUGHT_UNAVAILABLE_NOTICE} Error code: OPERATION_DISPATCH_FAILED`,
-      );
+      expect(result.infrastructureNotice).toBeNull();
       // Investigate has no synchronous fallback when detachment is absent.
       expect(executeObservation).not.toHaveBeenCalled();
       expect(sidecar.prepare("SELECT COUNT(*) AS count FROM detached_operations").get())
@@ -316,12 +351,9 @@ describe("detached investigate Thought A", () => {
         attentionDb,
         completeChat,
         executeObservation,
-        detachInvestigate: () => ({ detached: false, reason: "detach_unavailable" }),
       }));
       expect(result.published).toBe(false);
-      expect(result.infrastructureNotice).toBe(
-        `${THOUGHT_UNAVAILABLE_NOTICE} Error code: OPERATION_DISPATCH_FAILED`,
-      );
+      expect(result.infrastructureNotice).toBeNull();
       expect(executeObservation).not.toHaveBeenCalled();
       expect(sidecar.prepare("SELECT COUNT(*) AS count FROM detached_operations").get())
         .toMatchObject({ count: 0 });
@@ -351,12 +383,9 @@ describe("detached investigate Thought A", () => {
         attentionDb,
         completeChat,
         executeObservation,
-        detachInvestigate: () => { throw new Error("detach_seam_failed"); },
       }));
       expect(result.published).toBe(false);
-      expect(result.infrastructureNotice).toBe(
-        `${THOUGHT_UNAVAILABLE_NOTICE} Error code: OPERATION_DISPATCH_FAILED`,
-      );
+      expect(result.infrastructureNotice).toBeNull();
       expect(executeObservation).not.toHaveBeenCalled();
       expect(sidecar.prepare("SELECT COUNT(*) AS count FROM detached_operations").get())
         .toMatchObject({ count: 0 });

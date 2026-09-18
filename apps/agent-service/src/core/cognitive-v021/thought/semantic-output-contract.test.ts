@@ -51,8 +51,8 @@ describe("Thought semantic output contract", () => {
     expect(parseThoughtSemanticOutput(settlement, refs)).toMatchObject({ ok: true, value: { kind: "settlement" } });
     expect(parseThoughtSemanticOutput({
       kind: "observation_intent",
-      operationKind: "project.read_file",
-      request: { path: "README.md" },
+      operationKind: "project.inspect",
+      request: { projectId: "project-ashley", locator: { kind: "file", path: "README.md" } },
       purpose: "verify the project state",
       evidenceNeed: "the current file contents",
       existingRefs: ["turn-1"],
@@ -67,17 +67,17 @@ describe("Thought semantic output contract", () => {
     }, refs)).toMatchObject({ ok: true, value: { kind: "effect_intent" } });
     expect(parseThoughtSemanticOutput({
       kind: "observation_intent",
-      operationKind: "project.investigate",
+      operationKind: "project.inspect",
       request: { projectId: "project-ashley", focus: "apps/agent-service" },
-      purpose: "investigate the current project",
+      purpose: "inspect the current project",
       evidenceNeed: "bounded file evidence",
       existingRefs: ["turn-1"],
     }, refs)).toMatchObject({ ok: true, value: { kind: "observation_intent" } });
     expect(parseThoughtSemanticOutput({
       kind: "observation_intent",
-      operationKind: "project.investigate",
+      operationKind: "project.inspect",
       request: { projectId: "project-ashley", model: "opencode/nemotron-3-ultra-free" },
-      purpose: "investigate the current project",
+      purpose: "inspect the current project",
       evidenceNeed: "bounded file evidence",
       existingRefs: ["turn-1"],
     }, refs)).toMatchObject({ ok: false });
@@ -503,15 +503,14 @@ describe("Thought semantic output contract", () => {
   });
 
   it("keeps protected semantic, wire, and capability fingerprints exact", () => {
-    // Rotation earned by the optional interimSpeech hold on observation_intent
-    // (detached V1 async project.investigate only): no branch removed, no
-    // required field changed, parser identity unchanged.
+    // Rotation earned by the route-neutral project.inspect request contract
+    // and the optional interimSpeech hold; parser identity is unchanged.
     expect(THOUGHT_SEMANTIC_SCHEMA_FINGERPRINT).toBe(
-      "sha256:a39bbabf5d3af18fce4b32cb5dba794ab4b26f81aa882d5c5a7d9997ddf1d592",
+      "sha256:35d923c4c6336ef37ec6c8624f533b27b450ecfadae7e8a2159a7c1505a10121",
     );
     const zeroOp = constrainThoughtOutputSchema(buildOperationalEffectNamespaceFromRefs([]));
     expect(zeroOp.wireSchemaFingerprint).toBe(
-      "sha256:0b73a1f6eee3c17f791a185535d73fa5b0027e2aaa9d83611ab674c6cc62d06c",
+      "sha256:152239211dad1cd0f3490f65ac30f3f72523a9395b8a78098daa09a8ea375975",
     );
     expect(zeroOp.namespaceConstraintFingerprint).toBe(
       "sha256:d277b3804b25361994107886d1f33f779a7501298b01fe483ebe7c795b6e19c6",

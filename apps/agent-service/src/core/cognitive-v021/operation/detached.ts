@@ -1,10 +1,12 @@
 import type { DatabaseSync } from "node:sqlite";
 import { sha256 } from "../../model-fabric/hash.js";
+import type { WorkerOriginKind } from "./worker-queue.js";
 
 export type DetachedOperationKind = "project.investigate";
 
 export type DetachedOperationState =
   | "admitted"
+  | "waiting_capacity"
   | "started"
   | "succeeded"
   | "failed"
@@ -24,7 +26,9 @@ export type DetachedOperationRecord = {
   conversationId: string;
   originCycleId: string;
   originGeneration: number;
-  originOwnerEventId: string;
+  originKind: WorkerOriginKind;
+  originRef: string;
+  originOwnerEventId: string | null;
   originEvidenceRowId: string | null;
   operationKind: DetachedOperationKind;
   requestJson: string;
@@ -46,6 +50,10 @@ export type DetachedOperationRecord = {
   cancelRequestedAtMs: number | null;
   supersededBy: string | null;
   successorOperationId: string | null;
+  workerUndertakingId: string | null;
+  capacityWaitReason: string | null;
+  capacityWaitStartedAtMs: number | null;
+  capacityWaitNextProbeAtMs: number | null;
   state: DetachedOperationState;
   createdAtMs: number;
   updatedAtMs: number;
@@ -56,8 +64,11 @@ export type AdmitDetachedOperationInput = {
   conversationId: string;
   originCycleId: string;
   originGeneration: number;
-  originOwnerEventId: string;
+  originKind?: WorkerOriginKind;
+  originRef?: string;
+  originOwnerEventId?: string | null;
   originEvidenceRowId?: string | null;
+  workerUndertakingId?: string | null;
   operationKind: DetachedOperationKind;
   /** Thought-authored Mode-B request; stored verbatim as JSON. */
   request: Record<string, unknown>;
@@ -70,6 +81,13 @@ export type AdmitDetachedOperationInput = {
 export type StartDetachedOperationInput = {
   startProofRef: string;
   workerBinding?: Record<string, unknown> | null;
+  executionDeadlineAtMs?: number;
+  nowMs?: number;
+};
+
+export type WaitDetachedOperationInput = {
+  reason: string;
+  nextProbeAtMs?: number | null;
   nowMs?: number;
 };
 
@@ -128,7 +146,9 @@ function mapRow(row: DetachedRow): DetachedOperationRecord {
     conversationId: String(row.conversation_id),
     originCycleId: String(row.origin_cycle_id),
     originGeneration: Number(row.origin_generation),
-    originOwnerEventId: String(row.origin_owner_event_id),
+    originKind: row.origin_kind as WorkerOriginKind,
+    originRef: String(row.origin_ref),
+    originOwnerEventId: stringOrNull(row.origin_owner_event_id),
     originEvidenceRowId: stringOrNull(row.origin_evidence_row_id),
     operationKind: row.operation_kind as DetachedOperationKind,
     requestJson: String(row.request_json),
@@ -150,6 +170,10 @@ function mapRow(row: DetachedRow): DetachedOperationRecord {
     cancelRequestedAtMs: numberOrNull(row.cancel_requested_at_ms),
     supersededBy: stringOrNull(row.superseded_by),
     successorOperationId: stringOrNull(row.successor_operation_id),
+    workerUndertakingId: stringOrNull(row.worker_undertaking_id),
+    capacityWaitReason: stringOrNull(row.capacity_wait_reason),
+    capacityWaitStartedAtMs: numberOrNull(row.capacity_wait_started_at_ms),
+    capacityWaitNextProbeAtMs: numberOrNull(row.capacity_wait_next_probe_at_ms),
     state: row.state as DetachedOperationState,
     createdAtMs: Number(row.created_at_ms),
     updatedAtMs: Number(row.updated_at_ms),
@@ -166,7 +190,7 @@ export function getDetachedOperation(
   return row ? mapRow(row) : null;
 }
 
-/** The single active (admitted or started) operation for a conversation, if any. */
+/** The most recently updated active detached operation for a conversation. */
 export function getActiveDetachedOperation(
   sidecar: DatabaseSync,
   conversationId: string,
@@ -175,7 +199,7 @@ export function getActiveDetachedOperation(
   const row = sidecar
     .prepare(
       `SELECT * FROM detached_operations
-        WHERE conversation_id = ? AND state IN ('admitted', 'started')
+        WHERE conversation_id = ? AND state IN ('admitted', 'waiting_capacity', 'started')
         ORDER BY updated_at_ms DESC, operation_id ASC LIMIT 1`,
     )
     .get(conversationId) as DetachedRow | undefined;
@@ -195,21 +219,29 @@ function getByIdempotencyKey(
 /**
  * Durably admit a detached investigation. Idempotent on the caller-supplied
  * idempotency key: a repeat admission returns the existing operation with
- * created=false and never mints a duplicate. A second *active* operation for
- * the same conversation is refused with operation_already_pending — work is
- * never queued.
+ * created=false and never mints a duplicate. Detached admission does not own
+ * global queue order and therefore does not impose a per-conversation active
+ * operation limit.
  */
 export function admitDetachedOperation(
   sidecar: DatabaseSync,
   input: AdmitDetachedOperationInput,
 ): DetachedOperationResult {
   const nowMs = input.nowMs ?? Date.now();
+  const originKind = input.originKind
+    ?? (nonEmptyString(input.originOwnerEventId) ? "OWNER_REQUEST" : undefined);
+  const originRef = input.originRef ?? input.originOwnerEventId ?? undefined;
   if (
     !nonEmptyString(input.idempotencyKey)
     || !nonEmptyString(input.conversationId)
     || !nonEmptyString(input.originCycleId)
     || !Number.isSafeInteger(input.originGeneration)
-    || !nonEmptyString(input.originOwnerEventId)
+    || (originKind !== "OWNER_REQUEST"
+      && originKind !== "ASHLEY_COMMITMENT"
+      && originKind !== "ASHLEY_CURIOSITY")
+    || !nonEmptyString(originRef)
+    || (originKind === "OWNER_REQUEST" && !nonEmptyString(input.originOwnerEventId))
+    || (originKind !== "OWNER_REQUEST" && input.originOwnerEventId != null)
     || input.operationKind !== "project.investigate"
     || typeof input.request !== "object"
     || input.request === null
@@ -234,35 +266,26 @@ export function admitDetachedOperation(
   const existing = getByIdempotencyKey(sidecar, input.idempotencyKey);
   if (existing) return { ok: true, operation: existing, created: false };
 
-  const active = sidecar
-    .prepare(
-      `SELECT operation_id FROM detached_operations
-        WHERE conversation_id = ? AND state IN ('admitted', 'started')
-        LIMIT 1`,
-    )
-    .get(input.conversationId) as { operation_id?: unknown } | undefined;
-  if (typeof active?.operation_id === "string") {
-    return { ok: false, reason: "operation_already_pending" };
-  }
-
   const operationId = detachedOperationIdFor(input.idempotencyKey);
   try {
     sidecar
       .prepare(
         `INSERT INTO detached_operations
            (operation_id, conversation_id, origin_cycle_id, origin_generation,
-            origin_owner_event_id, origin_evidence_row_id, operation_kind,
+            origin_kind, origin_ref, origin_owner_event_id, origin_evidence_row_id, operation_kind,
             request_json, purpose, evidence_need, admission_at_ms,
             operation_deadline_at_ms, idempotency_key, state,
-            created_at_ms, updated_at_ms)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'admitted', ?, ?)`,
+            worker_undertaking_id, created_at_ms, updated_at_ms)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'admitted', ?, ?, ?)`,
       )
       .run(
         operationId,
         input.conversationId,
         input.originCycleId,
         input.originGeneration,
-        input.originOwnerEventId,
+        originKind,
+        originRef,
+        input.originOwnerEventId ?? null,
         input.originEvidenceRowId ?? null,
         input.operationKind,
         requestJson,
@@ -271,6 +294,7 @@ export function admitDetachedOperation(
         nowMs,
         input.operationDeadlineAtMs,
         input.idempotencyKey,
+        input.workerUndertakingId ?? null,
         nowMs,
         nowMs,
       );
@@ -278,7 +302,7 @@ export function admitDetachedOperation(
     // A concurrent duplicate admission loses here; the winner's row is truth.
     const winner = getByIdempotencyKey(sidecar, input.idempotencyKey);
     if (winner) return { ok: true, operation: winner, created: false };
-    return { ok: false, reason: "operation_already_pending" };
+    return { ok: false, reason: "operation_admission_failed" };
   }
   const created = getDetachedOperation(sidecar, operationId);
   if (!created) return { ok: false, reason: "operation_admission_failed" };
@@ -304,7 +328,7 @@ export function markDetachedOperationStarted(
   if (isTerminalState(current.state)) {
     return { ok: false, reason: "detached_operation_terminal_immutable" };
   }
-  if (current.state !== "admitted") {
+  if (current.state !== "admitted" && current.state !== "waiting_capacity") {
     return { ok: false, reason: "detached_operation_transition_invalid" };
   }
   let workerBindingJson: string | null = null;
@@ -320,13 +344,49 @@ export function markDetachedOperationStarted(
     .prepare(
       `UPDATE detached_operations
           SET state = 'started', start_at_ms = ?, start_proof_ref = ?,
+              operation_deadline_at_ms = COALESCE(?, operation_deadline_at_ms),
               worker_binding_json = COALESCE(?, worker_binding_json),
               updated_at_ms = ?
-        WHERE operation_id = ? AND state = 'admitted'`,
+        WHERE operation_id = ? AND state IN ('admitted', 'waiting_capacity')`,
     )
-    .run(nowMs, input.startProofRef, workerBindingJson, nowMs, operationId);
+    .run(nowMs, input.startProofRef, input.executionDeadlineAtMs ?? null, workerBindingJson, nowMs, operationId);
   const updated = getDetachedOperation(sidecar, operationId);
   if (!updated || updated.state !== "started") {
+    return { ok: false, reason: "detached_operation_transition_invalid" };
+  }
+  return { ok: true, operation: updated, created: false };
+}
+
+/** Move admitted work into a durable capacity wait without starting a worker. */
+export function markDetachedOperationWaiting(
+  sidecar: DatabaseSync,
+  operationId: string,
+  input: WaitDetachedOperationInput,
+): DetachedOperationResult {
+  const nowMs = input.nowMs ?? Date.now();
+  if (!nonEmptyString(operationId) || !nonEmptyString(input.reason) || !safeMs(nowMs)) {
+    return { ok: false, reason: "invalid_capacity_wait" };
+  }
+  const nextProbeAtMs = input.nextProbeAtMs ?? null;
+  if (nextProbeAtMs !== null && !safeMs(nextProbeAtMs)) {
+    return { ok: false, reason: "invalid_capacity_wait" };
+  }
+  const current = getDetachedOperation(sidecar, operationId);
+  if (!current) return { ok: false, reason: "detached_operation_missing" };
+  if (isTerminalState(current.state) || current.state === "started") {
+    return { ok: false, reason: "detached_operation_transition_invalid" };
+  }
+  sidecar.prepare(
+    `UPDATE detached_operations
+        SET state = 'waiting_capacity',
+            capacity_wait_reason = ?,
+            capacity_wait_started_at_ms = COALESCE(capacity_wait_started_at_ms, ?),
+            capacity_wait_next_probe_at_ms = ?,
+            updated_at_ms = ?
+      WHERE operation_id = ? AND state IN ('admitted', 'waiting_capacity')`,
+  ).run(input.reason.slice(0, 128), nowMs, nextProbeAtMs, nowMs, operationId);
+  const updated = getDetachedOperation(sidecar, operationId);
+  if (!updated || updated.state !== "waiting_capacity") {
     return { ok: false, reason: "detached_operation_transition_invalid" };
   }
   return { ok: true, operation: updated, created: false };
@@ -356,6 +416,10 @@ export function setDetachedOperationTerminal(
       ? input.terminalState === "cancelled"
         || input.terminalState === "failed"
         || input.terminalState === "outcome_unknown"
+      : current.state === "waiting_capacity"
+        ? input.terminalState === "cancelled"
+          || input.terminalState === "failed"
+          || input.terminalState === "outcome_unknown"
       : current.state === "started";
   if (!allowed) return { ok: false, reason: "detached_operation_transition_invalid" };
   sidecar
@@ -447,14 +511,14 @@ export function resolveDetachedOperationCancel(
   if (isTerminalState(current.state)) {
     return { ok: false, reason: "detached_operation_terminal_immutable" };
   }
-  if (current.state === "admitted" && current.startAtMs == null) {
+  if ((current.state === "admitted" || current.state === "waiting_capacity") && current.startAtMs == null) {
     sidecar
       .prepare(
         `UPDATE detached_operations
             SET state = 'cancelled', terminal_state = 'cancelled', terminal_at_ms = ?,
                 cancel_requested_at_ms = COALESCE(cancel_requested_at_ms, ?),
                 updated_at_ms = ?
-          WHERE operation_id = ? AND state = 'admitted'`,
+          WHERE operation_id = ? AND state IN ('admitted', 'waiting_capacity')`,
       )
       .run(nowMs, nowMs, nowMs, operationId);
     const updated = getDetachedOperation(sidecar, operationId);
@@ -499,6 +563,20 @@ export function supersedeDetachedOperation(
   }
   const current = getDetachedOperation(sidecar, operationId);
   if (!current) return { ok: false, reason: "detached_operation_missing" };
+  if (current.state === "admitted" || current.state === "waiting_capacity") {
+    sidecar.prepare(
+      `UPDATE detached_operations
+          SET superseded_by = ?, successor_operation_id = COALESCE(?, successor_operation_id),
+              state = 'cancelled', terminal_state = 'cancelled',
+              terminal_at_ms = COALESCE(terminal_at_ms, ?),
+              error_code = COALESCE(error_code, 'superseded'),
+              updated_at_ms = ?
+        WHERE operation_id = ? AND state IN ('admitted', 'waiting_capacity')`,
+    ).run(input.supersededBy, input.successorOperationId ?? null, nowMs, nowMs, operationId);
+    const updated = getDetachedOperation(sidecar, operationId);
+    if (!updated) return { ok: false, reason: "detached_operation_missing" };
+    return { ok: true, operation: updated, created: false };
+  }
   sidecar
     .prepare(
       `UPDATE detached_operations
@@ -527,8 +605,8 @@ export function reconcileDetachedOperations(
   if (!safeMs(nowMs)) return { transitionedOperationIds: [] };
   const rows = sidecar
     .prepare(
-      `SELECT operation_id FROM detached_operations
-        WHERE state IN ('admitted', 'started') AND operation_deadline_at_ms < ?
+    `SELECT operation_id FROM detached_operations
+        WHERE state = 'started' AND operation_deadline_at_ms < ?
         ORDER BY operation_deadline_at_ms ASC, operation_id ASC`,
     )
     .all(nowMs) as Array<{ operation_id?: unknown }>;
@@ -538,21 +616,6 @@ export function reconcileDetachedOperations(
   for (const operationId of ids) {
     const current = getDetachedOperation(sidecar, operationId);
     if (!current || isTerminalState(current.state)) continue;
-    if (
-      current.state === "admitted"
-      && current.startAtMs == null
-      && current.cancelRequestedAtMs != null
-    ) {
-      sidecar
-        .prepare(
-          `UPDATE detached_operations
-              SET state = 'cancelled', terminal_state = 'cancelled', terminal_at_ms = ?,
-                  updated_at_ms = ?
-            WHERE operation_id = ? AND state = 'admitted'`,
-        )
-        .run(nowMs, nowMs, operationId);
-      continue;
-    }
     sidecar
       .prepare(
         `UPDATE detached_operations
@@ -560,7 +623,7 @@ export function reconcileDetachedOperations(
                 terminal_at_ms = ?,
                 error_code = COALESCE(error_code, 'operation_deadline_expired'),
                 updated_at_ms = ?
-          WHERE operation_id = ? AND state IN ('admitted', 'started')`,
+          WHERE operation_id = ? AND state = 'started'`,
       )
       .run(nowMs, nowMs, operationId);
   }

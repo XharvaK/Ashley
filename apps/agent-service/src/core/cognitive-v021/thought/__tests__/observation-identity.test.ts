@@ -52,8 +52,8 @@ describe("Observation Persistence Identity & Reinjection", () => {
         return {
           text: JSON.stringify({
             kind: "observation_intent",
-            operationKind: "project.read_file",
-            request: { path: "config.json" },
+            operationKind: "project.inspect",
+            request: { projectId: "project-ashley", locator: { kind: "file", path: "config.json" } },
             purpose: "inspect the system configuration",
             evidenceNeed: "the current configuration contents",
             existingRefs: ["owner-ref-42"],

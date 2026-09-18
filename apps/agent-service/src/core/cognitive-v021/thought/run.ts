@@ -97,6 +97,7 @@ import {
   type ThoughtReferenceTargetMap,
 } from "./reference-allowlist.js";
 import { bindEffectIntent, bindObservationIntent } from "./operation-binding.js";
+import { routeProjectInspectionRequest } from "../operation/project-inspection-route.js";
 import {
   thoughtOutputStructuredRequest,
 } from "./output-contract.js";
@@ -154,11 +155,10 @@ import type {
 import { PROVIDER_BOUNDARY_TRANSPORT_ABSENT } from "../../model-routing/types.js";
 import { fidelityCheck } from "../speech/fidelity.js";
 import {
-  emitInfrastructureNotice,
+  recordInfrastructureFailureDiagnostic,
   makeThoughtTerminal,
   type ThoughtTerminalDescriptor,
 } from "../speech/infrastructure-notice.js";
-import { recordThoughtC3TerminalFailure } from "../failure/c3-recorder.js";
 import { renderForTransport } from "../../conversation/rendering.js";
 import {
   getThoughtAttemptCounters,
@@ -2358,6 +2358,27 @@ export async function runCognitiveCycle(
     ...options,
   });
   const directive = rememberDirective(payload);
+  const rawCapacityWait = typeof payload.capacityWait === "object"
+    && payload.capacityWait !== null
+    && !Array.isArray(payload.capacityWait)
+    ? payload.capacityWait as Record<string, unknown>
+    : null;
+  const capacityWait = rawCapacityWait
+    && typeof rawCapacityWait.operationId === "string"
+    && typeof rawCapacityWait.reason === "string"
+    && typeof rawCapacityWait.waitStartedAtMs === "number"
+    ? {
+        operationId: rawCapacityWait.operationId,
+        reason: rawCapacityWait.reason,
+        waitStartedAtMs: rawCapacityWait.waitStartedAtMs,
+        nextProbeAtMs: typeof rawCapacityWait.nextProbeAtMs === "number" ? rawCapacityWait.nextProbeAtMs : null,
+        ...(typeof rawCapacityWait.exactDetail === "object"
+          && rawCapacityWait.exactDetail !== null
+          && !Array.isArray(rawCapacityWait.exactDetail)
+          ? { exactDetail: rawCapacityWait.exactDetail as Record<string, string | number | null> }
+          : {}),
+      }
+    : undefined;
   // Recovery/turn preflight is bounded and allowlist-gated. Admission errors
   // remain fail-soft: the durable nomination is retried on the next cycle.
   if (deps.origin !== "shadow") {
@@ -2600,7 +2621,7 @@ export async function runCognitiveCycle(
         staleOwnerResultOptions(),
       );
     }
-    const notice = emitInfrastructureNotice(sidecar, {
+    recordInfrastructureFailureDiagnostic(sidecar, {
       ownerId: typeof payload.ownerId === "string" ? payload.ownerId : admittedCycle.occupantId,
       channel: typeof payload.channel === "string" ? payload.channel : "discord",
       threadId: typeof payload.threadId === "string" ? payload.threadId : admittedCycle.conversationId,
@@ -2617,24 +2638,10 @@ export async function runCognitiveCycle(
       trigger: deliveryIntentFor(admittedCycle, payload, "system_notice", originProfile.triggerKind).trigger,
       deliveryLane: deliveryIntentFor(admittedCycle, payload, "system_notice", originProfile.triggerKind).deliveryLane,
     });
-    // The infrastructure notice is primary terminal output. C3 is a bounded,
-    // fail-soft derived projection and never changes the terminal result.
-    // Shadow notices remain suppressed evaluations and must not mint a live
-    // Ashley C3 experience; recovery also excludes any legacy shadow rows.
-    if (deps.origin !== "shadow") {
-      recordThoughtC3TerminalFailure(sidecar, {
-        noticeKey: notice.noticeKey,
-        noticeId: notice.noticeId,
-        cycleId: admittedCycle.cycleId,
-        generation: admittedCycle.generation,
-        occurredAtMs: deps.nowMs(),
-        failureClass: reason,
-        attemptId: lastThoughtRequestId,
-      });
-    }
-    if (deps.projectSystemNotice) await deps.projectSystemNotice(notice.noticeId);
+    // This is attempt diagnostics only. Durable owner recovery decides later
+    // whether a terminal Owner-facing notice is warranted.
     updateCycleState(sidecar, admittedCycle.cycleId, "silent", deps.nowMs());
-    return resultWithCounters(admittedCycle.cycleId, admittedCycle.generation, notice.noticeText, counters, {
+    return resultWithCounters(admittedCycle.cycleId, admittedCycle.generation, null, counters, {
       thoughtExecutionProvenance: currentExecutionProvenance(),
       ownerObligationResolution: ownerResolutionFor("failed"),
     });
@@ -2730,6 +2737,7 @@ export async function runCognitiveCycle(
       ...(continuityRecovery ? { continuityRecovery } : {}),
       constitution: deps.constitution,
       capabilityReality: cycleCapabilityReality,
+      ...(capacityWait ? { capacityWait } : {}),
       ...(publicPresence === undefined ? {} : { publicPresence }),
       observations: observationsForThought,
       inFlight,
@@ -3138,85 +3146,121 @@ export async function runCognitiveCycle(
           makeThoughtTerminal("budget_exhausted", { codes: ["pass_exhausted"], stage: "observation_rounds" }),
         );
       }
+      const projectInspectionWorkerRequired = invocation.output.observationRequest.kind === "project.inspect"
+        && (
+          routeProjectInspectionRequest(invocation.output.observationRequest.request) === "worker"
+          || deps.canOfferDirectProjectInspection?.() === false
+        );
       if (
-        invocation.output.observationRequest.kind === "project.investigate"
+        projectInspectionWorkerRequired
         && invocation.semantic?.kind === "observation_intent"
       ) {
-        // Detached V1 async investigate: durable admission + interim
-        // ownership first, then delivery and worker dispatch proceed as
-        // independent Host activities. Thought A yields here; its wall-clock
-        // never includes worker execution.
-        const detach = (() => {
+        const ownerOrigin = event.kind === "owner_message"
+          || event.kind === "owner_utterance"
+          || cycle.triggerKind === "owner_message";
+        const commitmentOrigin = !ownerOrigin && cycle.triggerKind === "commitment_due";
+        const originKind = ownerOrigin
+          ? "OWNER_REQUEST" as const
+          : commitmentOrigin
+            ? "ASHLEY_COMMITMENT" as const
+            : "ASHLEY_CURIOSITY" as const;
+        const originRef = ownerOrigin
+          ? event.id
+          : commitmentOrigin
+            ? (typeof payload.commitmentId === "string" && payload.commitmentId.trim()
+              ? payload.commitmentId.trim()
+              : cycle.triggerRef)
+            : (cycle.triggerRef || event.id);
+        const ownerId = typeof payload.ownerId === "string" && payload.ownerId.trim()
+          ? payload.ownerId.trim()
+          : cycle.occupantId?.trim() || cycle.conversationId;
+        const originEvidenceRowId = triggerEvidence?.rowId ?? cycle.composeLogIds.at(-1) ?? null;
+
+        // The global queue is the production seam. Thought yields after
+        // durable queue admission and never invokes a worker directly.
+        if (deps.enqueueWorkerUndertaking) {
+          let queued: import("../operation/dispatch.js").EnqueueWorkerUndertakingResult;
           try {
-            return deps.detachInvestigate?.({
+            queued = deps.enqueueWorkerUndertaking({
+              semanticKind: "project.inspect",
               intent: invocation.semantic,
+              origin: {
+                kind: originKind,
+                ref: originRef,
+                ownerEventId: ownerOrigin ? event.id : null,
+                evidenceRowId: originEvidenceRowId,
+              },
+              ownerId,
+              conversationId: cycle.conversationId,
+              originCycleId: cycle.cycleId,
+              originGeneration: cycle.generation,
+              request: invocation.semantic.request,
+              purpose: invocation.semantic.purpose,
+              evidenceNeed: invocation.semantic.evidenceNeed,
+              nowMs: deps.nowMs(),
+            });
+          } catch {
+            queued = { queued: false, reason: "queue_admission_failed" };
+          }
+          if (queued.queued) {
+            if (queued.acknowledgementId != null && deps.projectInterim) {
+              try {
+                await deps.projectInterim(queued.acknowledgementId);
+              } catch {
+                // Queue ownership stands even when acknowledgement projection
+                // is retried by the normal interim recovery path.
+              }
+            }
+            return {
               cycleId: cycle.cycleId,
               generation: cycle.generation,
+              published: false,
+              outboxId: null,
+              infrastructureNotice: null,
+              thoughtModelAttempts: counters.thoughtModelAttempts,
+              acceptedThoughtPasses: counters.acceptedThoughtPasses,
+              composeCancelledAttempts: counters.composeCancelledAttempts,
+              acceptedSettlements: 0,
+              deferred: false,
+              workerUndertakingId: queued.undertaking.undertakingId,
               conversationId: cycle.conversationId,
-              originOwnerEventId: event.id,
-              originEvidenceRowId: triggerEvidence?.rowId ?? cycle.composeLogIds.at(-1) ?? null,
-              ownerId: typeof payload.ownerId === "string" && payload.ownerId.length > 0
-                ? payload.ownerId
-                : (cycle.occupantId ?? ""),
-              nowMs: deps.nowMs(),
-            }) ?? { detached: false as const, reason: "detach_unavailable" as const };
-          } catch {
-            return { detached: false as const, reason: "detach_unavailable" as const };
+              latestEvidenceRowId: triggerEvidence?.rowId ?? cycle.composeLogIds.at(-1) ?? "unknown",
+              thoughtExecutionProvenance: currentExecutionProvenance(),
+              ownerObligationResolution: ownerResolutionFor("deferred", {
+                workerUndertakingId: queued.undertaking.undertakingId,
+                interimSpeechAuthored: queued.acknowledgementAuthored,
+              }),
+            };
           }
-        })();
-        if (detach.detached) {
-          if (detach.interimId != null && deps.projectInterim) {
-            try {
-              await deps.projectInterim(detach.interimId);
-            } catch {
-              // Interim delivery is independent: a projection failure leaves
-              // the operation admitted and the worker still dispatches below.
-            }
-          }
-          if (deps.dispatchDetached) {
-            try {
-              deps.dispatchDetached(detach.operation.operationId);
-            } catch {
-              // The admitted operation remains durable; expiry reconciliation
-              // classifies it if no dispatch ever claims it.
-            }
-          }
-          return {
-            cycleId: cycle.cycleId,
-            generation: cycle.generation,
-            published: false,
-            outboxId: null,
-            infrastructureNotice: null,
-            thoughtModelAttempts: counters.thoughtModelAttempts,
-            acceptedThoughtPasses: counters.acceptedThoughtPasses,
-            composeCancelledAttempts: counters.composeCancelledAttempts,
-            acceptedSettlements: 0,
-            deferred: false,
-            detachedOperationId: detach.operation.operationId,
-            conversationId: cycle.conversationId,
-            latestEvidenceRowId: triggerEvidence?.rowId ?? cycle.composeLogIds.at(-1) ?? "unknown",
-            thoughtExecutionProvenance: currentExecutionProvenance(),
-            ownerObligationResolution: ownerResolutionFor("deferred", {
-              detachedOperationId: detach.operation.operationId,
-              interimSpeechAuthored: detach.interimAuthored,
-            }),
-          };
-        }
-        if (detach.reason === "operation_already_pending") {
-          // A second investigate never queues and never runs concurrently:
-          // refuse truthfully instead of executing synchronously behind it.
           return emitFailure(
             "observation_unavailable",
             undefined,
-            makeThoughtTerminal("operation_dispatch", { codes: ["operation_already_pending"], stage: "observation_dispatch" }),
+            makeThoughtTerminal("operation_dispatch", {
+              codes: [queued.reason],
+              stage: "observation_dispatch",
+            }),
           );
         }
-        // Investigate is an asynchronous operation. Without a usable
-        // detachment seam, fail closed instead of blocking Thought on it.
+
+        // Worker-required work has no synchronous Thought fallback. A host
+        // without the global queue seam fails closed before observation.
         return emitFailure(
           "observation_unavailable",
           undefined,
-          makeThoughtTerminal("operation_dispatch", { codes: ["observation_unavailable"], stage: "observation_dispatch" }),
+          makeThoughtTerminal("operation_dispatch", { codes: ["worker_queue_unavailable"], stage: "observation_dispatch" }),
+        );
+      }
+      if (
+        invocation.output.observationRequest.kind.startsWith("project.")
+        && invocation.output.observationRequest.kind !== "project.inspect"
+      ) {
+        return emitFailure(
+          "observation_unavailable",
+          undefined,
+          makeThoughtTerminal("operation_dispatch", {
+            codes: ["operation_not_registered"],
+            stage: "observation_dispatch",
+          }),
         );
       }
       incrementThoughtAttemptCounter(sidecar, cycle.cycleId, cycle.generation, "observationRounds");

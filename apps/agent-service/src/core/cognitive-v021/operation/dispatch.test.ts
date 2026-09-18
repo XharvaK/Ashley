@@ -20,7 +20,6 @@ import {
   updateInterimStatus,
 } from "./interim.js";
 import {
-  detachInvestigateIntent,
   dispatchDetachedOperation,
   type DetachedWorker,
 } from "./dispatch.js";
@@ -74,6 +73,73 @@ const testIntent: DeliveryIntent = {
   purpose: "licensed_speech",
 };
 
+/** Test-only seam for historical detached rows; production admission is queue-owned. */
+function admitTestDetached(sidecar: DatabaseSync, raw: ReturnType<typeof detachInput>) {
+  const input = raw as {
+    intent: ObservationIntentSemanticOutput;
+    cycleId: string;
+    generation: number;
+    conversationId: string;
+    originOwnerEventId: string;
+    originEvidenceRowId?: string | null;
+    ownerId: string;
+    nowMs?: number;
+  };
+  const nowMs = input.nowMs ?? Date.now();
+  const request = input.intent.request;
+  if (
+    (input.intent.operationKind !== "project.investigate" && input.intent.operationKind !== "project.inspect")
+    || !input.cycleId
+    || !Number.isSafeInteger(input.generation)
+    || !input.conversationId
+    || !input.originOwnerEventId
+    || !input.ownerId
+    || typeof request !== "object"
+    || request === null
+    || Array.isArray(request)
+    || typeof request.projectId !== "string"
+    || !request.projectId
+    || !input.intent.purpose
+    || !input.intent.evidenceNeed
+    || !Number.isSafeInteger(nowMs)
+    || nowMs < 0
+  ) {
+    return { detached: false as const, reason: "invalid_detach_request" };
+  }
+  const admitted = admitDetachedOperation(sidecar, {
+    idempotencyKey: `detached:${input.conversationId}:${input.cycleId}:project.investigate`,
+    conversationId: input.conversationId,
+    originCycleId: input.cycleId,
+    originGeneration: input.generation,
+    originKind: "OWNER_REQUEST",
+    originRef: input.originOwnerEventId,
+    originOwnerEventId: input.originOwnerEventId,
+    originEvidenceRowId: input.originEvidenceRowId,
+    operationKind: "project.investigate",
+    request,
+    purpose: input.intent.purpose,
+    evidenceNeed: input.intent.evidenceNeed,
+    operationDeadlineAtMs: nowMs + 300_000,
+    nowMs,
+  });
+  if (!admitted.ok) return { detached: false as const, reason: admitted.reason };
+  const interim = input.intent.interimSpeech;
+  if (interim?.mode !== "hold") {
+    return { detached: true as const, operation: admitted.operation, created: admitted.created, interimId: null, interimAuthored: false };
+  }
+  const authorized = authorizeInterimSpeech(sidecar, {
+    operationId: admitted.operation.operationId,
+    surfaceDraft: interim.surfaceDraft,
+    presentationDirectives: interim.presentationDirectives,
+    deliveryIntent: { ...testIntent, threadId: input.conversationId, conversationId: input.conversationId },
+    origin: "live",
+    nowMs,
+  });
+  return authorized.ok
+    ? { detached: true as const, operation: admitted.operation, created: admitted.created, interimId: authorized.interim.interimId, interimAuthored: true }
+    : { detached: true as const, operation: admitted.operation, created: admitted.created, interimId: null, interimAuthored: false };
+}
+
 const successWorker: DetachedWorker = async () => ({ ok: true, payload: { operation: "project.investigate", summary: "found it" } });
 
 /** Manually-released worker gate. Method scope keeps narrowing sound across awaits. */
@@ -92,7 +158,7 @@ describe("detached investigate admission", () => {
   it("admits the operation and authorizes the interim hold", () => {
     const { sidecar } = origin();
     try {
-      const detached = detachInvestigateIntent(sidecar, detachInput());
+      const detached = admitTestDetached(sidecar, detachInput());
       expect(detached.detached).toBe(true);
       if (!detached.detached) return;
       expect(detached.created).toBe(true);
@@ -117,7 +183,7 @@ describe("detached investigate admission", () => {
   it("admits without interim ownership when Thought authors no hold", () => {
     const { sidecar } = origin();
     try {
-      const detached = detachInvestigateIntent(sidecar, detachInput({ intent: INTENT }));
+      const detached = admitTestDetached(sidecar, detachInput({ intent: INTENT }));
       expect(detached.detached).toBe(true);
       if (!detached.detached) return;
       expect(detached.interimAuthored).toBe(false);
@@ -128,29 +194,34 @@ describe("detached investigate admission", () => {
     }
   });
 
-  it("refuses non-investigate kinds and malformed input without touching ownership", () => {
+  it("admits semantic project.inspect and refuses malformed input", () => {
     const { sidecar } = origin();
     try {
-      expect(detachInvestigateIntent(sidecar, detachInput({
-        intent: { ...INTENT, operationKind: "project.inspect" },
-      }))).toEqual({ detached: false, reason: "not_detachable_kind" });
-      expect(detachInvestigateIntent(sidecar, detachInput({ ownerId: "" })))
+      const inspected = admitTestDetached(sidecar, detachInput({
+        intent: {
+          ...INTENT_WITH_HOLD,
+          operationKind: "project.inspect",
+          request: { projectId: "project-ashley", focus: "understand the service" },
+        },
+      }));
+      expect(inspected.detached).toBe(true);
+      expect(admitTestDetached(sidecar, detachInput({ ownerId: "" })))
         .toEqual({ detached: false, reason: "invalid_detach_request" });
       expect(sidecar.prepare("SELECT COUNT(*) AS count FROM detached_operations").get())
-        .toMatchObject({ count: 0 });
+        .toMatchObject({ count: 1 });
       expect(sidecar.prepare("SELECT COUNT(*) AS count FROM operation_interim_outbox").get())
-        .toMatchObject({ count: 0 });
+        .toMatchObject({ count: 1 });
     } finally {
       sidecar.close();
     }
   });
 
-  it("refuses a second pending operation for the same conversation", () => {
+  it("keeps detached admission idempotent without per-conversation uniqueness", () => {
     const { sidecar } = origin();
     try {
-      expect(detachInvestigateIntent(sidecar, detachInput()).detached).toBe(true);
-      expect(detachInvestigateIntent(sidecar, detachInput({ cycleId: "cycle-thread-detach-2" })))
-        .toEqual({ detached: false, reason: "operation_already_pending" });
+      expect(admitTestDetached(sidecar, detachInput()).detached).toBe(true);
+      expect(admitTestDetached(sidecar, detachInput({ cycleId: "cycle-thread-detach-2" })))
+        .toMatchObject({ detached: true, created: true });
     } finally {
       sidecar.close();
     }
@@ -199,7 +270,7 @@ describe("detached worker dispatch", () => {
   it("starts with proof, stores worker evidence, and succeeds terminally", async () => {
     const { sidecar } = origin();
     try {
-      const detached = detachInvestigateIntent(sidecar, detachInput());
+      const detached = admitTestDetached(sidecar, detachInput());
       if (!detached.detached) throw new Error("detach failed");
       const opId = detached.operation.operationId;
       const result = await dispatchDetachedOperation(sidecar, opId, successWorker, { nowMs: 2_000 });
@@ -221,7 +292,7 @@ describe("detached worker dispatch", () => {
   it("persists worker failure as failed with the worker error code", async () => {
     const { sidecar } = origin();
     try {
-      const detached = detachInvestigateIntent(sidecar, detachInput());
+      const detached = admitTestDetached(sidecar, detachInput());
       if (!detached.detached) throw new Error("detach failed");
       const result = await dispatchDetachedOperation(
         sidecar,
@@ -237,7 +308,7 @@ describe("detached worker dispatch", () => {
   it("persists a thrown dispatch as outcome_unknown without blind rerun", async () => {
     const { sidecar } = origin();
     try {
-      const detached = detachInvestigateIntent(sidecar, detachInput());
+      const detached = admitTestDetached(sidecar, detachInput());
       if (!detached.detached) throw new Error("detach failed");
       const opId = detached.operation.operationId;
       let calls = 0;
@@ -263,7 +334,7 @@ describe("detached worker dispatch", () => {
   it("refuses duplicate dispatch while started without rerunning the worker", async () => {
     const { sidecar } = origin();
     try {
-      const detached = detachInvestigateIntent(sidecar, detachInput());
+      const detached = admitTestDetached(sidecar, detachInput());
       if (!detached.detached) throw new Error("detach failed");
       const opId = detached.operation.operationId;
       const gate = manualWorkerGate<{ ok: true; payload: unknown }>();
@@ -316,7 +387,7 @@ describe("interim delivery independence", () => {
   it("projects the interim hold to a claimable Owner-DM reservation without touching the operation", async () => {
     const { sidecar, nuclear, cycle } = interimNuclear();
     try {
-      const detached = detachInvestigateIntent(sidecar, {
+      const detached = admitTestDetached(sidecar, {
         intent: INTENT_WITH_HOLD,
         cycleId: cycle.cycleId,
         generation: cycle.generation,
@@ -365,7 +436,7 @@ describe("interim delivery independence", () => {
   it("a failed interim delivery neither cancels work nor blocks dispatch", async () => {
     const { sidecar, nuclear, cycle } = interimNuclear();
     try {
-      const detached = detachInvestigateIntent(sidecar, {
+      const detached = admitTestDetached(sidecar, {
         intent: INTENT_WITH_HOLD,
         cycleId: cycle.cycleId,
         generation: cycle.generation,
@@ -403,7 +474,7 @@ describe("interim delivery independence", () => {
   it("missing and stale interim rows refuse with interim-specific reasons", async () => {
     const { sidecar, nuclear, cycle } = interimNuclear();
     try {
-      const detached = detachInvestigateIntent(sidecar, {
+      const detached = admitTestDetached(sidecar, {
         intent: INTENT_WITH_HOLD,
         cycleId: cycle.cycleId,
         generation: cycle.generation,

@@ -2,10 +2,16 @@ import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import { openNuclearDb, nuclearSchemaVersion, NUCLEAR_SUPPORTED_VERSION } from "../../db.js";
 import { admitTestCycle, openTestSidecar } from "../test-support.js";
+import { getCycle, updateCycleState } from "../cycle/inbox.js";
+import { enqueueWorkerUndertaking } from "../operation/worker-queue.js";
 import { insertOutboxPending } from "../speech/outbox.js";
 import { suppressUndeliveredOutbox } from "../speech/outbox.js";
 import { emitInfrastructureNotice, THOUGHT_UNAVAILABLE_NOTICE, updateSystemNoticeStatus } from "../speech/infrastructure-notice.js";
-import { OutboxDeliveryProjector } from "./outbox-projector.js";
+import {
+  OutboxDeliveryProjector,
+  markProjectedDeliverySending,
+  reconcileProjectedDeliverySweep,
+} from "./outbox-projector.js";
 import { recheckOwnerRoomPublicationReservation } from "../settlement/publish.js";
 import { upsertTrustedRoom } from "../../relationship/social-authority.js";
 import { getDeliveryAbortSignal, registerDeliveryAbort } from "../../delivery/abort-registry.js";
@@ -410,6 +416,70 @@ describe("v0.2.1 cross-database outbox projection", () => {
       expect(sidecar.prepare("SELECT discord_message_id FROM system_notice_outbox WHERE notice_id = ?").get(direct.noticeId)).toMatchObject({ discord_message_id: "keep-id" });
       updateSystemNoticeStatus(sidecar, direct.noticeId, "projected", { discordMessageId: null });
       expect(sidecar.prepare("SELECT discord_message_id FROM system_notice_outbox WHERE notice_id = ?").get(direct.noticeId)).toMatchObject({ discord_message_id: null });
+    } finally {
+      sidecar.close();
+      nuclear.close();
+    }
+  });
+
+  it("converges a mechanically proven delivered sending cycle without replay", async () => {
+    const sidecar = openTestSidecar();
+    const nuclear = openNuclearDb(new DatabaseSync(":memory:"));
+    try {
+      const cycle = admitTestCycle(sidecar, {
+        cycleId: "cycle-delivered-sending-convergence",
+        conversationId: "thread-delivered-sending-convergence",
+        triggerKind: "owner_message",
+        occupantId: "doc",
+        nowMs: 1,
+      });
+      updateCycleState(sidecar, cycle.cycleId, "sending", 2);
+      expect(enqueueWorkerUndertaking(sidecar, {
+        semanticKind: "project.inspect",
+        origin: { kind: "OWNER_REQUEST", ref: "owner:queue-continuation", ownerEventId: "owner:queue-continuation" },
+        ownerId: "doc",
+        conversationId: cycle.conversationId,
+        originCycleId: cycle.cycleId,
+        originGeneration: cycle.generation,
+        request: { projectId: "project-ashley", focus: "queue continuation" },
+        purpose: "preserve the active continuation",
+        evidenceNeed: "bounded worker evidence",
+        nowMs: 2,
+      })).toMatchObject({ ok: true });
+      const speech = insertOutboxPending(sidecar, {
+        settlementId: "settlement-delivered-sending-convergence",
+        cycleId: cycle.cycleId,
+        generation: cycle.generation,
+        conversationId: cycle.conversationId,
+        licensedText: "already delivered speech",
+      });
+      const projector = new OutboxDeliveryProjector(sidecar, nuclear, { nowMs: () => 1_000 });
+      await projector.project(speech.outboxId);
+      const reservationId = Number((sidecar.prepare(
+        "SELECT nuclear_reservation_id FROM speech_outbox WHERE outbox_id = ?",
+      ).get(speech.outboxId) as { nuclear_reservation_id: number }).nuclear_reservation_id);
+      expect(markProjectedDeliverySending(sidecar, nuclear, reservationId)).toBe(true);
+      nuclear.prepare(
+        "UPDATE delivery_reservations SET state = 'committed', finalized_at = ? WHERE id = ?",
+      ).run("2026-09-18T10:00:00.000Z", reservationId);
+      nuclear.prepare(
+        "UPDATE delivery_bubbles SET discord_message_id = ?, sent_at = ? WHERE reservation_id = ? AND ordinal = 0",
+      ).run("discord-delivered-sending", "2026-09-18T10:00:00.000Z", reservationId);
+
+      expect(sidecar.prepare("SELECT send_status FROM speech_outbox WHERE outbox_id = ?").get(speech.outboxId))
+        .toMatchObject({ send_status: "sending" });
+      expect(reconcileProjectedDeliverySweep(sidecar, nuclear, { limit: 5 })).toMatchObject({
+        scanned: 1,
+        reconciled: 1,
+        conflicts: 0,
+      });
+      expect(sidecar.prepare("SELECT send_status FROM speech_outbox WHERE outbox_id = ?").get(speech.outboxId))
+        .toMatchObject({ send_status: "delivered" });
+      expect(getCycle(sidecar, cycle.cycleId)?.state).toBe("silent");
+      expect(nuclear.prepare("SELECT COUNT(*) AS count FROM delivery_reservations").get()).toMatchObject({ count: 1 });
+
+      expect(reconcileProjectedDeliverySweep(sidecar, nuclear, { limit: 5 })).toMatchObject({ reconciled: 0 });
+      expect(nuclear.prepare("SELECT COUNT(*) AS count FROM delivery_reservations").get()).toMatchObject({ count: 1 });
     } finally {
       sidecar.close();
       nuclear.close();

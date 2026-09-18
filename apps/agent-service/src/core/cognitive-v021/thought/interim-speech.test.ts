@@ -14,11 +14,11 @@ import {
 
 const refs = new Set(["turn-1"]);
 
-const investigate = {
+const workerInspect = {
   kind: "observation_intent",
-  operationKind: "project.investigate",
+  operationKind: "project.inspect",
   request: { projectId: "project-ashley", focus: "apps/agent-service" },
-  purpose: "investigate the current project",
+  purpose: "inspect the current project",
   evidenceNeed: "bounded file evidence",
   existingRefs: ["turn-1"],
 };
@@ -26,7 +26,7 @@ const investigate = {
 const inspect = {
   kind: "observation_intent",
   operationKind: "project.inspect",
-  request: { projectId: "project-ashley", operation: "project.read_file", path: "README.md" },
+  request: { projectId: "project-ashley", locator: { kind: "file", path: "README.md" } },
   purpose: "read one known file",
   evidenceNeed: "the file contents",
   existingRefs: ["turn-1"],
@@ -43,10 +43,10 @@ function coverage(overrides: Partial<OwnerDispatchCoverage> = {}): OwnerDispatch
 }
 
 describe("interim-hold Thought contract", () => {
-  it("accepts an observation intent without interim speech on investigate and inspect", () => {
-    expect(parseThoughtSemanticOutput(investigate, refs)).toMatchObject({
+  it("accepts route-neutral project inspection intents without interim speech", () => {
+    expect(parseThoughtSemanticOutput(workerInspect, refs)).toMatchObject({
       ok: true,
-      value: { kind: "observation_intent", operationKind: "project.investigate" },
+      value: { kind: "observation_intent", operationKind: "project.inspect" },
     });
     expect(parseThoughtSemanticOutput(inspect, refs)).toMatchObject({
       ok: true,
@@ -54,14 +54,14 @@ describe("interim-hold Thought contract", () => {
     });
   });
 
-  it("accepts mode none and a bounded hold draft on project.investigate", () => {
+  it("accepts mode none and a bounded hold draft on project.inspect", () => {
     expect(parseThoughtSemanticOutput(
-      { ...investigate, interimSpeech: { mode: "none" } },
+      { ...workerInspect, interimSpeech: { mode: "none" } },
       refs,
     )).toMatchObject({ ok: true });
     expect(parseThoughtSemanticOutput(
       {
-        ...investigate,
+        ...workerInspect,
         interimSpeech: {
           mode: "hold",
           surfaceDraft: "Yeah, give me a bit. I'm going to look through it.",
@@ -71,7 +71,7 @@ describe("interim-hold Thought contract", () => {
     )).toMatchObject({ ok: true });
     expect(parseThoughtSemanticOutput(
       {
-        ...investigate,
+        ...workerInspect,
         interimSpeech: {
           mode: "hold",
           surfaceDraft: "On it, looking now.",
@@ -83,13 +83,9 @@ describe("interim-hold Thought contract", () => {
     expect(INTERIM_SURFACE_DRAFT_MAX_LENGTH).toBe(600);
   });
 
-  it("rejects interim speech on project.inspect and every non-observation branch", () => {
+  it("accepts interim speech on project.inspect and rejects it on every non-observation branch", () => {
     const hold = { mode: "hold", surfaceDraft: "Looking into it." };
-    expect(parseThoughtSemanticOutput({ ...inspect, interimSpeech: hold }, refs)).toEqual({
-      ok: false,
-      code: "wrong_type",
-      field: "interimSpeech",
-    });
+    expect(parseThoughtSemanticOutput({ ...inspect, interimSpeech: hold }, refs)).toMatchObject({ ok: true });
     expect(parseThoughtSemanticOutput({
       kind: "effect_intent",
       operationKind: "workspace.verify",
@@ -110,27 +106,27 @@ describe("interim-hold Thought contract", () => {
 
   it("rejects malformed interim holds structurally", () => {
     expect(parseThoughtSemanticOutput(
-      { ...investigate, interimSpeech: { mode: "hold" } },
+      { ...workerInspect, interimSpeech: { mode: "hold" } },
       refs,
     )).toEqual({ ok: false, code: "required_field_missing", field: "interimSpeech.surfaceDraft" });
     expect(parseThoughtSemanticOutput(
-      { ...investigate, interimSpeech: { mode: "hold", surfaceDraft: "" } },
+      { ...workerInspect, interimSpeech: { mode: "hold", surfaceDraft: "" } },
       refs,
     )).toEqual({ ok: false, code: "wrong_type", field: "interimSpeech.surfaceDraft" });
     expect(parseThoughtSemanticOutput(
-      { ...investigate, interimSpeech: { mode: "hold", surfaceDraft: "x".repeat(601) } },
+      { ...workerInspect, interimSpeech: { mode: "hold", surfaceDraft: "x".repeat(601) } },
       refs,
     )).toEqual({ ok: false, code: "wrong_type", field: "interimSpeech.surfaceDraft" });
     expect(parseThoughtSemanticOutput(
-      { ...investigate, interimSpeech: { mode: "defer" } },
+      { ...workerInspect, interimSpeech: { mode: "defer" } },
       refs,
     )).toEqual({ ok: false, code: "invalid_enum", field: "interimSpeech.mode" });
     expect(parseThoughtSemanticOutput(
-      { ...investigate, interimSpeech: { mode: "none", surfaceDraft: "extra" } },
+      { ...workerInspect, interimSpeech: { mode: "none", surfaceDraft: "extra" } },
       refs,
     )).toEqual({ ok: false, code: "unknown_field", field: "interimSpeech.surfaceDraft" });
     expect(parseThoughtSemanticOutput(
-      { ...investigate, interimSpeech: { mode: "hold", surfaceDraft: "ok", findings: ["done"] } },
+      { ...workerInspect, interimSpeech: { mode: "hold", surfaceDraft: "ok", findings: ["done"] } },
       refs,
     )).toEqual({ ok: false, code: "unknown_field", field: "interimSpeech.findings" });
   });
@@ -164,11 +160,11 @@ describe("interim-hold Thought contract", () => {
     expect(hold?.properties.surfaceDraft).toMatchObject({ type: "string", minLength: 1, maxLength: 600 });
   });
 
-  it("teaches the interim-hold law and investigate guidance in compatibility instruction", () => {
+  it("teaches the interim-hold law and project inspection guidance in compatibility instruction", () => {
     const instruction = thoughtOutputCompatibilityInstruction();
     expect(instruction).toContain("Interim-hold law");
     expect(instruction).toContain("operation_pending");
-    expect(instruction).toContain("project.investigate is the multi-step adaptive bounded investigation objective");
+    expect(instruction).toContain("project.inspect is the only current semantic project-read capability");
   });
 });
 

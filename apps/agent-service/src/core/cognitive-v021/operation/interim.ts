@@ -74,7 +74,8 @@ function mapRow(row: InterimRow): OperationInterimOutbox | null {
   if (!INTERIM_SEND_STATUSES.has(sendStatus)) return null;
   return {
     interimId: Number(row.interim_id),
-    operationId: String(row.operation_id),
+    operationId: typeof row.operation_id === "string" ? row.operation_id : null,
+    undertakingId: typeof row.undertaking_id === "string" ? row.undertaking_id : null,
     projectionKey: String(row.projection_key),
     conversationId: String(row.conversation_id),
     cycleId: String(row.cycle_id),
@@ -112,6 +113,17 @@ export function getInterimOutboxByOperation(
   const row = sidecar
     .prepare("SELECT * FROM operation_interim_outbox WHERE operation_id = ?")
     .get(operationId) as InterimRow | undefined;
+  return row ? mapRow(row) : null;
+}
+
+export function getInterimOutboxByUndertaking(
+  sidecar: DatabaseSync,
+  undertakingId: string,
+): OperationInterimOutbox | null {
+  if (!undertakingId) return null;
+  const row = sidecar
+    .prepare("SELECT * FROM operation_interim_outbox WHERE undertaking_id = ?")
+    .get(undertakingId) as InterimRow | undefined;
   return row ? mapRow(row) : null;
 }
 
@@ -213,6 +225,113 @@ export function authorizeInterimSpeech(
   }
   const created = getInterimOutboxByOperation(sidecar, input.operationId);
   if (!created) return { ok: false, reason: "interim_authorization_failed" };
+  return { ok: true, interim: created, created: true };
+}
+
+export type AuthorizeUndertakingAcknowledgementInput = {
+  undertakingId: string;
+  conversationId: string;
+  cycleId: string;
+  generation: number;
+  surfaceDraft: string;
+  presentationDirectives?: readonly string[];
+  deliveryIntent: DeliveryIntent;
+  origin?: OutboxOrigin;
+  nowMs?: number;
+};
+
+/**
+ * Authorize the one Owner-authored acknowledgement for a queued undertaking.
+ * This uses the existing interim delivery lane but does not create or require
+ * a detached operation. The queue acknowledgement reference is the durable
+ * idempotency owner.
+ */
+export function authorizeUndertakingAcknowledgement(
+  sidecar: DatabaseSync,
+  input: AuthorizeUndertakingAcknowledgementInput,
+): InterimResult {
+  const nowMs = input.nowMs ?? Date.now();
+  if (
+    typeof input.undertakingId !== "string"
+    || input.undertakingId.length === 0
+    || typeof input.conversationId !== "string"
+    || input.conversationId.length === 0
+    || typeof input.cycleId !== "string"
+    || input.cycleId.length === 0
+    || !Number.isSafeInteger(input.generation)
+    || typeof input.surfaceDraft !== "string"
+    || input.surfaceDraft.length === 0
+    || input.surfaceDraft.length > 600
+    || !Number.isSafeInteger(nowMs)
+    || nowMs < 0
+  ) {
+    return { ok: false, reason: "invalid_undertaking_acknowledgement" };
+  }
+  const directives = input.presentationDirectives ?? [];
+  if (!Array.isArray(directives) || directives.some((item) => typeof item !== "string" || item.length === 0)) {
+    return { ok: false, reason: "invalid_undertaking_acknowledgement" };
+  }
+  const queue = sidecar.prepare(
+    `SELECT state, acknowledgement_ref FROM worker_undertakings
+      WHERE undertaking_id = ? LIMIT 1`,
+  ).get(input.undertakingId) as { state?: unknown; acknowledgement_ref?: unknown } | undefined;
+  if (!queue) return { ok: false, reason: "undertaking_missing" };
+  if (["succeeded", "failed", "outcome_unknown", "cancelled", "superseded", "expired"].includes(String(queue.state))) {
+    return { ok: false, reason: "undertaking_terminal" };
+  }
+  const existing = getInterimOutboxByUndertaking(sidecar, input.undertakingId);
+  if (existing) {
+    sidecar.prepare(
+      `UPDATE worker_undertakings
+          SET acknowledgement_ref = COALESCE(acknowledgement_ref, ?), updated_at_ms = ?
+        WHERE undertaking_id = ?`,
+    ).run(`interim:${existing.interimId}`, nowMs, input.undertakingId);
+    return { ok: true, interim: existing, created: false };
+  }
+  const origin = input.origin ?? "live";
+  try {
+    const inserted = sidecar.prepare(
+      `INSERT INTO operation_interim_outbox
+         (operation_id, undertaking_id, projection_key, conversation_id, cycle_id, generation,
+          surface_draft, presentation_directives_json, send_status, suppressed,
+          delivery_intent_json, origin, authorized_at_ms, created_at_ms, updated_at_ms)
+       VALUES (NULL, ?, ?, ?, ?, ?, ?, ?, 'pending', 0, ?, ?, ?, ?, ?)`,
+    ).run(
+      input.undertakingId,
+      `interim:pending:undertaking:${input.undertakingId}`,
+      input.conversationId,
+      input.cycleId,
+      input.generation,
+      input.surfaceDraft,
+      JSON.stringify([...directives]),
+      JSON.stringify(input.deliveryIntent),
+      origin,
+      nowMs,
+      nowMs,
+      nowMs,
+    );
+    const interimId = Number(inserted.lastInsertRowid);
+    sidecar.prepare("UPDATE operation_interim_outbox SET projection_key = ? WHERE interim_id = ?")
+      .run(`interim:${interimId}`, interimId);
+    sidecar.prepare(
+      `UPDATE worker_undertakings
+          SET acknowledgement_ref = ?, updated_at_ms = ?
+        WHERE undertaking_id = ? AND acknowledgement_ref IS NULL`,
+    ).run(`interim:${interimId}`, nowMs, input.undertakingId);
+  } catch {
+    const winner = getInterimOutboxByUndertaking(sidecar, input.undertakingId);
+    if (winner) {
+      sidecar.prepare(
+        `UPDATE worker_undertakings
+            SET acknowledgement_ref = COALESCE(acknowledgement_ref, ?), updated_at_ms = ?
+          WHERE undertaking_id = ?`,
+      ).run(`interim:${winner.interimId}`, nowMs, input.undertakingId);
+      return { ok: true, interim: winner, created: false };
+    }
+    return { ok: false, reason: "undertaking_acknowledgement_failed" };
+  }
+  const created = getInterimOutboxByUndertaking(sidecar, input.undertakingId);
+  if (!created) return { ok: false, reason: "undertaking_acknowledgement_failed" };
   return { ok: true, interim: created, created: true };
 }
 

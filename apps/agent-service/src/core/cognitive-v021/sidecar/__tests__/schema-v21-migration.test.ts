@@ -11,8 +11,8 @@ describe("cognitive sidecar Schema V21 migration", () => {
       db.prepare("UPDATE cognitive_sidecar_meta SET schema_version = 20 WHERE id = 1").run();
 
       openCognitiveSidecarDb(db, { dataPlane: { kind: "isolated" } });
-      expect((db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(21);
-      expect(COGNITIVE_SIDECAR_SCHEMA_VERSION).toBe(21);
+      expect((db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(COGNITIVE_SIDECAR_SCHEMA_VERSION);
+      expect(COGNITIVE_SIDECAR_SCHEMA_VERSION).toBe(22);
       const columns = (db.prepare("PRAGMA table_info(cognition_claims)").all() as Array<{ name: string }>)
         .map((column) => column.name);
       for (const column of [
@@ -23,7 +23,7 @@ describe("cognitive sidecar Schema V21 migration", () => {
       }
 
       openCognitiveSidecarDb(db, { dataPlane: { kind: "isolated" } });
-      expect((db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(21);
+      expect((db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(COGNITIVE_SIDECAR_SCHEMA_VERSION);
     } finally {
       db.close();
     }

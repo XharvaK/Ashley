@@ -10,9 +10,8 @@ import {
   requestDetachedOperationCancel,
   setDetachedOperationTerminal,
 } from "./detached.js";
-import { getInterimOutboxByOperation } from "./interim.js";
+import { authorizeInterimSpeech, getInterimOutboxByOperation } from "./interim.js";
 import { completionEventIdFor, reconcileMissingCompletions } from "./completion.js";
-import { detachInvestigateIntent } from "./dispatch.js";
 import type { ObservationIntentSemanticOutput } from "../types.js";
 
 const HOLD_INTENT: ObservationIntentSemanticOutput = {
@@ -39,6 +38,47 @@ function stage(conversationId: string) {
   return { sidecar, cycle };
 }
 
+function admitTestDetached(
+  sidecar: ReturnType<typeof openTestSidecar>,
+  cycle: ReturnType<typeof admitTestCycle>,
+  intent: ObservationIntentSemanticOutput,
+) {
+  const nowMs = 1_000;
+  const admitted = admitDetachedOperation(sidecar, {
+    idempotencyKey: `detached:${cycle.conversationId}:${cycle.cycleId}:project.investigate`,
+    conversationId: cycle.conversationId,
+    originCycleId: cycle.cycleId,
+    originGeneration: cycle.generation,
+    originKind: "OWNER_REQUEST",
+    originRef: "owner-1",
+    originOwnerEventId: "owner-1",
+    operationKind: "project.investigate",
+    request: intent.request,
+    purpose: intent.purpose,
+    evidenceNeed: intent.evidenceNeed,
+    operationDeadlineAtMs: nowMs + 300_000,
+    nowMs,
+  });
+  if (!admitted.ok) return { detached: false as const, reason: admitted.reason };
+  if (intent.interimSpeech?.mode !== "hold") {
+    return { detached: true as const, operation: admitted.operation, interimId: null, interimAuthored: false };
+  }
+  const authorized = authorizeInterimSpeech(sidecar, {
+    operationId: admitted.operation.operationId,
+    surfaceDraft: intent.interimSpeech.surfaceDraft,
+    deliveryIntent: {
+      ownerId: "doc", channel: "discord", threadId: cycle.conversationId,
+      conversationId: cycle.conversationId, trigger: "owner_message_reactive",
+      deliveryLane: "reactive", purpose: "licensed_speech",
+    },
+    origin: "live",
+    nowMs,
+  });
+  return authorized.ok
+    ? { detached: true as const, operation: admitted.operation, interimId: authorized.interim.interimId, interimAuthored: true }
+    : { detached: true as const, operation: admitted.operation, interimId: null, interimAuthored: false };
+}
+
 /**
  * Crash-boundary walk: every durable stage of a detached operation names
  * its recovery owner. No boundary is silent and none reruns work.
@@ -47,15 +87,7 @@ describe("detached operation crash boundaries", () => {
   it("admission before interim leaves admitted work with no promissory text", () => {
     const { sidecar, cycle } = stage("thread-boundary-admit");
     try {
-      const detached = detachInvestigateIntent(sidecar, {
-        intent: { ...HOLD_INTENT, interimSpeech: { mode: "none" } },
-        cycleId: cycle.cycleId,
-        generation: cycle.generation,
-        conversationId: cycle.conversationId,
-        originOwnerEventId: "owner-1",
-        ownerId: "doc",
-        nowMs: 1_000,
-      });
+      const detached = admitTestDetached(sidecar, cycle, { ...HOLD_INTENT, interimSpeech: { mode: "none" } });
       if (!detached.detached) throw new Error("detach failed");
       expect(detached.interimAuthored).toBe(false);
       expect(getInterimOutboxByOperation(sidecar, detached.operation.operationId)).toBe(null);
@@ -68,15 +100,7 @@ describe("detached operation crash boundaries", () => {
   it("persisted interim binds the hold to admitted work", () => {
     const { sidecar, cycle } = stage("thread-boundary-interim");
     try {
-      const detached = detachInvestigateIntent(sidecar, {
-        intent: HOLD_INTENT,
-        cycleId: cycle.cycleId,
-        generation: cycle.generation,
-        conversationId: cycle.conversationId,
-        originOwnerEventId: "owner-1",
-        ownerId: "doc",
-        nowMs: 1_000,
-      });
+      const detached = admitTestDetached(sidecar, cycle, HOLD_INTENT);
       if (!detached.detached || detached.interimId == null) throw new Error("detach failed");
       const interim = getInterimOutboxByOperation(sidecar, detached.operation.operationId);
       expect(interim?.sendStatus).toBe("pending");

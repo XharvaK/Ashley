@@ -304,7 +304,7 @@ describe("P1 occupied-concern projection", () => {
     expect(THOUGHT_OUTPUT_SCHEMA_FINGERPRINT).toBe(THOUGHT_SEMANTIC_SCHEMA_FINGERPRINT);
     // Rotation earned by the optional interimSpeech hold on observation_intent.
     expect(THOUGHT_OUTPUT_SCHEMA_FINGERPRINT).toBe(
-      "sha256:a39bbabf5d3af18fce4b32cb5dba794ab4b26f81aa882d5c5a7d9997ddf1d592",
+      "sha256:35d923c4c6336ef37ec6c8624f533b27b450ecfadae7e8a2159a7c1505a10121",
     );
   });
 });

@@ -35,7 +35,10 @@ const capabilityReality: CapabilityReality = {
 };
 
 const HARD_TPM_CEILING = quotaContractFor("nim:openai/gpt-oss-20b").tpm; // 16,000
-const QUALITY_CORPUS_MAX_OUTPUT_TOKENS = 4_090;
+// The route-neutral semantic inspection contract adds a bounded request
+// envelope to the Thought projection. Keep the fixture demand within the
+// 16,000 TPM qualification ceiling after that contract change.
+const QUALITY_CORPUS_MAX_OUTPUT_TOKENS = 4_070;
 
 describe("Quality Corpus 18-Scenario Acceptance Qualification (§17.4, §18)", () => {
   for (const scenario of QUALITY_CORPUS_SCENARIOS) {

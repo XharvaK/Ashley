@@ -420,12 +420,12 @@ describe("Core D0 local Sparse VNext qualification", () => {
     const db = activeNuclearDb();
     try {
       const reality = getCapabilityReality(db, { registry: activeRegistry(), masterMode: "apply", lifecycleEnabled: true, substrateAvailable: true });
-      const operation = reality.operationCapabilities?.find((item) => item.operationKind === "project.read_file");
+      const operation = reality.operationCapabilities?.find((item) => item.operationKind === "project.inspect");
       expect(operation).toMatchObject({ semanticClass: "observation", available: true });
-      const semantic = { kind: "observation_intent", operationKind: "project.read_file", request: { projectId: "project-ashley", path: "README.md" }, purpose: "read evidence", evidenceNeed: "current contents", existingRefs: [] } as const;
+      const semantic = { kind: "observation_intent", operationKind: "project.inspect", request: { projectId: "project-ashley", locator: { kind: "file", path: "README.md" } }, purpose: "read evidence", evidenceNeed: "current contents", existingRefs: [] } as const;
       expect(parseThoughtSemanticOutput(semantic, new Set())).toEqual({ ok: true, value: semantic });
       const bound = bindObservationIntent({ intent: semantic, cycleId: "cycle-d0-12", generation: 1, parentDeadlineAtMs: 60_000, nowMs: 1_000 });
-      expect(bound).toMatchObject({ kind: "project.read_file", replaySafe: true, operationKind: "project.read_file" });
+      expect(bound).toMatchObject({ kind: "project.inspect", replaySafe: true, operationKind: "project.inspect" });
       expect(bound.requestId).toMatch(/^observation:/);
     } finally { db.close(); }
   });

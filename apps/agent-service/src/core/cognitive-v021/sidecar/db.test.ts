@@ -60,7 +60,7 @@ describe("cognitive v0.2.1 sidecar database", () => {
         )
         .all() as Array<{ name: string }>
     ).map((row) => row.name);
-    expect(tables).toHaveLength(42);
+    expect(tables).toHaveLength(45);
     expect(tables).toContain("speech_outbox");
     expect(tables).toContain("detached_operations");
     expect(tables).toContain("operation_interim_outbox");
@@ -71,6 +71,9 @@ describe("cognitive v0.2.1 sidecar database", () => {
     expect(tables).toContain("private_budget_reservations");
     expect(tables).toContain("private_budget_attempt_bindings");
     expect(tables).toContain("deferred_reactive_frontiers");
+    expect(tables).toContain("worker_undertakings");
+    expect(tables).toContain("worker_undertaking_scheduler");
+    expect(tables).toContain("worker_execution_slot");
     // F0 V9: the consuming index is policy-scoped (no conversation_id lead).
     const indexColumns = (
       db.prepare("PRAGMA index_info(idx_private_budget_consuming)").all() as Array<{ seqno: number; cid: number; name: string }>
@@ -513,7 +516,7 @@ describe("cognitive v0.2.1 sidecar database", () => {
   it("rejects newer sidecar content and rolls back a failed v2 upgrade", () => {
     const newer = new DatabaseSync(":memory:");
     try {
-      newer.exec("PRAGMA user_version = 22");
+      newer.exec("PRAGMA user_version = 23");
       let failure: unknown;
       try {
         openCognitiveSidecarDb(newer, { dataPlane: { kind: "isolated" } });
@@ -522,7 +525,7 @@ describe("cognitive v0.2.1 sidecar database", () => {
       }
       expect(failure).toMatchObject({ code: "unsupported_cognitive_sidecar_schema" });
       expect(failure).toBeInstanceOf(Error);
-      expect((failure as Error).message).toBe("unsupported_cognitive_sidecar_schema:22>21");
+      expect((failure as Error).message).toBe("unsupported_cognitive_sidecar_schema:23>22");
     } finally {
       newer.close();
     }

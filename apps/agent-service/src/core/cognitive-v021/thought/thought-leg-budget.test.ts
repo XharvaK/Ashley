@@ -10,7 +10,6 @@ import {
   ORDINARY_THOUGHT_BUDGET_MS,
 } from "../types.js";
 import { runCognitiveCycle } from "./run.js";
-import { THOUGHT_UNAVAILABLE_NOTICE } from "../speech/infrastructure-notice.js";
 
 const constitution: IdentitySlice = { constitutional: ["truth first"], stableSelf: [] };
 const capabilityReality: CapabilityReality = {
@@ -146,8 +145,8 @@ describe("Thought-leg budget ownership", () => {
         return {
           text: JSON.stringify({
             kind: "observation_intent",
-            operationKind: "project.read_file",
-            request: { path: "README.md" },
+            operationKind: "project.inspect",
+            request: { projectId: "project-ashley", locator: { kind: "file", path: "README.md" } },
             purpose: "inspect the file",
             evidenceNeed: "the file contents",
             existingRefs: ["owner-thread-obs-leg"],
@@ -280,8 +279,8 @@ describe("Thought-leg budget ownership", () => {
         return {
           text: JSON.stringify({
             kind: "observation_intent",
-            operationKind: "project.read_file",
-            request: { path: "README.md" },
+            operationKind: "project.inspect",
+            request: { projectId: "project-ashley", locator: { kind: "file", path: "README.md" } },
             purpose: "inspect the file",
             evidenceNeed: "the file contents",
             existingRefs: ["owner-thread-long-op"],
@@ -329,7 +328,7 @@ describe("Thought-leg budget ownership", () => {
       { nowMs: () => now },
     ));
     expect(result.published).toBe(false);
-    expect(result.infrastructureNotice).toBe(`${THOUGHT_UNAVAILABLE_NOTICE} Error code: THOUGHT_DEADLINE_EXCEEDED`);
+    expect(result.infrastructureNotice).toBeNull();
     sidecar.close();
     attentionDb.close();
   });
@@ -344,8 +343,8 @@ describe("Thought-leg budget ownership", () => {
       return {
         text: JSON.stringify({
           kind: "observation_intent",
-          operationKind: "project.read_file",
-          request: { path: `file-${calls}.md` },
+            operationKind: "project.inspect",
+            request: { projectId: "project-ashley", locator: { kind: "file", path: `file-${calls}.md` } },
           purpose: "inspect the file",
           evidenceNeed: "the file contents",
           existingRefs: ["owner-thread-obs-cap"],
@@ -361,7 +360,7 @@ describe("Thought-leg budget ownership", () => {
       vi.fn(async () => ({ ...observed(), observationId: `observation-${calls}` })),
     ));
     expect(result.published).toBe(false);
-    expect(result.infrastructureNotice).toContain("THOUGHT_BUDGET_EXHAUSTED");
+    expect(result.infrastructureNotice).toBeNull();
     expect(calls).toBe(MAX_OBSERVATION_ROUNDS + 1);
     sidecar.close();
     attentionDb.close();

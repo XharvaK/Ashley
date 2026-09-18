@@ -27,6 +27,9 @@ export type BoundObservationRequest = ObservationRequest & {
 };
 
 export function bindObservationIntent(input: ObservationBindingInput): BoundObservationRequest {
+  if (input.intent.operationKind.startsWith("project.") && input.intent.operationKind !== "project.inspect") {
+    throw new Error("operation_not_registered");
+  }
   const deadlineAtMs = input.nowMs + OPERATION_DEADLINE_CAP_MS;
   if (deadlineAtMs <= input.nowMs) throw new Error("deadline_exhausted");
   const requestId = `observation:${randomUUID()}`;

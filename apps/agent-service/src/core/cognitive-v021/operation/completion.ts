@@ -24,6 +24,7 @@ function truncate(value: string, maxLength: number): string {
 
 function completionSummary(input: {
   terminalState: DetachedOperationTerminalState;
+  originKind: string;
   purpose: string;
   evidenceNeed: string;
   interimText: string | null;
@@ -32,8 +33,11 @@ function completionSummary(input: {
   errorCode: string | null;
   supersededBy: string | null;
 }): string {
+  const label = input.originKind === "OWNER_REQUEST"
+    ? "Detached investigation"
+    : `${input.originKind} worker investigation`;
   const parts = [
-    `Detached investigation ${input.terminalState}: ${truncate(input.purpose, 280)}.`,
+    `${label} ${input.terminalState}: ${truncate(input.purpose, 280)}.`,
     `Evidence need: ${truncate(input.evidenceNeed, 200)}.`,
   ];
   if (input.interimText) {
@@ -105,8 +109,11 @@ export function produceOperationCompletion(
     errorCode: operation.errorCode,
     originCycleId: operation.originCycleId,
     originGeneration: operation.originGeneration,
+    originKind: operation.originKind,
+    originRef: operation.originRef,
     originOwnerEventId: operation.originOwnerEventId,
     originEvidenceRowId: operation.originEvidenceRowId,
+    workerUndertakingId: operation.workerUndertakingId,
     purpose: operation.purpose,
     evidenceNeed: operation.evidenceNeed,
     interimText: interim?.surfaceDraft ?? null,
@@ -133,6 +140,7 @@ export function produceOperationCompletion(
     conversationId: operation.conversationId,
     text: completionSummary({
       terminalState: operation.terminalState,
+      originKind: operation.originKind,
       purpose: operation.purpose,
       evidenceNeed: operation.evidenceNeed,
       interimText: interim?.surfaceDraft ?? null,

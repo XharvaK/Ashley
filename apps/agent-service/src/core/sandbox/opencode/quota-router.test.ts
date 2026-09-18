@@ -41,7 +41,7 @@ describe("OpenCode quota router", () => {
     });
   });
 
-  it("does not spend OTHER_FREE on a NVIDIA outage while the class is not exhausted", () => {
+  it("continues to the next approved pool when every NVIDIA model is temporarily unavailable", () => {
     let router = createQuotaRouter({
       state: {
         NVIDIA_FREE: { capacity: "available", providerResetAtMs: null, hostNextProbeAtMs: null },
@@ -52,7 +52,11 @@ describe("OpenCode quota router", () => {
       router = setModelHealth(router, modelId, "temporarily_unavailable");
     }
     const decision = routeWorkerTask(router, "delegated_read");
-    expect(decision).toEqual({ ok: false, reason: "unavailable" });
+    expect(decision).toMatchObject({
+      ok: true,
+      quotaClass: "OTHER_FREE",
+      modelId: "opencode/muse-spark-1.3-contributor-free",
+    });
   });
 
   it("may use OTHER_FREE for delegated read only after NVIDIA_FREE quota_exhausted", () => {
@@ -77,11 +81,36 @@ describe("OpenCode quota router", () => {
         OTHER_FREE: { capacity: "quota_exhausted", providerResetAtMs: null, hostNextProbeAtMs: 9_999_999_999_999 },
       },
     });
-    expect(routeWorkerTask(router, "iterative_engineering")).toEqual({
+    expect(routeWorkerTask(router, "iterative_engineering")).toMatchObject({
       ok: false,
       reason: "worker_capacity_exhausted",
+      capacityStatus: "quota_exhausted",
+      nextProbeAtMs: 9_999_999_999_999,
     });
     expect(offerWorkerTask(router, "delegated_read").offerable).toBe(true);
+  });
+
+  it("returns typed capacity wait when all approved delegated-read pools are unavailable", () => {
+    let router = createQuotaRouter({
+      state: {
+        NVIDIA_FREE: { capacity: "available", providerResetAtMs: null, hostNextProbeAtMs: null },
+        OTHER_FREE: { capacity: "available", providerResetAtMs: null, hostNextProbeAtMs: null },
+      },
+      nowMs: 100,
+    });
+    for (const modelId of [
+      ...C1_OPENCODE_FREE_CATALOG.classes.NVIDIA_FREE,
+      ...C1_OPENCODE_FREE_CATALOG.classes.OTHER_FREE,
+    ]) {
+      router = setModelHealth(router, modelId, "temporarily_unavailable");
+    }
+    const decision = routeWorkerTask(router, "delegated_read");
+    expect(decision).toMatchObject({
+      ok: false,
+      reason: "worker_capacity_exhausted",
+      capacityStatus: "temporarily_unavailable",
+    });
+    if (!decision.ok) expect(decision.nextProbeAtMs).toBeGreaterThan(100);
   });
 
   it("keeps current candidate.develop policy on OTHER_FREE only", () => {
@@ -139,7 +168,11 @@ describe("OpenCode quota router", () => {
         OTHER_FREE: { capacity: "available", providerResetAtMs: null, hostNextProbeAtMs: null },
       },
     });
-    expect(routeWorkerTask(next, "delegated_read")).toEqual({ ok: false, reason: "unavailable" });
+    expect(routeWorkerTask(next, "delegated_read")).toMatchObject({
+      ok: true,
+      quotaClass: "OTHER_FREE",
+      modelId: "opencode/muse-spark-1.3-contributor-free",
+    });
   });
 
   it("keeps providerResetAtMs unknown unless supplied", () => {

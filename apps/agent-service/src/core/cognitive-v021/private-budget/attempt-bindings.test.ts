@@ -878,8 +878,11 @@ describe("F1 append-only repair-attempt authorization", () => {
           return {
             text: JSON.stringify({
               kind: "observation_intent",
-              operationKind: "project.read_file",
-              request: { path: "README.md" },
+              operationKind: "project.inspect",
+              request: {
+                projectId: "project-ashley",
+                locator: { kind: "file", path: "README.md" },
+              },
               purpose: "inspect",
               evidenceNeed: "contents",
               existingRefs: ["trigger:witness-b"],

@@ -98,16 +98,13 @@ function thoughtOperationCapabilities(input: {
   projectInspectionAvailable: boolean;
   verificationAvailable: boolean;
   patchExportAvailable: boolean;
-  delegatedInvestigationAvailable: boolean;
   iterativeEngineeringAvailable: boolean;
 }): readonly ThoughtOperationCapability[] {
   const projectReadFileSpec = v2CapabilitySpec("project.read_file");
-  const projectListDirectorySpec = v2CapabilitySpec("project.list_directory");
-  const projectSearchTextSpec = v2CapabilitySpec("project.search_text");
   const workspaceVerifySpec = v2CapabilitySpec("workspace.verify");
   const patchExportSpec = v2CapabilitySpec("patch_export");
   const workspaceWriteSpec = v2CapabilitySpec("workspace.write_file");
-  if (!projectReadFileSpec || !projectListDirectorySpec || !projectSearchTextSpec || !workspaceVerifySpec || !patchExportSpec || !workspaceWriteSpec) {
+  if (!projectReadFileSpec || !workspaceVerifySpec || !patchExportSpec || !workspaceWriteSpec) {
     throw new Error("sandbox_v2_operation_capability_spec_missing");
   }
   const approvedProjectIds = authorizedProjectIds(input.registry, () => true);
@@ -123,55 +120,17 @@ function thoughtOperationCapabilities(input: {
   );
   return Object.freeze([
     Object.freeze({
-      operationKind: "project.read_file",
+      operationKind: "project.inspect",
       semanticClass: "observation" as const,
       family: projectReadFileSpec.family,
       readOnly: projectReadFileSpec.readOnly,
       requiresProject: projectReadFileSpec.requiresProject,
       available: input.projectInspectionAvailable,
-      requiredRequestFields: Object.freeze(["projectId", "path"]),
-      optionalRequestFields: Object.freeze([]),
+      requiredRequestFields: Object.freeze(["projectId"]),
+      optionalRequestFields: Object.freeze(["locator", "question", "focus", "maxSteps"]),
       operatorBoundRequestFields: Object.freeze([]),
       authorizedProjectIds: Object.freeze(approvedProjectIds),
     }),
-    Object.freeze({
-      operationKind: "project.list_directory",
-      semanticClass: "observation" as const,
-      family: projectListDirectorySpec.family,
-      readOnly: projectListDirectorySpec.readOnly,
-      requiresProject: projectListDirectorySpec.requiresProject,
-      available: input.projectInspectionAvailable,
-      requiredRequestFields: Object.freeze(["projectId", "path"]),
-      optionalRequestFields: Object.freeze([]),
-      operatorBoundRequestFields: Object.freeze([]),
-      authorizedProjectIds: Object.freeze(approvedProjectIds),
-    }),
-    Object.freeze({
-      operationKind: "project.search_text",
-      semanticClass: "observation" as const,
-      family: projectSearchTextSpec.family,
-      readOnly: projectSearchTextSpec.readOnly,
-      requiresProject: projectSearchTextSpec.requiresProject,
-      available: input.projectInspectionAvailable,
-      requiredRequestFields: Object.freeze(["projectId", "pattern"]),
-      optionalRequestFields: Object.freeze(["path", "maxMatches"]),
-      operatorBoundRequestFields: Object.freeze([]),
-      authorizedProjectIds: Object.freeze(approvedProjectIds),
-    }),
-    ...(input.delegatedInvestigationAvailable
-      ? [Object.freeze({
-        operationKind: "project.investigate",
-        semanticClass: "observation" as const,
-        family: projectReadFileSpec.family,
-        readOnly: true,
-        requiresProject: true,
-        available: true,
-        requiredRequestFields: Object.freeze(["projectId"]),
-        optionalRequestFields: Object.freeze(["focus", "maxSteps"]),
-        operatorBoundRequestFields: Object.freeze([]),
-        authorizedProjectIds: Object.freeze(approvedProjectIds),
-      })]
-      : []),
     Object.freeze({
       operationKind: "workspace.verify",
       semanticClass: "effect" as const,
@@ -229,7 +188,7 @@ export function getCapabilityReality(
     lifecycleEnabled: options.lifecycleEnabled,
     substrateAvailable: options.substrateAvailable,
   };
-  const projectInspectionAvailable = V021_LIVE_OPERATION_CAPABILITIES.has("project_inspection") &&
+  const directProjectInspectionAvailable = V021_LIVE_OPERATION_CAPABILITIES.has("project_inspection") &&
     canOfferProjectInspection(db, sandboxOptions);
   const verificationAvailable = V021_LIVE_OPERATION_CAPABILITIES.has("candidate_verification") &&
     canOfferCandidateVerification(db, sandboxOptions);
@@ -275,20 +234,21 @@ export function getCapabilityReality(
     lifecycleEnabled: options.lifecycleEnabled,
     substrateAvailable: options.substrateAvailable,
   });
-  const readOffer = workerReady && workerInspectionReady
-    ? offerWorkerTask(workerRouter, "delegated_read")
-    : { offerable: false, reason: "unavailable" as const };
-  const engineeringOffer = workerReady && workspaceAvailable
+  const projectInspectionAvailable = V021_LIVE_OPERATION_CAPABILITIES.has("project_inspection") &&
+    (directProjectInspectionAvailable || (workerEnabled && workerInspectionReady));
+  const engineeringAuthorized = authorizedProjectIds(
+    registry,
+    (entry) => entry.engineeringAllowed === true && entry.candidateWorkspaceAllowed === true,
+  ).length > 0;
+  const engineeringOffer = workerReady && workspaceAvailable && engineeringAuthorized
     ? offerWorkerTask(workerRouter, "iterative_engineering")
     : { offerable: false, reason: "unavailable" as const };
-  const delegatedInvestigationAvailable = readOffer.offerable;
   const iterativeEngineeringAvailable = engineeringOffer.offerable;
   const operationCapabilities = thoughtOperationCapabilities({
     registry,
     projectInspectionAvailable,
     verificationAvailable,
     patchExportAvailable,
-    delegatedInvestigationAvailable,
     iterativeEngineeringAvailable,
   });
   const facts = {
@@ -305,7 +265,8 @@ export function getCapabilityReality(
     canOfferPatchExport: !externalAudience && patchExportAvailable,
     ...(workerEnabled
       ? {
-        canOfferDelegatedInvestigation: !externalAudience && delegatedInvestigationAvailable,
+        // Worker capacity is not a semantic capability. Thought sees the
+        // single project.inspect operation above.
         canOfferIterativeEngineering: !externalAudience && iterativeEngineeringAvailable,
       }
       : {}),
@@ -354,11 +315,6 @@ export function getCapabilityReality(
     audienceAllowed: audienceCapabilityAllowed,
   });
   if (workerEnabled) {
-    reachabilityReasons.canOfferDelegatedInvestigation = facts.canOfferDelegatedInvestigation
-      ? workerReason(readOffer.reason)
-      : (externalAudience && delegatedInvestigationAvailable
-        ? "another_audience_only"
-        : workerReason(readOffer.reason));
     reachabilityReasons.canOfferIterativeEngineering = facts.canOfferIterativeEngineering
       ? workerReason(engineeringOffer.reason)
       : (externalAudience && iterativeEngineeringAvailable

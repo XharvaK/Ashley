@@ -245,14 +245,14 @@ const CAPABILITY_REALITY: CapabilityReality = {
   approvedProjectIds: ["qualification-fixture"],
   operationCapabilities: [
     {
-      operationKind: "project.read_file",
+      operationKind: "project.inspect",
       semanticClass: "observation",
       family: "project_inspection",
       readOnly: true,
       requiresProject: true,
       available: true,
-      requiredRequestFields: ["projectId", "path"],
-      optionalRequestFields: [],
+      requiredRequestFields: ["projectId"],
+      optionalRequestFields: ["locator", "focus", "question", "maxSteps"],
       operatorBoundRequestFields: [],
       authorizedProjectIds: ["qualification-fixture"],
     },
@@ -1331,12 +1331,10 @@ function fixtureFor(caseId: ThoughtQualificationCaseId): unknown {
   if (caseId === "observation_intent") {
     return {
       kind: "observation_intent",
-      operationKind: "project.read_file",
+      operationKind: "project.inspect",
       request: {
-        version: 2,
-        operation: "project.read_file",
         projectId: "qualification-fixture",
-        path: "README.md",
+        locator: { kind: "file", path: "README.md" },
       },
       purpose: "read the approved project file",
       evidenceNeed: "the current file contents",

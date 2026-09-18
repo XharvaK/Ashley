@@ -59,7 +59,7 @@ function setupThread(threadId = "thread-terminal") {
 }
 
 describe("FAILURE-TRUTH-COMPLETENESS-01 producer-to-notice", () => {
-  it("maps UNWITNESSED_HIGH_RISK_CLAIM to SPEECH_FIDELITY_REJECTED", async () => {
+  it("records UNWITNESSED_HIGH_RISK_CLAIM as a durable diagnostic without a terminal notice", async () => {
     const { sidecar, attentionDb, event } = setupThread("thread-fidelity-reading");
     const completeChat = vi.fn(async () => ({
       text: JSON.stringify(makeSemanticSettlement({
@@ -70,9 +70,7 @@ describe("FAILURE-TRUTH-COMPLETENESS-01 producer-to-notice", () => {
     try {
       const result = await runCognitiveCycle(sidecar, attentionDb, event, deps({ attentionDb, completeChat }));
       expect(result.published).toBe(false);
-      expect(result.infrastructureNotice).toBe(
-        `${THOUGHT_UNAVAILABLE_NOTICE} Error code: SPEECH_FIDELITY_REJECTED`,
-      );
+      expect(result.infrastructureNotice).toBeNull();
     } finally {
       sidecar.close();
       attentionDb.close();
@@ -93,19 +91,10 @@ describe("FAILURE-TRUTH-COMPLETENESS-01 producer-to-notice", () => {
     try {
       const result = await runCognitiveCycle(sidecar, attentionDb, event, deps({ attentionDb, completeChat }));
       expect(result.published).toBe(false);
-      expect(result.infrastructureNotice).toBe(
-        `${THOUGHT_UNAVAILABLE_NOTICE} Error code: THOUGHT_BUDGET_EXHAUSTED`,
-      );
-      const key = (sidecar.prepare("SELECT notice_key FROM system_notice_outbox").get() as { notice_key: string }).notice_key;
-      // Notice identity is exactly the pre-packet formula: conversation,
-      // cycle, generation, legacy reason. Typed child codes (retained for
-      // presentation/diagnostics) never participate in identity.
-      expect(key).toBe(
-        `thought_failure:thread-fidelity-conflict:${cycle.cycleId}:${cycle.generation}:revision_exhausted`,
-      );
+      expect(result.infrastructureNotice).toBeNull();
       // Durable terminal diagnostic: parent family, both parent and exact
       // child cause codes, and stage survive in the causal ledger even
-      // though the notice key carries only the legacy reason.
+      // without creating a terminal Owner-facing notice.
       const ledger = JSON.parse(
         (sidecar.prepare("SELECT payload_json FROM causal_ledger WHERE cycle_id = ? AND generation = ?").get(cycle.cycleId, cycle.generation) as { payload_json: string }).payload_json,
       ) as { thoughtUnavailable?: unknown; thoughtTerminal?: { family?: unknown; codes?: unknown; stage?: unknown } };
@@ -115,15 +104,9 @@ describe("FAILURE-TRUTH-COMPLETENESS-01 producer-to-notice", () => {
       expect(ledger.thoughtTerminal?.codes).toEqual(
         expect.arrayContaining(["revision_exhausted", "DRAFT_COMMITMENT_CONFLICT"]),
       );
-      // No second notice is minted, and C3 admits exactly the legacy
-      // reason under the pre-packet key (revision_exhausted is allowlisted;
-      // typed child codes never reach C3 input) — no admission change.
-      expect(sidecar.prepare("SELECT COUNT(*) AS count FROM system_notice_outbox").get()).toMatchObject({ count: 1 });
-      const c3 = sidecar.prepare("SELECT experience_id, failure_class FROM c3_terminal_experiences WHERE cycle_id = ?").get(cycle.cycleId) as { experience_id: string; failure_class: string };
-      expect(c3.failure_class).toBe("revision_exhausted");
-      expect(c3.experience_id).toBe(
-        `c3:thought:thought_failure:thread-fidelity-conflict:${cycle.cycleId}:${cycle.generation}:revision_exhausted`,
-      );
+      expect(sidecar.prepare("SELECT COUNT(*) AS count FROM system_notice_outbox").get()).toMatchObject({ count: 0 });
+      expect(sidecar.prepare("SELECT COUNT(*) AS count FROM c3_terminal_experiences WHERE cycle_id = ?").get(cycle.cycleId))
+        .toMatchObject({ count: 0 });
     } finally {
       sidecar.close();
       attentionDb.close();
@@ -148,16 +131,11 @@ describe("FAILURE-TRUTH-COMPLETENESS-01 producer-to-notice", () => {
         }),
       );
       expect(result.published).toBe(false);
-      expect(result.infrastructureNotice).toBe(
-        `${THOUGHT_UNAVAILABLE_NOTICE} Error code: AUTHORITY_REJECTED`,
-      );
-      const key = (sidecar.prepare("SELECT notice_key FROM system_notice_outbox").get() as { notice_key: string }).notice_key;
-      expect(key).toBe(
-        `thought_failure:thread-authority-join:${cycle.cycleId}:${cycle.generation}:CAPABILITY_UNAVAILABLE,EFFECT_NOT_AUTHORIZED`,
-      );
+      expect(result.infrastructureNotice).toBeNull();
+      expect(sidecar.prepare("SELECT COUNT(*) AS count FROM system_notice_outbox").get()).toMatchObject({ count: 0 });
       // The diagnostic mirror is generic, not exhaustion-specific: the
       // authority parent family with its exact child codes and stage is
-      // durably retained while the key stays the pre-packet formula.
+      // durably retained without a terminal Owner-facing notice.
       const ledger = JSON.parse(
         (sidecar.prepare("SELECT payload_json FROM causal_ledger WHERE cycle_id = ? AND generation = ?").get(cycle.cycleId, cycle.generation) as { payload_json: string }).payload_json,
       ) as { thoughtTerminal?: { family?: unknown; codes?: unknown; stage?: unknown } };
@@ -193,9 +171,7 @@ describe("FAILURE-TRUTH-COMPLETENESS-01 producer-to-notice", () => {
         sidecar, attentionDb, event, deps({ attentionDb, completeChat, executeObservation }),
       );
       expect(result.published).toBe(false);
-      expect(result.infrastructureNotice).toBe(
-        `${THOUGHT_UNAVAILABLE_NOTICE} Error code: OPERATION_DISPATCH_FAILED`,
-      );
+      expect(result.infrastructureNotice).toBeNull();
     } finally {
       sidecar.close();
       attentionDb.close();
@@ -214,9 +190,7 @@ describe("FAILURE-TRUTH-COMPLETENESS-01 producer-to-notice", () => {
     try {
       const result = await runCognitiveCycle(sidecar, attentionDb, event, deps({ attentionDb, completeChat }));
       expect(result.published).toBe(false);
-      expect(result.infrastructureNotice).toBe(
-        `${THOUGHT_UNAVAILABLE_NOTICE} Error code: THOUGHT_BUDGET_EXHAUSTED`,
-      );
+      expect(result.infrastructureNotice).toBeNull();
       expect(completeChat).not.toHaveBeenCalled();
     } finally {
       sidecar.close();
@@ -244,9 +218,7 @@ describe("FAILURE-TRUTH-COMPLETENESS-01 producer-to-notice", () => {
         }),
       );
       expect(result.published).toBe(false);
-      expect(result.infrastructureNotice).toBe(
-        `${THOUGHT_UNAVAILABLE_NOTICE} Error code: THOUGHT_BUDGET_EXHAUSTED`,
-      );
+      expect(result.infrastructureNotice).toBeNull();
     } finally {
       sidecar.close();
       attentionDb.close();
@@ -330,13 +302,8 @@ describe("FAILURE-TRUTH-COMPLETENESS-01 producer-to-notice", () => {
       );
       expect(result.published).toBe(false);
       expect(executeEffect).not.toHaveBeenCalled();
-      expect(result.infrastructureNotice).toBe(
-        `${THOUGHT_UNAVAILABLE_NOTICE} Error code: OPERATION_DISPATCH_FAILED`,
-      );
-      const key = (sidecar.prepare("SELECT notice_key FROM system_notice_outbox").get() as { notice_key: string }).notice_key;
-      expect(key).toBe(
-        `thought_failure:thread-effect-inflight:${cycle.cycleId}:${cycle.generation}:IN_FLIGHT_UNKNOWN`,
-      );
+      expect(result.infrastructureNotice).toBeNull();
+      expect(sidecar.prepare("SELECT COUNT(*) AS count FROM system_notice_outbox").get()).toMatchObject({ count: 0 });
       // The dispatch-mechanics diagnostic is durably retained with its
       // truthful operation_dispatch parent (not authority).
       const ledger = JSON.parse(
@@ -388,9 +355,7 @@ describe("FAILURE-TRUTH-COMPLETENESS-01 producer-to-notice", () => {
       );
       expect(result.published).toBe(false);
       expect(executeEffect).not.toHaveBeenCalled();
-      expect(result.infrastructureNotice).toBe(
-        `${THOUGHT_UNAVAILABLE_NOTICE} Error code: AUTHORITY_REJECTED`,
-      );
+      expect(result.infrastructureNotice).toBeNull();
     } finally {
       sidecar.close();
       attentionDb.close();
@@ -403,18 +368,16 @@ describe("FAILURE-TRUTH-COMPLETENESS-01 producer-to-notice", () => {
       text: JSON.stringify(makeSemanticSettlement()),
       model: "fake", modelAlias: "thought", resolvedModelId: null,
     }));
-    // Monotonic clock jumping past the 180s budget: the loop-top deadline
+    // Monotonic clock jumping past the bounded budget: the loop-top deadline
     // fires before any provider dispatch.
     let t = 0;
-    const nowMs = vi.fn(() => (t += 200_000));
+    const nowMs = vi.fn(() => (t += 400_000));
     try {
       const result = await runCognitiveCycle(
         sidecar, attentionDb, event, deps({ attentionDb, completeChat, nowMs }),
       );
       expect(result.published).toBe(false);
-      expect(result.infrastructureNotice).toBe(
-        `${THOUGHT_UNAVAILABLE_NOTICE} Error code: THOUGHT_DEADLINE_EXCEEDED`,
-      );
+      expect(result.infrastructureNotice).toBeNull();
       expect(completeChat).not.toHaveBeenCalled();
     } finally {
       sidecar.close();
@@ -477,14 +440,11 @@ describe("FAILURE-TRUTH-COMPLETENESS-01 producer-to-notice", () => {
         deps({ attentionDb, completeChat, observabilityDb: brokenObservability as never }),
       );
       expect(result.published).toBe(false);
-      expect(result.infrastructureNotice).toBe(
-        `${THOUGHT_UNAVAILABLE_NOTICE} Error code: PUBLICATION_PERSISTENCE_FAILED`,
-      );
+      expect(result.infrastructureNotice).toBeNull();
       expect(result.publicationReason).toBe("wake_terminal");
       // PUBLICATION_PERSISTENCE_FAILED is a local persistence cause. It must
       // not assert a remote effect outcome (succeeded/delivered) or a
       // provider response.
-      expect(result.infrastructureNotice).not.toMatch(/succeeded|delivered|provider_unavailable/i);
     } finally {
       sidecar.close();
       attentionDb.close();

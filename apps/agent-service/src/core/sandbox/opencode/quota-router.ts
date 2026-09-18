@@ -9,9 +9,9 @@ import {
   type WorkerTaskClass,
 } from "./catalog.js";
 import {
-  type ClassCapacity,
   type ModelHealth,
   type QuotaStateFile,
+  DEFAULT_HOST_PROBE_BACKOFF_MS,
   emptyQuotaState,
 } from "./quota-state.js";
 
@@ -20,6 +20,13 @@ export type WorkerOfferReason =
   | "capacity_unproven"
   | "worker_capacity_exhausted"
   | "unavailable";
+
+export type WorkerCapacityStatus =
+  | "capacity_unproven"
+  | "available"
+  | "quota_exhausted"
+  | "temporarily_unavailable"
+  | "worker_capacity_exhausted";
 
 export type RouteOk = {
   ok: true;
@@ -31,6 +38,8 @@ export type RouteOk = {
 export type RouteDenied = {
   ok: false;
   reason: WorkerOfferReason;
+  capacityStatus?: WorkerCapacityStatus;
+  nextProbeAtMs?: number | null;
 };
 
 export type RouteDecision = RouteOk | RouteDenied;
@@ -95,119 +104,130 @@ function classCanAttempt(router: QuotaRouter, quotaClass: QuotaClass): {
   allowed: boolean;
   bootstrap: boolean;
   reason: WorkerOfferReason;
+  capacityStatus: WorkerCapacityStatus;
+  nextProbeAtMs: number | null;
 } {
   const record = router.state[quotaClass];
   if (router.inFlightFirstAttempt[quotaClass]) {
-    return { allowed: false, bootstrap: false, reason: "unavailable" };
-  }
-  if (record.capacity === "available") {
-    return { allowed: true, bootstrap: false, reason: "capability_exists" };
-  }
-  if (record.capacity === "unknown") {
-    return { allowed: true, bootstrap: true, reason: "capacity_unproven" };
-  }
-  const nextProbe = record.hostNextProbeAtMs;
-  if (nextProbe != null && router.nowMs < nextProbe) {
-    return { allowed: false, bootstrap: false, reason: "unavailable" };
-  }
-  return { allowed: true, bootstrap: true, reason: "capacity_unproven" };
-}
-
-function nvidiaReadDecision(router: QuotaRouter): RouteDecision {
-  const nvidiaAttempt = classCanAttempt(router, "NVIDIA_FREE");
-  if (nvidiaAttempt.allowed) {
-    const modelId = firstEligible(
-      router,
-      router.catalog.preferred.delegated_read,
-      "NVIDIA_FREE",
-    ) ?? firstEligible(router, router.catalog.classes.NVIDIA_FREE, "NVIDIA_FREE");
-    if (modelId) {
-      return {
-        ok: true,
-        quotaClass: "NVIDIA_FREE",
-        modelId,
-        bootstrap: nvidiaAttempt.bootstrap,
-      };
-    }
-    if (router.state.NVIDIA_FREE.capacity !== "quota_exhausted") {
-      return { ok: false, reason: "unavailable" };
-    }
-  } else if (router.state.NVIDIA_FREE.capacity !== "quota_exhausted") {
-    return { ok: false, reason: nvidiaAttempt.reason };
-  }
-
-  if (router.state.NVIDIA_FREE.capacity !== "quota_exhausted") {
-    return { ok: false, reason: "unavailable" };
-  }
-
-  const otherAttempt = classCanAttempt(router, "OTHER_FREE");
-  if (!otherAttempt.allowed) {
     return {
-      ok: false,
-      reason: router.state.OTHER_FREE.capacity === "quota_exhausted"
-        ? "worker_capacity_exhausted"
-        : otherAttempt.reason,
+      allowed: false,
+      bootstrap: false,
+      reason: "unavailable",
+      capacityStatus: "temporarily_unavailable",
+      nextProbeAtMs: router.nowMs + DEFAULT_HOST_PROBE_BACKOFF_MS,
     };
   }
-  const otherModel = firstEligible(
-    router,
-    router.catalog.preferred.iterative_engineering,
-    "OTHER_FREE",
-  ) ?? firstEligible(router, router.catalog.classes.OTHER_FREE, "OTHER_FREE");
-  if (!otherModel) {
+  if (record.capacity === "available") {
     return {
-      ok: false,
-      reason: router.state.OTHER_FREE.capacity === "quota_exhausted"
-        ? "worker_capacity_exhausted"
-        : "unavailable",
+      allowed: true,
+      bootstrap: false,
+      reason: "capability_exists",
+      capacityStatus: "available",
+      nextProbeAtMs: null,
+    };
+  }
+  if (record.capacity === "unknown") {
+    return {
+      allowed: true,
+      bootstrap: true,
+      reason: "capacity_unproven",
+      capacityStatus: "capacity_unproven",
+      nextProbeAtMs: null,
+    };
+  }
+  const nextProbe = record.providerResetAtMs != null && record.providerResetAtMs > router.nowMs
+    ? record.providerResetAtMs
+    : record.hostNextProbeAtMs;
+  if (nextProbe != null && router.nowMs < nextProbe) {
+    return {
+      allowed: false,
+      bootstrap: false,
+      reason: "worker_capacity_exhausted",
+      capacityStatus: "quota_exhausted",
+      nextProbeAtMs: nextProbe,
     };
   }
   return {
-    ok: true,
-    quotaClass: "OTHER_FREE",
-    modelId: otherModel,
-    bootstrap: otherAttempt.bootstrap,
+    allowed: true,
+    bootstrap: true,
+    reason: "capacity_unproven",
+    capacityStatus: "quota_exhausted",
+    nextProbeAtMs: nextProbe,
   };
 }
 
+function classDecision(
+  router: QuotaRouter,
+  quotaClass: QuotaClass,
+  preferred: readonly string[],
+): RouteDecision {
+  const attempt = classCanAttempt(router, quotaClass);
+  if (!attempt.allowed) {
+    return {
+      ok: false,
+      reason: attempt.reason,
+      capacityStatus: attempt.capacityStatus,
+      nextProbeAtMs: attempt.nextProbeAtMs,
+    };
+  }
+  const modelId = firstEligible(router, preferred, quotaClass)
+    ?? firstEligible(router, router.catalog.classes[quotaClass], quotaClass);
+  if (modelId) {
+    return {
+      ok: true,
+      quotaClass,
+      modelId,
+      bootstrap: attempt.bootstrap,
+    };
+  }
+  return {
+    ok: false,
+    reason: "worker_capacity_exhausted",
+    capacityStatus: "temporarily_unavailable",
+    nextProbeAtMs: router.nowMs + DEFAULT_HOST_PROBE_BACKOFF_MS,
+  };
+}
+
+function combinedCapacityWait(router: QuotaRouter, decisions: readonly RouteDenied[]): RouteDenied {
+  const nextProbeAtMs = decisions
+    .map((decision) => decision.nextProbeAtMs)
+    .filter((value): value is number => typeof value === "number" && value > router.nowMs)
+    .sort((left, right) => left - right)[0]
+    ?? router.nowMs + DEFAULT_HOST_PROBE_BACKOFF_MS;
+  const hasQuota = decisions.some((decision) => decision.capacityStatus === "quota_exhausted");
+  const hasTemporary = decisions.some((decision) => decision.capacityStatus === "temporarily_unavailable");
+  return {
+    ok: false,
+    reason: "worker_capacity_exhausted",
+    capacityStatus: hasQuota && !hasTemporary ? "quota_exhausted" : "temporarily_unavailable",
+    nextProbeAtMs,
+  };
+}
+
+function nvidiaReadDecision(router: QuotaRouter): RouteDecision {
+  const decisions = [
+    classDecision(router, "NVIDIA_FREE", router.catalog.preferred.delegated_read),
+    classDecision(router, "OTHER_FREE", router.catalog.classes.OTHER_FREE),
+  ];
+  const selected = decisions.find((decision): decision is RouteOk => decision.ok);
+  return selected ?? combinedCapacityWait(router, decisions as RouteDenied[]);
+}
+
 function engineeringDecision(router: QuotaRouter): RouteDecision {
-  const otherAttempt = classCanAttempt(router, "OTHER_FREE");
-  if (otherAttempt.allowed) {
-    const modelId = firstEligible(
-      router,
-      router.catalog.preferred.iterative_engineering,
-      "OTHER_FREE",
-    ) ?? firstEligible(router, router.catalog.classes.OTHER_FREE, "OTHER_FREE");
-    if (modelId) {
-      return {
-        ok: true,
-        quotaClass: "OTHER_FREE",
-        modelId,
-        bootstrap: otherAttempt.bootstrap,
-      };
-    }
-  }
-
-  if (router.state.OTHER_FREE.capacity === "quota_exhausted") {
-    return { ok: false, reason: "worker_capacity_exhausted" };
-  }
-
+  const decisions: RouteDenied[] = [];
+  const other = classDecision(
+    router,
+    "OTHER_FREE",
+    router.catalog.preferred.iterative_engineering,
+  );
+  if (other.ok) return other;
+  decisions.push(other);
   if (router.catalog.candidateDevelopAllowsNvidia) {
-    const nvidiaAttempt = classCanAttempt(router, "NVIDIA_FREE");
-    if (nvidiaAttempt.allowed) {
-      const modelId = firstEligible(router, router.catalog.classes.NVIDIA_FREE, "NVIDIA_FREE");
-      if (modelId) {
-        return {
-          ok: true,
-          quotaClass: "NVIDIA_FREE",
-          modelId,
-          bootstrap: nvidiaAttempt.bootstrap,
-        };
-      }
-    }
+    const nvidia = classDecision(router, "NVIDIA_FREE", router.catalog.classes.NVIDIA_FREE);
+    if (nvidia.ok) return nvidia;
+    decisions.push(nvidia);
   }
-
-  return { ok: false, reason: otherAttempt.allowed ? "unavailable" : otherAttempt.reason };
+  return combinedCapacityWait(router, decisions);
 }
 
 export function routeWorkerTask(
@@ -221,7 +241,7 @@ export function routeWorkerTask(
 export function offerWorkerTask(
   router: QuotaRouter,
   task: WorkerTaskClass,
-): { offerable: boolean; reason: WorkerOfferReason } {
+): { offerable: boolean; reason: WorkerOfferReason; capacityStatus?: WorkerCapacityStatus; nextProbeAtMs?: number | null } {
   const decision = routeWorkerTask(router, task);
   if (decision.ok) {
     const capacity = router.state[decision.quotaClass].capacity;
@@ -230,7 +250,12 @@ export function offerWorkerTask(
     }
     return { offerable: true, reason: "capability_exists" };
   }
-  return { offerable: false, reason: decision.reason };
+  return {
+    offerable: false,
+    reason: decision.reason,
+    capacityStatus: decision.capacityStatus,
+    nextProbeAtMs: decision.nextProbeAtMs,
+  };
 }
 
 export function markFirstAttempt(router: QuotaRouter, quotaClass: QuotaClass): QuotaRouter {

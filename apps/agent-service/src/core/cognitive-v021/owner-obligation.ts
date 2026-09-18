@@ -31,6 +31,8 @@ export type OwnerObligationInput = Readonly<{
    * project.investigate. Never a generic deferred continuation.
    */
   detachedOperationId?: string | null;
+  /** Global queue continuation owner before detached execution is bound. */
+  workerUndertakingId?: string | null;
   /** True when Thought authored an interim hold draft bound to the operation. */
   interimSpeechAuthored?: boolean;
 }>;
@@ -115,6 +117,16 @@ export function resolveOwnerObligation(input: OwnerObligationInput): OwnerObliga
   }
 
   if (input.attemptOutcome !== "published") {
+    if (input.attemptOutcome === "deferred" && typeof input.workerUndertakingId === "string"
+      && input.workerUndertakingId.length > 0) {
+      return {
+        ...base,
+        ownerObligationOutcome: "transferred",
+        successorIdentity: `worker_undertaking:${input.workerUndertakingId}`,
+        remainingResponsibility: "operation_pending",
+        deliveryDisposition: input.interimSpeechAuthored === true ? "delivery_pending" : "not_applicable",
+      };
+    }
     if (input.attemptOutcome === "deferred" && typeof input.detachedOperationId === "string"
       && input.detachedOperationId.length > 0) {
       // Thought yielded to a durably admitted detached operation. The Owner

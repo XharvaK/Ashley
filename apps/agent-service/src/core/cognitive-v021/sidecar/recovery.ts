@@ -2,6 +2,7 @@ import type { DatabaseSync } from "node:sqlite";
 import { appendInboxEventInTransaction } from "../cycle/inbox.js";
 import { recoverInFlight } from "../effect/recovery.js";
 import { reconcileDetachedOperations } from "../operation/detached.js";
+import { repairWorkerExecutionSlot } from "../operation/worker-queue.js";
 import { recoverDurableWork } from "../retry/ledger.js";
 import { recoverWakes } from "../wake/ledger.js";
 import { recoverPrivateBudget } from "../private-budget/recovery.js";
@@ -117,6 +118,7 @@ export function recoverCognitiveSidecar(
   // lack a completion event reference.
   result.detachedOperationsExpired =
     reconcileDetachedOperations(db, nowMs).transitionedOperationIds.length;
+  repairWorkerExecutionSlot(db, nowMs);
   result.inboxClaimsRecovered = recoveredDurableWork.reclaimed
     + recoveredDurableWork.reconciling
     + recoveredDurableWork.quarantined;

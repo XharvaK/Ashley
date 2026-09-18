@@ -52,7 +52,7 @@ describe("v0.2.1 Thought operation loop", () => {
     let call = 0;
     const completeChat = vi.fn(async (messages) => {
       call++;
-      if (call === 1) return { text: JSON.stringify({ kind: "observation_intent", operationKind: "project.read_file", request: { path: "README.md" }, purpose: "inspect the file", evidenceNeed: "the file contents", existingRefs: ["owner-1"] }), model: "fake", modelAlias: "fake", resolvedModelId: null };
+      if (call === 1) return { text: JSON.stringify({ kind: "observation_intent", operationKind: "project.inspect", request: { projectId: "project-ashley", locator: { kind: "file", path: "README.md" } }, purpose: "inspect the file", evidenceNeed: "the file contents", existingRefs: ["owner-1"] }), model: "fake", modelAlias: "fake", resolvedModelId: null };
       expect(JSON.stringify(messages)).toContain("observation-1");
       return { text: JSON.stringify(makeSemanticSettlement({ interpretation: { discourseActs: ["inform"], referentBindings: [], corrections: [], unresolvedAmbiguities: [], topics: ["inspection"] }, commitments: { epistemic: [{ dimensions: { source: "perception", status: "asserted", time: "current", reliability: "fallible_observation" }, statement: "the file was observed" }], conversational: ["answer"], stance: { warmth: "medium", humorAllowed: false, disagreement: false, uncertaintyDisplay: true } }, speech: { mode: "draft", mustSay: ["observed"], mustNotSay: [], surfaceDraft: "observed", acceptableRealizations: [], presentationDirectives: [] }, evidenceUse: { observationRefsUsed: ["observation-1"], retrievalRefsUsed: [], sourceRefsUsed: [], openIntentRefs: [] } })), model: "fake", modelAlias: "fake", resolvedModelId: null };
     });

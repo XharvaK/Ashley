@@ -17,6 +17,17 @@ import {
   isExternalSocialCaptureEnabled,
 } from "./core/cognitive-v021/ingress/http.js";
 import { getCognitiveHealthSnapshot } from "./core/cognitive-v021/dispatch/health.js";
+import {
+  CURIOSITY_TTL_MS,
+  MAX_ACTIVE_WORKERS,
+  MAX_NONTERMINAL_WORKER_UNDERTAKINGS,
+  MAX_PENDING_CURIOSITY,
+  WORKER_SERVICE_CALENDAR,
+  getWorkerExecutionSlot,
+  getWorkerSchedulerCursor,
+  listWorkerUndertakings,
+  selectNextWorkerUndertaking,
+} from "./core/cognitive-v021/operation/worker-queue.js";
 import { markProjectedDeliverySending } from "./core/cognitive-v021/delivery/outbox-projector.js";
 import {
   recheckExternalPublicationReservation,
@@ -764,6 +775,74 @@ export function createServer(
       const ownerId = String(req.query.owner_id ?? "");
       requireOwner(ownerId || undefined);
       res.json(manager.core.nuclearStatusSnapshot(ownerId));
+    } catch (err) {
+      const { status, body } = toErrorResponse(err);
+      res.status(status).json(body);
+    }
+  });
+
+  app.get("/nuclear/worker-queue", (req, res) => {
+    try {
+      const ownerId = String(req.query.owner_id ?? "");
+      requireOwner(ownerId || undefined);
+      const sidecar = getCognitiveSidecar();
+      const nowMs = Date.now();
+      const requestedLimit = Number(req.query.limit ?? 50);
+      const limit = Number.isSafeInteger(requestedLimit)
+        ? Math.max(1, Math.min(100, requestedLimit))
+        : 50;
+      const undertakings = listWorkerUndertakings(sidecar, { limit });
+      const next = selectNextWorkerUndertaking(sidecar, nowMs);
+      const cursor = getWorkerSchedulerCursor(sidecar);
+      res.json({
+        queue: {
+          table: "worker_undertakings",
+          maxActiveWorkers: MAX_ACTIVE_WORKERS,
+          maxNonterminalUndertakings: MAX_NONTERMINAL_WORKER_UNDERTAKINGS,
+          maxPendingCuriosity: MAX_PENDING_CURIOSITY,
+          curiosityTtlMs: CURIOSITY_TTL_MS,
+          states: ["queued", "dispatching", "running", "succeeded", "failed", "outcome_unknown", "cancelled", "superseded", "expired"],
+          undertakings: undertakings.map((undertaking) => ({
+            undertakingId: undertaking.undertakingId,
+            semanticKind: undertaking.semanticKind,
+            originKind: undertaking.originKind,
+            originRef: undertaking.originRef,
+            ownerId: undertaking.ownerId,
+            conversationId: undertaking.conversationId,
+            queuedAgeMs: Math.max(0, nowMs - undertaking.queuedAtMs),
+            state: undertaking.state,
+            blockedReason: undertaking.blockedReason,
+            selectedOperationId: undertaking.selectedOperationId,
+            acknowledgement: undertaking.acknowledgementRef
+              ? { authorized: true, ref: undertaking.acknowledgementRef }
+              : { authorized: false, ref: null },
+            cancelRequestedAtMs: undertaking.cancelRequestedAtMs,
+            supersededBy: undertaking.supersededBy,
+            terminalReason: undertaking.terminalReason,
+            terminalAtMs: undertaking.terminalAtMs,
+            capacity: undertaking.blockedReason === "capacity"
+              ? {
+                taskClass: undertaking.semanticKind,
+                availabilityReason: undertaking.terminalReason ?? "capacity_unavailable",
+                nextProbeAtMs: undertaking.capacityNextProbeAtMs,
+              }
+              : null,
+          })),
+        },
+        fairness: {
+          calendar: WORKER_SERVICE_CALENDAR,
+          cursor,
+          nextSelection: next
+            ? {
+              undertakingId: next.undertaking.undertakingId,
+              selectedClass: next.selectedClass,
+              calendarIndex: next.calendarIndex,
+              skippedEmptyClasses: next.skippedEmptyClasses,
+            }
+            : null,
+        },
+        executionSlot: getWorkerExecutionSlot(sidecar),
+      });
     } catch (err) {
       const { status, body } = toErrorResponse(err);
       res.status(status).json(body);

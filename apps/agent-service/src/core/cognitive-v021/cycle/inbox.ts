@@ -31,6 +31,7 @@ import {
   controlSettlementReceiptId,
   type ControlSettlement,
 } from "../../relationship/control-admission.js";
+import { hasActiveOwnerWorkerUndertaking } from "../operation/worker-queue.js";
 
 export type AdmitCycleInput = {
   conversationId: ConversationId;
@@ -361,6 +362,7 @@ export function getCycle(db: DatabaseSync, cycleId: string): CycleRecordWithFres
 export function hasValidDurableContinuationOwner(db: DatabaseSync, cycle: CycleRecord | null): boolean {
   if (!cycle) return false;
   if (cycle.state === "silent" || cycle.state === "idle") return false;
+  if (hasActiveOwnerWorkerUndertaking(db, cycle.conversationId, cycle.cycleId)) return true;
   if (cycle.state === "capacity_wait") {
     const row = db.prepare(
       `SELECT 1 FROM deferred_reactive_frontiers

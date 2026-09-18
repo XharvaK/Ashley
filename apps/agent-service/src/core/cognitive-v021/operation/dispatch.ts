@@ -1,46 +1,142 @@
 import type { DatabaseSync } from "node:sqlite";
 import { persistOrVerifyObservation } from "../observation/persistence.js";
 import type {
-  DeliveryIntent,
   Observation,
   ObservationIntentSemanticOutput,
 } from "../types.js";
 import {
   admitDetachedOperation,
+  detachedOperationIdFor,
   getDetachedOperation,
   markDetachedOperationStarted,
+  markDetachedOperationWaiting,
+  reconcileDetachedOperations,
+  requestDetachedOperationCancel,
+  resolveDetachedOperationCancel,
   setDetachedOperationTerminal,
   type DetachedOperationRecord,
 } from "./detached.js";
 import { produceOperationCompletion } from "./completion.js";
-import { authorizeInterimSpeech } from "./interim.js";
+import { authorizeUndertakingAcknowledgement } from "./interim.js";
+import { workerProjectInspectionRequest } from "./project-inspection-route.js";
+import {
+  bindWorkerUndertakingToOperation,
+  detachedIdempotencyKeyForWorkerUndertaking,
+  enqueueWorkerUndertaking,
+  expireQueuedCuriosity,
+  getWorkerExecutionSlot,
+  getWorkerUndertaking,
+  listDispatchingWorkerUndertakings,
+  markWorkerUndertakingCapacity,
+  markWorkerUndertakingRunning,
+  markWorkerUndertakingWorkerBusy,
+  projectWorkerUndertakingTerminal,
+  requeueWorkerUndertakingAfterCapacity,
+  repairWorkerExecutionSlot,
+  recoverExpiredDispatchClaims,
+  releaseWorkerExecutionSlot,
+  selectNextWorkerUndertaking,
+  listWorkerUndertakings,
+  supersedeWorkerUndertaking,
+  type EnqueueWorkerUndertakingInput,
+  type WorkerUndertakingRecord,
+} from "./worker-queue.js";
 
 /** Own bounded wall-clock for a detached operation: outside any Thought budget. */
 export const DETACHED_OPERATION_DEFAULT_DEADLINE_MS = 300_000 as const;
 
-export type DetachInvestigateInput = {
-  /** Full parsed Thought observation intent (carries purpose/evidenceNeed/interim). */
+export type EnqueueWorkerUndertakingIntentInput = EnqueueWorkerUndertakingInput & {
   intent: ObservationIntentSemanticOutput;
-  cycleId: string;
-  generation: number;
-  conversationId: string;
-  /** Originating Owner event that Thought A answered with this intent. */
-  originOwnerEventId: string;
-  originEvidenceRowId?: string | null;
-  /** Owner identity for the interim delivery intent. */
   ownerId: string;
-  nowMs?: number;
 };
 
-export type DetachInvestigateResult =
+export type EnqueueWorkerUndertakingResult =
   | {
-      detached: true;
-      operation: DetachedOperationRecord;
+      queued: true;
+      undertaking: WorkerUndertakingRecord;
       created: boolean;
-      interimId: number | null;
-      interimAuthored: boolean;
+      acknowledgementId: number | null;
+      acknowledgementAuthored: boolean;
     }
-  | { detached: false; reason: string };
+  | { queued: false; reason: string };
+
+/**
+ * Admit semantic project inspection into the global worker queue. Queue
+ * admission is intentionally separate from detached execution admission:
+ * there is no execution deadline, worker binding, or operation identity
+ * until the scheduler owns the global worker slot.
+ */
+export function enqueueWorkerUndertakingIntent(
+  sidecar: DatabaseSync,
+  input: EnqueueWorkerUndertakingIntentInput,
+): EnqueueWorkerUndertakingResult {
+  if (input.intent.operationKind !== "project.inspect") {
+    return { queued: false, reason: "not_queueable_kind" };
+  }
+  const admitted = enqueueWorkerUndertaking(sidecar, {
+    semanticKind: "project.inspect",
+    origin: input.origin,
+    ownerId: input.ownerId,
+    conversationId: input.conversationId,
+    originCycleId: input.originCycleId,
+    originGeneration: input.originGeneration,
+    request: input.intent.request,
+    purpose: input.intent.purpose,
+    evidenceNeed: input.intent.evidenceNeed,
+    nowMs: input.nowMs,
+  });
+  if (!admitted.ok) return { queued: false, reason: admitted.reason };
+
+  const interimSpeech = input.intent.interimSpeech;
+  const conversationId = input.conversationId;
+  const ownerAcknowledgement = input.origin.kind === "OWNER_REQUEST"
+    && interimSpeech?.mode === "hold"
+    && conversationId != null
+    && conversationId.length > 0;
+  if (!ownerAcknowledgement) {
+    return {
+      queued: true,
+      undertaking: admitted.undertaking,
+      created: admitted.created,
+      acknowledgementId: null,
+      acknowledgementAuthored: false,
+    };
+  }
+  const authorized = authorizeUndertakingAcknowledgement(sidecar, {
+    undertakingId: admitted.undertaking.undertakingId,
+    conversationId,
+    cycleId: input.originCycleId,
+    generation: input.originGeneration,
+    surfaceDraft: interimSpeech.surfaceDraft,
+    presentationDirectives: interimSpeech.presentationDirectives,
+    deliveryIntent: {
+      ownerId: input.ownerId,
+      channel: "discord",
+      threadId: conversationId,
+      conversationId,
+      trigger: "owner_message_reactive",
+      deliveryLane: "reactive",
+      purpose: "licensed_speech",
+    },
+    nowMs: input.nowMs,
+  });
+  if (!authorized.ok) {
+    return {
+      queued: true,
+      undertaking: admitted.undertaking,
+      created: admitted.created,
+      acknowledgementId: null,
+      acknowledgementAuthored: false,
+    };
+  }
+  return {
+    queued: true,
+    undertaking: getWorkerUndertaking(sidecar, admitted.undertaking.undertakingId) ?? admitted.undertaking,
+    created: admitted.created,
+    acknowledgementId: authorized.interim.interimId,
+    acknowledgementAuthored: true,
+  };
+}
 
 export type DetachedWorkerInput = {
   operation: DetachedOperationRecord;
@@ -60,116 +156,39 @@ export type DispatchDetachedResult =
   | { ok: true; operation: DetachedOperationRecord }
   | { ok: false; reason: string; operation?: DetachedOperationRecord };
 
-function detachableRequest(request: unknown): request is Record<string, unknown> {
-  if (typeof request !== "object" || request === null || Array.isArray(request)) return false;
-  const projectId = (request as Record<string, unknown>).projectId;
-  return typeof projectId === "string" && projectId.length > 0;
-}
-
-/**
- * Durably admit a Thought-authored project.investigate as a detached
- * operation and authorize its interim hold speech.
- *
- * Durable ordering: admission first, interim ownership second. A failed
- * admission authorizes nothing; a failed interim authorization still leaves
- * a truthfully admitted operation (delivery failure never cancels work).
- * Only project.investigate detaches; every other kind falls through so the
- * caller keeps today's synchronous execution.
- */
-export function detachInvestigateIntent(
-  sidecar: DatabaseSync,
-  input: DetachInvestigateInput,
-): DetachInvestigateResult {
-  const nowMs = input.nowMs ?? Date.now();
-  if (input.intent.operationKind !== "project.investigate") {
-    return { detached: false, reason: "not_detachable_kind" };
-  }
-  if (
-    typeof input.cycleId !== "string"
-    || input.cycleId.length === 0
-    || !Number.isSafeInteger(input.generation)
-    || typeof input.conversationId !== "string"
-    || input.conversationId.length === 0
-    || typeof input.originOwnerEventId !== "string"
-    || input.originOwnerEventId.length === 0
-    || typeof input.ownerId !== "string"
-    || input.ownerId.length === 0
-    || !detachableRequest(input.intent.request)
-    || typeof input.intent.purpose !== "string"
-    || input.intent.purpose.length === 0
-    || typeof input.intent.evidenceNeed !== "string"
-    || input.intent.evidenceNeed.length === 0
-    || !Number.isSafeInteger(nowMs)
-    || nowMs < 0
-  ) {
-    return { detached: false, reason: "invalid_detach_request" };
-  }
-
-  const admitted = admitDetachedOperation(sidecar, {
-    idempotencyKey: `detached:${input.conversationId}:${input.cycleId}:project.investigate`,
-    conversationId: input.conversationId,
-    originCycleId: input.cycleId,
-    originGeneration: input.generation,
-    originOwnerEventId: input.originOwnerEventId,
-    originEvidenceRowId: input.originEvidenceRowId,
-    operationKind: "project.investigate",
-    request: input.intent.request,
-    purpose: input.intent.purpose,
-    evidenceNeed: input.intent.evidenceNeed,
-    operationDeadlineAtMs: nowMs + DETACHED_OPERATION_DEFAULT_DEADLINE_MS,
-    nowMs,
-  });
-  if (!admitted.ok) return { detached: false, reason: admitted.reason };
-
-  const interim = input.intent.interimSpeech;
-  if (interim?.mode !== "hold") {
-    return {
-      detached: true,
-      operation: admitted.operation,
-      created: admitted.created,
-      interimId: null,
-      interimAuthored: false,
+export type DetachedCapacityDecision =
+  | { available: true; workerBinding?: Record<string, unknown> }
+  | {
+      available: false;
+      reason: string;
+      nextProbeAtMs?: number | null;
+      terminal?: boolean;
     };
-  }
-  const deliveryIntent: DeliveryIntent = {
-    ownerId: input.ownerId,
-    channel: "discord",
-    threadId: input.conversationId,
-    conversationId: input.conversationId,
-    trigger: "owner_message_reactive",
-    deliveryLane: "reactive",
-    purpose: "licensed_speech",
-  };
-  const authorized = authorizeInterimSpeech(sidecar, {
-    operationId: admitted.operation.operationId,
-    surfaceDraft: interim.surfaceDraft,
-    presentationDirectives: interim.presentationDirectives,
-    deliveryIntent,
-    origin: "live",
-    nowMs,
-  });
-  if (!authorized.ok) {
-    // Admission stands; the operation proceeds without interim speech and
-    // completion still wakes Ashley with the truth.
-    return {
-      detached: true,
-      operation: admitted.operation,
-      created: admitted.created,
-      interimId: null,
-      interimAuthored: false,
-    };
-  }
-  return {
-    detached: true,
-    operation: admitted.operation,
-    created: admitted.created,
-    interimId: authorized.interim.interimId,
-    interimAuthored: true,
-  };
-}
+
+export type DetachedCapacityProbe = (
+  operation: DetachedOperationRecord,
+) => DetachedCapacityDecision | Promise<DetachedCapacityDecision>;
+
+export type DispatchDetachedOptions = {
+  nowMs?: number;
+  beforeStart?: DetachedCapacityProbe;
+  onCapacityWait?: (
+    operation: DetachedOperationRecord,
+    decision: Extract<DetachedCapacityDecision, { available: false }>,
+  ) => void | Promise<void>;
+  onStarted?: (operation: DetachedOperationRecord) => void | Promise<void>;
+  onTerminal?: (operation: DetachedOperationRecord) => void | Promise<void>;
+};
 
 function workerObservationId(operationId: string): string {
   return `v021:observation:detached:${operationId}`;
+}
+
+function workerRequestForInspection(request: Record<string, unknown>): Record<string, unknown> {
+  // Route-neutral project.inspect history is translated at the Host seam.
+  // Historical project.investigate requests are normalized to the same
+  // bounded Mode-B shape without exposing that translation to Thought.
+  return workerProjectInspectionRequest(request) ?? request;
 }
 
 /**
@@ -205,7 +224,7 @@ export async function dispatchDetachedOperation(
   sidecar: DatabaseSync,
   operationId: string,
   worker: DetachedWorker,
-  options: { nowMs?: number } = {},
+  options: DispatchDetachedOptions = {},
 ): Promise<DispatchDetachedResult> {
   try {
     const nowMs = options.nowMs ?? Date.now();
@@ -222,18 +241,65 @@ export async function dispatchDetachedOperation(
       return { ok: false, reason: "detached_operation_request_invalid", operation };
     }
 
+    const finishTerminal = async (terminal: DetachedOperationRecord): Promise<DetachedOperationRecord> => {
+      const completed = completeAfterTerminal(sidecar, operationId, terminal);
+      try { await options.onTerminal?.(completed); } catch { /* terminal truth already stands */ }
+      return getDetachedOperation(sidecar, operationId) ?? completed;
+    };
+
+    if (operation.cancelRequestedAtMs != null && operation.state !== "started") {
+      const cancelled = resolveDetachedOperationCancel(sidecar, operationId, {
+        cancelledBy: "capacity-servicer",
+        nowMs,
+      });
+      if (!cancelled.ok) return { ok: false, reason: cancelled.reason, operation };
+      return { ok: true, operation: await finishTerminal(cancelled.operation) };
+    }
+
+    if (options.beforeStart) {
+      let decision: DetachedCapacityDecision;
+      try {
+        decision = await options.beforeStart(operation);
+      } catch {
+        decision = { available: false, reason: "worker_capacity_probe_failed" };
+      }
+      if (!decision.available) {
+        if (decision.terminal) {
+          const terminal = setDetachedOperationTerminal(sidecar, operationId, {
+            terminalState: "failed",
+            errorCode: decision.reason,
+            nowMs,
+          });
+          if (!terminal.ok) return { ok: false, reason: terminal.reason, operation };
+          return { ok: true, operation: await finishTerminal(terminal.operation) };
+        }
+        const waiting = markDetachedOperationWaiting(sidecar, operationId, {
+          reason: decision.reason,
+          nextProbeAtMs: decision.nextProbeAtMs,
+          nowMs,
+        });
+        if (!waiting.ok) return { ok: false, reason: waiting.reason, operation };
+        if (options.onCapacityWait) {
+          try { await options.onCapacityWait(waiting.operation, decision); } catch { /* queue reconciliation retries */ }
+        }
+        return { ok: true, operation: getDetachedOperation(sidecar, operationId) ?? waiting.operation };
+      }
+    }
+
     const started = markDetachedOperationStarted(sidecar, operationId, {
       startProofRef: `worker-dispatch:${operationId}:${nowMs}`,
       workerBinding: { kind: "project.investigate", dispatchedAtMs: nowMs },
+      executionDeadlineAtMs: nowMs + DETACHED_OPERATION_DEFAULT_DEADLINE_MS,
       nowMs,
     });
     if (!started.ok) return { ok: false, reason: started.reason, operation };
+    try { await options.onStarted?.(started.operation); } catch { /* started truth already stands */ }
 
     let result: DetachedWorkerResult;
     try {
       result = await worker({
         operation: started.operation,
-        request,
+        request: workerRequestForInspection(request),
         purpose: started.operation.purpose,
         evidenceNeed: started.operation.evidenceNeed,
         nowMs,
@@ -245,7 +311,7 @@ export async function dispatchDetachedOperation(
         nowMs: Date.now(),
       });
       if (!terminal.ok) return { ok: false, reason: terminal.reason, operation: started.operation };
-      return { ok: true, operation: completeAfterTerminal(sidecar, operationId, terminal.operation) };
+      return { ok: true, operation: await finishTerminal(terminal.operation) };
     }
 
     if (!result.ok) {
@@ -255,7 +321,7 @@ export async function dispatchDetachedOperation(
         nowMs: Date.now(),
       });
       if (!terminal.ok) return { ok: false, reason: terminal.reason, operation: started.operation };
-      return { ok: true, operation: completeAfterTerminal(sidecar, operationId, terminal.operation) };
+      return { ok: true, operation: await finishTerminal(terminal.operation) };
     }
 
     let observationRef: string | null = null;
@@ -284,8 +350,328 @@ export async function dispatchDetachedOperation(
       nowMs: Date.now(),
     });
     if (!terminal.ok) return { ok: false, reason: terminal.reason, operation: started.operation };
-    return { ok: true, operation: completeAfterTerminal(sidecar, operationId, terminal.operation) };
+    return { ok: true, operation: await finishTerminal(terminal.operation) };
   } catch {
     return { ok: false, reason: "detached_dispatch_failed" };
   }
+}
+
+export type WorkerUndertakingServiceOptions = {
+  nowMs?: number;
+  limit?: number;
+  worker: DetachedWorker;
+  capacityProbe: () => DetachedCapacityDecision | Promise<DetachedCapacityDecision>;
+  commitmentCurrent?: (undertaking: WorkerUndertakingRecord) => boolean | Promise<boolean>;
+};
+
+export type WorkerUndertakingServiceResult = {
+  serviced: string[];
+  failures: string[];
+  expired: string[];
+  selectedClass: string | null;
+};
+
+function queueRequest(undertaking: WorkerUndertakingRecord): Record<string, unknown> | null {
+  try {
+    const parsed: unknown = JSON.parse(undertaking.requestJson);
+    return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function detachedCapacityProbeForQueue(
+  probe: WorkerUndertakingServiceOptions["capacityProbe"],
+): DetachedCapacityProbe {
+  return () => probe();
+}
+
+function expirePreStartCuriosity(
+  sidecar: DatabaseSync,
+  nowMs: number,
+): string[] {
+  const expired: string[] = [];
+  for (const undertaking of listWorkerUndertakings(sidecar, { limit: 100 })) {
+    if (undertaking.originKind !== "ASHLEY_CURIOSITY"
+      || (undertaking.state !== "queued" && undertaking.state !== "dispatching")
+      || undertaking.curiosityExpiresAtMs == null
+      || undertaking.curiosityExpiresAtMs > nowMs) continue;
+    const operation = undertaking.selectedOperationId
+      ? getDetachedOperation(sidecar, undertaking.selectedOperationId)
+      : null;
+    if (operation?.state === "started") {
+      markWorkerUndertakingRunning(sidecar, undertaking.undertakingId, operation.operationId, nowMs);
+      continue;
+    }
+    if (operation && !operation.terminalState) {
+      requestDetachedOperationCancel(sidecar, operation.operationId, nowMs);
+      resolveDetachedOperationCancel(sidecar, operation.operationId, {
+        cancelledBy: "curiosity-ttl",
+        nowMs,
+      });
+    }
+    const projected = projectWorkerUndertakingTerminal(
+      sidecar,
+      undertaking.undertakingId,
+      "expired",
+      "curiosity_ttl_expired",
+      nowMs,
+    );
+    if (projected?.state === "expired") expired.push(undertaking.undertakingId);
+  }
+  return expired;
+}
+
+async function dispatchBoundWorkerUndertaking(
+  sidecar: DatabaseSync,
+  undertaking: WorkerUndertakingRecord,
+  worker: DetachedWorker,
+  capacityProbe: WorkerUndertakingServiceOptions["capacityProbe"],
+  nowMs: number,
+): Promise<{ ok: boolean; operationId: string }> {
+  const operationId = undertaking.selectedOperationId;
+  if (!operationId) return { ok: false, operationId: "" };
+  if (undertaking.cancelRequestedAtMs != null) {
+    requestDetachedOperationCancel(sidecar, operationId, nowMs);
+  }
+  const result = await dispatchDetachedOperation(sidecar, operationId, worker, {
+    nowMs,
+    beforeStart: detachedCapacityProbeForQueue(capacityProbe),
+    onCapacityWait: (operation, decision) => {
+      requeueWorkerUndertakingAfterCapacity(sidecar, undertaking.undertakingId, {
+        reason: decision.reason,
+        nextProbeAtMs: decision.nextProbeAtMs,
+        nowMs,
+      });
+      // The queue remains the scheduling owner. The detached row only records
+      // the temporary already-bound handoff race.
+      void operation;
+    },
+    onStarted: (started) => {
+      markWorkerUndertakingRunning(sidecar, undertaking.undertakingId, started.operationId, Date.now());
+    },
+    onTerminal: (terminal) => {
+      projectWorkerUndertakingTerminal(
+        sidecar,
+        undertaking.undertakingId,
+        terminal.terminalState ?? "outcome_unknown",
+        terminal.errorCode,
+        Date.now(),
+      );
+    },
+  });
+  if (!result.ok) return { ok: false, operationId };
+  return { ok: true, operationId };
+}
+
+/**
+ * Service the global queue from the existing startup/reconciliation host.
+ * This is the only production scheduler. Detached rows are serviced only
+ * through their queue binding; arbitrary detached-row scans are prohibited.
+ */
+const workerServiceFlights = new WeakMap<DatabaseSync, Promise<WorkerUndertakingServiceResult>>();
+
+async function serviceWorkerUndertakingsOnce(
+  sidecar: DatabaseSync,
+  options: WorkerUndertakingServiceOptions,
+): Promise<WorkerUndertakingServiceResult> {
+  const nowMs = options.nowMs ?? Date.now();
+  const requestedLimit = options.limit ?? 1;
+  const limit = Number.isSafeInteger(requestedLimit)
+    ? Math.max(1, Math.min(50, requestedLimit))
+    : 1;
+  const serviced: string[] = [];
+  const failures: string[] = [];
+  repairWorkerExecutionSlot(sidecar, nowMs);
+  const expired = [
+    ...expirePreStartCuriosity(sidecar, nowMs),
+    ...expireQueuedCuriosity(sidecar, nowMs),
+  ].filter((undertakingId, index, ids) => ids.indexOf(undertakingId) === index);
+  recoverExpiredDispatchClaims(sidecar, nowMs);
+  reconcileDetachedOperations(sidecar, nowMs);
+  repairWorkerExecutionSlot(sidecar, nowMs);
+
+  // First converge a bound undertaking after a crash or a terminal detached
+  // operation. This preserves one undertaking -> at most one operation.
+  const dispatching = listDispatchingWorkerUndertakings(sidecar, limit);
+  for (const undertaking of dispatching) {
+    const operationId = undertaking.selectedOperationId;
+    if (!operationId) continue;
+    const operation = getDetachedOperation(sidecar, operationId);
+    if (!operation) continue;
+    const currentUndertaking = getWorkerUndertaking(sidecar, undertaking.undertakingId) ?? undertaking;
+    if (currentUndertaking.cancelRequestedAtMs != null && !operation.terminalState) {
+      requestDetachedOperationCancel(sidecar, operationId, nowMs);
+    }
+    if (operation.terminalState) {
+      try { produceOperationCompletion(sidecar, operationId); } catch { /* startup backfill retries */ }
+      projectWorkerUndertakingTerminal(
+        sidecar,
+        undertaking.undertakingId,
+        operation.terminalState,
+        operation.errorCode,
+        nowMs,
+      );
+      serviced.push(undertaking.undertakingId);
+      continue;
+    }
+    if (operation.state === "started") {
+      markWorkerUndertakingRunning(sidecar, undertaking.undertakingId, operationId, nowMs);
+      continue;
+    }
+    if (
+      operation.state === "admitted"
+      || (operation.state === "waiting_capacity"
+        && (operation.capacityWaitNextProbeAtMs == null || operation.capacityWaitNextProbeAtMs <= nowMs))
+    ) {
+      try {
+        const result = await dispatchBoundWorkerUndertaking(
+          sidecar,
+          getWorkerUndertaking(sidecar, undertaking.undertakingId) ?? undertaking,
+          options.worker,
+          options.capacityProbe,
+          nowMs,
+        );
+        if (result.ok) serviced.push(undertaking.undertakingId);
+        else failures.push(undertaking.undertakingId);
+      } catch {
+        failures.push(undertaking.undertakingId);
+      }
+    }
+    // One active global slot means no new selection can happen here.
+    return { serviced, failures, expired, selectedClass: null };
+  }
+
+  const slot = getWorkerExecutionSlot(sidecar);
+  if (slot.undertakingId) {
+    sidecar.prepare(
+      `UPDATE worker_undertakings SET blocked_reason = 'worker_busy', updated_at_ms = ?
+        WHERE state = 'queued' AND undertaking_id <> ?
+          AND (blocked_reason IS NULL OR blocked_reason = 'worker_busy')`,
+    ).run(nowMs, slot.undertakingId);
+    return { serviced, failures, expired, selectedClass: null };
+  }
+
+  const selection = selectNextWorkerUndertaking(sidecar, nowMs);
+  if (!selection) return { serviced, failures, expired, selectedClass: null };
+  const undertaking = selection.undertaking;
+  let decision: DetachedCapacityDecision;
+  try {
+    decision = await options.capacityProbe();
+  } catch {
+    decision = { available: false, reason: "worker_capacity_probe_failed" };
+  }
+  if (!decision.available) {
+    if (decision.terminal) {
+      projectWorkerUndertakingTerminal(sidecar, undertaking.undertakingId, "failed", decision.reason, nowMs);
+      failures.push(undertaking.undertakingId);
+    } else {
+      markWorkerUndertakingCapacity(sidecar, undertaking.undertakingId, {
+        reason: decision.reason,
+        nextProbeAtMs: decision.nextProbeAtMs,
+        nowMs,
+      });
+    }
+    return {
+      serviced,
+      failures,
+      expired,
+      selectedClass: selection.selectedClass,
+    };
+  }
+
+  if (undertaking.originKind === "ASHLEY_COMMITMENT" && options.commitmentCurrent) {
+    let current = false;
+    try {
+      current = await options.commitmentCurrent(undertaking);
+    } catch {
+      current = false;
+    }
+    if (!current) {
+      const superseded = supersedeWorkerUndertaking(sidecar, undertaking.undertakingId, {
+        supersededBy: `commitment_currentness:${undertaking.originRef}`,
+        nowMs,
+      });
+      if (superseded.ok) serviced.push(undertaking.undertakingId);
+      else failures.push(undertaking.undertakingId);
+      return { serviced, failures, expired, selectedClass: selection.selectedClass };
+    }
+  }
+
+  const request = queueRequest(undertaking);
+  const conversationId = undertaking.conversationId;
+  if (!request || !conversationId) {
+    projectWorkerUndertakingTerminal(sidecar, undertaking.undertakingId, "failed", "invalid_queue_request", nowMs);
+    failures.push(undertaking.undertakingId);
+    return { serviced, failures, expired, selectedClass: selection.selectedClass };
+  }
+  const idempotencyKey = detachedIdempotencyKeyForWorkerUndertaking(undertaking.undertakingId);
+  const operationId = detachedOperationIdFor(idempotencyKey);
+  const binding = bindWorkerUndertakingToOperation(sidecar, {
+    undertakingId: undertaking.undertakingId,
+    operationId,
+    calendarIndex: selection.calendarIndex,
+    nowMs,
+    admitOperation: () => {
+      const admitted = admitDetachedOperation(sidecar, {
+        idempotencyKey,
+        conversationId,
+        originCycleId: undertaking.originCycleId,
+        originGeneration: undertaking.originGeneration,
+        originKind: undertaking.originKind,
+        originRef: undertaking.originRef,
+        originOwnerEventId: undertaking.originOwnerEventId,
+        originEvidenceRowId: undertaking.originEvidenceRowId,
+        workerUndertakingId: undertaking.undertakingId,
+        operationKind: "project.investigate",
+        request,
+        purpose: undertaking.purpose,
+        evidenceNeed: undertaking.evidenceNeed,
+        operationDeadlineAtMs: nowMs + DETACHED_OPERATION_DEFAULT_DEADLINE_MS,
+        nowMs,
+      });
+      return admitted.ok
+        ? { ok: true as const, operationId: admitted.operation.operationId, created: admitted.created }
+        : { ok: false as const, reason: admitted.reason };
+    },
+  });
+  if (!binding.ok) {
+    if (binding.reason === "worker_busy") {
+      markWorkerUndertakingWorkerBusy(sidecar, undertaking.undertakingId, nowMs);
+    } else if (binding.reason !== "undertaking_not_queued") {
+      failures.push(undertaking.undertakingId);
+    }
+    return { serviced, failures, expired, selectedClass: selection.selectedClass };
+  }
+  try {
+    const dispatched = await dispatchBoundWorkerUndertaking(
+      sidecar,
+      binding.undertaking,
+      options.worker,
+      options.capacityProbe,
+      nowMs,
+    );
+    if (dispatched.ok) serviced.push(undertaking.undertakingId);
+    else failures.push(undertaking.undertakingId);
+  } catch {
+    failures.push(undertaking.undertakingId);
+  }
+  return { serviced, failures, expired, selectedClass: selection.selectedClass };
+}
+
+export function serviceWorkerUndertakings(
+  sidecar: DatabaseSync,
+  options: WorkerUndertakingServiceOptions,
+): Promise<WorkerUndertakingServiceResult> {
+  const active = workerServiceFlights.get(sidecar);
+  if (active) return active;
+  const flight = serviceWorkerUndertakingsOnce(sidecar, options);
+  workerServiceFlights.set(sidecar, flight);
+  void flight.then(
+    () => { if (workerServiceFlights.get(sidecar) === flight) workerServiceFlights.delete(sidecar); },
+    () => { if (workerServiceFlights.get(sidecar) === flight) workerServiceFlights.delete(sidecar); },
+  );
+  return flight;
 }

@@ -12,7 +12,6 @@ import { checkAuthority as deterministicCheckAuthority } from "../authority/chec
 import { getThoughtAttemptCounters } from "./counters.js";
 import { runCognitiveCycle } from "./run.js";
 import { AppError } from "../../../errors.js";
-import { THOUGHT_UNAVAILABLE_NOTICE } from "../speech/infrastructure-notice.js";
 
 const capabilityReality: CapabilityReality = {
   vision: false,
@@ -153,7 +152,7 @@ describe("v0.2.1 durable Thought accounting", () => {
     const { sidecar, cycle, event } = setup();
     const completeChat = vi.fn(async () => ({ text: "not json", model: "fake", modelAlias: "thought", resolvedModelId: null }));
     const result = await runCognitiveCycle(sidecar, sidecar, event, deps(sidecar, completeChat));
-    expect(result).toMatchObject({ published: false, infrastructureNotice: `${THOUGHT_UNAVAILABLE_NOTICE} Error code: STRUCTURAL_RETRY_EXHAUSTED` });
+    expect(result).toMatchObject({ published: false, infrastructureNotice: null });
     expect(getThoughtAttemptCounters(sidecar, cycle.cycleId, cycle.generation)).toMatchObject({
       thoughtModelAttempts: 3,
       acceptedThoughtPasses: 0,
@@ -171,10 +170,8 @@ describe("v0.2.1 durable Thought accounting", () => {
     const result = await runCognitiveCycle(sidecar, sidecar, event, deps(sidecar, completeChat));
     expect(result).toMatchObject({
       published: false,
-      infrastructureNotice: `${THOUGHT_UNAVAILABLE_NOTICE} Error code: PROVIDER_UNAVAILABLE`,
+      infrastructureNotice: null,
     });
-    expect(result.infrastructureNotice).not.toContain("provider body contains a secret");
-    expect(result.infrastructureNotice).not.toContain("503");
     expect(getThoughtAttemptCounters(sidecar, cycle.cycleId, cycle.generation)).toMatchObject({
       thoughtModelAttempts: 1,
       structuralRetries: 0,
@@ -190,10 +187,8 @@ describe("v0.2.1 durable Thought accounting", () => {
     const result = await runCognitiveCycle(sidecar, sidecar, event, deps(sidecar, completeChat));
     expect(result).toMatchObject({
       published: false,
-      infrastructureNotice: `${THOUGHT_UNAVAILABLE_NOTICE} Error code: RATE_LIMITED`,
+      infrastructureNotice: null,
     });
-    expect(result.infrastructureNotice).not.toContain("provider body contains a secret");
-    expect(result.infrastructureNotice).not.toContain("429");
     expect(getThoughtAttemptCounters(sidecar, cycle.cycleId, cycle.generation)).toMatchObject({
       thoughtModelAttempts: 1,
       structuralRetries: 0,
@@ -205,7 +200,7 @@ describe("v0.2.1 durable Thought accounting", () => {
     const { sidecar, cycle, event } = setup();
     const completeChat = vi.fn(async () => { throw new Error("provider_down"); });
     const result = await runCognitiveCycle(sidecar, sidecar, event, deps(sidecar, completeChat));
-    expect(result).toMatchObject({ published: false, infrastructureNotice: `${THOUGHT_UNAVAILABLE_NOTICE} Error code: UNKNOWN` });
+    expect(result).toMatchObject({ published: false, infrastructureNotice: null });
     expect(getThoughtAttemptCounters(sidecar, cycle.cycleId, cycle.generation)).toMatchObject({
       thoughtModelAttempts: 1,
       acceptedThoughtPasses: 0,
@@ -271,10 +266,10 @@ describe("v0.2.1 durable Thought accounting", () => {
         return {
           text: JSON.stringify({
             kind: "observation_intent",
-            operationKind: "project.read_file",
-            request: { projectId: "project-ashley", path: "README.md" },
-            purpose: "inspect the project file",
-            evidenceNeed: "current file contents",
+            operationKind: "project.inspect",
+            request: { projectId: "project-ashley", focus: "inspect the project file" },
+            purpose: "inspect the current project",
+            evidenceNeed: "current bounded project evidence",
             existingRefs: [],
           }),
           model: "fake",

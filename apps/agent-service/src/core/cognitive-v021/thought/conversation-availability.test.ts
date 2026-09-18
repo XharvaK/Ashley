@@ -10,8 +10,10 @@ import { runLiveCognitiveTurn } from "../dispatch/live.js";
 import { createOutboxProjector } from "../delivery/outbox-projector.js";
 import { claimPendingCognitiveDeliveries } from "../delivery/pending.js";
 import { reconcileProjectedDelivery } from "../delivery/outbox-projector.js";
-import { detachInvestigateIntent, dispatchDetachedOperation } from "../operation/dispatch.js";
+import { enqueueWorkerUndertakingIntent, serviceWorkerUndertakings } from "../operation/dispatch.js";
 import { getDetachedOperation } from "../operation/detached.js";
+import { getInterimOutboxByUndertaking } from "../operation/interim.js";
+import { getWorkerUndertaking } from "../operation/worker-queue.js";
 import { CONVERSATION_COGNITION_OCCUPIED } from "../cycle/cognition-claim.js";
 import type { CapabilityReality, IdentitySlice, KernelDeps } from "../types.js";
 
@@ -124,7 +126,7 @@ describe("conversation stays available during detached work", () => {
       releaseWorker = () => resolve({ ok: true, payload: { summary: "backoff configured" } });
     });
     try {
-      // Turn A detaches an investigation with an interim hold.
+      // Turn A queues an investigation with an interim hold.
       const turnA = await runLiveCognitiveTurn({
         sidecar,
         nuclear,
@@ -135,7 +137,7 @@ describe("conversation stays available during detached work", () => {
           completeChat: vi.fn(async () => ({
             text: JSON.stringify({
               kind: "observation_intent",
-              operationKind: "project.investigate",
+              operationKind: "project.inspect",
               request: { projectId: "project-ashley", focus: "apps/agent-service" },
               purpose: "investigate the service",
               evidenceNeed: "bounded file evidence",
@@ -144,20 +146,25 @@ describe("conversation stays available during detached work", () => {
             }),
             model: "fake", modelAlias: "thought", resolvedModelId: null,
           })),
-          detachInvestigate: (input) => detachInvestigateIntent(sidecar, input),
+          enqueueWorkerUndertaking: (input) => enqueueWorkerUndertakingIntent(sidecar, input),
           projectInterim: (interimId) => projector.projectInterim(interimId),
-          dispatchDetached: (operationId) => {
-            void dispatchDetachedOperation(sidecar, operationId, () => workerGate);
-          },
         }),
         projector,
       });
-      expect(turnA.detachedOperationId).toMatch(/^detached-operation:/);
-      const operationId = turnA.detachedOperationId!;
+      expect(turnA.workerUndertakingId).toMatch(/^worker-undertaking:/);
+      const undertakingId = turnA.workerUndertakingId!;
+      const workerService = serviceWorkerUndertakings(sidecar, {
+        nowMs: 20,
+        worker: async () => workerGate,
+        capacityProbe: () => ({ available: true as const }),
+      });
+      await waitFor(() => getWorkerUndertaking(sidecar, undertakingId)?.state === "running");
+      const operationId = getWorkerUndertaking(sidecar, undertakingId)?.selectedOperationId;
+      if (!operationId) throw new Error("queue did not bind an operation");
       expect(getDetachedOperation(sidecar, operationId)?.state).toBe("started");
 
       // The interim hold reaches the Owner through the standard pump seam.
-      const interimKey = getDetachedOperation(sidecar, operationId)?.interimOutboxRef;
+      const interimKey = getInterimOutboxByUndertaking(sidecar, undertakingId)?.projectionKey;
       if (!interimKey) throw new Error("detached operation did not persist an interim outbox reference");
       const interimReservation = nuclear.prepare(
         "SELECT id FROM delivery_reservations WHERE cognitive_v021_projection_key = ?",
@@ -192,6 +199,7 @@ describe("conversation stays available during detached work", () => {
       // behind the active Thought instead of running concurrently.
       releaseWorker?.();
       await waitFor(() => getDetachedOperation(sidecar, operationId)?.state === "succeeded");
+      await workerService;
       const completionId = `operation:${operationId}:completion`;
       expect(getInboxEvent(sidecar, completionId)?.kind).toBe("observation_or_receipt");
       const completionEvent = getInboxEvent(sidecar, completionId)!;

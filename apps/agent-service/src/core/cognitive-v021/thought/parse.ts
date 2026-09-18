@@ -57,10 +57,6 @@ const REGISTERED_OPERATION_KINDS = new Set([
   "conversation.read",
   "memory.lookup",
   "project.inspect",
-  "project.investigate",
-  "project.list_directory",
-  "project.read_file",
-  "project.search_text",
   "workspace.create_directory",
   "workspace.delete_file",
   "workspace.edit_text",
@@ -135,21 +131,29 @@ function jsonObject(value: unknown): value is JsonObject {
 function validProjectInspectionObjective(value: unknown): boolean {
   const record = semanticRecord(value);
   if (!record || typeof record.projectId !== "string" || record.projectId.length === 0) return false;
-  if (record.operation === "project.read_file" || record.operation === "project.list_directory") {
-    return recordShape(record, ["projectId", "operation", "path"]) !== null
-      && nonEmptyString(record.path);
-  }
-  if (record.operation === "project.search_text") {
-    if (!recordShape(record, ["projectId", "operation", "pattern"], ["path", "maxMatches"]) || !nonEmptyString(record.pattern)) {
-      return false;
+  if (record.operation === undefined) {
+    const allowed = new Set(["projectId", "locator", "question", "focus", "maxSteps"]);
+    if (Object.keys(record).some((key) => !allowed.has(key))) return false;
+    if (record.question !== undefined && !nonEmptyString(record.question)) return false;
+    if (record.focus !== undefined && !nonEmptyString(record.focus)) return false;
+    if (record.maxSteps !== undefined && (
+      typeof record.maxSteps !== "number" || !Number.isSafeInteger(record.maxSteps) || record.maxSteps < 1
+    )) return false;
+    if (record.locator === undefined) return true;
+    const locator = semanticRecord(record.locator);
+    if (!locator || typeof locator.kind !== "string") return false;
+    if (locator.kind === "file" || locator.kind === "directory") {
+      return recordShape(locator, ["kind", "path"]) !== null && nonEmptyString(locator.path);
     }
-    return (record.path === undefined || typeof record.path === "string")
-      && (record.maxMatches === undefined || (
-        typeof record.maxMatches === "number" &&
-        Number.isSafeInteger(record.maxMatches) &&
-        record.maxMatches > 0
+    if (locator.kind !== "search") return false;
+    return recordShape(locator, ["kind", "pattern"], ["path", "maxMatches"]) !== null
+      && nonEmptyString(locator.pattern)
+      && (locator.path === undefined || nonEmptyString(locator.path))
+      && (locator.maxMatches === undefined || (
+        typeof locator.maxMatches === "number" && Number.isSafeInteger(locator.maxMatches) && locator.maxMatches > 0
       ));
   }
+  // The route-neutral semantic contract never carries a Host primitive.
   return false;
 }
 
@@ -785,7 +789,7 @@ function parseOperationSemantic(
   if (record.operationKind === "project.inspect" && !validProjectInspectionObjective(record.request)) {
     return semanticFailure("wrong_type", "request");
   }
-  if (record.operationKind === "project.investigate" || record.operationKind === "candidate.develop") {
+  if (record.operationKind === "candidate.develop") {
     const modeB = validateModeBRequest({ kind: record.operationKind, request: record.request });
     if (!modeB.ok) return semanticFailure("wrong_type", modeB.field ?? "request");
   }
@@ -795,11 +799,11 @@ function parseOperationSemantic(
   if (kind === "observation_intent") {
     if (!nonEmptyString(record.evidenceNeed)) return semanticFailure("wrong_type", "evidenceNeed");
     if (own(record, "interimSpeech")) {
-      // An interim hold belongs only to detached V1 async project.investigate.
+      // An interim hold belongs only to the semantic project.inspect queue.
       // Every other branch rejects it structurally: settlement and abstain
       // through unknown-field rejection, effect_intent through the shape
       // above, and non-investigate observations here.
-      if (record.operationKind !== "project.investigate") {
+      if (record.operationKind !== "project.inspect") {
         return semanticFailure("wrong_type", "interimSpeech");
       }
       const interim = validateInterimSpeech(record.interimSpeech);

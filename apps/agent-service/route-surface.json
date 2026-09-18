@@ -16,6 +16,7 @@
     { "method": "GET", "path": "/nuclear/relationship", "ownerScope": "owner_required", "lifecycle": "active" },
     { "method": "POST", "path": "/nuclear/relationship/c5", "ownerScope": "owner_required", "lifecycle": "active" },
     { "method": "GET", "path": "/nuclear/status", "ownerScope": "owner_required", "lifecycle": "active" },
+    { "method": "GET", "path": "/nuclear/worker-queue", "ownerScope": "owner_required", "lifecycle": "active" },
     { "method": "GET", "path": "/nuclear/engineering", "ownerScope": "owner_required", "lifecycle": "retired" },
     { "method": "GET", "path": "/nuclear/memory/corrections", "ownerScope": "owner_required", "lifecycle": "active" },
     { "method": "POST", "path": "/nuclear/memory/corrections", "ownerScope": "owner_required", "lifecycle": "active" },

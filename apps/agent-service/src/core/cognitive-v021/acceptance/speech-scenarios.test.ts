@@ -3,7 +3,6 @@ import { appendInboxEvent } from "../cycle/inbox.js";
 import { appendOwnerUtterance } from "../evidence/conversation-log.js";
 import { admitTestCycle, makeSemanticSettlement, openTestSidecar } from "../test-support.js";
 import { runCognitiveCycle } from "../thought/run.js";
-import { THOUGHT_UNAVAILABLE_NOTICE } from "../speech/infrastructure-notice.js";
 import type { CapabilityReality, IdentitySlice, KernelDeps, Observation } from "../types.js";
 
 const constitution: IdentitySlice = { constitutional: ["truth first"], stableSelf: [] };
@@ -194,12 +193,9 @@ describe("v0.2.1 speech and failure scenarios", () => {
       projectSystemNotice,
     }));
     expect(result.published).toBe(false);
-    expect(projectSystemNotice).toHaveBeenCalledTimes(1);
+    expect(projectSystemNotice).not.toHaveBeenCalled();
     expect(sidecar.prepare("SELECT COUNT(*) AS count FROM speech_outbox").get()).toMatchObject({ count: 0 });
-    expect(sidecar.prepare("SELECT notice_text, send_status FROM system_notice_outbox").get()).toMatchObject({
-      notice_text: `${THOUGHT_UNAVAILABLE_NOTICE} Error code: UNKNOWN`,
-      send_status: "pending",
-    });
+    expect(sidecar.prepare("SELECT COUNT(*) AS count FROM system_notice_outbox").get()).toMatchObject({ count: 0 });
     expect(sidecar.prepare("SELECT thought_unavailable FROM causal_ledger WHERE cycle_id = 'cycle-speech'").get()).toMatchObject({ thought_unavailable: 1 });
     sidecar.close();
     attentionDb.close();

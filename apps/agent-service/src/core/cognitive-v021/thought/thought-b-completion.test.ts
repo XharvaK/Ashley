@@ -5,9 +5,10 @@ import { appendInboxEvent, getInboxEvent } from "../cycle/inbox.js";
 import { appendOwnerUtterance } from "../evidence/conversation-log.js";
 import { admitTestCycle, makeSemanticSettlement, openTestSidecar } from "../test-support.js";
 import type { CapabilityReality, IdentitySlice, KernelDeps, Observation } from "../types.js";
-import { detachInvestigateIntent, dispatchDetachedOperation } from "../operation/dispatch.js";
-import { getDetachedOperation } from "../operation/detached.js";
+import { dispatchDetachedOperation } from "../operation/dispatch.js";
+import { admitDetachedOperation, getDetachedOperation } from "../operation/detached.js";
 import { supersedeDetachedOperation } from "../operation/detached.js";
+import { authorizeInterimSpeech } from "../operation/interim.js";
 import { runCognitiveCycle } from "./run.js";
 
 const constitution: IdentitySlice = { constitutional: ["truth first"], stableSelf: ["curious"] };
@@ -57,31 +58,40 @@ async function thoughtAWithCompletion(threadId: string) {
   appendOwnerUtterance(sidecar, {
     conversationId: threadId, text: "investigate the service", discordMessageIds: ["d1"], nowMs: 2,
   });
-  const detached = detachInvestigateIntent(sidecar, {
-    intent: {
-      kind: "observation_intent",
-      operationKind: "project.investigate",
-      request: { projectId: "project-ashley", focus: "apps/agent-service" },
-      purpose: "investigate the service",
-      evidenceNeed: "bounded file evidence",
-      existingRefs: [],
-      interimSpeech: { mode: "hold", surfaceDraft: "Yeah, give me a bit. I'm going to look through it." },
-    },
-    cycleId: cycle.cycleId,
-    generation: cycle.generation,
+  const admitted = admitDetachedOperation(sidecar, {
+    idempotencyKey: `detached:${threadId}:${cycle.cycleId}:project.investigate`,
     conversationId: threadId,
+    originCycleId: cycle.cycleId,
+    originGeneration: cycle.generation,
+    originKind: "OWNER_REQUEST",
+    originRef: "owner-1",
     originOwnerEventId: "owner-1",
-    ownerId: "doc",
+    operationKind: "project.investigate",
+    request: { projectId: "project-ashley", focus: "apps/agent-service" },
+    purpose: "investigate the service",
+    evidenceNeed: "bounded file evidence",
+    operationDeadlineAtMs: 301_000,
     nowMs: 1_000,
   });
-  if (!detached.detached) throw new Error("detach failed");
+  if (!admitted.ok) throw new Error("admission failed");
+  const interim = authorizeInterimSpeech(sidecar, {
+    operationId: admitted.operation.operationId,
+    surfaceDraft: "Yeah, give me a bit. I'm going to look through it.",
+    deliveryIntent: {
+      ownerId: "doc", channel: "discord", threadId, conversationId: threadId,
+      trigger: "owner_message_reactive", deliveryLane: "reactive", purpose: "licensed_speech",
+    },
+    origin: "live",
+    nowMs: 1_000,
+  });
+  if (!interim.ok) throw new Error("interim authorization failed");
   const dispatched = await dispatchDetachedOperation(
     sidecar,
-    detached.operation.operationId,
+    admitted.operation.operationId,
     async () => ({ ok: true, payload: { summary: "the service retries with backoff" } }),
   );
   if (!dispatched.ok) throw new Error("dispatch failed");
-  return { sidecar, attentionDb, nuclear, cycle, operationId: detached.operation.operationId };
+  return { sidecar, attentionDb, nuclear, cycle, operationId: admitted.operation.operationId };
 }
 
 function userPayload(messages: unknown): { observations: Array<{ observationId: string }>; rawConversation: Array<{ text?: string }> } {

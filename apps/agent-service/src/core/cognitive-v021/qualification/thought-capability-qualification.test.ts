@@ -146,7 +146,7 @@ describe("successor Thought qualification", () => {
       requiredEvidenceAbsent: true,
       attachmentPathAvailable: false,
       attachmentProjectBindingAvailable: false,
-      availableAuthorizedObservationKinds: ["project.read_file"],
+      availableAuthorizedObservationKinds: ["project.inspect"],
       relevantObservationKinds: [],
       authorizedObservationCanAcquireRelevantEvidence: false,
     });

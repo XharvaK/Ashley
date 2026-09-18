@@ -29,6 +29,7 @@ import {
 } from "../speech/infrastructure-notice.js";
 import { recordDeliveryC3TerminalFailure } from "../failure/c3-recorder.js";
 import { cancelDeliveryReservation } from "../../delivery/abort-registry.js";
+import { getCycle, updateCycleState } from "../cycle/inbox.js";
 import type {
   DeliveryIntent,
   OperationInterimOutbox,
@@ -295,6 +296,31 @@ function markDeliveredEvidence(
   else appendSystemEvent(sidecar, input);
 }
 
+/**
+ * Delivery owns this narrow lifecycle convergence. A sending cycle remains
+ * sending only while a durable continuation owner is still valid; terminal
+ * delivery truth removes that owner without replaying or inventing a receipt.
+ */
+function convergeTerminalSendingCycle(
+  sidecar: DatabaseSync,
+  row: ProjectableRow,
+  nowMs: number,
+): void {
+  if (!row.cycleId) return;
+  const cycle = getCycle(sidecar, row.cycleId);
+  if (!cycle || cycle.state !== "sending") return;
+  const current = "outboxId" in row
+    ? getSpeechOutbox(sidecar, row.outboxId)
+    : "noticeId" in row
+      ? getSystemNotice(sidecar, row.noticeId)
+      : getInterimOutbox(sidecar, row.interimId);
+  if (!current || !isTerminal(current.sendStatus)) return;
+  // Queue ownership and delivery lifecycle are independent. The queue may
+  // remain active for the next Thought while this speech/ACK has already
+  // reached terminal delivery truth.
+  updateCycleState(sidecar, cycle.cycleId, "silent", nowMs);
+}
+
 /** Mark a claimed nuclear projection as sending in its source sidecar. */
 export function markProjectedDeliverySending(
   sidecar: DatabaseSync,
@@ -370,6 +396,7 @@ function reconcileProjectedDeliveryInternal(
     }
   }
   markDeliveredEvidence(sidecar, nuclear, reservationId, row, assessment);
+  convergeTerminalSendingCycle(sidecar, row, Date.now());
   return { ok: true, conflict };
 }
 

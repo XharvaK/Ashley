@@ -489,6 +489,14 @@ function markLedgerUnavailable(db: DatabaseSync, input: EmitInfrastructureNotice
   }
 }
 
+/** Persist attempt-level mechanical failure truth without creating Owner UI. */
+export function recordInfrastructureFailureDiagnostic(
+  db: DatabaseSync,
+  input: EmitInfrastructureNoticeInput,
+): void {
+  markLedgerUnavailable(db, input);
+}
+
 export function emitInfrastructureNotice(
   db: DatabaseSync,
   input: EmitInfrastructureNoticeInput,

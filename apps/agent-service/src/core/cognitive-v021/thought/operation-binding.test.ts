@@ -6,8 +6,8 @@ describe("Thought operation binding", () => {
     const result = bindObservationIntent({
       intent: {
         kind: "observation_intent",
-        operationKind: "project.read_file",
-        request: { path: "README.md" },
+        operationKind: "project.inspect",
+        request: { projectId: "project-ashley", locator: { kind: "file", path: "README.md" } },
         purpose: "read evidence",
         evidenceNeed: "current contents",
         existingRefs: [],
@@ -21,7 +21,7 @@ describe("Thought operation binding", () => {
     expect(result.correlationId).toBe(result.requestId);
     expect(result.deadlineAtMs).toBe(122_000);
     expect(result.replaySafe).toBe(true);
-    expect(result.request).toEqual({ path: "README.md" });
+    expect(result.request).toEqual({ projectId: "project-ashley", locator: { kind: "file", path: "README.md" } });
   });
 
   it("creates kernel-owned effect identity with an operation-owned deadline", () => {

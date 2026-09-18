@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { admitCycle, getCycle, appendInboxEvent } from "./inbox.js";
+import { admitCycle, getCycle, appendInboxEvent, hasValidDurableContinuationOwner } from "./inbox.js";
 import { admitTestCycle, openTestSidecar } from "../test-support.js";
+import { enqueueWorkerUndertaking } from "../operation/worker-queue.js";
 
 describe("v0.2.1 cycle and inbox admission", () => {
   it("refuses direct cycle admission without a durable wake", () => {
@@ -97,6 +98,37 @@ describe("v0.2.1 cycle and inbox admission", () => {
       expect(event).toMatchObject({ id: "inbox-observation-1", status: "pending" });
       expect(db.prepare("SELECT trigger_kind FROM cycle_records WHERE cycle_id = (SELECT cycle_id FROM wakes WHERE wake_id = ?)").get(event.wakeId))
         .toMatchObject({ trigger_kind: "observation_or_receipt" });
+    } finally {
+      db.close();
+    }
+  });
+
+  it("treats a queued Owner worker undertaking as a durable continuation owner", () => {
+    const db = openTestSidecar();
+    try {
+      const cycle = admitTestCycle(db, {
+        conversationId: "thread-queue-owner",
+        cycleId: "cycle-queue-owner",
+        triggerKind: "owner_message",
+        triggerRef: "owner-queue-owner",
+        occupantId: "doc",
+        authorityEpoch: 1,
+        nowMs: 1,
+      });
+      const admitted = enqueueWorkerUndertaking(db, {
+        semanticKind: "project.inspect",
+        origin: { kind: "OWNER_REQUEST", ref: "owner-event-queue-owner", ownerEventId: "owner-event-queue-owner" },
+        ownerId: "doc",
+        conversationId: cycle.conversationId,
+        originCycleId: cycle.cycleId,
+        originGeneration: cycle.generation,
+        request: { projectId: "project-ashley" },
+        purpose: "inspect the project",
+        evidenceNeed: "bounded source evidence",
+        nowMs: 2,
+      });
+      expect(admitted.ok).toBe(true);
+      expect(hasValidDurableContinuationOwner(db, cycle)).toBe(true);
     } finally {
       db.close();
     }

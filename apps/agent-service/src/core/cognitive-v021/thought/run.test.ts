@@ -22,7 +22,6 @@ import { parseThoughtSemanticOutput } from "./parse.js";
 import { getThoughtAttemptCounters } from "./counters.js";
 import { computeDispatchMessagesHash } from "./projection.js";
 import { initObservabilitySchema, openObservabilityStore } from "./diagnostics.js";
-import { THOUGHT_UNAVAILABLE_NOTICE } from "../speech/infrastructure-notice.js";
 import { listConcerns } from "../concerns/lineage.js";
 import { listOccupancy } from "../concerns/occupancy.js";
 import { buildOccupiedConcernProjection } from "./occupied-concerns.js";
@@ -159,8 +158,8 @@ describe("v0.2.1 Thought run", () => {
       const output = calls === 1
         ? {
             kind: "observation_intent",
-            operationKind: "project.read_file",
-            request: { path: "README.md" },
+            operationKind: "project.inspect",
+            request: { projectId: "project-ashley", locator: { kind: "file", path: "README.md" } },
             purpose: "inspect the current project",
             evidenceNeed: "the current project file",
             existingRefs: [evidence.rowId],
@@ -418,8 +417,8 @@ describe("v0.2.1 Thought run", () => {
         text: JSON.stringify(kind === "observation_intent"
           ? {
             kind,
-            operationKind: "project.read_file",
-            request: { path: "README.md" },
+            operationKind: "project.inspect",
+            request: { projectId: "project-ashley", locator: { kind: "file", path: "README.md" } },
             purpose: "inspect the workspace",
             evidenceNeed: "the file contents",
             existingRefs: [evidence.rowId],
@@ -448,9 +447,7 @@ describe("v0.2.1 Thought run", () => {
         );
 
         expect(result.published).toBe(false);
-        expect(result.infrastructureNotice).toBe(
-          `${THOUGHT_UNAVAILABLE_NOTICE} Error code: AUTHORITY_REJECTED`,
-        );
+        expect(result.infrastructureNotice).toBeNull();
         expect(executeObservation).not.toHaveBeenCalled();
         expect(executeEffect).not.toHaveBeenCalled();
       } finally {
@@ -645,11 +642,13 @@ describe("v0.2.1 Thought run", () => {
           expect(steps[1].settlement.speech.surfaceDraft).toBe("model-authored correction");
           expect(sidecar.prepare("SELECT COUNT(*) AS n FROM system_notice_outbox").get()).toMatchObject({ n: 0 });
         } else if (outcome === "deadline") {
-          expect(result.infrastructureNotice).toBe(`${THOUGHT_UNAVAILABLE_NOTICE} Error code: THOUGHT_DEADLINE_EXCEEDED`);
+          expect(result.infrastructureNotice).toBeNull();
         } else {
           expect(sidecar.prepare("SELECT COUNT(*) AS n FROM settlements").get()).toMatchObject({ n: 0 });
-          expect(sidecar.prepare("SELECT notice_key FROM system_notice_outbox").get()?.notice_key)
-            .toContain("revision_exhausted");
+          expect(sidecar.prepare("SELECT COUNT(*) AS n FROM system_notice_outbox").get()).toMatchObject({ n: 0 });
+          expect(String(sidecar.prepare(
+            "SELECT payload_json FROM causal_ledger WHERE cycle_id = ? AND generation = ?",
+          ).get(cycle.cycleId, cycle.generation)?.payload_json ?? "")).toContain("revision_exhausted");
         }
       } finally {
         sidecar.close();
@@ -699,7 +698,7 @@ describe("v0.2.1 Thought run", () => {
 
       expect(result).toMatchObject({
         published: false,
-        infrastructureNotice: `${THOUGHT_UNAVAILABLE_NOTICE} Error code: UNKNOWN`,
+        infrastructureNotice: null,
         thoughtModelAttempts: 2,
         acceptedThoughtPasses: 1,
       });
@@ -724,8 +723,10 @@ describe("v0.2.1 Thought run", () => {
         authorityRevisions: 1,
       });
       expect(sidecar.prepare("SELECT COUNT(*) AS count FROM settlements").get()).toMatchObject({ count: 0 });
-      expect(sidecar.prepare("SELECT notice_key FROM system_notice_outbox").get()?.notice_key)
-        .toContain("unavailable");
+      expect(sidecar.prepare("SELECT COUNT(*) AS count FROM system_notice_outbox").get()).toMatchObject({ count: 0 });
+      expect(String(sidecar.prepare(
+        "SELECT payload_json FROM causal_ledger WHERE cycle_id = ? AND generation = ?",
+      ).get(cycle.cycleId, cycle.generation)?.payload_json ?? "")).toContain("provider");
     } finally {
       sidecar.close();
       attentionDb.close();
@@ -809,7 +810,7 @@ describe("v0.2.1 Thought run", () => {
       }));
       expect(result).toMatchObject({
         published: false,
-        infrastructureNotice: `${THOUGHT_UNAVAILABLE_NOTICE} Error code: LOCAL_DISPATCH_FAILURE`,
+        infrastructureNotice: null,
         thoughtExecutionProvenance: { dispatchTruth: "not_sent", providerAttempts: 0 },
       });
       expect(completeChat).not.toHaveBeenCalled();
@@ -1410,7 +1411,7 @@ describe("v0.2.1 Thought run", () => {
 
       expect(result).toMatchObject({
         published: false,
-        infrastructureNotice: `${THOUGHT_UNAVAILABLE_NOTICE} Error code: STRUCTURAL_RETRY_EXHAUSTED`,
+        infrastructureNotice: null,
         thoughtModelAttempts: 3,
         acceptedThoughtPasses: 0,
       });
@@ -1424,8 +1425,7 @@ describe("v0.2.1 Thought run", () => {
       });
       expect(steps).not.toContainEqual(expect.objectContaining({ reason: "unavailable" }));
       expect(sidecar.prepare("SELECT COUNT(*) AS count FROM settlements").get()).toMatchObject({ count: 0 });
-      expect(sidecar.prepare("SELECT notice_key FROM system_notice_outbox").get()?.notice_key)
-        .toContain(":malformed");
+      expect(sidecar.prepare("SELECT COUNT(*) AS count FROM system_notice_outbox").get()).toMatchObject({ count: 0 });
     } finally {
       sidecar.close();
       attentionDb.close();
@@ -1453,7 +1453,7 @@ describe("v0.2.1 Thought run", () => {
       resolvedModelId: null,
     }));
     const result = await runCognitiveCycle(sidecar, attentionDb, event, deps({ completeChat }));
-    expect(result).toMatchObject({ published: false, acceptedSettlements: 0, infrastructureNotice: `${THOUGHT_UNAVAILABLE_NOTICE} Error code: STRUCTURAL_RETRY_EXHAUSTED` });
+    expect(result).toMatchObject({ published: false, acceptedSettlements: 0, infrastructureNotice: null });
     expect(sidecar.prepare("SELECT COUNT(*) AS count FROM settlements").get()).toMatchObject({ count: 0 });
     expect(sidecar.prepare("SELECT COUNT(*) AS count FROM speech_outbox").get()).toMatchObject({ count: 0 });
     sidecar.close();
@@ -1496,10 +1496,13 @@ describe("v0.2.1 Thought run", () => {
           throw new Error("provider_unavailable");
         }),
       }));
-      expect(result).toMatchObject({ published: false, infrastructureNotice: `${THOUGHT_UNAVAILABLE_NOTICE} Error code: UNKNOWN` });
+      expect(result).toMatchObject({ published: false, infrastructureNotice: null });
       expect(sidecar.prepare(
-        "SELECT failure_class, terminal_phase, notice_id FROM c3_terminal_experiences",
-      ).get()).toMatchObject({ failure_class: "unavailable", terminal_phase: "thought" });
+        "SELECT COUNT(*) AS count FROM c3_terminal_experiences",
+      ).get()).toMatchObject({ count: 0 });
+      expect(String(sidecar.prepare(
+        "SELECT payload_json FROM causal_ledger WHERE cycle_id = ? AND generation = ?",
+      ).get(cycle.cycleId, cycle.generation)?.payload_json ?? "")).toContain("provider");
       expect(sidecar.prepare("SELECT COUNT(*) AS count FROM settlements").get()).toMatchObject({ count: 0 });
     } finally {
       sidecar.close();
@@ -1882,7 +1885,7 @@ describe("Thought provider deadline truth and bounded usage telemetry", () => {
       expect(result).toMatchObject({
         published: false,
         thoughtModelAttempts: 1,
-        infrastructureNotice: `${THOUGHT_UNAVAILABLE_NOTICE} Error code: THOUGHT_DEADLINE_EXCEEDED`,
+        infrastructureNotice: null,
       });
       const store = openObservabilityStore(obsDb);
       const diagnostics = store.listDiagnostics();

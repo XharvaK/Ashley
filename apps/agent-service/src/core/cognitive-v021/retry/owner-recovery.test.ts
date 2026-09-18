@@ -29,6 +29,7 @@ import {
 import { buildThoughtInput } from "../thought/input.js";
 import { runCognitiveCycle } from "../thought/run.js";
 import { openNuclearDb } from "../../db.js";
+import { enqueueWorkerUndertaking } from "../operation/worker-queue.js";
 import type {
   CapabilityReality,
   IdentitySlice,
@@ -209,6 +210,38 @@ describe("R1 unanswered-owner recovery", () => {
     }
   });
 
+  it("WQ-T29 does not create R1 repair work while a queued Owner undertaking owns the obligation", () => {
+    const db = openTestSidecar();
+    try {
+      const conversationId = "conversation:r1-queue-owner";
+      const seeded = seedOwnerMessage(db, conversationId, "Owner request retained by the worker queue", 100);
+      terminalizePermanent(db, seeded.eventId, 1_000);
+      const admitted = enqueueWorkerUndertaking(db, {
+        semanticKind: "project.inspect",
+        origin: {
+          kind: "OWNER_REQUEST",
+          ref: seeded.eventId,
+          ownerEventId: seeded.eventId,
+          evidenceRowId: seeded.evidenceRowId,
+        },
+        ownerId: "doc",
+        conversationId,
+        originCycleId: "cycle:r1-queue-owner",
+        originGeneration: 1,
+        request: { projectId: "project-ashley" },
+        purpose: "inspect the project",
+        evidenceNeed: "bounded source evidence",
+        nowMs: 1_500,
+      });
+      expect(admitted.ok).toBe(true);
+      const result = serviceUnansweredOwnerRecovery(db, { nowMs: 2_000 });
+      expect(result.createdRepairs).toHaveLength(0);
+      expect(result.eligibleConversations).toBe(0);
+    } finally {
+      db.close();
+    }
+  });
+
   it("T5 restart idempotency mints no duplicate repair work across bounded retry lineages", () => {
     const db = openTestSidecar();
     try {
@@ -218,12 +251,14 @@ describe("R1 unanswered-owner recovery", () => {
 
       const first = serviceUnansweredOwnerRecovery(db, { nowMs: 2_000 });
       expect(first.createdRepairs).toHaveLength(1);
+      expect(first.finalFailureNoticeIds).toEqual([]);
       const repairId = first.createdRepairs[0]!.repair.eventId;
 
       // Simulate the repair undertaking failing terminally, then re-service.
       quarantineByAge(db, repairId, 3_000);
       const second = serviceUnansweredOwnerRecovery(db, { nowMs: 4_000 });
       expect(second.createdRepairs).toHaveLength(1);
+      expect(second.finalFailureNoticeIds).toEqual([]);
       expect(second.createdRepairs[0]!.created).toBe(true);
       expect(second.createdRepairs[0]!.repair.eventId).not.toBe(repairId);
       expect(second.createdRepairs[0]!.repair.authorizationRef).toBe(
@@ -233,6 +268,7 @@ describe("R1 unanswered-owner recovery", () => {
       quarantineByAge(db, second.createdRepairs[0]!.repair.eventId, 5_000);
       const third = serviceUnansweredOwnerRecovery(db, { nowMs: 6_000 });
       expect(third.createdRepairs).toHaveLength(1);
+      expect(third.finalFailureNoticeIds).toEqual([]);
       expect(third.createdRepairs[0]!.repair.authorizationRef).toBe(
         `${OWNER_RECOVERY_AUTHORIZATION_REF}:retry3`,
       );
@@ -241,7 +277,18 @@ describe("R1 unanswered-owner recovery", () => {
       const fourth = serviceUnansweredOwnerRecovery(db, { nowMs: 8_000 });
       expect(fourth.createdRepairs).toHaveLength(0);
       expect(fourth.lineageExhaustedConversations).toEqual([conversationId]);
+      expect(fourth.finalFailureNoticeIds).toHaveLength(1);
       expect(repairCount(db)).toBe(3);
+      expect(db.prepare(
+        "SELECT COUNT(*) AS count FROM system_notice_outbox WHERE notice_key LIKE ?",
+      ).get(`thought_failure:${conversationId}:%:owner_recovery_exhausted`)).toMatchObject({ count: 1 });
+
+      const fifth = serviceUnansweredOwnerRecovery(db, { nowMs: 9_000 });
+      expect(fifth.finalFailureNoticeIds).toEqual([]);
+      expect(fifth.eligibleConversations).toBe(0);
+      expect(db.prepare(
+        "SELECT COUNT(*) AS count FROM system_notice_outbox WHERE notice_key LIKE ?",
+      ).get(`thought_failure:${conversationId}:%:owner_recovery_exhausted`)).toMatchObject({ count: 1 });
     } finally {
       db.close();
     }

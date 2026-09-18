@@ -73,38 +73,14 @@ describe("v0.2.1 CapabilityReality live-surface contract", () => {
       });
       expect(reality.operationCapabilities).toEqual([
         {
-          operationKind: "project.read_file",
+          operationKind: "project.inspect",
           semanticClass: "observation",
           family: "project_inspection",
           readOnly: true,
           requiresProject: true,
           available: true,
-          requiredRequestFields: ["projectId", "path"],
-          optionalRequestFields: [],
-          operatorBoundRequestFields: [],
-          authorizedProjectIds: ["project-ashley"],
-        },
-        {
-          operationKind: "project.list_directory",
-          semanticClass: "observation",
-          family: "project_inspection",
-          readOnly: true,
-          requiresProject: true,
-          available: true,
-          requiredRequestFields: ["projectId", "path"],
-          optionalRequestFields: [],
-          operatorBoundRequestFields: [],
-          authorizedProjectIds: ["project-ashley"],
-        },
-        {
-          operationKind: "project.search_text",
-          semanticClass: "observation",
-          family: "project_inspection",
-          readOnly: true,
-          requiresProject: true,
-          available: true,
-          requiredRequestFields: ["projectId", "pattern"],
-          optionalRequestFields: ["path", "maxMatches"],
+          requiredRequestFields: ["projectId"],
+          optionalRequestFields: ["locator", "question", "focus", "maxSteps"],
           operatorBoundRequestFields: [],
           authorizedProjectIds: ["project-ashley"],
         },
@@ -219,8 +195,9 @@ describe("v0.2.1 CapabilityReality live-surface contract", () => {
       } as Parameters<typeof getCapabilityReality>[1]);
       expect(reality.canOfferBoundedOperation).toBe(false);
       expect(reality.canOfferProjectInspection).toBe(true);
-      expect(reality.canOfferDelegatedInvestigation).toBe(true);
-      expect(reality.operationCapabilities?.some((operation) => operation.operationKind === "project.investigate")).toBe(true);
+      expect(reality.canOfferDelegatedInvestigation).toBeUndefined();
+      expect(reality.operationCapabilities?.map((operation) => operation.operationKind)).not.toContain("project.investigate");
+      expect(reality.operationCapabilities?.map((operation) => operation.operationKind)).toContain("project.inspect");
       expect(JSON.stringify(reality)).not.toMatch(/NVIDIA_FREE|OTHER_FREE|Nemotron|Muse/);
 
       const notReady = getCapabilityReality(db, {
@@ -233,14 +210,14 @@ describe("v0.2.1 CapabilityReality live-surface contract", () => {
         opencodeQuotaStatePath: "this-path-does-not-exist.json",
       } as Parameters<typeof getCapabilityReality>[1]);
       expect(notReady.canOfferProjectInspection).toBe(true);
-      expect(notReady.canOfferDelegatedInvestigation).toBe(false);
-      expect(notReady.operationCapabilities?.some((operation) => operation.operationKind === "project.investigate")).toBe(false);
+      expect(notReady.canOfferDelegatedInvestigation).toBeUndefined();
+      expect(notReady.operationCapabilities?.map((operation) => operation.operationKind)).toContain("project.inspect");
     } finally {
       db.close();
     }
   });
 
-  it("offers worker-backed project.investigate without graduating direct L1", () => {
+  it("offers worker-backed project inspection without exposing substrate vocabulary", () => {
     const db = openNuclearDb(new DatabaseSync(":memory:"));
     listCapabilityStatuses(db, "apply");
     db.prepare("UPDATE capability_releases SET state = 'active' WHERE capability != 'project_inspection'").run();
@@ -255,14 +232,12 @@ describe("v0.2.1 CapabilityReality live-surface contract", () => {
         opencodeQuotaStatePath: "this-path-does-not-exist.json",
       } as Parameters<typeof getCapabilityReality>[1]);
       expect(ready.canOfferBoundedOperation).toBe(false);
-      expect(ready.canOfferProjectInspection).toBe(false);
-      expect(ready.canOfferDelegatedInvestigation).toBe(true);
-      expect(ready.operationCapabilities?.find((operation) => operation.operationKind === "project.read_file")).toMatchObject({
-        available: false,
-      });
-      expect(ready.operationCapabilities?.find((operation) => operation.operationKind === "project.investigate")).toMatchObject({
+      expect(ready.canOfferProjectInspection).toBe(true);
+      expect(ready.canOfferDelegatedInvestigation).toBeUndefined();
+      expect(ready.operationCapabilities?.find((operation) => operation.operationKind === "project.inspect")).toMatchObject({
         available: true,
       });
+      expect(ready.operationCapabilities?.map((operation) => operation.operationKind)).not.toContain("candidate.develop");
 
       const lifecycleOff = getCapabilityReality(db, {
         registry: registry(),
@@ -274,8 +249,9 @@ describe("v0.2.1 CapabilityReality live-surface contract", () => {
         opencodeQuotaStatePath: "this-path-does-not-exist.json",
       } as Parameters<typeof getCapabilityReality>[1]);
       expect(lifecycleOff.canOfferProjectInspection).toBe(false);
-      expect(lifecycleOff.canOfferDelegatedInvestigation).toBe(false);
-      expect(lifecycleOff.operationCapabilities?.some((operation) => operation.operationKind === "project.investigate")).toBe(false);
+      expect(lifecycleOff.canOfferDelegatedInvestigation).toBeUndefined();
+      expect(lifecycleOff.operationCapabilities?.find((operation) => operation.operationKind === "project.inspect"))
+        .toMatchObject({ available: false });
       expect(graduationPolicyFor("project_inspection").kind).toBe("live_shadow");
     } finally {
       db.close();

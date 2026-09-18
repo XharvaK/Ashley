@@ -25,8 +25,9 @@ import {
 import type { KernelDeps, Observation } from "./core/cognitive-v021/types.js";
 import { createV021LiveOperationExecutors } from "./core/cognitive-v021/dispatch/live-operations.js";
 import {
-  detachInvestigateIntent,
   dispatchDetachedOperation,
+  enqueueWorkerUndertakingIntent,
+  serviceWorkerUndertakings,
 } from "./core/cognitive-v021/operation/dispatch.js";
 import { reconcileMissingCompletions } from "./core/cognitive-v021/operation/completion.js";
 import {
@@ -57,6 +58,7 @@ import { promoteEligibleRoomPending } from "./core/cognitive-v021/social/room-ac
 import { recoverInitialContactEligibility } from "./core/cognitive-v021/social/continuity-memory.js";
 import { createLiveExpressionBinding } from "./core/cognitive-v021/speech/live-expression.js";
 import {
+  getCommitmentOpportunity,
   isCommitmentsEnabled,
   recoverCommitmentOpportunities,
   recoverPendingCommitmentProposals,
@@ -199,6 +201,32 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
         return eligibility.ok ? { ok: true } : { ok: false, reason: eligibility.reason };
       },
     });
+    const runDetachedWorker = async (workerInput: Parameters<NonNullable<Parameters<typeof dispatchDetachedOperation>[2]>>[0]) => {
+      const result = await liveOperationExecutors.runDetachedInvestigate({
+        request: workerInput.request,
+        cycleId: workerInput.operation.originCycleId,
+        purpose: workerInput.purpose,
+      });
+      if (result.license.state === "succeeded") {
+        return { ok: true as const, payload: result.payload };
+      }
+      return {
+        ok: false as const,
+        errorCode: typeof result.license.error === "string" && result.license.error.length > 0
+          ? result.license.error
+          : `worker_${result.license.state}`,
+      };
+    };
+    const detachedCapacityProbe = () => liveOperationExecutors.probeDetachedInvestigate();
+    const commitmentCurrent = (undertaking: import("./core/cognitive-v021/operation/worker-queue.js").WorkerUndertakingRecord): boolean => {
+      if (undertaking.originKind !== "ASHLEY_COMMITMENT") return true;
+      const opportunity = getCommitmentOpportunity(nuclear, {
+        ownerId: undertaking.ownerId,
+        commitmentId: undertaking.originRef,
+      });
+      return opportunity !== null
+        && ["admitted", "communicated", "attempted", "deferred_blocked"].includes(opportunity.state);
+    };
     projectSystemNotice = (noticeId) => projector.projectSystem(noticeId);
     derivedStore = openDerivedStore(defaultDerivedIndexDbPath());
     observabilityDb = new DatabaseSync(defaultObservabilityDbPath());
@@ -231,6 +259,7 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
         runPerception: async () => [],
       }),
       executeObservation: liveOperationExecutors.executeObservation,
+      canOfferDirectProjectInspection: liveOperationExecutors.canOfferDirectProjectInspection,
       executeEffect: liveOperationExecutors.executeEffect,
       checkAuthority: (stage, input) => checkAuthority(stage, {
         ...input,
@@ -244,30 +273,7 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
       projectOutbox: (outboxId) => projector.project(outboxId),
       projectSystemNotice: (noticeId) => projector.projectSystem(noticeId),
       projectInterim: (interimId) => projector.projectInterim(interimId),
-      detachInvestigate: (input) => liveOperationExecutors.canOfferDetachedInvestigate()
-        ? detachInvestigateIntent(sidecar, input)
-        : { detached: false as const, reason: "detach_unavailable" },
-      dispatchDetached: (operationId) => {
-        void dispatchDetachedOperation(sidecar, operationId, async (workerInput) => {
-          const result = await liveOperationExecutors.runDetachedInvestigate({
-            request: workerInput.request,
-            cycleId: workerInput.operation.originCycleId,
-            purpose: workerInput.purpose,
-          });
-          if (result.license.state === "succeeded") {
-            return { ok: true, payload: result.payload };
-          }
-          return {
-            ok: false,
-            errorCode: typeof result.license.error === "string" && result.license.error.length > 0
-              ? result.license.error
-              : `worker_${result.license.state}`,
-          };
-        }).catch(() => {
-          // dispatchDetachedOperation is total and persists terminal truth
-          // itself; this guards only against unexpected trigger bugs.
-        });
-      },
+      enqueueWorkerUndertaking: (input) => enqueueWorkerUndertakingIntent(sidecar, input),
       constitution: readIdentitySlice(nuclear, ownerId),
       capabilityReality,
       derivedStore,
@@ -363,6 +369,9 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
     // before the inbox consumer begins so repairs enter ordinary claim flow.
     try {
       const ownerRecovery = serviceUnansweredOwnerRecovery(sidecar, { nowMs: Date.now() });
+      for (const noticeId of ownerRecovery.finalFailureNoticeIds) {
+        void projector.projectSystem(noticeId).catch(() => undefined);
+      }
       if (ownerRecovery.createdRepairs.length > 0
         || ownerRecovery.wakesConverged.length > 0
         || ownerRecovery.failedConversations.length > 0
@@ -391,6 +400,17 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
       }
     } catch (error) {
       console.warn("[cognitive-v021] detached_completion_backfill_deferred", error);
+    }
+    try {
+      const waiting = await serviceWorkerUndertakings(
+        sidecar,
+        { worker: runDetachedWorker, capacityProbe: detachedCapacityProbe, commitmentCurrent, nowMs: Date.now(), limit: 5 },
+      );
+      if (waiting.failures.length > 0) {
+        console.warn(`[cognitive-v021] worker_queue_maintenance_deferred rows=${waiting.failures.length}`);
+      }
+    } catch (error) {
+      console.warn("[cognitive-v021] worker_queue_startup_deferred", error);
     }
     cognitiveConsumer = startInboxConsumer(sidecar, {
       workerId: `agent-service:${process.pid}`,
@@ -446,10 +466,19 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
         // R1 steady-state opportunity: newly terminalized eligible obligations
         // materialize a repair here; the pass is bounded and idempotent.
         try {
-          serviceUnansweredOwnerRecovery(sidecar, { nowMs });
+          const ownerRecovery = serviceUnansweredOwnerRecovery(sidecar, { nowMs });
+          for (const noticeId of ownerRecovery.finalFailureNoticeIds) {
+            void projector.projectSystem(noticeId).catch(() => undefined);
+          }
         } catch (error) {
           console.warn("[cognitive-v021] unanswered owner recovery maintenance deferred", error);
         }
+        void serviceWorkerUndertakings(
+          sidecar,
+          { worker: runDetachedWorker, capacityProbe: detachedCapacityProbe, commitmentCurrent, nowMs, limit: 5 },
+        ).catch((error) => {
+          console.warn("[cognitive-v021] worker_queue_maintenance_deferred", error);
+        });
         try {
           sweepExpiredArtifacts(nuclear, { nowMs, limit: 50 });
         } catch (error) {

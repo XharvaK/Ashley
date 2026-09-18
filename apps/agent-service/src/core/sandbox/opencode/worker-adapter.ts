@@ -333,6 +333,24 @@ export async function executeModeBWorker(input: ExecuteModeBWorkerInput): Promis
   let selected: RouteOk = routed;
   let terminalError: string | null = null;
   let history = "";
+  const bootstrappedClasses = new Set<QuotaClass>();
+  if (routed.bootstrap) bootstrappedClasses.add(routed.quotaClass);
+
+  const rerouteAfterCapacityFailure = (): boolean => {
+    router = { ...router, state: quotaState, nowMs: input.nowMs() };
+    const next = routeWorkerTask(router, task);
+    if (!next.ok) {
+      terminalError = next.reason;
+      return false;
+    }
+    selected = next;
+    if (next.bootstrap) {
+      router.inFlightFirstAttempt[next.quotaClass] = true;
+      rememberClassInFlight(next.quotaClass, true);
+      bootstrappedClasses.add(next.quotaClass);
+    }
+    return true;
+  };
 
   try {
     for (let step = 0; step < parsed.value.maxSteps; step += 1) {
@@ -359,7 +377,8 @@ export async function executeModeBWorker(input: ExecuteModeBWorkerInput): Promis
         const message = error instanceof Error ? error.message : "opencode_failed";
         if (message === "opencode_timeout") {
           router = setModelHealth(router, selected.modelId, "temporarily_unavailable");
-          terminalError = "model_temporarily_unavailable";
+          if (!rerouteAfterCapacityFailure()) terminalError = "model_temporarily_unavailable";
+          else continue;
         } else {
           terminalError = "opencode_failed";
         }
@@ -368,20 +387,26 @@ export async function executeModeBWorker(input: ExecuteModeBWorkerInput): Promis
       const evidence = classifyOpenCodeFailure({ status: turn.status, text: turn.text });
       if (evidence === "quota_exhausted") {
         quotaState = recordClassExhausted(quotaState, selected.quotaClass, { nowMs: input.nowMs() });
-        terminalError = "worker_capacity_exhausted";
-        break;
+        if (!rerouteAfterCapacityFailure()) break;
+        continue;
       }
       const decoded = decodeOpenCodeRunStdout(turn.text);
       if (decoded.nativeTool) {
         router = setModelHealth(router, selected.modelId, "temporarily_unavailable");
-        terminalError = "native_tool_forbidden";
-        break;
+        if (!rerouteAfterCapacityFailure()) {
+          terminalError = "native_tool_forbidden";
+          break;
+        }
+        continue;
       }
       const message = parseWorkerMessage(decoded.text);
       if (message.type === "malformed") {
         router = setModelHealth(router, selected.modelId, "temporarily_unavailable");
-        terminalError = "malformed_worker_output";
-        break;
+        if (!rerouteAfterCapacityFailure()) {
+          terminalError = "malformed_worker_output";
+          break;
+        }
+        continue;
       }
       quotaState = recordClassAvailable(quotaState, selected.quotaClass);
       if (message.type === "complete") {
@@ -428,9 +453,9 @@ export async function executeModeBWorker(input: ExecuteModeBWorkerInput): Promis
       destroyAdmission(layout);
     }
     input.persistQuota(quotaState);
-    if (selected.bootstrap) {
-      delete router.inFlightFirstAttempt[selected.quotaClass];
-      rememberClassInFlight(selected.quotaClass, false);
+    for (const quotaClass of bootstrappedClasses) {
+      delete router.inFlightFirstAttempt[quotaClass];
+      rememberClassInFlight(quotaClass, false);
     }
   }
 

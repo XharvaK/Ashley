@@ -32,6 +32,7 @@ import {
   COGNITIVE_SIDECAR_SCHEMA_V19,
   COGNITIVE_SIDECAR_SCHEMA_V20,
   COGNITIVE_SIDECAR_SCHEMA_V21,
+  COGNITIVE_SIDECAR_SCHEMA_V22,
 } from "./schema.js";
 import { recoverCognitiveSidecar } from "./recovery.js";
 import { cycleIdFor, occurrenceIdFor, wakeIdFor } from "../wake/identity.js";
@@ -79,6 +80,80 @@ function userVersion(existing: DatabaseSync): number {
 function hasColumn(existing: DatabaseSync, table: string, column: string): boolean {
   return (existing.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name?: unknown }>)
     .some((row) => row.name === column);
+}
+
+function hasTable(existing: DatabaseSync, table: string): boolean {
+  return Boolean(existing.prepare(
+    "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ? LIMIT 1",
+  ).get(table));
+}
+
+function tableColumns(existing: DatabaseSync, table: string): string[] {
+  return (existing.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name?: unknown }>)
+    .map((row) => typeof row.name === "string" ? row.name : "")
+    .filter((name) => name.length > 0);
+}
+
+function tableSql(existing: DatabaseSync, table: string): string {
+  const row = existing.prepare(
+    "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ? LIMIT 1",
+  ).get(table) as { sql?: unknown } | undefined;
+  return typeof row?.sql === "string" ? row.sql.toLowerCase() : "";
+}
+
+function hasFinalV22Contract(existing: DatabaseSync): boolean {
+  const requiredTables = [
+    "worker_undertakings",
+    "worker_undertaking_scheduler",
+    "worker_execution_slot",
+    "detached_operations",
+    "operation_interim_outbox",
+  ];
+  if (!requiredTables.every((table) => hasTable(existing, table))) return false;
+  const queueColumns = new Set(tableColumns(existing, "worker_undertakings"));
+  const detachedColumns = new Set(tableColumns(existing, "detached_operations"));
+  const outboxColumns = new Set(tableColumns(existing, "operation_interim_outbox"));
+  const requiredQueueColumns = [
+    "undertaking_id", "semantic_kind", "origin_kind", "origin_ref", "owner_id",
+    "conversation_id", "origin_cycle_id", "origin_generation", "origin_owner_event_id",
+    "origin_evidence_row_id", "request_json", "purpose", "evidence_need", "admission_key",
+    "state", "blocked_reason", "queued_at_ms", "updated_at_ms", "curiosity_expires_at_ms",
+    "selected_operation_id", "selected_calendar_index", "acknowledgement_ref",
+    "cancel_requested_at_ms", "superseded_by", "terminal_reason", "terminal_at_ms",
+    "dispatch_claim_token", "dispatch_claim_expires_at_ms", "capacity_wait_started_at_ms",
+    "capacity_next_probe_at_ms",
+  ];
+  const requiredDetachedColumns = [
+    "operation_id", "conversation_id", "origin_cycle_id", "origin_generation", "origin_kind",
+    "origin_ref", "origin_owner_event_id", "origin_evidence_row_id", "operation_kind",
+    "request_json", "purpose", "evidence_need", "admission_at_ms", "operation_deadline_at_ms",
+    "idempotency_key", "worker_binding_json", "start_at_ms", "start_proof_ref", "terminal_state",
+    "terminal_at_ms", "observation_ref", "receipt_ref", "error_code", "interim_outbox_ref",
+    "completion_event_ref", "cancel_requested_at_ms", "superseded_by", "successor_operation_id",
+    "worker_undertaking_id", "capacity_wait_reason", "capacity_wait_started_at_ms",
+    "capacity_wait_next_probe_at_ms", "state", "created_at_ms", "updated_at_ms",
+  ];
+  if (!requiredQueueColumns.every((column) => queueColumns.has(column))) return false;
+  if (!requiredDetachedColumns.every((column) => detachedColumns.has(column))) return false;
+  if (!outboxColumns.has("undertaking_id") || detachedColumns.has("capacity_wait_ack_event_ref")) return false;
+  const queueSql = tableSql(existing, "worker_undertakings");
+  const detachedSql = tableSql(existing, "detached_operations");
+  if (!queueSql.includes("selected_operation_id text unique")) return false;
+  if (!queueSql.includes("origin_owner_event_id = origin_ref")) return false;
+  if (!detachedSql.includes("worker_undertaking_id text unique")) return false;
+  if (!detachedSql.includes("origin_owner_event_id = origin_ref")) return false;
+  return true;
+}
+
+function applyV22Migration(existing: DatabaseSync): void {
+  if (hasFinalV22Contract(existing)) {
+    existing.exec("UPDATE cognitive_sidecar_meta SET schema_version = 22, projection_state = 'reconciling' WHERE id = 1");
+    return;
+  }
+  if (hasTable(existing, "worker_undertakings")) {
+    throw sidecarError("cognitive_sidecar_v22_incompatible_existing_queue");
+  }
+  existing.exec(COGNITIVE_SIDECAR_SCHEMA_V22);
 }
 
 function migrateWatchPollingToV18(existing: DatabaseSync): void {
@@ -381,6 +456,7 @@ export function openCognitiveSidecarDb(
       throw sidecarError("production_data_plane_required");
     }
   }
+  existing.exec("PRAGMA busy_timeout = 5000");
 
   const version = userVersion(existing);
   if (version > COGNITIVE_SIDECAR_SCHEMA_VERSION) {
@@ -431,6 +507,7 @@ export function openCognitiveSidecarDb(
       existing.exec(COGNITIVE_SIDECAR_SCHEMA_V19);
       existing.exec(COGNITIVE_SIDECAR_SCHEMA_V20);
       existing.exec(COGNITIVE_SIDECAR_SCHEMA_V21);
+      applyV22Migration(existing);
       existing.exec(`PRAGMA user_version = ${COGNITIVE_SIDECAR_SCHEMA_VERSION}`);
       existing.exec("COMMIT");
     } catch (error) {
@@ -450,6 +527,9 @@ export function openCognitiveSidecarDb(
       if (version < 19) existing.exec(COGNITIVE_SIDECAR_SCHEMA_V19);
       if (version < 20) existing.exec(COGNITIVE_SIDECAR_SCHEMA_V20);
       if (version < 21) existing.exec(COGNITIVE_SIDECAR_SCHEMA_V21);
+      if (version < 22) {
+        applyV22Migration(existing);
+      }
       existing.exec(`PRAGMA user_version = ${COGNITIVE_SIDECAR_SCHEMA_VERSION}`);
       ensureMeta(existing);
       existing.exec("COMMIT");

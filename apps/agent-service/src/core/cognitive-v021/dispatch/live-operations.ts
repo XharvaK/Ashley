@@ -18,6 +18,7 @@ import {
   createQuotaRouter,
   executeModeBWorker,
   loadQuotaState,
+  routeWorkerTask,
   resolveOpenCodeBinary,
   saveQuotaState,
   MODE_B_DEVELOP,
@@ -30,6 +31,7 @@ import {
 } from "../../sandbox/patch-export-execution.js";
 import {
   canOfferCandidateWorkspace,
+  canOfferProjectInspection,
   canOfferWorkerBackedProjectInspection,
   loadOperatorProjectReadRegistry,
   type V2ProjectReadRegistry,
@@ -58,6 +60,18 @@ import {
   publicPresenceReceipt,
   validatePublicPresenceRequest,
 } from "../public-presence.js";
+import {
+  directProjectInspectionRequest,
+  isExactDirectProjectInspectionRequest,
+  routeProjectInspectionRequest,
+  workerProjectInspectionRequest,
+} from "../operation/project-inspection-route.js";
+export {
+  directProjectInspectionRequest,
+  isExactDirectProjectInspectionRequest,
+  routeProjectInspectionRequest,
+  workerProjectInspectionRequest,
+} from "../operation/project-inspection-route.js";
 
 const PROJECT_OPERATIONS = new Set([
   "project.read_file",
@@ -120,6 +134,17 @@ export type V021LiveOperationExecutors = {
   }): Promise<ModeBWorkerResult>;
   /** Whether a Thought-authored investigate may detach right now. */
   canOfferDetachedInvestigate(): boolean;
+  /** Direct V2 is narrower than the semantic project.inspect capability. */
+  canOfferDirectProjectInspection(): boolean;
+  /** Capacity-only preflight used before a detached worker start. */
+  probeDetachedInvestigate(): {
+    available: true;
+  } | {
+    available: false;
+    reason: string;
+    nextProbeAtMs?: number | null;
+    terminal?: boolean;
+  };
 };
 
 type RecordValue = Record<string, unknown>;
@@ -159,6 +184,11 @@ function normalizeProjectRequest(req: ObservationRequest): CognitionInspectionRe
   const value = requestRecord(req.request);
   const projectId = stringValue(value?.projectId);
   if (!projectId) return null;
+
+  if (req.kind === PROJECT_INSPECTION_INTENT) {
+    const exact = directProjectInspectionRequest(value);
+    if (exact) return exact;
+  }
 
   const operation = req.kind === PROJECT_INSPECTION_INTENT
     ? stringValue(value?.operation)
@@ -514,6 +544,46 @@ export function createV021LiveOperationExecutors(
         lifecycleEnabled: options.envOverrides?.sandboxEngineeringLifecycleEnabled ?? env.sandboxEngineeringLifecycleEnabled,
         substrateAvailable: options.envOverrides?.substrateAvailable,
       });
+    },
+
+    canOfferDirectProjectInspection(): boolean {
+      return canOfferProjectInspection(options.nuclear, {
+        registry,
+        masterMode: env.cognitionMode,
+        lifecycleEnabled: options.envOverrides?.sandboxEngineeringLifecycleEnabled ?? env.sandboxEngineeringLifecycleEnabled,
+        substrateAvailable: options.envOverrides?.substrateAvailable,
+      });
+    },
+
+    probeDetachedInvestigate() {
+      if (options.adapters?.executeModeBWorker) return { available: true as const };
+      const gate = {
+        registry,
+        masterMode: env.cognitionMode,
+        lifecycleEnabled: options.envOverrides?.sandboxEngineeringLifecycleEnabled ?? env.sandboxEngineeringLifecycleEnabled,
+        substrateAvailable: options.envOverrides?.substrateAvailable,
+      };
+      if (env.opencodeWorkerEnabled !== true || resolveOpenCodeBinary(env.opencodeBinaryPath) == null) {
+        return { available: false as const, reason: "worker_unavailable", terminal: true as const };
+      }
+      if (!canOfferWorkerBackedProjectInspection(gate)) {
+        return { available: false as const, reason: "worker_gate_denied", terminal: true as const };
+      }
+      const router = createQuotaRouter({
+        catalog: {
+          ...C1_OPENCODE_FREE_CATALOG,
+          candidateDevelopAllowsNvidia: env.opencodeCandidateDevelopAllowsNvidia,
+        },
+        state: loadQuotaState(env.opencodeQuotaStatePath),
+        nowMs: nowMs(),
+      });
+      const decision = routeWorkerTask(router, "delegated_read");
+      if (decision.ok) return { available: true as const };
+      return {
+        available: false as const,
+        reason: decision.reason,
+        ...(decision.nextProbeAtMs == null ? {} : { nextProbeAtMs: decision.nextProbeAtMs }),
+      };
     },
 
     async runDetachedInvestigate(input: {

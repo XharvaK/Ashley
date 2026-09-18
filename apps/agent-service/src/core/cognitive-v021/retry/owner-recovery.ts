@@ -8,6 +8,12 @@ import { getEvidenceByRowId } from "../evidence/conversation-log.js";
 import { getCycle, hasValidDurableContinuationOwner } from "../cycle/inbox.js";
 import { getWake } from "../wake/ledger.js";
 import { createRepairEvent, type RepairEvent } from "./ledger.js";
+import {
+  emitInfrastructureNotice,
+  getSystemNoticeByKey,
+} from "../speech/infrastructure-notice.js";
+import { recordThoughtC3TerminalFailure } from "../failure/c3-recorder.js";
+import { hasActiveOwnerWorkerUndertaking } from "../operation/worker-queue.js";
 
 /**
  * R1 unanswered-Owner-obligation recovery (durable-work/retry ownership).
@@ -101,6 +107,7 @@ function hasNonterminalOwnerContinuation(db: DatabaseSync, conversationId: strin
         AND state NOT IN ('terminal', 'quarantined')
       LIMIT 1`,
   ).get(conversationId))) return true;
+  if (hasActiveOwnerWorkerUndertaking(db, conversationId)) return true;
   // A pending detached-operation completion owns the Owner obligation it
   // carries; its composition turn answers the outstanding evidence.
   return Boolean(db.prepare(
@@ -150,9 +157,10 @@ function hasActiveFrontier(db: DatabaseSync, conversationId: string): boolean {
 }
 
 function hasActiveDetachedOperation(db: DatabaseSync, conversationId: string): boolean {
+  if (hasActiveOwnerWorkerUndertaking(db, conversationId)) return true;
   return Boolean(db.prepare(
     `SELECT 1 FROM detached_operations
-      WHERE conversation_id = ? AND state IN ('admitted', 'started')
+      WHERE conversation_id = ? AND state IN ('admitted', 'waiting_capacity', 'started')
       LIMIT 1`,
   ).get(conversationId));
 }
@@ -537,10 +545,17 @@ export function convergeOrphanPendingWakes(
       if (notice) continue;
       const detached = db.prepare(
         `SELECT 1 FROM detached_operations
-          WHERE origin_cycle_id = ? AND state IN ('admitted', 'started')
+          WHERE origin_cycle_id = ? AND state IN ('admitted', 'waiting_capacity', 'started')
           LIMIT 1`,
       ).get(cycleId);
       if (detached) continue;
+      const undertaking = db.prepare(
+        `SELECT 1 FROM worker_undertakings
+          WHERE origin_cycle_id = ? AND origin_kind = 'OWNER_REQUEST'
+            AND state IN ('queued', 'dispatching', 'running')
+          LIMIT 1`,
+      ).get(cycleId);
+      if (undertaking) continue;
     }
     const wake = getWake(db, wakeId);
     if (!wake || wake.state !== "pending") continue;
@@ -581,7 +596,63 @@ export type UnansweredOwnerRecoveryResult = {
   wakesScanned: number;
   wakesConverged: string[];
   wakesSkippedProtected: number;
+  finalFailureNoticeIds: number[];
 };
+
+function finalFailureNoticeForExhaustedOwner(
+  db: DatabaseSync,
+  conversation: EligibleOwnerConversation,
+  nowMs: number,
+): number | null {
+  const row = db.prepare(
+    `SELECT id, conversation_id, payload_json, wake_id, terminal_reason, last_error
+       FROM inbox_events WHERE id = ? LIMIT 1`,
+  ).get(conversation.primaryPredecessorEventId) as DbValue | undefined;
+  if (!row) return null;
+  let payload: DbValue = {};
+  try {
+    const parsed = JSON.parse(text(row.payload_json, "{}"));
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) payload = parsed as DbValue;
+  } catch {
+    // The eligibility proof already established durable Owner evidence. The
+    // notice remains mechanically truthful even without optional payload data.
+  }
+  const wakeId = text(row.wake_id);
+  const wake = wakeId ? getWake(db, wakeId) : null;
+  const cycleId = wake?.cycleId ?? null;
+  const cycle = cycleId ? getCycle(db, cycleId) : null;
+  const generation = cycle?.generation ?? null;
+  const ownerId = text(payload.ownerId, cycle?.occupantId ?? conversation.conversationId);
+  const channel = text(payload.channel, "discord");
+  const threadId = text(payload.threadId, conversation.conversationId);
+  const failureCode = latestAttemptErrorCode(db, conversation.primaryPredecessorEventId)
+    ?? (text(row.last_error) || text(row.terminal_reason) || null);
+  const notice = emitInfrastructureNotice(db, {
+    ownerId,
+    channel,
+    threadId,
+    conversationId: conversation.conversationId,
+    cycleId,
+    generation,
+    reason: "owner_recovery_exhausted",
+    failureCode,
+    origin: "live",
+    trigger: "owner_message_reactive",
+    deliveryLane: "reactive",
+  });
+  const existing = getSystemNoticeByKey(db, notice.noticeKey);
+  if (existing && existing.noticeId !== notice.noticeId) return existing.noticeId;
+  recordThoughtC3TerminalFailure(db, {
+    noticeKey: notice.noticeKey,
+    noticeId: notice.noticeId,
+    cycleId: cycleId ?? `owner-recovery:${conversation.conversationId}`,
+    generation: generation ?? 0,
+    occurredAtMs: nowMs,
+    failureClass: "owner_recovery_exhausted",
+    attemptId: conversation.primaryPredecessorEventId,
+  });
+  return notice.noticeId;
+}
 
 /**
  * Bounded servicing opportunity for unanswered-Owner recovery. Discovers
@@ -606,6 +677,7 @@ export function serviceUnansweredOwnerRecovery(
     wakesScanned: 0,
     wakesConverged: [],
     wakesSkippedProtected: 0,
+    finalFailureNoticeIds: [],
   };
   const protectedConversations = new Set<string>();
   for (const conversation of eligible) {
@@ -614,6 +686,8 @@ export function serviceUnansweredOwnerRecovery(
       if (!authorizationRef) {
         result.lineageExhaustedConversations.push(conversation.conversationId);
         protectedConversations.add(conversation.conversationId);
+        const noticeId = finalFailureNoticeForExhaustedOwner(db, conversation, nowMs);
+        if (noticeId != null) result.finalFailureNoticeIds.push(noticeId);
         continue;
       }
       const repair = createRepairEvent(db, {

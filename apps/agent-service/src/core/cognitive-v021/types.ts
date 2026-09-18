@@ -20,7 +20,7 @@ export type { DataClassification } from "../privacy/classification.js";
 export const ARCHITECTURE_EPOCH = "v0.2.1" as const;
 export const IMPLEMENTATION_SPEC_VERSION = "0.2.1.r6" as const;
 export const THOUGHT_CONTRACT_VERSION = 2 as const;
-export const COGNITIVE_SIDECAR_SCHEMA_VERSION = 21 as const;
+export const COGNITIVE_SIDECAR_SCHEMA_VERSION = 22 as const;
 export const CAPACITY_WAIT_MAX_DURATION_MS = 120_000 as const;
 export const MECHANICAL_SPIN_GUARD_LIMIT = 12 as const;
 
@@ -925,6 +925,24 @@ export type ObservationIntentSemanticOutput = {
 };
 
 /**
+ * Route-neutral project inspection vocabulary. Thought describes the
+ * evidence need; the Host decides whether the locator is narrow enough for a
+ * direct V2 primitive or requires the detached worker.
+ */
+export type ProjectInspectionLocator =
+  | { kind: "file"; path: string }
+  | { kind: "directory"; path: string }
+  | { kind: "search"; pattern: string; path?: string; maxMatches?: number };
+
+export type ProjectInspectionRequest = {
+  projectId: string;
+  locator?: ProjectInspectionLocator;
+  question?: string;
+  focus?: string;
+  maxSteps?: number;
+};
+
+/**
  * Thought-authored interim hold for a detached operation. mode "none" is
  * explicitly no interim speech; mode "hold" carries a short
  * acknowledgement/intent draft that claims no findings, success, or
@@ -1384,6 +1402,14 @@ export type ThoughtInput = {
   capabilityReality: CapabilityReality;
   /** Present only for an autonomous idle-opportunity Thought. */
   publicPresence?: PublicPresenceContext;
+  /** Host factual context for the single Ashley-authored capacity-wait turn. */
+  capacityWait?: Readonly<{
+    operationId: string;
+    reason: string;
+    waitStartedAtMs: number;
+    nextProbeAtMs: number | null;
+    exactDetail?: Readonly<Record<string, string | number | null>>;
+  }>;
   /** Host facts for permitted social destinations; Thought chooses if used. */
   availableDestinations?: readonly AvailableSocialDestination[];
   observations: Observation[];
@@ -1578,7 +1604,8 @@ export type SystemNoticeOutbox = {
  */
 export type OperationInterimOutbox = {
   interimId: number;
-  operationId: string;
+  operationId: string | null;
+  undertakingId: string | null;
   projectionKey: DeliveryProjectionKey;
   conversationId: ConversationId;
   cycleId: CycleId;
@@ -1671,6 +1698,8 @@ export type KernelDeps = {
     ownerMessage: string;
   }) => Promise<Observation[]>;
   executeObservation: (req: ObservationRequest) => Promise<Observation>;
+  /** Direct V2 is a Host route, never a Thought-selected capability. */
+  canOfferDirectProjectInspection?: () => boolean;
   executeEffect: (proposal: EffectProposal) => Promise<EffectReceipt>;
   checkAuthority: CheckAuthority;
   loadAuthorityPacks: () => AuthorityPacks;
@@ -1688,23 +1717,13 @@ export type KernelDeps = {
   projectSystemNotice?: (noticeId: NoticeId) => Promise<void>;
   projectInterim?: (interimId: number) => Promise<void>;
   /**
-   * Detached V1 async investigate hook. When present and Thought authors a
-   * project.investigate observation intent, the kernel offers durable
-   * detachment (admission + interim ownership) instead of blocking on the
-   * worker. Absent (all existing tests, worker-unavailable hosts), the
-   * an unavailable detachment seam fails closed; project.inspect and other
-   * direct inspection operations retain their existing synchronous path.
+   * Global durable worker-queue admission. Thought authors only the semantic
+   * observation intent; this Host seam owns origin binding and acknowledgement
+   * authorization. Production does not expose direct detached admission.
    */
-  detachInvestigate?: (
-    input: import("./operation/dispatch.js").DetachInvestigateInput,
-  ) => import("./operation/dispatch.js").DetachInvestigateResult;
-  /**
-   * Fire-and-forget worker dispatch trigger for an admitted detached
-   * operation. The dispatcher owns exactly-once execution via the
-   * admitted→started CAS; a missing hook leaves the operation durably
-   * admitted for later dispatch or expiry reconciliation.
-   */
-  dispatchDetached?: (operationId: string) => void;
+  enqueueWorkerUndertaking?: (
+    input: import("./operation/dispatch.js").EnqueueWorkerUndertakingIntentInput,
+  ) => import("./operation/dispatch.js").EnqueueWorkerUndertakingResult;
   /**
    * Per-pass cognition-claim renewal, provided by the live dispatcher when
    * this turn holds the conversation claim. False (or a throw) means the
@@ -1748,6 +1767,8 @@ export type KernelRunResult = {
    * detached_operation:<id> with remainingResponsibility operation_pending.
    */
   detachedOperationId?: string;
+  /** Durable global queue identity before a worker operation is bound. */
+  workerUndertakingId?: string;
 };
 
 export type CognitiveDispatchResult = KernelRunResult | null;
