@@ -1,6 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
-import { appendInboxEvent } from "../cycle/inbox.js";
-import { appendSystemEvent } from "../evidence/conversation-log.js";
+import { appendInboxEvent, getInboxEvent } from "../cycle/inbox.js";
+import { appendSystemEvent, getConversationEvidence } from "../evidence/conversation-log.js";
 import {
   getCanonicalObservationById,
   observationBindingHash,
@@ -8,6 +8,8 @@ import {
 import type { DetachedOperationTerminalState } from "./detached.js";
 import { getDetachedOperation } from "./detached.js";
 import { getInterimOutboxByOperation } from "./interim.js";
+import { getWorkerUndertaking } from "./worker-queue.js";
+import { isAuthorizedOwnerId } from "../../../owner-auth.js";
 
 export type ProduceCompletionResult =
   | { ok: true; eventId: string; created: boolean }
@@ -103,6 +105,37 @@ export function produceOperationCompletion(
   const bindingHash = observationBindingHashValue
     ?? observationBindingHash({ observationIds: [], observations: [] });
 
+  let canonicalOwnerId: string | null = null;
+  if (operation.originKind === "OWNER_REQUEST") {
+    if (operation.workerUndertakingId) {
+      const undertaking = getWorkerUndertaking(sidecar, operation.workerUndertakingId);
+      if (undertaking?.ownerId && typeof undertaking.ownerId === "string" && undertaking.ownerId.trim().length > 0) {
+        canonicalOwnerId = undertaking.ownerId.trim();
+      }
+    }
+    if (!canonicalOwnerId && operation.originOwnerEventId) {
+      const ownerEvent = getInboxEvent(sidecar, operation.originOwnerEventId);
+      const evPayload = ownerEvent && typeof ownerEvent.payload === "object" && ownerEvent.payload !== null && !Array.isArray(ownerEvent.payload)
+        ? (ownerEvent.payload as Record<string, unknown>)
+        : null;
+      if (evPayload && typeof evPayload.ownerId === "string" && evPayload.ownerId.trim().length > 0) {
+        canonicalOwnerId = evPayload.ownerId.trim();
+      }
+    }
+    if (!canonicalOwnerId && interim?.deliveryIntent?.ownerId && typeof interim.deliveryIntent.ownerId === "string" && interim.deliveryIntent.ownerId.trim().length > 0) {
+      canonicalOwnerId = interim.deliveryIntent.ownerId.trim();
+    }
+    if (!canonicalOwnerId && operation.originEvidenceRowId) {
+      const evidence = getConversationEvidence(sidecar, operation.originEvidenceRowId);
+      if (evidence?.speakerPrincipalId && typeof evidence.speakerPrincipalId === "string" && evidence.speakerPrincipalId.trim().length > 0) {
+        canonicalOwnerId = evidence.speakerPrincipalId.trim();
+      }
+    }
+    if (canonicalOwnerId && !isAuthorizedOwnerId(canonicalOwnerId)) {
+      canonicalOwnerId = null;
+    }
+  }
+
   const payload = {
     detachedOperationId: operationId,
     terminalState: operation.terminalState,
@@ -127,6 +160,7 @@ export function produceOperationCompletion(
     observationCount: observationIds.length,
     observationBindingHash: bindingHash,
     triggerRef: `operation-completion:${operationId}`,
+    ...(canonicalOwnerId ? { ownerId: canonicalOwnerId } : {}),
   };
 
   appendInboxEvent(sidecar, {

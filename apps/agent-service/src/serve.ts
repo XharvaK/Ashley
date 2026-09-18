@@ -206,6 +206,7 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
         request: workerInput.request,
         cycleId: workerInput.operation.originCycleId,
         purpose: workerInput.purpose,
+        deadlineAtMs: workerInput.operation.operationDeadlineAtMs,
       });
       if (result.license.state === "succeeded") {
         return { ok: true as const, payload: result.payload };

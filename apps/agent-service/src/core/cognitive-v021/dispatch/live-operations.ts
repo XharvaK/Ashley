@@ -24,6 +24,8 @@ import {
   MODE_B_DEVELOP,
   MODE_B_INVESTIGATE,
   type ModeBWorkerResult,
+  DETACHED_WORKER_MAX_WALL_CLOCK_MS,
+  WORKER_FINALIZATION_RESERVE_MS,
 } from "../../sandbox/opencode/index.js";
 import {
   executePatchExportV2,
@@ -131,6 +133,7 @@ export type V021LiveOperationExecutors = {
     request: unknown;
     cycleId: string;
     purpose: string;
+    deadlineAtMs?: number;
   }): Promise<ModeBWorkerResult>;
   /** Whether a Thought-authored investigate may detach right now. */
   canOfferDetachedInvestigate(): boolean;
@@ -477,6 +480,7 @@ export function createV021LiveOperationExecutors(
     cycleId: string,
     purpose: string,
     workspaceId?: string,
+    deadlineAtMs?: number,
   ): Promise<ModeBWorkerResult> {
     const catalog = {
       ...C1_OPENCODE_FREE_CATALOG,
@@ -485,6 +489,7 @@ export function createV021LiveOperationExecutors(
     const quotaState = loadQuotaState(env.opencodeQuotaStatePath);
     const router = createQuotaRouter({ catalog, state: quotaState, nowMs: nowMs() });
     const base = operationBase(nowMs);
+    const sessionDeadlineAtMs = (deadlineAtMs ?? (base + DETACHED_WORKER_MAX_WALL_CLOCK_MS)) - WORKER_FINALIZATION_RESERVE_MS;
     const sandboxGate = {
       registry,
       masterMode: env.cognitionMode,
@@ -517,16 +522,16 @@ export function createV021LiveOperationExecutors(
       },
       workspaceBase: {
         ...common,
-        deadlineAtMs: base + 60_000,
-        childExecutionDeadlineAtMs: base + 30_000,
-        childTerminationDeadlineAtMs: base + 45_000,
-        settlementDeadlineAtMs: base + 60_000,
+        deadlineAtMs: sessionDeadlineAtMs,
+        childExecutionDeadlineAtMs: Math.min(sessionDeadlineAtMs, base + 30_000),
+        childTerminationDeadlineAtMs: Math.min(sessionDeadlineAtMs, base + 45_000),
+        settlementDeadlineAtMs: sessionDeadlineAtMs,
         messageEntityUuid: cycleId,
       },
       workspaceId,
       pathEnv: process.env.PATH ?? "",
       nowMs,
-      deadlineAtMs: base + 60_000,
+      deadlineAtMs: sessionDeadlineAtMs,
       workerEnabled: env.opencodeWorkerEnabled,
       gateOk,
       gateError: gateOk ? undefined : "worker_gate_denied",
@@ -590,8 +595,9 @@ export function createV021LiveOperationExecutors(
       request: unknown;
       cycleId: string;
       purpose: string;
+      deadlineAtMs?: number;
     }): Promise<ModeBWorkerResult> {
-      return runModeB(MODE_B_INVESTIGATE, input.request, input.cycleId, input.purpose);
+      return runModeB(MODE_B_INVESTIGATE, input.request, input.cycleId, input.purpose, undefined, input.deadlineAtMs);
     },
 
     async executeObservation(req): Promise<Observation> {

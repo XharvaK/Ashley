@@ -1,11 +1,19 @@
+import { EventEmitter } from "node:events";
+import { type ChildProcess } from "node:child_process";
 import { rmSync } from "node:fs";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { OPENCODE_PINNED_VERSION } from "./catalog.js";
 import { createTempIsolationRoot } from "./isolation.js";
 import { createQuotaRouter, resetOpenCodeProcessQuotaMemory } from "./quota-router.js";
 import { emptyQuotaState, recordClassExhausted } from "./quota-state.js";
 import type { ExecuteProjectInspectionV2Input } from "../v2-execution.js";
-import { decodeOpenCodeRunStdout, executeModeBWorker, type OpenCodeTransport } from "./worker-adapter.js";
+import {
+  decodeOpenCodeRunStdout,
+  executeModeBWorker,
+  spawnOpenCodeTransport,
+  terminateProcessWithEscalation,
+  type OpenCodeTransport,
+} from "./worker-adapter.js";
 
 const roots: string[] = [];
 
@@ -65,7 +73,7 @@ function baseInput() {
     workspaceBase: { deadlineAtMs: Date.now() + 20_000 },
     pathEnv: "/usr/bin",
     nowMs: () => Date.now(),
-    deadlineAtMs: Date.now() + 30_000,
+    deadlineAtMs: Date.now() + 60_000,
     workerEnabled: true,
   };
 }
@@ -322,5 +330,247 @@ describe("Mode-B worker adapter", () => {
     expect(spawned).toBe(0);
     expect(result.license.error).toBe("worker_capacity_exhausted");
     expect(result.selectedModelId).toBeNull();
+  });
+
+  describe("Confirmed direct-child termination contract (V3-1)", () => {
+    it("terminateProcessWithEscalation: exit alone does not resolve; only close resolves", async () => {
+      const signals: string[] = [];
+      const mockChild = new EventEmitter() as unknown as ChildProcess & {
+        exitCode: number | null;
+        kill: (signal?: any) => boolean;
+      };
+      mockChild.exitCode = null;
+      mockChild.kill = vi.fn((sig) => {
+        signals.push(String(sig));
+        return true;
+      });
+
+      let resolved = false;
+      const terminationPromise = terminateProcessWithEscalation(mockChild, {
+        termGraceMs: 50,
+        killGraceMs: 50,
+      }).then((res) => {
+        resolved = true;
+        return res;
+      });
+
+      // SIGTERM requested immediately
+      expect(signals).toEqual(["SIGTERM"]);
+      expect(resolved).toBe(false);
+
+      // Emitting exit alone MUST NOT resolve
+      mockChild.emit("exit", 0);
+      expect(resolved).toBe(false);
+
+      // Emitting close resolves with closed: true
+      mockChild.emit("close", 0);
+      const res = await terminationPromise;
+      expect(resolved).toBe(true);
+      expect(res.closed).toBe(true);
+    });
+
+    it("terminateProcessWithEscalation: kill() throwing does not count as success; unconfirmed close after kill grace returns closed: false", async () => {
+      const mockChild = new EventEmitter() as unknown as ChildProcess & {
+        exitCode: number | null;
+        kill: (signal?: any) => boolean;
+      };
+      mockChild.exitCode = null;
+      mockChild.kill = vi.fn(() => {
+        throw new Error("ESRCH");
+      });
+
+      let resolved = false;
+      const terminationPromise = terminateProcessWithEscalation(mockChild, {
+        termGraceMs: 20,
+        killGraceMs: 20,
+      }).then((res) => {
+        resolved = true;
+        return res;
+      });
+
+      // Throwing on kill() did not resolve
+      expect(resolved).toBe(false);
+
+      // Wait past termGrace + killGrace without close
+      const res = await terminationPromise;
+      expect(resolved).toBe(true);
+      expect(res.closed).toBe(false);
+    });
+
+    it("spawnOpenCodeTransport: exercises real transport timeout lifecycle (timeout -> SIGTERM -> exit does NOT reject -> close rejects opencode_timeout)", async () => {
+      const signals: string[] = [];
+      const mockChild = new EventEmitter() as any;
+      mockChild.stdout = new EventEmitter();
+      mockChild.stderr = new EventEmitter();
+      mockChild.exitCode = null;
+      mockChild.kill = vi.fn((sig) => {
+        signals.push(String(sig));
+        return true;
+      });
+
+      const transport = spawnOpenCodeTransport({
+        termGraceMs: 50,
+        killGraceMs: 50,
+        spawnChild: (() => mockChild) as any,
+      });
+
+      let rejectedError: string | null = null;
+      let closedAtTimeOfRejection = false;
+      let childIsClosed = false;
+
+      const completePromise = transport.complete({
+        modelId: "test-model",
+        prompt: "hello",
+        env: {},
+        cwd: ".",
+        deadlineAtMs: Date.now() + 10,
+        binaryPath: "opencode",
+      }).catch((err) => {
+        rejectedError = err instanceof Error ? err.message : String(err);
+        closedAtTimeOfRejection = childIsClosed;
+      });
+
+      // 1. Timeout fires -> SIGTERM requested
+      await new Promise((r) => setTimeout(r, 20));
+      expect(signals).toContain("SIGTERM");
+      expect(rejectedError).toBeNull();
+
+      // 2. 'exit' occurs -> promise does NOT reject yet
+      mockChild.emit("exit", 0);
+      await new Promise((r) => setTimeout(r, 10));
+      expect(rejectedError).toBeNull();
+
+      // 3. 'close' occurs -> only then does complete() reject with opencode_timeout
+      childIsClosed = true;
+      mockChild.emit("close", 0);
+      await completePromise;
+
+      expect(rejectedError).toBe("opencode_timeout");
+      expect(closedAtTimeOfRejection).toBe(true);
+    });
+
+    it("spawnOpenCodeTransport: TERM grace expires -> SIGKILL -> close rejects opencode_timeout", async () => {
+      const signals: string[] = [];
+      const mockChild = new EventEmitter() as any;
+      mockChild.stdout = new EventEmitter();
+      mockChild.stderr = new EventEmitter();
+      mockChild.exitCode = null;
+      mockChild.kill = vi.fn((sig) => {
+        signals.push(String(sig));
+        return true;
+      });
+
+      const transport = spawnOpenCodeTransport({
+        termGraceMs: 20,
+        killGraceMs: 50,
+        spawnChild: (() => mockChild) as any,
+      });
+
+      let rejectedError: string | null = null;
+      const completePromise = transport.complete({
+        modelId: "test-model",
+        prompt: "hello",
+        env: {},
+        cwd: ".",
+        deadlineAtMs: Date.now() + 10,
+        binaryPath: "opencode",
+      }).catch((err) => {
+        rejectedError = err instanceof Error ? err.message : String(err);
+      });
+
+      // Wait for timeout (10ms) + termGrace (20ms) -> escalates to SIGKILL.
+      // Deterministically observe the recorded signals instead of sampling at a
+      // fixed sleep: Node timers can run late under full-corpus contention.
+      await vi.waitFor(() => {
+        expect(signals).toEqual(["SIGTERM", "SIGKILL"]);
+      });
+      expect(rejectedError).toBeNull();
+
+      // Close after SIGKILL -> rejects opencode_timeout
+      mockChild.emit("close", null);
+      await completePromise;
+      expect(rejectedError).toBe("opencode_timeout");
+    });
+
+    it("spawnOpenCodeTransport: KILL grace expires without close -> rejects opencode_termination_unconfirmed", async () => {
+      const signals: string[] = [];
+      const mockChild = new EventEmitter() as any;
+      mockChild.stdout = new EventEmitter();
+      mockChild.stderr = new EventEmitter();
+      mockChild.exitCode = null;
+      mockChild.kill = vi.fn((sig) => {
+        signals.push(String(sig));
+        return true;
+      });
+
+      const transport = spawnOpenCodeTransport({
+        termGraceMs: 20,
+        killGraceMs: 20,
+        spawnChild: (() => mockChild) as any,
+      });
+
+      let rejectedError: string | null = null;
+      const completePromise = transport.complete({
+        modelId: "test-model",
+        prompt: "hello",
+        env: {},
+        cwd: ".",
+        deadlineAtMs: Date.now() + 10,
+        binaryPath: "opencode",
+      }).catch((err) => {
+        rejectedError = err instanceof Error ? err.message : String(err);
+      });
+
+      // Wait for timeout (10ms) + termGrace (20ms) + killGrace (20ms) + margin
+      await completePromise;
+      expect(signals).toEqual(["SIGTERM", "SIGKILL"]);
+      expect(rejectedError).toBe("opencode_termination_unconfirmed");
+    });
+
+    it("executeModeBWorker: opencode_termination_unconfirmed fails immediately and does NOT reroute to sibling model", async () => {
+      const base = baseInput();
+      let completeCalls = 0;
+      const transport: OpenCodeTransport = {
+        async complete() {
+          completeCalls += 1;
+          throw new Error("opencode_termination_unconfirmed");
+        },
+      };
+
+      const result = await executeModeBWorker({
+        ...base,
+        kind: "project.investigate",
+        request: { projectId: "project-ashley" },
+        purpose: "look",
+        transport,
+      });
+
+      // Strictly 1 attempt, NO sibling attempt
+      expect(completeCalls).toBe(1);
+      expect(result.license.error).toBe("opencode_termination_unconfirmed");
+      expect(result.license.state).toBe("none");
+    });
+
+    it("spawnOpenCodeTransport: real process timeout does not leave active children", async () => {
+      // Spawn a real node process that sleeps
+      const transport = spawnOpenCodeTransport({
+        termGraceMs: 50,
+        killGraceMs: 50,
+      });
+
+      let rejectedError: string | null = null;
+      await transport.complete({
+        modelId: "test",
+        prompt: "test",
+        env: {},
+        cwd: ".",
+        deadlineAtMs: Date.now() + 20,
+        binaryPath: process.execPath, // Real node executable: will sleep until killed
+      }).catch((err) => {
+        rejectedError = err instanceof Error ? err.message : String(err);
+      });
+
+      expect(rejectedError).toBe("opencode_timeout");
+    });
   });
 });

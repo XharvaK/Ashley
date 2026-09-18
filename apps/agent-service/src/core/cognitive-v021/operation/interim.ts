@@ -386,7 +386,7 @@ function isOwnerDmDestination(value: unknown): boolean {
 export function recheckInterimPublicationReservation(
   db: DatabaseSync,
   reservationId: number,
-  _nowMs = Date.now(),
+  nowMs = Date.now(),
   options: InterimRecheckOptions = {},
 ): { ok: true } | { ok: false; reason: string } {
   const reservation = getDeliveryReservation(db, reservationId);
@@ -427,6 +427,40 @@ export function recheckInterimPublicationReservation(
   ) {
     return { ok: false, reason: "interim_not_sendable" };
   }
+  if (interim.undertakingId) {
+    const queue = cognitiveSidecar.prepare(
+      `SELECT state, acknowledgement_ref, cancel_requested_at_ms, superseded_by, curiosity_expires_at_ms FROM worker_undertakings
+        WHERE undertaking_id = ? LIMIT 1`,
+    ).get(interim.undertakingId) as {
+      state?: unknown;
+      acknowledgement_ref?: unknown;
+      cancel_requested_at_ms?: unknown;
+      superseded_by?: unknown;
+      curiosity_expires_at_ms?: unknown;
+    } | undefined;
+    if (!queue) return { ok: false, reason: "undertaking_missing" };
+    if (queue.acknowledgement_ref !== `interim:${interim.interimId}`) {
+      return { ok: false, reason: "undertaking_acknowledgement_mismatch" };
+    }
+    if (queue.cancel_requested_at_ms != null) {
+      return { ok: false, reason: "undertaking_cancelled" };
+    }
+    if (queue.superseded_by != null) {
+      return { ok: false, reason: "undertaking_superseded" };
+    }
+    if (
+      typeof queue.curiosity_expires_at_ms === "number"
+      && Number.isSafeInteger(queue.curiosity_expires_at_ms)
+      && queue.curiosity_expires_at_ms <= nowMs
+    ) {
+      return { ok: false, reason: "undertaking_expired" };
+    }
+    if (["succeeded", "failed", "outcome_unknown", "cancelled", "superseded", "expired"].includes(String(queue.state))) {
+      return { ok: false, reason: "undertaking_terminal" };
+    }
+    return { ok: true };
+  }
+
   const current = getCurrentCycle(cognitiveSidecar, interim.conversationId, { includeIdle: true });
   if (!current || current.cycleId !== interim.cycleId) {
     return { ok: false, reason: "stale_generation" };

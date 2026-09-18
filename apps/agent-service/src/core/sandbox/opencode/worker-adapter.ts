@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
 import type { OperationalClaimLicense } from "../engineering-types.js";
 import type {
@@ -11,6 +11,10 @@ import {
   MODE_B_INVESTIGATE,
   type QuotaClass,
   type WorkerTaskClass,
+  OPENCODE_MODEL_TURN_MAX_MS,
+  WORKER_FINALIZATION_RESERVE_MS,
+  OPENCODE_TERM_GRACE_MS,
+  OPENCODE_KILL_GRACE_MS,
 } from "./catalog.js";
 import {
   buildWorkerEnv,
@@ -174,11 +178,109 @@ function hostProtocolPrompt(input: {
   ].filter(Boolean).join("\n");
 }
 
-export function spawnOpenCodeTransport(): OpenCodeTransport {
+export type TerminateProcessOptions = {
+  termGraceMs?: number;
+  killGraceMs?: number;
+};
+
+export type TerminateProcessResult = {
+  closed: boolean;
+  closeStatus?: number | null;
+};
+
+/**
+ * Bounded OpenCode direct-child termination escalation:
+ * 1. Request termination (SIGTERM) on direct child process.
+ * 2. Wait up to bounded duration (OPENCODE_TERM_GRACE_MS).
+ * 3. If still not closed, escalate to SIGKILL.
+ * 4. Wait up to bounded confirmation duration (OPENCODE_KILL_GRACE_MS).
+ * 5. ONLY direct-child 'close' proves teardown ('exit' alone does not). If
+ *    unconfirmed after kill grace, returns { closed: false } leading to
+ *    opencode_termination_unconfirmed.
+ *
+ * The directly spawned OpenCode process is mechanically confirmed closed
+ * before timeout-based same-session model fallback is authorized. Process-tree
+ * properties beyond the direct child are not established here.
+ */
+export function terminateProcessWithEscalation(
+  child: ChildProcess,
+  options: TerminateProcessOptions = {},
+): Promise<TerminateProcessResult> {
+  return new Promise((resolve) => {
+    if ((child as unknown as { __opencodeClosed?: boolean }).__opencodeClosed) {
+      resolve({
+        closed: true,
+        closeStatus: (child as unknown as { __opencodeCloseStatus?: number | null }).__opencodeCloseStatus,
+      });
+      return;
+    }
+
+    const termGraceMs = options.termGraceMs ?? OPENCODE_TERM_GRACE_MS;
+    const killGraceMs = options.killGraceMs ?? OPENCODE_KILL_GRACE_MS;
+
+    let closed = false;
+    let termTimer: NodeJS.Timeout | null = null;
+    let killTimer: NodeJS.Timeout | null = null;
+
+    const cleanup = () => {
+      if (termTimer) clearTimeout(termTimer);
+      if (killTimer) clearTimeout(killTimer);
+    };
+
+    // ONLY 'close' proves direct-child teardown ('exit' alone does not)
+    child.once("close", (status) => {
+      if (!closed) {
+        closed = true;
+        (child as unknown as { __opencodeClosed?: boolean }).__opencodeClosed = true;
+        (child as unknown as { __opencodeCloseStatus?: number | null }).__opencodeCloseStatus = status;
+        cleanup();
+        resolve({ closed: true, closeStatus: status });
+      }
+    });
+
+    // Request SIGTERM
+    try {
+      child.kill("SIGTERM");
+    } catch {
+      // kill() throwing does NOT prove the process is closed.
+      // We must still await mechanical 'close'.
+    }
+
+    termTimer = setTimeout(() => {
+      if (closed) return;
+      // If not closed after TERM grace, escalate to SIGKILL
+      try {
+        child.kill("SIGKILL");
+      } catch {
+        // Still await mechanical 'close'
+      }
+
+      // Bounded KILL/close-confirmation grace
+      killTimer = setTimeout(() => {
+        if (closed) return;
+        cleanup();
+        // If close still cannot be confirmed after kill grace, direct-child
+        // termination remains unconfirmed.
+        resolve({ closed: false });
+      }, killGraceMs);
+    }, termGraceMs);
+  });
+}
+
+export type SpawnOpenCodeTransportOptions = {
+  termGraceMs?: number;
+  killGraceMs?: number;
+  spawnChild?: typeof spawn;
+};
+
+export function spawnOpenCodeTransport(options: SpawnOpenCodeTransportOptions = {}): OpenCodeTransport {
+  const spawnFn = options.spawnChild ?? spawn;
+  const termGraceMs = options.termGraceMs ?? OPENCODE_TERM_GRACE_MS;
+  const killGraceMs = options.killGraceMs ?? OPENCODE_KILL_GRACE_MS;
   return {
     complete(input) {
       return new Promise((resolve, reject) => {
-        const child = spawn(
+        const child = spawnFn(
           input.binaryPath,
           ["run", "--pure", "--format", "json", "--model", input.modelId, input.prompt],
           {
@@ -190,10 +292,45 @@ export function spawnOpenCodeTransport(): OpenCodeTransport {
         );
         let stdout = "";
         let stderr = "";
-        const timer = setTimeout(() => {
-          child.kill();
-          reject(new Error("opencode_timeout"));
+        let timedOut = false;
+        let closed = false;
+
+        child.on("close", (status) => {
+          (child as unknown as { __opencodeClosed?: boolean }).__opencodeClosed = true;
+          (child as unknown as { __opencodeCloseStatus?: number | null }).__opencodeCloseStatus = status;
+          if (timedOut) return;
+          closed = true;
+          clearTimeout(timer);
+          const decoded = decodeOpenCodeRunStdout(stdout || stderr);
+          resolve({
+            text: decoded.nativeTool ? "{\"type\":\"native_tool_forbidden\"}" : decoded.text,
+            status,
+          });
+        });
+
+        const timer = setTimeout(async () => {
+          if (closed) return;
+          timedOut = true;
+          try {
+            const termination = await terminateProcessWithEscalation(child, {
+              termGraceMs,
+              killGraceMs,
+            });
+            if (!termination.closed) {
+              reject(new Error("opencode_termination_unconfirmed"));
+              return;
+            }
+            reject(new Error("opencode_timeout"));
+          } catch (error) {
+            const msg = error instanceof Error ? error.message : String(error);
+            if (msg === "opencode_termination_unconfirmed") {
+              reject(error);
+            } else {
+              reject(new Error("opencode_termination_unconfirmed"));
+            }
+          }
         }, Math.max(1, input.deadlineAtMs - Date.now()));
+
         child.stdout?.on("data", (chunk: Buffer | string) => {
           stdout += chunk.toString();
         });
@@ -201,16 +338,9 @@ export function spawnOpenCodeTransport(): OpenCodeTransport {
           stderr += chunk.toString();
         });
         child.on("error", (error) => {
+          if (timedOut) return;
           clearTimeout(timer);
           reject(error);
-        });
-        child.on("close", (status) => {
-          clearTimeout(timer);
-          const decoded = decodeOpenCodeRunStdout(stdout || stderr);
-          resolve({
-            text: decoded.nativeTool ? "{\"type\":\"native_tool_forbidden\"}" : decoded.text,
-            status,
-          });
         });
       });
     },
@@ -337,7 +467,12 @@ export async function executeModeBWorker(input: ExecuteModeBWorkerInput): Promis
   if (routed.bootstrap) bootstrappedClasses.add(routed.quotaClass);
 
   const rerouteAfterCapacityFailure = (): boolean => {
-    router = { ...router, state: quotaState, nowMs: input.nowMs() };
+    router = {
+      ...router,
+      state: quotaState,
+      nowMs: input.nowMs(),
+      inFlightFirstAttempt: { ...router.inFlightFirstAttempt, [selected.quotaClass]: false },
+    };
     const next = routeWorkerTask(router, task);
     if (!next.ok) {
       terminalError = next.reason;
@@ -354,10 +489,14 @@ export async function executeModeBWorker(input: ExecuteModeBWorkerInput): Promis
 
   try {
     for (let step = 0; step < parsed.value.maxSteps; step += 1) {
-      if (input.nowMs() >= input.deadlineAtMs) {
+      if (input.deadlineAtMs - input.nowMs() <= WORKER_FINALIZATION_RESERVE_MS) {
         terminalError = "deadline_exhausted";
         break;
       }
+      const turnDeadlineAtMs = Math.min(
+        input.deadlineAtMs,
+        input.nowMs() + OPENCODE_MODEL_TURN_MAX_MS,
+      );
       let turn: OpenCodeTurn;
       try {
         turn = await transport.complete({
@@ -370,19 +509,29 @@ export async function executeModeBWorker(input: ExecuteModeBWorkerInput): Promis
           }),
           env,
           cwd: layout.workDir,
-          deadlineAtMs: input.deadlineAtMs,
+          deadlineAtMs: turnDeadlineAtMs,
           binaryPath: input.binaryPath,
         });
       } catch (error) {
         const message = error instanceof Error ? error.message : "opencode_failed";
         if (message === "opencode_timeout") {
           router = setModelHealth(router, selected.modelId, "temporarily_unavailable");
-          if (!rerouteAfterCapacityFailure()) terminalError = "model_temporarily_unavailable";
-          else continue;
+          if (input.deadlineAtMs - input.nowMs() > WORKER_FINALIZATION_RESERVE_MS) {
+            if (!rerouteAfterCapacityFailure()) {
+              terminalError = "model_temporarily_unavailable";
+              break;
+            }
+            continue;
+          }
+          terminalError = "deadline_exhausted";
+          break;
+        } else if (message === "opencode_termination_unconfirmed") {
+          terminalError = "opencode_termination_unconfirmed";
+          break;
         } else {
           terminalError = "opencode_failed";
+          break;
         }
-        break;
       }
       const evidence = classifyOpenCodeFailure({ status: turn.status, text: turn.text });
       if (evidence === "quota_exhausted") {

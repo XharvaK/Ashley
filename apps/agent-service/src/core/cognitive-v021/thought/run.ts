@@ -44,6 +44,7 @@ import {
   type OwnerObligationResolution,
   type ConversationalCommitment,
   type ThoughtContinuityRecovery,
+  type ConversationEvidenceRecord,
 } from "../types.js";
 import {
   createThoughtStructuralFeedback,
@@ -62,6 +63,7 @@ import {
   updateCycleState,
   currentAttemptIs,
   getCycleFreshnessState,
+  getInboxEvent,
 } from "../cycle/inbox.js";
 import {
   activeThoughtMayFinishWhileDetachedCompletionQueued,
@@ -1941,13 +1943,14 @@ function triggerKind(value: unknown): CycleTriggerKind {
 }
 
 function deliveryIntentFor(
-  cycle: { conversationId: string; triggerKind: CycleTriggerKind },
+  cycle: { conversationId: string; triggerKind: CycleTriggerKind; occupantId?: string | null },
   payload: Record<string, unknown>,
   purpose: DeliveryIntent["purpose"],
   triggerKind = cycle.triggerKind,
   externalPublication?: DeliveryIntent["externalPublication"],
   socialLifecycle?: DeliveryIntent["socialLifecycle"],
   destinationOverride?: DeliveryIntent["destination"],
+  triggerEvidence?: ConversationEvidenceRecord | null,
 ): DeliveryIntent {
   const external = triggerKind === "external_message";
   const trigger: DeliveryIntent["trigger"] =
@@ -1958,9 +1961,10 @@ function deliveryIntentFor(
           triggerKind === "recovery" ? "recovery" :
             triggerKind === "observation_or_receipt" ? "operation_completion" :
             external ? "external_message" : "owner_message_reactive";
-  const ownerId = typeof payload.ownerId === "string" && payload.ownerId.trim()
-    ? payload.ownerId
-    : cycle.conversationId;
+  const rawOwnerId = (typeof payload.ownerId === "string" && payload.ownerId.trim() ? payload.ownerId.trim() : undefined)
+    ?? (typeof cycle.occupantId === "string" && cycle.occupantId.trim() ? cycle.occupantId.trim() : undefined)
+    ?? (triggerEvidence?.role === "owner" && typeof triggerEvidence.speakerPrincipalId === "string" && triggerEvidence.speakerPrincipalId.trim() ? triggerEvidence.speakerPrincipalId.trim() : undefined)
+    ?? (typeof cycle.conversationId === "string" && cycle.conversationId.trim() ? cycle.conversationId.trim() : undefined);
   const channel = typeof payload.channel === "string" && payload.channel.trim()
     ? payload.channel
     : "discord";
@@ -1973,6 +1977,23 @@ function deliveryIntentFor(
       ? rawDestination as DeliveryIntent["destination"]
       : destinationOverride
     : undefined;
+
+  let ownerId: string;
+  const isOwnerPrivateLicensedSpeech = purpose === "licensed_speech"
+    && !external
+    && destination?.kind !== "room"
+    && destination?.kind !== "external_dm";
+
+  if (isOwnerPrivateLicensedSpeech) {
+    if (!rawOwnerId || !isAuthorizedOwnerId(rawOwnerId)) {
+      throw new Error("canonical_owner_principal_unproven");
+    }
+    ownerId = rawOwnerId;
+  } else if (purpose === "licensed_speech") {
+    ownerId = rawOwnerId ?? (destination && "principalId" in destination && typeof destination.principalId === "string" ? destination.principalId : cycle.conversationId);
+  } else {
+    ownerId = rawOwnerId ?? (destination && "principalId" in destination && typeof destination.principalId === "string" ? destination.principalId : cycle.conversationId);
+  }
   return {
     ownerId,
     channel,
@@ -3157,23 +3178,53 @@ export async function runCognitiveCycle(
       ) {
         const ownerOrigin = event.kind === "owner_message"
           || event.kind === "owner_utterance"
-          || cycle.triggerKind === "owner_message";
+          || cycle.triggerKind === "owner_message"
+          || Boolean(continuityRecovery);
         const commitmentOrigin = !ownerOrigin && cycle.triggerKind === "commitment_due";
         const originKind = ownerOrigin
           ? "OWNER_REQUEST" as const
           : commitmentOrigin
             ? "ASHLEY_COMMITMENT" as const
             : "ASHLEY_CURIOSITY" as const;
-        const originRef = ownerOrigin
-          ? event.id
-          : commitmentOrigin
-            ? (typeof payload.commitmentId === "string" && payload.commitmentId.trim()
-              ? payload.commitmentId.trim()
-              : cycle.triggerRef)
-            : (cycle.triggerRef || event.id);
-        const ownerId = typeof payload.ownerId === "string" && payload.ownerId.trim()
-          ? payload.ownerId.trim()
-          : cycle.occupantId?.trim() || cycle.conversationId;
+        const originRef = continuityRecovery
+          ? continuityRecovery.primaryPredecessorEventId
+          : ownerOrigin
+            ? event.id
+            : commitmentOrigin
+              ? (typeof payload.commitmentId === "string" && payload.commitmentId.trim()
+                ? payload.commitmentId.trim()
+                : cycle.triggerRef)
+              : (cycle.triggerRef || event.id);
+        const originOwnerEventId = continuityRecovery
+          ? continuityRecovery.primaryPredecessorEventId
+          : (ownerOrigin ? event.id : null);
+        let recoveredOwnerId: string | null = null;
+        if (continuityRecovery) {
+          const predEvent = getInboxEvent(sidecar, continuityRecovery.primaryPredecessorEventId);
+          const p = predEvent && typeof predEvent.payload === "object" && predEvent.payload !== null && !Array.isArray(predEvent.payload)
+            ? predEvent.payload as Record<string, unknown>
+            : null;
+          if (typeof p?.ownerId === "string" && p.ownerId.trim().length > 0) {
+            recoveredOwnerId = p.ownerId.trim();
+          }
+          if (!recoveredOwnerId && triggerEvidence?.speakerPrincipalId && typeof triggerEvidence.speakerPrincipalId === "string" && triggerEvidence.speakerPrincipalId.trim().length > 0) {
+            recoveredOwnerId = triggerEvidence.speakerPrincipalId.trim();
+          }
+        }
+        const candidateOwnerId = (typeof payload.ownerId === "string" && payload.ownerId.trim().length > 0 ? payload.ownerId.trim() : undefined)
+          ?? (recoveredOwnerId || undefined)
+          ?? (typeof cycle.occupantId === "string" && cycle.occupantId.trim().length > 0 ? cycle.occupantId.trim() : undefined)
+          ?? (triggerEvidence?.role === "owner" && typeof triggerEvidence.speakerPrincipalId === "string" && triggerEvidence.speakerPrincipalId.trim().length > 0 ? triggerEvidence.speakerPrincipalId.trim() : undefined);
+
+        let ownerId: string;
+        if (originKind === "OWNER_REQUEST") {
+          if (!candidateOwnerId || !isAuthorizedOwnerId(candidateOwnerId)) {
+            throw new Error("canonical_owner_principal_unproven");
+          }
+          ownerId = candidateOwnerId;
+        } else {
+          ownerId = candidateOwnerId ?? cycle.occupantId?.trim() ?? cycle.conversationId;
+        }
         const originEvidenceRowId = triggerEvidence?.rowId ?? cycle.composeLogIds.at(-1) ?? null;
 
         // The global queue is the production seam. Thought yields after
@@ -3187,7 +3238,7 @@ export async function runCognitiveCycle(
               origin: {
                 kind: originKind,
                 ref: originRef,
-                ownerEventId: ownerOrigin ? event.id : null,
+                ownerEventId: originOwnerEventId,
                 evidenceRowId: originEvidenceRowId,
               },
               ownerId,
@@ -3710,6 +3761,7 @@ export async function runCognitiveCycle(
             }
           : undefined,
         ownerRoomDestination ?? undefined,
+        triggerEvidence,
       ),
       authorityDb: authorityDbForPacks(deps, packs),
       expectedCurrentness: invocation.kernelEnvelope?.authorityCurrentness ?? packs.currentness.binding,

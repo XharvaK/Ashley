@@ -285,6 +285,39 @@ export function enqueueWorkerUndertaking(
       sidecar.exec("COMMIT");
       return { ok: true, undertaking: existing, created: false };
     }
+    if (input.origin.kind === "OWNER_REQUEST") {
+      const predOwnerEventId = input.origin.ownerEventId ?? input.origin.ref;
+      const activeCandidates = sidecar.prepare(
+        `SELECT * FROM worker_undertakings
+          WHERE origin_kind = 'OWNER_REQUEST'
+            AND (origin_ref = ? OR origin_owner_event_id = ?)
+            AND semantic_kind = ?
+            AND state IN ('queued', 'dispatching', 'running')`,
+      ).all(predOwnerEventId, predOwnerEventId, input.semanticKind) as Record<string, unknown>[];
+
+      const exactMatch = activeCandidates.find((candidate) => {
+        const candidatePurpose = String(candidate.purpose ?? "");
+        const candidateNeed = String(candidate.evidence_need ?? "");
+        const candidateReqJson = String(candidate.request_json ?? "");
+        let candidateCanonicalReq = candidateReqJson;
+        try {
+          const parsed = JSON.parse(candidateReqJson);
+          candidateCanonicalReq = stableJson(parsed);
+        } catch {
+          // preserve raw
+        }
+        return (
+          candidatePurpose === input.purpose &&
+          candidateNeed === input.evidenceNeed &&
+          candidateCanonicalReq === requestJson
+        );
+      });
+
+      if (exactMatch) {
+        sidecar.exec("COMMIT");
+        return { ok: true, undertaking: mapRow(exactMatch), created: false };
+      }
+    }
     const nonterminal = Number((sidecar.prepare(
       `SELECT COUNT(*) AS count FROM worker_undertakings
         WHERE state IN ('queued', 'dispatching', 'running')`,

@@ -41,9 +41,20 @@ import {
   type EnqueueWorkerUndertakingInput,
   type WorkerUndertakingRecord,
 } from "./worker-queue.js";
+import {
+  DETACHED_WORKER_MAX_WALL_CLOCK_MS,
+  WORKER_FINALIZATION_RESERVE_MS,
+  OPENCODE_MODEL_TURN_MAX_MS,
+} from "../../sandbox/opencode/catalog.js";
 
-/** Own bounded wall-clock for a detached operation: outside any Thought budget. */
-export const DETACHED_OPERATION_DEFAULT_DEADLINE_MS = 300_000 as const;
+export {
+  DETACHED_WORKER_MAX_WALL_CLOCK_MS,
+  WORKER_FINALIZATION_RESERVE_MS,
+  OPENCODE_MODEL_TURN_MAX_MS,
+};
+
+/** Own bounded wall-clock for a detached operation: outside any Thought budget. (1 hour default) */
+export const DETACHED_OPERATION_DEFAULT_DEADLINE_MS = DETACHED_WORKER_MAX_WALL_CLOCK_MS;
 
 export type EnqueueWorkerUndertakingIntentInput = EnqueueWorkerUndertakingInput & {
   intent: ObservationIntentSemanticOutput;

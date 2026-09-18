@@ -4,7 +4,13 @@ import {
   getDeliveryReservation,
   listDeliveryBubbles,
 } from "../../delivery/store.js";
-import { getRegisteredCognitiveSidecar } from "../speech/outbox.js";
+import {
+  getRegisteredCognitiveSidecar,
+  getSpeechOutbox,
+  updateOutboxStatus,
+} from "../speech/outbox.js";
+import { isAuthorizedOwnerId } from "../../../owner-auth.js";
+import { getCurrentCycle } from "../cycle/inbox.js";
 
 export type PendingCognitiveDelivery = {
   reservationId: number;
@@ -128,6 +134,177 @@ function laneProjectionKind(lane: PendingLane): ProjectionKind | null {
   return null;
 }
 
+function isOwnerDmDestinationJson(destinationJson: unknown): boolean {
+  if (destinationJson === null || destinationJson === undefined) return true;
+  if (typeof destinationJson === "string") {
+    try {
+      const parsed = JSON.parse(destinationJson) as Record<string, unknown>;
+      return parsed.kind === "owner" || parsed.kind === "owner_private";
+    } catch {
+      return false;
+    }
+  }
+  if (typeof destinationJson === "object") {
+    const d = destinationJson as Record<string, unknown>;
+    return d.kind === "owner" || d.kind === "owner_private";
+  }
+  return false;
+}
+
+export const LEGACY_WRONG_PRINCIPAL_RECONCILE_LIMIT = 50 as const;
+
+/**
+ * Reconcile legacy wrong-principal final speech reservations where owner_id
+ * was written as the conversation/thread UUID instead of the canonical Owner snowflake (exact defect: owner_id = thread_id).
+ * Requires 5 proofs before correcting; if stale, truthfully suppresses.
+ * Cross-DB ordering updates sidecar first so crash retry remains idempotent.
+ * Bounded by limit (default 50). Selects exact defect class in SQL before LIMIT. Sidecar correction failure leaves Nuclear untouched/discoverable for retry.
+ */
+export function reconcileLegacyWrongPrincipalSpeechReservations(
+  db: DatabaseSync,
+  sidecar: DatabaseSync,
+  canonicalOwnerId?: string,
+  nowMs = Date.now(),
+  limit: number = LEGACY_WRONG_PRINCIPAL_RECONCILE_LIMIT,
+): { corrected: number; suppressedStale: number } {
+  let corrected = 0;
+  let suppressedStale = 0;
+  const nowIso = new Date(nowMs).toISOString();
+
+  const candidates = db.prepare(
+    `SELECT id, owner_id, thread_id, destination_json, cognitive_v021_projection_key, speech_outbox_id
+       FROM delivery_reservations
+      WHERE channel = 'discord'
+        AND delivery_lane IN ('reactive', 'proactive')
+        AND state = 'reserved'
+        AND (cognitive_v021_projection_key LIKE 'speech:%' OR speech_outbox_id IS NOT NULL)
+        AND owner_id = thread_id
+      ORDER BY id ASC
+      LIMIT ?`,
+  ).all(limit) as Array<{
+    id?: unknown;
+    owner_id?: unknown;
+    thread_id?: unknown;
+    destination_json?: unknown;
+    cognitive_v021_projection_key?: unknown;
+    speech_outbox_id?: unknown;
+  }>;
+
+  for (const row of candidates) {
+    const id = reservationId(row);
+    if (id === null) continue;
+    const ownerIdStr = typeof row.owner_id === "string" ? row.owner_id.trim() : "";
+    const threadIdStr = typeof row.thread_id === "string" ? row.thread_id.trim() : "";
+    const isExactLegacyDefect = Boolean(ownerIdStr && threadIdStr && ownerIdStr === threadIdStr);
+    if (!isExactLegacyDefect) continue;
+
+    if (!isOwnerDmDestinationJson(row.destination_json)) continue;
+
+    // Proof 1: state = 'reserved' (not externally dispatched)
+    const reservation = getDeliveryReservation(db, id);
+    if (!reservation || reservation.state !== "reserved") continue;
+
+    // Proof 2: no delivery receipt exists
+    const bubbles = listDeliveryBubbles(db, id);
+    const hasReceipt = bubbles.some((b) => Boolean(b.discordMessageId?.trim()) || Boolean(b.sentAt?.trim()));
+    if (hasReceipt) continue;
+
+    // Proof 3: source speech/outbox identity mechanically known
+    let speechOutboxId = Number(row.speech_outbox_id);
+    if (!Number.isSafeInteger(speechOutboxId) || speechOutboxId <= 0) {
+      const key = typeof row.cognitive_v021_projection_key === "string" ? row.cognitive_v021_projection_key : "";
+      if (key.startsWith("speech:")) {
+        speechOutboxId = Number(key.slice("speech:".length));
+      }
+    }
+    if (!Number.isSafeInteger(speechOutboxId) || speechOutboxId <= 0) continue;
+
+    const speech = getSpeechOutbox(sidecar, speechOutboxId);
+    if (!speech) continue;
+
+    // Proof 4: canonical Owner principal derives from original durable lineage
+    let targetOwnerId: string | null = null;
+    if (canonicalOwnerId && isAuthorizedOwnerId(canonicalOwnerId)) {
+      targetOwnerId = canonicalOwnerId;
+    } else {
+      const cycleRow = sidecar.prepare(
+        "SELECT occupant_id, origin_owner_event_id FROM cycle_records WHERE cycle_id = ? LIMIT 1",
+      ).get(speech.cycleId) as { occupant_id?: unknown; origin_owner_event_id?: unknown } | undefined;
+      const occId = typeof cycleRow?.occupant_id === "string" ? cycleRow.occupant_id.trim() : "";
+      if (occId && isAuthorizedOwnerId(occId)) {
+        targetOwnerId = occId;
+      } else {
+        const originEvId = typeof cycleRow?.origin_owner_event_id === "string" ? cycleRow.origin_owner_event_id.trim() : "";
+        if (originEvId) {
+          const evRow = sidecar.prepare(
+            "SELECT payload_json FROM inbox_events WHERE id = ? LIMIT 1",
+          ).get(originEvId) as { payload_json?: unknown } | undefined;
+          try {
+            const p = JSON.parse(typeof evRow?.payload_json === "string" ? evRow.payload_json : "{}") as Record<string, unknown>;
+            if (typeof p.ownerId === "string" && isAuthorizedOwnerId(p.ownerId.trim())) {
+              targetOwnerId = p.ownerId.trim();
+            }
+          } catch {
+            // ignore
+          }
+        }
+      }
+    }
+
+    if (!targetOwnerId) continue;
+
+    // Proof 5: currentness permits delivery (not stale)
+    const current = getCurrentCycle(sidecar, speech.conversationId, { includeIdle: true });
+    const isCurrent = Boolean(
+      current &&
+      current.cycleId === speech.cycleId &&
+      current.generation === speech.generation,
+    );
+
+    if (!isCurrent) {
+      // Stale: suppress truthfully and leave continuity to recover.
+      // Update sidecar FIRST so that if crash occurs before Nuclear update,
+      // Nuclear remains reserved/suspicious and discoverable on next pass.
+      updateOutboxStatus(sidecar, speech.outboxId, "suppressed", {
+        finalizationReason: "stale_generation",
+        nuclearReservationId: id,
+      });
+      db.prepare(
+        `UPDATE delivery_reservations
+            SET state = 'aborted', finalization_reason = 'stale_generation', finalized_at = ?
+          WHERE id = ? AND state = 'reserved'`,
+      ).run(nowIso, id);
+      suppressedStale += 1;
+    } else {
+      // Current: correct owner_id to canonical Owner principal.
+      // Update sidecar FIRST so that if the sidecar correction fails, Nuclear
+      // is left untouched with the legacy owner_id: the row remains
+      // discoverable as owner_id = thread_id and retries on a future pass.
+      let sidecarCorrected = false;
+      try {
+        const intent = typeof speech.deliveryIntent === "object" && speech.deliveryIntent !== null
+          ? { ...speech.deliveryIntent, ownerId: targetOwnerId }
+          : { ownerId: targetOwnerId };
+        sidecar.prepare(
+          "UPDATE speech_outbox SET delivery_intent_json = ? WHERE outbox_id = ?",
+        ).run(JSON.stringify(intent), speech.outboxId);
+        sidecarCorrected = true;
+      } catch {
+        // Leave Nuclear untouched with legacy owner_id; retry on future pass.
+      }
+      if (!sidecarCorrected) continue;
+      db.prepare(
+        `UPDATE delivery_reservations
+            SET owner_id = ?
+          WHERE id = ? AND state = 'reserved'`,
+      ).run(targetOwnerId, id);
+      corrected += 1;
+    }
+  }
+
+  return { corrected, suppressedStale };
+}
+
 function listPendingByLane(
   db: DatabaseSync,
   ownerId: string,
@@ -236,6 +413,9 @@ function claimPendingByLane(
   const kind = laneProjectionKind(lane);
   const sidecar = kind ? getRegisteredCognitiveSidecar(db) : undefined;
   if (kind && !sidecar) return [];
+  if (lane === "cognitive_v021" && sidecar) {
+    reconcileLegacyWrongPrincipalSpeechReservations(db, sidecar, input.ownerId, nowMs);
+  }
 
   db.exec("BEGIN IMMEDIATE");
   try {

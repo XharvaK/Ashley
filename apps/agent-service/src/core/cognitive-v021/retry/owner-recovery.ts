@@ -339,6 +339,21 @@ export function checkUnansweredOwnerEligibility(
   if (hasActiveDetachedOperation(db, candidate.conversationId)) {
     return { eligible: false, reason: "detached_operation_owns" };
   }
+  const activeUndertakingForPredecessor = db.prepare(
+    `SELECT 1 FROM worker_undertakings
+      WHERE origin_kind = 'OWNER_REQUEST'
+        AND (origin_ref = ? OR origin_owner_event_id = ?)
+        AND state IN ('queued', 'dispatching', 'running')
+      LIMIT 1`,
+  ).get(candidate.id, candidate.id);
+  if (activeUndertakingForPredecessor) return { eligible: false, reason: "worker_undertaking_owns" };
+  const activePredecessorRepair = db.prepare(
+    `SELECT 1 FROM durable_work_repairs r
+       JOIN inbox_events e ON e.id = r.repair_event_id
+      WHERE r.predecessor_event_id = ? AND e.state NOT IN ('terminal', 'quarantined')
+      LIMIT 1`,
+  ).get(candidate.id);
+  if (activePredecessorRepair) return { eligible: false, reason: "repair_active" };
   if (hasActiveRepair(db, candidate.conversationId)) return { eligible: false, reason: "repair_active" };
   const proof = proveNoOwnerVisibleDispatch(db, {
     id: candidate.id,

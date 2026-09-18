@@ -14,6 +14,12 @@ export const MODE_B_DEVELOP = "candidate.develop";
 
 export const MODE_B_HOST_MAX_STEPS = 8;
 
+export const DETACHED_WORKER_MAX_WALL_CLOCK_MS = 3_600_000 as const;
+export const WORKER_FINALIZATION_RESERVE_MS = 30_000 as const;
+export const OPENCODE_MODEL_TURN_MAX_MS = 300_000 as const;
+export const OPENCODE_TERM_GRACE_MS = 3_000 as const;
+export const OPENCODE_KILL_GRACE_MS = 2_000 as const;
+
 export type QuotaClass = "NVIDIA_FREE" | "OTHER_FREE";
 export type WorkerTaskClass = "delegated_read" | "iterative_engineering";
 
