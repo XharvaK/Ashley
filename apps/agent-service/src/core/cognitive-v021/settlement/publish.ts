@@ -94,6 +94,26 @@ export type PublishedSettlementIdentity = {
 type DbRow = Record<string, unknown>;
 function stringValue(value: unknown, fallback = ""): string { return typeof value === "string" ? value : fallback; }
 function numberValue(value: unknown, fallback = 0): number { const n = typeof value === "number" ? value : Number(value); return Number.isFinite(n) ? n : fallback; }
+function composeLogRefs(db: DatabaseSync, cycleId: string): Set<string> {
+  const refs = new Set<string>();
+  if (!cycleId) return refs;
+  const row = db.prepare(
+    `SELECT compose_log_ids_json FROM cycle_records WHERE cycle_id = ? LIMIT 1`,
+  ).get(cycleId) as DbRow | undefined;
+  const raw = row?.compose_log_ids_json;
+  if (typeof raw !== "string" || !raw.trim()) return refs;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      for (const item of parsed) {
+        if (typeof item === "string" && item.trim()) refs.add(item);
+      }
+    }
+  } catch {
+    // Unparseable compose log proves no lineage overlap.
+  }
+  return refs;
+}
 function json(value: unknown): string { return JSON.stringify(value ?? null); }
 
 function containsRedactionMarker(value: unknown): boolean {
@@ -1297,10 +1317,15 @@ export function recheckOwnerRoomPublicationReservation(
  * Speech is superseded only when:
  * 1. The row was explicitly suppressed.
  * 2. A subsequent cycle explicitly preempted the speech's generation.
- * 3. The producing cycle or its wake was cancelled or preempted.
+ * 3. The producing cycle was explicitly revoked (revoking disposition) or its
+ *    wake reached terminal semantic cancellation. Attempt-level compose
+ *    bookkeeping (`wake.cancellation_id` on a still-active wake) is NOT
+ *    revocation: the fence compose path records it while the same cycle
+ *    continues, so speech authored afterwards by that cycle stays valid.
  * 4. A subsequent cycle was triggered by an Owner dialogue input (owner_message).
  * 5. A newer active owner utterance is waiting in the inbox.
- * 6. A subsequent generation already authored live Owner speech.
+ * 6. A subsequent generation already authored live replacement speech for the
+ *    same obligation lineage.
  */
 export function speechSupersessionReason(
   cognitiveSidecar: DatabaseSync,
@@ -1335,22 +1360,49 @@ export function speechSupersessionReason(
     return "stale_generation";
   }
 
-  // 2. Producing cycle was cancelled or preempted, or its wake had explicit cancellation
+  // 2. Producing cycle was explicitly revoked, or its wake reached terminal
+  // semantic cancellation. A bare `cancellation_id` is attempt-level compose
+  // bookkeeping (recorded on still-active wakes by the fence compose path and
+  // never cleared), so it revokes nothing by itself. Only a terminally
+  // cancelled/superseded wake — or a revoking cycle disposition — ends the
+  // producing cycle's semantic authority. Genuine owner preempts are already
+  // covered by clauses 1 and 3 and by synchronous fence suppression.
   const producingCycle = cognitiveSidecar.prepare(
     `SELECT wake_id, disposition FROM cycle_records WHERE cycle_id = ? LIMIT 1`,
   ).get(speech.cycleId) as DbRow | undefined;
-  if (producingCycle) {
-    if (producingCycle.disposition === "owner_preempted" || producingCycle.disposition === "cancelled") {
+  if (!producingCycle) {
+    // Unattributable provenance: cycles are never pruned, so a speech row
+    // without its producing cycle cannot prove publication authority and
+    // must not dispatch.
+    return "stale_generation";
+  }
+  {
+    const disposition = stringValue(producingCycle.disposition);
+    if (
+      disposition === "owner_preempted"
+      || disposition === "cancelled"
+      || disposition === "hard_invalidated"
+    ) {
       return "stale_generation";
     }
     const wakeId = stringValue(producingCycle.wake_id);
-    if (wakeId) {
-      const wake = cognitiveSidecar.prepare(
-        `SELECT cancellation_id FROM wakes WHERE wake_id = ? LIMIT 1`,
-      ).get(wakeId) as DbRow | undefined;
-      if (wake && wake.cancellation_id != null) {
-        return "stale_generation";
-      }
+    if (!wakeId) {
+      return "stale_generation";
+    }
+    const wake = cognitiveSidecar.prepare(
+      `SELECT state, terminal_reason FROM wakes WHERE wake_id = ? LIMIT 1`,
+    ).get(wakeId) as DbRow | undefined;
+    if (!wake) {
+      return "stale_generation";
+    }
+    if (
+      stringValue(wake.state) === "terminal"
+      && (
+        stringValue(wake.terminal_reason) === "cancelled"
+        || stringValue(wake.terminal_reason) === "superseded"
+      )
+    ) {
+      return "stale_generation";
     }
   }
 
@@ -1381,18 +1433,34 @@ export function speechSupersessionReason(
     return "stale_generation";
   }
 
-  // 5. Newer live Owner speech authored in a strictly subsequent generation of the same conversation
-  const newerSpeech = cognitiveSidecar.prepare(
-    `SELECT outbox_id FROM speech_outbox
-      WHERE conversation_id = ?
-        AND generation > ?
-        AND suppressed = 0
-        AND origin = 'live'
-        AND send_status NOT IN ('suppressed', 'suppressed_shadow')
-      LIMIT 1`,
-  ).get(speech.conversationId, speech.generation) as DbRow | undefined;
-  if (newerSpeech) {
-    return "stale_generation";
+  // 5. Newer live replacement speech for the SAME obligation lineage, authored
+  // in a strictly subsequent generation of the same conversation. `live`
+  // alone is not a replacement relationship: unrelated autonomous/curiosity/
+  // proactive speech must never kill a pending reactive Owner answer. The
+  // mechanical replacement proof is a shared compose-log evidence ref between
+  // the producing cycles (the fence carries outstanding refs forward on every
+  // compose/preempt, so a genuine successor always overlaps).
+  const producingRefs = composeLogRefs(cognitiveSidecar, speech.cycleId);
+  if (producingRefs.size > 0) {
+    const newerCandidates = cognitiveSidecar.prepare(
+      `SELECT cycle_id FROM speech_outbox
+        WHERE conversation_id = ?
+          AND generation > ?
+          AND suppressed = 0
+          AND origin = 'live'
+          AND send_status NOT IN ('suppressed', 'suppressed_shadow')
+        LIMIT 25`,
+    ).all(speech.conversationId, speech.generation) as DbRow[];
+    for (const candidate of newerCandidates) {
+      const candidateCycleId = stringValue(candidate.cycle_id);
+      if (!candidateCycleId || candidateCycleId === speech.cycleId) continue;
+      const candidateRefs = composeLogRefs(cognitiveSidecar, candidateCycleId);
+      for (const ref of candidateRefs) {
+        if (producingRefs.has(ref)) {
+          return "stale_generation";
+        }
+      }
+    }
   }
 
   return null;

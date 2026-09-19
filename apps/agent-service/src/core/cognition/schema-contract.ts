@@ -48,6 +48,7 @@ import {
   V48_TABLE_COLUMNS,
   validateNuclearV48Schema,
 } from "../delivery/migration-48.js";
+import { validateNuclearV50Schema } from "../delivery/migration-50.js";
 import { validateNuclearV49Schema } from "../sandbox/migration-49.js";
 
 type TableInfoRow = {
@@ -1175,7 +1176,7 @@ function requireNoV49Content(db: DatabaseSync, version: number): void {
 
 export function validateNuclearSchemaContent(
   db: DatabaseSync,
-  version: 22 | 23 | 24 | 25 | 26 | 27 | 28 | 29 | 30 | 31 | 32 | 33 | 34 | 35 | 36 | 37 | 38 | 39 | 40 | 41 | 42 | 43 | 44 | 45 | 46 | 47 | 48 | 49,
+  version: 22 | 23 | 24 | 25 | 26 | 27 | 28 | 29 | 30 | 31 | 32 | 33 | 34 | 35 | 36 | 37 | 38 | 39 | 40 | 41 | 42 | 43 | 44 | 45 | 46 | 47 | 48 | 49 | 50,
   options: { rejectNewerContent?: boolean } = {},
 ): void {
   if (version === 22) {
@@ -1258,12 +1259,12 @@ export function validateNuclearSchemaContent(
       db,
       version,
       table,
-      version === 49 && table === "candidate_changesets"
+      version >= 49 && table === "candidate_changesets"
         ? [
             "check(status in('proposed','quarantined','stale_base','superseded','abandoned','verification_failed'))",
             ...fragments.slice(1),
           ]
-        : version === 49 && table === "candidate_changeset_events"
+        : version >= 49 && table === "candidate_changeset_events"
           ? [
               "check(event_type in('created','sealed','proposed','secret_quarantined','verification_failed'))",
               ...fragments.slice(1),
@@ -1406,6 +1407,9 @@ export function validateNuclearSchemaContent(
   }
   if (version === 48) return;
   validateNuclearV49Schema(db, version);
+  if (version === 49) return;
+  validateNuclearV50Schema(db, version);
+  requireColumns(db, version, "delivery_reservations", [{ name: "dispatch_started_at" }]);
 }
 
 function addColumnIfMissing(

@@ -82,6 +82,8 @@ export function mapReservation(row: unknown): DeliveryReservationRow | null {
         ? null
         : text(row.first_bubble_deadline_at),
     firstSentAt: row.first_sent_at == null ? null : text(row.first_sent_at),
+    dispatchStartedAt:
+      row.dispatch_started_at == null ? null : text(row.dispatch_started_at),
     generationLeaseExpiresAt:
       row.generation_lease_expires_at == null
         ? null
@@ -401,6 +403,33 @@ export function attachDraftAndBubbles(
     db.exec("ROLLBACK");
     throw error;
   }
+}
+
+/**
+ * Durably record the external-dispatch boundary for a claimed reservation.
+ * The pump calls this after the pre-dispatch recheck passes and before the
+ * first Discord transport call. It is the only writer of
+ * `dispatch_started_at`, fires at most once per reservation (NULL-guarded),
+ * and applies only while the row is still `sending`. Returns true when this
+ * call established the marker.
+ *
+ * Ordering law for callers: if this call fails, dispatch MUST NOT start —
+ * the row remains provably pre-dispatch (marker NULL) and stays safely
+ * recoverable. If it succeeds and dispatch then throws with zero receipts,
+ * the row is ambiguous post-dispatch and must fail closed without replay.
+ */
+export function markDeliveryDispatchStarted(
+  db: DatabaseSync,
+  reservationId: number,
+  nowMs = Date.now(),
+): boolean {
+  const startedAt = new Date(nowMs).toISOString();
+  const result = db.prepare(
+    `UPDATE delivery_reservations
+        SET dispatch_started_at = ?
+      WHERE id = ? AND state = 'sending' AND dispatch_started_at IS NULL`,
+  ).run(startedAt, reservationId);
+  return Number(result.changes) === 1;
 }
 
 export function listDeliveryBubbles(

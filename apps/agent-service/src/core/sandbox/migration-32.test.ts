@@ -57,7 +57,7 @@ describe("nuclear schema v32 patch export", () => {
   it("installs control-plane tables with zero rows", () => {
     const db = openNuclearDb(new DatabaseSync(":memory:"));
     try {
-      expect(NUCLEAR_SUPPORTED_VERSION).toBe(49);
+      expect(NUCLEAR_SUPPORTED_VERSION).toBe(50);
       expect(schemaVersion(db)).toBe(NUCLEAR_SUPPORTED_VERSION);
       expect(
         (db.prepare(`SELECT COUNT(*) AS c FROM patch_export_records`).get() as { c: number }).c,

@@ -543,7 +543,12 @@ export function composeOrPreemptInTransaction(
     nowMs,
     preemptedGeneration: current.generation,
   });
-  const successorEvidenceRowIds = isZombie || !composable ? [...(input.evidenceRowIds ?? [])] : [...new Set([
+  // The successor mechanically inherits the predecessor's outstanding obligation
+  // refs on every path — including zombie/non-composable preempts. Dropping
+  // the current compose log here would erase unresolved Owner obligations that
+  // the successor Thought must still see. Newer input may supersede stale
+  // wording, but it must never erase the unresolved obligation set.
+  const successorEvidenceRowIds = [...new Set([
     ...current.composeLogIds,
     ...(input.evidenceRowIds ?? []),
   ])];

@@ -13,7 +13,7 @@ describe("nuclear schema v33 durable operational jobs", () => {
   it("installs envelope and recovery tables with zero rows", () => {
     const db = openNuclearDb(new DatabaseSync(":memory:"));
     try {
-      expect(NUCLEAR_SUPPORTED_VERSION).toBe(49);
+      expect(NUCLEAR_SUPPORTED_VERSION).toBe(50);
       expect(schemaVersion(db)).toBe(NUCLEAR_SUPPORTED_VERSION);
       expect(
         (db.prepare(`SELECT COUNT(*) AS c FROM operational_jobs`).get() as { c: number }).c,

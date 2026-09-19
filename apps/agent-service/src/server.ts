@@ -29,6 +29,7 @@ import {
   selectNextWorkerUndertaking,
 } from "./core/cognitive-v021/operation/worker-queue.js";
 import { markProjectedDeliverySending } from "./core/cognitive-v021/delivery/outbox-projector.js";
+import { markDeliveryDispatchStarted } from "./core/delivery/store.js";
 import {
   recheckExternalPublicationReservation,
   recheckOwnerPublicationReservation,
@@ -1810,6 +1811,31 @@ export function createServer(
         throw new AppError("not_found", "reservation not found", 404);
       }
       res.json(status);
+    } catch (err) {
+      const { status, body } = toErrorResponse(err);
+      res.status(status).json(body);
+    }
+  });
+
+  app.post("/delivery/:id/dispatch-started", (req, res) => {
+    try {
+      const owner = requireOwner(
+        (req.body as { userId?: string }).userId,
+      );
+      const id = Number(req.params.id);
+      if (!Number.isFinite(id)) {
+        throw new AppError("not_found", "reservation not found", 404);
+      }
+      const status = manager.core.getDeliveryStatus(owner, id);
+      if (!status) {
+        throw new AppError("not_found", "reservation not found", 404);
+      }
+      // Durable dispatch-boundary truth: succeeds at most once, only while
+      // sending. A failure here must abort dispatch (fail closed, still
+      // provably pre-dispatch); a success followed by a receiptless throw is
+      // ambiguous post-dispatch and must never replay.
+      const marked = markDeliveryDispatchStarted(manager.core.getDatabase(), id, Date.now());
+      res.json({ ok: true, marked });
     } catch (err) {
       const { status, body } = toErrorResponse(err);
       res.status(status).json(body);

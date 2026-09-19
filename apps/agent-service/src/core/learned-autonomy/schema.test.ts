@@ -28,7 +28,7 @@ describe("C3 additive schema", () => {
     try {
       // The historical C3 packet recorded v42. Current source also includes
       // W4 migrations v43 through v47; db.ts is the live schema authority.
-      expect(NUCLEAR_SUPPORTED_VERSION).toBe(49);
+      expect(NUCLEAR_SUPPORTED_VERSION).toBe(50);
       expect(db.prepare("PRAGMA user_version").get()).toEqual({
         user_version: NUCLEAR_SUPPORTED_VERSION,
       });

@@ -48,6 +48,16 @@ export type DeliveryReservationRow = {
   draftText: string | null;
   firstBubbleDeadlineAt: string | null;
   firstSentAt: string | null;
+  /**
+   * Durable dispatch-boundary truth: set exactly once when the fulfillment
+   * pump begins external Discord dispatch for this reservation (after the
+   * pre-dispatch recheck passes, before the first transport call). NULL means
+   * no dispatch was ever attempted: a stranded row with NULL here and zero
+   * receipts provably never reached Discord and is safe to recover; a
+   * stranded row with a marker set is ambiguous post-dispatch and must fail
+   * closed without replay.
+   */
+  dispatchStartedAt: string | null;
   generationLeaseExpiresAt: string | null;
   deliveryLeaseExpiresAt: string | null;
   phaseLifecycle: import("./phase-lifecycle.js").PhaseLifecycleEnvelope | null;

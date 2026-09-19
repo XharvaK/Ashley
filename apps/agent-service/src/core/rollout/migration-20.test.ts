@@ -22,7 +22,7 @@ describe("migration-20 capability event kinds", () => {
       user_version: number;
     };
     expect(row.user_version).toBe(NUCLEAR_SUPPORTED_VERSION);
-    expect(NUCLEAR_SUPPORTED_VERSION).toBe(49);
+    expect(NUCLEAR_SUPPORTED_VERSION).toBe(50);
     expect(
       (
         db.prepare("PRAGMA user_version").get() as { user_version: number }

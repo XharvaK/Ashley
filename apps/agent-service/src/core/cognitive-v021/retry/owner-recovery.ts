@@ -139,13 +139,26 @@ function hasLaterCoveringSettlement(
   candidateCreatedAtMs: number,
   evidenceRowId: string,
 ): boolean {
-  return Boolean(db.prepare(
-    `SELECT 1 FROM settlements s
+  // A later settlement alone never closes an Owner obligation: internal
+  // success is not Owner fulfillment. It covers only when the covering cycle
+  // produced Owner-visible dispatch proven by a delivered live speech row
+  // (receipt-backed delivery truth mirrored to the sidecar). Otherwise the
+  // obligation stays eligible for recovery even though a settlement exists.
+  const covering = db.prepare(
+    `SELECT s.cycle_id AS cycle_id FROM settlements s
        JOIN cycle_records c ON c.cycle_id = s.cycle_id AND c.generation = s.generation
       WHERE c.conversation_id = ? AND c.admitted_at_ms > ?
         AND EXISTS (SELECT 1 FROM json_each(c.compose_log_ids_json) WHERE value = ?)
       LIMIT 1`,
-  ).get(conversationId, candidateCreatedAtMs, evidenceRowId));
+  ).get(conversationId, candidateCreatedAtMs, evidenceRowId) as { cycle_id?: unknown } | undefined;
+  const coveringCycleId = typeof covering?.cycle_id === "string" ? covering.cycle_id : "";
+  if (!coveringCycleId) return false;
+  return Boolean(db.prepare(
+    `SELECT 1 FROM speech_outbox
+      WHERE cycle_id = ? AND origin = 'live' AND suppressed = 0
+        AND send_status IN ('delivered', 'partially_delivered')
+      LIMIT 1`,
+  ).get(coveringCycleId));
 }
 
 function hasActiveFrontier(db: DatabaseSync, conversationId: string): boolean {

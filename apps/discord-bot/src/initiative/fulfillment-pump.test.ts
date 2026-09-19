@@ -40,6 +40,11 @@ function makeFakeClient(
 
 const ownerDmAllowed = async () => ({ ok: true as const });
 
+// Durable dispatch-boundary stub: the pump must mark dispatch start after the
+// pre-dispatch recheck and before the first transport call. Every drain test
+// that reaches dispatch injects this instead of hitting the real endpoint.
+const dispatchBoundaryMarked = async () => ({ ok: true as const, marked: true });
+
 test("fulfillment pump drains, receipts and finalizes pending cognitive deliveries", async () => {
   const receipts: Array<{ reservationId: number; ordinal: number; messageId: string }> = [];
   const finalizations: Array<{ reservationId: number; cause: string }> = [];
@@ -65,6 +70,7 @@ test("fulfillment pump drains, receipts and finalizes pending cognitive deliveri
   ];
 
   const fakeDeps: FulfillmentPumpDependencies = {
+    markDispatchStarted: dispatchBoundaryMarked,
     claim: async () => ({ deliveries: pending }),
     recheckOwnerDm: ownerDmAllowed,
     receipt: async (reservationId, ordinal, discordMessageId) => {
@@ -116,6 +122,7 @@ test("fulfillment pump uses the same receipt/finalize flow for cognitive deliver
     statusUrl: "/delivery/151",
   }];
   const deps: FulfillmentPumpDependencies = {
+    markDispatchStarted: dispatchBoundaryMarked,
     claim: async () => ({ deliveries: pending }),
     recheckOwnerDm: ownerDmAllowed,
     receipt: async () => {
@@ -157,6 +164,7 @@ test("fulfillment pump has a separate system-notice drain over the common transp
 
   const events: string[] = [];
   const deps: FulfillmentPumpDependencies = {
+    markDispatchStarted: dispatchBoundaryMarked,
     claim: async () => ({ deliveries: [{
       reservationId: 152,
       draftText: "[system] mechanical notice",
@@ -209,6 +217,7 @@ test("production-shaped system notice 31 uses the Owner typed recheck before ful
   const productionNoticeText =
     "[system] Thought did not complete. Please send the message again. Error code: THOUGHT_DEADLINE_EXCEEDED";
   const deps: FulfillmentPumpDependencies = {
+    markDispatchStarted: dispatchBoundaryMarked,
     claim: async () => ({ deliveries: [{
       reservationId: 329,
       draftText: productionNoticeText,
@@ -259,6 +268,8 @@ test("fulfillment pump sends a room-bound reservation through the channel queue"
   const finalizations: string[] = [];
   try {
     const deps: FulfillmentPumpDependencies = {
+      markDispatchStarted: dispatchBoundaryMarked,
+    markDispatchStarted: dispatchBoundaryMarked,
       claim: async () => ({ deliveries: [{
         reservationId: 175,
         draftText: "room reply",
@@ -306,6 +317,8 @@ test("fulfillment pump sends an Owner-room reservation only to its exact room", 
   let ownerDmFetches = 0;
   try {
     const deps: FulfillmentPumpDependencies = {
+      markDispatchStarted: dispatchBoundaryMarked,
+    markDispatchStarted: dispatchBoundaryMarked,
       claim: async () => ({ deliveries: [{
         reservationId: 176,
         draftText: "Owner room answer",
@@ -374,6 +387,8 @@ test("fulfillment pump does not fall back to Owner DM when Owner-room recheck cl
   const finalizations: string[] = [];
   try {
     const deps: FulfillmentPumpDependencies = {
+      markDispatchStarted: dispatchBoundaryMarked,
+    markDispatchStarted: dispatchBoundaryMarked,
       claim: async () => ({ deliveries: [{
         reservationId: 177,
         draftText: "must remain pending/failed",
@@ -437,6 +452,7 @@ test("fulfillment pump rechecks Owner-DM before every bubble and blocks a supers
     destination: { kind: "owner" },
   }];
   const deps: FulfillmentPumpDependencies = {
+    markDispatchStarted: dispatchBoundaryMarked,
     claim: async () => ({ deliveries: pending }),
     recheckOwnerDm: async (reservationId) => {
       rechecks.push(reservationId);
@@ -490,6 +506,7 @@ test("fulfillment pump records send_failure when Discord send has no visible con
   ];
 
   const fakeDeps: FulfillmentPumpDependencies = {
+    markDispatchStarted: dispatchBoundaryMarked,
     claim: async () => ({ deliveries: pending }),
     recheckOwnerDm: ownerDmAllowed,
     receipt: async () => ({ ok: true }),
@@ -537,6 +554,7 @@ test("fulfillment pump never throws or halts on single item error", async () => 
 
   let first = true;
   const fakeDeps: FulfillmentPumpDependencies = {
+    markDispatchStarted: dispatchBoundaryMarked,
     claim: async () => ({ deliveries: pending }),
     recheckOwnerDm: ownerDmAllowed,
     receipt: async () => ({ ok: true }),
@@ -573,6 +591,7 @@ test("fulfillment pump never throws or halts on single item error", async () => 
 
 test("fulfillment pump returns zero when no cognitive deliveries are pending", async () => {
   const fakeDeps: FulfillmentPumpDependencies = {
+    markDispatchStarted: dispatchBoundaryMarked,
     claim: async () => ({ deliveries: [] }),
     receipt: async () => ({ ok: true }),
     finalize: async () => ({ state: "committed", finalizationReason: "all_bubbles_delivered", deliveredText: "" }),
@@ -609,6 +628,7 @@ test("fulfillment pump double-drain protection: send function called exactly onc
 
   let claimedCount = 0;
   const fakeDeps: FulfillmentPumpDependencies = {
+    markDispatchStarted: dispatchBoundaryMarked,
     claim: async () => {
       claimedCount += 1;
       // First call claims the item, subsequent call returns empty (atomic claim behavior)
@@ -662,6 +682,7 @@ test("fulfillment pump completion-relative pacing: does not overlap ticks", asyn
   let claimCalls = 0;
 
   const fakeDeps: FulfillmentPumpDependencies = {
+    markDispatchStarted: dispatchBoundaryMarked,
     claim: async () => {
       claimCalls += 1;
       return { deliveries: [] };
@@ -698,6 +719,7 @@ test("fulfillment pump skips consequential work while the agent is not ready", a
   stopFulfillmentPump();
   let claimCalls = 0;
   const fakeDeps: FulfillmentPumpDependencies = {
+    markDispatchStarted: dispatchBoundaryMarked,
     claim: async () => {
       claimCalls += 1;
       return { deliveries: [] };
@@ -728,6 +750,7 @@ test("generic Discord rejection after dispatch stays UNKNOWN without finalizing"
   ];
   const { DeliverySendError } = await import("../chat/send-bubbles.js");
   const fakeDeps: FulfillmentPumpDependencies = {
+    markDispatchStarted: dispatchBoundaryMarked,
     claim: async () => ({ deliveries: pending }),
     recheckOwnerDm: ownerDmAllowed,
     receipt: async () => ({ ok: true }),
@@ -749,6 +772,7 @@ test("proven pre-dispatch failure (aborted before send) is safe send_failure", a
   ];
   const { DeliverySendError } = await import("../chat/send-bubbles.js");
   const fakeDeps: FulfillmentPumpDependencies = {
+    markDispatchStarted: dispatchBoundaryMarked,
     claim: async () => ({ deliveries: pending }),
     recheckOwnerDm: ownerDmAllowed,
     receipt: async () => ({ ok: true }),
@@ -793,6 +817,7 @@ test("external-DM reservations resolve to the bound principal and recheck before
     destination: { kind: "external_dm", principalId: "person-1" },
   }];
   const deps: FulfillmentPumpDependencies = {
+    markDispatchStarted: dispatchBoundaryMarked,
     claim: async () => ({ deliveries: pending }),
     recheck: async (reservationId) => {
       rechecks.push(reservationId);
@@ -826,6 +851,90 @@ test("external-DM reservations resolve to the bound principal and recheck before
   }
 });
 
+test("fulfillment pump marks the dispatch boundary after recheck and before send", async () => {
+  const events: string[] = [];
+  const marks: number[] = [];
+  const finalizations: string[] = [];
+  const pending: PendingDelivery[] = [{
+    reservationId: 701,
+    draftText: "boundary order",
+    bubbles: [{ ordinal: 0, text: "boundary order", discordMessageId: null }],
+    statusUrl: "/delivery/701",
+  }];
+  const fakeDeps: FulfillmentPumpDependencies = {
+    claim: async () => ({ deliveries: pending }),
+    recheckOwnerDm: async (reservationId) => {
+      events.push(`recheck:${reservationId}`);
+      return { ok: true };
+    },
+    markDispatchStarted: async (reservationId) => {
+      marks.push(reservationId);
+      events.push(`mark:${reservationId}`);
+      return { ok: true, marked: true };
+    },
+    receipt: async () => ({ ok: true }),
+    finalize: async (_reservationId, cause) => {
+      finalizations.push(cause);
+      return { state: "committed", finalizationReason: "all_bubbles_delivered", deliveredText: "" };
+    },
+    send: async () => {
+      events.push("send");
+      return {
+        reservationId: null,
+        attemptedOrdinal: null,
+        receiptedOrdinals: [0],
+        failureCategory: null,
+        anySubstantiveContentVisible: true,
+        messages: [{ id: "msg_boundary" } as Message],
+      };
+    },
+  };
+  const count = await drainPendingCognitiveDeliveries(makeFakeClient({ id: "dm-boundary" }), fakeDeps);
+  assert.equal(count, 1);
+  assert.deepEqual(marks, [701]);
+  assert.deepEqual(events, ["recheck:701", "mark:701", "send"]);
+  assert.deepEqual(finalizations, ["complete"]);
+});
+
+test("fulfillment pump never dispatches when the dispatch boundary cannot be marked", async () => {
+  const finalizations: string[] = [];
+  let sends = 0;
+  const pending: PendingDelivery[] = [{
+    reservationId: 702,
+    draftText: "unmarked must not send",
+    bubbles: [{ ordinal: 0, text: "unmarked must not send", discordMessageId: null }],
+    statusUrl: "/delivery/702",
+  }];
+  const fakeDeps: FulfillmentPumpDependencies = {
+    claim: async () => ({ deliveries: pending }),
+    recheckOwnerDm: ownerDmAllowed,
+    markDispatchStarted: async () => {
+      throw new Error("agent unreachable");
+    },
+    receipt: async () => ({ ok: true }),
+    finalize: async (_reservationId, cause) => {
+      finalizations.push(cause);
+      return { state: "aborted", finalizationReason: "send_failure", deliveredText: "" };
+    },
+    send: async () => {
+      sends += 1;
+      return {
+        reservationId: null,
+        attemptedOrdinal: null,
+        receiptedOrdinals: [0],
+        failureCategory: null,
+        anySubstantiveContentVisible: true,
+        messages: [{ id: "msg_must_not_exist" } as Message],
+      };
+    },
+  };
+  const count = await drainPendingCognitiveDeliveries(makeFakeClient({ id: "dm-unmarked" }), fakeDeps);
+  assert.equal(count, 0);
+  assert.equal(sends, 0);
+  // Pre-dispatch failure with the boundary uncrossed is safe send_failure.
+  assert.deepEqual(finalizations, ["send_failure"]);
+});
+
 test("partial success persists first bubble incrementally and finalizes partially_delivered", async () => {
   const receipts: Array<{ ordinal: number }> = [];
   const finalizations: Array<{ cause: string }> = [];
@@ -834,6 +943,7 @@ test("partial success persists first bubble incrementally and finalizes partiall
   ];
   const { DeliverySendError } = await import("../chat/send-bubbles.js");
   const fakeDeps: FulfillmentPumpDependencies = {
+    markDispatchStarted: dispatchBoundaryMarked,
     claim: async () => ({ deliveries: pending }),
     recheckOwnerDm: ownerDmAllowed,
     receipt: async (_id, ordinal) => { receipts.push({ ordinal }); return { ok: true }; },

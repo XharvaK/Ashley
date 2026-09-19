@@ -262,6 +262,18 @@ export async function recheckOwnerDmPublication(
   );
 }
 
+export async function markDeliveryDispatchStarted(
+  reservationId: number,
+): Promise<{ ok: boolean; marked: boolean }> {
+  return agentFetch<{ ok: boolean; marked: boolean }>(
+    `/delivery/${reservationId}/dispatch-started`,
+    {
+      method: "POST",
+      body: JSON.stringify({ userId: config.ownerId }),
+    },
+  );
+}
+
 export async function receiptDeliveryBubble(
   reservationId: number,
   ordinal: number,

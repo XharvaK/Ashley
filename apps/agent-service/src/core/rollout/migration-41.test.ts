@@ -138,7 +138,7 @@ describe("nuclear schema v41 C1 qualification bootstrap", () => {
     try {
       // The historical W1 qualification packet recorded v42. Current source
       // also includes W4 migrations v43 through v47; db.ts is authoritative.
-      expect(NUCLEAR_SUPPORTED_VERSION).toBe(49);
+      expect(NUCLEAR_SUPPORTED_VERSION).toBe(50);
       expect(db.prepare("PRAGMA user_version").get()).toEqual({ user_version: 41 });
       expect(db.prepare(
         "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",

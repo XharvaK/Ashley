@@ -15,7 +15,7 @@ describe("nuclear schema v34 durable cognition", () => {
     try {
       // The historical migration packet recorded v42. Current source also
       // includes W4 migrations v43 through v47; db.ts is the live schema authority.
-      expect(NUCLEAR_SUPPORTED_VERSION).toBe(49);
+      expect(NUCLEAR_SUPPORTED_VERSION).toBe(50);
       expect(schemaVersion(db)).toBe(NUCLEAR_SUPPORTED_VERSION);
       const names = (
         db.prepare(`PRAGMA table_info(operational_jobs)`).all() as Array<{ name: string }>

@@ -12,6 +12,7 @@ import {
   claimPendingSystemNotifications,
   checkHealth,
   finalizeDelivery,
+  markDeliveryDispatchStarted,
   recheckExternalPublication,
   recheckOwnerDmPublication,
   recheckOwnerRoomPublication,
@@ -35,6 +36,13 @@ export type FulfillmentPumpDependencies = {
   recheck?: (reservationId: number) => Promise<ExternalPublicationRecheckResult>;
   recheckOwnerDm?: (reservationId: number) => Promise<ExternalPublicationRecheckResult>;
   recheckOwnerRoom?: (reservationId: number) => Promise<ExternalPublicationRecheckResult>;
+  /**
+   * Durable dispatch-boundary marker. Called after the pre-dispatch recheck
+   * passes and before the first transport call. If it rejects, dispatch must
+   * not start (fail closed, still provably pre-dispatch). Defaults to the
+   * agent-service endpoint.
+   */
+  markDispatchStarted?: (reservationId: number) => Promise<{ ok: boolean; marked: boolean }>;
 };
 
 export const FULFILLMENT_POLL_INTERVAL_MS = 1500;
@@ -236,6 +244,30 @@ async function drainPendingDeliveries(
             if (!verdict.ok) {
               throw externalDispatchBlocked(delivery.reservationId, verdict.reason);
             }
+          }
+          // Durable dispatch boundary: once this succeeds, a receiptless
+          // throw is ambiguous post-dispatch and must fail closed without
+          // replay. If it fails, dispatch must not start — the row stays
+          // provably pre-dispatch and safely recoverable.
+          try {
+            const mark = deps.markDispatchStarted
+              ? await deps.markDispatchStarted(delivery.reservationId)
+              : await markDeliveryDispatchStarted(delivery.reservationId);
+            if (!mark?.ok) {
+              throw new Error(`dispatch_boundary_unmarked:${delivery.reservationId}`);
+            }
+          } catch (markError) {
+            throw new DeliverySendError(
+              `dispatch_boundary_failed:${markError instanceof Error ? markError.message : String(markError)}`,
+              {
+                reservationId: delivery.reservationId,
+                attemptedOrdinal: null,
+                receiptedOrdinals: [],
+                failureCategory: "aborted",
+                anySubstantiveContentVisible: false,
+                messages: [],
+              },
+            );
           }
           dispatchStarted = true;
           sendResult = await deps.send(

@@ -393,7 +393,7 @@ describe("v0.2.1 ThoughtInput assembly", () => {
     }
   });
 
-  it("returns to ordinary recency after a frontier is resolved or exhausted", () => {
+  it("retains the compose-log obligation ref best-effort after a frontier resolves", () => {
     const db = openTestSidecar();
     try {
       const cycle = admitTestCycle(db, { conversationId: "terminal-frontier", triggerKind: "owner_message", triggerRef: "terminal", nowMs: 1 });
@@ -406,14 +406,15 @@ describe("v0.2.1 ThoughtInput assembly", () => {
 
       expect(getActiveDeferredFrontier(db, cycle.conversationId)).toBeNull();
       const input = makeInput(db, getCycle(db, resumedCycle.cycleId)!);
-      expect(input.rawConversation).toHaveLength(12);
-      expect(input.rawConversation.map((row) => row.rowId)).not.toContain(rows[0]!.rowId);
+      // Ordinary recency (12) plus the carried obligation ref outside the window.
+      expect(input.rawConversation).toHaveLength(13);
+      expect(input.rawConversation.map((row) => row.rowId)).toContain(rows[0]!.rowId);
     } finally {
       db.close();
     }
   });
 
-  it("does not retain exhausted frontier obligations forever", () => {
+  it("retains the compose-log obligation ref best-effort after a frontier exhausts", () => {
     const db = openTestSidecar();
     try {
       const cycle = admitTestCycle(db, { conversationId: "exhausted-frontier", triggerKind: "owner_message", triggerRef: "exhausted", nowMs: 1 });
@@ -426,8 +427,8 @@ describe("v0.2.1 ThoughtInput assembly", () => {
 
       const input = makeInput(db, getCycle(db, resumedCycle.cycleId)!);
 
-      expect(input.rawConversation).toHaveLength(12);
-      expect(input.rawConversation.map((row) => row.rowId)).not.toContain(rows[0]!.rowId);
+      expect(input.rawConversation).toHaveLength(13);
+      expect(input.rawConversation.map((row) => row.rowId)).toContain(rows[0]!.rowId);
     } finally {
       db.close();
     }

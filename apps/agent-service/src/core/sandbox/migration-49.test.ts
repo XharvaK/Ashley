@@ -61,11 +61,11 @@ describe("Nuclear schema v49 verification failure", () => {
   it("supports v49 and its verification_failed checks", () => {
     const db = openNuclearDb(new DatabaseSync(":memory:"));
     try {
-      expect(NUCLEAR_SUPPORTED_VERSION).toBe(49);
-      expect(schemaVersion(db)).toBe(49);
+      expect(NUCLEAR_SUPPORTED_VERSION).toBe(50);
+      expect(schemaVersion(db)).toBe(50);
       validateNuclearV49Schema(db);
       ensureNuclearV49Schema(db);
-      expect(schemaVersion(db)).toBe(49);
+      expect(schemaVersion(db)).toBe(50);
 
       db.prepare(
         `INSERT INTO candidate_changesets (
@@ -96,7 +96,7 @@ describe("Nuclear schema v49 verification failure", () => {
     }
   });
 
-  it("migrates v48 rows, preserves abandoned history, double-opens, and rejects v50", () => {
+  it("migrates v48 rows, preserves abandoned history, double-opens, and rejects v51", () => {
     const continuity = openContinuityDb(new DatabaseSync(":memory:"));
     const db = new DatabaseSync(":memory:");
     try {
@@ -108,17 +108,17 @@ describe("Nuclear schema v49 verification failure", () => {
       seedHistoricalAbandonedRow(db);
 
       openNuclearDb(db, { continuity, migrate: true });
-      expect(schemaVersion(db)).toBe(49);
+      expect(schemaVersion(db)).toBe(50);
       expect(db.prepare("SELECT status FROM candidate_changesets WHERE changeset_id = 'cs-historical'").get())
         .toEqual({ status: "abandoned" });
 
       openNuclearDb(db, { continuity, migrate: true });
-      expect(schemaVersion(db)).toBe(49);
-
-      db.exec("PRAGMA user_version = 50");
-      expect(() => openNuclearDb(db, { continuity, migrate: true }))
-        .toThrow("unsupported_nuclear_schema:50>49");
       expect(schemaVersion(db)).toBe(50);
+
+      db.exec("PRAGMA user_version = 51");
+      expect(() => openNuclearDb(db, { continuity, migrate: true }))
+        .toThrow("unsupported_nuclear_schema:51>50");
+      expect(schemaVersion(db)).toBe(51);
     } finally {
       db.close();
       continuity.close();

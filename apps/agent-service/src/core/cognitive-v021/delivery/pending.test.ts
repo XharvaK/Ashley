@@ -109,7 +109,7 @@ describe("v0.2.1 projected delivery claim", () => {
     },
   );
 
-  it("keeps an expired zero-receipt sending reservation ambiguous", async () => {
+  it("expires an expired zero-receipt sending reservation ambiguously without replay", async () => {
     const sidecar = openTestSidecar();
     const nuclear = openNuclearDb(new DatabaseSync(":memory:"));
     try {
@@ -134,13 +134,25 @@ describe("v0.2.1 projected delivery claim", () => {
       const claimed = claimPendingCognitiveDeliveries(nuclear, { ownerId: "doc", nowMs: 2_000 });
       expect(claimed).toHaveLength(1);
 
+      // No sending row may remain ownerless: the lease-expired stranded row
+      // fails closed (expired, never replayed) with a visible notice, since
+      // zero receipts cannot prove zero dispatch.
       expect(claimPendingCognitiveDeliveries(nuclear, {
         ownerId: "doc",
         nowMs: 200_000,
       })).toEqual([]);
       expect(nuclear.prepare(
-        "SELECT state, first_sent_at FROM delivery_reservations WHERE id = ?",
-      ).get(claimed[0]!.reservationId)).toEqual({ state: "sending", first_sent_at: null });
+        "SELECT state, first_sent_at, finalization_reason FROM delivery_reservations WHERE id = ?",
+      ).get(claimed[0]!.reservationId)).toEqual({
+        state: "expired",
+        first_sent_at: null,
+        finalization_reason: "delivery_lease_expired",
+      });
+      const notices = sidecar.prepare(
+        "SELECT notice_text FROM system_notice_outbox WHERE notice_key LIKE 'delivery_exhausted:%'",
+      ).all() as Array<{ notice_text?: unknown }>;
+      expect(notices).toHaveLength(1);
+      expect(String(notices[0]!.notice_text)).toContain("DELIVERY_UNCONFIRMED");
     } finally {
       sidecar.close();
       nuclear.close();

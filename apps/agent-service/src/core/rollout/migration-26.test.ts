@@ -82,7 +82,7 @@ describe("nuclear schema v26 Recall qualification epochs", () => {
   it("installs the epoch registry with zero current epochs and no auto campaign", () => {
     const db = openNuclearDb(new DatabaseSync(":memory:"));
     try {
-      expect(NUCLEAR_SUPPORTED_VERSION).toBe(49);
+      expect(NUCLEAR_SUPPORTED_VERSION).toBe(50);
       expect(schemaVersion(db)).toBe(NUCLEAR_SUPPORTED_VERSION);
       expect(
         (

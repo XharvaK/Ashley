@@ -103,7 +103,7 @@ describe("nuclear schema v25 INIT-03 ordering metadata", () => {
   it("adds durable accepted-dispatch provenance and OCI generation order", () => {
     const db = openNuclearDb(new DatabaseSync(":memory:"));
     try {
-      expect(NUCLEAR_SUPPORTED_VERSION).toBe(49);
+      expect(NUCLEAR_SUPPORTED_VERSION).toBe(50);
       expect(schemaVersion(db)).toBe(NUCLEAR_SUPPORTED_VERSION);
       const attentionColumns = columnNames(db, "attention_requests");
       expect(attentionColumns.has("accepted_contract_id")).toBe(true);

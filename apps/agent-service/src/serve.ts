@@ -9,7 +9,7 @@ import { readIdentitySlice } from "./core/cognitive-v021/identity/constitution.j
 import { runPerceptionBeforeThought } from "./core/cognitive-v021/perception/adapter.js";
 import { sweepExpiredArtifacts } from "./core/perception/artifact-store.js";
 import { createOutboxProjector, reconcileProjectedDeliverySweep } from "./core/cognitive-v021/delivery/outbox-projector.js";
-import { reconcileUnfulfilledFailedSpeechReservations } from "./core/cognitive-v021/delivery/pending.js";
+import { reconcileOrphanedSendingDeliveries, reconcileUnfulfilledFailedSpeechReservations } from "./core/cognitive-v021/delivery/pending.js";
 import { startInboxConsumer, type InboxConsumerHandle, type InboxConsumerHandler } from "./core/cognitive-v021/cycle/inbox-consumer.js";
 import {
   reconcileStartupOwnership,
@@ -366,6 +366,16 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
       }
     } catch (error) {
       console.warn("[cognitive-v021] unfulfilled_failed_speech_recovery_deferred", error);
+    }
+    try {
+      const orphanedSending = reconcileOrphanedSendingDeliveries(nuclear, sidecar, ownerId);
+      if (orphanedSending.expired > 0) {
+        console.log(
+          `[cognitive-v021] orphaned sending expired without replay rows=${orphanedSending.expired}`,
+        );
+      }
+    } catch (error) {
+      console.warn("[cognitive-v021] orphaned_sending_recovery_deferred", error);
     }
     // Durable-work outcome reconciliation owns stranded outcome-unknown work.
     // It runs after cycle ownership reconciliation and before the inbox

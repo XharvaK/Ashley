@@ -532,13 +532,18 @@ export function frontierAwareEvidenceSelection(
     currentTriggerRowId = addCurrentEvidence(options.triggerEvidence).rowId;
   }
 
-  // composeLogIds are obligations only while an active deferred frontier owns
-  // the conversation. Resolved and exhausted frontiers return to recency.
+  // The cycle compose log is the mechanical outstanding-obligation set: the
+  // fence carries predecessor refs forward on every compose/preempt, so the
+  // successor Thought must see them even outside the recency window. They are
+  // strictly required only while an active deferred frontier owns the
+  // conversation; otherwise they are included best-effort (a pruned ref must
+  // never fail an ordinary turn). Resolved and exhausted frontiers return to
+  // recency plus this best-effort obligation carry.
   const requiredRowIds = new Set<string>();
+  for (const id of options.composeLogIds ?? []) {
+    if (id.trim()) requiredRowIds.add(id);
+  }
   if (options.activeFrontier) {
-    for (const id of options.composeLogIds ?? []) {
-      if (id.trim()) requiredRowIds.add(id);
-    }
     if (options.activeFrontier.latestEvidenceRowId.trim()) {
       requiredRowIds.add(options.activeFrontier.latestEvidenceRowId);
     }
@@ -550,7 +555,10 @@ export function frontierAwareEvidenceSelection(
     const supplied = ordered.find((row) => row.rowId === requiredId);
     const turn = supplied ?? getConversationEvidence(db, requiredId);
     if (!turn || turn.conversationId !== conversationId) {
-      throw new Error(`active_frontier_required_evidence_missing:${requiredId}`);
+      if (options.activeFrontier) {
+        throw new Error(`active_frontier_required_evidence_missing:${requiredId}`);
+      }
+      continue;
     }
     const current = addCurrentEvidence(turn);
     if (!frontierIncludedSet.has(current.rowId)) {
@@ -750,7 +758,7 @@ export function buildThoughtInput(options: BuildThoughtInputOptions): ThoughtInp
     {
       lastNTurns,
       triggerEvidence: options.triggerEvidence,
-      composeLogIds: activeFrontier ? options.cycle.composeLogIds : [],
+      composeLogIds: options.cycle.composeLogIds,
       activeFrontier,
       suppliedEvidence: options.rawConversation,
     },

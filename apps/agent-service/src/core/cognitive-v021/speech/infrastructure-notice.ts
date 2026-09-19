@@ -553,6 +553,89 @@ export function emitInfrastructureNotice(
   return notice;
 }
 
+export const DELIVERY_EXHAUSTED_NOTICE_REASON = "delivery_exhausted" as const;
+
+/**
+ * Owner-visible terminal delivery-failure notice. Thought completed and
+ * licensed speech exists, but transport could not deliver it and the bounded
+ * automatic retry budget is spent (or the send is ambiguously unconfirmed).
+ * This never fabricates delivery, never replays Discord, and never closes
+ * the Owner obligation: the notice is role `system` (not `ashley`), so
+ * delivered-reply accounting still reports the obligation unfulfilled. The
+ * notice key is stable per speech row, so repeated sweeps cannot duplicate
+ * it and no hot loop is possible.
+ */
+export type EmitDeliveryExhaustedNoticeInput = {
+  ownerId: string;
+  channel: string;
+  threadId: string;
+  conversationId: string;
+  cycleId?: string | null;
+  speechOutboxId: number;
+  reservationId: number;
+  /**
+   * True when dispatch may have reached Discord without a receipt (the send
+   * was deliberately not replayed). False when zero receipts plus the
+   * pre-dispatch failure lineage prove nothing was delivered.
+   */
+  dispatchAmbiguous: boolean;
+  origin?: OutboxOrigin;
+  trigger?: DeliveryIntent["trigger"];
+  deliveryLane?: DeliveryIntent["deliveryLane"];
+};
+
+export function deliveryExhaustedNoticeKey(speechOutboxId: number): string {
+  return `delivery_exhausted:speech:${speechOutboxId}`;
+}
+
+export function emitDeliveryExhaustedNotice(
+  db: DatabaseSync,
+  input: EmitDeliveryExhaustedNoticeInput,
+): SystemNoticeOutbox {
+  const noticeKey = deliveryExhaustedNoticeKey(input.speechOutboxId);
+  const existing = getSystemNoticeByKey(db, noticeKey);
+  if (existing) return existing;
+
+  const origin = input.origin ?? "live";
+  const trigger = input.trigger ?? "owner_message_reactive";
+  const deliveryLane = input.deliveryLane ?? (trigger === "owner_message_reactive" ? "reactive" : "proactive");
+  const intent: DeliveryIntent = {
+    ownerId: input.ownerId,
+    channel: input.channel,
+    threadId: input.threadId,
+    conversationId: input.conversationId,
+    trigger,
+    deliveryLane,
+    purpose: "system_notice",
+  };
+  const noticeText = input.dispatchAmbiguous
+    ? "[system] My reply may not have been delivered: the send did not confirm, so I did not retry automatically. Your message is still on record — please repeat it and I will answer again. Error code: DELIVERY_UNCONFIRMED"
+    : "[system] My reply could not be delivered after a delivery retry, and nothing was sent. Your message is still on record — please repeat it and I will answer again. Error code: DELIVERY_FAILED";
+  const status = origin === "shadow" ? "suppressed_shadow" : "pending";
+  const provisionalKey = `system:pending:${randomUUID()}`;
+  const inserted = db.prepare(
+    `INSERT INTO system_notice_outbox
+       (notice_key, projection_key, cycle_id, conversation_id, notice_text,
+        send_status, nuclear_reservation_id, discord_message_id, origin, delivery_intent_json)
+     VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)`,
+  ).run(
+    noticeKey,
+    provisionalKey,
+    input.cycleId ?? null,
+    input.conversationId,
+    noticeText,
+    status,
+    origin,
+    JSON.stringify(intent),
+  );
+  const noticeId = number(inserted.lastInsertRowid);
+  db.prepare("UPDATE system_notice_outbox SET projection_key = ? WHERE notice_id = ?")
+    .run(`system:${noticeId}`, noticeId);
+  const notice = getSystemNotice(db, noticeId);
+  if (!notice) throw new Error("system_notice_insert_lost");
+  return notice;
+}
+
 export function updateSystemNoticeStatus(
   db: DatabaseSync,
   noticeId: number,

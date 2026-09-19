@@ -1579,10 +1579,14 @@ describe("2026-09-19 Owner Responsiveness Incident Regression Suite", () => {
         ).run(conversationId, outbox.licensedText, "1970-01-01T00:00:01.000Z", outbox.projectionKey, outbox.outboxId);
         const resId = Number(insertRes.lastInsertRowid);
 
-        // Simulating Crash Point A: Sidecar outbox was already updated to 'projected' before crash
+        // Simulating the exact production-shaped Crash Point A half-commit:
+        // the sidecar transition already persisted recoveryAttempts = 1 and
+        // cleared the finalization reason before the crash, while nuclear is
+        // still aborted/send_failure.
+        const crashIntent = JSON.stringify({ ...outbox.deliveryIntent, recoveryAttempts: 1 });
         sidecar.prepare(
-          "UPDATE speech_outbox SET send_status = 'projected', nuclear_finalization_reason = NULL WHERE outbox_id = ?",
-        ).run(outbox.outboxId);
+          "UPDATE speech_outbox SET send_status = 'projected', delivery_intent_json = ?, nuclear_finalization_reason = NULL WHERE outbox_id = ?",
+        ).run(crashIntent, outbox.outboxId);
 
         // Recovery runs on restart/poll: detects Crash Point A and brings nuclear forward to 'reserved'
         const recovery = reconcileUnfulfilledFailedSpeechReservations(nuclear, sidecar, "doc");
@@ -1590,6 +1594,12 @@ describe("2026-09-19 Owner Responsiveness Incident Regression Suite", () => {
 
         const checkRes = nuclear.prepare("SELECT state FROM delivery_reservations WHERE id = ?").get(resId) as any;
         expect(checkRes.state).toBe("reserved");
+
+        // The already-consumed recovery attempt must not increment again.
+        const intentAfter = sidecar.prepare(
+          "SELECT delivery_intent_json FROM speech_outbox WHERE outbox_id = ?",
+        ).get(outbox.outboxId) as any;
+        expect(JSON.parse(String(intentAfter.delivery_intent_json)).recoveryAttempts).toBe(1);
 
         // Can now be claimed and delivered normally
         const claimed = claimPendingCognitiveDeliveries(nuclear, { ownerId: "doc", nowMs: 2_000 });

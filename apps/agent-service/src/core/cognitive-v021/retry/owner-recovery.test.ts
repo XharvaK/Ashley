@@ -393,7 +393,7 @@ describe("R1 unanswered-owner recovery", () => {
     }
   });
 
-  it("T9 a later silence settlement covering the evidence does not repair", () => {
+  it("T9 a later settlement without Owner-visible dispatch does not extinguish the obligation", () => {
     const db = openTestSidecar();
     try {
       const conversationId = "conversation:r1-t9";
@@ -418,6 +418,67 @@ describe("R1 unanswered-owner recovery", () => {
             terminal_reason = 'completed', consumed_at_ms = ?
           WHERE id = ?`,
       ).run(1_550, "later-silence");
+
+      // Internal success is not Owner fulfillment: a covering settlement with
+      // no delivered speech leaves the obligation eligible.
+      const verdict = checkUnansweredOwnerEligibility(db, {
+        id: seeded.eventId,
+        conversationId,
+        kind: "owner_utterance",
+        payloadJson: JSON.stringify({ evidenceRowId: seeded.evidenceRowId }),
+        createdAtMs: 100,
+        terminalReason: "age_exhausted",
+        lastError: "age_exhausted",
+        wakeId: getInboxEvent(db, seeded.eventId)!.wakeId,
+      });
+      expect(verdict).toEqual({ eligible: true, evidence: expect.objectContaining({ rowId: seeded.evidenceRowId }) });
+
+      const result = serviceUnansweredOwnerRecovery(db, { nowMs: 2_000 });
+      expect(result.createdRepairs).toHaveLength(1);
+      expect(repairCount(db)).toBe(1);
+      expect(result.createdRepairs[0]!.outstandingOwnerEvidenceRefs).toEqual([seeded.evidenceRowId]);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("T9b a later settlement with delivered dispatch still closes the obligation", () => {
+    const db = openTestSidecar();
+    try {
+      const conversationId = "conversation:r1-t9b";
+      const seeded = seedOwnerMessage(db, conversationId, "Owner question", 100);
+      quarantineByAge(db, seeded.eventId, 1_000);
+
+      const laterCycle = admitTestCycle(db, {
+        conversationId,
+        triggerKind: "owner_message",
+        triggerRef: "later-delivered",
+        occupantId: "doc",
+        nowMs: 1_500,
+      });
+      appendCycleLogIds(db, laterCycle.cycleId, [seeded.evidenceRowId], 1_600);
+      db.prepare(
+        "INSERT INTO settlements (settlement_id, cycle_id, generation, payload_json) VALUES (?, ?, ?, ?)",
+      ).run(`settlement:${laterCycle.cycleId}`, laterCycle.cycleId, laterCycle.generation, "{}");
+      // The covering cycle produced receipt-backed Owner-visible dispatch.
+      db.prepare(
+        `INSERT INTO speech_outbox
+           (settlement_id, projection_key, cycle_id, generation, conversation_id,
+            licensed_text, send_status, origin, delivery_intent_json, discord_message_ids_json)
+         VALUES (?, ?, ?, ?, ?, ?, 'delivered', 'live', '{}', '["discord-msg-1"]')`,
+      ).run(
+        `settlement:${laterCycle.cycleId}`,
+        `speech:test:${laterCycle.cycleId}`,
+        laterCycle.cycleId,
+        laterCycle.generation,
+        conversationId,
+        "Delivered answer",
+      );
+      db.prepare(
+        `UPDATE inbox_events SET state = 'terminal', status = 'consumed',
+            terminal_reason = 'completed', consumed_at_ms = ?
+          WHERE id = ?`,
+      ).run(1_550, "later-delivered");
 
       const verdict = checkUnansweredOwnerEligibility(db, {
         id: seeded.eventId,

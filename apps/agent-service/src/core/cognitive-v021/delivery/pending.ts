@@ -1,4 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
+import type { SpeechOutboxRow } from "../types.js";
 import { finalizeDelivery } from "../../delivery/finalize.js";
 import {
   getDeliveryReservation,
@@ -9,8 +10,8 @@ import {
   getSpeechOutbox,
   updateOutboxStatus,
 } from "../speech/outbox.js";
+import { emitDeliveryExhaustedNotice } from "../speech/infrastructure-notice.js";
 import { isAuthorizedOwnerId } from "../../../owner-auth.js";
-import { getCurrentCycle } from "../cycle/inbox.js";
 import { speechSupersessionReason } from "../settlement/publish.js";
 
 export type PendingCognitiveDelivery = {
@@ -254,27 +255,26 @@ export function reconcileLegacyWrongPrincipalSpeechReservations(
 
     if (!targetOwnerId) continue;
 
-    // Proof 5: currentness permits delivery (not stale)
-    const current = getCurrentCycle(sidecar, speech.conversationId, { includeIdle: true });
-    const isCurrent = Boolean(
-      current &&
-      current.cycleId === speech.cycleId &&
-      current.generation === speech.generation,
-    );
+    // Proof 5: semantic currentness permits delivery (not stale). This uses
+    // the canonical speech supersession rule — the same definition of "stale
+    // speech" as the publication recheck — never raw generation equality, so
+    // a non-preempting later generation cannot strand a wrong-principal row
+    // that is otherwise legitimately deliverable.
+    const supersession = speechSupersessionReason(sidecar, speech);
 
-    if (!isCurrent) {
+    if (supersession) {
       // Stale: suppress truthfully and leave continuity to recover.
       // Update sidecar FIRST so that if crash occurs before Nuclear update,
       // Nuclear remains reserved/suspicious and discoverable on next pass.
       updateOutboxStatus(sidecar, speech.outboxId, "suppressed", {
-        finalizationReason: "stale_generation",
+        finalizationReason: supersession,
         nuclearReservationId: id,
       });
       db.prepare(
         `UPDATE delivery_reservations
-            SET state = 'aborted', finalization_reason = 'stale_generation', finalized_at = ?
+            SET state = 'aborted', finalization_reason = ?, finalized_at = ?
           WHERE id = ? AND state = 'reserved'`,
-      ).run(nowIso, id);
+      ).run(supersession, nowIso, id);
       suppressedStale += 1;
     } else {
       // Current: correct owner_id to canonical Owner principal.
@@ -306,6 +306,44 @@ export function reconcileLegacyWrongPrincipalSpeechReservations(
   return { corrected, suppressedStale };
 }
 
+/**
+ * Record the terminal delivery-failure notice for an exhausted or ambiguous
+ * speech delivery. Idempotent per speech row (stable notice key): repeated
+ * sweeps return the existing notice without duplicating Owner-visible
+ * output. Never throws: notice persistence must not break the owning sweep.
+ */
+function ensureExhaustedDeliveryNotice(
+  sidecar: DatabaseSync,
+  speech: Pick<SpeechOutboxRow, "outboxId" | "cycleId" | "conversationId" | "deliveryIntent">,
+  reservationId: number,
+  dispatchAmbiguous: boolean,
+): void {
+  try {
+    const intent = (speech.deliveryIntent ?? {}) as Record<string, unknown>;
+    const ownerId = typeof intent.ownerId === "string" ? intent.ownerId.trim() : "";
+    if (!ownerId || !isAuthorizedOwnerId(ownerId)) return;
+    const channel = typeof intent.channel === "string" && intent.channel.trim() ? intent.channel.trim() : "discord";
+    const threadId = typeof intent.threadId === "string" && intent.threadId.trim()
+      ? intent.threadId.trim()
+      : speech.conversationId;
+    const lane = typeof intent.deliveryLane === "string" ? intent.deliveryLane : "reactive";
+    emitDeliveryExhaustedNotice(sidecar, {
+      ownerId,
+      channel,
+      threadId,
+      conversationId: speech.conversationId,
+      cycleId: speech.cycleId,
+      speechOutboxId: speech.outboxId,
+      reservationId,
+      dispatchAmbiguous,
+      deliveryLane: lane === "proactive" ? "proactive" : "reactive",
+    });
+  } catch {
+    // Notice persistence is best-effort visibility; the durable send_failure
+    // row itself remains the authoritative unfulfilled-obligation truth.
+  }
+}
+
 export const UNFULFILLED_FAILED_SPEECH_RECONCILE_LIMIT = 50 as const;
 
 /**
@@ -334,7 +372,7 @@ export function reconcileUnfulfilledFailedSpeechReservations(
   const params: Array<string | number> = ownerId && isAuthorizedOwnerId(ownerId) ? [ownerId, limit] : [limit];
 
   const candidates = db.prepare(
-    `SELECT id, owner_id, thread_id, draft_text, destination_json, cognitive_v021_projection_key, speech_outbox_id, error_category, finalization_reason, first_sent_at
+    `SELECT id, owner_id, thread_id, draft_text, destination_json, cognitive_v021_projection_key, speech_outbox_id, error_category, finalization_reason, first_sent_at, dispatch_started_at
        FROM delivery_reservations
       WHERE channel = 'discord'
         AND delivery_lane IN ('reactive', 'proactive')
@@ -356,6 +394,7 @@ export function reconcileUnfulfilledFailedSpeechReservations(
     error_category?: unknown;
     finalization_reason?: unknown;
     first_sent_at?: unknown;
+    dispatch_started_at?: unknown;
   }>;
 
   for (const row of candidates) {
@@ -416,8 +455,25 @@ export function reconcileUnfulfilledFailedSpeechReservations(
       ? deliveryIntent.recoveryAttempts
       : (typeof deliveryIntent.recovery_attempts === "number" ? deliveryIntent.recovery_attempts : 0);
     if (recoveryCount >= 1 && speech.sendStatus !== "projected") {
+      // Exhausted does NOT mean fulfilled: the one-shot bound forbids another
+      // automatic Discord retry, but the Owner obligation must not disappear
+      // quietly. Record exactly one idempotent terminal delivery-failure
+      // notice (keyed per speech row) so the failure stays durably visible
+      // instead of becoming silent loss. Never replays, never fabricates.
+      ensureExhaustedDeliveryNotice(sidecar, speech, id, false);
       continue;
     }
+
+    // Proof 4c: Positive dispatch-boundary proof. A set marker means a pump
+    // began external dispatch for this reservation (the marker is written
+    // after the pre-dispatch recheck and before the first transport call),
+    // so a receiptless terminal row is ambiguous post-dispatch and must
+    // never be resurrected. Record the idempotent unconfirmed notice and
+    // leave the row terminal. Supersession transfer is checked first: a
+    // genuinely replaced obligation needs no notice.
+    const dispatchMarker = typeof row.dispatch_started_at === "string" && row.dispatch_started_at.trim()
+      ? row.dispatch_started_at.trim()
+      : null;
 
     // Proof 5: Semantic validity - not superseded
     const supersession = speechSupersessionReason(sidecar, speech);
@@ -432,6 +488,13 @@ export function reconcileUnfulfilledFailedSpeechReservations(
         nuclearReservationId: id,
       });
       suppressedStale += 1;
+      continue;
+    }
+
+    if (dispatchMarker !== null) {
+      // Ambiguous post-dispatch terminal: never resurrect. One idempotent
+      // notice keeps the unconfirmed send visible.
+      ensureExhaustedDeliveryNotice(sidecar, speech, id, true);
       continue;
     }
 
@@ -473,6 +536,107 @@ export function reconcileUnfulfilledFailedSpeechReservations(
   }
 
   return { recovered, suppressedStale };
+}
+
+export const ORPHANED_SENDING_RECONCILE_LIMIT = 50 as const;
+
+/**
+ * Own every stranded `sending` cognitive speech reservation whose delivery
+ * lease has expired. ALL such rows fail closed: terminalize as `expired`
+ * (`delivery_lease_expired`) without replay, plus exactly one idempotent
+ * unconfirmed-delivery notice so the obligation stays visible.
+ *
+ * Why no redelivery here even when the dispatch marker is NULL: a stranded
+ * crash row with no marker and zero receipts is byte-identical to an
+ * ambiguous row stranded by an unmarked (pre-marker-regime) pump after a
+ * receiptless dispatch. Zero receipts never prove zero dispatch, so replay
+ * would risk duplicating an Owner-visible send. The marker's positive proof
+ * is used the other way: resurrection paths require marker NULL (see the
+ * failed-row reconciler), and the pump marks every dispatch, so
+ * provably-dispatched rows can never be resurrected.
+ *
+ * Rows with receipts or `first_sent_at` set belong to the existing
+ * lease-expiry finalizer and are left to it. Rows with a live lease belong
+ * to a running pump and are untouched.
+ */
+export function reconcileOrphanedSendingDeliveries(
+  db: DatabaseSync,
+  sidecar: DatabaseSync,
+  ownerId?: string,
+  nowMs = Date.now(),
+  limit: number = ORPHANED_SENDING_RECONCILE_LIMIT,
+): { expired: number } {
+  let expired = 0;
+  const nowIso = new Date(nowMs).toISOString();
+
+  const ownerClause = ownerId && isAuthorizedOwnerId(ownerId) ? "AND owner_id = ?" : "";
+  const params: Array<string | number> = ownerId && isAuthorizedOwnerId(ownerId) ? [nowIso, ownerId, limit] : [nowIso, limit];
+
+  const candidates = db.prepare(
+    `SELECT id, owner_id, first_sent_at, dispatch_started_at, speech_outbox_id, cognitive_v021_projection_key
+       FROM delivery_reservations
+      WHERE channel = 'discord'
+        AND delivery_lane IN ('reactive', 'proactive')
+        AND state = 'sending'
+        AND delivery_lease_expires_at IS NOT NULL
+        AND delivery_lease_expires_at <= ?
+        AND (cognitive_v021_projection_key LIKE 'speech:%' OR speech_outbox_id IS NOT NULL)
+        ${ownerClause}
+      ORDER BY id ASC
+      LIMIT ?`,
+  ).all(...params) as Array<{
+    id?: unknown;
+    owner_id?: unknown;
+    first_sent_at?: unknown;
+    dispatch_started_at?: unknown;
+    speech_outbox_id?: unknown;
+    cognitive_v021_projection_key?: unknown;
+  }>;
+
+  for (const row of candidates) {
+    const id = reservationId(row);
+    if (id === null) continue;
+    // Receipt-backed rows (or rows the receipt path already timestamped) are
+    // owned by the existing lease-expiry finalizer.
+    if (row.first_sent_at !== null && row.first_sent_at !== undefined) continue;
+    const bubbles = listDeliveryBubbles(db, id);
+    const hasAnyReceipt = bubbles.some(
+      (b) => Boolean(b.discordMessageId?.trim()) || Boolean(b.sentAt?.trim()),
+    );
+    if (hasAnyReceipt) continue;
+
+    let speechOutboxId = Number(row.speech_outbox_id);
+    if (!Number.isSafeInteger(speechOutboxId) || speechOutboxId <= 0) {
+      const key = typeof row.cognitive_v021_projection_key === "string" ? row.cognitive_v021_projection_key : "";
+      if (key.startsWith("speech:")) {
+        speechOutboxId = Number(key.slice("speech:".length));
+      }
+    }
+    if (!Number.isSafeInteger(speechOutboxId) || speechOutboxId <= 0) continue;
+    const speech = getSpeechOutbox(sidecar, speechOutboxId);
+    if (!speech || speech.origin !== "live") continue;
+
+    // Fail closed without replay: a stranded crash row (no marker, zero
+    // receipts) is indistinguishable from an ambiguous row stranded by an
+    // unmarked pump after a receiptless dispatch. Terminalize as
+    // lease-expired and record exactly one idempotent unconfirmed-delivery
+    // notice so the obligation stays durably visible.
+    const owner = typeof row.owner_id === "string" ? row.owner_id : "";
+    if (!owner) continue;
+    try {
+      finalizeDelivery(db, {
+        reservationId: id,
+        ownerId: owner,
+        cause: "delivery_lease",
+      });
+      expired += 1;
+      ensureExhaustedDeliveryNotice(sidecar, speech, id, true);
+    } catch {
+      // Leave for the next bounded pass.
+    }
+  }
+
+  return { expired };
 }
 
 function listPendingByLane(
@@ -586,6 +750,7 @@ function claimPendingByLane(
   if (lane === "cognitive_v021" && sidecar) {
     reconcileLegacyWrongPrincipalSpeechReservations(db, sidecar, input.ownerId, nowMs);
     reconcileUnfulfilledFailedSpeechReservations(db, sidecar, input.ownerId, nowMs);
+    reconcileOrphanedSendingDeliveries(db, sidecar, input.ownerId, nowMs);
   }
 
   db.exec("BEGIN IMMEDIATE");
