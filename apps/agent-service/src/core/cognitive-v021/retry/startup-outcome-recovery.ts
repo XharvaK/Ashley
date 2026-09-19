@@ -90,50 +90,70 @@ export function proveNoExternalDispatch(db: DatabaseSync, eventId: string): NoDi
   const eventIds = lineageEventIds(db, eventId);
   const placeholders = eventIds.map(() => "?").join(",");
 
+  const wakeRows = db
+    .prepare(`SELECT DISTINCT wake_id FROM inbox_events WHERE id IN (${placeholders}) AND wake_id IS NOT NULL`)
+    .all(...eventIds) as Array<{ wake_id?: unknown }>;
+  const lineageWakeIds = Array.from(new Set([wakeId, ...wakeRows.map((r) => text(r.wake_id)).filter(Boolean)]));
+  const wakePlaceholders = lineageWakeIds.map(() => "?").join(",");
+
+  const cycleRows = db
+    .prepare(`SELECT DISTINCT cycle_id FROM wakes WHERE wake_id IN (${wakePlaceholders}) AND cycle_id IS NOT NULL`)
+    .all(...lineageWakeIds) as Array<{ cycle_id?: unknown }>;
+  const lineageCycleIds = Array.from(new Set([cycleId, ...cycleRows.map((r) => text(r.cycle_id)).filter(Boolean)]));
+  const cyclePlaceholders = lineageCycleIds.map(() => "?").join(",");
+
   // 1. Bound or wake-scoped in-flight effects prove possible dispatch.
   const boundEffect = row(
-    db.prepare(`SELECT effect_id FROM in_flight_effects WHERE origin_event_id IN (${placeholders}) LIMIT 1`).get(...eventIds),
+    db
+      .prepare(
+        `SELECT effect_id FROM in_flight_effects WHERE origin_event_id IN (${placeholders}) OR wake_id IN (${wakePlaceholders}) LIMIT 1`,
+      )
+      .get(...eventIds, ...lineageWakeIds),
   );
   if (boundEffect) return { ok: false, eventId, reason: "in_flight_effect_present" };
-  const wakeEffect = row(db.prepare("SELECT effect_id FROM in_flight_effects WHERE wake_id = ? LIMIT 1").get(wakeId));
-  if (wakeEffect) return { ok: false, eventId, reason: "in_flight_effect_present" };
 
-  // 2. Published settlement identity for this cycle/generation (or wake) proves dispatch-adjacent publication.
+  // 2. Published settlement identity for any lineage cycle/generation or wake proves dispatch-adjacent publication.
   const settlement = row(
     db
-      .prepare("SELECT settlement_id FROM settlements WHERE cycle_id = ? AND generation = ? LIMIT 1")
-      .get(cycleId, generation),
+      .prepare(
+        `SELECT settlement_id FROM settlements WHERE cycle_id IN (${cyclePlaceholders}) OR wake_id IN (${wakePlaceholders}) LIMIT 1`,
+      )
+      .get(...lineageCycleIds, ...lineageWakeIds),
   );
   if (settlement) return { ok: false, eventId, reason: "settlement_present" };
-  const wakeSettlement = row(db.prepare("SELECT settlement_id FROM settlements WHERE wake_id = ? LIMIT 1").get(wakeId));
-  if (wakeSettlement) return { ok: false, eventId, reason: "settlement_present" };
 
-  // 3. Speech outbox for this cycle/generation proves owner-visible dispatch.
+  // 3. Speech outbox for any lineage cycle proves owner-visible dispatch.
   const outbox = row(
     db
-      .prepare("SELECT outbox_id FROM speech_outbox WHERE cycle_id = ? AND generation = ? LIMIT 1")
-      .get(cycleId, generation),
+      .prepare(`SELECT outbox_id FROM speech_outbox WHERE cycle_id IN (${cyclePlaceholders}) LIMIT 1`)
+      .get(...lineageCycleIds),
   );
   if (outbox) return { ok: false, eventId, reason: "speech_outbox_present" };
 
-  // 4. System-notice outbox for this cycle proves owner-visible dispatch.
+  // 4. System-notice outbox for any lineage cycle proves owner-visible dispatch.
   // UNKNOWN != ABSENT: a query/inspection failure is PROOF_UNAVAILABLE and
   // must fail closed, never fall through as proven absent.
   try {
-    const notice = row(db.prepare("SELECT notice_id FROM system_notice_outbox WHERE cycle_id = ? LIMIT 1").get(cycleId));
+    const notice = row(
+      db
+        .prepare(`SELECT notice_id FROM system_notice_outbox WHERE cycle_id IN (${cyclePlaceholders}) LIMIT 1`)
+        .get(...lineageCycleIds),
+    );
     if (notice) return { ok: false, eventId, reason: "system_notice_present" };
   } catch {
     return { ok: false, eventId, reason: "proof_unavailable" };
   }
 
-  // 5. A lineage attempt that already records attempted/responded dispatch truth
-  // cannot be proven undispatched.
+  // 5. A durable attempt for this event that already records attempted/responded
+  // dispatch truth cannot be proven undispatched. Predecessor repair history
+  // belongs to the failed predecessor and does not block repair execution when
+  // no external effect was committed (provider computation != effect truth).
   const dispatchedAttempt = row(
     db
       .prepare(
-        `SELECT attempt_id FROM durable_work_attempts WHERE event_id IN (${placeholders}) AND dispatch_truth NOT IN ('unknown', 'not_started') LIMIT 1`,
+        `SELECT attempt_id FROM durable_work_attempts WHERE event_id = ? AND dispatch_truth NOT IN ('unknown', 'not_started') LIMIT 1`,
       )
-      .get(...eventIds),
+      .get(eventId),
   );
   if (dispatchedAttempt) return { ok: false, eventId, reason: "dispatch_truth_present" };
 

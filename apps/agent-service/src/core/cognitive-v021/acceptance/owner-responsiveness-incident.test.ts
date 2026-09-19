@@ -1029,6 +1029,18 @@ describe("2026-09-19 Owner Responsiveness Incident Regression Suite", () => {
           attempt_count = 1, last_failure_class = 'outcome_unknown_reconcile',
           last_error = 'canonical_owner_principal_unproven' WHERE id = ?`).run(repairEvent.id);
 
+        sidecar.prepare(`INSERT INTO durable_work_repairs
+          (repair_event_id, predecessor_event_id, authorization_ref, created_at_ms)
+          VALUES (?, ?, 'unanswered_owner_recovery:v1', 2000)`).run(repairEvent.id, predEvent.id);
+
+        for (let i = 1; i <= 5; i++) {
+          sidecar.prepare(`INSERT INTO durable_work_attempts
+            (attempt_id, event_id, wake_id, ordinal, worker_id, started_at_ms, finished_at_ms, dispatch_truth, failure_class, error_code)
+            VALUES (?, ?, NULL, ?, 'agent-service:142256', ?, ?, 'provider_responded', 'transient_retryable', 'infrastructure_failure')`).run(
+            `attempt:pred:${i}`, predEvent.id, i, 1000 + i * 100, 1000 + i * 100 + 50,
+          );
+        }
+
         sidecar.prepare(`INSERT INTO durable_work_attempts
           (attempt_id, event_id, wake_id, ordinal, worker_id, started_at_ms, finished_at_ms, dispatch_truth, failure_class, error_code)
           VALUES (?, ?, ?, 1, 'agent-service:142256', 2000, 2000, 'unknown', 'outcome_unknown_reconcile', 'canonical_owner_principal_unproven')`).run(
