@@ -24,8 +24,9 @@ import {
 } from "../wake/ledger.js";
 import { occurrenceIdFor } from "../wake/identity.js";
 import { sha256 } from "../../model-fabric/hash.js";
+import { resolveCanonicalOwnerPrincipal } from "../owner-principal.js";
 import { ownerCoverageHash } from "../owner-obligation.js";
-import { getCycle, hasValidDurableContinuationOwner, updateCycleState } from "../cycle/inbox.js";
+import { getCycle, hasValidDurableContinuationOwner, isComposableWake, updateCycleState } from "../cycle/inbox.js";
 import {
   getActiveDeferredFrontier,
   insertDeferredFrontierRecord,
@@ -751,7 +752,7 @@ function claimCandidateInTransaction(
   ensureWakeLineage(db, current);
   if (!current.wake_id) throw new Error("wake_required");
   const wake = getWake(db, current.wake_id);
-  if (!wake || wake.state === "terminal" || wake.state === "reconciling" || wake.state === "consequence_pending") {
+  if (!wake || !isComposableWake(wake)) {
     throw new Error("wake_reconciliation_required");
   }
   const nextOrdinal = current.attempt_count + 1;
@@ -1304,6 +1305,10 @@ export function createRepairEvent(db: DatabaseSync, input: CreateRepairEventInpu
         throw new Error("repair_continuity_recovery_invalid");
       }
     }
+    const provenOwnerId = resolveCanonicalOwnerPrincipal(db, {
+      predecessorEventId: input.predecessorEventId,
+      continuityRecovery: input.continuityRecovery,
+    });
     const admission = admitWakeInTransaction(db, {
       occurrenceId: occurrenceIdFor({ sourceKind: "inbox", triggerRef: deterministicId, conversationId: predecessor.conversation_id }),
       triggerRef: deterministicId,
@@ -1311,6 +1316,7 @@ export function createRepairEvent(db: DatabaseSync, input: CreateRepairEventInpu
       conversationId: predecessor.conversation_id,
       capturedAuthorityRevision: 0,
       triggerKind: "recovery",
+      occupantId: provenOwnerId ?? undefined,
       nowMs: input.nowMs,
     });
     if (admission.kind === "cancelled" || admission.kind === "stale") throw new Error("repair_wake_terminal");
@@ -1319,6 +1325,7 @@ export function createRepairEvent(db: DatabaseSync, input: CreateRepairEventInpu
       referenceOnly: true,
       repairOfEventId: input.predecessorEventId,
       authorizationRef: input.authorizationRef,
+      ...(provenOwnerId ? { ownerId: provenOwnerId } : {}),
       ...(input.continuityRecovery
         ? {
             continuityRecovery: {

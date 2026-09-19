@@ -428,6 +428,27 @@ export function getCurrentCycle(db: DatabaseSync, conversationId: string, option
   ).get(conversationId));
 }
 
+/** Strictly monotonic generation allocator for a conversation. */
+export function nextConversationGeneration(db: DatabaseSync, conversationId: string): number {
+  const row = db.prepare("SELECT MAX(generation) AS generation FROM cycle_records WHERE conversation_id = ?").get(conversationId) as DbRow | undefined;
+  return numberValue(row?.generation) + 1;
+}
+
+/**
+ * Canonical predicate: wake states that allow composition and durable claim/dispatch
+ * without prior reconciliation.
+ *
+ * Complete WakeState enum:
+ *   "pending" | "claimed" | "authorized" | "consequence_pending" | "reconciling" | "terminal"
+ *
+ * Allowed (composable & claimable): "pending" | "claimed" | "authorized"
+ * Disallowed (reconciliation required): "terminal" | "reconciling" | "consequence_pending"
+ */
+export function isComposableWake(wake: WakeRecord | null | undefined): boolean {
+  if (!wake) return false;
+  return wake.state !== "terminal" && wake.state !== "reconciling" && wake.state !== "consequence_pending";
+}
+
 export function updateCycleState(db: DatabaseSync, cycleId: string, state: CycleState, nowMs = Date.now()): CycleRecord {
   db.prepare("UPDATE cycle_records SET state = ?, updated_at_ms = ? WHERE cycle_id = ?").run(state, nowMs, cycleId);
   const result = getCycle(db, cycleId);

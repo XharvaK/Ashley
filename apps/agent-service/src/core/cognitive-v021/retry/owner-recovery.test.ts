@@ -30,6 +30,7 @@ import { buildThoughtInput } from "../thought/input.js";
 import { runCognitiveCycle } from "../thought/run.js";
 import { openNuclearDb } from "../../db.js";
 import { enqueueWorkerUndertaking } from "../operation/worker-queue.js";
+import { env } from "../../../env.js";
 import type {
   CapabilityReality,
   IdentitySlice,
@@ -573,6 +574,8 @@ describe("R1 unanswered-owner recovery", () => {
   });
 
   it("T3 a recovery Thought receives the canonical outstanding Owner evidence with the recovery frame", async () => {
+    const origDiscordOwnerId = env.discordOwnerId;
+    env.discordOwnerId = "100000000000000001";
     const sidecar = openTestSidecar();
     const nuclear = openNuclearDb(new DatabaseSync(":memory:"));
     try {
@@ -628,6 +631,7 @@ describe("R1 unanswered-owner recovery", () => {
       expect(sidecar.prepare("SELECT COUNT(*) AS count FROM settlements WHERE cycle_id = ?").get(cycleId))
         .toMatchObject({ count: 1 });
     } finally {
+      env.discordOwnerId = origDiscordOwnerId;
       nuclear.close();
       sidecar.close();
     }

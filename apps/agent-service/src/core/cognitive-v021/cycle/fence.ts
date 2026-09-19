@@ -14,6 +14,8 @@ import {
   type FreshnessAttemptResult,
   type CycleFreshnessState,
   hasValidDurableContinuationOwner,
+  isComposableWake,
+  nextConversationGeneration,
 } from "./inbox.js";
 import type { CycleRecord, CycleTriggerKind } from "../types.js";
 import type { AttemptInputBasis } from "../social/types.js";
@@ -468,10 +470,12 @@ export function composeOrPreemptInTransaction(
     return { action: "compose", cycle: finalCycle, cycleId: finalCycle.cycleId, generation: finalCycle.generation, preemptedGeneration: null, activeThoughtCancellation: null };
   }
 
+  const wake = current.wakeId ? getWake(db, current.wakeId) : null;
+  const composable = isComposableWake(wake);
   const isZombie = !hasValidDurableContinuationOwner(db, current);
   const effectful = !isZombie && hasEffectfulInFlight(db, current.cycleId, current.generation);
   const published = !isZombie && hasPublishedOutbox(db, input.conversationId, current.generation);
-  if (!isZombie && !effectful && !published) {
+  if (!isZombie && composable && !effectful && !published) {
     const cycle = appendCycleLogIds(db, current.cycleId, input.evidenceRowIds ?? [], nowMs);
     if (cycle.wakeId) recordWakeCancellationInTransaction(db, { wakeId: cycle.wakeId, nowMs });
     return {
@@ -520,7 +524,7 @@ export function composeOrPreemptInTransaction(
     triggerRef,
     sourceKind: "inbox",
     conversationId: input.conversationId,
-    generation: current.generation + 1,
+    generation: nextConversationGeneration(db, input.conversationId),
     triggerKind,
     occupantId: input.occupantId ?? current.occupantId,
     authorityEpoch: input.authorityEpoch ?? current.authorityEpoch,
@@ -539,7 +543,7 @@ export function composeOrPreemptInTransaction(
     nowMs,
     preemptedGeneration: current.generation,
   });
-  const successorEvidenceRowIds = [...new Set([
+  const successorEvidenceRowIds = isZombie || !composable ? [...(input.evidenceRowIds ?? [])] : [...new Set([
     ...current.composeLogIds,
     ...(input.evidenceRowIds ?? []),
   ])];

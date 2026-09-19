@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { isAuthorizedOwnerId } from "../../../owner-auth.js";
+import { resolveCanonicalOwnerPrincipal } from "../owner-principal.js";
 import {
   completeChat,
 } from "../../../mistral-client.js";
@@ -1951,6 +1952,8 @@ function deliveryIntentFor(
   socialLifecycle?: DeliveryIntent["socialLifecycle"],
   destinationOverride?: DeliveryIntent["destination"],
   triggerEvidence?: ConversationEvidenceRecord | null,
+  continuityRecovery?: ThoughtContinuityRecovery | null,
+  sidecar?: DatabaseSync,
 ): DeliveryIntent {
   const external = triggerKind === "external_message";
   const trigger: DeliveryIntent["trigger"] =
@@ -1961,10 +1964,12 @@ function deliveryIntentFor(
           triggerKind === "recovery" ? "recovery" :
             triggerKind === "observation_or_receipt" ? "operation_completion" :
             external ? "external_message" : "owner_message_reactive";
-  const rawOwnerId = (typeof payload.ownerId === "string" && payload.ownerId.trim() ? payload.ownerId.trim() : undefined)
-    ?? (typeof cycle.occupantId === "string" && cycle.occupantId.trim() ? cycle.occupantId.trim() : undefined)
-    ?? (triggerEvidence?.role === "owner" && typeof triggerEvidence.speakerPrincipalId === "string" && triggerEvidence.speakerPrincipalId.trim() ? triggerEvidence.speakerPrincipalId.trim() : undefined)
-    ?? (typeof cycle.conversationId === "string" && cycle.conversationId.trim() ? cycle.conversationId.trim() : undefined);
+  const rawOwnerId = resolveCanonicalOwnerPrincipal(sidecar, {
+    payload,
+    cycle,
+    triggerEvidence,
+    continuityRecovery,
+  });
   const channel = typeof payload.channel === "string" && payload.channel.trim()
     ? payload.channel
     : "discord";
@@ -2656,8 +2661,8 @@ export async function runCognitiveCycle(
       // pre-existing reason string: no C3 admission expansion.
       ...(terminal ? { terminal } : {}),
       origin: deps.origin,
-      trigger: deliveryIntentFor(admittedCycle, payload, "system_notice", originProfile.triggerKind).trigger,
-      deliveryLane: deliveryIntentFor(admittedCycle, payload, "system_notice", originProfile.triggerKind).deliveryLane,
+      trigger: deliveryIntentFor(admittedCycle, payload, "system_notice", originProfile.triggerKind, undefined, undefined, undefined, triggerEvidence, continuityRecovery, sidecar).trigger,
+      deliveryLane: deliveryIntentFor(admittedCycle, payload, "system_notice", originProfile.triggerKind, undefined, undefined, undefined, triggerEvidence, continuityRecovery, sidecar).deliveryLane,
     });
     // This is attempt diagnostics only. Durable owner recovery decides later
     // whether a terminal Owner-facing notice is warranted.
@@ -3198,23 +3203,12 @@ export async function runCognitiveCycle(
         const originOwnerEventId = continuityRecovery
           ? continuityRecovery.primaryPredecessorEventId
           : (ownerOrigin ? event.id : null);
-        let recoveredOwnerId: string | null = null;
-        if (continuityRecovery) {
-          const predEvent = getInboxEvent(sidecar, continuityRecovery.primaryPredecessorEventId);
-          const p = predEvent && typeof predEvent.payload === "object" && predEvent.payload !== null && !Array.isArray(predEvent.payload)
-            ? predEvent.payload as Record<string, unknown>
-            : null;
-          if (typeof p?.ownerId === "string" && p.ownerId.trim().length > 0) {
-            recoveredOwnerId = p.ownerId.trim();
-          }
-          if (!recoveredOwnerId && triggerEvidence?.speakerPrincipalId && typeof triggerEvidence.speakerPrincipalId === "string" && triggerEvidence.speakerPrincipalId.trim().length > 0) {
-            recoveredOwnerId = triggerEvidence.speakerPrincipalId.trim();
-          }
-        }
-        const candidateOwnerId = (typeof payload.ownerId === "string" && payload.ownerId.trim().length > 0 ? payload.ownerId.trim() : undefined)
-          ?? (recoveredOwnerId || undefined)
-          ?? (typeof cycle.occupantId === "string" && cycle.occupantId.trim().length > 0 ? cycle.occupantId.trim() : undefined)
-          ?? (triggerEvidence?.role === "owner" && typeof triggerEvidence.speakerPrincipalId === "string" && triggerEvidence.speakerPrincipalId.trim().length > 0 ? triggerEvidence.speakerPrincipalId.trim() : undefined);
+        const candidateOwnerId = resolveCanonicalOwnerPrincipal(sidecar, {
+          payload,
+          cycle,
+          triggerEvidence,
+          continuityRecovery,
+        });
 
         let ownerId: string;
         if (originKind === "OWNER_REQUEST") {
@@ -3262,6 +3256,7 @@ export async function runCognitiveCycle(
                 // is retried by the normal interim recovery path.
               }
             }
+            updateCycleState(sidecar, cycle.cycleId, "silent", deps.nowMs());
             return {
               cycleId: cycle.cycleId,
               generation: cycle.generation,
@@ -3762,6 +3757,8 @@ export async function runCognitiveCycle(
           : undefined,
         ownerRoomDestination ?? undefined,
         triggerEvidence,
+        continuityRecovery,
+        sidecar,
       ),
       authorityDb: authorityDbForPacks(deps, packs),
       expectedCurrentness: invocation.kernelEnvelope?.authorityCurrentness ?? packs.currentness.binding,
