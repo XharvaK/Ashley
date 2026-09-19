@@ -5,8 +5,8 @@ import type { ConversationEvidenceRecord, ThoughtContinuityRecovery } from "./ty
 
 export type CanonicalOwnerResolutionInput = {
   payload?: Record<string, unknown> | null;
-  cycle?: { occupantId?: string | null; conversationId?: string } | null;
-  wake?: { occupantId?: string | null } | null;
+  cycle?: { occupantId?: string | null; conversationId?: string; triggerKind?: string } | null;
+  wake?: { occupantId?: string | null; triggerKind?: string } | null;
   triggerEvidence?: ConversationEvidenceRecord | null;
   continuityRecovery?: {
     primaryPredecessorEventId?: string | null;
@@ -20,6 +20,15 @@ type DbRow = Record<string, unknown>;
 
 function text(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function isValidOwnerCandidate(id: string): boolean {
+  if (!id) return false;
+  const lower = id.toLowerCase();
+  if (lower === "owner" || lower === "default" || lower === "system" || lower === "user") {
+    return false;
+  }
+  return isAuthorizedOwnerId(id);
 }
 
 function parsePayload(value: unknown): Record<string, unknown> | null {
@@ -39,6 +48,45 @@ function parsePayload(value: unknown): Record<string, unknown> | null {
   return null;
 }
 
+function isAutonomousCuriosityContext(
+  input: CanonicalOwnerResolutionInput,
+  db?: DatabaseSync,
+): boolean {
+  const payload = input.payload;
+  if (payload) {
+    const originKind = text(payload.originKind);
+    if (originKind === "ASHLEY_CURIOSITY" || originKind === "SYSTEM_INITIATIVE") {
+      return true;
+    }
+    const triggerRef = text(payload.triggerRef);
+    if (triggerRef.startsWith("curiosity:") || triggerRef.startsWith("initiative:")) {
+      return true;
+    }
+    const undertakingId = text(payload.workerUndertakingId);
+    if (undertakingId && db) {
+      const undertakingRow = db.prepare(
+        "SELECT origin_kind FROM worker_undertakings WHERE undertaking_id = ?",
+      ).get(undertakingId) as DbRow | undefined;
+      const opOrigin = text(undertakingRow?.origin_kind);
+      if (opOrigin === "ASHLEY_CURIOSITY" || opOrigin === "SYSTEM_INITIATIVE") {
+        return true;
+      }
+    }
+  }
+
+  const triggerKind = text(input.cycle?.triggerKind) || text(input.wake?.triggerKind);
+  if (
+    triggerKind === "idle_opportunity" ||
+    triggerKind === "commitment_due" ||
+    triggerKind === "future_trigger_due" ||
+    triggerKind === "subscription_item"
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
 /**
  * Canonical owner principal resolution (Campaign-1 / Incident 2026-09-19 repair).
  *
@@ -50,6 +98,7 @@ function parsePayload(value: unknown): Record<string, unknown> | null {
  * 2. authorized cycle / wake occupant principal
  * 3. direct Owner trigger evidence principal
  * 4. predecessor lineage (via continuityRecovery or repairOfEventId) payload/wake/evidence
+ * 5. Host-configured canonical Owner root of trust (single-Owner system)
  */
 export function resolveCanonicalOwnerPrincipal(
   db: DatabaseSync | undefined,
@@ -57,27 +106,41 @@ export function resolveCanonicalOwnerPrincipal(
 ): string | null {
   // 1. Explicit authorized payload ownerId
   const payloadOwnerId = text(input.payload?.ownerId);
-  if (payloadOwnerId && isAuthorizedOwnerId(payloadOwnerId)) {
-    return payloadOwnerId;
+  if (payloadOwnerId) {
+    if (isValidOwnerCandidate(payloadOwnerId)) {
+      return payloadOwnerId;
+    }
+    // An explicit, unprovable/unauthorized ownerId in payload rejects immediately:
+    // never substitute fallback when caller explicitly claims an invalid owner.
+    return null;
   }
 
   // 2. Authorized cycle or wake occupant principal
   const cycleOccupant = text(input.cycle?.occupantId);
-  if (cycleOccupant && isAuthorizedOwnerId(cycleOccupant)) {
-    return cycleOccupant;
+  if (cycleOccupant) {
+    if (isValidOwnerCandidate(cycleOccupant)) {
+      return cycleOccupant;
+    }
+    return null;
   }
   const wakeOccupant = text(input.wake?.occupantId);
-  if (wakeOccupant && isAuthorizedOwnerId(wakeOccupant)) {
-    return wakeOccupant;
+  if (wakeOccupant) {
+    if (isValidOwnerCandidate(wakeOccupant)) {
+      return wakeOccupant;
+    }
+    return null;
   }
 
   // 3. Direct Owner trigger evidence principal
   if (input.triggerEvidence?.role === "owner") {
     const speakerPrincipal = text(input.triggerEvidence.speakerPrincipalId);
-    if (speakerPrincipal && isAuthorizedOwnerId(speakerPrincipal)) {
-      return speakerPrincipal;
+    if (speakerPrincipal) {
+      if (isValidOwnerCandidate(speakerPrincipal)) {
+        return speakerPrincipal;
+      }
+      return null;
     }
-    if (!speakerPrincipal && env.discordOwnerId && isAuthorizedOwnerId(env.discordOwnerId)) {
+    if (env.discordOwnerId && isValidOwnerCandidate(env.discordOwnerId)) {
       return env.discordOwnerId;
     }
   }
@@ -107,7 +170,7 @@ export function resolveCanonicalOwnerPrincipal(
 
       const predPayload = parsePayload(eventRow.payload_json);
       const predOwnerId = text(predPayload?.ownerId);
-      if (predOwnerId && isAuthorizedOwnerId(predOwnerId)) {
+      if (predOwnerId && isValidOwnerCandidate(predOwnerId)) {
         return predOwnerId;
       }
 
@@ -117,7 +180,7 @@ export function resolveCanonicalOwnerPrincipal(
           "SELECT occupant_id FROM cycle_records WHERE wake_id = ? OR cycle_id = (SELECT cycle_id FROM wakes WHERE wake_id = ?)",
         ).get(predWakeId, predWakeId) as DbRow | undefined;
         const cycleOccupantId = text(cycleRow?.occupant_id);
-        if (cycleOccupantId && isAuthorizedOwnerId(cycleOccupantId)) {
+        if (cycleOccupantId && isValidOwnerCandidate(cycleOccupantId)) {
           return cycleOccupantId;
         }
       }
@@ -129,10 +192,10 @@ export function resolveCanonicalOwnerPrincipal(
         ).get(evidenceRowId) as DbRow | undefined;
         if (text(evRow?.role) === "owner") {
           const sp = text(evRow?.speaker_principal_id);
-          if (sp && isAuthorizedOwnerId(sp)) {
+          if (sp && isValidOwnerCandidate(sp)) {
             return sp;
           }
-          if (!sp && env.discordOwnerId && isAuthorizedOwnerId(env.discordOwnerId)) {
+          if (!sp && env.discordOwnerId && isValidOwnerCandidate(env.discordOwnerId)) {
             return env.discordOwnerId;
           }
         }
@@ -152,10 +215,10 @@ export function resolveCanonicalOwnerPrincipal(
         ).get(refStr) as DbRow | undefined;
         if (text(evRow?.role) === "owner") {
           const sp = text(evRow?.speaker_principal_id);
-          if (sp && isAuthorizedOwnerId(sp)) {
+          if (sp && isValidOwnerCandidate(sp)) {
             return sp;
           }
-          if (!sp && env.discordOwnerId && isAuthorizedOwnerId(env.discordOwnerId)) {
+          if (!sp && env.discordOwnerId && isValidOwnerCandidate(env.discordOwnerId)) {
             return env.discordOwnerId;
           }
         }
@@ -163,6 +226,15 @@ export function resolveCanonicalOwnerPrincipal(
 
       const nextRepairOf = text(predPayload?.repairOfEventId) || text(eventRow.repair_of_event_id);
       predId = nextRepairOf;
+    }
+  }
+
+  // 5. Host-configured canonical Owner root of trust (single-Owner system)
+  // Authoritative identity truth for autonomous / Host-owned cycles (curiosity, idle, etc.)
+  const configuredOwner = text(env.discordOwnerId);
+  if (configuredOwner && isValidOwnerCandidate(configuredOwner)) {
+    if (isAutonomousCuriosityContext(input, db)) {
+      return configuredOwner;
     }
   }
 

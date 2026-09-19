@@ -9,6 +9,7 @@ import { getDetachedOperation } from "../operation/detached.js";
 import { enqueueWorkerUndertakingIntent, serviceWorkerUndertakings } from "../operation/dispatch.js";
 import { getWorkerUndertaking } from "../operation/worker-queue.js";
 import { runCognitiveCycle } from "./run.js";
+import { env } from "../../../env.js";
 
 const constitution: IdentitySlice = { constitutional: ["truth first"], stableSelf: ["curious"] };
 const capabilityReality: CapabilityReality = {
@@ -62,6 +63,8 @@ function userPayload(messages: unknown): Record<string, any> {
 
 describe("autonomous curiosity through the global worker queue", () => {
   it("runs semantic project.inspect from curiosity through completion and a fresh Thought", async () => {
+    const origDiscordOwnerId = env.discordOwnerId;
+    env.discordOwnerId = "doc";
     const sidecar = openTestSidecar();
     const attentionDb = openTestSidecar();
     const nuclear = openNuclearDb(new DatabaseSync(":memory:"));
@@ -188,7 +191,10 @@ describe("autonomous curiosity through the global worker queue", () => {
       expect(fresh.published).toBe(true);
       expect(fresh.cycleId).not.toBe(cycle.cycleId);
       expect(completionChat).toHaveBeenCalledTimes(1);
+      expect(completionEvent?.payload).toMatchObject({ originKind: "ASHLEY_CURIOSITY" });
+      expect((completionEvent?.payload as Record<string, unknown>)?.ownerId).toBeUndefined();
     } finally {
+      env.discordOwnerId = origDiscordOwnerId;
       sidecar.close();
       attentionDb.close();
       nuclear.close();

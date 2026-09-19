@@ -450,6 +450,7 @@ describe("2026-09-19 Owner Responsiveness Incident Regression Suite", () => {
     it("C-C: deliveryIntentFor Owner-private speech with genuinely unprovable Owner fails closed with canonical_owner_principal_unproven", async () => {
       const sidecar = openTestSidecar();
       const nuclear = openNuclearDb(new DatabaseSync(":memory:"));
+      const orig = env.discordOwnerId;
       try {
         env.discordOwnerId = "";
         const conversationId = "2d445d64-ca17-4fd7-91e3-9f3578062a16";
@@ -479,6 +480,7 @@ describe("2026-09-19 Owner Responsiveness Incident Regression Suite", () => {
           ),
         ).rejects.toThrow("canonical_owner_principal_unproven");
       } finally {
+        env.discordOwnerId = orig;
         sidecar.close();
         nuclear.close();
       }
@@ -497,6 +499,70 @@ describe("2026-09-19 Owner Responsiveness Incident Regression Suite", () => {
         });
         expect(result).toBe(TEST_OWNER_ID);
       } finally {
+        sidecar.close();
+      }
+    });
+
+    it("C-Matrix-A: Host Config Root - configured authorized Owner + autonomous/non-Owner origin resolves canonical Owner", () => {
+      const sidecar = openTestSidecar();
+      try {
+        env.discordOwnerId = TEST_OWNER_ID;
+        // Autonomous cycle (idle_opportunity, no trigger evidence, no predecessor)
+        const result = resolveCanonicalOwnerPrincipal(sidecar, {
+          cycle: { conversationId: "thread-curiosity-autonomous" },
+          payload: { triggerRef: "curiosity:idle" },
+        });
+        expect(result).toBe(TEST_OWNER_ID);
+      } finally {
+        sidecar.close();
+      }
+    });
+
+    it("C-Matrix-B: Origin Separation - canonical Owner resolves while originKind remains ASHLEY_CURIOSITY", () => {
+      const sidecar = openTestSidecar();
+      try {
+        env.discordOwnerId = TEST_OWNER_ID;
+        const payload: Record<string, unknown> = {
+          originKind: "ASHLEY_CURIOSITY",
+          triggerRef: "curiosity:inspect",
+        };
+        const resolved = resolveCanonicalOwnerPrincipal(sidecar, {
+          payload,
+          cycle: { conversationId: "thread-curiosity-origin-sep", triggerKind: "idle_opportunity" },
+        });
+        expect(resolved).toBe(TEST_OWNER_ID);
+        // Important safety law (Section 4): Configured Owner root establishes identity, NEVER origin
+        expect(payload.originKind).toBe("ASHLEY_CURIOSITY");
+      } finally {
+        sidecar.close();
+      }
+    });
+
+    it("C-Matrix-F: Forbidden Fallbacks - conversation UUID alone and literal 'owner' are rejected", () => {
+      const sidecar = openTestSidecar();
+      const orig = env.discordOwnerId;
+      try {
+        env.discordOwnerId = "";
+        // 1. Conversation UUID alone
+        const resUuid = resolveCanonicalOwnerPrincipal(sidecar, {
+          cycle: { conversationId: "2d445d64-ca17-4fd7-91e3-9f3578062a16" },
+        });
+        expect(resUuid).toBeNull();
+
+        // 2. Literal "owner" in payload
+        const resLiteralPayload = resolveCanonicalOwnerPrincipal(sidecar, {
+          payload: { ownerId: "owner" },
+          cycle: { conversationId: "thread-1" },
+        });
+        expect(resLiteralPayload).toBeNull();
+
+        // 3. Literal "owner" in cycle occupant
+        const resLiteralOccupant = resolveCanonicalOwnerPrincipal(sidecar, {
+          cycle: { occupantId: "owner", conversationId: "thread-1" },
+        });
+        expect(resLiteralOccupant).toBeNull();
+      } finally {
+        env.discordOwnerId = orig;
         sidecar.close();
       }
     });

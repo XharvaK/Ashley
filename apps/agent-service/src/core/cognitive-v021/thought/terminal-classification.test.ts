@@ -7,6 +7,7 @@ import type { CapabilityReality, IdentitySlice, KernelDeps, Observation } from "
 import { THOUGHT_UNAVAILABLE_NOTICE } from "../speech/infrastructure-notice.js";
 import { incrementThoughtAttemptCounter } from "./counters.js";
 import { runCognitiveCycle } from "./run.js";
+import { env } from "../../../env.js";
 
 const constitution: IdentitySlice = { constitutional: ["truth first"], stableSelf: ["curious"] };
 const capabilityReality: CapabilityReality = {
@@ -407,13 +408,15 @@ describe("FAILURE-TRUTH-COMPLETENESS-01 producer-to-notice", () => {
   });
 
   it("maps publication diagnostic persistence failure without claiming a remote outcome", async () => {
+    const origDiscordOwnerId = env.discordOwnerId;
+    env.discordOwnerId = "test-terminal-owner";
     const sidecar = openTestSidecar();
     const attentionDb = openTestSidecar();
     const cycle = admitTestCycle(sidecar, {
       conversationId: "thread-publication", triggerKind: "owner_message", triggerRef: "owner-1", nowMs: 1,
     });
     const evidence = appendOwnerUtterance(sidecar, {
-      conversationId: "thread-publication", text: "hello", discordMessageIds: ["d1"], nowMs: 2,
+      conversationId: "thread-publication", text: "hello", discordMessageIds: ["d1"], speakerPrincipalId: "test-terminal-owner", nowMs: 2,
     });
     const event = appendInboxEvent(sidecar, {
       wakeId: cycle.wakeId,
@@ -446,6 +449,7 @@ describe("FAILURE-TRUTH-COMPLETENESS-01 producer-to-notice", () => {
       // not assert a remote effect outcome (succeeded/delivered) or a
       // provider response.
     } finally {
+      env.discordOwnerId = origDiscordOwnerId;
       sidecar.close();
       attentionDb.close();
     }
