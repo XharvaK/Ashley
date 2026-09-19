@@ -32,6 +32,12 @@ import { appendOwnerUtterance, getEvidenceByRowId } from "../evidence/conversati
 import { runCognitiveCycle } from "../thought/run.js";
 import type { KernelDeps, WakeState } from "../types.js";
 import { env } from "../../../env.js";
+import { insertOutboxPending, registerCognitiveDeliveryDatabases } from "../speech/outbox.js";
+import { recheckOwnerDmPublicationReservation, speechSupersessionReason } from "../settlement/publish.js";
+import {
+  claimPendingCognitiveDeliveries,
+  reconcileUnfulfilledFailedSpeechReservations,
+} from "../delivery/pending.js";
 
 function mockKernelDeps(overrides: Partial<KernelDeps> = {}): KernelDeps {
   return {
@@ -1170,6 +1176,622 @@ describe("2026-09-19 Owner Responsiveness Incident Regression Suite", () => {
         // No duplicate events or wakes created
         const allEvents = sidecar.prepare("SELECT id FROM inbox_events WHERE conversation_id = ?").all(conversationId);
         expect(allEvents.map((r: any) => r.id)).toEqual([predEvent.id, repairEvent.id, strandedOwnerEvent.id]);
+      } finally {
+        sidecar.close();
+        nuclear.close();
+      }
+    });
+  });
+
+  describe("Invariant E: speech publication race and unfulfilled failed speech recovery", () => {
+    function setupDeliveryDatabases() {
+      const sidecar = openTestSidecar();
+      const nuclear = openNuclearDb(new DatabaseSync(":memory:"));
+      registerCognitiveDeliveryDatabases(sidecar, nuclear);
+      return { sidecar, nuclear };
+    }
+
+    it("positive: speech authority survives non-preempting cycle progression (detached operation completion)", () => {
+      const { sidecar, nuclear } = setupDeliveryDatabases();
+      try {
+        const conversationId = "thread-gen-race";
+        // Gen 159: Owner-responsive cycle authors speech
+        const gen159Cycle = admitTestCycle(sidecar, {
+          cycleId: "cycle-159",
+          conversationId,
+          triggerKind: "owner_message",
+          triggerRef: "owner-ref-159",
+          occupantId: "doc",
+          authorityEpoch: 1,
+          nowMs: 1_000,
+        });
+
+        const outbox = insertOutboxPending(sidecar, {
+          settlementId: "settlement-159",
+          cycleId: gen159Cycle.cycleId,
+          generation: gen159Cycle.generation,
+          conversationId,
+          licensedText: "I am responding to your question.",
+          deliveryIntent: {
+            ownerId: "doc",
+            channel: "discord",
+            threadId: conversationId,
+            conversationId,
+            trigger: "owner_message_reactive",
+            deliveryLane: "reactive",
+            purpose: "licensed_speech",
+          },
+        });
+
+        sidecar.prepare("UPDATE speech_outbox SET send_status = 'sending' WHERE outbox_id = ?").run(outbox.outboxId);
+        const insertRes = nuclear.prepare(
+          `INSERT INTO delivery_reservations
+             (owner_id, channel, thread_id, trigger, delivery_lane, state,
+              draft_text, created_at, cognitive_v021_projection_key,
+              speech_outbox_id, destination_json)
+           VALUES ('doc', 'discord', ?, 'reactive', 'reactive', 'reserved', ?, ?, ?, ?, NULL)`,
+        ).run(conversationId, outbox.licensedText, "1970-01-01T00:00:01.000Z", outbox.projectionKey, outbox.outboxId);
+        const reservationId = Number(insertRes.lastInsertRowid);
+
+        // Gen 160: Detached operation completion advances conversation generation silently
+        admitTestCycle(sidecar, {
+          cycleId: "cycle-160",
+          conversationId,
+          triggerKind: "observation_or_receipt",
+          triggerRef: "operation:detached-operation:1234:completion",
+          occupantId: "doc",
+          authorityEpoch: 1,
+          nowMs: 2_000,
+        });
+
+        // Delivery pump rechecks reservation - must pass despite generation 159 -> 160 progression
+        const recheckResult = recheckOwnerDmPublicationReservation(
+          nuclear,
+          reservationId,
+          2_500,
+          { cognitiveSidecar: sidecar },
+        );
+        expect(recheckResult).toEqual({ ok: true });
+      } finally {
+        sidecar.close();
+        nuclear.close();
+      }
+    });
+
+    it("negative: speech publication is blocked if a subsequent Owner message arrives (true preemption)", () => {
+      const { sidecar, nuclear } = setupDeliveryDatabases();
+      try {
+        const conversationId = "thread-preempt";
+        const gen1Cycle = admitTestCycle(sidecar, {
+          cycleId: "cycle-preempt-1",
+          conversationId,
+          triggerKind: "owner_message",
+          triggerRef: "owner-msg-1",
+          occupantId: "doc",
+          authorityEpoch: 1,
+          nowMs: 1_000,
+        });
+
+        const outbox = insertOutboxPending(sidecar, {
+          settlementId: "settlement-preempt-1",
+          cycleId: gen1Cycle.cycleId,
+          generation: gen1Cycle.generation,
+          conversationId,
+          licensedText: "First response",
+          deliveryIntent: {
+            ownerId: "doc",
+            channel: "discord",
+            threadId: conversationId,
+            conversationId,
+            trigger: "owner_message_reactive",
+            deliveryLane: "reactive",
+            purpose: "licensed_speech",
+          },
+        });
+
+        sidecar.prepare("UPDATE speech_outbox SET send_status = 'sending' WHERE outbox_id = ?").run(outbox.outboxId);
+        const insertRes = nuclear.prepare(
+          `INSERT INTO delivery_reservations
+             (owner_id, channel, thread_id, trigger, delivery_lane, state,
+              draft_text, created_at, cognitive_v021_projection_key,
+              speech_outbox_id, destination_json)
+           VALUES ('doc', 'discord', ?, 'reactive', 'reactive', 'reserved', ?, ?, ?, ?, NULL)`,
+        ).run(conversationId, outbox.licensedText, "1970-01-01T00:00:01.000Z", outbox.projectionKey, outbox.outboxId);
+        const reservationId = Number(insertRes.lastInsertRowid);
+
+        // New Owner message arrives and admits Gen 2
+        admitTestCycle(sidecar, {
+          cycleId: "cycle-preempt-2",
+          conversationId,
+          triggerKind: "owner_message",
+          triggerRef: "owner-msg-2",
+          occupantId: "doc",
+          authorityEpoch: 1,
+          nowMs: 2_000,
+        });
+
+        const recheckResult = recheckOwnerDmPublicationReservation(
+          nuclear,
+          reservationId,
+          2_500,
+          { cognitiveSidecar: sidecar },
+        );
+        expect(recheckResult).toEqual({ ok: false, reason: "stale_generation" });
+      } finally {
+        sidecar.close();
+        nuclear.close();
+      }
+    });
+
+    it("idempotency: already sent speech or already sent bubbles refuse redelivery", () => {
+      const { sidecar, nuclear } = setupDeliveryDatabases();
+      try {
+        const conversationId = "thread-idempotency";
+        const cycle = admitTestCycle(sidecar, {
+          cycleId: "cycle-idem-1",
+          conversationId,
+          triggerKind: "owner_message",
+          triggerRef: "owner-idem",
+          occupantId: "doc",
+          authorityEpoch: 1,
+          nowMs: 1_000,
+        });
+
+        const outbox = insertOutboxPending(sidecar, {
+          settlementId: "settlement-idem-1",
+          cycleId: cycle.cycleId,
+          generation: cycle.generation,
+          conversationId,
+          licensedText: "Sent response",
+          deliveryIntent: {
+            ownerId: "doc",
+            channel: "discord",
+            threadId: conversationId,
+            conversationId,
+            trigger: "owner_message_reactive",
+            deliveryLane: "reactive",
+            purpose: "licensed_speech",
+          },
+        });
+
+        const insertRes = nuclear.prepare(
+          `INSERT INTO delivery_reservations
+             (owner_id, channel, thread_id, trigger, delivery_lane, state,
+              draft_text, created_at, cognitive_v021_projection_key,
+              speech_outbox_id, destination_json)
+           VALUES ('doc', 'discord', ?, 'reactive', 'reactive', 'aborted', ?, ?, ?, ?, NULL)`,
+        ).run(conversationId, outbox.licensedText, "1970-01-01T00:00:01.000Z", outbox.projectionKey, outbox.outboxId);
+        const reservationId = Number(insertRes.lastInsertRowid);
+
+        // Case 1: Outbox already marked sent
+        sidecar.prepare("UPDATE speech_outbox SET send_status = 'sent' WHERE outbox_id = ?").run(outbox.outboxId);
+        const recovery1 = reconcileUnfulfilledFailedSpeechReservations(nuclear, sidecar, "doc");
+        expect(recovery1.recovered).toBe(0);
+
+        // Case 2: Outbox in send_failure but delivery_bubbles has sent bubble
+        sidecar.prepare("UPDATE speech_outbox SET send_status = 'send_failure' WHERE outbox_id = ?").run(outbox.outboxId);
+        nuclear.prepare(
+          `INSERT INTO delivery_bubbles
+             (reservation_id, ordinal, text, discord_message_id, sent_at)
+           VALUES (?, 0, 'Sent response', 'discord-msg-999', '1970-01-01T00:00:02.000Z')`,
+        ).run(reservationId);
+
+        const recovery2 = reconcileUnfulfilledFailedSpeechReservations(nuclear, sidecar, "doc");
+        expect(recovery2.recovered).toBe(0);
+      } finally {
+        sidecar.close();
+        nuclear.close();
+      }
+    });
+
+    it("failed-row recovery: unfulfilled failed speech row is recovered and claimed by delivery pump", () => {
+      const { sidecar, nuclear } = setupDeliveryDatabases();
+      try {
+        const conversationId = "thread-failed-recovery";
+        // Replicate live production incident state:
+        // Gen 159 authored speech into outbox 114 with reservation 361
+        const gen159Cycle = admitTestCycle(sidecar, {
+          cycleId: "cycle-159",
+          conversationId,
+          triggerKind: "owner_message",
+          triggerRef: "owner-ref-159",
+          occupantId: "doc",
+          authorityEpoch: 1,
+          nowMs: 1_000,
+        });
+
+        const outbox = insertOutboxPending(sidecar, {
+          settlementId: "settlement-159",
+          cycleId: gen159Cycle.cycleId,
+          generation: gen159Cycle.generation,
+          conversationId,
+          licensedText: "I am answering your question 'why don't you answer?'",
+          deliveryIntent: {
+            ownerId: "doc",
+            channel: "discord",
+            threadId: conversationId,
+            conversationId,
+            trigger: "owner_message_reactive",
+            deliveryLane: "reactive",
+            purpose: "licensed_speech",
+          },
+        });
+
+        // Insert reservation 361
+        const insertRes = nuclear.prepare(
+          `INSERT INTO delivery_reservations
+             (owner_id, channel, thread_id, trigger, delivery_lane, state,
+              draft_text, created_at, cognitive_v021_projection_key,
+              speech_outbox_id, destination_json, error_category, finalization_reason)
+           VALUES ('doc', 'discord', ?, 'reactive', 'reactive', 'aborted', ?, ?, ?, ?, NULL, 'send_failure', 'send_failure')`,
+        ).run(conversationId, outbox.licensedText, "1970-01-01T00:00:01.000Z", outbox.projectionKey, outbox.outboxId);
+        const reservationId = Number(insertRes.lastInsertRowid);
+
+        // Mark outbox row as send_failure (simulating the race rejection)
+        sidecar.prepare(
+          `UPDATE speech_outbox
+              SET send_status = 'send_failure',
+                  nuclear_finalization_reason = 'owner_dm_publication_blocked:stale_generation'
+            WHERE outbox_id = ?`,
+        ).run(outbox.outboxId);
+
+        // Gen 160: Detached operation completed silently
+        admitTestCycle(sidecar, {
+          cycleId: "cycle-160",
+          conversationId,
+          triggerKind: "observation_or_receipt",
+          triggerRef: "operation:detached-operation:25762c93:completion",
+          occupantId: "doc",
+          authorityEpoch: 1,
+          nowMs: 2_000,
+        });
+
+        // Step 1: Run unfulfilled failed speech recovery (runs on startup or in pump sweep)
+        const recoveryResult = reconcileUnfulfilledFailedSpeechReservations(nuclear, sidecar, "doc");
+        expect(recoveryResult.recovered).toBe(1);
+
+        // Verify sidecar outbox is restored to 'projected'
+        const restoredOutbox = sidecar.prepare("SELECT send_status, nuclear_finalization_reason FROM speech_outbox WHERE outbox_id = ?").get(outbox.outboxId) as any;
+        expect(restoredOutbox.send_status).toBe("projected");
+        expect(restoredOutbox.nuclear_finalization_reason).toBeNull();
+
+        // Verify nuclear reservation is restored to 'reserved' with error cleared
+        const restoredRes = nuclear.prepare("SELECT state, error_category, finalization_reason FROM delivery_reservations WHERE id = ?").get(reservationId) as any;
+        expect(restoredRes.state).toBe("reserved");
+        expect(restoredRes.error_category).toBeNull();
+        expect(restoredRes.finalization_reason).toBeNull();
+
+        // Step 2: Delivery pump claims pending delivery
+        const claimed = claimPendingCognitiveDeliveries(nuclear, { ownerId: "doc", nowMs: 3_000 });
+        expect(claimed.length).toBe(1);
+        expect(claimed[0].reservationId).toBe(reservationId);
+
+        // Step 3: Recheck passes for the claimed reservation
+        const recheckResult = recheckOwnerDmPublicationReservation(
+          nuclear,
+          reservationId,
+          3_100,
+          { cognitiveSidecar: sidecar },
+        );
+        expect(recheckResult).toEqual({ ok: true });
+      } finally {
+        sidecar.close();
+        nuclear.close();
+      }
+    });
+
+    it("5.A: terminal send failure must not hot-loop (bounded to 1 recovery attempt)", () => {
+      const { sidecar, nuclear } = setupDeliveryDatabases();
+      try {
+        const conversationId = "thread-hot-loop-guard";
+        const cycle = admitTestCycle(sidecar, {
+          cycleId: "cycle-hl-1",
+          conversationId,
+          triggerKind: "owner_message",
+          triggerRef: "ref-hl",
+          occupantId: "doc",
+          authorityEpoch: 1,
+          nowMs: 1_000,
+        });
+
+        const outbox = insertOutboxPending(sidecar, {
+          settlementId: "settlement-hl-1",
+          cycleId: cycle.cycleId,
+          generation: cycle.generation,
+          conversationId,
+          licensedText: "Non-recoverable failure test",
+          deliveryIntent: {
+            ownerId: "doc",
+            channel: "discord",
+            threadId: conversationId,
+            conversationId,
+            trigger: "owner_message_reactive",
+            deliveryLane: "reactive",
+            purpose: "licensed_speech",
+          },
+        });
+
+        nuclear.prepare(
+          `INSERT INTO delivery_reservations
+             (owner_id, channel, thread_id, trigger, delivery_lane, state,
+              draft_text, created_at, cognitive_v021_projection_key,
+              speech_outbox_id, destination_json, error_category, finalization_reason)
+           VALUES ('doc', 'discord', ?, 'reactive', 'reactive', 'aborted', ?, ?, ?, ?, NULL, 'send_failure', 'send_failure')`,
+        ).run(conversationId, outbox.licensedText, "1970-01-01T00:00:01.000Z", outbox.projectionKey, outbox.outboxId);
+
+        // Speech outbox delivery intent indicates recovery was already attempted once
+        const intentWithRecovery = JSON.stringify({ ...outbox.deliveryIntent, recoveryAttempts: 1 });
+        sidecar.prepare(
+          "UPDATE speech_outbox SET send_status = 'send_failure', delivery_intent_json = ?, nuclear_finalization_reason = 'send_failure' WHERE outbox_id = ?",
+        ).run(intentWithRecovery, outbox.outboxId);
+
+        // Attempt recovery - must refuse because recovery_attempts >= 1
+        const recovery = reconcileUnfulfilledFailedSpeechReservations(nuclear, sidecar, "doc");
+        expect(recovery.recovered).toBe(0);
+
+        // Verify nuclear reservation remains aborted
+        const checkRes = nuclear.prepare("SELECT state FROM delivery_reservations WHERE speech_outbox_id = ?").get(outbox.outboxId) as any;
+        expect(checkRes.state).toBe("aborted");
+      } finally {
+        sidecar.close();
+        nuclear.close();
+      }
+    });
+
+    it("5.B: half-applied recovery Crash Point A (sidecar projected, nuclear aborted) converges to reserved", () => {
+      const { sidecar, nuclear } = setupDeliveryDatabases();
+      try {
+        const conversationId = "thread-crash-pt-a";
+        const cycle = admitTestCycle(sidecar, {
+          cycleId: "cycle-cpa-1",
+          conversationId,
+          triggerKind: "owner_message",
+          triggerRef: "ref-cpa",
+          occupantId: "doc",
+          authorityEpoch: 1,
+          nowMs: 1_000,
+        });
+
+        const outbox = insertOutboxPending(sidecar, {
+          settlementId: "settlement-cpa-1",
+          cycleId: cycle.cycleId,
+          generation: cycle.generation,
+          conversationId,
+          licensedText: "Crash Point A test response",
+          deliveryIntent: {
+            ownerId: "doc",
+            channel: "discord",
+            threadId: conversationId,
+            conversationId,
+            trigger: "owner_message_reactive",
+            deliveryLane: "reactive",
+            purpose: "licensed_speech",
+          },
+        });
+
+        // Insert reservation in aborted state
+        const insertRes = nuclear.prepare(
+          `INSERT INTO delivery_reservations
+             (owner_id, channel, thread_id, trigger, delivery_lane, state,
+              draft_text, created_at, cognitive_v021_projection_key,
+              speech_outbox_id, destination_json, error_category, finalization_reason)
+           VALUES ('doc', 'discord', ?, 'reactive', 'reactive', 'aborted', ?, ?, ?, ?, NULL, 'send_failure', 'send_failure')`,
+        ).run(conversationId, outbox.licensedText, "1970-01-01T00:00:01.000Z", outbox.projectionKey, outbox.outboxId);
+        const resId = Number(insertRes.lastInsertRowid);
+
+        // Simulating Crash Point A: Sidecar outbox was already updated to 'projected' before crash
+        sidecar.prepare(
+          "UPDATE speech_outbox SET send_status = 'projected', nuclear_finalization_reason = NULL WHERE outbox_id = ?",
+        ).run(outbox.outboxId);
+
+        // Recovery runs on restart/poll: detects Crash Point A and brings nuclear forward to 'reserved'
+        const recovery = reconcileUnfulfilledFailedSpeechReservations(nuclear, sidecar, "doc");
+        expect(recovery.recovered).toBe(1);
+
+        const checkRes = nuclear.prepare("SELECT state FROM delivery_reservations WHERE id = ?").get(resId) as any;
+        expect(checkRes.state).toBe("reserved");
+
+        // Can now be claimed and delivered normally
+        const claimed = claimPendingCognitiveDeliveries(nuclear, { ownerId: "doc", nowMs: 2_000 });
+        expect(claimed.length).toBe(1);
+        expect(claimed[0].reservationId).toBe(resId);
+      } finally {
+        sidecar.close();
+        nuclear.close();
+      }
+    });
+
+    it("5.C: half-applied recovery Crash Point B (sidecar projected, nuclear reserved) claims and delivers once", () => {
+      const { sidecar, nuclear } = setupDeliveryDatabases();
+      try {
+        const conversationId = "thread-crash-pt-b";
+        const cycle = admitTestCycle(sidecar, {
+          cycleId: "cycle-cpb-1",
+          conversationId,
+          triggerKind: "owner_message",
+          triggerRef: "ref-cpb",
+          occupantId: "doc",
+          authorityEpoch: 1,
+          nowMs: 1_000,
+        });
+
+        const outbox = insertOutboxPending(sidecar, {
+          settlementId: "settlement-cpb-1",
+          cycleId: cycle.cycleId,
+          generation: cycle.generation,
+          conversationId,
+          licensedText: "Crash Point B test response",
+          deliveryIntent: {
+            ownerId: "doc",
+            channel: "discord",
+            threadId: conversationId,
+            conversationId,
+            trigger: "owner_message_reactive",
+            deliveryLane: "reactive",
+            purpose: "licensed_speech",
+          },
+        });
+
+        // Insert reservation already in 'reserved' state (Crash Point B: both restored, crash before claim)
+        const insertRes = nuclear.prepare(
+          `INSERT INTO delivery_reservations
+             (owner_id, channel, thread_id, trigger, delivery_lane, state,
+              draft_text, created_at, cognitive_v021_projection_key,
+              speech_outbox_id, destination_json)
+           VALUES ('doc', 'discord', ?, 'reactive', 'reactive', 'reserved', ?, ?, ?, ?, NULL)`,
+        ).run(conversationId, outbox.licensedText, "1970-01-01T00:00:01.000Z", outbox.projectionKey, outbox.outboxId);
+        const resId = Number(insertRes.lastInsertRowid);
+
+        sidecar.prepare(
+          "UPDATE speech_outbox SET send_status = 'projected', nuclear_finalization_reason = NULL WHERE outbox_id = ?",
+        ).run(outbox.outboxId);
+
+        // Normal claim proceeds cleanly
+        const claimed = claimPendingCognitiveDeliveries(nuclear, { ownerId: "doc", nowMs: 2_000 });
+        expect(claimed.length).toBe(1);
+        expect(claimed[0].reservationId).toBe(resId);
+
+        // Recheck succeeds
+        const recheck = recheckOwnerDmPublicationReservation(nuclear, resId, 2_100, { cognitiveSidecar: sidecar });
+        expect(recheck).toEqual({ ok: true });
+      } finally {
+        sidecar.close();
+        nuclear.close();
+      }
+    });
+
+    it("5.D: older pending owner event does NOT falsely supersede speech", () => {
+      const { sidecar, nuclear } = setupDeliveryDatabases();
+      try {
+        const conversationId = "thread-older-event";
+        // Cycle 159 admitted at T = 5,000
+        const cycle = admitTestCycle(sidecar, {
+          cycleId: "cycle-oe-159",
+          conversationId,
+          triggerKind: "owner_message",
+          triggerRef: "ref-oe-159",
+          occupantId: "doc",
+          authorityEpoch: 1,
+          nowMs: 5_000,
+        });
+
+        const outbox = insertOutboxPending(sidecar, {
+          settlementId: "settlement-oe-159",
+          cycleId: cycle.cycleId,
+          generation: cycle.generation,
+          conversationId,
+          licensedText: "Response to cycle 159",
+          deliveryIntent: {
+            ownerId: "doc",
+            channel: "discord",
+            threadId: conversationId,
+            conversationId,
+            trigger: "owner_message_reactive",
+            deliveryLane: "reactive",
+            purpose: "licensed_speech",
+          },
+        });
+
+        // An older inbox event exists with created_at_ms = 4,000 (before cycle 159 was admitted)
+        sidecar.prepare(
+          `INSERT INTO inbox_events
+             (id, conversation_id, kind, status, payload_json, created_at_ms)
+           VALUES ('evt-older', ?, 'owner_message', 'pending', '{}', 4_000)`,
+        ).run(conversationId);
+
+        // Supersession recheck must NOT consider the older inbox event as superseding
+        const speechRow = sidecar.prepare("SELECT * FROM speech_outbox WHERE outbox_id = ?").get(outbox.outboxId) as any;
+        const speechObj = {
+          ...speechRow,
+          outboxId: speechRow.outbox_id,
+          cycleId: speechRow.cycle_id,
+          conversationId: speechRow.conversation_id,
+          sendStatus: speechRow.send_status,
+          suppressed: Boolean(speechRow.suppressed),
+          origin: speechRow.origin,
+        };
+        const supersession = speechSupersessionReason(sidecar, speechObj);
+        expect(supersession).toBeNull();
+      } finally {
+        sidecar.close();
+        nuclear.close();
+      }
+    });
+
+    it("5.E: unrelated later speech in another conversation does NOT revoke earlier speech", () => {
+      const { sidecar, nuclear } = setupDeliveryDatabases();
+      try {
+        const convA = "thread-conv-a";
+        const convB = "thread-conv-b";
+
+        const cycleA = admitTestCycle(sidecar, {
+          cycleId: "cycle-conv-a",
+          conversationId: convA,
+          triggerKind: "owner_message",
+          triggerRef: "ref-a",
+          occupantId: "doc",
+          authorityEpoch: 1,
+          nowMs: 1_000,
+        });
+
+        const outboxA = insertOutboxPending(sidecar, {
+          settlementId: "settlement-conv-a",
+          cycleId: cycleA.cycleId,
+          generation: cycleA.generation,
+          conversationId: convA,
+          licensedText: "Response in Conv A",
+          deliveryIntent: {
+            ownerId: "doc",
+            channel: "discord",
+            threadId: convA,
+            conversationId: convA,
+            trigger: "owner_message_reactive",
+            deliveryLane: "reactive",
+            purpose: "licensed_speech",
+          },
+        });
+
+        // Later cycle in conversation B authors speech
+        const cycleB = admitTestCycle(sidecar, {
+          cycleId: "cycle-conv-b",
+          conversationId: convB,
+          triggerKind: "owner_message",
+          triggerRef: "ref-b",
+          occupantId: "doc",
+          authorityEpoch: 1,
+          nowMs: 2_000,
+        });
+
+        insertOutboxPending(sidecar, {
+          settlementId: "settlement-conv-b",
+          cycleId: cycleB.cycleId,
+          generation: cycleB.generation,
+          conversationId: convB,
+          licensedText: "Response in Conv B",
+          deliveryIntent: {
+            ownerId: "doc",
+            channel: "discord",
+            threadId: convB,
+            conversationId: convB,
+            trigger: "owner_message_reactive",
+            deliveryLane: "reactive",
+            purpose: "licensed_speech",
+          },
+        });
+
+        // Check speech A supersession - must NOT be superseded by speech in Conv B
+        const speechRowA = sidecar.prepare("SELECT * FROM speech_outbox WHERE outbox_id = ?").get(outboxA.outboxId) as any;
+        const speechObjA = {
+          ...speechRowA,
+          outboxId: speechRowA.outbox_id,
+          cycleId: speechRowA.cycle_id,
+          conversationId: speechRowA.conversation_id,
+          sendStatus: speechRowA.send_status,
+          suppressed: Boolean(speechRowA.suppressed),
+          origin: speechRowA.origin,
+        };
+        const supersession = speechSupersessionReason(sidecar, speechObjA);
+        expect(supersession).toBeNull();
       } finally {
         sidecar.close();
         nuclear.close();

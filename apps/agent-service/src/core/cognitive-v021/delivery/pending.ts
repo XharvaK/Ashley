@@ -11,6 +11,7 @@ import {
 } from "../speech/outbox.js";
 import { isAuthorizedOwnerId } from "../../../owner-auth.js";
 import { getCurrentCycle } from "../cycle/inbox.js";
+import { speechSupersessionReason } from "../settlement/publish.js";
 
 export type PendingCognitiveDelivery = {
   reservationId: number;
@@ -305,6 +306,175 @@ export function reconcileLegacyWrongPrincipalSpeechReservations(
   return { corrected, suppressedStale };
 }
 
+export const UNFULFILLED_FAILED_SPEECH_RECONCILE_LIMIT = 50 as const;
+
+/**
+ * Reconcile unfulfilled speech delivery reservations that were aborted due to
+ * send_failure before any external dispatch occurred.
+ *
+ * Requirements:
+ * 1. Idempotency proof: first_sent_at is NULL and ZERO delivery bubbles were receipted/sent.
+ * 2. Draft content is non-empty, destination is not 'invalid'.
+ * 3. Bounded recovery: maximum 1 automatic recovery attempt per reservation (prevents hot-looping).
+ * 4. Source speech outbox row exists in cognitive sidecar with origin = 'live' and 0 delivered message IDs.
+ * 5. Semantic validity proof: speech is NOT superseded (no newer Owner dialogue input, not preempted, no newer speech).
+ * 6. Cross-DB crash convergence: handles Crash Point A (sidecar projected, nuclear aborted) and Crash Point B.
+ */
+export function reconcileUnfulfilledFailedSpeechReservations(
+  db: DatabaseSync,
+  sidecar: DatabaseSync,
+  ownerId?: string,
+  nowMs = Date.now(),
+  limit: number = UNFULFILLED_FAILED_SPEECH_RECONCILE_LIMIT,
+): { recovered: number; suppressedStale: number } {
+  let recovered = 0;
+  let suppressedStale = 0;
+
+  const ownerClause = ownerId && isAuthorizedOwnerId(ownerId) ? "AND owner_id = ?" : "";
+  const params: Array<string | number> = ownerId && isAuthorizedOwnerId(ownerId) ? [ownerId, limit] : [limit];
+
+  const candidates = db.prepare(
+    `SELECT id, owner_id, thread_id, draft_text, destination_json, cognitive_v021_projection_key, speech_outbox_id, error_category, finalization_reason, first_sent_at
+       FROM delivery_reservations
+      WHERE channel = 'discord'
+        AND delivery_lane IN ('reactive', 'proactive')
+        AND state = 'aborted'
+        AND (error_category = 'send_failure' OR finalization_reason = 'send_failure')
+        AND (cognitive_v021_projection_key LIKE 'speech:%' OR speech_outbox_id IS NOT NULL)
+        AND first_sent_at IS NULL
+        ${ownerClause}
+      ORDER BY id ASC
+      LIMIT ?`,
+  ).all(...params) as Array<{
+    id?: unknown;
+    owner_id?: unknown;
+    thread_id?: unknown;
+    draft_text?: unknown;
+    destination_json?: unknown;
+    cognitive_v021_projection_key?: unknown;
+    speech_outbox_id?: unknown;
+    error_category?: unknown;
+    finalization_reason?: unknown;
+    first_sent_at?: unknown;
+  }>;
+
+  for (const row of candidates) {
+    const id = reservationId(row);
+    if (id === null) continue;
+
+    // Proof 1: IDEMPOTENCY - ZERO dispatch boundary and ZERO bubbles delivered/sent
+    if (row.first_sent_at !== null && row.first_sent_at !== undefined) continue;
+    const bubbles = listDeliveryBubbles(db, id);
+    const hasAnyReceipt = bubbles.some(
+      (b) => Boolean(b.discordMessageId?.trim()) || Boolean(b.sentAt?.trim()),
+    );
+    if (hasAnyReceipt) {
+      continue;
+    }
+
+    // Proof 2: Content non-empty
+    const draftText = typeof row.draft_text === "string" ? row.draft_text.trim() : "";
+    if (!draftText) continue;
+
+    // Proof 3: Target validity
+    if (row.destination_json) {
+      let destinationObj: Record<string, unknown> = {};
+      if (typeof row.destination_json === "string" && row.destination_json.trim()) {
+        try {
+          const parsed = JSON.parse(row.destination_json);
+          if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+            destinationObj = parsed as Record<string, unknown>;
+          }
+        } catch {
+          // ignore
+        }
+      } else if (typeof row.destination_json === "object" && !Array.isArray(row.destination_json)) {
+        destinationObj = { ...(row.destination_json as Record<string, unknown>) };
+      }
+      if (destinationObj.kind === "invalid") continue;
+    }
+
+    // Proof 4: Source speech outbox identity mechanically known
+    let speechOutboxId = Number(row.speech_outbox_id);
+    if (!Number.isSafeInteger(speechOutboxId) || speechOutboxId <= 0) {
+      const key = typeof row.cognitive_v021_projection_key === "string" ? row.cognitive_v021_projection_key : "";
+      if (key.startsWith("speech:")) {
+        speechOutboxId = Number(key.slice("speech:".length));
+      }
+    }
+    if (!Number.isSafeInteger(speechOutboxId) || speechOutboxId <= 0) continue;
+
+    const speech = getSpeechOutbox(sidecar, speechOutboxId);
+    if (!speech || speech.origin !== "live") continue;
+    if (speech.sendStatus !== "send_failure" && speech.sendStatus !== "projected") continue;
+    if (speech.discordMessageIds.length > 0) continue;
+    if (!speech.licensedText || !speech.licensedText.trim()) continue;
+
+    // Proof 4b: Bounded retry limit on speech outbox - prevents unbounded hot-loop
+    const deliveryIntent = (speech.deliveryIntent ?? {}) as Record<string, unknown>;
+    const recoveryCount = typeof deliveryIntent.recoveryAttempts === "number"
+      ? deliveryIntent.recoveryAttempts
+      : (typeof deliveryIntent.recovery_attempts === "number" ? deliveryIntent.recovery_attempts : 0);
+    if (recoveryCount >= 1 && speech.sendStatus !== "projected") {
+      continue;
+    }
+
+    // Proof 5: Semantic validity - not superseded
+    const supersession = speechSupersessionReason(sidecar, speech);
+    if (supersession) {
+      if (row.finalization_reason !== supersession) {
+        db.prepare(
+          `UPDATE delivery_reservations SET finalization_reason = ? WHERE id = ? AND state = 'aborted'`,
+        ).run(supersession, id);
+      }
+      updateOutboxStatus(sidecar, speech.outboxId, "suppressed", {
+        finalizationReason: supersession,
+        nuclearReservationId: id,
+      });
+      suppressedStale += 1;
+      continue;
+    }
+
+    // Proof 6: Cross-DB state restoration & crash convergence (Crash Point A / B handling)
+    let sidecarUpdated = false;
+    if (speech.sendStatus === "send_failure") {
+      try {
+        const updatedIntent = JSON.stringify({
+          ...deliveryIntent,
+          recoveryAttempts: recoveryCount + 1,
+        });
+        sidecar.prepare(
+          `UPDATE speech_outbox
+              SET send_status = 'projected',
+                  delivery_intent_json = ?,
+                  nuclear_finalization_reason = NULL
+            WHERE outbox_id = ? AND send_status = 'send_failure'`,
+        ).run(updatedIntent, speech.outboxId);
+        sidecarUpdated = true;
+      } catch {
+        // Leave nuclear untouched
+      }
+    } else {
+      // Sidecar was already 'projected' (Crash Point A convergence)
+      sidecarUpdated = true;
+    }
+    if (!sidecarUpdated) continue;
+
+    db.prepare(
+      `UPDATE delivery_reservations
+          SET state = 'reserved',
+              error_category = NULL,
+              finalization_reason = NULL,
+              finalized_at = NULL,
+              delivery_lease_expires_at = NULL
+        WHERE id = ? AND state = 'aborted'`,
+    ).run(id);
+    recovered += 1;
+  }
+
+  return { recovered, suppressedStale };
+}
+
 function listPendingByLane(
   db: DatabaseSync,
   ownerId: string,
@@ -415,6 +585,7 @@ function claimPendingByLane(
   if (kind && !sidecar) return [];
   if (lane === "cognitive_v021" && sidecar) {
     reconcileLegacyWrongPrincipalSpeechReservations(db, sidecar, input.ownerId, nowMs);
+    reconcileUnfulfilledFailedSpeechReservations(db, sidecar, input.ownerId, nowMs);
   }
 
   db.exec("BEGIN IMMEDIATE");

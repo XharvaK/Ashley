@@ -1290,6 +1290,114 @@ export function recheckOwnerRoomPublicationReservation(
   return { ok: true };
 }
 
+/**
+ * Evaluates whether an authored speech outbox row has been semantically superseded.
+ *
+ * Generation advancement alone does NOT revoke semantic authority.
+ * Speech is superseded only when:
+ * 1. The row was explicitly suppressed.
+ * 2. A subsequent cycle explicitly preempted the speech's generation.
+ * 3. The producing cycle or its wake was cancelled or preempted.
+ * 4. A subsequent cycle was triggered by an Owner dialogue input (owner_message).
+ * 5. A newer active owner utterance is waiting in the inbox.
+ * 6. A subsequent generation already authored live Owner speech.
+ */
+export function speechSupersessionReason(
+  cognitiveSidecar: DatabaseSync,
+  speech: import("../types.js").SpeechOutboxRow,
+): string | null {
+  if (
+    speech.suppressed
+    || speech.sendStatus === "suppressed"
+    || speech.sendStatus === "suppressed_shadow"
+  ) {
+    return "speech_outbox_suppressed";
+  }
+
+  const current = getCurrentCycle(cognitiveSidecar, speech.conversationId, { includeIdle: true });
+  if (current && current.cycleId === speech.cycleId && current.generation === speech.generation) {
+    return null;
+  }
+
+  if (current && current.generation < speech.generation) {
+    return "stale_generation";
+  }
+
+  // 1. Explicit preemption in any cycle with generation > speech.generation
+  const preemptingCycle = cognitiveSidecar.prepare(
+    `SELECT cycle_id FROM cycle_records
+      WHERE conversation_id = ?
+        AND generation > ?
+        AND (preempted_generation >= ? OR disposition IN ('owner_preempted', 'cancelled'))
+      LIMIT 1`,
+  ).get(speech.conversationId, speech.generation, speech.generation) as DbRow | undefined;
+  if (preemptingCycle) {
+    return "stale_generation";
+  }
+
+  // 2. Producing cycle was cancelled or preempted, or its wake had explicit cancellation
+  const producingCycle = cognitiveSidecar.prepare(
+    `SELECT wake_id, disposition FROM cycle_records WHERE cycle_id = ? LIMIT 1`,
+  ).get(speech.cycleId) as DbRow | undefined;
+  if (producingCycle) {
+    if (producingCycle.disposition === "owner_preempted" || producingCycle.disposition === "cancelled") {
+      return "stale_generation";
+    }
+    const wakeId = stringValue(producingCycle.wake_id);
+    if (wakeId) {
+      const wake = cognitiveSidecar.prepare(
+        `SELECT cancellation_id FROM wakes WHERE wake_id = ? LIMIT 1`,
+      ).get(wakeId) as DbRow | undefined;
+      if (wake && wake.cancellation_id != null) {
+        return "stale_generation";
+      }
+    }
+  }
+
+  // 3. Newer Owner message admitted (a newer turn triggered by owner_message)
+  const newerOwnerCycle = cognitiveSidecar.prepare(
+    `SELECT cycle_id FROM cycle_records
+      WHERE conversation_id = ?
+        AND generation > ?
+        AND trigger_kind = 'owner_message'
+      LIMIT 1`,
+  ).get(speech.conversationId, speech.generation) as DbRow | undefined;
+  if (newerOwnerCycle) {
+    return "stale_generation";
+  }
+
+  // 4. Newer active unconsumed owner message waiting in inbox
+  const newerOwnerInbox = cognitiveSidecar.prepare(
+    `SELECT id FROM inbox_events
+      WHERE conversation_id = ?
+        AND kind IN ('owner_message', 'owner_utterance')
+        AND status IN ('pending', 'claimed')
+        AND created_at_ms > (
+          SELECT admitted_at_ms FROM cycle_records WHERE cycle_id = ? LIMIT 1
+        )
+      LIMIT 1`,
+  ).get(speech.conversationId, speech.cycleId) as DbRow | undefined;
+  if (newerOwnerInbox) {
+    return "stale_generation";
+  }
+
+  // 5. Newer live Owner speech authored in a strictly subsequent generation of the same conversation
+  const newerSpeech = cognitiveSidecar.prepare(
+    `SELECT outbox_id FROM speech_outbox
+      WHERE conversation_id = ?
+        AND generation > ?
+        AND suppressed = 0
+        AND origin = 'live'
+        AND send_status NOT IN ('suppressed', 'suppressed_shadow')
+      LIMIT 1`,
+  ).get(speech.conversationId, speech.generation) as DbRow | undefined;
+  if (newerSpeech) {
+    return "stale_generation";
+  }
+
+  return null;
+}
+
 /** Recheck an Owner-DM reservation against the current cognitive sidecar without S5 admission. */
 export function recheckOwnerDmPublicationReservation(
   db: DatabaseSync,
@@ -1336,10 +1444,9 @@ export function recheckOwnerDmPublicationReservation(
   ) {
     return { ok: false, reason: "speech_outbox_not_sendable" };
   }
-
-  const current = getCurrentCycle(cognitiveSidecar, speech.conversationId, { includeIdle: true });
-  if (!current || current.cycleId !== speech.cycleId || current.generation !== speech.generation) {
-    return { ok: false, reason: "stale_generation" };
+  const supersessionReason = speechSupersessionReason(cognitiveSidecar, speech);
+  if (supersessionReason) {
+    return { ok: false, reason: supersessionReason };
   }
   const basisReason = dispatchBasisReason(db, reservation, cognitiveSidecar);
   if (basisReason) return { ok: false, reason: basisReason };

@@ -9,6 +9,7 @@ import { readIdentitySlice } from "./core/cognitive-v021/identity/constitution.j
 import { runPerceptionBeforeThought } from "./core/cognitive-v021/perception/adapter.js";
 import { sweepExpiredArtifacts } from "./core/perception/artifact-store.js";
 import { createOutboxProjector, reconcileProjectedDeliverySweep } from "./core/cognitive-v021/delivery/outbox-projector.js";
+import { reconcileUnfulfilledFailedSpeechReservations } from "./core/cognitive-v021/delivery/pending.js";
 import { startInboxConsumer, type InboxConsumerHandle, type InboxConsumerHandler } from "./core/cognitive-v021/cycle/inbox-consumer.js";
 import {
   reconcileStartupOwnership,
@@ -355,6 +356,16 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
       console.warn(
         `[cognitive-v021] delivery reconciliation conflicts=${deliveryRecovery.conflicts}`,
       );
+    }
+    try {
+      const failedSpeechRecovery = reconcileUnfulfilledFailedSpeechReservations(nuclear, sidecar, ownerId);
+      if (failedSpeechRecovery.recovered > 0) {
+        console.log(
+          `[cognitive-v021] unfulfilled failed speech recovered rows=${failedSpeechRecovery.recovered}`,
+        );
+      }
+    } catch (error) {
+      console.warn("[cognitive-v021] unfulfilled_failed_speech_recovery_deferred", error);
     }
     // Durable-work outcome reconciliation owns stranded outcome-unknown work.
     // It runs after cycle ownership reconciliation and before the inbox
