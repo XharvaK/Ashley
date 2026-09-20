@@ -286,7 +286,7 @@ describe("detached worker dispatch", () => {
       const stored = sidecar.prepare(
         "SELECT provenance, payload_json FROM observations WHERE observation_id = ?",
       ).get(`v021:observation:detached:${opId}`) as { provenance: string; payload_json: string };
-      expect(stored.provenance).toBe("opencode-worker:project.investigate");
+      expect(stored.provenance).toBe("worker:project.investigate");
       expect(JSON.parse(stored.payload_json)).toMatchObject({ summary: "found it" });
     } finally {
       sidecar.close();

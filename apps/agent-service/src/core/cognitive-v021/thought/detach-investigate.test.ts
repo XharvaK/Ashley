@@ -309,7 +309,7 @@ describe("detached investigate Thought A", () => {
       replaySafe: true,
       modality: "tool",
       payload: { operation: "project.investigate" },
-      provenance: "opencode-worker:project.investigate",
+      provenance: "worker:project.investigate",
       dataClassification: "never_public",
       secretOmitted: true,
     }));

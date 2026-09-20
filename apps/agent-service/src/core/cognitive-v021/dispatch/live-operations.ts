@@ -617,7 +617,7 @@ export function createV021LiveOperationExecutors(
           replaySafe: true,
           modality: "tool",
           payload: result.payload,
-          provenance: "opencode-worker:project.investigate",
+          provenance: "worker:project.investigate",
           dataClassification: "never_public",
           secretOmitted: true,
         };

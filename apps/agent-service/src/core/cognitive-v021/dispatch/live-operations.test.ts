@@ -504,7 +504,7 @@ describe("v0.2.1 live Sandbox V2 operation construction", () => {
     expect(executeModeBWorker).toHaveBeenCalledTimes(1);
     expect(observation).toMatchObject({
       observationId: "v021:observation:investigate-1",
-      provenance: "opencode-worker:project.investigate",
+      provenance: "worker:project.investigate",
       payload: { steps: 1 },
     });
     nuclear.close();
