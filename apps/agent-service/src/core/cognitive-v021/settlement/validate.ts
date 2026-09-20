@@ -3,6 +3,7 @@ import {
   MAX_AUTHORITY_REVISIONS,
   SETTLEMENT_SCHEMA_VERSION,
   type AuthorityEpoch,
+  type CycleTriggerKind,
   type Generation,
   type OccupantId,
   type ThoughtSettlementDraft,
@@ -19,6 +20,14 @@ export type SettlementValidationActiveIdentity = {
   consumedEffectIds?: string[];
   effectReceiptIds?: string[];
   effectAllowlist?: ReadonlySet<string>;
+  /**
+   * Optional-initiative context for the cognition-owned initiativePreference
+   * receiver. Supplied by the Thought runner from the current cycle/event.
+   * Absent context fails closed when preference is present.
+   */
+  triggerKind?: CycleTriggerKind;
+  dueCommitmentPresent?: boolean;
+  continuityRepairPresent?: boolean;
 };
 
 export type ThoughtSettlementValidation =
@@ -120,6 +129,46 @@ function validateIdentity(
     return failure("malformed", "ACTIVE_IDENTITY_MISMATCH");
   }
   return null;
+}
+
+function validateInitiativePreference(
+  value: unknown,
+  active?: SettlementValidationActiveIdentity,
+): ThoughtSettlementValidation | null {
+  if (value === undefined) return null;
+  // Fail closed: preference without proven current context is rejected.
+  if (!active || !isValidOptionalInitiativeContext(active)) {
+    return failure("malformed", "INITIATIVE_PREFERENCE_CONTEXT_INVALID");
+  }
+  if (!isRecord(value)) return failure("malformed", "INITIATIVE_PREFERENCE_INVALID");
+  if (value.stance !== "willing" && value.stance !== "strong") {
+    return failure("malformed", "INITIATIVE_PREFERENCE_INVALID");
+  }
+  if (!isString(value.reason) || value.reason.length === 0 || value.reason.length > 280) {
+    return failure("malformed", "INITIATIVE_PREFERENCE_INVALID");
+  }
+  if (Object.keys(value).some((key) => key !== "stance" && key !== "reason")) {
+    return failure("malformed", "INITIATIVE_PREFERENCE_INVALID");
+  }
+  return null;
+}
+
+/**
+ * Frozen C1 optional-initiative predicate. Preference is valid only for
+ * idle_opportunity, subscription_item, or future_trigger_due cycles with no
+ * due commitment and no continuity-repair context.
+ */
+function isValidOptionalInitiativeContext(active: SettlementValidationActiveIdentity): boolean {
+  if (
+    active.triggerKind !== "idle_opportunity"
+    && active.triggerKind !== "subscription_item"
+    && active.triggerKind !== "future_trigger_due"
+  ) {
+    return false;
+  }
+  if (active.dueCommitmentPresent === true) return false;
+  if (active.continuityRepairPresent === true) return false;
+  return true;
 }
 
 function validateSpeech(value: unknown): ThoughtSettlementValidation | null {
@@ -304,6 +353,11 @@ export function validateThoughtSettlementDraft(
   if (commitmentFailure) return commitmentFailure;
   const speechFailure = validateSpeech(speech);
   if (speechFailure) return speechFailure;
+  const preferenceFailure = validateInitiativePreference(
+    (draft as RecordValue).initiativePreference,
+    active,
+  );
+  if (preferenceFailure) return preferenceFailure;
   const operationsFailure = validateOperations(draft.operations, active);
   if (operationsFailure) return operationsFailure;
   const authority = draft.authority as RecordValue;

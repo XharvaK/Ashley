@@ -395,6 +395,29 @@ function validateCommitments(parent: SemanticRecord, allowlist: ReadonlySet<stri
   return OK;
 }
 
+/**
+ * Structural bound for the cognition-owned optional-initiative signal.
+ * Short Thought-authored why only; absence means no expressed preference.
+ */
+export const INITIATIVE_PREFERENCE_REASON_MAX_LENGTH = 280;
+
+function validateInitiativePreference(value: unknown): ValidationResult {
+  const record = semanticRecord(value);
+  if (!record) return failure("wrong_type", "initiativePreference");
+  const unknown = Object.keys(record).find((key) => ![
+    "stance", "reason",
+  ].includes(key));
+  if (unknown) return failure("unknown_field", `initiativePreference.${unknown}`);
+  if (!own(record, "stance")) return failure("required_field_missing", "initiativePreference.stance");
+  if (record.stance !== "willing" && record.stance !== "strong") return failure("invalid_enum", "initiativePreference.stance");
+  if (!own(record, "reason")) return failure("required_field_missing", "initiativePreference.reason");
+  if (!nonEmptyString(record.reason)) return failure("wrong_type", "initiativePreference.reason");
+  if (record.reason.length > INITIATIVE_PREFERENCE_REASON_MAX_LENGTH) {
+    return failure("wrong_type", "initiativePreference.reason");
+  }
+  return OK;
+}
+
 function validateSpeech(value: unknown): ValidationResult {
   const record = semanticRecord(value);
   if (!record) return failure("wrong_type", "speech");
@@ -729,7 +752,7 @@ function validateSettlementLocalAliases(
 
 function parseSettlementSemantic(value: SemanticRecord, allowlist: ReadonlySet<string>): ThoughtSemanticParseResult {
   const unknown = Object.keys(value).find((key) => ![
-    "kind", "interactionIntent", "speech", "interpretation", "commitments", "workingContextDeltas", "deskDeltas", "concernDeltas",
+    "kind", "interactionIntent", "speech", "initiativePreference", "interpretation", "commitments", "workingContextDeltas", "deskDeltas", "concernDeltas",
     "occupancyDeltas", "futureTriggerDeltas", "subscriptionDeltas", "durableNominations", "evidenceUse",
   ].includes(key));
   if (unknown) return semanticFailure("unknown_field", unknown);
@@ -741,6 +764,19 @@ function parseSettlementSemantic(value: SemanticRecord, allowlist: ReadonlySet<s
 
   let result = validateSpeech(value.speech);
   if (!result.ok) return semanticFailure(result.code, result.field);
+  if (own(value, "initiativePreference")) {
+    // A positive optional-initiative signal attaches only to an authored
+    // initiative draft. speech.mode:none keeps its canonical meaning.
+    const speech = semanticRecord(value.speech);
+    if (!speech || speech.mode !== "draft") {
+      return semanticFailure("wrong_type", "initiativePreference");
+    }
+    if (value.interactionIntent !== "initiate") {
+      return semanticFailure("wrong_type", "initiativePreference");
+    }
+    result = validateInitiativePreference(value.initiativePreference);
+    if (!result.ok) return semanticFailure(result.code, result.field);
+  }
   result = validateInterpretation(value, allowlist);
   if (!result.ok) return semanticFailure(result.code, result.field);
   result = validateCommitments(value, allowlist);

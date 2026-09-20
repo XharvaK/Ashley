@@ -945,6 +945,14 @@ function materializeSemanticSettlement(
     architectureEpoch: "v0.2.1",
     triggerRef: input.trigger.ref,
     ...(semantic.interactionIntent ? { interactionIntent: semantic.interactionIntent } : {}),
+    ...(semantic.initiativePreference
+      ? {
+        initiativePreference: {
+          stance: semantic.initiativePreference.stance,
+          reason: semantic.initiativePreference.reason,
+        },
+      }
+      : {}),
     speech: {
       mode: semantic.speech.mode,
       surfaceDraft: semantic.speech.mode === "draft" ? semantic.speech.surfaceDraft : null,
@@ -3469,6 +3477,9 @@ export async function runCognitiveCycle(
       authorityEpoch: cycle.authorityEpoch,
       consumedEffectIds: inFlight.filter((item) => item.status === "receipted").map((item) => item.effectId),
       effectAllowlist,
+      triggerKind: cycle.triggerKind,
+      dueCommitmentPresent: dueCommitment !== undefined && dueCommitment !== null,
+      continuityRepairPresent: continuityRecovery !== null && continuityRecovery !== undefined,
     });
     if (!validation.ok) {
       if (validation.kind === "stale") {
@@ -3868,6 +3879,7 @@ export async function runCognitiveCycle(
       composeCancelledAttempts: counters.composeCancelledAttempts,
       acceptedSettlements: publication.replayed ? 0 : 1,
       thoughtExecutionProvenance: currentExecutionProvenance(),
+      initiativePreference: settlement.initiativePreference?.stance ?? "absent",
       ownerObligationResolution,
     };
     }

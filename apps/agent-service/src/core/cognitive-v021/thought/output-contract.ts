@@ -173,9 +173,14 @@ const sparseObject = (properties: Record<string, unknown>): Record<string, unkno
   ...strictObject(properties, []), minProperties: 1,
 });
 const nonEmptyStringArraySchema = presentArray({ type: "string" });
+const initiativePreferenceSchema = strictObject({
+  stance: { enum: ["willing", "strong"] },
+  reason: { type: "string", minLength: 1, maxLength: 280 },
+}, ["stance", "reason"]);
 const semanticOutputSettlementSchema = strictObject({
   kind: { const: "settlement" },
   interactionIntent: { enum: ["continue", "initiate"] },
+  initiativePreference: initiativePreferenceSchema,
   interpretation: sparseObject({
     discourseActs: { type: "array", minItems: 1, items: { enum: ["inform", "ask", "correct", "acknowledge", "disagree", "hold", "silence", "other"] } },
     referentBindings: { type: "array", minItems: 1, items: referentBindingSchema },
@@ -492,6 +497,7 @@ export function thoughtOutputCompatibilityInstruction(): string {
     "CapabilityReality field semantics: conversationalRead reports only whether an additional authorized user-requested URL/page read may be performed, not whether supplied conversation content is visible; every included rawConversation entry is directly readable current context regardless of conversationalRead.",
     "Do not emit kernel identity, lifecycle, delivery, or publication fields; Ashley code binds those values.",
     "When the semantic act is social contact, interactionIntent may be continue or initiate; omit it when no contact intent is authored.",
+    "initiativePreference is an optional positive optional-initiative signal: willing expresses interest, strong expresses strong interest. Emit it only on an optional-initiative settlement with speech.mode draft and interactionIntent initiate. Absence means no expressed initiative preference. Preference expresses desire only; the Host decides whether action is possible.",
     `A settlement must include these required sections: ${requiredFields(settlement).join(", ")}.`,
     `Speech shape: ${speechForms(settlement).join("; ")}.`,
     "Speech mustSay contract: every mustSay entry must appear verbatim in surfaceDraft; the host fidelity checker rejects drafts that omit them. Omit mustSay when no exact literal wording is required. Behavioral, stylistic, or procedural directives do not belong in mustSay; put those in presentationDirectives.",

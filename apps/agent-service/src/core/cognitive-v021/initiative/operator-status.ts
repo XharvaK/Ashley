@@ -61,6 +61,16 @@ export type ProactiveOperatorStatus = {
     suppressed: boolean;
     nuclearReservationId: number | null;
   } | null;
+  /**
+   * P2 shadow: stance observed on the latest published settlement, if queried
+   * from existing evidence. Absent means no expressed initiative preference.
+   * Observational only; never a behavior input.
+   */
+  lastInitiativePreference: {
+    stance: "willing" | "strong" | "absent";
+    settlementId: string | null;
+    cycleId: string | null;
+  } | null;
 };
 
 function iso(value: number | null | undefined): string | null {
@@ -175,6 +185,47 @@ export function buildProactiveOperatorStatus(input: {
     lastPeriodicOccurrence: lastPeriodicOccurrence(latest),
     lastProactiveThought: lastProactiveThought(diagnostics),
     lastProactiveDelivery: lastProactiveDelivery(diagnostics),
+    // P2 shadow: stance + refs from the latest accepted settlement row only.
+    // The bounded raw reason is never surfaced here; the settlement owns it.
+    lastInitiativePreference: lastInitiativePreference(input.sidecar),
+  };
+}
+
+function lastInitiativePreference(
+  sidecar: DatabaseSync,
+): ProactiveOperatorStatus["lastInitiativePreference"] {
+  let row: { payload_json?: unknown } | undefined;
+  try {
+    row = sidecar.prepare(
+      `SELECT payload_json FROM settlements ORDER BY rowid DESC LIMIT 1`,
+    ).get() as { payload_json?: unknown } | undefined;
+  } catch {
+    return null;
+  }
+  if (!row || typeof row.payload_json !== "string") return null;
+  let payload: unknown;
+  try {
+    payload = JSON.parse(row.payload_json);
+  } catch {
+    return null;
+  }
+  if (typeof payload !== "object" || payload === null || Array.isArray(payload)) return null;
+  const record = payload as Record<string, unknown>;
+  const preference = record.initiativePreference;
+  if (preference === undefined) {
+    return {
+      stance: "absent",
+      settlementId: typeof record.settlementId === "string" ? record.settlementId : null,
+      cycleId: typeof record.cycleId === "string" ? record.cycleId : null,
+    };
+  }
+  if (typeof preference !== "object" || preference === null || Array.isArray(preference)) return null;
+  const stance = (preference as Record<string, unknown>).stance;
+  if (stance !== "willing" && stance !== "strong") return null;
+  return {
+    stance,
+    settlementId: typeof record.settlementId === "string" ? record.settlementId : null,
+    cycleId: typeof record.cycleId === "string" ? record.cycleId : null,
   };
 }
 
@@ -200,5 +251,6 @@ export function unavailableProactiveOperatorStatus(input: {
     lastPeriodicOccurrence: null,
     lastProactiveThought: null,
     lastProactiveDelivery: null,
+    lastInitiativePreference: null,
   };
 }

@@ -50,6 +50,22 @@ describe("Thought semantic output contract", () => {
   it("accepts each of the four semantic branches", () => {
     expect(parseThoughtSemanticOutput(settlement, refs)).toMatchObject({ ok: true, value: { kind: "settlement" } });
     expect(parseThoughtSemanticOutput({
+      ...settlement,
+      interactionIntent: "initiate",
+      initiativePreference: { stance: "willing", reason: "The Owner asked for a check-in." },
+    }, refs)).toMatchObject({ ok: true, value: { kind: "settlement" } });
+    expect(parseThoughtSemanticOutput({
+      ...settlement,
+      interactionIntent: "initiate",
+      initiativePreference: { stance: "strong", reason: "The Owner asked for a check-in." },
+    }, refs)).toMatchObject({ ok: true, value: { kind: "settlement" } });
+    // Absence stays absent: no default preference is ever generated.
+    expect(parseThoughtSemanticOutput(settlement, refs)).toMatchObject({ ok: true });
+    const absent = parseThoughtSemanticOutput(settlement, refs);
+    expect(absent.ok && "initiativePreference" in absent.value
+      ? (absent.value as { initiativePreference?: unknown }).initiativePreference
+      : undefined).toBeUndefined();
+    expect(parseThoughtSemanticOutput({
       kind: "observation_intent",
       operationKind: "project.inspect",
       request: { projectId: "project-ashley", locator: { kind: "file", path: "README.md" } },
@@ -138,6 +154,82 @@ describe("Thought semantic output contract", () => {
     ]) {
       expect(parseThoughtSemanticOutput(value, refs)).toMatchObject({ ok: false });
     }
+  });
+
+  it("accepts initiativePreference only on draft+initiate settlements and rejects every coupling violation", () => {
+    const preference = { stance: "willing" as const, reason: "The Owner asked for a check-in." };
+    const draftInitiate = { ...settlement, interactionIntent: "initiate" as const };
+
+    // Valid: draft + initiate + valid shape.
+    expect(parseThoughtSemanticOutput({ ...draftInitiate, initiativePreference: preference }, refs))
+      .toMatchObject({ ok: true, value: { kind: "settlement" } });
+    expect(parseThoughtSemanticOutput({ ...draftInitiate, initiativePreference: { ...preference, stance: "strong" } }, refs))
+      .toMatchObject({ ok: true, value: { kind: "settlement" } });
+
+    // speech.mode:none keeps its canonical meaning: preference rejected.
+    expect(parseThoughtSemanticOutput({
+      ...draftInitiate,
+      speech: { mode: "none" },
+      initiativePreference: preference,
+    }, refs)).toMatchObject({ ok: false });
+    // interactionIntent continue / missing: rejected.
+    expect(parseThoughtSemanticOutput({
+      ...settlement,
+      interactionIntent: "continue",
+      initiativePreference: preference,
+    }, refs)).toMatchObject({ ok: false });
+    expect(parseThoughtSemanticOutput({ ...settlement, initiativePreference: preference }, refs))
+      .toMatchObject({ ok: false });
+
+    // Shape violations: empty reason, overlong reason, bad stance, extra key.
+    expect(parseThoughtSemanticOutput({
+      ...draftInitiate,
+      initiativePreference: { stance: "willing", reason: "" },
+    }, refs)).toMatchObject({ ok: false });
+    expect(parseThoughtSemanticOutput({
+      ...draftInitiate,
+      initiativePreference: { stance: "willing", reason: "x".repeat(281) },
+    }, refs)).toMatchObject({ ok: false });
+    expect(parseThoughtSemanticOutput({
+      ...draftInitiate,
+      initiativePreference: { stance: "urgent", reason: "Following up." },
+    }, refs)).toMatchObject({ ok: false });
+    expect(parseThoughtSemanticOutput({
+      ...draftInitiate,
+      initiativePreference: { stance: "willing", reason: "Following up.", timingClass: "now" },
+    }, refs)).toMatchObject({ ok: false });
+
+    // Non-settlement kinds reject the field structurally.
+    expect(parseThoughtSemanticOutput({
+      kind: "observation_intent",
+      operationKind: "project.inspect",
+      request: { projectId: "project-ashley", focus: "apps/agent-service" },
+      purpose: "inspect the current project",
+      evidenceNeed: "bounded file evidence",
+      existingRefs: ["turn-1"],
+      initiativePreference: preference,
+    }, refs)).toMatchObject({ ok: false });
+    expect(parseThoughtSemanticOutput({
+      kind: "effect_intent",
+      operationKind: "workspace.write_file",
+      request: { path: "candidate.txt", content: "bounded" },
+      purpose: "prepare the requested candidate",
+      expectedOutcome: "a candidate file exists",
+      existingRefs: ["turn-1"],
+      initiativePreference: preference,
+    }, refs)).toMatchObject({ ok: false });
+    expect(parseThoughtSemanticOutput({
+      kind: "abstain",
+      reason: "insufficient_evidence",
+      explanation: "The current evidence is not enough.",
+      evidenceRefs: ["turn-1"],
+      initiativePreference: preference,
+    }, refs)).toMatchObject({ ok: false });
+
+    // Contract guidance names the vocabulary without directing subjective content.
+    const instruction = thoughtOutputCompatibilityInstruction();
+    expect(instruction).toContain("initiativePreference");
+    expect(instruction).toContain("desire only");
   });
 
   it("rejects fixed structural shapes that the native schema rejects", () => {
@@ -503,14 +595,15 @@ describe("Thought semantic output contract", () => {
   });
 
   it("keeps protected semantic, wire, and capability fingerprints exact", () => {
-    // Rotation earned by the route-neutral project.inspect request contract
-    // and the optional interimSpeech hold; parser identity is unchanged.
+    // Rotation earned by the route-neutral project.inspect request contract,
+    // the optional interimSpeech hold, and the optional initiativePreference
+    // receiver (willing|strong + bounded reason); parser identity is unchanged.
     expect(THOUGHT_SEMANTIC_SCHEMA_FINGERPRINT).toBe(
-      "sha256:35d923c4c6336ef37ec6c8624f533b27b450ecfadae7e8a2159a7c1505a10121",
+      "sha256:42145eb3e0b6de03e705f2cd1f86d54bd41bf5b848b727b407907f820ce3eb9a",
     );
     const zeroOp = constrainThoughtOutputSchema(buildOperationalEffectNamespaceFromRefs([]));
     expect(zeroOp.wireSchemaFingerprint).toBe(
-      "sha256:152239211dad1cd0f3490f65ac30f3f72523a9395b8a78098daa09a8ea375975",
+      "sha256:eeeffe1fc70e8d771105a405ab494d2338d50926a17117b86fb7530d2ec67140",
     );
     expect(zeroOp.namespaceConstraintFingerprint).toBe(
       "sha256:d277b3804b25361994107886d1f33f779a7501298b01fe483ebe7c795b6e19c6",

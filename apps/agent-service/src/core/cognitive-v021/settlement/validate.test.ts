@@ -74,6 +74,77 @@ describe("v0.2.1 ThoughtSettlementDraft validation", () => {
     expect(validateThoughtSettlementDraft(published, active)).toMatchObject({ ok: false, kind: "malformed" });
   });
 
+  it("accepts initiativePreference only in valid optional-initiative context", () => {
+    const preference = { stance: "strong" as const, reason: "The Owner asked for a check-in." };
+    const context = { triggerKind: "idle_opportunity" as const };
+
+    // Old absent payloads remain valid with or without context.
+    expect(validateThoughtSettlementDraft(makeThoughtDraft(), active)).toMatchObject({ ok: true });
+    expect(validateThoughtSettlementDraft(makeThoughtDraft(), { ...active, ...context })).toMatchObject({ ok: true });
+
+    // Each valid trigger family member is accepted.
+    for (const triggerKind of ["idle_opportunity", "subscription_item", "future_trigger_due"] as const) {
+      expect(validateThoughtSettlementDraft(
+        makeThoughtDraft({ initiativePreference: { ...preference } }),
+        { ...active, triggerKind },
+      )).toMatchObject({ ok: true });
+    }
+    expect(validateThoughtSettlementDraft(
+      makeThoughtDraft({ initiativePreference: { stance: "willing", reason: "Following up." } }),
+      { ...active, ...context },
+    )).toMatchObject({ ok: true });
+
+    // Each excluded trigger is rejected.
+    for (const triggerKind of ["owner_message", "external_message", "commitment_due", "observation_or_receipt", "recovery"] as const) {
+      expect(validateThoughtSettlementDraft(
+        makeThoughtDraft({ initiativePreference: { ...preference } }),
+        { ...active, triggerKind },
+      )).toMatchObject({ ok: false, kind: "malformed", error: "INITIATIVE_PREFERENCE_CONTEXT_INVALID" });
+    }
+
+    // Obligation and repair context rejected even on a valid trigger.
+    expect(validateThoughtSettlementDraft(
+      makeThoughtDraft({ initiativePreference: { ...preference } }),
+      { ...active, ...context, dueCommitmentPresent: true },
+    )).toMatchObject({ ok: false, kind: "malformed", error: "INITIATIVE_PREFERENCE_CONTEXT_INVALID" });
+    expect(validateThoughtSettlementDraft(
+      makeThoughtDraft({ initiativePreference: { ...preference } }),
+      { ...active, ...context, continuityRepairPresent: true },
+    )).toMatchObject({ ok: false, kind: "malformed", error: "INITIATIVE_PREFERENCE_CONTEXT_INVALID" });
+
+    // Unproven context fails closed.
+    expect(validateThoughtSettlementDraft(
+      makeThoughtDraft({ initiativePreference: { ...preference } }),
+      active,
+    )).toMatchObject({ ok: false, kind: "malformed", error: "INITIATIVE_PREFERENCE_CONTEXT_INVALID" });
+    expect(validateThoughtSettlementDraft(
+      makeThoughtDraft({ initiativePreference: { ...preference } }),
+    )).toMatchObject({ ok: false, kind: "malformed", error: "INITIATIVE_PREFERENCE_CONTEXT_INVALID" });
+
+    // Shape violations rejected even in valid context.
+    expect(validateThoughtSettlementDraft(
+      makeThoughtDraft({ initiativePreference: { stance: "urgent" as never, reason: "Following up." } }),
+      { ...active, ...context },
+    )).toMatchObject({ ok: false, kind: "malformed", error: "INITIATIVE_PREFERENCE_INVALID" });
+    expect(validateThoughtSettlementDraft(
+      makeThoughtDraft({ initiativePreference: { stance: "willing", reason: "" } }),
+      { ...active, ...context },
+    )).toMatchObject({ ok: false, kind: "malformed", error: "INITIATIVE_PREFERENCE_INVALID" });
+    expect(validateThoughtSettlementDraft(
+      makeThoughtDraft({ initiativePreference: { stance: "willing", reason: "x".repeat(281) } }),
+      { ...active, ...context },
+    )).toMatchObject({ ok: false, kind: "malformed", error: "INITIATIVE_PREFERENCE_INVALID" });
+    expect(validateThoughtSettlementDraft(
+      makeThoughtDraft({ initiativePreference: { stance: "willing", reason: "Following up.", timingClass: "now" } as never }),
+      { ...active, ...context },
+    )).toMatchObject({ ok: false, kind: "malformed", error: "INITIATIVE_PREFERENCE_INVALID" });
+
+    // No default preference is ever generated: absence stays absent.
+    const accepted = validateThoughtSettlementDraft(makeThoughtDraft(), { ...active, ...context });
+    expect(accepted).toMatchObject({ ok: true });
+    if (accepted.ok) expect(accepted.draft.initiativePreference).toBeUndefined();
+  });
+
   it("validates operational state claims and enforces allowlist", () => {
     const validDraft = makeThoughtDraft({
       commitments: {

@@ -1,12 +1,17 @@
 import { DatabaseSync } from "node:sqlite";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { updateCycleState } from "../cycle/inbox.js";
 import { admitTestCycle, openTestSidecar } from "../test-support.js";
 import { publishSemanticTransaction } from "./publish.js";
 import { applyConcernDelta } from "../concerns/lineage.js";
 import { SETTLEMENT_SCHEMA_VERSION } from "../types.js";
 import type { PublishedCognitiveSettlement } from "../types.js";
-import { openNuclearDb } from "../../db.js";
+import {
+  cleanupClonedNuclearDbs,
+  openClonedNuclearDb,
+} from "../../nuclear-test-template.js";
+
+afterEach(cleanupClonedNuclearDbs);
 import { beginAuthorityTransition, captureAuthorityCurrentness, stabilizeAuthorityBarrier } from "../authority/barrier.js";
 import { applyWorkingContextDelta } from "../evidence/working-context.js";
 import { listWorkingContext } from "../evidence/working-context.js";
@@ -38,7 +43,7 @@ function settlement(overrides: Partial<PublishedCognitiveSettlement> = {}): Publ
 
 function ownerDmRecheckFixture(destinationJson: string | null = null) {
   const sidecar = openTestSidecar();
-  const nuclear = openNuclearDb(new DatabaseSync(":memory:"));
+  const nuclear = openClonedNuclearDb();
   const cycle = admitTestCycle(sidecar, {
     cycleId: "cycle-owner-dm-recheck",
     conversationId: "thread-owner-dm-recheck",
@@ -281,6 +286,39 @@ describe("v0.2.1 semantic publication transaction", () => {
       expect(db.prepare("SELECT COUNT(*) AS count FROM settlements").get()).toMatchObject({ count: 1 });
       expect(db.prepare("SELECT COUNT(*) AS count FROM speech_outbox").get()).toMatchObject({ count: 1 });
       expect(db.prepare("SELECT licensed_text FROM speech_outbox").get()).toMatchObject({ licensed_text: "hello" });
+      // P2 shadow: absent preference is recorded without duplicating any reason.
+      const ledger = db.prepare("SELECT payload_json FROM causal_ledger WHERE cycle_id = 'cycle-1'").get() as { payload_json: string };
+      const parsed = JSON.parse(ledger.payload_json) as { initiativePreference?: unknown };
+      expect(parsed.initiativePreference).toEqual({ stance: "absent", compatibility: "host_compatibility" });
+    } finally {
+      db.close();
+    }
+  });
+
+  it("records P2 shadow stance metadata without duplicating the bounded raw reason", () => {
+    const db = openTestSidecar();
+    try {
+      admitTestCycle(db, { cycleId: "cycle-preference", conversationId: "thread-1", triggerKind: "idle_opportunity", triggerRef: "one", occupantId: "doc", authorityEpoch: 1, nowMs: 1 });
+      const published = publishSemanticTransaction(db, settlement({
+        cycleId: "cycle-preference",
+        interactionIntent: "initiate",
+        initiativePreference: { stance: "strong", reason: "The Owner asked for a check-in." },
+      }), { triggerKind: "idle_opportunity" });
+      expect(published).toMatchObject({ published: true, replayed: false });
+      const stored = db.prepare("SELECT payload_json FROM settlements WHERE cycle_id = 'cycle-preference'").get() as { payload_json: string };
+      // The accepted settlement row owns the bounded raw reason verbatim.
+      expect(stored.payload_json).toContain("The Owner asked for a check-in.");
+      const ledger = db.prepare("SELECT payload_json FROM causal_ledger WHERE cycle_id = 'cycle-preference'").get() as { payload_json: string };
+      const parsed = JSON.parse(ledger.payload_json) as { initiativePreference?: Record<string, unknown> };
+      expect(parsed.initiativePreference).toMatchObject({
+        stance: "strong",
+        settlementId: "settlement-1",
+        cycleId: "cycle-preference",
+        context: "idle_opportunity",
+        compatibility: "expressed",
+      });
+      // Raw reason is never duplicated into the ledger surface.
+      expect(ledger.payload_json).not.toContain("The Owner asked for a check-in.");
     } finally {
       db.close();
     }
@@ -349,7 +387,7 @@ describe("v0.2.1 semantic publication transaction", () => {
 
   it("refuses publication when the Authority barrier is transitioning or the captured vector is stale", () => {
     const sidecar = openTestSidecar();
-    const nuclear = openNuclearDb(new DatabaseSync(":memory:"));
+    const nuclear = openClonedNuclearDb();
     try {
       admitTestCycle(sidecar, { cycleId: "cycle-authority-fence", conversationId: "thread-authority-fence", triggerKind: "owner_message", triggerRef: "one", occupantId: "doc", authorityEpoch: 1, nowMs: 1 });
       const binding = captureAuthorityCurrentness(nuclear);
@@ -651,7 +689,7 @@ describe("v0.2.1 semantic publication transaction", () => {
 
   it("rejects a stale learned-self revision head atomically", () => {
     const sidecar = openTestSidecar();
-    const nuclear = openNuclearDb(new DatabaseSync(":memory:"));
+    const nuclear = openClonedNuclearDb();
     try {
       admitTestCycle(sidecar, { cycleId: "cycle-self-currentness", conversationId: "thread-self-currentness", triggerKind: "owner_message", triggerRef: "one", occupantId: "doc", authorityEpoch: 1, nowMs: 1 });
       const dimensions = { source: "ashley_interpretation" as const, status: "asserted" as const, time: "historical" as const, reliability: "inferred" as const };
@@ -695,7 +733,7 @@ describe("v0.2.1 semantic publication transaction", () => {
 
   it("rejects a stale relationship projection head under the authority fence", () => {
     const sidecar = openTestSidecar();
-    const nuclear = openNuclearDb(new DatabaseSync(":memory:"));
+    const nuclear = openClonedNuclearDb();
     try {
       admitTestCycle(sidecar, { cycleId: "cycle-rel-currentness", conversationId: "thread-rel-currentness", triggerKind: "owner_message", triggerRef: "one", occupantId: "doc", authorityEpoch: 1, nowMs: 1 });
       nuclear.prepare(
@@ -728,7 +766,7 @@ describe("v0.2.1 semantic publication transaction", () => {
 
 function systemNoticeRecheckFixture(reason = "context_allocation_required_overflow") {
   const sidecar = openTestSidecar();
-  const nuclear = openNuclearDb(new DatabaseSync(":memory:"));
+  const nuclear = openClonedNuclearDb();
   const cycle = admitTestCycle(sidecar, {
     cycleId: "cycle-system-recheck",
     conversationId: "thread-system-recheck",
@@ -778,7 +816,7 @@ function productionSystemNoticeFailureFixture(options: { terminal: boolean }): {
   nuclear: DatabaseSync;
 } {
   const sidecar = openTestSidecar();
-  const nuclear = openNuclearDb(new DatabaseSync(":memory:"));
+  const nuclear = openClonedNuclearDb();
   const fixture = PRODUCTION_SYSTEM_NOTICE_FIXTURE;
   admitTestCycle(sidecar, {
     cycleId: fixture.cycleId,

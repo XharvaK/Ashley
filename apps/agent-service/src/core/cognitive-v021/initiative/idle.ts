@@ -164,6 +164,13 @@ export type IdleTickResult = {
   idleEligible?: boolean;
   semanticAbsenceClaim?: "yes" | "no";
   thoughtExecutionProvenance?: ThoughtExecutionProvenance;
+  /**
+   * P2 shadow: stance observed on the published settlement, if any. Absence
+   * means no expressed initiative preference. Never branched on: admission,
+   * floor, cap, publication, and delivery behavior are identical with or
+   * without it.
+   */
+  initiativePreference?: "willing" | "strong" | "absent";
 };
 
 /** Scheduler-only overlap guard. It is not a budget counter or capacity source. */
@@ -776,6 +783,8 @@ async function executeAdmittedThought(
       idleEligible: true,
       semanticAbsenceClaim: "no",
       thoughtExecutionProvenance: result.thoughtExecutionProvenance ?? UNKNOWN_EXECUTION_PROVENANCE,
+      // P2 shadow record only: presence here never alters any branch above or below.
+      initiativePreference: result.initiativePreference ?? "absent",
     };
   } catch {
     try { settleUnsettledPrivateReservation(db, reservation.reservationId, nowMs); } catch { /* preserve the idle failure result */ }

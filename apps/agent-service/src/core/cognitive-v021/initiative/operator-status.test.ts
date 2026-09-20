@@ -82,9 +82,52 @@ describe("proactive operator status", () => {
         lastProactiveDelivery: null,
       });
       expect(status).not.toHaveProperty("lastUserMessageAt");
+      expect(status.lastInitiativePreference).toBeNull();
       expect(nuclear.prepare(
         "SELECT updated_at FROM mem_threads WHERE id = ?",
       ).get(conversationId)).toEqual(before);
+    } finally {
+      observabilityDb.close();
+      nuclear.close();
+      sidecar.close();
+    }
+  });
+
+  it("surfaces P2 shadow stance from the latest accepted settlement without the raw reason", () => {
+    const sidecar = openTestSidecar();
+    const nuclear = openNuclearDb(new DatabaseSync(":memory:"));
+    const observabilityDb = new DatabaseSync(":memory:");
+    initObservabilitySchema(observabilityDb);
+    try {
+      const conversationId = resolveActiveThread(nuclear, "doc");
+      sidecar.prepare(
+        `INSERT INTO settlements (settlement_id, cycle_id, generation, payload_json)
+         VALUES (?, ?, ?, ?)`,
+      ).run(
+        "settlement-preference",
+        "cycle-preference",
+        1,
+        JSON.stringify({
+          settlementId: "settlement-preference",
+          cycleId: "cycle-preference",
+          interactionIntent: "initiate",
+          initiativePreference: { stance: "willing", reason: "The Owner asked for a check-in." },
+        }),
+      );
+      const status = buildProactiveOperatorStatus({
+        sidecar,
+        nuclear,
+        observabilityDb,
+        ownerId: "doc",
+        legacy,
+        nowMs: 200,
+      });
+      expect(status.lastInitiativePreference).toEqual({
+        stance: "willing",
+        settlementId: "settlement-preference",
+        cycleId: "cycle-preference",
+      });
+      expect(JSON.stringify(status)).not.toContain("The Owner asked for a check-in.");
     } finally {
       observabilityDb.close();
       nuclear.close();

@@ -429,6 +429,19 @@ export function publishSemanticTransaction(
       fidelity: options.fidelity ?? "skipped",
       thoughtUnavailable: options.thoughtUnavailable ?? false,
       architectureEpoch: settlement.architectureEpoch,
+      // P2 shadow: stance + refs + context classification only. The bounded raw
+      // reason lives in the accepted settlement row; it is never duplicated here.
+      ...(settlement.initiativePreference
+        ? {
+          initiativePreference: {
+            stance: settlement.initiativePreference.stance,
+            settlementId: settlement.settlementId,
+            cycleId: settlement.cycleId,
+            context: options.triggerKind ?? "owner_message",
+            compatibility: "expressed",
+          },
+        }
+        : { initiativePreference: { stance: "absent", compatibility: "host_compatibility" } }),
     };
     db.prepare(
       `INSERT INTO causal_ledger

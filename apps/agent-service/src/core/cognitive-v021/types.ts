@@ -891,11 +891,23 @@ export type ThoughtEvidenceUse = {
   openIntentRefs?: readonly ExistingRef[];
 };
 
+export type InitiativePreference = {
+  stance: "willing" | "strong";
+  reason: string;
+};
+
 export type SettlementSemanticOutput = {
   kind: "settlement";
   speech: ThoughtSpeechIntent;
   /** Thought-authored declared contact intent; Host enforces it at admission. */
   interactionIntent?: "continue" | "initiate";
+  /**
+   * Optional positive optional-initiative signal. Absence means no expressed
+   * initiative preference. Valid only with speech.mode draft and
+   * interactionIntent initiate in an optional-initiative context; Host
+   * validates and never treats it as delivery authority.
+   */
+  initiativePreference?: InitiativePreference;
   interpretation?: ThoughtInterpretation;
   commitments?: ThoughtCommitments;
   workingContextDeltas?: readonly WorkingContextSemanticDelta[];
@@ -1095,6 +1107,8 @@ export type ThoughtSettlementDraft = {
   triggerRef: string;
   /** Thought-authored declared contact intent; Host enforces it at admission. */
   interactionIntent?: "continue" | "initiate";
+  /** Optional positive optional-initiative signal; absence means no expressed preference. */
+  initiativePreference?: InitiativePreference;
   interpretation?: {
     discourseActs?: DiscourseAct[];
     referentBindings?: ReferentBinding[];
@@ -1751,6 +1765,12 @@ export type KernelRunResult = {
   acceptedSettlements: number;
   /** Optional because legacy runner/test seams remain structurally compatible. */
   thoughtExecutionProvenance?: ThoughtExecutionProvenance;
+  /**
+   * P2 shadow: stance carried by the published settlement, if any. Absent
+   * means no expressed initiative preference. Observational only; no
+   * admission, floor, cap, publication, or delivery behavior may depend on it.
+   */
+  initiativePreference?: InitiativePreference["stance"] | "absent";
   /** Host-derived owner handoff/resolution truth for durable dispatch. */
   ownerObligationResolution?: OwnerObligationResolution;
   /** Host-derived exact successor proof for a stale Owner event. */
