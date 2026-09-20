@@ -1,15 +1,58 @@
 import { describe, it, expect } from "vitest";
-import type { ConversationEvidenceRecord, RetrievalHit, ThoughtInput } from "../../types.js";
+import type { ConversationEvidenceRecord, Observation, RetrievalHit, ThoughtInput } from "../../types.js";
 import { mintEffectRef } from "../../effect/effect-ref.js";
 import {
   projectThoughtInput,
   projectRetrievalHit,
+  modelVisibleThoughtProjection,
   computeSemanticProjectionHash,
   computeDispatchMessagesHash,
   type CompactMemoryEvidence,
   type CompactConversationEvidence,
+  type ProjectedThoughtInput,
 } from "../projection.js";
 import { thoughtMessagesForProjection } from "../projection-allocator/allocator.js";
+
+function makeThoughtInput(overrides: Partial<ThoughtInput> = {}): ThoughtInput {
+  return {
+    cycleId: "cycle-1",
+    generation: 1,
+    occupantId: "occupant-1",
+    authorityEpoch: 1,
+    trigger: { kind: "owner_message", ref: "msg-1" },
+    rawConversation: [],
+    workingContext: [],
+    occupancy: [],
+    constitution: { constitutional: [], stableSelf: [] },
+    learnedSelfSlice: { dispositions: [], interests: [] },
+    capabilityReality: {
+      vision: false,
+      attachmentText: false,
+      conversationalRead: false,
+      webSearch: false,
+      canOfferProjectInspection: false,
+      canOfferWorkspace: false,
+      canOfferVerification: false,
+      canOfferAuthorship: false,
+      canOfferBoundedOperation: false,
+      canOfferInquiry: false,
+      canOfferPatchExport: false,
+      approvedProjectIds: [],
+    },
+    observations: [],
+    retrieval: {
+      request: { triggerTerms: [], workingContextTopics: [], assertionKeys: [], includeLogSearch: true },
+      hits: [],
+      state: "ready",
+      miss: true,
+    },
+    inFlight: [],
+    authorityObjections: [],
+    runtimeCondition: { fallback: false, compression: false, lookupFailed: false, thoughtUnavailable: false },
+    rememberDirective: null,
+    ...overrides,
+  };
+}
 
 describe("Model-Visible Thought Projection", () => {
   it("projects memory hit into compact epistemic evidence", () => {
@@ -312,5 +355,98 @@ describe("Model-Visible Thought Projection", () => {
       status: "in_flight",
     });
     expect((projected.inFlight[0] as any).effectId).toBeUndefined();
+  });
+
+  it("omits root payload.selectedModelId only at the model-visible boundary", () => {
+    const workerPayload = (): Record<string, unknown> => ({
+      operation: "project.investigate",
+      projectId: "project-ashley",
+      selectedModelId: "opencode/nemotron-3.5-lightning-free",
+      summary: "worker used opencode/nemotron-3.5-lightning-free prose",
+      steps: [{ operation: "project.read_file", state: "succeeded", error: null, observation: "file text" }],
+      lastObservation: "file text",
+      nested: { selectedModelId: "opencode/nemotron-3.5-lightning-free" },
+    });
+    const observationFor = (observationId: string, provenance: string): Observation => ({
+      observationId,
+      cycleId: "cycle-1",
+      generation: 1,
+      derived: false,
+      replaySafe: true,
+      modality: "tool",
+      payload: workerPayload(),
+      provenance,
+      dataClassification: "never_public",
+      secretOmitted: true,
+    });
+    const detached = observationFor("v021:observation:detached:op-1", "worker:project.investigate");
+    const direct = observationFor("v021:observation:req-1", "worker:project.investigate");
+    const scalar: Observation = {
+      ...detached,
+      observationId: "obs-scalar",
+      payload: "plain text evidence",
+    };
+    const input = makeThoughtInput({ observations: [detached, direct, scalar] });
+    const base = projectThoughtInput(input, []).projected;
+
+    // A. RAW / CARRIER TRUTH: projectThoughtInput keeps the raw key.
+    for (const observation of base.observations) {
+      if (typeof observation.payload === "object" && observation.payload !== null) {
+        expect((observation.payload as Record<string, unknown>).selectedModelId)
+          .toBe(observation.observationId === "obs-scalar" ? undefined : "opencode/nemotron-3.5-lightning-free");
+      }
+    }
+
+    const visible = modelVisibleThoughtProjection(base) as Pick<ProjectedThoughtInput, "observations">;
+
+    // B. MODEL-VISIBLE OMISSION on both detached-shaped and direct-shaped rows.
+    expect(visible.observations).toHaveLength(3);
+    for (const observation of visible.observations) {
+      if (typeof observation.payload === "object" && observation.payload !== null) {
+        const payload = observation.payload as Record<string, unknown>;
+        expect(Object.prototype.hasOwnProperty.call(payload, "selectedModelId")).toBe(false);
+      }
+    }
+    expect(visible.observations[2]?.payload).toBe("plain text evidence");
+
+    // C. NON-MUTATION: original carrier, rows, and payload objects unchanged.
+    expect(base.observations).toHaveLength(3);
+    expect((base.observations[0]?.payload as Record<string, unknown>).selectedModelId)
+      .toBe("opencode/nemotron-3.5-lightning-free");
+    expect((detached.payload as Record<string, unknown>).selectedModelId)
+      .toBe("opencode/nemotron-3.5-lightning-free");
+    expect(visible.observations[0]).not.toBe(base.observations[0]);
+    expect(visible.observations[0]?.payload).not.toBe(base.observations[0]?.payload);
+
+    // D. FIELD STABILITY: everything else deep-equal; nested/prose untouched.
+    for (const [index, observation] of visible.observations.entries()) {
+      const raw = base.observations[index]?.payload as Record<string, unknown>;
+      const shown = observation.payload as Record<string, unknown>;
+      if (typeof raw !== "object" || raw === null) continue;
+      expect(shown.operation).toEqual(raw.operation);
+      expect(shown.projectId).toEqual(raw.projectId);
+      expect(shown.summary).toEqual(raw.summary);
+      expect(shown.steps).toEqual(raw.steps);
+      expect(shown.lastObservation).toEqual(raw.lastObservation);
+      expect(shown.nested).toEqual(raw.nested);
+      expect(observation.provenance).toBe(base.observations[index]?.provenance);
+      expect(observation.observationId).toBe(base.observations[index]?.observationId);
+    }
+
+    // E. HASH / WIRE: hash witnesses the stripped view; wire user content omits root key only.
+    const expectedHash = computeSemanticProjectionHash({ ...base, observations: visible.observations });
+    expect(computeSemanticProjectionHash(base)).toBe(expectedHash);
+    const messages = thoughtMessagesForProjection(base);
+    const wireUser = JSON.parse(messages[1]?.content as string) as Pick<ProjectedThoughtInput, "observations">;
+    for (const observation of wireUser.observations) {
+      if (typeof observation.payload === "object" && observation.payload !== null && !Array.isArray(observation.payload)) {
+        const payload = observation.payload as Record<string, unknown>;
+        expect(Object.prototype.hasOwnProperty.call(payload, "selectedModelId")).toBe(false);
+      }
+    }
+    // Nested/prose occurrences are NOT deep-scrubbed: nested key survives by contract.
+    expect((wireUser.observations[0]?.payload as Record<string, unknown>).nested)
+      .toEqual({ selectedModelId: "opencode/nemotron-3.5-lightning-free" });
+    expect(JSON.stringify(base.observations)).toContain("selectedModelId");
   });
 });

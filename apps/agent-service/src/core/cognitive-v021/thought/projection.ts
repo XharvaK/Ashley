@@ -168,6 +168,33 @@ export function attachSourceCurrentness(
 }
 
 /**
+ * Derive the model-visible observation view. Executor/model identity is a
+ * Host-owned execution fact, not cognition evidence: the raw durable
+ * Observation retains it, and only this derived view omits the single
+ * top-level payload key `selectedModelId`. Pure and non-mutating: inputs,
+ * observations, and payloads are copied, never edited in place. No
+ * deep-scrub of strings and no nested-key handling.
+ */
+function modelVisibleObservations(observations: Observation[]): Observation[] {
+  let changed = false;
+  const mapped = observations.map((observation) => {
+    const payload = observation.payload;
+    if (
+      typeof payload !== "object"
+      || payload === null
+      || Array.isArray(payload)
+      || !Object.prototype.hasOwnProperty.call(payload, "selectedModelId")
+    ) {
+      return observation;
+    }
+    changed = true;
+    const { selectedModelId: _omitted, ...rest } = payload as Record<string, unknown>;
+    return { ...observation, payload: rest };
+  });
+  return changed ? mapped : observations;
+}
+
+/**
  * Return the exact model-visible projection. C2's legacy identity and
  * capability fields remain readable in-process but are not serialized beside
  * their canonical orientation-kernel owners.
@@ -175,16 +202,30 @@ export function attachSourceCurrentness(
 export function modelVisibleThoughtProjection(
   projected: ProjectedThoughtInput,
 ): Record<string, unknown> {
+  const visibleObservations = modelVisibleObservations(projected.observations);
   const occupiedConcernProjection = getOccupiedConcernProjection(projected.occupancy);
   if (projected.orientationKernel === undefined) {
-    return occupiedConcernProjection === undefined
-      ? projected
-      : { ...projected, occupancy: occupiedConcernProjection };
+    if (visibleObservations === projected.observations && occupiedConcernProjection === undefined) {
+      return projected;
+    }
+    const result: Record<string, unknown> = {
+      ...projected,
+      observations: visibleObservations,
+      ...(occupiedConcernProjection === undefined ? {} : { occupancy: occupiedConcernProjection }),
+    };
+    for (const key of Object.getOwnPropertyNames(projected)) {
+      const descriptor = Object.getOwnPropertyDescriptor(projected, key);
+      if (descriptor && !descriptor.enumerable) {
+        Object.defineProperty(result, key, descriptor);
+      }
+    }
+    return result;
   }
 
   const visibleProjection: Record<string, unknown> = Object.fromEntries(
     Object.entries(projected).filter(([key]) => key !== "constitution" && key !== "capabilityReality"),
   );
+  visibleProjection.observations = visibleObservations;
   if (occupiedConcernProjection !== undefined) {
     visibleProjection.occupancy = occupiedConcernProjection;
   }
