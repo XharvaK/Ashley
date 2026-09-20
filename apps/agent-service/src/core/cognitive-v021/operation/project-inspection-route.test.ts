@@ -69,17 +69,84 @@ describe("project.inspect Host routing", () => {
     expect(routeProjectInspectionRequest(request)).toBe("worker");
     expect(directProjectInspectionRequest(request)).toBeNull();
   });
+});
 
-  it("translates worker requests at the Host boundary without route or model fields", () => {
+describe("workerProjectInspectionRequest ownership boundary (O-H12a/SD11)", () => {
+  it("omits maxSteps entirely when Thought authored none", () => {
+    const translated = workerProjectInspectionRequest({ projectId: "project-ashley" });
+    expect(translated).toEqual({ projectId: "project-ashley" });
+    expect(translated).not.toHaveProperty("maxSteps");
+  });
+
+  it.each([3, 8, 99])("transports authored maxSteps %i verbatim at this layer", (maxSteps) => {
+    expect(workerProjectInspectionRequest({ projectId: "project-ashley", maxSteps }))
+      .toEqual({ projectId: "project-ashley", maxSteps });
+  });
+
+  it.each([0, -4, 2.5, "8"])(
+    "does not reinterpret a present maxSteps %p into absence or a default",
+    (maxSteps) => {
+      const translated = workerProjectInspectionRequest({ projectId: "project-ashley", maxSteps });
+      expect(translated).toHaveProperty("maxSteps", maxSteps);
+    },
+  );
+
+  it("preserves authored focus verbatim", () => {
     expect(workerProjectInspectionRequest({
+      projectId: "project-ashley",
+      focus: "compare the router and worker adapter",
+    })).toEqual({
+      projectId: "project-ashley",
+      focus: "compare the router and worker adapter",
+    });
+  });
+
+  it("transports an authored question verbatim as worker focus", () => {
+    expect(workerProjectInspectionRequest({
+      projectId: "project-ashley",
+      question: "Why is this file relevant?",
+    })).toEqual({
+      projectId: "project-ashley",
+      focus: "Why is this file relevant?",
+    });
+  });
+
+  it("prefers authored focus over an authored question", () => {
+    expect(workerProjectInspectionRequest({
+      projectId: "project-ashley",
+      focus: "authored focus",
+      question: "authored question",
+    })).toEqual({
+      projectId: "project-ashley",
+      focus: "authored focus",
+    });
+  });
+
+  it("never synthesizes locator prose when no focus or question is authored", () => {
+    const translated = workerProjectInspectionRequest({
+      projectId: "project-ashley",
+      locator: { kind: "file", path: "README.md" },
+    });
+    expect(translated).toEqual({ projectId: "project-ashley" });
+    expect(JSON.stringify(translated)).not.toContain("inspect locator");
+  });
+
+  it("drops locator structure without prose even when extra context forces the worker route", () => {
+    const translated = workerProjectInspectionRequest({
       projectId: "project-ashley",
       locator: { kind: "file", path: "README.md" },
       question: "Why is this file relevant?",
       provider: "forbidden-to-thought",
-    })).toEqual({
+    });
+    expect(translated).toEqual({
       projectId: "project-ashley",
       focus: "Why is this file relevant?",
-      maxSteps: 8,
     });
+    expect(JSON.stringify(translated)).not.toContain("inspect locator");
+  });
+
+  it("returns null without a usable projectId", () => {
+    expect(workerProjectInspectionRequest({})).toBeNull();
+    expect(workerProjectInspectionRequest({ projectId: "   " })).toBeNull();
   });
 });

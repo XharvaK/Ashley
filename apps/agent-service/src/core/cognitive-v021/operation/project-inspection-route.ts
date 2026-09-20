@@ -73,20 +73,15 @@ export function directProjectInspectionRequest(value: unknown): CognitionInspect
 export function workerProjectInspectionRequest(value: unknown): Record<string, unknown> | null {
   const request = record(value);
   if (!request || !nonEmpty(request.projectId)) return null;
-  const locator = record(request.locator);
   const focus = nonEmpty(request.focus)
     ? request.focus
     : nonEmpty(request.question)
       ? request.question
-      : locator
-        ? `inspect locator ${JSON.stringify(locator)}`
-        : undefined;
+      : undefined;
   return {
     projectId: request.projectId,
     ...(focus ? { focus } : {}),
-    maxSteps: typeof request.maxSteps === "number" && Number.isSafeInteger(request.maxSteps)
-      ? request.maxSteps
-      : 8,
+    ...(request.maxSteps === undefined ? {} : { maxSteps: request.maxSteps }),
   };
 }
 

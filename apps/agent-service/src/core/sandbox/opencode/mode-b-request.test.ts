@@ -37,8 +37,37 @@ describe("Mode-B request contract", () => {
 
   it("does not overload project.inspect", () => {
     expect(validateModeBRequest({
+      kind: "project.investigate",
+      request: { projectId: "project-ashley" },
+    })).toMatchObject({
+      ok: true,
+      value: { kind: "project.investigate", projectId: "project-ashley", maxSteps: MODE_B_HOST_MAX_STEPS },
+    });
+    expect(validateModeBRequest({
       kind: "project.inspect",
       request: { projectId: "project-ashley" },
     })).toMatchObject({ ok: false, error: "wrong_kind" });
+  });
+
+  it("owns absence, clamp, and rejection at the X-layer boundary (O-H12a/SD11)", () => {
+    expect(MODE_B_HOST_MAX_STEPS).toBe(8);
+    expect(validateModeBRequest({
+      kind: "project.investigate",
+      request: { projectId: "project-ashley", maxSteps: 3 },
+    })).toMatchObject({ ok: true, value: { maxSteps: 3 } });
+    expect(validateModeBRequest({
+      kind: "project.investigate",
+      request: { projectId: "project-ashley" },
+    })).toMatchObject({ ok: true, value: { maxSteps: MODE_B_HOST_MAX_STEPS } });
+    for (const maxSteps of [0, -4, 2.5, "8"]) {
+      expect(validateModeBRequest({
+        kind: "project.investigate",
+        request: { projectId: "project-ashley", maxSteps },
+      })).toMatchObject({ ok: false, error: "invalid_max_steps" });
+    }
+    expect(validateModeBRequest({
+      kind: "project.investigate",
+      request: { projectId: "project-ashley", locator: { kind: "file", path: "README.md" } },
+    })).toMatchObject({ ok: false, error: "unknown_field" });
   });
 });
