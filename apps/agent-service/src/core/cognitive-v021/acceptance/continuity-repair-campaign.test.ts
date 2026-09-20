@@ -910,6 +910,341 @@ describe("Continuity Repair Campaign", () => {
     });
   });
 
+  describe("Single fulfillment owner: R1 defers to serviceable authoritative speech", () => {
+    function insertAbortedSpeechRow(
+      nuclear: DatabaseSync,
+      sidecar: DatabaseSync,
+      conversationId: string,
+      cycleId: string,
+      generation: number,
+      licensedText: string,
+    ) {
+      const outbox = insertOutboxPending(sidecar, {
+        settlementId: `settlement-own-${cycleId}`,
+        cycleId,
+        generation,
+        conversationId,
+        licensedText,
+        deliveryIntent: { ...reactiveIntent(conversationId) },
+      });
+      sidecar.prepare("UPDATE speech_outbox SET send_status = 'send_failure' WHERE outbox_id = ?").run(outbox.outboxId);
+      const insertRes = nuclear.prepare(
+        `INSERT INTO delivery_reservations
+           (owner_id, channel, thread_id, trigger, delivery_lane, state,
+            draft_text, created_at, cognitive_v021_projection_key,
+            speech_outbox_id, destination_json, error_category, finalization_reason)
+         VALUES ('doc', 'discord', ?, 'reactive', 'reactive', 'aborted', ?, ?, ?, ?, NULL, 'send_failure', 'send_failure')`,
+      ).run(conversationId, licensedText, "1970-01-01T00:00:01.000Z", outbox.projectionKey, outbox.outboxId);
+      return { outbox, reservationId: Number(insertRes.lastInsertRowid) };
+    }
+
+    function settleAdmissionEvent(sidecar: DatabaseSync, triggerRef: string) {
+      // admitTestCycle records its trigger as a nonterminal inbox row; a
+      // settled test turn must not leave a phantom open continuation.
+      sidecar.prepare(
+        `UPDATE inbox_events SET state = 'terminal', status = 'consumed',
+           terminal_reason = 'completed' WHERE id = ?`,
+      ).run(triggerRef);
+    }
+
+    function quarantineOwnerEvent(sidecar: DatabaseSync, id: string, conversationId: string, evidenceRowId: string, createdAtMs: number) {
+      const event = appendInboxEvent(sidecar, {
+        id,
+        conversationId,
+        kind: "owner_utterance",
+        payload: { evidenceRowId, ownerId: "doc" },
+        createdAtMs,
+      });
+      sidecar.prepare(
+        `UPDATE inbox_events SET state = 'quarantined', status = 'failed_terminal',
+           terminal_reason = 'transient_retryable' WHERE id = ?`,
+      ).run(event.id);
+      return event;
+    }
+
+    it("1: recoverable send_failure speech owns the tail; R1 stays out and delivery closes it", () => {
+      const { sidecar, nuclear } = setupDeliveryDatabases();
+      try {
+        const conversationId = "thread-own-1";
+        const evA = appendOwnerUtterance(sidecar, {
+          conversationId, text: "A: production-shaped question", discordMessageIds: ["own-1-a"], nowMs: 100,
+        });
+        const eventA = quarantineOwnerEvent(sidecar, "event-own-1-a", conversationId, evA.rowId, 100);
+        const cycle = admitTestCycle(sidecar, {
+          cycleId: "cycle-own-1",
+          conversationId,
+          triggerKind: "owner_message",
+          triggerRef: "owner-own-1",
+          occupantId: "doc",
+          authorityEpoch: 1,
+          nowMs: 200,
+        });
+        settleAdmissionEvent(sidecar, "owner-own-1");
+        appendCycleLogIds(sidecar, cycle.cycleId, [evA.rowId], 200);
+        const { outbox, reservationId } = insertAbortedSpeechRow(
+          nuclear, sidecar, conversationId, cycle.cycleId, cycle.generation, "Authoritative answer.",
+        );
+
+        // R1 must not independently re-run Thought while delivery owns it.
+        const verdict = checkUnansweredOwnerEligibility(sidecar, {
+          id: eventA.id,
+          conversationId,
+          kind: "owner_utterance",
+          payloadJson: JSON.stringify({ evidenceRowId: evA.rowId, ownerId: "doc" }),
+          createdAtMs: 100,
+          terminalReason: "transient_retryable",
+          lastError: "transient_retryable",
+          wakeId: null,
+        });
+        expect(verdict).toEqual({ eligible: false, reason: "delivery_owns_obligation" });
+        expect(serviceUnansweredOwnerRecovery(sidecar, { nowMs: 1_000 }).createdRepairs).toHaveLength(0);
+
+        // The delivery path still owns and completes it: recover, claim, recheck.
+        expect(reconcileUnfulfilledFailedSpeechReservations(nuclear, sidecar, "doc").recovered).toBe(1);
+        const claimed = claimPendingCognitiveDeliveries(nuclear, { ownerId: "doc", nowMs: 2_000 });
+        expect(claimed.map((d) => d.reservationId)).toContain(reservationId);
+        expect(
+          recheckOwnerDmPublicationReservation(nuclear, reservationId, 2_100, { cognitiveSidecar: sidecar }),
+        ).toEqual({ ok: true });
+        // Recovered to projected and claimed to sending on the nuclear side
+        // (direct claim leaves the sidecar projection untouched; the HTTP
+        // claim path marks it sending via markProjectedDeliverySending).
+        expect(getSpeechOutbox(sidecar, outbox.outboxId)?.sendStatus).toBe("projected");
+        expect(nuclear.prepare("SELECT state FROM delivery_reservations WHERE id = ?").get(reservationId))
+          .toMatchObject({ state: "sending" });
+      } finally {
+        sidecar.close();
+        nuclear.close();
+      }
+    });
+
+    it("2: projected/reserved/sending speech is not duplicated by R1", () => {
+      const { sidecar, nuclear } = setupDeliveryDatabases();
+      try {
+        const conversationId = "thread-own-2";
+        const evA = appendOwnerUtterance(sidecar, {
+          conversationId, text: "A: in-flight question", discordMessageIds: ["own-2-a"], nowMs: 100,
+        });
+        const eventA = quarantineOwnerEvent(sidecar, "event-own-2-a", conversationId, evA.rowId, 100);
+        const cycle = admitTestCycle(sidecar, {
+          cycleId: "cycle-own-2",
+          conversationId,
+          triggerKind: "owner_message",
+          triggerRef: "owner-own-2",
+          occupantId: "doc",
+          authorityEpoch: 1,
+          nowMs: 200,
+        });
+        settleAdmissionEvent(sidecar, "owner-own-2");
+        appendCycleLogIds(sidecar, cycle.cycleId, [evA.rowId], 200);
+        const outbox = insertOutboxPending(sidecar, {
+          settlementId: `settlement-${cycle.cycleId}`,
+          cycleId: cycle.cycleId,
+          generation: cycle.generation,
+          conversationId,
+          licensedText: "In-flight answer.",
+          deliveryIntent: { ...reactiveIntent(conversationId) },
+        });
+        sidecar.prepare("UPDATE speech_outbox SET send_status = 'sending' WHERE outbox_id = ?").run(outbox.outboxId);
+        nuclear.prepare(
+          `INSERT INTO delivery_reservations
+             (owner_id, channel, thread_id, trigger, delivery_lane, state,
+              draft_text, created_at, cognitive_v021_projection_key,
+              speech_outbox_id, destination_json, delivery_lease_expires_at)
+           VALUES ('doc', 'discord', ?, 'reactive', 'reactive', 'sending', ?, ?, ?, ?, NULL, ?)`,
+        ).run(conversationId, "In-flight answer.", "1970-01-01T00:00:01.000Z", outbox.projectionKey, outbox.outboxId, "1970-01-01T00:10:00.000Z");
+
+        const verdict = checkUnansweredOwnerEligibility(sidecar, {
+          id: eventA.id,
+          conversationId,
+          kind: "owner_utterance",
+          payloadJson: JSON.stringify({ evidenceRowId: evA.rowId, ownerId: "doc" }),
+          createdAtMs: 100,
+          terminalReason: "transient_retryable",
+          lastError: "transient_retryable",
+          wakeId: null,
+        });
+        expect(verdict).toEqual({ eligible: false, reason: "delivery_owns_obligation" });
+        expect(serviceUnansweredOwnerRecovery(sidecar, { nowMs: 1_000 }).createdRepairs).toHaveLength(0);
+      } finally {
+        sidecar.close();
+        nuclear.close();
+      }
+    });
+
+    it("3: truly suppressed speech leaves R1 eligible for the unresolved obligation", () => {
+      const sidecar = openTestSidecar();
+      try {
+        const conversationId = "thread-own-3";
+        const evA = appendOwnerUtterance(sidecar, {
+          conversationId, text: "A: revoked answer needed", discordMessageIds: ["own-3-a"], nowMs: 100,
+        });
+        const eventA = quarantineOwnerEvent(sidecar, "event-own-3-a", conversationId, evA.rowId, 100);
+        const cycle = admitTestCycle(sidecar, {
+          cycleId: "cycle-own-3",
+          conversationId,
+          triggerKind: "owner_message",
+          triggerRef: "owner-own-3",
+          occupantId: "doc",
+          authorityEpoch: 1,
+          nowMs: 200,
+        });
+        settleAdmissionEvent(sidecar, "owner-own-3");
+        appendCycleLogIds(sidecar, cycle.cycleId, [evA.rowId], 200);
+        const outbox = insertOutboxPending(sidecar, {
+          settlementId: `settlement-${cycle.cycleId}`,
+          cycleId: cycle.cycleId,
+          generation: cycle.generation,
+          conversationId,
+          licensedText: "Revoked wording.",
+          deliveryIntent: { ...reactiveIntent(conversationId) },
+        });
+        sidecar.prepare(
+          "UPDATE speech_outbox SET send_status = 'suppressed', suppressed = 1 WHERE outbox_id = ?",
+        ).run(outbox.outboxId);
+
+        const result = serviceUnansweredOwnerRecovery(sidecar, { nowMs: 1_000 });
+        expect(result.createdRepairs).toHaveLength(1);
+        expect(result.createdRepairs[0]!.predecessorEventId).toBe(eventA.id);
+        expect(result.createdRepairs[0]!.outstandingOwnerEvidenceRefs).toEqual([evA.rowId]);
+      } finally {
+        sidecar.close();
+      }
+    });
+
+    it("4: an unrelated obligation is not blocked by another obligation's pending speech", () => {
+      const sidecar = openTestSidecar();
+      try {
+        const conversationId = "thread-own-4";
+        const evA = appendOwnerUtterance(sidecar, {
+          conversationId, text: "A: answered elsewhere", discordMessageIds: ["own-4-a"], nowMs: 100,
+        });
+        const eventA = appendInboxEvent(sidecar, {
+          id: "event-own-4-a",
+          conversationId,
+          kind: "owner_utterance",
+          payload: { evidenceRowId: evA.rowId, ownerId: "doc" },
+          createdAtMs: 100,
+        });
+        sidecar.prepare(
+          "UPDATE inbox_events SET state = 'terminal', status = 'consumed', terminal_reason = 'completed' WHERE id = ?",
+        ).run(eventA.id);
+        // A's speech is serviceable but covers only A's ref.
+        const cycleA = admitTestCycle(sidecar, {
+          cycleId: "cycle-own-4-a",
+          conversationId,
+          triggerKind: "owner_message",
+          triggerRef: "owner-own-4-a",
+          occupantId: "doc",
+          authorityEpoch: 1,
+          nowMs: 150,
+        });
+        settleAdmissionEvent(sidecar, "owner-own-4-a");
+        appendCycleLogIds(sidecar, cycleA.cycleId, [evA.rowId], 150);
+        const outboxA = insertOutboxPending(sidecar, {
+          settlementId: `settlement-${cycleA.cycleId}`,
+          cycleId: cycleA.cycleId,
+          generation: cycleA.generation,
+          conversationId,
+          licensedText: "A's pending answer.",
+          deliveryIntent: { ...reactiveIntent(conversationId) },
+        });
+        sidecar.prepare("UPDATE speech_outbox SET send_status = 'sending' WHERE outbox_id = ?").run(outboxA.outboxId);
+
+        // B is a genuinely unowned obligation in the same conversation.
+        const evB = appendOwnerUtterance(sidecar, {
+          conversationId, text: "B: still needs an answer", discordMessageIds: ["own-4-b"], nowMs: 200,
+        });
+        const cycleB = admitTestCycle(sidecar, {
+          cycleId: "cycle-own-4-b",
+          conversationId,
+          triggerKind: "owner_message",
+          triggerRef: "owner-own-4-b",
+          occupantId: "doc",
+          authorityEpoch: 1,
+          nowMs: 250,
+        });
+        settleAdmissionEvent(sidecar, "owner-own-4-b");
+        const eventB = appendInboxEvent(sidecar, {
+          id: "event-own-4-b",
+          wakeId: cycleB.wakeId,
+          conversationId,
+          kind: "owner_utterance",
+          payload: { evidenceRowId: evB.rowId, ownerId: "doc" },
+          createdAtMs: 200,
+        });
+        sidecar.prepare(
+          `UPDATE inbox_events SET state = 'quarantined', status = 'failed_terminal',
+             terminal_reason = 'transient_retryable' WHERE id = ?`,
+        ).run(eventB.id);
+
+        const result = serviceUnansweredOwnerRecovery(sidecar, { nowMs: 1_000 });
+        expect(result.createdRepairs).toHaveLength(1);
+        expect(result.createdRepairs[0]!.predecessorEventId).toBe(eventB.id);
+        expect(result.createdRepairs[0]!.outstandingOwnerEvidenceRefs).toContain(evB.rowId);
+      } finally {
+        sidecar.close();
+      }
+    });
+
+    it("5: terminally exhausted delivery stays visibly owned without hot-looping", () => {
+      const { sidecar, nuclear } = setupDeliveryDatabases();
+      try {
+        const conversationId = "thread-own-5";
+        const evA = appendOwnerUtterance(sidecar, {
+          conversationId, text: "A: exhausted question", discordMessageIds: ["own-5-a"], nowMs: 100,
+        });
+        const eventA = quarantineOwnerEvent(sidecar, "event-own-5-a", conversationId, evA.rowId, 100);
+        const cycle = admitTestCycle(sidecar, {
+          cycleId: "cycle-own-5",
+          conversationId,
+          triggerKind: "owner_message",
+          triggerRef: "owner-own-5",
+          occupantId: "doc",
+          authorityEpoch: 1,
+          nowMs: 200,
+        });
+        settleAdmissionEvent(sidecar, "owner-own-5");
+        appendCycleLogIds(sidecar, cycle.cycleId, [evA.rowId], 200);
+        const { outbox, reservationId } = insertAbortedSpeechRow(
+          nuclear, sidecar, conversationId, cycle.cycleId, cycle.generation, "Exhausted answer.",
+        );
+        // Spend the one recovery, then fail terminally again.
+        expect(reconcileUnfulfilledFailedSpeechReservations(nuclear, sidecar, "doc").recovered).toBe(1);
+        nuclear.prepare(
+          `UPDATE delivery_reservations SET state = 'aborted', error_category = 'send_failure',
+             finalization_reason = 'send_failure' WHERE id = ?`,
+        ).run(reservationId);
+        sidecar.prepare("UPDATE speech_outbox SET send_status = 'send_failure' WHERE outbox_id = ?").run(outbox.outboxId);
+
+        // Exhausted speech is not serviceable: R1 re-cognition stays available
+        // through the normal anchor, while the failed-row path refuses to loop
+        // and records exactly one terminal notice.
+        const second = reconcileUnfulfilledFailedSpeechReservations(nuclear, sidecar, "doc");
+        expect(second.recovered).toBe(0);
+        expect(nuclear.prepare("SELECT state FROM delivery_reservations WHERE id = ?").get(reservationId))
+          .toMatchObject({ state: "aborted" });
+        const notices = sidecar.prepare(
+          "SELECT notice_text FROM system_notice_outbox WHERE notice_key = ?",
+        ).all(`delivery_exhausted:speech:${outbox.outboxId}`) as Array<{ notice_text?: unknown }>;
+        expect(notices).toHaveLength(1);
+        expect(String(notices[0]!.notice_text)).toContain("DELIVERY_FAILED");
+
+        // The quarantined anchor remains R1-repairable (bounded re-cognition),
+        // and a second sweep creates no duplicate repair and no retry.
+        const first = serviceUnansweredOwnerRecovery(sidecar, { nowMs: 3_000 });
+        expect(first.createdRepairs).toHaveLength(1);
+        expect(first.createdRepairs[0]!.predecessorEventId).toBe(eventA.id);
+        const repeat = reconcileUnfulfilledFailedSpeechReservations(nuclear, sidecar, "doc");
+        expect(repeat.recovered).toBe(0);
+        expect(serviceUnansweredOwnerRecovery(sidecar, { nowMs: 4_000 }).createdRepairs).toHaveLength(0);
+      } finally {
+        sidecar.close();
+        nuclear.close();
+      }
+    });
+  });
+
   describe("Repair 4: legacy wrong-principal fence uses semantic supersession", () => {
     function insertWrongPrincipalReservation(nuclear: DatabaseSync, conversationId: string, outboxId: number, projectionKey: string) {
       const insertRes = nuclear.prepare(

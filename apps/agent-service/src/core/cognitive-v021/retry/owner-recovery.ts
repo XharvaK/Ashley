@@ -6,6 +6,7 @@ import type {
 } from "../types.js";
 import { getEvidenceByRowId } from "../evidence/conversation-log.js";
 import { getCycle, hasValidDurableContinuationOwner } from "../cycle/inbox.js";
+import { listSpeechOutbox } from "../speech/outbox.js";
 import { getWake } from "../wake/ledger.js";
 import { createRepairEvent, type RepairEvent } from "./ledger.js";
 import {
@@ -301,6 +302,53 @@ export type OwnerRecoveryEligibility =
   | { eligible: false; reason: string };
 
 /**
+ * Single-fulfillment-owner rule: an unresolved Owner obligation that already
+ * has an authoritative speech consequence in a legitimate delivery/recovery
+ * lifecycle has exactly one fulfillment owner — delivery — so R1 must not
+ * independently re-run Thought for it.
+ *
+ * Mechanical, lineage-scoped, no semantic judgment: every outstanding tail
+ * ref must be covered by the compose log of a serviceable live speech row in
+ * the same conversation. Serviceable means the delivery path still owns it:
+ * pending/projecting/projected/sending, or send_failure with its one failed-
+ * row recovery still unspent. Suppressed, delivered, exhausted, expired, or
+ * unattributed speech never blocks; an obligation no serviceable speech
+ * covers stays R1-eligible. Unrelated obligations (disjoint lineage) are
+ * never blocked by another obligation's pending speech.
+ */
+const SERVICEABLE_SPEECH_STATUSES = new Set([
+  "pending",
+  "projecting",
+  "projected",
+  "sending",
+]);
+
+function deliveryRecoveryAttemptsOf(intent: unknown): number {
+  const record = typeof intent === "object" && intent !== null ? intent as Record<string, unknown> : {};
+  if (typeof record.recoveryAttempts === "number") return record.recoveryAttempts;
+  if (typeof record.recovery_attempts === "number") return record.recovery_attempts;
+  return 0;
+}
+
+function hasServiceableDeliveryOwner(db: DatabaseSync, conversationId: string): boolean {
+  const tail = outstandingOwnerTail(db, conversationId);
+  if (tail.length === 0 || tail.length > OWNER_RECOVERY_MAX_OUTSTANDING_REFS) return false;
+  const speeches = listSpeechOutbox(db, { conversationId, limit: 1000 })
+    .filter((speech) => speech.origin === "live" && !speech.suppressed
+      && speech.sendStatus !== "suppressed" && speech.sendStatus !== "suppressed_shadow");
+  const covered = new Set<string>();
+  for (const speech of speeches) {
+    const serviceable = SERVICEABLE_SPEECH_STATUSES.has(speech.sendStatus)
+      || (speech.sendStatus === "send_failure" && deliveryRecoveryAttemptsOf(speech.deliveryIntent) < 1);
+    if (!serviceable) continue;
+    const cycle = getCycle(db, speech.cycleId);
+    for (const ref of cycle?.composeLogIds ?? []) covered.add(ref);
+  }
+  if (covered.size === 0) return false;
+  return tail.every((ref) => covered.has(ref));
+}
+
+/**
  * Bounded deterministic eligibility for UNRESOLVED OWNER CONVERSATIONAL
  * OBLIGATION. Every rejection fails closed with a reason code; callers must
  * never reinterpret a rejection as permission.
@@ -347,6 +395,9 @@ export function checkUnansweredOwnerEligibility(
   }
   if (hasLaterCoveringSettlement(db, candidate.conversationId, candidate.createdAtMs, evidence.rowId)) {
     return { eligible: false, reason: "later_settlement_covers" };
+  }
+  if (hasServiceableDeliveryOwner(db, candidate.conversationId)) {
+    return { eligible: false, reason: "delivery_owns_obligation" };
   }
   if (hasActiveFrontier(db, candidate.conversationId)) return { eligible: false, reason: "frontier_owns" };
   if (hasActiveDetachedOperation(db, candidate.conversationId)) {
