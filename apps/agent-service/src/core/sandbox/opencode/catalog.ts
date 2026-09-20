@@ -15,6 +15,14 @@ export const MODE_B_DEVELOP = "candidate.develop";
 export const MODE_B_HOST_MAX_STEPS = 8;
 
 export const DETACHED_WORKER_MAX_WALL_CLOCK_MS = 3_600_000 as const;
+/**
+ * Bounded re-probe interval after a proven OpenCode-class-wide
+ * provider/client rejection (e.g. a free-service gate). Same-task sibling
+ * retries are suppressed immediately; future tasks become eligible again
+ * after this interval without a restart. Distinct from quota exhaustion:
+ * no quota state is written for client/provider rejections.
+ */
+export const OPENCODE_CLASS_REJECTION_COOLDOWN_MS = 3_600_000 as const;
 export const WORKER_FINALIZATION_RESERVE_MS = 30_000 as const;
 export const OPENCODE_MODEL_TURN_MAX_MS = 300_000 as const;
 export const OPENCODE_TERM_GRACE_MS = 3_000 as const;

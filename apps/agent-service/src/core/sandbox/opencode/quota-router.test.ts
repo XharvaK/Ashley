@@ -2,10 +2,12 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it } from "vitest";
-import { C1_OPENCODE_FREE_CATALOG } from "./catalog.js";
+import { C1_OPENCODE_FREE_CATALOG, OPENCODE_CLASS_REJECTION_COOLDOWN_MS } from "./catalog.js";
 import {
+  backendRejectionActive,
   createQuotaRouter,
   offerWorkerTask,
+  rememberBackendRejection,
   resetOpenCodeProcessQuotaMemory,
   routeWorkerTask,
   setModelHealth,
@@ -150,6 +152,30 @@ describe("OpenCode quota router", () => {
     expect(JSON.parse(readFileSync(path, "utf8")).OTHER_FREE.capacity).toBe("quota_exhausted");
     const router = createQuotaRouter({ state: reloaded, nowMs: 51 });
     expect(routeWorkerTask(router, "iterative_engineering").ok).toBe(false);
+  });
+
+  it("suppresses all routing during a bounded backend rejection, then re-admits", () => {
+    const available = {
+      NVIDIA_FREE: { capacity: "available" as const, providerResetAtMs: null, hostNextProbeAtMs: null },
+      OTHER_FREE: { capacity: "available" as const, providerResetAtMs: null, hostNextProbeAtMs: null },
+    };
+    const untilMs = rememberBackendRejection(1_000);
+    expect(untilMs).toBe(1_000 + OPENCODE_CLASS_REJECTION_COOLDOWN_MS);
+    expect(backendRejectionActive(1_000)).toBe(true);
+    const denied = routeWorkerTask(createQuotaRouter({ state: available, nowMs: 1_000 }), "delegated_read");
+    expect(denied).toMatchObject({
+      ok: false,
+      reason: "unavailable",
+      capacityStatus: "temporarily_unavailable",
+      nextProbeAtMs: untilMs,
+    });
+    // Engineering tasks are gated by the same backend-wide horizon.
+    expect(routeWorkerTask(createQuotaRouter({ state: available, nowMs: 1_000 }), "iterative_engineering").ok)
+      .toBe(false);
+    // Past the horizon eligibility returns with no restart and no quota write.
+    expect(backendRejectionActive(untilMs)).toBe(false);
+    expect(routeWorkerTask(createQuotaRouter({ state: available, nowMs: untilMs }), "delegated_read"))
+      .toMatchObject({ ok: true, quotaClass: "NVIDIA_FREE" });
   });
 
   it("keeps model health process-local across router instances", () => {

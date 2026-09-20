@@ -45,6 +45,8 @@ export type DetachedOperationRecord = {
   observationRef: string | null;
   receiptRef: string | null;
   errorCode: string | null;
+  /** Bounded sanitized worker-failure diagnostic JSON; null unless a terminal failure stored evidence. */
+  failureEvidenceJson: string | null;
   interimOutboxRef: string | null;
   completionEventRef: string | null;
   cancelRequestedAtMs: number | null;
@@ -96,6 +98,12 @@ export type SetDetachedOperationTerminalInput = {
   observationRef?: string | null;
   receiptRef?: string | null;
   errorCode?: string | null;
+  /**
+   * Pre-sanitized failure-evidence JSON (allowlisted scalar fields only).
+   * Callers must pass output of the dispatch-layer sanitizer, never raw
+   * worker output. Stored verbatim; the column CHECK enforces JSON validity.
+   */
+  failureEvidenceJson?: string | null;
   nowMs?: number;
 };
 
@@ -165,6 +173,7 @@ function mapRow(row: DetachedRow): DetachedOperationRecord {
     observationRef: stringOrNull(row.observation_ref),
     receiptRef: stringOrNull(row.receipt_ref),
     errorCode: stringOrNull(row.error_code),
+    failureEvidenceJson: stringOrNull(row.failure_evidence_json),
     interimOutboxRef: stringOrNull(row.interim_outbox_ref),
     completionEventRef: stringOrNull(row.completion_event_ref),
     cancelRequestedAtMs: numberOrNull(row.cancel_requested_at_ms),
@@ -422,6 +431,15 @@ export function setDetachedOperationTerminal(
           || input.terminalState === "outcome_unknown"
       : current.state === "started";
   if (!allowed) return { ok: false, reason: "detached_operation_transition_invalid" };
+  let failureEvidenceJson: string | null = null;
+  if (input.failureEvidenceJson !== undefined && input.failureEvidenceJson !== null) {
+    try {
+      JSON.parse(input.failureEvidenceJson);
+      failureEvidenceJson = input.failureEvidenceJson;
+    } catch {
+      return { ok: false, reason: "invalid_failure_evidence" };
+    }
+  }
   sidecar
     .prepare(
       `UPDATE detached_operations
@@ -429,6 +447,7 @@ export function setDetachedOperationTerminal(
               observation_ref = COALESCE(?, observation_ref),
               receipt_ref = COALESCE(?, receipt_ref),
               error_code = COALESCE(?, error_code),
+              failure_evidence_json = COALESCE(?, failure_evidence_json),
               updated_at_ms = ?
         WHERE operation_id = ? AND state = ?`,
     )
@@ -439,6 +458,7 @@ export function setDetachedOperationTerminal(
       input.observationRef ?? null,
       input.receiptRef ?? null,
       input.errorCode ?? null,
+      failureEvidenceJson,
       nowMs,
       operationId,
       current.state,

@@ -341,7 +341,8 @@ function inferDispatchEvidence(
     license.error === "opencode_pin_mismatch" ||
     license.error === "worker_gate_denied" ||
     license.error === "opencode_binary_missing" ||
-    license.error === "native_tool_forbidden"
+    license.error === "native_tool_forbidden" ||
+    license.error === "opencode_provider_rejected"
   ) {
     return { provenNotStarted: true };
   }

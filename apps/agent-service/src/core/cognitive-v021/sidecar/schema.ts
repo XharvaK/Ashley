@@ -1163,3 +1163,16 @@ UPDATE worker_execution_slot
 
 UPDATE cognitive_sidecar_meta SET schema_version = 22, projection_state = 'reconciling' WHERE id = 1;
 `;
+
+/**
+ * V23 adds one nullable operational diagnostic to detached operations:
+ * bounded sanitized worker-failure evidence (failure class, provider
+ * status, error type, truncated message, process exit, model, OpenCode
+ * version). No headers, keys, bodies, or environment are representable:
+ * writers must pass pre-sanitized JSON through the allowlisted sanitizer.
+ * Additive and idempotent: existing rows read back NULL.
+ */
+export const COGNITIVE_SIDECAR_SCHEMA_V23 = String.raw`
+ALTER TABLE detached_operations ADD COLUMN failure_evidence_json TEXT CHECK(failure_evidence_json IS NULL OR json_valid(failure_evidence_json));
+UPDATE cognitive_sidecar_meta SET schema_version = 23, projection_state = 'reconciling' WHERE id = 1;
+`;

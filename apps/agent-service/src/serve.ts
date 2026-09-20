@@ -212,11 +212,13 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
       if (result.license.state === "succeeded") {
         return { ok: true as const, payload: result.payload };
       }
+      const payload = (result.payload ?? {}) as Record<string, unknown>;
       return {
         ok: false as const,
         errorCode: typeof result.license.error === "string" && result.license.error.length > 0
           ? result.license.error
           : `worker_${result.license.state}`,
+        ...(payload.failureEvidence !== undefined ? { failureEvidence: payload.failureEvidence } : {}),
       };
     };
     const detachedCapacityProbe = () => liveOperationExecutors.probeDetachedInvestigate();

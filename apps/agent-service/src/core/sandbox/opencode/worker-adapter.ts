@@ -31,6 +31,7 @@ import {
   type QuotaStateFile,
 } from "./quota-state.js";
 import {
+  rememberBackendRejection,
   rememberClassInFlight,
   routeWorkerTask,
   setModelHealth,
@@ -47,6 +48,38 @@ import {
 export type OpenCodeTurn = {
   text: string;
   status?: number | null;
+  /**
+   * Structured OpenCode/provider error evidence extracted from the raw
+   * process capture before assistant-text decoding. Present only when the
+   * capture contained a `type:error` protocol event. A turn carrying this
+   * evidence must never enter worker-result parsing.
+   */
+  errorEvidence?: OpenCodeErrorEvidence | null;
+};
+
+/**
+ * Sanitized, bounded provider/process failure facts. No headers, keys,
+ * cookies, or full response bodies are ever captured here — only the
+ * event type, error names, numeric status, and a truncated message.
+ */
+export type OpenCodeErrorEvidence = {
+  statusCode: number | null;
+  errorName: string | null;
+  errorType: string | null;
+  message: string | null;
+  exitStatus: number | null;
+  modelId: string;
+};
+
+/** Bounded sanitized diagnostic retained on terminal worker failure. */
+export type ModeBFailureEvidence = {
+  errorClass: string;
+  statusCode: number | null;
+  errorType: string | null;
+  message: string | null;
+  exitStatus: number | null;
+  modelId: string | null;
+  openCodeVersion: string;
 };
 
 export type OpenCodeTransport = {
@@ -101,6 +134,111 @@ function extractJsonObject(text: string): Record<string, unknown> | null {
   } catch {
     return null;
   }
+}
+
+const ERROR_EVIDENCE_MESSAGE_MAX = 300;
+
+/**
+ * Structured OpenCode `type:error` event extraction. Inspects raw process
+ * capture (stdout preferred, stderr fallback at the call site) BEFORE
+ * assistant-text decoding: error events carry no assistant text, so the
+ * decoder would otherwise erase them into an empty string that the strict
+ * worker parser then reports as malformed output.
+ */
+export function extractOpenCodeErrorEvidence(
+  raw: string,
+  input: { exitStatus: number | null; modelId: string },
+): OpenCodeErrorEvidence | null {
+  const lines = raw.split(/\r?\n/);
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith("{")) continue;
+    let event: unknown;
+    try {
+      event = JSON.parse(trimmed) as unknown;
+    } catch {
+      continue;
+    }
+    if (!isRecord(event) || event.type !== "error") continue;
+    const err = isRecord(event.error) ? event.error : null;
+    const data = err !== null && isRecord(err.data) ? err.data : null;
+    const statusCode =
+      data !== null && typeof data.statusCode === "number" && Number.isSafeInteger(data.statusCode)
+        ? data.statusCode
+        : null;
+    let bodyType: string | null = null;
+    let bodyMessage: string | null = null;
+    const rawBody = data !== null ? data.responseBody : undefined;
+    if (typeof rawBody === "string" && rawBody.trim().startsWith("{")) {
+      try {
+        const body = JSON.parse(rawBody) as unknown;
+        if (isRecord(body)) {
+          const inner = isRecord(body.error) ? body.error : null;
+          if (inner !== null && typeof inner.type === "string") bodyType = inner.type;
+          const candidate = inner !== null && typeof inner.message === "string"
+            ? inner.message
+            : typeof body.message === "string" ? body.message : null;
+          if (candidate !== null && candidate.trim().length > 0) {
+            bodyMessage = candidate.trim().slice(0, ERROR_EVIDENCE_MESSAGE_MAX);
+          }
+        }
+      } catch {
+        // Unparseable bodies contribute no evidence; other fields still stand.
+      }
+    }
+    const directMessage = data !== null && typeof data.message === "string"
+      && data.message.trim().length > 0
+      ? data.message.trim().slice(0, ERROR_EVIDENCE_MESSAGE_MAX)
+      : null;
+    const errorName = err !== null && typeof err.name === "string" ? err.name : null;
+    const errorType = bodyType
+      ?? (data !== null && typeof data.errorType === "string" ? data.errorType : null)
+      ?? (err !== null && typeof err.code === "string" ? err.code : null);
+    return {
+      statusCode,
+      errorName,
+      errorType,
+      message: directMessage ?? bodyMessage,
+      exitStatus: input.exitStatus,
+      modelId: input.modelId,
+    };
+  }
+  return null;
+}
+
+export type OpenCodeErrorClass =
+  | { kind: "quota_exhausted" }
+  | { kind: "provider_rejected"; scope: "class" | "model" }
+  | { kind: "provider_unavailable"; scope: "model" };
+
+/**
+ * Mechanical classification of structured OpenCode/provider error evidence.
+ * A 403 / free-tier gate is a service/client eligibility rejection proven
+ * for the whole free backend (observed identically across quota classes),
+ * never evidence that one model is unhealthy. 5xx stays model-scoped:
+ * ordinary per-model failures must not become class-wide outages.
+ */
+export function classifyOpenCodeErrorEvidence(
+  evidence: OpenCodeErrorEvidence,
+): OpenCodeErrorClass | null {
+  const hay = `${evidence.errorType ?? ""} ${evidence.message ?? ""}`.toLowerCase();
+  if (
+    evidence.statusCode === 429
+    || /\bquota[-_ ]?(exceeded|exhausted|limit)\b/.test(hay)
+    || (/\brate[-_ ]limit\b/.test(hay) && /\bexceeded\b/.test(hay))
+  ) {
+    return { kind: "quota_exhausted" };
+  }
+  if (evidence.statusCode === 403 || /free[_-]?tier/.test(hay)) {
+    return { kind: "provider_rejected", scope: "class" };
+  }
+  if (evidence.statusCode !== null && evidence.statusCode >= 500 && evidence.statusCode <= 599) {
+    return { kind: "provider_unavailable", scope: "model" };
+  }
+  if (evidence.statusCode !== null && evidence.statusCode >= 400 && evidence.statusCode <= 499) {
+    return { kind: "provider_rejected", scope: "model" };
+  }
+  return null;
 }
 
 export function decodeOpenCodeRunStdout(stdout: string): { text: string; nativeTool: boolean } {
@@ -302,9 +440,17 @@ export function spawnOpenCodeTransport(options: SpawnOpenCodeTransportOptions = 
           closed = true;
           clearTimeout(timer);
           const decoded = decodeOpenCodeRunStdout(stdout || stderr);
+          const errorEvidence = extractOpenCodeErrorEvidence(stdout, {
+            exitStatus: typeof status === "number" ? status : null,
+            modelId: input.modelId,
+          }) ?? extractOpenCodeErrorEvidence(stderr, {
+            exitStatus: typeof status === "number" ? status : null,
+            modelId: input.modelId,
+          });
           resolve({
             text: decoded.nativeTool ? "{\"type\":\"native_tool_forbidden\"}" : decoded.text,
             status,
+            ...(errorEvidence ? { errorEvidence } : {}),
           });
         });
 
@@ -462,6 +608,8 @@ export async function executeModeBWorker(input: ExecuteModeBWorkerInput): Promis
   let quotaState = router.state;
   let selected: RouteOk = routed;
   let terminalError: string | null = null;
+  let lastTurnStatus: number | null = null;
+  let lastTurnEvidence: OpenCodeErrorEvidence | null = null;
   let history = "";
   const bootstrappedClasses = new Set<QuotaClass>();
   if (routed.bootstrap) bootstrappedClasses.add(routed.quotaClass);
@@ -533,6 +681,52 @@ export async function executeModeBWorker(input: ExecuteModeBWorkerInput): Promis
           break;
         }
       }
+      lastTurnStatus = typeof turn.status === "number" ? turn.status : null;
+      lastTurnEvidence = turn.errorEvidence ?? null;
+      // Structured OpenCode/provider error envelopes are classified here and
+      // never enter worker-result parsing: no worker message was produced.
+      if (lastTurnEvidence) {
+        const classified = classifyOpenCodeErrorEvidence(lastTurnEvidence);
+        if (classified?.kind === "quota_exhausted") {
+          quotaState = recordClassExhausted(quotaState, selected.quotaClass, { nowMs: input.nowMs() });
+          if (!rerouteAfterCapacityFailure()) break;
+          continue;
+        }
+        if (classified?.kind === "provider_rejected" && classified.scope === "class") {
+          // Service/client gate proven for the whole free backend (observed
+          // identically across quota classes): bounded process-wide
+          // rejection admits no pointless sibling-model carousel here and
+          // re-admits probing for future tasks past the horizon. No quota
+          // state is written for a client/provider rejection.
+          const rejectedUntilMs = rememberBackendRejection(input.nowMs());
+          router = { ...router, backendRejectedUntilMs: rejectedUntilMs };
+          if (!rerouteAfterCapacityFailure()) {
+            terminalError = "opencode_provider_rejected";
+            break;
+          }
+          continue;
+        }
+        if (classified?.kind === "provider_unavailable") {
+          router = setModelHealth(router, selected.modelId, "temporarily_unavailable");
+          if (!rerouteAfterCapacityFailure()) {
+            terminalError = "model_temporarily_unavailable";
+            break;
+          }
+          continue;
+        }
+        if (classified?.kind === "provider_rejected") {
+          router = setModelHealth(router, selected.modelId, "temporarily_unavailable");
+          if (!rerouteAfterCapacityFailure()) {
+            terminalError = "opencode_provider_rejected";
+            break;
+          }
+          continue;
+        }
+        // Structured error envelope with no recognized class: truthful
+        // generic execution failure, never worker-output parsing.
+        terminalError = "opencode_failed";
+        break;
+      }
       const evidence = classifyOpenCodeFailure({ status: turn.status, text: turn.text });
       if (evidence === "quota_exhausted") {
         quotaState = recordClassExhausted(quotaState, selected.quotaClass, { nowMs: input.nowMs() });
@@ -550,6 +744,12 @@ export async function executeModeBWorker(input: ExecuteModeBWorkerInput): Promis
       }
       const message = parseWorkerMessage(decoded.text);
       if (message.type === "malformed") {
+        if (lastTurnStatus !== null && lastTurnStatus !== 0) {
+          // The process failed and produced no valid worker message: an
+          // execution failure, not a worker-contract violation.
+          terminalError = "opencode_failed";
+          break;
+        }
         router = setModelHealth(router, selected.modelId, "temporarily_unavailable");
         if (!rerouteAfterCapacityFailure()) {
           terminalError = "malformed_worker_output";
@@ -632,6 +832,22 @@ export async function executeModeBWorker(input: ExecuteModeBWorkerInput): Promis
       : {}),
   };
 
+  // Bounded sanitized diagnostic for the next forensic pass. Present only
+  // on terminal failure; success payloads stay byte-identical so failure
+  // evidence can never pollute semantic conversation evidence (failure
+  // payloads never become observations).
+  const failureEvidence: ModeBFailureEvidence | null = terminalError
+    ? {
+      errorClass: terminalError,
+      statusCode: lastTurnEvidence?.statusCode ?? null,
+      errorType: lastTurnEvidence?.errorType ?? null,
+      message: lastTurnEvidence?.message ?? null,
+      exitStatus: lastTurnEvidence?.exitStatus ?? lastTurnStatus,
+      modelId: selected.modelId,
+      openCodeVersion: input.pinnedVersion,
+    }
+    : null;
+
   return {
     license,
     selectedModelId: selected.modelId,
@@ -650,6 +866,7 @@ export async function executeModeBWorker(input: ExecuteModeBWorkerInput): Promis
         observation: step.observation ?? null,
       })),
       lastObservation: lastInspect?.observation ?? null,
+      ...(failureEvidence ? { failureEvidence } : {}),
     },
   };
 }

@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { DatabaseSync } from "node:sqlite";
+import { mkdtempSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { openNuclearDb } from "../../db.js";
+import { openCognitiveSidecarDb } from "../sidecar/db.js";
 import { admitTestCycle, openTestSidecar } from "../test-support.js";
 import type { DeliveryIntent, ObservationIntentSemanticOutput } from "../types.js";
 import { OutboxDeliveryProjector } from "../delivery/outbox-projector.js";
@@ -302,6 +306,80 @@ describe("detached worker dispatch", () => {
       expect(result).toMatchObject({ ok: true, operation: { state: "failed", errorCode: "worker_failed" } });
     } finally {
       sidecar.close();
+    }
+  });
+
+  it("persists sanitized provider failure evidence across store reopen, secrets absent", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "ashley-detached-evidence-"));
+    const path = join(dir, "sidecar.db");
+    const writeDb = openCognitiveSidecarDb(new DatabaseSync(path), {
+      dataPlane: { kind: "isolated" },
+    });
+    try {
+      const cycle = admitTestCycle(writeDb, {
+        cycleId: "cycle-thread-detach",
+        conversationId: "thread-detach",
+        triggerKind: "owner_message",
+        triggerRef: "owner-1",
+        occupantId: "doc",
+        authorityEpoch: 1,
+        nowMs: 1,
+      });
+      void cycle;
+      const detached = admitTestDetached(writeDb, detachInput());
+      if (!detached.detached) throw new Error("detach failed");
+      const result = await dispatchDetachedOperation(
+        writeDb,
+        detached.operation.operationId,
+        async () => ({
+          ok: false as const,
+          errorCode: "opencode_provider_rejected",
+          failureEvidence: {
+            errorClass: "opencode_provider_rejected",
+            statusCode: 403,
+            errorType: "FreeTierError",
+            message: "OpenCode's free tier can only be used from within OpenCode",
+            exitStatus: 1,
+            modelId: "opencode/nemotron-3.5-lightning-free",
+            openCodeVersion: "1.18.30",
+            authorization: "Bearer sk-secret",
+            apiKey: "sk-secret",
+            responseHeaders: { "cf-ray": "leak" },
+            responseBody: "{ \"type\": \"error\" }",
+            env: { HOME: "/secret/home" },
+          },
+        }),
+        { nowMs: 2_000 },
+      );
+      expect(result).toMatchObject({
+        ok: true,
+        operation: { state: "failed", errorCode: "opencode_provider_rejected" },
+      });
+    } finally {
+      writeDb.close();
+    }
+    // Reopen the durable store read-only: the diagnostic must survive close
+    // with only allowlisted scalar fields and no secret-bearing content.
+    const readDb = new DatabaseSync(path, { readOnly: true });
+    try {
+      const row = readDb.prepare(
+        "SELECT error_code, failure_evidence_json FROM detached_operations LIMIT 1",
+      ).get() as { error_code: string; failure_evidence_json: string };
+      expect(row.error_code).toBe("opencode_provider_rejected");
+      expect(JSON.parse(row.failure_evidence_json)).toEqual({
+        failureClass: "opencode_provider_rejected",
+        statusCode: 403,
+        errorType: "FreeTierError",
+        message: "OpenCode's free tier can only be used from within OpenCode",
+        processExit: 1,
+        modelId: "opencode/nemotron-3.5-lightning-free",
+        openCodeVersion: "1.18.30",
+      });
+      for (const secret of ["sk-secret", "Bearer", "cf-ray", "responseBody", "/secret/home", "authorization"]) {
+        expect(row.failure_evidence_json).not.toContain(secret);
+      }
+    } finally {
+      readDb.close();
     }
   });
 

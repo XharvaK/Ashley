@@ -4,6 +4,7 @@
 
 import {
   C1_OPENCODE_FREE_CATALOG,
+  OPENCODE_CLASS_REJECTION_COOLDOWN_MS,
   type OpenCodeModelCatalog,
   type QuotaClass,
   type WorkerTaskClass,
@@ -49,15 +50,39 @@ export type QuotaRouter = {
   state: QuotaStateFile;
   modelHealth: Record<string, ModelHealth>;
   inFlightFirstAttempt: Partial<Record<QuotaClass, boolean>>;
+  /**
+   * Process-wide OpenCode-class rejection horizon (ms epoch). While set and
+   * in the future, no model of any class routes: a proven service/client
+   * gate applies to the whole free backend, not one model. Bounded: expiry
+   * re-admits probing without a restart. Never written for quota events.
+   */
+  backendRejectedUntilMs: number | null;
   nowMs: number;
 };
 
 let processModelHealth: Record<string, ModelHealth> = {};
 let processInFlight: Partial<Record<QuotaClass, boolean>> = {};
+let processBackendRejectedUntilMs: number | null = null;
 
 export function resetOpenCodeProcessQuotaMemory(): void {
   processModelHealth = {};
   processInFlight = {};
+  processBackendRejectedUntilMs = null;
+}
+
+/**
+ * Record a proven OpenCode-class-wide provider/client rejection. Suppresses
+ * same-task sibling retries and near-term same-process routing for a bounded
+ * cooldown; a later task past the horizon routes and re-probes normally.
+ */
+export function rememberBackendRejection(nowMs: number): number {
+  const untilMs = nowMs + OPENCODE_CLASS_REJECTION_COOLDOWN_MS;
+  processBackendRejectedUntilMs = untilMs;
+  return untilMs;
+}
+
+export function backendRejectionActive(nowMs: number): boolean {
+  return processBackendRejectedUntilMs !== null && nowMs < processBackendRejectedUntilMs;
 }
 
 export function rememberModelHealth(modelId: string, health: ModelHealth): void {
@@ -75,6 +100,7 @@ export function createQuotaRouter(input: Partial<QuotaRouter> = {}): QuotaRouter
     state: input.state ?? emptyQuotaState(),
     modelHealth: { ...processModelHealth, ...(input.modelHealth ?? {}) },
     inFlightFirstAttempt: { ...processInFlight, ...(input.inFlightFirstAttempt ?? {}) },
+    backendRejectedUntilMs: input.backendRejectedUntilMs ?? processBackendRejectedUntilMs,
     nowMs: input.nowMs ?? Date.now(),
   };
 }
@@ -234,6 +260,14 @@ export function routeWorkerTask(
   router: QuotaRouter,
   task: WorkerTaskClass,
 ): RouteDecision {
+  if (router.backendRejectedUntilMs !== null && router.nowMs < router.backendRejectedUntilMs) {
+    return {
+      ok: false,
+      reason: "unavailable",
+      capacityStatus: "temporarily_unavailable",
+      nextProbeAtMs: router.backendRejectedUntilMs,
+    };
+  }
   if (task === "delegated_read") return nvidiaReadDecision(router);
   return engineeringDecision(router);
 }

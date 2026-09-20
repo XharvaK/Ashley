@@ -159,7 +159,63 @@ export type DetachedWorkerInput = {
 
 export type DetachedWorkerResult =
   | { ok: true; payload: unknown }
-  | { ok: false; errorCode: string };
+  | { ok: false; errorCode: string; failureEvidence?: unknown };
+
+/**
+ * Canonical durable worker-failure diagnostic. Only these scalar fields are
+ * representable; everything else (headers, keys, bodies, environment) is
+ * structurally unpersistable.
+ */
+export type WorkerFailureEvidenceRecord = {
+  failureClass: string;
+  statusCode: number | null;
+  errorType: string | null;
+  message: string | null;
+  processExit: number | null;
+  modelId: string | null;
+  openCodeVersion: string | null;
+};
+
+const FAILURE_EVIDENCE_MESSAGE_MAX = 300;
+
+function evidenceString(value: unknown, max = FAILURE_EVIDENCE_MESSAGE_MAX): string | null {
+  if (typeof value !== "string" || value.trim().length === 0) return null;
+  return value.trim().slice(0, max);
+}
+
+function evidenceInt(value: unknown): number | null {
+  return typeof value === "number" && Number.isSafeInteger(value) ? value : null;
+}
+
+/**
+ * Sanitize arbitrary worker-supplied failure evidence into the durable
+ * allowlist shape. Accepts both the Mode-B `failureEvidence` vocabulary
+ * (errorClass/exitStatus) and the canonical vocabulary. Returns a
+ * JSON string ready for `failure_evidence_json`, or null when nothing
+ * sanitizable was provided. Never throws.
+ */
+export function toSanitizedFailureEvidenceJson(value: unknown): string | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const row = value as Record<string, unknown>;
+  const failureClass = evidenceString(row.failureClass ?? row.errorClass, 128);
+  if (!failureClass) return null;
+  const record: WorkerFailureEvidenceRecord = {
+    failureClass,
+    statusCode: evidenceInt(row.statusCode),
+    errorType: evidenceString(row.errorType, 128),
+    message: evidenceString(row.message),
+    processExit: evidenceInt(row.processExit ?? row.exitStatus),
+    modelId: evidenceString(row.modelId, 256),
+    openCodeVersion: evidenceString(row.openCodeVersion, 64),
+  };
+  try {
+    const json = JSON.stringify(record);
+    JSON.parse(json);
+    return json;
+  } catch {
+    return null;
+  }
+}
 
 export type DetachedWorker = (input: DetachedWorkerInput) => Promise<DetachedWorkerResult>;
 
@@ -329,6 +385,7 @@ export async function dispatchDetachedOperation(
       const terminal = setDetachedOperationTerminal(sidecar, operationId, {
         terminalState: "failed",
         errorCode: result.errorCode,
+        failureEvidenceJson: toSanitizedFailureEvidenceJson(result.failureEvidence),
         nowMs: Date.now(),
       });
       if (!terminal.ok) return { ok: false, reason: terminal.reason, operation: started.operation };

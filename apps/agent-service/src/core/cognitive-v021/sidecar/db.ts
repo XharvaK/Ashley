@@ -33,6 +33,7 @@ import {
   COGNITIVE_SIDECAR_SCHEMA_V20,
   COGNITIVE_SIDECAR_SCHEMA_V21,
   COGNITIVE_SIDECAR_SCHEMA_V22,
+  COGNITIVE_SIDECAR_SCHEMA_V23,
 } from "./schema.js";
 import { recoverCognitiveSidecar } from "./recovery.js";
 import { cycleIdFor, occurrenceIdFor, wakeIdFor } from "../wake/identity.js";
@@ -154,6 +155,19 @@ function applyV22Migration(existing: DatabaseSync): void {
     throw sidecarError("cognitive_sidecar_v22_incompatible_existing_queue");
   }
   existing.exec(COGNITIVE_SIDECAR_SCHEMA_V22);
+}
+
+/**
+ * V23 worker-failure evidence column. Additive and re-runnable: guarded by
+ * column presence so crash retries and double-opens converge. Exported for
+ * the idempotence regression.
+ */
+export function migrateDetachedFailureEvidenceToV23(existing: DatabaseSync): void {
+  if (!hasColumn(existing, "detached_operations", "failure_evidence_json")) {
+    existing.exec(COGNITIVE_SIDECAR_SCHEMA_V23);
+    return;
+  }
+  existing.exec("UPDATE cognitive_sidecar_meta SET schema_version = 23, projection_state = 'reconciling' WHERE id = 1");
 }
 
 function migrateWatchPollingToV18(existing: DatabaseSync): void {
@@ -508,6 +522,7 @@ export function openCognitiveSidecarDb(
       existing.exec(COGNITIVE_SIDECAR_SCHEMA_V20);
       existing.exec(COGNITIVE_SIDECAR_SCHEMA_V21);
       applyV22Migration(existing);
+      migrateDetachedFailureEvidenceToV23(existing);
       existing.exec(`PRAGMA user_version = ${COGNITIVE_SIDECAR_SCHEMA_VERSION}`);
       existing.exec("COMMIT");
     } catch (error) {
@@ -529,6 +544,9 @@ export function openCognitiveSidecarDb(
       if (version < 21) existing.exec(COGNITIVE_SIDECAR_SCHEMA_V21);
       if (version < 22) {
         applyV22Migration(existing);
+      }
+      if (version < 23) {
+        migrateDetachedFailureEvidenceToV23(existing);
       }
       existing.exec(`PRAGMA user_version = ${COGNITIVE_SIDECAR_SCHEMA_VERSION}`);
       ensureMeta(existing);

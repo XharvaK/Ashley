@@ -77,7 +77,7 @@ describe("cognitive sidecar Schema V22 worker queue", () => {
         .toBe(COGNITIVE_SIDECAR_SCHEMA_VERSION);
       expect((db.prepare(
         "SELECT schema_version FROM cognitive_sidecar_meta WHERE id = 1",
-      ).get() as { schema_version: number }).schema_version).toBe(22);
+      ).get() as { schema_version: number }).schema_version).toBe(COGNITIVE_SIDECAR_SCHEMA_VERSION);
 
       const queueColumns = (db.prepare("PRAGMA table_info(worker_undertakings)").all() as Array<{ name: string }>)
         .map((column) => column.name);
