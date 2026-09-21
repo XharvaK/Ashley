@@ -11,7 +11,7 @@ import {
   type CompactConversationEvidence,
   type ProjectedThoughtInput,
 } from "../projection.js";
-import { RECENCY_OMISSION_GUIDANCE, thoughtMessagesForProjection } from "../projection-allocator/allocator.js";
+import { ALLOCATOR_OMISSION_GUIDANCE, RECENCY_OMISSION_GUIDANCE, thoughtMessagesForProjection } from "../projection-allocator/allocator.js";
 
 function makeThoughtInput(overrides: Partial<ThoughtInput> = {}): ThoughtInput {
   return {
@@ -489,6 +489,74 @@ describe("E2a recency loss honesty (projection seam)", () => {
       computeDispatchMessagesHash(thoughtMessagesForProjection(lossyProjected)),
     ).not.toBe(
       computeDispatchMessagesHash(thoughtMessagesForProjection(completeProjected)),
+    );
+  });
+});
+
+describe("E2b retrieval loss honesty (projection seam)", () => {
+  it("preserves source miss instead of recomputing from compact hits", () => {
+    // Source found nothing: miss true survives.
+    const genuine = makeThoughtInput({
+      retrieval: {
+        request: { triggerTerms: [], workingContextTopics: [], assertionKeys: [], includeLogSearch: true },
+        hits: [],
+        state: "ready",
+        miss: true,
+      },
+    });
+    expect(projectThoughtInput(genuine, []).projected.retrieval.miss).toBe(true);
+    // Source found hits but the ranked set passed for projection is empty
+    // (allocator shed all of them): legacy code recomputed miss true; the
+    // preserved source fact is false.
+    const shed = makeThoughtInput({
+      retrieval: {
+        request: { triggerTerms: [], workingContextTopics: [], assertionKeys: [], includeLogSearch: true },
+        hits: [],
+        state: "ready",
+        miss: false,
+      },
+    });
+    const shedProjected = projectThoughtInput(shed, []).projected;
+    expect(shedProjected.retrieval.miss).toBe(false);
+    expect(shedProjected.retrieval.hits).toEqual([]);
+  });
+
+  it("leaves allocatorOmittedCount absent on the legacy path and flows it when set", () => {
+    const input = makeThoughtInput();
+    const projected = projectThoughtInput(input, []).projected;
+    expect(projected.retrieval.allocatorOmittedCount).toBeUndefined();
+    // The allocator-owned field passes through the model-visible projection
+    // unchanged when present (allocator sets it; this seam only carries it).
+    const lossy: ProjectedThoughtInput = {
+      ...projected,
+      retrieval: { ...projected.retrieval, allocatorOmittedCount: 3 },
+    };
+    const wire = modelVisibleThoughtProjection(lossy) as Record<string, unknown>;
+    expect((wire.retrieval as Record<string, unknown>).allocatorOmittedCount).toBe(3);
+  });
+
+  it("appends the factual allocator guidance only on lossy cycles", () => {
+    const base = projectThoughtInput(makeThoughtInput(), []).projected;
+    const lossy: ProjectedThoughtInput = {
+      ...base,
+      retrieval: { ...base.retrieval, allocatorOmittedCount: 2 },
+    };
+    const lossySystem = thoughtMessagesForProjection(lossy)[0]?.content ?? "";
+    const completeSystem = thoughtMessagesForProjection(base)[0]?.content ?? "";
+    expect(lossySystem).toContain(ALLOCATOR_OMISSION_GUIDANCE);
+    expect(lossySystem.split(ALLOCATOR_OMISSION_GUIDANCE).length - 1).toBe(1);
+    expect(completeSystem).not.toContain(ALLOCATOR_OMISSION_GUIDANCE);
+    expect(completeSystem).not.toContain("allocatorOmittedCount");
+  });
+
+  it("keeps complete-cycle hashes stable across repeats", () => {
+    const first = projectThoughtInput(makeThoughtInput(), []).projected;
+    const second = projectThoughtInput(makeThoughtInput(), []).projected;
+    expect(computeSemanticProjectionHash(first)).toBe(computeSemanticProjectionHash(second));
+    expect(
+      computeDispatchMessagesHash(thoughtMessagesForProjection(first)),
+    ).toBe(
+      computeDispatchMessagesHash(thoughtMessagesForProjection(second)),
     );
   });
 });

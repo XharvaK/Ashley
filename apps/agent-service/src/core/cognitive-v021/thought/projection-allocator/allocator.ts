@@ -106,9 +106,20 @@ export function thoughtMessagesForProjection(
   // byte-identical system message. Thought owns all interpretation of the
   // fact; this sentence states the count's meaning and window scope only.
   const recencyOmission = projected.conversationSelection?.recencyOmittedCount ?? 0;
-  const systemContent = recencyOmission > 0
-    ? `${memo.systemContent} ${RECENCY_OMISSION_GUIDANCE}`
-    : memo.systemContent;
+  // E2b conditional guidance: appended only when the FINAL projected Thought
+  // input truthfully carries an allocator-stage retrieval omission. Loop
+  // tentatives never carry the count (final-only disclosure), so this branch
+  // is inert during packing and complete-view finals keep a byte-identical
+  // system message. States the count's meaning and allocator-stage scope
+  // only; assigns no importance, mandates no speech.
+  const retrievalOmission = projected.retrieval.allocatorOmittedCount ?? 0;
+  const systemContent = recencyOmission > 0 && retrievalOmission > 0
+    ? `${memo.systemContent} ${RECENCY_OMISSION_GUIDANCE} ${ALLOCATOR_OMISSION_GUIDANCE}`
+    : recencyOmission > 0
+      ? `${memo.systemContent} ${RECENCY_OMISSION_GUIDANCE}`
+      : retrievalOmission > 0
+        ? `${memo.systemContent} ${ALLOCATOR_OMISSION_GUIDANCE}`
+        : memo.systemContent;
   return [
     {
       role: "system",
@@ -133,6 +144,16 @@ export type ThoughtProjectionMessageMemo = Readonly<{
  */
 export const RECENCY_OMISSION_GUIDANCE =
   "When conversationSelection.recencyOmittedCount is present, it is the number of audience-eligible current-version conversation rows omitted by the ordinary recency window within the Host's bounded source read; do not infer the omitted content or treat the count as exhaustive beyond that source window.";
+
+/**
+ * E2b factual allocator-loss guidance. Emitted conditionally by
+ * thoughtMessagesForProjection only when the FINAL projected input carries
+ * retrieval.allocatorOmittedCount > 0. States the count's meaning and
+ * allocator-stage scope; assigns no importance, mandates no speech, and
+ * reveals and licenses nothing about the omitted evidence.
+ */
+export const ALLOCATOR_OMISSION_GUIDANCE =
+  "retrieval.allocatorOmittedCount counts allocator-eligible retrieval hits omitted by the Thought semantic budget. It excludes pre-allocator loss and reveals and licenses nothing.";
 
 function buildThoughtProjectionMessageMemo(
   structuralFeedback?: StructuralFeedbackInput,
@@ -284,6 +305,14 @@ export function allocateThoughtProjection(
   const eligibleCandidates = allCandidates.filter((candidate) =>
     candidate.continuityCandidate?.invalidationReason === undefined,
   );
+  // E2b: freeze the post-authoritative-invalidation allocator-eligible
+  // retrieval denominator BEFORE packing. Tombstoned/redacted candidates are
+  // in excludedCandidates by construction and contribute zero. This scalar is
+  // read only by the FINAL render (final-only disclosure); the packing loop
+  // never sees E2b metadata, so candidate decisions stay HEAD-equivalent.
+  const allocatorEligibleRetrievalCount = eligibleCandidates.filter((candidate) =>
+    candidate.section === "retrieval_compact",
+  ).length;
   // Pack mandatory sections before budget-sensitive context. This preserves
   // the existing candidate ownership while preventing optional history from
   // consuming space needed by a later mandatory section.
@@ -369,6 +398,11 @@ export function allocateThoughtProjection(
     includeOrientationKernel = orientationKernelIncluded,
     includeDomainPointers = domainPointersIncluded,
     includeC3Experiences = c3ExperiencesIncluded,
+    // E2b final-only disclosure: loop tentatives call WITHOUT this flag and
+    // stay HEAD-identical (recomputed miss, no count). Only the FINAL render
+    // passes finalizeDisclosure, repairing source miss truth and emitting the
+    // exact allocator-stage omission count. No speculative disclosure exists.
+    finalizeDisclosure = false,
   ): ProjectedThoughtInput & {
     c3Experiences?: {
       version: 1;
@@ -376,7 +410,19 @@ export function allocateThoughtProjection(
     };
   } {
     renderTentativeCallCount += 1;
-    const isMiss = input.retrieval.state === "ready" && retrieval.length === 0;
+    // MISS_TENTATIVE_POLICY = FINAL_PROJECTION_ONLY: tentatives retain the
+    // HEAD transient recomputation so packing decisions stay byte-identical;
+    // the final render preserves source retrieval truth (total allocator
+    // omission is not a retrieval miss).
+    const isMiss = finalizeDisclosure
+      ? input.retrieval.miss
+      : input.retrieval.state === "ready" && retrieval.length === 0;
+    // E2b final-only omission count: frozen post-invalidation eligible total
+    // minus FINAL included hits. Computed only under finalizeDisclosure, so
+    // anticipated (not-yet-omitted) loss never enters candidate estimation.
+    const finalRetrievalOmittedCount = finalizeDisclosure
+      ? allocatorEligibleRetrievalCount - retrieval.length
+      : 0;
     const hasConversationSelection =
       c2Input.conversationSelection !== undefined || conversationOmittedIds.size > 0;
     const projected = {
@@ -404,6 +450,13 @@ export function allocateThoughtProjection(
         hits: retrieval,
         state: input.retrieval.state,
         miss: isMiss,
+        // E2b: allocator-stage loss honesty. Present only when > 0; absence
+        // means no KNOWN allocator-stage retrieval omission. Counts only
+        // post-invalidation eligible candidates actually omitted by budget —
+        // never pre-allocator loss, never invalidated rows, never refs.
+        ...(finalRetrievalOmittedCount > 0
+          ? { allocatorOmittedCount: finalRetrievalOmittedCount }
+          : {}),
       },
       cycleId: input.cycleId,
       generation: input.generation,
@@ -577,6 +630,10 @@ export function allocateThoughtProjection(
     }
   }
 
+  // E2b final-only disclosure: the packing loop above ran HEAD-identical
+  // tentatives (no count, no guidance, transient miss). Only this FINAL render
+  // repairs source miss truth and emits the exact allocator-stage omission
+  // count from the frozen post-invalidation denominator and FINAL inclusions.
   const finalProjected = renderTentative(
     workingContextIncluded,
     deskEntriesIncluded,
@@ -585,12 +642,31 @@ export function allocateThoughtProjection(
     orientationKernelIncluded,
     domainPointersIncluded,
     c3ExperiencesIncluded,
+    true,
   );
   thoughtMessagesForProjectionCallCount += 1;
   const finalMessages = thoughtMessagesForProjection(finalProjected, undefined, messageMemo);
   const finalEstimate = estimateRequestTokens(finalMessages, {
     maxTokens: budget.maxOutputTokens,
   });
+  // E2b scoped caller-envelope gate: applies ONLY when E2b disclosure is
+  // present. The fixed global byte gate below is equivalent to the DEFAULT
+  // 32768 envelope alone; caller envelopes may be smaller, so disclosed finals
+  // must satisfy the ACTUAL caller envelope or fail closed. NOT a generic
+  // final budget gate — complete (undisclosed) finals take no new check.
+  if (
+    (finalProjected.retrieval.allocatorOmittedCount ?? 0) > 0 &&
+    finalEstimate.estimatedInputTokens > budget.semanticBudgetTokens
+  ) {
+    throw new RequiredOverflowError(
+      `Truthful retrieval-loss disclosure exceeds the caller semantic envelope (input: ${finalEstimate.estimatedInputTokens}, semanticBudgetTokens: ${budget.semanticBudgetTokens})`,
+      {
+        section: "retrieval_loss_disclosure",
+        estimatedInputTokens: finalEstimate.estimatedInputTokens,
+        semanticBudgetTokens: budget.semanticBudgetTokens,
+      },
+    );
+  }
   const finalLogicalInputBytes = estimateRequestInputBytes(finalMessages);
   if (finalLogicalInputBytes > MAX_LOGICAL_SERIALIZED_INPUT_BYTES) {
     throw new RequiredOverflowError(

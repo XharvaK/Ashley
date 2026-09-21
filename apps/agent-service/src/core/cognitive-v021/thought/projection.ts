@@ -74,6 +74,15 @@ export type ProjectedRetrievalResult = {
   hits: CompactRetrievalEvidence[];
   state: RetrievalInfrastructureState;
   miss: boolean;
+  /**
+   * Number of allocator-eligible retrieval candidates omitted only because
+   * they did not fit the Thought semantic budget (allocator-stage loss).
+   * Present only when > 0. Absence means no KNOWN allocator-stage retrieval
+   * omission; it says nothing about FTS limits, defense fuse, dedup,
+   * query formation, undiscovered evidence, or pre-allocator eligibility.
+   * No IDs, snippets, ranks, or refs cross the wire with this count.
+   */
+  allocatorOmittedCount?: number;
 };
 
 export type ProjectedInFlightRecord = {
@@ -313,7 +322,10 @@ export function projectThoughtInput(
     compactHits.push(projectRetrievalHit(hit));
   }
 
-  const isMiss = infrastructureState === "ready" && compactHits.length === 0;
+  // E2b: preserve source retrieval truth. The allocator-stage projection must
+  // not recompute miss from post-budget survivors: total allocator omission
+  // is not a retrieval miss. fullInput.retrieval.miss is the source fact.
+  const isMiss = fullInput.retrieval.miss;
   const operationalNamespace = buildOperationalEffectNamespace(
     fullInput.cycleId,
     fullInput.generation,

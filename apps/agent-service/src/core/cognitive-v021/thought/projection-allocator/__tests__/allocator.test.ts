@@ -3,11 +3,14 @@ import { DatabaseSync } from "node:sqlite";
 import type { ThoughtInput } from "../../../types.js";
 import {
   allocateThoughtProjection,
+  ALLOCATOR_OMISSION_GUIDANCE,
   RECENCY_OMISSION_GUIDANCE,
   RequiredOverflowError,
   thoughtMessagesForProjection,
 } from "../allocator.js";
-import { estimateRequestTokens } from "../budget.js";
+import { MAX_LOGICAL_SERIALIZED_INPUT_BYTES, estimateRequestInputBytes, estimateRequestTokens } from "../budget.js";
+import { parseThoughtSemanticOutput } from "../../parse.js";
+import { makeSemanticSettlement } from "../../../test-support.js";
 import { buildAllocationCandidates } from "../sections.js";
 import { createThoughtStructuralFeedback } from "../../structural-feedback.js";
 import { ensureAuthoritativeLineage, openContinuityDb } from "../../../../continuity/db.js";
@@ -427,7 +430,11 @@ describe("Whole-Thought Projection Allocator", () => {
 
     const allocated = allocateThoughtProjection({
       thoughtInput: input,
-      semanticBudgetTokens: 16_384,
+      // E2b accommodation: truthful retrieval-loss disclosure (~100 estimator
+      // tokens for count + guidance) participates in the final wire, so this
+      // pressure scenario budgets slightly above its pre-E2b 16_384 tuning.
+      // Trigger-lineage assertions below are unchanged.
+      semanticBudgetTokens: 17_000,
       requestId: "req-trigger-lineage-pressure",
     });
     const candidateDefinitions = buildAllocationCandidates(input, []);
@@ -1325,5 +1332,539 @@ describe("E2a recency loss honesty (allocator)", () => {
       requestId: "req-e2a-hash-lossy-again",
     });
     expect(lossyAgain.hashes).toEqual(lossyAllocated.hashes);
+  });
+});
+
+describe("E2b retrieval loss honesty (allocator)", () => {
+  function makeRetrievalHits(count: number, snippetRepeat = 20): ThoughtInput["retrieval"]["hits"] {
+    return Array.from({ length: count }, (_, i) => ({
+      kind: "lexical" as const,
+      sourceStore: "live_memory" as const,
+      ref: `mem:e2b:${i}`,
+      snippet: `E2b calibration snippet ${i} with filler words to consume budget `.repeat(snippetRepeat),
+      score: -1.0,
+      assertionKey: `mem:e2b:${i}`,
+      memoryKind: "owner_world_claim" as const,
+      dimensions: null,
+      dataClassification: "ordinary" as const,
+      live: true,
+      supportRefs: [],
+    }));
+  }
+
+  function retrievalInput(hitCount: number, snippetRepeat = 20, miss = false): ThoughtInput {
+    return makeThoughtInput({
+      retrieval: {
+        request: { triggerTerms: ["e2b"], workingContextTopics: [], assertionKeys: [], includeLogSearch: true },
+        hits: makeRetrievalHits(hitCount, snippetRepeat),
+        state: "ready",
+        miss,
+      },
+    });
+  }
+
+  function omittedRetrievalRefs(allocated: ReturnType<typeof allocateThoughtProjection>): string[] {
+    return allocated.receipt.decision.omitted
+      .filter((candidate) => candidate.section === "retrieval_compact")
+      .map((candidate) => String(candidate.ref ?? candidate.id));
+  }
+
+  // Full-budget probe: estimated input tokens when everything fits. Scans
+  // start here so they only walk the loss-transition window (fast).
+  let probeCounter = 0;
+  function fitEstimate(input: ThoughtInput): number {
+    probeCounter += 1;
+    return allocateThoughtProjection({
+      thoughtInput: input,
+      semanticBudgetTokens: 32_768,
+      requestId: `req-e2b-probe-${probeCounter}`,
+    }).receipt.estimatedInputTokens;
+  }
+  // Deterministic downward budget scan. Returns the first (largest) budget at
+  // or below `from` whose allocation succeeds and satisfies `want`. Stops at
+  // the first RequiredOverflowError (smaller budgets only fail harder).
+  function scanBudget(
+    input: ThoughtInput,
+    from: number,
+    step: number,
+    want: (allocated: ReturnType<typeof allocateThoughtProjection>) => boolean,
+    tag: string,
+    extra?: Omit<Parameters<typeof allocateThoughtProjection>[0], "thoughtInput" | "semanticBudgetTokens" | "requestId">,
+  ): { budget: number; allocated: ReturnType<typeof allocateThoughtProjection> } {
+    for (let budget = from; budget > 0; budget -= step) {
+      let allocated: ReturnType<typeof allocateThoughtProjection>;
+      try {
+        allocated = allocateThoughtProjection({
+          thoughtInput: input,
+          semanticBudgetTokens: budget,
+          requestId: `req-e2b-scan-${tag}-${budget}`,
+          ...extra,
+        });
+      } catch (caught) {
+        // Base/required failure is monotonic (smaller budgets only fail
+        // harder) — stop. Disclosure-shell failures are NOT monotonic: below
+        // a retrieval_loss_disclosure throw, fewer hits fit and allocation
+        // may succeed again with higher omission — keep scanning down.
+        if (caught instanceof RequiredOverflowError) {
+          if ((caught as RequiredOverflowError).section === "retrieval_loss_disclosure") continue;
+          break;
+        }
+        throw caught;
+      }
+      if (want(allocated!)) return { budget, allocated: allocated! };
+    }
+    throw new Error(`e2b calibration scan found no matching budget (${tag})`);
+  }
+
+  it("preserves a genuine source retrieval miss with no count and no guidance (A)", () => {
+    const allocated = allocateThoughtProjection({
+      thoughtInput: retrievalInput(0, 20, true),
+      semanticBudgetTokens: 9_500,
+      requestId: "req-e2b-genuine-miss",
+    });
+
+    expect(allocated.projected.retrieval.miss).toBe(true);
+    expect(allocated.projected.retrieval.hits).toEqual([]);
+    expect(allocated.projected.retrieval.allocatorOmittedCount).toBeUndefined();
+    const systemMessage = thoughtMessagesForProjection(allocated.projected)[0]?.content ?? "";
+    expect(systemMessage).not.toContain(ALLOCATOR_OMISSION_GUIDANCE);
+    expect(systemMessage).not.toContain("allocatorOmittedCount");
+  });
+
+  it("emits no count and no guidance when all retrieval hits fit (B)", () => {
+    const input = retrievalInput(3, 4);
+    const allocated = allocateThoughtProjection({
+      thoughtInput: input,
+      semanticBudgetTokens: 9_500,
+      requestId: "req-e2b-all-fit",
+    });
+
+    expect(allocated.projected.retrieval.miss).toBe(false);
+    expect(allocated.projected.retrieval.hits.length).toBe(3);
+    expect(allocated.projected.retrieval.allocatorOmittedCount).toBeUndefined();
+    const messages = thoughtMessagesForProjection(allocated.projected);
+    const systemMessage = messages[0]?.content ?? "";
+    expect(systemMessage).not.toContain(ALLOCATOR_OMISSION_GUIDANCE);
+    expect(JSON.stringify(messages)).not.toContain("allocatorOmittedCount");
+    // Deterministic complete cycle (same input object: allocation is pure).
+    const again = allocateThoughtProjection({
+      thoughtInput: input,
+      semanticBudgetTokens: 9_500,
+      requestId: "req-e2b-all-fit-again",
+    });
+    expect(again.hashes).toEqual(allocated.hashes);
+  });
+
+  it("discloses an exact partial allocator omission with source miss preserved (C)", () => {
+    const allocated = allocateThoughtProjection({
+      thoughtInput: retrievalInput(20, 60),
+      quotaBucket: "groq:openai/gpt-oss-20b",
+      requestId: "req-e2b-partial",
+    });
+
+    const included = allocated.projected.retrieval.hits.length;
+    expect(included).toBeGreaterThan(0);
+    expect(included).toBeLessThan(20);
+    // Exact reconciliation: count = eligible total - included.
+    expect(allocated.projected.retrieval.allocatorOmittedCount).toBe(20 - included);
+    // Source truth preserved: retrieval found hits, so miss is false even
+    // though the allocator shed some of them.
+    expect(allocated.projected.retrieval.miss).toBe(false);
+    expect(omittedRetrievalRefs(allocated).length).toBe(20 - included);
+    const systemMessage = thoughtMessagesForProjection(allocated.projected)[0]?.content ?? "";
+    expect(systemMessage).toContain(ALLOCATOR_OMISSION_GUIDANCE);
+    expect(systemMessage.split(ALLOCATOR_OMISSION_GUIDANCE).length - 1).toBe(1);
+    // Real-loss disclosure fits: receipt truth holds.
+    expect(allocated.receipt.estimatedInputTokens)
+      .toBeLessThanOrEqual(allocated.receipt.semanticProjectionEnvelope.maxInputTokens);
+    expect(allocated.receipt.headroomTokens).toBeGreaterThanOrEqual(0);
+  });
+
+  it("repairs miss truth on total allocator omission with exact count (D)", () => {
+    const input = retrievalInput(4, 6);
+    // Self-calibrate: largest budget where packing succeeds but zero retrieval
+    // hits survive. Base/required content still fits (no throw).
+    const { allocated } = scanBudget(
+      input, fitEstimate(input), 25,
+      (candidate) => candidate.projected.retrieval.hits.length === 0,
+      "total-omission",
+    );
+
+    expect(allocated.projected.retrieval.miss).toBe(false);
+    expect(allocated.projected.retrieval.hits).toEqual([]);
+    expect(allocated.projected.retrieval.allocatorOmittedCount).toBe(4);
+    const systemMessage = thoughtMessagesForProjection(allocated.projected)[0]?.content ?? "";
+    expect(systemMessage).toContain(ALLOCATOR_OMISSION_GUIDANCE);
+    expect(omittedRetrievalRefs(allocated).length).toBe(4);
+  });
+
+  it("preserves unavailable infrastructure state verbatim (E)", () => {
+    const withHit = makeThoughtInput({
+      retrieval: {
+        request: { triggerTerms: [], workingContextTopics: [], assertionKeys: [], includeLogSearch: true },
+        hits: makeRetrievalHits(1, 4),
+        state: "unavailable",
+        miss: false,
+      },
+    });
+    const allocated = allocateThoughtProjection({
+      thoughtInput: withHit,
+      semanticBudgetTokens: 9_500,
+      requestId: "req-e2b-unavailable-hit",
+    });
+    expect(allocated.projected.retrieval.state).toBe("unavailable");
+    expect(allocated.projected.retrieval.miss).toBe(false);
+    expect(allocated.projected.retrieval.hits.length).toBe(1);
+    expect(allocated.projected.retrieval.allocatorOmittedCount).toBeUndefined();
+
+    const empty = makeThoughtInput({
+      retrieval: {
+        request: { triggerTerms: [], workingContextTopics: [], assertionKeys: [], includeLogSearch: true },
+        hits: [],
+        state: "unavailable",
+        miss: false,
+      },
+    });
+    const emptyAllocated = allocateThoughtProjection({
+      thoughtInput: empty,
+      semanticBudgetTokens: 9_500,
+      requestId: "req-e2b-unavailable-empty",
+    });
+    expect(emptyAllocated.projected.retrieval.state).toBe("unavailable");
+    expect(emptyAllocated.projected.retrieval.miss).toBe(false);
+    expect(emptyAllocated.projected.retrieval.allocatorOmittedCount).toBeUndefined();
+  });
+
+  it("gives tombstoned retrieval candidates zero denominator and zero count (F)", () => {
+    const continuity = openContinuityDb(new DatabaseSync(":memory:"));
+    try {
+      const { lineageId } = ensureAuthoritativeLineage(continuity, {
+        nuclearSchemaVersion: 44,
+        buildIdentity: "e2b-test",
+      });
+      continuity.prepare(
+        `INSERT INTO forget_tombstones
+           (tombstone_id, owner_id, lineage_id, status, created_at)
+         VALUES (?, ?, ?, 'applied', ?)`,
+      ).run("tombstone-e2b-1", "owner-1", lineageId, new Date().toISOString());
+      continuity.prepare(
+        `INSERT INTO forget_tombstone_targets
+           (tombstone_id, entity_type, entity_uuid, action)
+         VALUES (?, ?, ?, 'redact')`,
+      ).run("tombstone-e2b-1", "sidecar_memory_assertions", "mem:e2b:0");
+      // NOTE: a redacted-shape compact retrieval hit is not constructible
+      // through the existing seam (CompactRetrievalEvidence carries no
+      // redacted/sourceStatus fields and the live continuity context carries
+      // no redactedEntityIds). The design forbids adding a seam merely to
+      // make redaction testable; the tombstone below proves the
+      // invalidationReason gate that excludes redacted rows identically.
+
+      // Tombstoned mem:e2b:0 + 3 eligible normals; force exactly 1 omission
+      // among the normals. If the tombstoned row leaked into the denominator,
+      // the count would read 2 instead of 1.
+      const input = retrievalInput(4, 6);
+      const { allocated } = scanBudget(
+        input, fitEstimate(input), 25,
+        (candidate) => (candidate.projected.retrieval.allocatorOmittedCount ?? 0) === 1,
+        "tombstone-one-omission",
+        { continuityDb: continuity },
+      );
+
+      expect(allocated.projected.retrieval.allocatorOmittedCount).toBe(1);
+      expect(allocated.projected.retrieval.hits.map((hit) => hit.ref)).not.toContain("mem:e2b:0");
+      const wire = JSON.stringify(modelVisibleThoughtProjection(allocated.projected));
+      expect(wire).not.toContain("mem:e2b:0");
+      expect(allocated.receipt.coverageManifest?.domains).toEqual(expect.arrayContaining([
+        expect.objectContaining({ disposition: "INELIGIBLE" }),
+      ]));
+      // Eligible reconciliation: 2 included normals + 1 omitted normal = 3
+      // eligible; the tombstoned row is in neither set.
+      expect(allocated.projected.retrieval.hits.length).toBe(2);
+      expect(omittedRetrievalRefs(allocated)).toHaveLength(1);
+    } finally {
+      continuity.close();
+    }
+  });
+
+  it("keeps omitted refs off the wire and unallowlisted for evidence use", () => {
+    const allocated = allocateThoughtProjection({
+      thoughtInput: retrievalInput(20, 60),
+      quotaBucket: "groq:openai/gpt-oss-20b",
+      requestId: "req-e2b-refs",
+    });
+    const omitted = omittedRetrievalRefs(allocated);
+    expect(omitted.length).toBeGreaterThan(0);
+    const includedRefs = new Set(allocated.projected.retrieval.hits.map((hit) => hit.ref));
+    const wire = JSON.stringify(modelVisibleThoughtProjection(allocated.projected));
+    for (const ref of omitted) {
+      expect(includedRefs.has(ref)).toBe(false);
+      expect(wire).not.toContain(ref);
+    }
+    // Parse-level enforcement with the projected-hits allowlist (mirrors the
+    // retrieval clause of semanticReferencesForInput in run.ts, which derives
+    // the live allowlist from allocated.projected only).
+    const allowlist = new Set<string>([
+      ...allocated.projected.retrieval.hits.flatMap((hit) =>
+        "supportRefs" in hit && Array.isArray(hit.supportRefs) ? [hit.ref, ...hit.supportRefs] : [hit.ref]),
+      allocated.projected.trigger.ref,
+    ]);
+    // Shape mirrors epistemic-binding.test.ts: a well-typed claim citing the
+    // omitted ref, so the ONLY failure is the allowlist rejection.
+    const draft = "citing unseen evidence";
+    const forged = makeSemanticSettlement({
+      speech: { mode: "draft", surfaceDraft: draft },
+      commitments: {
+        epistemic: [{
+          dimensions: {
+            source: "tool",
+            status: "asserted",
+            time: "historical",
+            reliability: "fallible_observation",
+          },
+          statement: "x",
+          surfaceSpan: draft,
+          observationRefs: [omitted[0]!],
+        }],
+        conversational: ["answer"],
+      },
+      evidenceUse: { retrievalRefsUsed: [omitted[0]!] },
+    });
+    expect(parseThoughtSemanticOutput(forged, allowlist)).toMatchObject({
+      ok: false,
+      code: "reference_not_allowlisted",
+    });
+  });
+
+  it("keeps E2a recency loss and E2b retrieval loss independent", () => {
+    const input = makeThoughtInput({
+      retrieval: {
+        request: { triggerTerms: ["e2b"], workingContextTopics: [], assertionKeys: [], includeLogSearch: true },
+        hits: makeRetrievalHits(50, 20),
+        state: "ready",
+        miss: false,
+      },
+      conversationSelection: { frontierIncludedIds: [], omittedEvidenceIds: [], recencyOmittedCount: 5 },
+    });
+    const allocated = allocateThoughtProjection({
+      thoughtInput: input,
+      semanticBudgetTokens: 32_768,
+      requestId: "req-e2b-e2a-joint",
+    });
+
+    const retrievalCount = allocated.projected.retrieval.allocatorOmittedCount ?? 0;
+    expect(retrievalCount).toBeGreaterThan(0);
+    expect(allocated.projected.retrieval.allocatorOmittedCount)
+      .toBe(50 - allocated.projected.retrieval.hits.length);
+    // E2a untouched: pre-allocation count carried exactly, never merged.
+    expect(allocated.projected.conversationSelection?.recencyOmittedCount).toBe(5);
+    const systemMessage = thoughtMessagesForProjection(allocated.projected)[0]?.content ?? "";
+    expect(systemMessage.split(RECENCY_OMISSION_GUIDANCE).length - 1).toBe(1);
+    expect(systemMessage.split(ALLOCATOR_OMISSION_GUIDANCE).length - 1).toBe(1);
+  });
+
+  it("makes identical packing decisions with and without survivable retrieval (packing equivalence)", () => {
+    const input = retrievalInput(6, 12);
+    const { allocated } = scanBudget(
+      input, fitEstimate(input), 25,
+      (candidate) => (candidate.projected.retrieval.allocatorOmittedCount ?? 0) > 0,
+      "packing-lossy",
+    );
+    // Control: same input with retrieval truncated to exactly the survivors.
+    // Non-retrieval candidates are decided before the retrieval block under
+    // identical tentatives (final-only disclosure), so their decisions must
+    // match exactly.
+    const survivors = allocated.projected.retrieval.hits.map((hit) => hit.ref);
+    const control = makeThoughtInput({
+      retrieval: {
+        request: { triggerTerms: ["e2b"], workingContextTopics: [], assertionKeys: [], includeLogSearch: true },
+        hits: makeRetrievalHits(6, 12).filter((hit) => survivors.includes(hit.ref)),
+        state: "ready",
+        miss: false,
+      },
+    });
+    const controlAllocated = allocateThoughtProjection({
+      thoughtInput: control,
+      semanticBudgetTokens: 9_500,
+      requestId: "req-e2b-packing-control",
+    });
+
+    const decisions = (value: ReturnType<typeof allocateThoughtProjection>) => ({
+      included: value.receipt.decision.included
+        .filter((candidate) => candidate.section !== "retrieval_compact")
+        .map((candidate) => candidate.id),
+      omitted: value.receipt.decision.omitted
+        .filter((candidate) => candidate.section !== "retrieval_compact")
+        .map((candidate) => `${candidate.id}:${candidate.reason}`),
+    });
+    expect(decisions(allocated)).toEqual(decisions(controlAllocated));
+  });
+
+  it("fails closed with retrieval_loss_disclosure when disclosure overflows a custom envelope", () => {
+    // Analytic construction (no scan): measure base wire and per-hit cost,
+    // then size a budget where HEAD-identical packing sheds every hit yet the
+    // truthful disclosure itself does not fit the caller envelope.
+    const hitCount = 4;
+    const baseTokens = allocateThoughtProjection({
+      thoughtInput: retrievalInput(0, 6),
+      semanticBudgetTokens: 32_768,
+      requestId: "req-e2b-overflow-base",
+    }).receipt.estimatedInputTokens;
+    const fullTokens = fitEstimate(retrievalInput(hitCount, 10));
+    const hitTokens = (fullTokens - baseTokens) / hitCount;
+    // Exact disclosure byte cost: scalar JSON + separator + guidance sentence.
+    const disclosureBytes = Buffer.byteLength(`"allocatorOmittedCount":${hitCount},`, "utf8")
+      + 1
+      + Buffer.byteLength(ALLOCATOR_OMISSION_GUIDANCE, "utf8");
+    const disclosureTokens = Math.ceil(disclosureBytes / 2) + 2;
+    // Guards: hits are individually larger than the disclosure shortfall, so
+    // zero hits fit while the disclosure overflows.
+    expect(hitTokens).toBeGreaterThan(disclosureTokens);
+    const failingBudget = baseTokens + disclosureTokens - 5;
+    expect(failingBudget).toBeGreaterThan(baseTokens);
+
+    let error: unknown;
+    try {
+      allocateThoughtProjection({
+        thoughtInput: retrievalInput(hitCount, 10),
+        semanticBudgetTokens: failingBudget,
+        requestId: "req-e2b-overflow-fail",
+      });
+    } catch (caught) {
+      error = caught;
+    }
+    expect(error).toBeInstanceOf(RequiredOverflowError);
+    expect(error).toMatchObject({
+      section: "retrieval_loss_disclosure",
+      semanticBudgetTokens: failingBudget,
+    });
+    expect((error as RequiredOverflowError).estimatedInputTokens).toBeGreaterThan(failingBudget);
+    // The failure is the scoped semantic gate, not the global byte ceiling:
+    // the disclosed wire stays orders of magnitude below it.
+    expect((baseTokens + disclosureTokens) * 2).toBeLessThan(MAX_LOGICAL_SERIALIZED_INPUT_BYTES / 4);
+
+    // Contrast: with room for disclosure the same loss shape succeeds.
+    const okBudget = baseTokens + disclosureTokens + Math.ceil(hitTokens) + 50;
+    const ok = allocateThoughtProjection({
+      thoughtInput: retrievalInput(hitCount, 10),
+      semanticBudgetTokens: okBudget,
+      requestId: "req-e2b-overflow-ok",
+    });
+    expect((ok.projected.retrieval.allocatorOmittedCount ?? 0)).toBeGreaterThan(0);
+    expect(ok.receipt.estimatedInputTokens).toBeLessThanOrEqual(okBudget);
+  });
+
+  it("fits truthful disclosure with non-negative headroom when loss is real (fits)", () => {
+    const allocated = allocateThoughtProjection({
+      thoughtInput: retrievalInput(6, 12),
+      semanticBudgetTokens: 32_768,
+      requestId: "req-e2b-fits",
+    });
+    const count = allocated.projected.retrieval.allocatorOmittedCount ?? 0;
+    expect(count).toBe(6 - allocated.projected.retrieval.hits.length);
+    const systemMessage = thoughtMessagesForProjection(allocated.projected)[0]?.content ?? "";
+    if (count > 0) {
+      expect(systemMessage.split(ALLOCATOR_OMISSION_GUIDANCE).length - 1).toBe(1);
+    } else {
+      expect(systemMessage).not.toContain(ALLOCATOR_OMISSION_GUIDANCE);
+    }
+    expect(allocated.receipt.estimatedInputTokens).toBeLessThanOrEqual(32_768);
+    expect(allocated.receipt.headroomTokens).toBeGreaterThanOrEqual(0);
+  });
+
+  it("keeps complete near-budget cycles free of E2b effects (near boundary A)", () => {
+    const probe = allocateThoughtProjection({
+      thoughtInput: retrievalInput(3, 4),
+      semanticBudgetTokens: 32_768,
+      requestId: "req-e2b-near-probe",
+    });
+    const tight = probe.receipt.estimatedInputTokens + 25;
+    const allocated = allocateThoughtProjection({
+      thoughtInput: retrievalInput(3, 4),
+      semanticBudgetTokens: tight,
+      requestId: "req-e2b-near-tight",
+    });
+    // The unrelated optional WC topic still survives; no count, no guidance,
+    // no E2b-specific failure at the tight budget.
+    expect(allocated.projected.workingContext.map((item) => item.id)).toContain("wc-topic-1");
+    expect(allocated.projected.retrieval.hits.length).toBe(3);
+    expect(allocated.projected.retrieval.allocatorOmittedCount).toBeUndefined();
+    const systemMessage = thoughtMessagesForProjection(allocated.projected)[0]?.content ?? "";
+    expect(systemMessage).not.toContain(ALLOCATOR_OMISSION_GUIDANCE);
+  });
+
+  it("transitions exactly at the first real omission with no stale count (near boundary B)", () => {
+    const input = retrievalInput(4, 8);
+    // Largest budget with exactly one omission...
+    const { budget: lossBudget, allocated: lossy } = scanBudget(
+      input, fitEstimate(input), 5,
+      (candidate) => (candidate.projected.retrieval.allocatorOmittedCount ?? 0) === 1,
+      "first-omission",
+    );
+    expect(lossy.projected.retrieval.allocatorOmittedCount).toBe(1);
+    const lossSystem = thoughtMessagesForProjection(lossy.projected)[0]?.content ?? "";
+    expect(lossSystem).toContain(ALLOCATOR_OMISSION_GUIDANCE);
+    // ...and the all-fit side one step above shows nothing. Scan upward from
+    // the loss budget for the first budget with zero omission.
+    let fitBudget = lossBudget;
+    for (let budget = lossBudget + 1; budget <= 9_500; budget += 1) {
+      const candidate = allocateThoughtProjection({
+        thoughtInput: input,
+        semanticBudgetTokens: budget,
+        requestId: `req-e2b-fit-scan-${budget}`,
+      });
+      if ((candidate.projected.retrieval.allocatorOmittedCount ?? 0) === 0) {
+        fitBudget = budget;
+        const fitSystem = thoughtMessagesForProjection(candidate.projected)[0]?.content ?? "";
+        expect(fitSystem).not.toContain(ALLOCATOR_OMISSION_GUIDANCE);
+        expect(candidate.projected.retrieval.hits.length).toBe(4);
+        break;
+      }
+    }
+    expect(fitBudget).toBeGreaterThan(lossBudget);
+  });
+
+  it("renders exact counts across the 10 to 9 digit boundary (near boundary C)", () => {
+    const input = retrievalInput(10, 8);
+    const { allocated: one } = scanBudget(
+      input, fitEstimate(input), 5,
+      (candidate) => (candidate.projected.retrieval.allocatorOmittedCount ?? 0) === 1,
+      "digit-one",
+    );
+    expect(one.projected.retrieval.allocatorOmittedCount).toBe(1);
+    expect(one.projected.retrieval.hits.length).toBe(9);
+    // Denominator total is exactly 10: 9 included + 1 budget-omitted.
+    expect(omittedRetrievalRefs(one)).toHaveLength(1);
+    const { allocated: none } = scanBudget(
+      input, fitEstimate(input), 5,
+      (candidate) => candidate.projected.retrieval.hits.length === 0,
+      "digit-none",
+    );
+    expect(none.projected.retrieval.allocatorOmittedCount).toBe(10);
+    expect(JSON.stringify(none.projected.retrieval)).toContain('"allocatorOmittedCount":10');
+  });
+
+  it("moves hashes on lossy retrieval cycles and stays deterministic", () => {
+    const base = retrievalInput(3, 4);
+    const complete = allocateThoughtProjection({
+      thoughtInput: base,
+      semanticBudgetTokens: 9_500,
+      requestId: "req-e2b-hash-complete",
+    });
+    const heavy = retrievalInput(20, 60);
+    const pressure = allocateThoughtProjection({
+      thoughtInput: heavy,
+      quotaBucket: "groq:openai/gpt-oss-20b",
+      requestId: "req-e2b-hash-lossy",
+    });
+    expect(pressure.projected.retrieval.allocatorOmittedCount).toBeGreaterThan(0);
+    expect(pressure.hashes.semanticProjectionHash).not.toBe(complete.hashes.semanticProjectionHash);
+    expect(pressure.hashes.dispatchMessagesHash).not.toBe(complete.hashes.dispatchMessagesHash);
+    // Deterministic: same input object reallocates identically.
+    const again = allocateThoughtProjection({
+      thoughtInput: heavy,
+      quotaBucket: "groq:openai/gpt-oss-20b",
+      requestId: "req-e2b-hash-lossy-again",
+    });
+    expect(again.hashes).toEqual(pressure.hashes);
   });
 });
