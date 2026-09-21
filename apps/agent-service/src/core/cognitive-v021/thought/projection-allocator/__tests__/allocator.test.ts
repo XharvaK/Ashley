@@ -3,6 +3,7 @@ import { DatabaseSync } from "node:sqlite";
 import type { ThoughtInput } from "../../../types.js";
 import {
   allocateThoughtProjection,
+  RECENCY_OMISSION_GUIDANCE,
   RequiredOverflowError,
   thoughtMessagesForProjection,
 } from "../allocator.js";
@@ -1210,5 +1211,119 @@ describe("Whole-Thought Projection Allocator", () => {
       mintEffectRef("cycle-test-1", 1, "effect-m"),
       mintEffectRef("cycle-test-1", 1, "effect-z"),
     ]);
+  });
+});
+
+describe("E2a recency loss honesty (allocator)", () => {
+  it("carries recencyOmittedCount through allocation without touching budget semantics", () => {
+    const rows = makeConversationRows(3, (index) => `small e2a row ${index}`);
+    const input = makeThoughtInput({
+      rawConversation: rows,
+      trigger: { kind: "owner_message", ref: rows.at(-1)!.rowId },
+      conversationSelection: { frontierIncludedIds: [], omittedEvidenceIds: [], recencyOmittedCount: 7 },
+    });
+
+    const allocated = allocateThoughtProjection({
+      thoughtInput: input,
+      semanticBudgetTokens: 9_500,
+      requestId: "req-e2a-carry",
+    });
+
+    expect(allocated.projected.rawConversation.map((row) => row.rowId)).toEqual(
+      rows.map((row) => row.rowId),
+    );
+    expect(allocated.projected.conversationSelection?.recencyOmittedCount).toBe(7);
+    expect(allocated.projected.conversationSelection?.omittedEvidenceIds).toEqual([]);
+    const systemMessage = thoughtMessagesForProjection(allocated.projected)[0]?.content ?? "";
+    expect(systemMessage).toContain(RECENCY_OMISSION_GUIDANCE);
+  });
+
+  it("keeps budget omissions and the recency count separate under envelope pressure (J+K)", () => {
+    const rows = makeConversationRows(
+      12,
+      (index) => `synthetic e2a pressure row ${index} `.repeat(150),
+    );
+    const input = withSyntheticC2(makeThoughtInput({
+      rawConversation: rows,
+      trigger: { kind: "owner_message", ref: rows.at(-1)!.rowId },
+      conversationSelection: { frontierIncludedIds: [], omittedEvidenceIds: [], recencyOmittedCount: 5 },
+    }));
+
+    const allocated = allocateThoughtProjection({
+      thoughtInput: input,
+      semanticBudgetTokens: 32_768,
+      requestId: "req-e2a-both-losses",
+    });
+
+    const omittedRecent = allocated.receipt.decision.omitted.filter(
+      (candidate) => candidate.section === "recent_raw",
+    );
+    expect(omittedRecent.length).toBeGreaterThan(0);
+    // Budgeting leaves the pre-allocation recency count exactly unchanged.
+    expect(allocated.projected.conversationSelection?.recencyOmittedCount).toBe(5);
+    expect(allocated.projected.conversationSelection?.omittedEvidenceIds).toEqual(
+      expect.arrayContaining(omittedRecent.map((candidate) => candidate.ref)),
+    );
+    // Every wire omission ID is a budget ref; no recency-excluded ID is minted.
+    for (const id of allocated.projected.conversationSelection?.omittedEvidenceIds ?? []) {
+      expect(omittedRecent.map((candidate) => candidate.ref)).toContain(id);
+    }
+  });
+
+  it("emits no count and no guidance on complete cycles", () => {
+    const rows = makeConversationRows(3, (index) => `small complete row ${index}`);
+    const input = makeThoughtInput({
+      rawConversation: rows,
+      trigger: { kind: "owner_message", ref: rows.at(-1)!.rowId },
+    });
+
+    const allocated = allocateThoughtProjection({
+      thoughtInput: input,
+      semanticBudgetTokens: 9_500,
+      requestId: "req-e2a-complete",
+    });
+
+    expect(allocated.projected.conversationSelection).toBeUndefined();
+    const systemMessage = thoughtMessagesForProjection(allocated.projected)[0]?.content ?? "";
+    expect(systemMessage).not.toContain(RECENCY_OMISSION_GUIDANCE);
+    expect(systemMessage).not.toContain("recencyOmittedCount");
+  });
+
+  it("moves hashes on lossy cycles only", () => {
+    const rows = makeConversationRows(3, (index) => `small hash row ${index}`);
+    const base = makeThoughtInput({
+      rawConversation: rows,
+      trigger: { kind: "owner_message", ref: rows.at(-1)!.rowId },
+    });
+    const lossy = makeThoughtInput({
+      rawConversation: rows,
+      trigger: { kind: "owner_message", ref: rows.at(-1)!.rowId },
+      conversationSelection: { frontierIncludedIds: [], omittedEvidenceIds: [], recencyOmittedCount: 7 },
+    });
+
+    const complete = allocateThoughtProjection({
+      thoughtInput: base,
+      semanticBudgetTokens: 9_500,
+      requestId: "req-e2a-hash-complete",
+    });
+    const lossyAllocated = allocateThoughtProjection({
+      thoughtInput: lossy,
+      semanticBudgetTokens: 9_500,
+      requestId: "req-e2a-hash-lossy",
+    });
+
+    expect(lossyAllocated.hashes.semanticProjectionHash).not.toBe(
+      complete.hashes.semanticProjectionHash,
+    );
+    expect(lossyAllocated.hashes.dispatchMessagesHash).not.toBe(
+      complete.hashes.dispatchMessagesHash,
+    );
+    // Deterministic: the same lossy input hashes identically.
+    const lossyAgain = allocateThoughtProjection({
+      thoughtInput: lossy,
+      semanticBudgetTokens: 9_500,
+      requestId: "req-e2a-hash-lossy-again",
+    });
+    expect(lossyAgain.hashes).toEqual(lossyAllocated.hashes);
   });
 });

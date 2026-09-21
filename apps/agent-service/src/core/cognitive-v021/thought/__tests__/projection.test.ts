@@ -11,7 +11,7 @@ import {
   type CompactConversationEvidence,
   type ProjectedThoughtInput,
 } from "../projection.js";
-import { thoughtMessagesForProjection } from "../projection-allocator/allocator.js";
+import { RECENCY_OMISSION_GUIDANCE, thoughtMessagesForProjection } from "../projection-allocator/allocator.js";
 
 function makeThoughtInput(overrides: Partial<ThoughtInput> = {}): ThoughtInput {
   return {
@@ -448,5 +448,47 @@ describe("Model-Visible Thought Projection", () => {
     expect((wireUser.observations[0]?.payload as Record<string, unknown>).nested)
       .toEqual({ selectedModelId: "opencode/nemotron-3.5-lightning-free" });
     expect(JSON.stringify(base.observations)).toContain("selectedModelId");
+  });
+});
+
+describe("E2a recency loss honesty (projection seam)", () => {
+  it("appends the factual recency guidance only on lossy cycles (L)", () => {
+    const lossy = makeThoughtInput({
+      conversationSelection: { frontierIncludedIds: [], omittedEvidenceIds: [], recencyOmittedCount: 4 },
+    });
+    const complete = makeThoughtInput();
+
+    const lossyProjected = projectThoughtInput(lossy, []).projected;
+    const completeProjected = projectThoughtInput(complete, []).projected;
+
+    expect(lossyProjected.conversationSelection?.recencyOmittedCount).toBe(4);
+    expect(completeProjected.conversationSelection).toBeUndefined();
+
+    const lossySystem = thoughtMessagesForProjection(lossyProjected)[0]?.content ?? "";
+    const completeSystem = thoughtMessagesForProjection(completeProjected)[0]?.content ?? "";
+    expect(lossySystem).toContain(RECENCY_OMISSION_GUIDANCE);
+    // Exactly once: the sentence is appended, never duplicated or templated.
+    expect(lossySystem.split(RECENCY_OMISSION_GUIDANCE).length - 1).toBe(1);
+    expect(completeSystem).not.toContain(RECENCY_OMISSION_GUIDANCE);
+    expect(completeSystem).not.toContain("recencyOmittedCount");
+  });
+
+  it("moves the semantic and dispatch hashes on lossy cycles only (M)", () => {
+    const lossy = makeThoughtInput({
+      conversationSelection: { frontierIncludedIds: [], omittedEvidenceIds: [], recencyOmittedCount: 4 },
+    });
+    const complete = makeThoughtInput();
+
+    const lossyProjected = projectThoughtInput(lossy, []).projected;
+    const completeProjected = projectThoughtInput(complete, []).projected;
+
+    expect(computeSemanticProjectionHash(lossyProjected)).not.toBe(
+      computeSemanticProjectionHash(completeProjected),
+    );
+    expect(
+      computeDispatchMessagesHash(thoughtMessagesForProjection(lossyProjected)),
+    ).not.toBe(
+      computeDispatchMessagesHash(thoughtMessagesForProjection(completeProjected)),
+    );
   });
 });

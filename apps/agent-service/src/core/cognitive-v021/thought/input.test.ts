@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { admitTestCycle, openTestSidecar, makeThoughtDraft } from "../test-support.js";
 import { openDerivedStore } from "../retrieval/derived-store.js";
-import { appendOwnerUtterance } from "../evidence/conversation-log.js";
+import { appendEvidenceInTransaction, appendOwnerUtterance, listConversationEvidence } from "../evidence/conversation-log.js";
 import type { CapabilityReality, IdentitySlice, MindOccupancy, WorkingContextItem } from "../types.js";
 import { buildThoughtInput, filterCapabilityReality, frontierAwareEvidenceSelection } from "./input.js";
 import { appendCycleLogIds, getCycle } from "../cycle/inbox.js";
@@ -478,6 +478,279 @@ describe("v0.2.1 ThoughtInput assembly", () => {
       expect(input.rawConversation).toHaveLength(12);
       expect(input.conversationSelection?.currentTriggerRowId).toBe(currentTrigger.rowId);
       expect(input.conversationSelection?.omittedEvidenceIds).toEqual([]);
+    } finally {
+      db.close();
+    }
+  });
+});
+
+describe("E2a conversation recency loss honesty", () => {
+  function seedOwnerTurns(
+    db: ReturnType<typeof openTestSidecar>,
+    conversationId: string,
+    count: number,
+    startMs = 1,
+  ) {
+    return Array.from({ length: count }, (_, index) => appendOwnerUtterance(db, {
+      conversationId,
+      text: `e2a turn ${index}`,
+      discordMessageIds: [`e2a-${conversationId}-${index}`],
+      nowMs: startMs + index,
+    }));
+  }
+
+  it("omits the count when eligible history fits the window (A)", () => {
+    const db = openTestSidecar();
+    try {
+      const rows = seedOwnerTurns(db, "thread-e2a-complete", 5);
+      const currentTrigger = rows.at(-1)!;
+      const cycle = admitTestCycle(db, {
+        cycleId: "cycle-e2a-complete",
+        conversationId: "thread-e2a-complete",
+        triggerKind: "owner_message",
+        triggerRef: currentTrigger.rowId,
+        nowMs: 100,
+      });
+
+      const input = makeInput(db, cycle, { triggerEvidence: currentTrigger });
+      expect(input.rawConversation).toHaveLength(5);
+      expect(input.conversationSelection?.currentTriggerRowId).toBe(currentTrigger.rowId);
+      expect(input.conversationSelection?.recencyOmittedCount).toBeUndefined();
+      expect(input.conversationSelection?.omittedEvidenceIds).toEqual([]);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("reports the exact eligible omission on ordinary recency loss without exposing IDs (B+N)", () => {
+    const db = openTestSidecar();
+    try {
+      const rows = seedOwnerTurns(db, "thread-e2a-loss", 25);
+      const currentTrigger = rows.at(-1)!;
+      const cycle = admitTestCycle(db, {
+        cycleId: "cycle-e2a-loss",
+        conversationId: "thread-e2a-loss",
+        triggerKind: "owner_message",
+        triggerRef: currentTrigger.rowId,
+        nowMs: 100,
+      });
+
+      const selection = frontierAwareEvidenceSelection(db, "thread-e2a-loss", {
+        triggerEvidence: currentTrigger,
+      });
+      expect(selection.selectedEvidence).toHaveLength(12);
+      expect(selection.recencyExcludedEvidence).toHaveLength(13);
+      expect(selection.recencyExcludedEvidence.map((row) => row.rowId)).toEqual(
+        rows.slice(0, 13).map((row) => row.rowId),
+      );
+
+      const input = makeInput(db, cycle, { triggerEvidence: currentTrigger });
+      expect(input.rawConversation).toHaveLength(12);
+      expect(input.rawConversation.map((row) => row.rowId)).toEqual(
+        rows.slice(-12).map((row) => row.rowId),
+      );
+      expect(input.conversationSelection?.recencyOmittedCount).toBe(13);
+      expect(input.conversationSelection?.omittedEvidenceIds).toEqual([]);
+      // No recency-excluded row ID may appear anywhere in the selection metadata.
+      const selectionWire = JSON.stringify(input.conversationSelection);
+      for (const excluded of rows.slice(0, 13)) {
+        expect(selectionWire).not.toContain(excluded.rowId);
+      }
+    } finally {
+      db.close();
+    }
+  });
+
+  it("does not count the current trigger selected from outside the window (C)", () => {
+    const db = openTestSidecar();
+    try {
+      const rows = seedOwnerTurns(db, "thread-e2a-trigger", 25);
+      const oldTrigger = rows[0]!;
+      const cycle = admitTestCycle(db, {
+        cycleId: "cycle-e2a-trigger",
+        conversationId: "thread-e2a-trigger",
+        triggerKind: "owner_message",
+        triggerRef: oldTrigger.rowId,
+        nowMs: 100,
+      });
+
+      const input = makeInput(db, cycle, { triggerEvidence: oldTrigger });
+      // Last-12 recency plus the augmented trigger row outside the window.
+      expect(input.rawConversation).toHaveLength(13);
+      expect(input.rawConversation.map((row) => row.rowId)).toContain(oldTrigger.rowId);
+      expect(input.conversationSelection?.currentTriggerRowId).toBe(oldTrigger.rowId);
+      expect(input.conversationSelection?.recencyOmittedCount).toBe(12);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("does not count protected frontier obligation rows (D)", () => {
+    const db = openTestSidecar();
+    try {
+      const cycle = admitTestCycle(db, { conversationId: "e2a-frontier", triggerKind: "owner_message", triggerRef: "e2a-frontier", nowMs: 1 });
+      const rows = seedOwnerTurns(db, "e2a-frontier", 20);
+      const { cycle: resumedCycle } = openFrontier(db, cycle, rows[0]!.rowId, [rows[0]!.rowId]);
+
+      const input = makeInput(db, resumedCycle);
+      // Ordinary recency (12) plus the carried obligation ref outside the window.
+      expect(input.rawConversation).toHaveLength(13);
+      expect(input.rawConversation.map((row) => row.rowId)).toContain(rows[0]!.rowId);
+      expect(input.conversationSelection?.frontierIncludedIds).toContain(rows[0]!.rowId);
+      expect(input.conversationSelection?.recencyOmittedCount).toBe(7);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("counts zero for lifecycle-rejected older rows and leaks nothing (E)", () => {
+    const db = openTestSidecar();
+    const conversationId = "social-dm-e2a";
+    try {
+      const ownerRows = Array.from({ length: 15 }, (_, index) => appendOwnerUtterance(db, {
+        conversationId,
+        text: `e2a owner-private ${index}`,
+        discordMessageIds: [`e2a-owner-${index}`],
+        nowMs: index + 1,
+      }));
+      const externalRows = Array.from({ length: 10 }, (_, index) => appendEvidenceInTransaction(db, "external_dialog", {
+        conversationId,
+        text: `same-dm context ${index}`,
+        speakerKind: "external_human",
+        speakerPrincipalId: "person-9",
+        location: { kind: "external_dm", principalId: "person-9", channelId: "dm-channel-9" },
+        audienceAtCapture: "dm",
+        discordMessageIds: [`e2a-ext-${index}`],
+        sentAtMs: 16 + index,
+        nowMs: 16 + index,
+      }));
+      const lastExternal = externalRows.at(-1)!;
+      const cycle = admitTestCycle(db, {
+        cycleId: "cycle-e2a-dm",
+        conversationId,
+        triggerKind: "owner_message",
+        triggerRef: lastExternal.rowId,
+        occupantId: "doc",
+        nowMs: 100,
+      });
+
+      const input = makeInput(db, cycle, {
+        triggerEvidence: lastExternal,
+        audience: { kind: "dm", principalId: "person-9" },
+      });
+      // The 15 owner-private rows are rejected by the existing lifecycle
+      // filterEvidence for this audience; the 10 eligible rows fit the
+      // window, so there is no known eligible omission.
+      expect(input.rawConversation).toHaveLength(10);
+      expect(input.conversationSelection?.recencyOmittedCount).toBeUndefined();
+      const wire = JSON.stringify(input);
+      for (const owner of ownerRows) {
+        expect(wire).not.toContain(owner.rowId);
+      }
+      expect(wire).not.toContain("e2a owner-private 0");
+    } finally {
+      db.close();
+    }
+  });
+
+  it("does not narrow Owner-private eligibility (F)", () => {
+    const db = openTestSidecar();
+    const conversationId = "social-dm-e2a-owner";
+    try {
+      Array.from({ length: 15 }, (_, index) => appendOwnerUtterance(db, {
+        conversationId,
+        text: `e2a owner-private ${index}`,
+        discordMessageIds: [`e2a-f-owner-${index}`],
+        nowMs: index + 1,
+      }));
+      const externalRows = Array.from({ length: 10 }, (_, index) => appendEvidenceInTransaction(db, "external_dialog", {
+        conversationId,
+        text: `same-dm context ${index}`,
+        speakerKind: "external_human",
+        speakerPrincipalId: "person-9",
+        location: { kind: "external_dm", principalId: "person-9", channelId: "dm-channel-9" },
+        audienceAtCapture: "dm",
+        discordMessageIds: [`e2a-f-ext-${index}`],
+        sentAtMs: 16 + index,
+        nowMs: 16 + index,
+      }));
+      const lastExternal = externalRows.at(-1)!;
+      const cycle = admitTestCycle(db, {
+        cycleId: "cycle-e2a-owner",
+        conversationId,
+        triggerKind: "owner_message",
+        triggerRef: lastExternal.rowId,
+        occupantId: "doc",
+        nowMs: 100,
+      });
+
+      // Under owner_private the existing filter passes every row, so all 13
+      // recency-excluded rows count — E2a adds no stricter policy of its own.
+      const input = makeInput(db, cycle, { triggerEvidence: lastExternal });
+      expect(input.rawConversation).toHaveLength(12);
+      expect(input.conversationSelection?.recencyOmittedCount).toBe(13);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("derives the count from the selector source set without a second store read (G)", () => {
+    const db = openTestSidecar();
+    const conversationId = "thread-e2a-sameread";
+    try {
+      seedOwnerTurns(db, conversationId, 25);
+      const snapshot = listConversationEvidence(db, conversationId);
+      expect(snapshot).toHaveLength(25);
+      const currentTrigger = snapshot.at(-1)!;
+      const cycle = admitTestCycle(db, {
+        cycleId: "cycle-e2a-sameread",
+        conversationId,
+        triggerKind: "owner_message",
+        triggerRef: currentTrigger.rowId,
+        nowMs: 100,
+      });
+      // Remove every durable row: any second store read would now see nothing.
+      db.prepare("DELETE FROM conversation_evidence_log WHERE conversation_id = ?").run(conversationId);
+
+      const input = makeInput(db, cycle, {
+        triggerEvidence: currentTrigger,
+        rawConversation: snapshot,
+      });
+      expect(input.rawConversation).toHaveLength(12);
+      expect(input.conversationSelection?.recencyOmittedCount).toBe(13);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("discloses loss on trigger-less/frontier-less cycles and stays absent when complete (H+I)", () => {
+    const db = openTestSidecar();
+    try {
+      seedOwnerTurns(db, "thread-e2a-idle-lossy", 25);
+      const idleLossy = admitTestCycle(db, {
+        cycleId: "cycle-e2a-idle-lossy",
+        conversationId: "thread-e2a-idle-lossy",
+        triggerKind: "idle_opportunity",
+        triggerRef: "idle-lossy",
+        nowMs: 100,
+      });
+      const lossy = makeInput(db, idleLossy);
+      expect(lossy.conversationSelection).toBeDefined();
+      expect(lossy.conversationSelection?.recencyOmittedCount).toBe(13);
+      expect(lossy.conversationSelection?.currentTriggerRowId).toBeUndefined();
+      expect(lossy.conversationSelection?.frontierIncludedIds).toEqual([]);
+
+      seedOwnerTurns(db, "thread-e2a-idle-complete", 5);
+      const idleComplete = admitTestCycle(db, {
+        cycleId: "cycle-e2a-idle-complete",
+        conversationId: "thread-e2a-idle-complete",
+        triggerKind: "idle_opportunity",
+        triggerRef: "idle-complete",
+        nowMs: 100,
+      });
+      const complete = makeInput(db, idleComplete);
+      expect(complete.rawConversation).toHaveLength(5);
+      expect(complete.conversationSelection).toBeUndefined();
     } finally {
       db.close();
     }

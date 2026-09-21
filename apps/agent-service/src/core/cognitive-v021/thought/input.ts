@@ -490,6 +490,16 @@ export type ConversationSelectionResult = {
   frontierIncludedIds: string[];
   omittedEvidenceIds: string[];
   currentTriggerRowId: string | null;
+  /**
+   * E2a same-read recency-exclusion set: rows from THIS selector source set
+   * (the bounded current-version read, or the supplied seam) that are not in
+   * the final selected set after ordinary recency selection plus
+   * trigger/frontier obligation augmentation. Host-only, in-process,
+   * bounded by the same source set, never persisted, never ThoughtInput
+   * wire data. buildThoughtInput derives the model-visible
+   * recencyOmittedCount from it with the existing lifecycle filterEvidence.
+   */
+  recencyExcludedEvidence: ConversationEvidenceRecord[];
 };
 
 function orderedEvidence(rows: ConversationEvidenceRecord[]): ConversationEvidenceRecord[] {
@@ -568,11 +578,16 @@ export function frontierAwareEvidenceSelection(
   }
 
   const selectedEvidence = orderedEvidence([...selectedMap.values()]);
+  // E2a: same-read exclusion set. Ordered rows from THIS source set that did
+  // not survive recency selection + trigger/frontier augmentation. No second
+  // store read: every row here comes from `ordered` above.
+  const recencyExcludedEvidence = ordered.filter((row) => !selectedMap.has(row.rowId));
   return {
     selectedEvidence,
     frontierIncludedIds,
     currentTriggerRowId,
     omittedEvidenceIds: [],
+    recencyExcludedEvidence,
   };
 }
 
@@ -764,6 +779,16 @@ export function buildThoughtInput(options: BuildThoughtInputOptions): ThoughtInp
     },
   );
   const rawConversation = filterEvidence(conversationSelection.selectedEvidence, audience);
+  // E2a recency-loss honesty: count the selector's same-read exclusion set
+  // through the EXISTING lifecycle filterEvidence — the sole eligibility
+  // definition. A row rejected by the lifecycle filter contributes zero and
+  // leaves no ID/content trace. Trigger/frontier obligation rows were already
+  // selected above, so they can never count as omitted. No second evidence
+  // read: recencyExcludedEvidence derives from the selector's own source set.
+  const recencyOmittedCount = filterEvidence(
+    conversationSelection.recencyExcludedEvidence,
+    audience,
+  ).length;
   const workingContext = filterStructured(sourceCapture.workingContext, audience, licenses);
   const deskEntries = sourceCapture.deskEntries.filter((entry) => isDeskEntryAudienceEligible(entry, audience));
   const selectedOccupancy = filterStructured(sourceCapture.occupancy, audience, licenses);
@@ -874,7 +899,7 @@ export function buildThoughtInput(options: BuildThoughtInputOptions): ThoughtInp
     },
     ...(options.commitmentDue === undefined ? {} : { commitmentDue: { ...options.commitmentDue } }),
     rawConversation,
-    ...(conversationSelection.frontierIncludedIds.length > 0 || conversationSelection.currentTriggerRowId !== null
+    ...(conversationSelection.frontierIncludedIds.length > 0 || conversationSelection.currentTriggerRowId !== null || recencyOmittedCount > 0
       ? {
           conversationSelection: {
             frontierIncludedIds: conversationSelection.frontierIncludedIds.filter((id) =>
@@ -884,6 +909,9 @@ export function buildThoughtInput(options: BuildThoughtInputOptions): ThoughtInp
               !rawConversation.some((row) => row.rowId === conversationSelection.currentTriggerRowId)
               ? {}
               : { currentTriggerRowId: conversationSelection.currentTriggerRowId }),
+            // E2a: present only when > 0. Absence means no KNOWN eligible
+            // recency omission inside the bounded source-read window.
+            ...(recencyOmittedCount > 0 ? { recencyOmittedCount } : {}),
           },
         }
       : {}),

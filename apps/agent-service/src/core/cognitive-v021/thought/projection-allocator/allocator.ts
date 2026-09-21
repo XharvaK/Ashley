@@ -101,10 +101,18 @@ export function thoughtMessagesForProjection(
   messageMemo?: ThoughtProjectionMessageMemo,
 ): ChatMessage[] {
   const memo = messageMemo ?? buildThoughtProjectionMessageMemo(structuralFeedback);
+  // E2a conditional guidance: appended only when the projected Thought input
+  // truthfully carries a recency omission. Complete-view cycles keep a
+  // byte-identical system message. Thought owns all interpretation of the
+  // fact; this sentence states the count's meaning and window scope only.
+  const recencyOmission = projected.conversationSelection?.recencyOmittedCount ?? 0;
+  const systemContent = recencyOmission > 0
+    ? `${memo.systemContent} ${RECENCY_OMISSION_GUIDANCE}`
+    : memo.systemContent;
   return [
     {
       role: "system",
-      content: memo.systemContent,
+      content: systemContent,
     },
     { role: "user", content: JSON.stringify(modelVisibleThoughtProjection(projected)) },
     ...(memo.correctionData ? [{ role: "user" as const, content: memo.correctionData }] : []),
@@ -115,6 +123,16 @@ export type ThoughtProjectionMessageMemo = Readonly<{
   systemContent: string;
   correctionData: string | null;
 }>;
+
+/**
+ * E2a factual recency-loss guidance. Emitted conditionally by
+ * thoughtMessagesForProjection only when the projected input carries
+ * conversationSelection.recencyOmittedCount > 0. States the count's meaning
+ * and source-window scope; assigns no importance, mandates no speech, and
+ * makes no claim about evidence beyond the Host's bounded source read.
+ */
+export const RECENCY_OMISSION_GUIDANCE =
+  "When conversationSelection.recencyOmittedCount is present, it is the number of audience-eligible current-version conversation rows omitted by the ordinary recency window within the Host's bounded source read; do not infer the omitted content or treat the count as exhaustive beyond that source window.";
 
 function buildThoughtProjectionMessageMemo(
   structuralFeedback?: StructuralFeedbackInput,
@@ -408,6 +426,12 @@ export function allocateThoughtProjection(
               ...(c2Input.conversationSelection?.currentTriggerRowId === undefined
                 ? {}
                 : { currentTriggerRowId: c2Input.conversationSelection.currentTriggerRowId }),
+              // E2a: pre-allocation recency loss, carried unchanged. Never
+              // merged with budget-stage omittedEvidenceIds and never
+              // mutated by allocator budgeting.
+              ...(c2Input.conversationSelection?.recencyOmittedCount === undefined
+                ? {}
+                : { recencyOmittedCount: c2Input.conversationSelection.recencyOmittedCount }),
             },
           }
         : {}),

@@ -1402,6 +1402,15 @@ export type ThoughtInput = {
     omittedEvidenceIds: string[];
     /** Current row resolved from the cycle trigger's source lineage, when available. */
     currentTriggerRowId?: string | null;
+    /**
+     * E2a recency-loss honesty: number of audience-eligible, current-version
+     * conversation rows from the selector's bounded source read that were
+     * excluded by the ordinary recency window after trigger/frontier
+     * obligation augmentation. Present only when > 0. Absence means no KNOWN
+     * eligible recency omission inside the source-read window — never proof
+     * about evidence outside the Host's bounded source read.
+     */
+    recencyOmittedCount?: number;
   };
   workingContext: WorkingContextItem[];
   /** Owner-private desk projection; absent when no eligible entries exist. */
