@@ -11,7 +11,7 @@ import {
   type CompactConversationEvidence,
   type ProjectedThoughtInput,
 } from "../projection.js";
-import { ALLOCATOR_OMISSION_GUIDANCE, RECENCY_OMISSION_GUIDANCE, thoughtMessagesForProjection } from "../projection-allocator/allocator.js";
+import { ALLOCATOR_OMISSION_GUIDANCE, RECENCY_OMISSION_GUIDANCE, thoughtMessagesForProjection, WC_OPTIONAL_OMISSION_GUIDANCE } from "../projection-allocator/allocator.js";
 
 function makeThoughtInput(overrides: Partial<ThoughtInput> = {}): ThoughtInput {
   return {
@@ -558,5 +558,40 @@ describe("E2b retrieval loss honesty (projection seam)", () => {
     ).toBe(
       computeDispatchMessagesHash(thoughtMessagesForProjection(second)),
     );
+  });
+});
+
+describe("E2c optional Working Context loss honesty (projection seam)", () => {
+  it("leaves workingContextSelection absent on the legacy path", () => {
+    const projected = projectThoughtInput(makeThoughtInput(), []).projected;
+    expect(projected.workingContextSelection).toBeUndefined();
+    expect("workingContextSelection" in projected).toBe(false);
+    expect(projected.workingContext).toEqual([]);
+  });
+
+  it("flows allocator-set selection through the model-visible projection", () => {
+    const base = projectThoughtInput(makeThoughtInput(), []).projected;
+    const lossy: ProjectedThoughtInput = {
+      ...base,
+      workingContextSelection: { optionalAllocatorOmittedCount: 2 },
+    };
+    const wire = modelVisibleThoughtProjection(lossy) as Record<string, unknown>;
+    expect((wire.workingContextSelection as Record<string, unknown>).optionalAllocatorOmittedCount).toBe(2);
+  });
+
+  it("appends the factual WC guidance only on lossy cycles", () => {
+    const base = projectThoughtInput(makeThoughtInput(), []).projected;
+    const lossy: ProjectedThoughtInput = {
+      ...base,
+      workingContextSelection: { optionalAllocatorOmittedCount: 1 },
+    };
+    const lossySystem = thoughtMessagesForProjection(lossy)[0]?.content ?? "";
+    const completeSystem = thoughtMessagesForProjection(base)[0]?.content ?? "";
+    expect(lossySystem).toContain(WC_OPTIONAL_OMISSION_GUIDANCE);
+    expect(lossySystem.split(WC_OPTIONAL_OMISSION_GUIDANCE).length - 1).toBe(1);
+    expect(completeSystem).not.toContain(WC_OPTIONAL_OMISSION_GUIDANCE);
+    expect(completeSystem).not.toContain("optionalAllocatorOmittedCount");
+    // E2c guidance wording pins the required-exclusion semantics.
+    expect(WC_OPTIONAL_OMISSION_GUIDANCE).toContain("Required Working Context items are excluded from this count");
   });
 });

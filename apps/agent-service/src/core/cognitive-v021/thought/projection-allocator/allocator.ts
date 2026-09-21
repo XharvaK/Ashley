@@ -113,13 +113,17 @@ export function thoughtMessagesForProjection(
   // system message. States the count's meaning and allocator-stage scope
   // only; assigns no importance, mandates no speech.
   const retrievalOmission = projected.retrieval.allocatorOmittedCount ?? 0;
-  const systemContent = recencyOmission > 0 && retrievalOmission > 0
-    ? `${memo.systemContent} ${RECENCY_OMISSION_GUIDANCE} ${ALLOCATOR_OMISSION_GUIDANCE}`
-    : recencyOmission > 0
-      ? `${memo.systemContent} ${RECENCY_OMISSION_GUIDANCE}`
-      : retrievalOmission > 0
-        ? `${memo.systemContent} ${ALLOCATOR_OMISSION_GUIDANCE}`
-        : memo.systemContent;
+  // E2c conditional guidance: appended only when the FINAL projected Thought
+  // input truthfully carries an allocator-stage optional Working Context
+  // omission. Same final-only inertness as E2b.
+  const optionalWcOmission =
+    projected.workingContextSelection?.optionalAllocatorOmittedCount ?? 0;
+  // Ordered append: E2a, then E2b, then E2c. Byte-identical to the previous
+  // E2a/E2b branch tree for all pre-E2c combinations; E2c appends last.
+  let systemContent = memo.systemContent;
+  if (recencyOmission > 0) systemContent += ` ${RECENCY_OMISSION_GUIDANCE}`;
+  if (retrievalOmission > 0) systemContent += ` ${ALLOCATOR_OMISSION_GUIDANCE}`;
+  if (optionalWcOmission > 0) systemContent += ` ${WC_OPTIONAL_OMISSION_GUIDANCE}`;
   return [
     {
       role: "system",
@@ -154,6 +158,16 @@ export const RECENCY_OMISSION_GUIDANCE =
  */
 export const ALLOCATOR_OMISSION_GUIDANCE =
   "retrieval.allocatorOmittedCount counts allocator-eligible retrieval hits omitted by the Thought semantic budget. It excludes pre-allocator loss and reveals and licenses nothing.";
+
+/**
+ * E2c factual optional-WC-loss guidance. Emitted conditionally by
+ * thoughtMessagesForProjection only when the FINAL projected input carries
+ * workingContextSelection.optionalAllocatorOmittedCount > 0. States the
+ * count's meaning and allocator-stage scope; assigns no importance, mandates
+ * no speech, and reveals and licenses nothing about the omitted items.
+ */
+export const WC_OPTIONAL_OMISSION_GUIDANCE =
+  "workingContextSelection.optionalAllocatorOmittedCount counts allocator-eligible optional Working Context items omitted by allocator bounds. Required Working Context items are excluded from this count, and the count reveals and licenses no omitted content.";
 
 function buildThoughtProjectionMessageMemo(
   structuralFeedback?: StructuralFeedbackInput,
@@ -313,6 +327,15 @@ export function allocateThoughtProjection(
   const allocatorEligibleRetrievalCount = eligibleCandidates.filter((candidate) =>
     candidate.section === "retrieval_compact",
   ).length;
+  // E2c: freeze the post-authoritative-invalidation allocator-eligible
+  // OPTIONAL Working Context denominator BEFORE packing. Required Working
+  // Context sections and desk_entry are excluded by namespace; tombstoned /
+  // redacted candidates are in excludedCandidates by construction and
+  // contribute zero. Read only by the FINAL render (final-only disclosure).
+  const allocatorEligibleOptionalWcCount = eligibleCandidates.filter((candidate) =>
+    candidate.section === "working_context_topic" ||
+    candidate.section === "working_context_other",
+  ).length;
   // Pack mandatory sections before budget-sensitive context. This preserves
   // the existing candidate ownership while preventing optional history from
   // consuming space needed by a later mandatory section.
@@ -423,6 +446,19 @@ export function allocateThoughtProjection(
     const finalRetrievalOmittedCount = finalizeDisclosure
       ? allocatorEligibleRetrievalCount - retrieval.length
       : 0;
+    // E2c final-only omission count: frozen post-invalidation eligible
+    // OPTIONAL WC total minus FINAL included optional WC items. Same
+    // section namespace on both sides (no subtype predicate); fuse and
+    // budget omissions both fail to reach inclusion, so both are counted.
+    const finalIncludedOptionalWcCount = finalizeDisclosure
+      ? includedCandidates.filter((candidate) =>
+          candidate.section === "working_context_topic" ||
+          candidate.section === "working_context_other",
+        ).length
+      : 0;
+    const finalOptionalWcOmittedCount = finalizeDisclosure
+      ? allocatorEligibleOptionalWcCount - finalIncludedOptionalWcCount
+      : 0;
     const hasConversationSelection =
       c2Input.conversationSelection !== undefined || conversationOmittedIds.size > 0;
     const projected = {
@@ -439,6 +475,18 @@ export function allocateThoughtProjection(
         availableDestinations: [...input.availableDestinations].slice(0, MAX_AVAILABLE_SOCIAL_DESTINATIONS),
       }),
       workingContext: wc,
+      // E2c: allocator-stage optional-WC loss honesty. Present only when
+      // > 0; absence means no KNOWN allocator-stage optional omission.
+      // Counts post-invalidation eligible topic/other items actually
+      // omitted by fuse or budget — never required WC, never desk,
+      // never invalidated rows, never refs or subtype breakdowns.
+      ...(finalOptionalWcOmittedCount > 0
+        ? {
+            workingContextSelection: {
+              optionalAllocatorOmittedCount: finalOptionalWcOmittedCount,
+            },
+          }
+        : {}),
       ...(input.deskEntries === undefined ? {} : { deskEntries }),
       occupancy: requiredSectionBounds.occupancy,
       ...(includeDomainPointers && c2Input.domainPointers !== undefined
@@ -649,19 +697,35 @@ export function allocateThoughtProjection(
   const finalEstimate = estimateRequestTokens(finalMessages, {
     maxTokens: budget.maxOutputTokens,
   });
-  // E2b scoped caller-envelope gate: applies ONLY when E2b disclosure is
-  // present. The fixed global byte gate below is equivalent to the DEFAULT
-  // 32768 envelope alone; caller envelopes may be smaller, so disclosed finals
-  // must satisfy the ACTUAL caller envelope or fail closed. NOT a generic
-  // final budget gate — complete (undisclosed) finals take no new check.
+  // E2b+E2c disclosure-scoped caller-envelope gate: applies ONLY when a
+  // loss disclosure is present on the FINAL wire. The fixed global byte gate
+  // below is equivalent to the DEFAULT 32768 envelope alone; caller envelopes
+  // may be smaller, so disclosed finals must satisfy the ACTUAL caller
+  // envelope or fail closed. NOT a generic final budget gate — complete
+  // (undisclosed) finals take no new check. The section names which loss
+  // disclosures the overflowing wire carries; no causal attribution is
+  // attempted between them.
+  const hasRetrievalDisclosure = (finalProjected.retrieval.allocatorOmittedCount ?? 0) > 0;
+  const hasWcDisclosure =
+    (finalProjected.workingContextSelection?.optionalAllocatorOmittedCount ?? 0) > 0;
   if (
-    (finalProjected.retrieval.allocatorOmittedCount ?? 0) > 0 &&
+    (hasRetrievalDisclosure || hasWcDisclosure) &&
     finalEstimate.estimatedInputTokens > budget.semanticBudgetTokens
   ) {
+    const section = hasRetrievalDisclosure && hasWcDisclosure
+      ? "joint_loss_disclosure"
+      : hasRetrievalDisclosure
+        ? "retrieval_loss_disclosure"
+        : "working_context_loss_disclosure";
+    const disclosureKind = hasRetrievalDisclosure && hasWcDisclosure
+      ? "retrieval + Working Context loss"
+      : hasRetrievalDisclosure
+        ? "retrieval-loss"
+        : "Working Context-loss";
     throw new RequiredOverflowError(
-      `Truthful retrieval-loss disclosure exceeds the caller semantic envelope (input: ${finalEstimate.estimatedInputTokens}, semanticBudgetTokens: ${budget.semanticBudgetTokens})`,
+      `Truthful ${disclosureKind} disclosure exceeds the caller semantic envelope (input: ${finalEstimate.estimatedInputTokens}, semanticBudgetTokens: ${budget.semanticBudgetTokens})`,
       {
-        section: "retrieval_loss_disclosure",
+        section,
         estimatedInputTokens: finalEstimate.estimatedInputTokens,
         semanticBudgetTokens: budget.semanticBudgetTokens,
       },
@@ -724,6 +788,7 @@ export function allocateThoughtProjection(
     "deskEntries",
     "observations",
     "retrieval",
+    "workingContextSelection",
     "inFlight",
     "authorityObjections",
     "runtimeCondition",

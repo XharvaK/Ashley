@@ -104,6 +104,19 @@ export type ProjectedThoughtInput = {
   rawConversation: ThoughtInput["rawConversation"];
   conversationSelection?: ThoughtInput["conversationSelection"];
   workingContext: WorkingContextItem[];
+  /**
+   * Number of allocator-eligible OPTIONAL Working Context items (topic and
+   * other only) omitted by allocator bounds (local item-size fuse and/or
+   * semantic-budget packing). Present only when > 0; the object is absent
+   * otherwise, so no empty selection object is ever valid. Absence means no
+   * KNOWN allocator-stage optional omission; it says nothing about source
+   * store completeness, lifecycle filtering, ineligible/private records, or
+   * required Working Context (excluded from this count). No IDs, text, or
+   * subtype breakdowns cross the wire with this count.
+   */
+  workingContextSelection?: {
+    optionalAllocatorOmittedCount: number;
+  };
   deskEntries?: DeskEntry[];
   occupancy: ThoughtOccupancy[];
   /** Host-captured concern snapshots; non-enumerable and excluded from model wire. */

@@ -7,6 +7,7 @@ import {
   RECENCY_OMISSION_GUIDANCE,
   RequiredOverflowError,
   thoughtMessagesForProjection,
+  WC_OPTIONAL_OMISSION_GUIDANCE,
 } from "../allocator.js";
 import { MAX_LOGICAL_SERIALIZED_INPUT_BYTES, estimateRequestInputBytes, estimateRequestTokens } from "../budget.js";
 import { parseThoughtSemanticOutput } from "../../parse.js";
@@ -1864,6 +1865,773 @@ describe("E2b retrieval loss honesty (allocator)", () => {
       thoughtInput: heavy,
       quotaBucket: "groq:openai/gpt-oss-20b",
       requestId: "req-e2b-hash-lossy-again",
+    });
+    expect(again.hashes).toEqual(pressure.hashes);
+  });
+});
+
+describe("E2c optional Working Context loss honesty (allocator)", () => {
+  // One large optional topic at quota pressure: the E2b suite's
+  // request/response pair proves this envelope sheds optionals while keeping
+  // required sections. WC item text mirrors the proven E2b snippet shape.
+  function makeWcItem(
+    id: string,
+    type: ThoughtInput["workingContext"][number]["type"],
+    textRepeat = 8,
+  ): ThoughtInput["workingContext"][number] {
+    return {
+      id,
+      conversationId: "conv-1",
+      type,
+      text: `E2c calibration ${type} ${id} with filler words to consume budget `.repeat(textRepeat),
+      concernId: null,
+      sourceTurnIds: [],
+      status: "active",
+      supersedesId: null,
+      updatedGeneration: 1,
+    };
+  }
+
+  // E2c loss fixtures: large optional WC items using the proven E2b
+  // snippet-repeat shape (repeat 60). At the groq pressure envelope the
+  // allocator sheds optional WC wholesale (all-or-nothing at this item
+  // size), so tests pin exact count + wholesale shape rather than partial
+  // survival: count == eligible total, included == 0. Partial-survival
+  // reconciliation is covered by the packing-equivalence control (L) and
+  // the tombstone test (I), where survivors exist.
+  function largeWcItems(
+    prefix: string,
+    count: number,
+    types: Array<ThoughtInput["workingContext"][number]["type"]>,
+  ): ThoughtInput["workingContext"] {
+    return Array.from({ length: count }, (_, i) =>
+      makeWcItem(`${prefix}-${i}`, types[i % types.length]!, 60));
+  }
+
+  function wcInput(
+    items: ThoughtInput["workingContext"],
+    retrievalHits: ThoughtInput["retrieval"]["hits"] = [],
+  ): ThoughtInput {
+    return makeThoughtInput({
+      workingContext: items,
+      retrieval: {
+        request: { triggerTerms: ["e2c"], workingContextTopics: [], assertionKeys: [], includeLogSearch: true },
+        hits: retrievalHits,
+        state: "ready",
+        miss: retrievalHits.length === 0,
+      },
+    });
+  }
+
+  function omittedWcSections(
+    allocated: ReturnType<typeof allocateThoughtProjection>,
+  ): string[] {
+    return allocated.receipt.decision.omitted
+      .filter((candidate) =>
+        candidate.section === "working_context_topic" ||
+        candidate.section === "working_context_other")
+      .map((candidate) => candidate.section);
+  }
+
+  // Candidate-flow oracle would couple this block to allocator internals if
+  // rebuilt here, so reuse the same section namespace through the public
+  // receipt truth plus the projected scalar (both allocator-authored).
+  function includedOptionalWc(
+    allocated: ReturnType<typeof allocateThoughtProjection>,
+  ): number {
+    return allocated.receipt.decision.included.filter((candidate) =>
+      candidate.section === "working_context_topic" ||
+      candidate.section === "working_context_other").length;
+  }
+
+  it("emits no count and no guidance when optional Working Context fits (A)", () => {
+    const items = [
+      makeWcItem("wc-e2c-topic-1", "topic", 2),
+      makeWcItem("wc-e2c-other-1", "owner_teaching", 2),
+    ];
+    const allocated = allocateThoughtProjection({
+      thoughtInput: wcInput(items),
+      semanticBudgetTokens: 9_500,
+      requestId: "req-e2c-complete",
+    });
+
+    expect(allocated.projected.workingContext.map((item) => item.id))
+      .toEqual(expect.arrayContaining(["wc-e2c-topic-1", "wc-e2c-other-1"]));
+    expect(allocated.projected.workingContextSelection).toBeUndefined();
+    const messages = thoughtMessagesForProjection(allocated.projected);
+    const systemMessage = messages[0]?.content ?? "";
+    expect(systemMessage).not.toContain(WC_OPTIONAL_OMISSION_GUIDANCE);
+    expect(JSON.stringify(messages)).not.toContain("optionalAllocatorOmittedCount");
+    // Strict shape: never an empty selection object.
+    expect("workingContextSelection" in allocated.projected).toBe(false);
+    // Deterministic: identical input content reallocates identically (fresh
+    // objects — requestId is not part of the projection/hash identity, but
+    // reusing one object would prove nothing about determinism).
+    const again = allocateThoughtProjection({
+      thoughtInput: wcInput([
+        makeWcItem("wc-e2c-topic-1", "topic", 2),
+        makeWcItem("wc-e2c-other-1", "owner_teaching", 2),
+      ]),
+      semanticBudgetTokens: 9_500,
+      requestId: "req-e2c-complete-again",
+    });
+    expect(again.projected.workingContextSelection).toBeUndefined();
+    expect(again.projected.workingContext.map((item) => item.id))
+      .toEqual(allocated.projected.workingContext.map((item) => item.id));
+  });
+
+  it("discloses wholesale topic omission with exact count (C)", () => {
+    const items = largeWcItems("wc-e2c-topic", 6, ["topic"]);
+    const allocated = allocateThoughtProjection({
+      thoughtInput: wcInput(items),
+      quotaBucket: "groq:openai/gpt-oss-20b",
+      requestId: "req-e2c-topic-loss",
+    });
+
+    // Wholesale shed at this item size: all 6 eligible topic items omitted.
+    const count = allocated.projected.workingContextSelection?.optionalAllocatorOmittedCount ?? 0;
+    expect(count).toBe(6);
+    expect(Number.isInteger(count)).toBe(true);
+    expect(allocated.projected.workingContext).toEqual([]);
+    // Receipt oracle in the shared section namespace: omitted rows sum to count.
+    expect(omittedWcSections(allocated)).toHaveLength(count);
+    // No subtype-specific omission metadata anywhere.
+    const wire = JSON.stringify(modelVisibleThoughtProjection(allocated.projected));
+    expect(wire).not.toContain("topicOmittedCount");
+    expect(wire).not.toContain("otherOmittedCount");
+    expect(wire).not.toContain("ownerTeachingOmittedCount");
+    expect(wire).not.toContain("questionOmittedCount");
+    expect(wire).not.toContain("fuseCount");
+    expect(wire).not.toContain("budgetOmissionCount");
+    // Omitted IDs/text stay off the projected array.
+    const includedIds = new Set(allocated.projected.workingContext.map((item) => item.id));
+    for (const row of allocated.receipt.decision.omitted) {
+      if (row.section === "working_context_topic" || row.section === "working_context_other") {
+        expect(includedIds.has(String(row.ref ?? row.id))).toBe(false);
+      }
+    }
+    const systemMessage = thoughtMessagesForProjection(allocated.projected)[0]?.content ?? "";
+    expect(systemMessage.split(WC_OPTIONAL_OMISSION_GUIDANCE).length - 1).toBe(1);
+    expect(allocated.receipt.estimatedInputTokens)
+      .toBeLessThanOrEqual(allocated.receipt.semanticProjectionEnvelope.maxInputTokens);
+  });
+
+  it("discloses wholesale other-type omission with the same pooled field (D)", () => {
+    const items = largeWcItems("wc-e2c-other", 6, ["owner_teaching", "question"]);
+    const allocated = allocateThoughtProjection({
+      thoughtInput: wcInput(items),
+      quotaBucket: "groq:openai/gpt-oss-20b",
+      requestId: "req-e2c-other-loss",
+    });
+
+    const count = allocated.projected.workingContextSelection?.optionalAllocatorOmittedCount ?? 0;
+    expect(count).toBe(6);
+    expect(allocated.projected.workingContext).toEqual([]);
+    expect(omittedWcSections(allocated)).toHaveLength(count);
+    const systemMessage = thoughtMessagesForProjection(allocated.projected)[0]?.content ?? "";
+    expect(systemMessage.split(WC_OPTIONAL_OMISSION_GUIDANCE).length - 1).toBe(1);
+  });
+
+  it("pools topic and other omissions into one count without subtype metadata (E)", () => {
+    const items = largeWcItems("wc-e2c-mix", 6, ["topic", "owner_teaching"]);
+    const allocated = allocateThoughtProjection({
+      thoughtInput: wcInput(items),
+      quotaBucket: "groq:openai/gpt-oss-20b",
+      requestId: "req-e2c-pooled-loss",
+    });
+
+    const count = allocated.projected.workingContextSelection?.optionalAllocatorOmittedCount ?? 0;
+    expect(count).toBe(6);
+    expect(allocated.projected.workingContext).toEqual([]);
+    const wire = JSON.stringify(modelVisibleThoughtProjection(allocated.projected));
+    expect(wire).not.toContain("topicOmittedCount");
+    expect(wire).not.toContain("otherOmittedCount");
+    expect(wire).not.toContain("fuseCount");
+    expect(wire).not.toContain("budgetOmissionCount");
+    // The pooled reasons are budget_omission (these items fit the item fuse).
+    expect(new Set(omittedWcSections(allocated))).toEqual(new Set(["working_context_topic", "working_context_other"]));
+  });
+
+  it("counts an oversized optional topic fuse exactly once (F)", () => {
+    // One oversized topic (local fuse) + one fitting topic under a generous
+    // envelope: the oversized item is eligible but fuse-skipped, so the
+    // section-symmetric count reads exactly 1.
+    const oversized = { ...makeWcItem("wc-e2c-fuse-1", "topic", 2), text: "x".repeat(4_096) };
+    const fitting = makeWcItem("wc-e2c-fuse-2", "topic", 2);
+    const allocated = allocateThoughtProjection({
+      thoughtInput: wcInput([oversized, fitting]),
+      semanticBudgetTokens: 32_768,
+      requestId: "req-e2c-fuse",
+    });
+
+    expect(allocated.projected.workingContextSelection?.optionalAllocatorOmittedCount).toBe(1);
+    expect(allocated.projected.workingContext.map((item) => item.id)).toEqual(["wc-e2c-fuse-2"]);
+    const fuseRows = allocated.receipt.decision.omitted.filter(
+      (candidate) => candidate.section === "working_context_topic" && candidate.reason === "fuse",
+    );
+    expect(fuseRows).toHaveLength(1);
+  });
+
+  it("leaves the WC count unaffected by an oversized desk fuse (G)", () => {
+    const oversizedDesk = {
+      id: "desk-e2c-1",
+      concernRef: null,
+      body: "y".repeat(4_096),
+      authorKind: "owner" as const,
+      sourceRefs: [],
+      verbatim: true,
+      form: "note" as const,
+      endorsementRef: null,
+      audienceScope: { kind: "owner_private" as const },
+      lifecycle: "active" as const,
+      supersededBy: null,
+      updatedCycle: "cycle-test-1",
+      updatedGeneration: 1,
+      createdAtMs: 1,
+      updatedAtMs: 1,
+    };
+    const allocated = allocateThoughtProjection({
+      thoughtInput: makeThoughtInput({ deskEntries: [oversizedDesk] }),
+      semanticBudgetTokens: 32_768,
+      requestId: "req-e2c-desk-fuse",
+    });
+
+    expect(allocated.receipt.decision.omitted.map((row) => row.section)).toContain("desk_entry");
+    expect(allocated.receipt.decision.omitted.find(
+      (row) => row.section === "desk_entry",
+    )?.reason).toBe("fuse");
+    expect(allocated.projected.workingContextSelection).toBeUndefined();
+    expect(allocated.projected.workingContext.map((item) => item.id)).toContain("wc-topic-1");
+  });
+
+  it("keeps required correction fail-closed and never counted (H)", () => {
+    const correction = {
+      ...makeWcItem("wc-e2c-corr-1", "correction", 2),
+      text: "z".repeat(60_000),
+    };
+    let error: unknown;
+    try {
+      allocateThoughtProjection({
+        thoughtInput: wcInput([correction]),
+        semanticBudgetTokens: 32_768,
+        requestId: "req-e2c-required-overflow",
+      });
+    } catch (caught) {
+      error = caught;
+    }
+    expect(error).toBeInstanceOf(RequiredOverflowError);
+    expect(error).toMatchObject({
+      section: "working_context_pool",
+      semanticBudgetTokens: 32_768,
+    });
+  });
+
+  it("preserves required referent/repair/commitment requiredness and priority", () => {
+    const input = makeThoughtInput();
+    const candidates = buildAllocationCandidates(input, []);
+    const bySection = (section: string) =>
+      candidates.find((candidate) => candidate.section === section);
+    expect(bySection("working_context_referent")).toBeUndefined();
+    expect(bySection("working_context_repair")).toBeUndefined();
+    expect(bySection("working_context_commitment")).toBeUndefined();
+    // The fixture carries correction; requiredness/priority/owner come from
+    // the frozen adapter contract, not E2c.
+    expect(bySection("working_context_correction")).toMatchObject({
+      required: true,
+      priority: 12,
+    });
+    expect(bySection("working_context_correction")?.requiredness).toEqual({
+      owner: "working_context_adapter",
+      predicate: "required_item_type_present",
+      overflow: "fail_closed",
+    });
+    const requiredInput = wcInput([
+      makeWcItem("wc-e2c-ref-1", "referent", 2),
+      makeWcItem("wc-e2c-rep-1", "repair", 2),
+      makeWcItem("wc-e2c-com-1", "commitment_temp", 2),
+    ]);
+    const requiredCandidates = buildAllocationCandidates(requiredInput, []);
+    expect(requiredCandidates.find((c) => c.section === "working_context_referent"))
+      .toMatchObject({ required: true, priority: 13 });
+    expect(requiredCandidates.find((c) => c.section === "working_context_repair"))
+      .toMatchObject({ required: true, priority: 14 });
+    expect(requiredCandidates.find((c) => c.section === "working_context_commitment"))
+      .toMatchObject({ required: true, priority: 15 });
+    const allocated = allocateThoughtProjection({
+      thoughtInput: requiredInput,
+      semanticBudgetTokens: 32_768,
+      requestId: "req-e2c-required-fit",
+    });
+    expect(allocated.projected.workingContextSelection).toBeUndefined();
+    expect(allocated.projected.workingContext.map((item) => item.id)).toEqual(
+      expect.arrayContaining(["wc-e2c-ref-1", "wc-e2c-rep-1", "wc-e2c-com-1"]),
+    );
+  });
+
+  it("gives tombstoned optional WC zero denominator and zero count (I)", () => {
+    const continuity = openContinuityDb(new DatabaseSync(":memory:"));
+    try {
+      const { lineageId } = ensureAuthoritativeLineage(continuity, {
+        nuclearSchemaVersion: 44,
+        buildIdentity: "e2c-test",
+      });
+      continuity.prepare(
+        `INSERT INTO forget_tombstones
+           (tombstone_id, owner_id, lineage_id, status, created_at)
+         VALUES (?, ?, ?, 'applied', ?)`,
+      ).run("tombstone-e2c-1", "owner-1", lineageId, new Date().toISOString());
+      continuity.prepare(
+        `INSERT INTO forget_tombstone_targets
+           (tombstone_id, entity_type, entity_uuid, action)
+         VALUES (?, ?, ?, 'redact')`,
+      ).run("tombstone-e2c-1", "working_context_items", "wc-e2c-tomb-0");
+
+      // Tombstoned wc-e2c-tomb-0 + 8 eligible normals at the wholesale
+      // shape: all 8 normals shed, so the count reads exactly 8. If the
+      // tombstoned row leaked into the denominator, it would read 9.
+      const items = [
+        makeWcItem("wc-e2c-tomb-0", "topic", 2),
+        ...largeWcItems("wc-e2c-tomb-n", 8, ["topic"]),
+      ];
+      const allocated = allocateThoughtProjection({
+        thoughtInput: wcInput(items),
+        quotaBucket: "groq:openai/gpt-oss-20b",
+        requestId: "req-e2c-tombstone",
+        continuityDb: continuity,
+      });
+
+      const count = allocated.projected.workingContextSelection?.optionalAllocatorOmittedCount ?? 0;
+      expect(count).toBe(8);
+      expect(allocated.projected.workingContext).toEqual([]);
+      const wire = JSON.stringify(modelVisibleThoughtProjection(allocated.projected));
+      expect(wire).not.toContain("wc-e2c-tomb-0");
+      expect(allocated.receipt.coverageManifest?.domains).toEqual(expect.arrayContaining([
+        expect.objectContaining({ disposition: "INELIGIBLE" }),
+      ]));
+    } finally {
+      continuity.close();
+    }
+  });
+
+  it("reconciles eligible optional WC as included plus count with receipt rows (J/K)", () => {
+    const items = largeWcItems("wc-e2c-recon", 6, ["topic", "owner_teaching"]);
+    const allocated = allocateThoughtProjection({
+      thoughtInput: wcInput(items),
+      quotaBucket: "groq:openai/gpt-oss-20b",
+      requestId: "req-e2c-reconcile",
+    });
+
+    const count = allocated.projected.workingContextSelection?.optionalAllocatorOmittedCount ?? 0;
+    expect(count).toBe(6);
+    const included = includedOptionalWc(allocated);
+    const omitted = omittedWcSections(allocated).length;
+    // Section-symmetric reconciliation: 6 eligible = included + count.
+    expect(included + count).toBe(items.length);
+    // Receipt reconciliation: fuse + budget_omission rows sum to the count.
+    expect(omitted).toBe(count);
+    const reasons = allocated.receipt.decision.omitted
+      .filter((candidate) =>
+        candidate.section === "working_context_topic" ||
+        candidate.section === "working_context_other")
+      .map((candidate) => candidate.reason);
+    expect(reasons.length).toBe(count);
+    for (const reason of reasons) {
+      expect(["fuse", "budget_omission"]).toContain(reason);
+    }
+    expect(allocated.receipt.tokenBreakdown.omitted_for_budget_count).toBeGreaterThanOrEqual(count);
+  });
+
+  it("makes identical packing decisions with and without shed optional WC (packing equivalence L)", () => {
+    const items = Array.from({ length: 6 }, (_, i) => makeWcItem(`wc-e2c-pack-${i}`, "topic", 25));
+    const probe = allocateThoughtProjection({
+      thoughtInput: wcInput(items),
+      semanticBudgetTokens: 32_768,
+      requestId: "req-e2c-pack-probe",
+    });
+    // Find a lossy budget at full-envelope scale; then verify non-WC
+    // decisions match a control truncated to exactly the survivors.
+    let lossy = probe;
+    let lossBudget = 32_768;
+    for (let budget = 32_768; budget > 4_000; budget -= 250) {
+      const candidate = allocateThoughtProjection({
+        thoughtInput: wcInput(items),
+        semanticBudgetTokens: budget,
+        requestId: `req-e2c-pack-scan-${budget}`,
+      });
+      if ((candidate.projected.workingContextSelection?.optionalAllocatorOmittedCount ?? 0) > 0) {
+        lossy = candidate;
+        lossBudget = budget;
+        break;
+      }
+    }
+    expect(lossy.projected.workingContextSelection?.optionalAllocatorOmittedCount ?? 0)
+      .toBeGreaterThan(0);
+    const survivors = new Set(lossy.projected.workingContext.map((item) => item.id));
+    const control = allocateThoughtProjection({
+      thoughtInput: wcInput(items.filter((item) => survivors.has(item.id))),
+      semanticBudgetTokens: lossBudget,
+      requestId: "req-e2c-pack-control",
+    });
+    const decisions = (value: ReturnType<typeof allocateThoughtProjection>) => ({
+      included: value.receipt.decision.included
+        .filter((candidate) => !candidate.section.startsWith("working_context"))
+        .map((candidate) => candidate.id),
+      omitted: value.receipt.decision.omitted
+        .filter((candidate) => !candidate.section.startsWith("working_context"))
+        .map((candidate) => `${candidate.id}:${candidate.reason}`),
+    });
+    expect(decisions(lossy)).toEqual(decisions(control));
+  });
+
+  it("keeps E2a, E2b, and E2c independent on a joint-fit cycle (M)", () => {
+    // Joint probe result (measured): 8 large WC items + 20 large retrieval
+    // hits at the groq envelope sheds all WC (count 8) and some retrieval.
+    const items = largeWcItems("wc-e2c-joint", 8, ["topic"]);
+    const retrievalHits = Array.from({ length: 20 }, (_, i) => ({
+      kind: "lexical" as const,
+      sourceStore: "live_memory" as const,
+      ref: `mem:e2c:${i}`,
+      snippet: `E2b calibration snippet ${i} with filler words to consume budget `.repeat(60),
+      score: -1.0,
+      assertionKey: `mem:e2c:${i}`,
+      memoryKind: "owner_world_claim" as const,
+      dimensions: null,
+      dataClassification: "ordinary" as const,
+      live: true,
+      supportRefs: [],
+    }));
+    const input = makeThoughtInput({
+      workingContext: items,
+      retrieval: {
+        request: { triggerTerms: ["e2c"], workingContextTopics: [], assertionKeys: [], includeLogSearch: true },
+        hits: retrievalHits,
+        state: "ready",
+        miss: false,
+      },
+      conversationSelection: { frontierIncludedIds: [], omittedEvidenceIds: [], recencyOmittedCount: 5 },
+    });
+    const allocated = allocateThoughtProjection({
+      thoughtInput: input,
+      quotaBucket: "groq:openai/gpt-oss-20b",
+      requestId: "req-e2c-joint-fit",
+    });
+
+    const wcCount = allocated.projected.workingContextSelection?.optionalAllocatorOmittedCount ?? 0;
+    const retCount = allocated.projected.retrieval.allocatorOmittedCount ?? 0;
+    expect(wcCount).toBeGreaterThan(0);
+    expect(retCount).toBeGreaterThan(0);
+    expect(wcCount).toBe(items.length - allocated.projected.workingContext.length);
+    expect(retCount).toBe(retrievalHits.length - allocated.projected.retrieval.hits.length);
+    expect(allocated.projected.conversationSelection?.recencyOmittedCount).toBe(5);
+    const systemMessage = thoughtMessagesForProjection(allocated.projected)[0]?.content ?? "";
+    expect(systemMessage.split(RECENCY_OMISSION_GUIDANCE).length - 1).toBe(1);
+    expect(systemMessage.split(ALLOCATOR_OMISSION_GUIDANCE).length - 1).toBe(1);
+    expect(systemMessage.split(WC_OPTIONAL_OMISSION_GUIDANCE).length - 1).toBe(1);
+    expect(allocated.receipt.estimatedInputTokens)
+      .toBeLessThanOrEqual(allocated.receipt.semanticProjectionEnvelope.maxInputTokens);
+  });
+
+  it("keeps E2b-only overflow at retrieval_loss_disclosure (N)", () => {
+    // Shipped-E2b analytic construction, unchanged: hits shed, disclosure
+    // overflows the caller envelope. E2c adds nothing (fixture WC fits), so
+    // the combined gate must reduce to the E2b section exactly.
+    const hitCount = 4;
+    const makeHits = (count: number) => Array.from({ length: count }, (_, i) => ({
+      kind: "lexical" as const,
+      sourceStore: "live_memory" as const,
+      ref: `mem:e2c:n:${i}`,
+      snippet: `E2c calibration snippet ${i} with filler words to consume budget `.repeat(10),
+      score: -1.0,
+      assertionKey: `mem:e2c:n:${i}`,
+      memoryKind: "owner_world_claim" as const,
+      dimensions: null,
+      dataClassification: "ordinary" as const,
+      live: true,
+      supportRefs: [],
+    }));
+    const baseTokens = allocateThoughtProjection({
+      thoughtInput: makeThoughtInput({
+        workingContext: [makeWcItem("wc-e2c-n-fit", "topic", 2)],
+        retrieval: {
+          request: { triggerTerms: ["e2c"], workingContextTopics: [], assertionKeys: [], includeLogSearch: true },
+          hits: [],
+          state: "ready",
+          miss: true,
+        },
+      }),
+      semanticBudgetTokens: 32_768,
+      requestId: "req-e2c-overflow-base",
+    }).receipt.estimatedInputTokens;
+    const fullTokens = allocateThoughtProjection({
+      thoughtInput: makeThoughtInput({
+        workingContext: [makeWcItem("wc-e2c-n-fit", "topic", 2)],
+        retrieval: {
+          request: { triggerTerms: ["e2c"], workingContextTopics: [], assertionKeys: [], includeLogSearch: true },
+          hits: makeHits(hitCount),
+          state: "ready",
+          miss: false,
+        },
+      }),
+      semanticBudgetTokens: 32_768,
+      requestId: "req-e2c-overflow-full",
+    }).receipt.estimatedInputTokens;
+    const hitTokens = (fullTokens - baseTokens) / hitCount;
+    const disclosureBytes = Buffer.byteLength(`"allocatorOmittedCount":${hitCount},`, "utf8")
+      + 1
+      + Buffer.byteLength(ALLOCATOR_OMISSION_GUIDANCE, "utf8");
+    const disclosureTokens = Math.ceil(disclosureBytes / 2) + 2;
+    expect(hitTokens).toBeGreaterThan(disclosureTokens);
+    const failingBudget = baseTokens + disclosureTokens - 5;
+    expect(failingBudget).toBeGreaterThan(baseTokens);
+
+    let error: unknown;
+    try {
+      allocateThoughtProjection({
+        thoughtInput: makeThoughtInput({
+          workingContext: [makeWcItem("wc-e2c-n-fit", "topic", 2)],
+          retrieval: {
+            request: { triggerTerms: ["e2c"], workingContextTopics: [], assertionKeys: [], includeLogSearch: true },
+            hits: makeHits(hitCount),
+            state: "ready",
+            miss: false,
+          },
+        }),
+        semanticBudgetTokens: failingBudget,
+        requestId: "req-e2c-overflow-e2b-only",
+      });
+    } catch (caught) {
+      error = caught;
+    }
+    expect(error).toBeInstanceOf(RequiredOverflowError);
+    expect(error).toMatchObject({
+      section: "retrieval_loss_disclosure",
+      semanticBudgetTokens: failingBudget,
+    });
+    expect((error as RequiredOverflowError).estimatedInputTokens).toBeGreaterThan(failingBudget);
+    expect((baseTokens + disclosureTokens) * 2).toBeLessThan(MAX_LOGICAL_SERIALIZED_INPUT_BYTES / 4);
+  });
+
+  it("fails closed with working_context_loss_disclosure on WC-only overflow (O)", () => {
+    // Wholesale-shape analytic construction (mirrors the shipped E2b proof):
+    // measure the base wire and the disclosure cost, then size a budget where
+    // HEAD-identical packing sheds every WC item yet the truthful disclosure
+    // itself does not fit the caller envelope. Probes use the default
+    // maker's small fixture shape; the envelope scan below finds the lossy
+    // window deterministically instead of assuming per-item costs.
+    const items = largeWcItems("wc-e2c-o", 8, ["topic"]);
+    const disclosureBytes = Buffer.byteLength(`"optionalAllocatorOmittedCount":8,`, "utf8")
+      + 1
+      + Buffer.byteLength(WC_OPTIONAL_OMISSION_GUIDANCE, "utf8");
+    const disclosureTokens = Math.ceil(disclosureBytes / 2) + 2;
+    // At the groq envelope the fixture sheds wholesale (measured: count 8,
+    // included 0). Scan downward from full-envelope for the first budget
+    // that throws working_context_loss_disclosure.
+    const groqLossy = allocateThoughtProjection({
+      thoughtInput: wcInput(items),
+      quotaBucket: "groq:openai/gpt-oss-20b",
+      requestId: "req-e2c-o-groq",
+    });
+    expect(groqLossy.projected.workingContextSelection?.optionalAllocatorOmittedCount).toBe(8);
+    expect(disclosureTokens).toBeGreaterThan(0);
+    const fullTokens = allocateThoughtProjection({
+      thoughtInput: wcInput(items),
+      semanticBudgetTokens: 32_768,
+      requestId: "req-e2c-o-full",
+    }).receipt.estimatedInputTokens;
+    let error: unknown = null;
+    let failingBudget = 0;
+    for (let budget = fullTokens; budget > 0; budget -= 25) {
+      try {
+        allocateThoughtProjection({
+          thoughtInput: wcInput(items),
+          semanticBudgetTokens: budget,
+          requestId: `req-e2c-o-scan-${budget}`,
+        });
+      } catch (caught) {
+        if (caught instanceof RequiredOverflowError &&
+          (caught as RequiredOverflowError).section === "working_context_loss_disclosure") {
+          error = caught;
+          failingBudget = budget;
+          break;
+        }
+        // Base/required failure is monotonic — stop (same rule as E2b scans).
+        if (caught instanceof RequiredOverflowError) break;
+        throw caught;
+      }
+    }
+    expect(error).toBeInstanceOf(RequiredOverflowError);
+    expect(error).toMatchObject({
+      section: "working_context_loss_disclosure",
+      semanticBudgetTokens: failingBudget,
+    });
+    expect((error as RequiredOverflowError).estimatedInputTokens).toBeGreaterThan(failingBudget);
+    // The failure is the scoped semantic gate, not the global byte ceiling.
+    expect(failingBudget * 2).toBeLessThan(MAX_LOGICAL_SERIALIZED_INPUT_BYTES / 4);
+
+    // Contrast: with room for disclosure the same loss shape succeeds.
+    const ok = allocateThoughtProjection({
+      thoughtInput: wcInput(items),
+      quotaBucket: "groq:openai/gpt-oss-20b",
+      requestId: "req-e2c-o-ok",
+    });
+    expect(ok.projected.workingContextSelection?.optionalAllocatorOmittedCount).toBe(8);
+    expect(ok.receipt.estimatedInputTokens).toBeLessThanOrEqual(ok.receipt.semanticProjectionEnvelope.maxInputTokens);
+  });
+
+  it("classifies joint retrieval plus WC overflow as joint_loss_disclosure (P)", () => {
+    // Joint construction: both disclosures present on the final wire while it
+    // exceeds the caller envelope. Presence-based classification must report
+    // the joint section, not either single-disclosure section. Measured joint
+    // probe: 8 large WC + 20 large retrieval hits at the groq envelope sheds
+    // all WC (count 8) and some retrieval.
+    const wcItems = largeWcItems("wc-e2c-p", 8, ["topic"]);
+    const retHits = Array.from({ length: 20 }, (_, i) => ({
+      kind: "lexical" as const,
+      sourceStore: "live_memory" as const,
+      ref: `mem:e2c:p:${i}`,
+      snippet: `E2b calibration snippet ${i} with filler words to consume budget `.repeat(60),
+      score: -1.0,
+      assertionKey: `mem:e2c:p:${i}`,
+      memoryKind: "owner_world_claim" as const,
+      dimensions: null,
+      dataClassification: "ordinary" as const,
+      live: true,
+      supportRefs: [],
+    }));
+    const jointProbe = allocateThoughtProjection({
+      thoughtInput: wcInput(wcItems, retHits),
+      quotaBucket: "groq:openai/gpt-oss-20b",
+      requestId: "req-e2c-p-probe",
+    });
+    expect(jointProbe.projected.workingContextSelection?.optionalAllocatorOmittedCount).toBe(8);
+    expect(jointProbe.projected.retrieval.allocatorOmittedCount ?? 0).toBeGreaterThan(0);
+    const fullTokens = allocateThoughtProjection({
+      thoughtInput: wcInput(wcItems, retHits),
+      semanticBudgetTokens: 32_768,
+      requestId: "req-e2c-p-full",
+    }).receipt.estimatedInputTokens;
+    let error: unknown = null;
+    let failingBudget = 0;
+    for (let budget = fullTokens; budget > 0; budget -= 25) {
+      try {
+        allocateThoughtProjection({
+          thoughtInput: wcInput(wcItems, retHits),
+          semanticBudgetTokens: budget,
+          requestId: `req-e2c-p-scan-${budget}`,
+        });
+      } catch (caught) {
+        if (caught instanceof RequiredOverflowError &&
+          (caught as RequiredOverflowError).section === "joint_loss_disclosure") {
+          error = caught;
+          failingBudget = budget;
+          break;
+        }
+        if (caught instanceof RequiredOverflowError &&
+          ((caught as RequiredOverflowError).section === "retrieval_loss_disclosure" ||
+            (caught as RequiredOverflowError).section === "working_context_loss_disclosure")) {
+          // Single-disclosure overflow on the way down is fine — the joint
+          // wire sheds differently per budget; keep scanning for the joint
+          // classification.
+          continue;
+        }
+        if (caught instanceof RequiredOverflowError) break;
+        throw caught;
+      }
+    }
+    expect(error).toBeInstanceOf(RequiredOverflowError);
+    expect(error).toMatchObject({
+      section: "joint_loss_disclosure",
+      semanticBudgetTokens: failingBudget,
+    });
+    expect((error as RequiredOverflowError).estimatedInputTokens).toBeGreaterThan(failingBudget);
+
+    // Joint fit contrast: generous envelope carries both disclosures exactly.
+    const ok = allocateThoughtProjection({
+      thoughtInput: wcInput(wcItems, retHits),
+      quotaBucket: "groq:openai/gpt-oss-20b",
+      requestId: "req-e2c-p-ok",
+    });
+    expect(ok.projected.workingContextSelection?.optionalAllocatorOmittedCount).toBe(8);
+    expect(ok.projected.retrieval.allocatorOmittedCount ?? 0).toBeGreaterThan(0);
+    const systemMessage = thoughtMessagesForProjection(ok.projected)[0]?.content ?? "";
+    expect(systemMessage.split(ALLOCATOR_OMISSION_GUIDANCE).length - 1).toBe(1);
+    expect(systemMessage.split(WC_OPTIONAL_OMISSION_GUIDANCE).length - 1).toBe(1);
+  });
+
+  it("introduces no new final gate on complete cycles (Q)", () => {
+    // Genuine all-fit cycle: no disclosure of any kind, tight envelope.
+    const probe = allocateThoughtProjection({
+      thoughtInput: wcInput([makeWcItem("wc-e2c-q-1", "topic", 2)]),
+      semanticBudgetTokens: 32_768,
+      requestId: "req-e2c-q-probe",
+    });
+    const tight = probe.receipt.estimatedInputTokens + 25;
+    const allocated = allocateThoughtProjection({
+      thoughtInput: wcInput([makeWcItem("wc-e2c-q-1", "topic", 2)]),
+      semanticBudgetTokens: tight,
+      requestId: "req-e2c-q-tight",
+    });
+    expect(allocated.projected.workingContextSelection).toBeUndefined();
+    expect(allocated.projected.retrieval.allocatorOmittedCount).toBeUndefined();
+    expect(allocated.projected.conversationSelection?.recencyOmittedCount).toBeUndefined();
+    const systemMessage = thoughtMessagesForProjection(allocated.projected)[0]?.content ?? "";
+    expect(systemMessage).not.toContain(WC_OPTIONAL_OMISSION_GUIDANCE);
+    expect(systemMessage).not.toContain(ALLOCATOR_OMISSION_GUIDANCE);
+  });
+
+  it("keeps prior system-message bytes identical without E2c (R)", () => {
+    // Ordered-append refactor non-regression: pre-E2c combinations keep exact
+    // HEAD bytes. Recreate all four from one base projection object.
+    const base = allocateThoughtProjection({
+      thoughtInput: wcInput([makeWcItem("wc-e2c-r-1", "topic", 2)]),
+      semanticBudgetTokens: 9_500,
+      requestId: "req-e2c-r-base",
+    }).projected;
+    const baseSystem = thoughtMessagesForProjection(base)[0]?.content ?? "";
+    const e2a = thoughtMessagesForProjection({
+      ...base,
+      conversationSelection: { frontierIncludedIds: [], omittedEvidenceIds: [], recencyOmittedCount: 3 },
+    })[0]?.content ?? "";
+    expect(e2a).toBe(`${baseSystem} ${RECENCY_OMISSION_GUIDANCE}`);
+    const e2b = thoughtMessagesForProjection({
+      ...base,
+      retrieval: { ...base.retrieval, allocatorOmittedCount: 2 },
+    })[0]?.content ?? "";
+    expect(e2b).toBe(`${baseSystem} ${ALLOCATOR_OMISSION_GUIDANCE}`);
+    const both = thoughtMessagesForProjection({
+      ...base,
+      conversationSelection: { frontierIncludedIds: [], omittedEvidenceIds: [], recencyOmittedCount: 3 },
+      retrieval: { ...base.retrieval, allocatorOmittedCount: 2 },
+    })[0]?.content ?? "";
+    expect(both).toBe(`${baseSystem} ${RECENCY_OMISSION_GUIDANCE} ${ALLOCATOR_OMISSION_GUIDANCE}`);
+    // E2c appends last and only when present.
+    const e2c = thoughtMessagesForProjection({
+      ...base,
+      workingContextSelection: { optionalAllocatorOmittedCount: 1 },
+    })[0]?.content ?? "";
+    expect(e2c).toBe(`${baseSystem} ${WC_OPTIONAL_OMISSION_GUIDANCE}`);
+  });
+
+  it("moves hashes on lossy WC cycles and stays deterministic (S)", () => {
+    const complete = allocateThoughtProjection({
+      thoughtInput: wcInput([makeWcItem("wc-e2c-s-1", "topic", 2)]),
+      semanticBudgetTokens: 9_500,
+      requestId: "req-e2c-s-complete",
+    });
+    const heavy = wcInput(Array.from({ length: 12 }, (_, i) => makeWcItem(`wc-e2c-s-${i}`, "topic", 30)));
+    const pressure = allocateThoughtProjection({
+      thoughtInput: heavy,
+      quotaBucket: "groq:openai/gpt-oss-20b",
+      requestId: "req-e2c-s-lossy",
+    });
+    expect(pressure.projected.workingContextSelection?.optionalAllocatorOmittedCount ?? 0)
+      .toBeGreaterThan(0);
+    expect(pressure.hashes.semanticProjectionHash).not.toBe(complete.hashes.semanticProjectionHash);
+    expect(pressure.hashes.dispatchMessagesHash).not.toBe(complete.hashes.dispatchMessagesHash);
+    const again = allocateThoughtProjection({
+      thoughtInput: heavy,
+      quotaBucket: "groq:openai/gpt-oss-20b",
+      requestId: "req-e2c-s-lossy-again",
     });
     expect(again.hashes).toEqual(pressure.hashes);
   });
