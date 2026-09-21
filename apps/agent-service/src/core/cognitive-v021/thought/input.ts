@@ -55,6 +55,8 @@ import {
 import {
   captureThoughtSourceCurrentness,
   type ConcernCurrentnessEntry,
+  type ConcernInspectDependencies,
+  type ConcernInspectDependency,
   type ThoughtSourceCapture,
 } from "./source-currentness.js";
 import {
@@ -135,6 +137,15 @@ function currentConcernDependency(
   return {
     snapshotHash: concern.snapshotHash,
     status: concern.status,
+  };
+}
+
+function currentConcernInspectDependency(
+  concern: ReturnType<typeof listConcerns>[number],
+): ConcernInspectDependency {
+  return {
+    snapshotHash: concern.snapshotHash,
+    status: "dormant_but_revisitable",
   };
 }
 
@@ -280,7 +291,7 @@ export function filterCapabilityReality(
   licenses: readonly string[],
   authenticatedOwner = false,
 ): CapabilityReality {
-  if (audience.kind === "owner_private" || (authenticatedOwner && audience.kind === "room")) {
+  if (audience.kind === "owner_private") {
     return capability.reachability === undefined
       ? capability
       : {
@@ -290,6 +301,32 @@ export function filterCapabilityReality(
             audience: { ...audience },
           },
         };
+  }
+  if (authenticatedOwner && audience.kind === "room") {
+    const projected = capability.reachability === undefined
+      ? { ...capability }
+      : {
+          ...capability,
+          reachability: {
+            ...capability.reachability,
+            audience: { ...audience },
+          },
+        };
+    projected.semanticObservations = capability.semanticObservations?.map((item) => ({
+      ...item,
+      available: false,
+    }));
+    const reasons = { ...(projected.reachability?.reasons ?? {}) };
+    for (const item of capability.semanticObservations ?? []) {
+      reasons[item.operationKind] = item.available
+        ? "another_audience_only"
+        : (reasons[item.operationKind] ?? "unavailable");
+    }
+    projected.reachability = {
+      audience: { ...audience },
+      reasons,
+    };
+    return projected;
   }
   const capabilityAllowed = (name: string): boolean =>
     licenses.includes(name) || licenses.includes(`capability:${name}`);
@@ -326,6 +363,10 @@ export function filterCapabilityReality(
       ...item,
       available: false,
       authorizedProjectIds: [],
+    })),
+    semanticObservations: capability.semanticObservations?.map((item) => ({
+      ...item,
+      available: false,
     })),
     publicPresence: undefined,
   };
@@ -364,6 +405,9 @@ export function filterCapabilityReality(
     ),
   };
   for (const item of capability.operationCapabilities ?? []) {
+    reasons[item.operationKind] = reasonFor(item.operationKind, false, item.available, { ownerOnly: true });
+  }
+  for (const item of capability.semanticObservations ?? []) {
     reasons[item.operationKind] = reasonFor(item.operationKind, false, item.available, { ownerOnly: true });
   }
   return {
@@ -722,6 +766,15 @@ export function captureThoughtSourcePackage(
     concernDependencies[concernId] = concern ? currentConcernDependency(concern) : null;
     if (concern) concernSnapshots[concernId] = concern.snapshotHash;
   }
+  const concernInspectDependencies: Record<string, ConcernInspectDependency> = {};
+  if (audience.kind === "owner_private") {
+    const concernsPointerIds = domainPointers.pointers.find((pointer) => pointer.domain === "concerns")?.entityIds ?? [];
+    for (const concernId of [...new Set(concernsPointerIds)].sort()) {
+      const concern = concernsById.get(concernId);
+      if (!concern || concern.status !== "dormant_but_revisitable") continue;
+      concernInspectDependencies[concernId] = currentConcernInspectDependency(concern);
+    }
+  }
   const occupiedConcernProjection = buildOccupiedConcernProjection(
     eligibleOccupancy,
     [...concernsById.values()],
@@ -753,6 +806,7 @@ export function captureThoughtSourcePackage(
     concernSnapshots: Object.freeze({ ...concernSnapshots }),
     domainPointers,
     sourceCurrentness,
+    concernInspectDependencies: Object.freeze({ ...concernInspectDependencies }),
   });
 }
 

@@ -1003,7 +1003,14 @@ export type ObservationRequest = {
   request: unknown;
   replaySafe: true;
   authorityCurrentness?: AuthorityCurrentnessBinding;
+  concernInspectionBinding?: ConcernInspectionBinding;
 };
+
+export type ConcernInspectionBinding = Readonly<{
+  concernId: string;
+  expectedSnapshotHash: string;
+  expectedStatus: "dormant_but_revisitable";
+}>;
 
 export type EffectProposal = {
   effectId: string;
@@ -1344,11 +1351,19 @@ export type CapabilityReality = {
   approvedProjectIds: string[];
   /** Host-owned affordance facts exposed to Thought; never a selected branch. */
   operationCapabilities?: readonly ThoughtOperationCapability[];
+  semanticObservations?: readonly ThoughtSemanticObservation[];
   /** Autonomous-only public self-presentation affordance. */
   publicPresence?: PublicPresenceCapability;
   /** Reason-coded reachability facts for the audience used to build this reality. */
   reachability?: CapabilityReachability;
 };
+
+export type ThoughtSemanticObservation = Readonly<{
+  operationKind: "concern.inspect";
+  semanticClass: "observation";
+  readOnly: true;
+  available: boolean;
+}>;
 
 export type ThoughtOperationCapability = Readonly<{
   operationKind: string;

@@ -176,6 +176,15 @@ describe("v0.2.1 CapabilityReality live-surface contract", () => {
       expect(room.operationCapabilities?.every((operation) =>
         operation.authorizedProjectIds.length === 0 && operation.available === false,
       )).toBe(true);
+      expect(owner.semanticObservations).toEqual([{
+        operationKind: "concern.inspect",
+        semanticClass: "observation",
+        readOnly: true,
+        available: true,
+      }]);
+      expect(room.semanticObservations?.every((entry) => entry.available === false)).toBe(true);
+      expect(room.reachability?.reasons).toMatchObject({ "concern.inspect": "another_audience_only" });
+      expect(JSON.stringify(owner.semanticObservations)).not.toMatch(/family|requiresProject|authorizedProjectIds|operatorBound/);
     } finally {
       db.close();
     }

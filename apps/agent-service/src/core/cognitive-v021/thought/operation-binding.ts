@@ -1,12 +1,14 @@
 import { randomUUID } from "node:crypto";
 import { sha256 } from "../../model-fabric/hash.js";
 import type {
+  ConcernInspectionBinding,
   EffectIntentSemanticOutput,
   EffectProposal,
   ObservationIntentSemanticOutput,
   ObservationRequest,
   AuthorityCurrentnessBinding,
 } from "../types.js";
+import type { ConcernInspectDependency } from "./source-currentness.js";
 
 const OPERATION_DEADLINE_CAP_MS = 120_000;
 
@@ -17,6 +19,8 @@ type ObservationBindingInput = {
   parentDeadlineAtMs: number;
   nowMs: number;
   authorityCurrentness?: AuthorityCurrentnessBinding;
+  concernInspectionBinding?: ConcernInspectionBinding;
+  concernInspectExpectation?: ConcernInspectDependency;
 };
 
 export type BoundObservationRequest = ObservationRequest & {
@@ -33,6 +37,18 @@ export function bindObservationIntent(input: ObservationBindingInput): BoundObse
   const deadlineAtMs = input.nowMs + OPERATION_DEADLINE_CAP_MS;
   if (deadlineAtMs <= input.nowMs) throw new Error("deadline_exhausted");
   const requestId = `observation:${randomUUID()}`;
+  const concernInspectionBinding = input.intent.operationKind === "concern.inspect"
+    ? input.concernInspectionBinding ?? (input.concernInspectExpectation === undefined
+      ? undefined
+      : {
+        concernId: concernRefOf(input.intent.request),
+        expectedSnapshotHash: input.concernInspectExpectation.snapshotHash,
+        expectedStatus: "dormant_but_revisitable" as const,
+      })
+    : undefined;
+  if (input.intent.operationKind === "concern.inspect" && concernInspectionBinding === undefined) {
+    throw new Error("concern_inspection_binding_missing");
+  }
   return {
     requestId,
     cycleId: input.cycleId,
@@ -45,7 +61,15 @@ export function bindObservationIntent(input: ObservationBindingInput): BoundObse
     operationKind: input.intent.operationKind,
     intent: input.intent,
     authorityCurrentness: input.authorityCurrentness,
+    ...(concernInspectionBinding === undefined ? {} : { concernInspectionBinding }),
   };
+}
+
+function concernRefOf(request: unknown): string {
+  if (typeof request !== "object" || request === null || Array.isArray(request)) return "";
+  return typeof (request as Record<string, unknown>).concernRef === "string"
+    ? (request as Record<string, string>).concernRef
+    : "";
 }
 
 type EffectBindingInput = {

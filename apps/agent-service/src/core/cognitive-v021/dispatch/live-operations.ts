@@ -54,6 +54,9 @@ import type {
 } from "../types.js";
 import type { OperationalClaimLicense } from "../../sandbox/engineering-types.js";
 import { getInFlight } from "../effect/in-flight.js";
+import { getConcern } from "../concerns/lineage.js";
+import { inspectConcernCurrentness } from "../thought/source-currentness.js";
+import { utf8JsonBytes, REQUIRED_OBSERVATION_ITEM_BYTES } from "../thought/projection-allocator/composition-contract.js";
 import {
   applyPublicPresenceDecision,
   isAutonomousPublicPresenceProposal,
@@ -81,6 +84,7 @@ const PROJECT_OPERATIONS = new Set([
   "project.search_text",
 ]);
 const PROJECT_INSPECTION_INTENT = "project.inspect";
+const CONCERN_INSPECTION_INTENT = "concern.inspect";
 
 const WORKSPACE_OPERATIONS = new Set([
   "workspace.read_file",
@@ -294,6 +298,102 @@ function normalizePatchExportRequest(proposal: EffectProposal): CognitionPatchEx
     changesetId,
     adjudication: "accept",
   };
+}
+
+type ConcernInspectPayload =
+  | { concernId: string; result: "missing" }
+  | { concernId: string; result: "current"; statement: string; statementTruncated: boolean; originalStatementBytes?: number }
+  | { concernId: string; result: "stale"; currentStatus: string; statement: string; statementTruncated: boolean; originalStatementBytes?: number };
+
+function executeConcernInspection(
+  req: ObservationRequest,
+  sidecar: DatabaseSync | undefined,
+): Observation {
+  if (!sidecar) throw new Error("observation_unavailable");
+  const binding = req.concernInspectionBinding;
+  const concernRef = stringValue(requestRecord(req.request)?.concernRef);
+  if (!binding || !concernRef || binding.concernId !== concernRef) throw new Error("observation_unavailable");
+  const row = getConcern(sidecar, binding.concernId);
+  if (!row) {
+    const missing = concernInspectionObservation(req, { concernId: binding.concernId, result: "missing" });
+    if (utf8JsonBytes(missing) > REQUIRED_OBSERVATION_ITEM_BYTES) {
+      throw new Error("observation_unavailable");
+    }
+    return missing;
+  }
+  const currentness = inspectConcernCurrentness(sidecar, binding.concernId, {
+    snapshotHash: binding.expectedSnapshotHash,
+    status: binding.expectedStatus,
+  });
+  const statement = row.statement;
+  if (currentness.matches) {
+    return projectConcernInspection(req, {
+      concernId: binding.concernId,
+      result: "current",
+      statement,
+      statementTruncated: false,
+    });
+  }
+  return projectConcernInspection(req, {
+    concernId: binding.concernId,
+    result: "stale",
+    currentStatus: currentness.currentStatus ?? row.status,
+    statement,
+    statementTruncated: false,
+  });
+}
+
+function concernInspectionObservation(req: ObservationRequest, payload: ConcernInspectPayload): Observation {
+  return {
+    observationId: `v021:observation:${req.requestId}`,
+    cycleId: req.cycleId,
+    generation: req.generation,
+    derived: false,
+    replaySafe: true,
+    modality: "tool",
+    payload,
+    provenance: "sidecar:concern.inspect",
+    dataClassification: "never_public",
+    secretOmitted: false,
+  };
+}
+
+function projectConcernInspection(
+  req: ObservationRequest,
+  payload: Exclude<ConcernInspectPayload, { result: "missing" }>,
+): Observation {
+  const fullBytes = Buffer.byteLength(payload.statement, "utf8");
+  const probe = (statement: string, truncated: boolean): number =>
+    utf8JsonBytes(concernInspectionObservation(req, {
+      ...payload,
+      statement,
+      statementTruncated: truncated,
+      ...(truncated ? { originalStatementBytes: fullBytes } : {}),
+    }));
+  if (probe(payload.statement, false) <= REQUIRED_OBSERVATION_ITEM_BYTES) {
+    return concernInspectionObservation(req, payload);
+  }
+  if (probe("", true) > REQUIRED_OBSERVATION_ITEM_BYTES) {
+    throw new Error("observation_unavailable");
+  }
+  const chars = [...payload.statement];
+  let low = 0;
+  let high = chars.length;
+  while (low < high) {
+    const mid = Math.ceil((low + high) / 2);
+    if (probe(chars.slice(0, mid).join(""), true) <= REQUIRED_OBSERVATION_ITEM_BYTES) low = mid;
+    else high = mid - 1;
+  }
+  const statement = chars.slice(0, low).join("");
+  if (probe(statement, true) > REQUIRED_OBSERVATION_ITEM_BYTES) {
+    throw new Error("observation_unavailable");
+  }
+  return concernInspectionObservation(req, {
+    ...payload,
+    statement,
+    statementTruncated: true,
+    originalStatementBytes: fullBytes,
+  });
 }
 
 function licenseClaims(license: OperationalClaimLicense): Record<string, unknown> {
@@ -602,6 +702,9 @@ export function createV021LiveOperationExecutors(
     },
 
     async executeObservation(req): Promise<Observation> {
+      if (req.kind === CONCERN_INSPECTION_INTENT) {
+        return executeConcernInspection(req, options.sidecar);
+      }
       if (req.kind === MODE_B_INVESTIGATE) {
         let result: ModeBWorkerResult;
         try {

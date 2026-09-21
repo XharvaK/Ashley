@@ -122,6 +122,12 @@ describe("v0.2.1 ThoughtInput assembly", () => {
         operatorBoundRequestFields: [],
         authorizedProjectIds: ["project-ashley"],
       }],
+      semanticObservations: [{
+        operationKind: "concern.inspect",
+        semanticClass: "observation",
+        readOnly: true,
+        available: true,
+      }],
     }, { kind: "room", roomId: "room:external" }, [], false);
 
     expect(filtered.approvedProjectIds).toEqual([]);
@@ -131,6 +137,40 @@ describe("v0.2.1 ThoughtInput assembly", () => {
       available: false,
       authorizedProjectIds: [],
     })]);
+    expect(filtered.semanticObservations).toEqual([expect.objectContaining({
+      operationKind: "concern.inspect",
+      available: false,
+    })]);
+  });
+
+  it("keeps concern.inspect unavailable on the authenticated-Owner room production path", () => {
+    const ownerPrivateBuilt = filterCapabilityReality({
+      ...capability,
+      semanticObservations: [{
+        operationKind: "concern.inspect",
+        semanticClass: "observation",
+        readOnly: true,
+        available: true,
+      }],
+    }, { kind: "owner_private" }, [], false);
+    expect(ownerPrivateBuilt.semanticObservations).toEqual([expect.objectContaining({
+      operationKind: "concern.inspect",
+      available: true,
+    })]);
+    const roomProjected = filterCapabilityReality(
+      ownerPrivateBuilt,
+      { kind: "room", roomId: "room:owner-guild:owner-channel" },
+      [],
+      true,
+    );
+    expect(roomProjected.semanticObservations).toEqual([expect.objectContaining({
+      operationKind: "concern.inspect",
+      available: false,
+    })]);
+    expect(roomProjected.reachability?.reasons).toMatchObject({
+      "concern.inspect": "another_audience_only",
+    });
+    expect(roomProjected.canOfferProjectInspection).toBe(true);
   });
 
   it("uses one coherent selected-source package for input and currentness", () => {

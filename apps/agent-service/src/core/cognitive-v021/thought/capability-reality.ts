@@ -19,6 +19,7 @@ import type {
   CapabilityReality,
   CapabilityRealityReasonCode,
   ThoughtOperationCapability,
+  ThoughtSemanticObservation,
 } from "../types.js";
 import type { SocialAudience } from "../social/types.js";
 import {
@@ -251,6 +252,14 @@ export function getCapabilityReality(
     patchExportAvailable,
     iterativeEngineeringAvailable,
   });
+  const semanticObservations: readonly ThoughtSemanticObservation[] = Object.freeze([
+    Object.freeze({
+      operationKind: "concern.inspect" as const,
+      semanticClass: "observation" as const,
+      readOnly: true as const,
+      available: !externalAudience,
+    }),
+  ]);
   const facts = {
     vision: audienceCapabilityAllowed("vision") && perceptionFacts.vision,
     attachmentText: audienceCapabilityAllowed("attachment_text") && perceptionFacts.attachmentText,
@@ -328,6 +337,9 @@ export function getCapabilityReality(
       authorizedProjectIds: [],
     }))
     : operationCapabilities;
+  const projectedSemanticObservations = externalAudience
+    ? semanticObservations.map((entry) => ({ ...entry, available: false }))
+    : semanticObservations;
   for (const capability of operationCapabilities) {
     reachabilityReasons[capability.operationKind] = reasonForCapability({
       value: externalAudience ? false : capability.available,
@@ -339,10 +351,20 @@ export function getCapabilityReality(
       audienceAllowed: audienceCapabilityAllowed,
     });
   }
+  reachabilityReasons["concern.inspect"] = reasonForCapability({
+    value: !externalAudience,
+    rawValue: true,
+    name: "concern.inspect",
+    externalAudience,
+    ownerOnly: true,
+    substrateWithoutAuthority,
+    audienceAllowed: audienceCapabilityAllowed,
+  });
   const reality: CapabilityReality = {
     ...facts,
     approvedProjectIds: externalAudience ? [] : listApprovedReadProjectIds(registry),
     operationCapabilities: projectedOperationCapabilities,
+    semanticObservations: projectedSemanticObservations,
     reachability: {
       audience: { ...audience },
       reasons: reachabilityReasons,

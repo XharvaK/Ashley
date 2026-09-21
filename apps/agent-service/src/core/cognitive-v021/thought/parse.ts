@@ -57,6 +57,7 @@ const REGISTERED_OPERATION_KINDS = new Set([
   "conversation.read",
   "memory.lookup",
   "project.inspect",
+  "concern.inspect",
   "workspace.create_directory",
   "workspace.delete_file",
   "workspace.edit_text",
@@ -808,6 +809,7 @@ function parseOperationSemantic(
   value: SemanticRecord,
   allowlist: ReadonlySet<string>,
   kind: "observation_intent" | "effect_intent",
+  inspectAllowlist?: ReadonlySet<string>,
 ): ThoughtSemanticParseResult {
   const required = kind === "observation_intent"
     ? ["kind", "operationKind", "request", "purpose", "evidenceNeed", "existingRefs"]
@@ -824,6 +826,16 @@ function parseOperationSemantic(
   if (!jsonObject(record.request)) return semanticFailure("wrong_type", "request");
   if (record.operationKind === "project.inspect" && !validProjectInspectionObjective(record.request)) {
     return semanticFailure("wrong_type", "request");
+  }
+  if (record.operationKind === "concern.inspect") {
+    if (kind !== "observation_intent") return semanticFailure("wrong_type", "operationKind");
+    const shape = recordShape(record.request, ["concernRef"]);
+    if (!shape || typeof shape.concernRef !== "string" || shape.concernRef.length === 0) {
+      return semanticFailure("wrong_type", "request");
+    }
+    if (!existingRef(shape.concernRef, inspectAllowlist ?? new Set())) {
+      return semanticFailure("reference_not_allowlisted", "request.concernRef");
+    }
   }
   if (record.operationKind === "candidate.develop") {
     const modeB = validateModeBRequest({ kind: record.operationKind, request: record.request });
@@ -854,13 +866,16 @@ function parseOperationSemantic(
 export function parseThoughtSemanticOutput(
   raw: string | unknown,
   allowlistedReferences: ReadonlySet<string>,
+  options?: { concernInspectRefs?: ReadonlySet<string> },
 ): ThoughtSemanticParseResult {
   const parsed = parseSemanticJson(raw);
   if (!parsed.ok) return semanticFailure("invalid_json");
   const record = semanticRecord(parsed.value);
   if (!record) return semanticFailure("root_not_object");
   if (record.kind === "settlement") return parseSettlementSemantic(record, allowlistedReferences);
-  if (record.kind === "observation_intent") return parseOperationSemantic(record, allowlistedReferences, "observation_intent");
+  if (record.kind === "observation_intent") {
+    return parseOperationSemantic(record, allowlistedReferences, "observation_intent", options?.concernInspectRefs);
+  }
   if (record.kind === "effect_intent") return parseOperationSemantic(record, allowlistedReferences, "effect_intent");
   if (record.kind === "abstain") {
     const unknown = Object.keys(record).find((key) => !["kind", "reason", "explanation", "evidenceRefs"].includes(key));

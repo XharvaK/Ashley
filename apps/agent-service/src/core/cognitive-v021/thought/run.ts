@@ -92,6 +92,10 @@ import { adaptPerception } from "../perception/adapter.js";
 import { buildThoughtInput, captureThoughtSourcePackage } from "./input.js";
 import { parseThoughtSemanticOutput, THOUGHT_SEMANTIC_PARSER_ID } from "./parse.js";
 import {
+  concernInspectRefsForInput,
+  type ConcernInspectAuthority,
+} from "./concern-inspect.js";
+import {
   buildReferenceAllowlist,
   hasReferenceTarget,
   registerLocalAlias,
@@ -1355,6 +1359,7 @@ export async function runThoughtModel(
     /** W7 exact private-budget reservation bridge for this Thought invocation. */
     privateBudgetBinding?: PrivateBudgetDispatchBinding;
     nowMs?: number;
+    concernInspectAuthority?: ConcernInspectAuthority;
   },
 ): Promise<ThoughtInvocation> {
   const pass = options.pass ?? 1;
@@ -1505,6 +1510,7 @@ export async function runThoughtModel(
     const semanticResult = parseThoughtSemanticOutput(
       completion.text,
       new Set(semanticReferencesForInput(input)),
+      { concernInspectRefs: (options.concernInspectAuthority ?? concernInspectRefsForInput(input)).refs },
     );
     if (!semanticResult.ok) {
       const diagnosticCode = semanticResult.code as ThoughtParserFailureCode;
@@ -1611,6 +1617,11 @@ export async function runThoughtModel(
         }
       : semantic.kind === "observation_intent"
         ? (() => {
+            const inspectAuthority = options.concernInspectAuthority ?? concernInspectRefsForInput(input);
+            const inspectExpectation = semantic.operationKind === "concern.inspect"
+              && typeof (semantic.request as Record<string, unknown>).concernRef === "string"
+              ? inspectAuthority.expectations[(semantic.request as Record<string, string>).concernRef]
+              : undefined;
             const bound = bindObservationIntent({
               intent: semantic,
               cycleId: input.cycleId,
@@ -1618,6 +1629,7 @@ export async function runThoughtModel(
               parentDeadlineAtMs: options.deadlineAtMs,
               nowMs: options.nowMs ?? Date.now(),
               authorityCurrentness,
+              ...(inspectExpectation === undefined ? {} : { concernInspectExpectation: inspectExpectation }),
             });
             return {
               kind: "observation_request" as const,
@@ -1634,6 +1646,9 @@ export async function runThoughtModel(
                  request: bound.request,
                  replaySafe: true as const,
                  authorityCurrentness: bound.authorityCurrentness,
+                ...(bound.concernInspectionBinding === undefined
+                  ? {}
+                  : { concernInspectionBinding: bound.concernInspectionBinding }),
               },
               correlationId: bound.correlationId,
               expectedResultType: "observation" as const,
@@ -2884,6 +2899,10 @@ export async function runCognitiveCycle(
         : undefined,
       nowMs: deps.nowMs(),
       privateBudgetBinding: options.privateBudgetBinding,
+      concernInspectAuthority: {
+        refs: new Set(Object.keys(sourceCapture.concernInspectDependencies)),
+        expectations: sourceCapture.concernInspectDependencies,
+      },
     });
     lastThoughtRequestId = invocation.requestId;
     lastThoughtPass = pass;

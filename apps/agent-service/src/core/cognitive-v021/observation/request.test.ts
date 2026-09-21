@@ -13,7 +13,7 @@ describe("v0.2.1 observation/effect classification", () => {
   });
 
   it("classifies every bounded M2 inspection surface as a replay-safe observation", () => {
-    for (const kind of ["project.inspect", "project.read_file", "project.list_directory", "project.search_text"]) {
+    for (const kind of ["project.inspect", "project.read_file", "project.list_directory", "project.search_text", "concern.inspect"]) {
       expect(classifyOperation(kind, {})).toBe("observation");
     }
     expect(createObservationRequest({

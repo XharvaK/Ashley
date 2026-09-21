@@ -41,6 +41,15 @@ export type ConcernCurrentnessEntry = Readonly<{
   updatedCycle?: string;
 }>;
 
+export type ConcernInspectDependency = Readonly<{
+  snapshotHash: string;
+  status: "dormant_but_revisitable";
+}>;
+
+export type ConcernInspectDependencies = Readonly<
+  Record<string, ConcernInspectDependency>
+>;
+
 export type FutureTriggerCurrentness = Readonly<{
   scheduledIds: readonly string[];
   terminalEvidence: readonly TerminalSuppressionEvidence[];
@@ -73,6 +82,7 @@ export type ThoughtSourceCapture = Readonly<{
   concernSnapshots: Readonly<Record<string, string>>;
   domainPointers: DomainPointersSection;
   sourceCurrentness: ThoughtSourceCurrentness;
+  concernInspectDependencies: ConcernInspectDependencies;
 }>;
 
 export type ThoughtSourceCaptureState = Readonly<{
@@ -83,6 +93,7 @@ export type ThoughtSourceCaptureState = Readonly<{
   occupancyBoundary: MindOccupancy | null;
   concernMembership?: readonly string[];
   concernDependencies: Readonly<Record<string, ConcernCurrentnessEntry | null>>;
+  concernInspectDependencies?: ConcernInspectDependencies;
   scheduledFutureTriggerIds: readonly string[];
   terminalEvidence: readonly TerminalSuppressionEvidence[];
 }>;
@@ -369,6 +380,22 @@ function sameConcernEntry(
   return expected.snapshotHash === actual.snapshotHash
     && expected.status === actual.status
     && (expected.updatedCycle === undefined || expected.updatedCycle === actual.updatedCycle);
+}
+
+export function inspectConcernCurrentness(
+  db: DatabaseSync,
+  concernId: string,
+  expected: ConcernInspectDependency,
+): { actual: ConcernCurrentnessEntry | null; matches: boolean; currentStatus: string | null } {
+  const actual = currentConcernEntry(db, concernId);
+  return {
+    actual,
+    matches: sameConcernEntry(
+      { snapshotHash: expected.snapshotHash, status: expected.status },
+      actual,
+    ),
+    currentStatus: actual?.status ?? null,
+  };
 }
 
 export type ThoughtSourceCurrentnessDependencies = Readonly<{
