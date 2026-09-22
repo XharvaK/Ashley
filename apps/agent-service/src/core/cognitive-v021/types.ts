@@ -1391,6 +1391,22 @@ export type ThoughtSemanticObservation = Readonly<{
 export type ThoughtOperationCapability = Readonly<{
   operationKind: string;
   semanticClass: "observation" | "effect";
+  /** Host-owned human-readable affordance name. It does not recommend a choice. */
+  label: string;
+  /** Host-owned bounded description of the operation's semantic affordance. */
+  description: string;
+  /** Required and optional request shape in plain language. */
+  inputContract: string;
+  /** Observable result shape, including the semantic evidence boundary. */
+  outputContract: string;
+  /** What counts as usable evidence and what does not. */
+  evidenceContract: string;
+  /** Mechanical and governance conditions that must hold before dispatch. */
+  authorityConditions: readonly string[];
+  /** Explicit limits that prevent the affordance from becoming a strategy hint. */
+  hardLimits: readonly string[];
+  /** Known unresolved states that Thought must represent honestly. */
+  uncertainty: readonly string[];
   /** Canonical operation-family metadata from the Sandbox V2 registry. */
   family: SandboxV2CapabilitySpec["family"];
   /** Canonical mutation property from the Sandbox V2 registry. */

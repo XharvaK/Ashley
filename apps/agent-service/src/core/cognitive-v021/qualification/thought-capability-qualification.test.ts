@@ -182,6 +182,7 @@ describe("successor Thought qualification", () => {
       "enum",
       "items",
       "maxItems",
+      "maxLength",
       "maximum",
       "minItems",
       "minLength",

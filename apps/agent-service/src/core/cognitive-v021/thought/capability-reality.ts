@@ -94,6 +94,107 @@ function workerReason(reason: WorkerOfferReason): CapabilityRealityReasonCode {
   return "unavailable";
 }
 
+type OperationAffordance = Pick<
+  ThoughtOperationCapability,
+  | "label"
+  | "description"
+  | "inputContract"
+  | "outputContract"
+  | "evidenceContract"
+  | "authorityConditions"
+  | "hardLimits"
+  | "uncertainty"
+>;
+
+function freezeOperationAffordance(value: OperationAffordance): Readonly<OperationAffordance> {
+  return Object.freeze({
+    ...value,
+    authorityConditions: Object.freeze([...value.authorityConditions]),
+    hardLimits: Object.freeze([...value.hardLimits]),
+    uncertainty: Object.freeze([...value.uncertainty]),
+  });
+}
+
+const OPERATION_AFFORDANCES = Object.freeze({
+  "project.inspect": freezeOperationAffordance({
+    label: "Project inspection",
+    description: "Read bounded evidence from an operator-approved project through the route-neutral project inspection operation.",
+    inputContract: "Requires projectId and may include a bounded locator, question, focus, and maxSteps. The request names no direct or worker substrate.",
+    outputContract: "Returns a read-only observation containing bounded project evidence, provenance, and execution status.",
+    evidenceContract: "Only a succeeded observation with matching operation and project identity is usable evidence; failure or outcome_unknown is not a successful result.",
+    authorityConditions: [
+      "An active project-inspection capability gate must be true.",
+      "The project must be enabled, read-allowed, and present in authorizedProjectIds.",
+    ],
+    hardLimits: [
+      "Read-only; it cannot mutate files, run commands, or apply a patch.",
+      "Host routing may use a direct adapter or bounded worker after Thought selects project.inspect.",
+      "Provider, model, quota, and fallback fields are outside this request.",
+    ],
+    uncertainty: [
+      "A missing or failed observation leaves the semantic question unresolved.",
+      "A worker outcome_unknown records that the result is unsettled; it cannot be reported as success.",
+    ],
+  }),
+  "workspace.verify": freezeOperationAffordance({
+    label: "Workspace verification",
+    description: "Run an allowlisted read-only verification recipe against an authorized candidate workspace.",
+    inputContract: "Requires projectId and may include operator-bound workspaceId and recipeId values.",
+    outputContract: "Returns an effect receipt containing verification status and mechanical evidence.",
+    evidenceContract: "Only a succeeded receipt with matching operation, project, and workspace identity may support a verification claim; failure or outcome_unknown is not success.",
+    authorityConditions: [
+      "An active candidate-verification capability gate must be true.",
+      "The project, workspace, and recipe must satisfy their operator-bound allowlists.",
+    ],
+    hardLimits: [
+      "The recipe is read-only; it cannot mutate files, apply changes, commit, push, deploy, or notify.",
+      "The request cannot select a provider, model, quota, or fallback path.",
+    ],
+    uncertainty: [
+      "A failed verification is evidence of failure, not evidence of success.",
+      "An outcome_unknown receipt leaves the verification claim unsettled.",
+    ],
+  }),
+  patch_export: freezeOperationAffordance({
+    label: "Patch export",
+    description: "Copy a sealed, accepted patch artifact to an operator-bound review destination.",
+    inputContract: "Requires projectId, changesetId, and adjudication; changesetId is operator-bound.",
+    outputContract: "Returns an effect receipt with source identity, destination identity, and read-back status.",
+    evidenceContract: "Only a succeeded receipt with matching source and destination read-back supports an export claim; a write without read-back is not settled evidence.",
+    authorityConditions: [
+      "An active patch-export capability gate must be true.",
+      "The changeset and destination must satisfy the operator-bound export registry.",
+    ],
+    hardLimits: [
+      "This operation copies an accepted artifact only; it cannot apply, commit, push, deploy, or activate it.",
+      "The request cannot select a provider, model, quota, or destination outside the operator-bound registry.",
+    ],
+    uncertainty: [
+      "A source/read-back mismatch leaves export state unresolved.",
+      "A failed or outcome_unknown receipt cannot be represented as an applied or live effect.",
+    ],
+  }),
+  "candidate.develop": freezeOperationAffordance({
+    label: "Candidate development",
+    description: "Run bounded candidate development in an authorized workspace and return worker evidence.",
+    inputContract: "Requires projectId and may include focus, maxSteps, and an operator-bound workspaceId.",
+    outputContract: "Returns an effect receipt describing bounded worker steps and the resulting candidate artifact state.",
+    evidenceContract: "The receipt describes worker activity only; candidate artifact claims require the separate verification operation.",
+    authorityConditions: [
+      "An active candidate-authorship capability gate must be true.",
+      "The project and workspace must satisfy candidateWorkspaceAllowed and operator-bound checks.",
+    ],
+    hardLimits: [
+      "Work is bounded to the authorized candidate workspace; it cannot deploy or alter production.",
+      "Host-owned worker execution details cannot be selected through this semantic request.",
+    ],
+    uncertainty: [
+      "Worker failure or outcome_unknown leaves candidate state unresolved.",
+      "Worker evidence does not establish that a candidate is verified, accepted, or live.",
+    ],
+  }),
+} as const);
+
 function thoughtOperationCapabilities(input: {
   registry: V2ProjectReadRegistry;
   projectInspectionAvailable: boolean;
@@ -123,6 +224,7 @@ function thoughtOperationCapabilities(input: {
     Object.freeze({
       operationKind: "project.inspect",
       semanticClass: "observation" as const,
+      ...OPERATION_AFFORDANCES["project.inspect"],
       family: projectReadFileSpec.family,
       readOnly: projectReadFileSpec.readOnly,
       requiresProject: projectReadFileSpec.requiresProject,
@@ -135,6 +237,7 @@ function thoughtOperationCapabilities(input: {
     Object.freeze({
       operationKind: "workspace.verify",
       semanticClass: "effect" as const,
+      ...OPERATION_AFFORDANCES["workspace.verify"],
       family: workspaceVerifySpec.family,
       readOnly: workspaceVerifySpec.readOnly,
       requiresProject: workspaceVerifySpec.requiresProject,
@@ -147,6 +250,7 @@ function thoughtOperationCapabilities(input: {
     Object.freeze({
       operationKind: "patch_export",
       semanticClass: "effect" as const,
+      ...OPERATION_AFFORDANCES.patch_export,
       family: patchExportSpec.family,
       readOnly: patchExportSpec.readOnly,
       requiresProject: patchExportSpec.requiresProject,
@@ -160,6 +264,7 @@ function thoughtOperationCapabilities(input: {
       ? [Object.freeze({
         operationKind: "candidate.develop",
         semanticClass: "effect" as const,
+        ...OPERATION_AFFORDANCES["candidate.develop"],
         family: workspaceWriteSpec.family,
         readOnly: false,
         requiresProject: true,

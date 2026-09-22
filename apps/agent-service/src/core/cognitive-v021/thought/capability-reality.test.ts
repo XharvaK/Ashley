@@ -75,6 +75,24 @@ describe("v0.2.1 CapabilityReality live-surface contract", () => {
         {
           operationKind: "project.inspect",
           semanticClass: "observation",
+          label: "Project inspection",
+          description: "Read bounded evidence from an operator-approved project through the route-neutral project inspection operation.",
+          inputContract: "Requires projectId and may include a bounded locator, question, focus, and maxSteps. The request names no direct or worker substrate.",
+          outputContract: "Returns a read-only observation containing bounded project evidence, provenance, and execution status.",
+          evidenceContract: "Only a succeeded observation with matching operation and project identity is usable evidence; failure or outcome_unknown is not a successful result.",
+          authorityConditions: [
+            "An active project-inspection capability gate must be true.",
+            "The project must be enabled, read-allowed, and present in authorizedProjectIds.",
+          ],
+          hardLimits: [
+            "Read-only; it cannot mutate files, run commands, or apply a patch.",
+            "Host routing may use a direct adapter or bounded worker after Thought selects project.inspect.",
+            "Provider, model, quota, and fallback fields are outside this request.",
+          ],
+          uncertainty: [
+            "A missing or failed observation leaves the semantic question unresolved.",
+            "A worker outcome_unknown records that the result is unsettled; it cannot be reported as success.",
+          ],
           family: "project_inspection",
           readOnly: true,
           requiresProject: true,
@@ -87,6 +105,23 @@ describe("v0.2.1 CapabilityReality live-surface contract", () => {
         {
           operationKind: "workspace.verify",
           semanticClass: "effect",
+          label: "Workspace verification",
+          description: "Run an allowlisted read-only verification recipe against an authorized candidate workspace.",
+          inputContract: "Requires projectId and may include operator-bound workspaceId and recipeId values.",
+          outputContract: "Returns an effect receipt containing verification status and mechanical evidence.",
+          evidenceContract: "Only a succeeded receipt with matching operation, project, and workspace identity may support a verification claim; failure or outcome_unknown is not success.",
+          authorityConditions: [
+            "An active candidate-verification capability gate must be true.",
+            "The project, workspace, and recipe must satisfy their operator-bound allowlists.",
+          ],
+          hardLimits: [
+            "The recipe is read-only; it cannot mutate files, apply changes, commit, push, deploy, or notify.",
+            "The request cannot select a provider, model, quota, or fallback path.",
+          ],
+          uncertainty: [
+            "A failed verification is evidence of failure, not evidence of success.",
+            "An outcome_unknown receipt leaves the verification claim unsettled.",
+          ],
           family: "project_verification",
           readOnly: true,
           requiresProject: true,
@@ -99,6 +134,23 @@ describe("v0.2.1 CapabilityReality live-surface contract", () => {
         {
           operationKind: "patch_export",
           semanticClass: "effect",
+          label: "Patch export",
+          description: "Copy a sealed, accepted patch artifact to an operator-bound review destination.",
+          inputContract: "Requires projectId, changesetId, and adjudication; changesetId is operator-bound.",
+          outputContract: "Returns an effect receipt with source identity, destination identity, and read-back status.",
+          evidenceContract: "Only a succeeded receipt with matching source and destination read-back supports an export claim; a write without read-back is not settled evidence.",
+          authorityConditions: [
+            "An active patch-export capability gate must be true.",
+            "The changeset and destination must satisfy the operator-bound export registry.",
+          ],
+          hardLimits: [
+            "This operation copies an accepted artifact only; it cannot apply, commit, push, deploy, or activate it.",
+            "The request cannot select a provider, model, quota, or destination outside the operator-bound registry.",
+          ],
+          uncertainty: [
+            "A source/read-back mismatch leaves export state unresolved.",
+            "A failed or outcome_unknown receipt cannot be represented as an applied or live effect.",
+          ],
           family: "patch_export",
           readOnly: false,
           requiresProject: true,
@@ -112,6 +164,19 @@ describe("v0.2.1 CapabilityReality live-surface contract", () => {
       expect(reality.operationCapabilities?.some((operation) =>
         "expectedKind" in operation || "semanticBranch" in operation,
       )).toBe(false);
+      for (const operation of reality.operationCapabilities ?? []) {
+        expect(operation.label).toEqual(expect.any(String));
+        expect(operation.description).toEqual(expect.any(String));
+        expect(operation.inputContract).toEqual(expect.any(String));
+        expect(operation.outputContract).toEqual(expect.any(String));
+        expect(operation.evidenceContract).toEqual(expect.any(String));
+        expect(operation.authorityConditions.length).toBeGreaterThan(0);
+        expect(operation.hardLimits.length).toBeGreaterThan(0);
+        expect(operation.uncertainty.length).toBeGreaterThan(0);
+        expect(JSON.stringify(operation)).not.toMatch(
+          /preferred_for|fallback_for|best_for|equivalent_to|recommendation|priority/i,
+        );
+      }
     } finally {
       db.close();
     }
