@@ -165,7 +165,7 @@ describe("concern.inspect executor branch", () => {
       sidecar.prepare("DELETE FROM concerns WHERE concern_id = ?").run("concern-missing");
       const executors = createV021LiveOperationExecutors({ nuclear, sidecar });
       const observation = await executors.executeObservation(requestFor("concern-missing", binding));
-      expect(observation.payload).toEqual({ concernId: "concern-missing", result: "missing" });
+      expect(observation.payload).toEqual({ result: "missing" });
       expect(utf8JsonBytes(observation)).toBeLessThanOrEqual(640);
     } finally {
       nuclear.close();
@@ -222,7 +222,7 @@ describe("concern.inspect executor branch", () => {
       ).run("concern-forgotten");
       const executors = createV021LiveOperationExecutors({ nuclear, sidecar });
       const observation = await executors.executeObservation(requestFor("concern-forgotten", binding));
-      expect(observation.payload).toEqual({ concernId: "concern-forgotten", result: "missing" });
+      expect(observation.payload).toEqual({ result: "missing" });
       expect(JSON.stringify(observation.payload)).not.toContain("Soon forgotten.");
     } finally {
       nuclear.close();
@@ -352,7 +352,7 @@ describe("concern.inspect executor branch", () => {
       derived: false,
       replaySafe: true,
       modality: "tool",
-      payload: { concernId: "k".repeat(400), result: "missing" },
+      payload: { result: "missing" },
       provenance: "sidecar:concern.inspect",
       dataClassification: "never_public",
       secretOmitted: false,
@@ -518,6 +518,35 @@ describe("concern.inspect discover executor branch", () => {
         nextCursor: null,
       });
       expect(utf8JsonBytes(observation)).toBeLessThanOrEqual(640);
+    } finally {
+      nuclear.close();
+      sidecar.close();
+    }
+  });
+
+  it("fails closed when a cursor is not an inspectable returned concern", async () => {
+    const nuclear = new DatabaseSync(":memory:");
+    const sidecar = openTestSidecar();
+    try {
+      admitTestCycle(sidecar, {
+        cycleId: "cycle-discover-hidden-cursor", conversationId: "thread-discover-hidden-cursor",
+        triggerKind: "owner_message", triggerRef: "owner-discover-hidden-cursor", occupantId: "doc", nowMs: 1,
+      });
+      seedConcern(sidecar, { concernId: "concern-a", conversationId: "thread-discover-hidden-cursor", statement: "A.", status: "resolved" });
+      seedConcern(sidecar, { concernId: "concern-b", conversationId: "thread-discover-hidden-cursor", statement: "B.", status: "active" });
+      seedConcern(sidecar, { concernId: "concern-c", conversationId: "thread-discover-hidden-cursor", statement: "C.", status: "resolved" });
+      const executors = createV021LiveOperationExecutors({ nuclear, sidecar });
+
+      const observation = await executors.executeObservation(discoverRequest("cycle-discover-hidden-cursor", {
+        discover: { cursor: "concern-b", limit: 1 },
+      }));
+
+      expect(observation.payload).toEqual({
+        result: "cursor_invalid",
+        concerns: [],
+        omittedCount: 0,
+        nextCursor: null,
+      });
     } finally {
       nuclear.close();
       sidecar.close();

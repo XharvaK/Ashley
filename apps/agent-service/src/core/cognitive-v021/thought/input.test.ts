@@ -229,6 +229,42 @@ describe("v0.2.1 ThoughtInput assembly", () => {
     }
   });
 
+  it("does not carry a discovered concern into authority after it becomes non-authorable", () => {
+    const db = openTestSidecar();
+    try {
+      const cycle = admitTestCycle(db, {
+        cycleId: "cycle-discovery-currentness",
+        conversationId: "thread-discovery-currentness",
+        triggerKind: "owner_message",
+        triggerRef: "owner-discovery-currentness",
+        occupantId: "doc",
+        nowMs: 1,
+      });
+      db.prepare(
+        `INSERT INTO concerns
+           (concern_id, conversation_id, statement, source_refs_json, dimensions_json,
+            assertion_key, cognitive_status, snapshot_hash, updated_cycle)
+         VALUES ('concern-discovered', ?, 'discovered', '[]', '{}', NULL, 'resolved', 'discovered-v1', 'seed')`,
+      ).run(cycle.conversationId);
+      db.prepare(
+        "UPDATE concerns SET cognitive_status = 'active', quarantine_kind = NULL WHERE concern_id = ?",
+      ).run("concern-discovered");
+
+      const input = buildThoughtInput({
+        sidecar: db,
+        cycle,
+        constitution: identity,
+        capabilityReality: capability,
+        learnedSelfSlice: { dispositions: [], interests: [] },
+        concernAuthorableTargetAppend: ["concern-discovered"],
+      });
+
+      expect((input as any).sourceCurrentness.concernAuthorableTargetIds).toEqual([]);
+    } finally {
+      db.close();
+    }
+  });
+
   it("keeps the always-on last twelve turns, compact occupancy, and trigger terms", () => {
     const db = openTestSidecar();
     try {

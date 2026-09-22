@@ -323,7 +323,7 @@ type ConcernDiscoverItem = {
 };
 
 type ConcernInspectPayload =
-  | { concernId: string; result: "missing" }
+  | { result: "missing" }
   | {
       concernId: string;
       result: "current" | "stale";
@@ -374,7 +374,12 @@ function executeConcernDiscover(
   const cursor = concernDiscoverCursorOf(req.request);
   if (cursor !== null) {
     const cursorRow = sidecar.prepare(
-      "SELECT 1 AS present FROM concerns WHERE concern_id = ? AND conversation_id = ? LIMIT 1",
+      `SELECT 1 AS present
+         FROM concerns
+        WHERE concern_id = ?
+          AND conversation_id = ?
+          AND ${INSPECTABLE_CONCERN_PREDICATE}
+        LIMIT 1`,
     ).get(cursor, conversationId) as { present?: unknown } | undefined;
     if (!cursorRow) {
       return projectConcernDiscover(req, {
@@ -493,7 +498,7 @@ function executeConcernInspection(
   if (!binding || !concernRef || binding.concernId !== concernRef) throw new Error("observation_unavailable");
   const row = getConcern(sidecar, binding.concernId);
   if (!row) {
-    const missing = concernInspectionObservation(req, { concernId: binding.concernId, result: "missing" });
+    const missing = concernInspectionObservation(req, { result: "missing" });
     if (utf8JsonBytes(missing) > REQUIRED_OBSERVATION_ITEM_BYTES) {
       throw new Error("observation_unavailable");
     }

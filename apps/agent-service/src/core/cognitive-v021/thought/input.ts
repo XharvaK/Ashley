@@ -744,18 +744,31 @@ export function captureThoughtSourcePackage(
     )
     : baseDomainPointers;
 
+  const concernsById = new Map(
+    listConcerns(options.sidecar, options.cycle.conversationId)
+      .filter((concern) => structuredValueEligible(concern, audience, licenses))
+      .map((concern) => [concern.concernId, concern] as const),
+  );
+
   const concernsPointer = domainPointers.pointers.find((pointer) => pointer.domain === "concerns");
   const concernDiscovery = concernsPointer?.concernDiscovery;
   // Ordinary write-target window. Quarantine removes a concern from foreground
   // and membership, never from cognitive authorship: without this the v24
   // migration's occupancy cleanup would lock quarantined and NULL-status
   // concerns away from Thought forever.
-  const concernAuthorableTargetIds = [
-    ...new Set([
-      ...(concernDiscovery?.concernAuthorableTargetIds ?? []),
-      ...(options.concernAuthorableTargetAppend ?? []),
-    ]),
-  ].sort();
+  const concernAuthorableTargetIds = [...new Set([
+    ...(concernDiscovery?.concernAuthorableTargetIds ?? []),
+    ...(options.concernAuthorableTargetAppend ?? []),
+  ])]
+    .filter((concernId) => {
+      const concern = concernsById.get(concernId);
+      if (!concern) return false;
+      const facts = getConcernAuthorityFacts(options.sidecar, concernId);
+      return facts !== null
+        && !facts.forgotten
+        && (facts.cognitiveStatus === null || facts.cognitiveStatus === "resolved" || facts.quarantineKind !== null);
+    })
+    .sort();
 
   const relevantConcernIds = new Set<string>();
   for (const item of eligibleWorkingContext) if (item.concernId) relevantConcernIds.add(item.concernId);
@@ -783,11 +796,6 @@ export function captureThoughtSourcePackage(
 
   const concernDependencies: Record<string, ConcernCurrentnessEntry | null> = {};
   const concernSnapshots: Record<string, string> = {};
-  const concernsById = new Map(
-    listConcerns(options.sidecar, options.cycle.conversationId)
-      .filter((concern) => structuredValueEligible(concern, audience, licenses))
-      .map((concern) => [concern.concernId, concern] as const),
-  );
   for (const concernId of [...relevantConcernIds].sort()) {
     const concern = concernsById.get(concernId);
     const facts = getConcernAuthorityFacts(options.sidecar, concernId);
