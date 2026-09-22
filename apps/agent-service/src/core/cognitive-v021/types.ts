@@ -20,7 +20,13 @@ export type { DataClassification } from "../privacy/classification.js";
 export const ARCHITECTURE_EPOCH = "v0.2.1" as const;
 export const IMPLEMENTATION_SPEC_VERSION = "0.2.1.r6" as const;
 export const THOUGHT_CONTRACT_VERSION = 2 as const;
-export const COGNITIVE_SIDECAR_SCHEMA_VERSION = 23 as const;
+export const COGNITIVE_SIDECAR_SCHEMA_VERSION = 24 as const;
+
+/**
+ * Hard bound on cognition-facing concern discovery windows and pages. The
+ * value is a resource bound, never a semantic ranking or priority signal.
+ */
+export const CONCERN_DISCOVERY_K = 32 as const;
 export const CAPACITY_WAIT_MAX_DURATION_MS = 120_000 as const;
 export const MECHANICAL_SPIN_GUARD_LIMIT = 12 as const;
 
@@ -413,19 +419,35 @@ export type ConcernRecord = {
   sourceTurnIds: string[];
   dimensions: EpistemicDimensions;
   assertionKey: AssertionKey | null;
-  status: OccupancyStatus;
+  /**
+   * Cognition-authored cognitive status. `null` means no cognition-authored
+   * cognitive status has been established; it is never dormant, resolved,
+   * active, quarantine, or forgotten.
+   */
+  status: CognitiveStatus | null;
   snapshotHash: string;
   audienceScope?: SocialAudience | null;
   protectionStatus?: "admitted" | "unresolved" | null;
 };
 
-export type OccupancyStatus =
+/** The five cognition-authored cognitive statuses. Thought authors only these. */
+export type CognitiveStatus =
   | "active"
   | "investigating"
   | "waiting_for_evidence"
   | "dormant_but_revisitable"
-  | "resolved"
-  | "quarantined";
+  | "resolved";
+
+/**
+ * Occupancy never stores NULL and never stores a quarantine state. Quarantine
+ * is a separate Host provenance axis, not a cognitive status.
+ */
+export type OccupancyStatus = CognitiveStatus;
+
+/** Host/E provenance-validity kinds. Cognition may not author or clear these. */
+export type QuarantineKind =
+  | "legacy_unavailable_source"
+  | "legacy_quarantine_reason_unavailable";
 
 export type MindOccupancy = {
   conversationId: ConversationId;
@@ -1009,7 +1031,8 @@ export type ObservationRequest = {
 export type ConcernInspectionBinding = Readonly<{
   concernId: string;
   expectedSnapshotHash: string;
-  expectedStatus: "dormant_but_revisitable";
+  expectedStatus: CognitiveStatus | null;
+  expectedQuarantineKind?: QuarantineKind | null;
 }>;
 
 export type EffectProposal = {

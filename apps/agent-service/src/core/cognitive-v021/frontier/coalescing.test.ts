@@ -628,7 +628,7 @@ describe("Wave 1C: Deferred Reactive Frontier Coalescing & V021 Integration", ()
     sidecar.prepare(
       `INSERT INTO concerns
          (concern_id, conversation_id, statement, source_refs_json, dimensions_json,
-          assertion_key, status, snapshot_hash, updated_cycle)
+          assertion_key, cognitive_status, snapshot_hash, updated_cycle)
        VALUES ('concern-b5', 'thread-b5', 'active topic', '[]', '{}', NULL, 'active', 'snap-b5', 'cycle-b5-active')`,
     ).run();
     sidecar.prepare(

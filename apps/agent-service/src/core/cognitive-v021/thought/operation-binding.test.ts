@@ -24,12 +24,13 @@ describe("Thought operation binding", () => {
       generation: 1,
       parentDeadlineAtMs: 10_000,
       nowMs: 2_000,
-      concernInspectExpectation: { snapshotHash: "snapshot-1", status: "dormant_but_revisitable" },
+      concernInspectExpectation: { snapshotHash: "snapshot-1", status: "dormant_but_revisitable", quarantineKind: null },
     });
     expect(bound.concernInspectionBinding).toEqual({
       concernId: "concern-dormant",
       expectedSnapshotHash: "snapshot-1",
       expectedStatus: "dormant_but_revisitable",
+      expectedQuarantineKind: null,
     });
     expect(bound.kind).toBe("concern.inspect");
   });

@@ -347,6 +347,16 @@ function applyAssertion(db: DatabaseSync, assertion: ImportedAssertion): { asser
   return { assertionNew, supportNew };
 }
 
+/**
+ * Legacy mind state imports as Host/E provenance, never as cognition.
+ *
+ * The imported statement is retained, but no cognitive status is invented:
+ * `cognitive_status` stays NULL until cognition authors one. The known
+ * unavailable-source provenance is recorded as `quarantine_kind`, which blocks
+ * foreground/trust without locking the concern away from later authorship. No
+ * occupancy row is fabricated, because occupancy is the cognitive mirror and
+ * there is no cognition-authored status to mirror.
+ */
 function applyMindState(db: DatabaseSync, mind: ImportedMindState): { concernNew: boolean; occupancyNew: boolean } {
   const concernId = `legacy:concern:${mind.id}`;
   const existing = db.prepare("SELECT concern_id FROM concerns WHERE concern_id = ?").get(concernId);
@@ -356,20 +366,11 @@ function applyMindState(db: DatabaseSync, mind: ImportedMindState): { concernNew
     db.prepare(
       `INSERT INTO concerns
          (concern_id, conversation_id, statement, source_refs_json, dimensions_json,
-          assertion_key, status, snapshot_hash, updated_cycle)
-       VALUES (?, ?, ?, '[]', ?, NULL, 'quarantined', ?, NULL)`,
+          assertion_key, cognitive_status, quarantine_kind, forgotten, snapshot_hash, updated_cycle)
+       VALUES (?, ?, ?, '[]', ?, NULL, NULL, 'legacy_unavailable_source', 0, ?, NULL)`,
     ).run(concernId, mind.conversationId, mind.statement, JSON.stringify({ source: "prior_settlement", status: "unverified", time: "historical", reliability: "unavailable_source" }), snapshotHash);
   }
-  const occupancy = db.prepare("SELECT 1 AS present FROM mind_occupancy WHERE conversation_id = ? AND concern_id = ?").get(mind.conversationId, concernId);
-  const occupancyNew = !occupancy;
-  if (occupancyNew) {
-    db.prepare(
-      `INSERT INTO mind_occupancy
-         (conversation_id, concern_id, status, priority, updated_cycle, updated_generation)
-       VALUES (?, ?, 'quarantined', ?, 'legacy-import', 0)`,
-    ).run(mind.conversationId, concernId, mind.priority);
-  }
-  return { concernNew, occupancyNew };
+  return { concernNew, occupancyNew: false };
 }
 
 function verifyImported(
@@ -382,9 +383,17 @@ function verifyImported(
   const assertionCount = assertions.filter((assertion) => existingAssertion(db, assertion.assertionKey)).length;
   const supportCount = assertions.filter((assertion) => existingSupport(db, assertion.supportId)).length;
   const concernCount = mind.filter((item) => db.prepare("SELECT 1 AS present FROM concerns WHERE concern_id = ?").get(`legacy:concern:${item.id}`)).length;
-  const occupancyCount = mind.filter((item) => db.prepare("SELECT 1 AS present FROM mind_occupancy WHERE conversation_id = ? AND concern_id = ?").get(item.conversationId, `legacy:concern:${item.id}`)).length;
-  if (messageCount !== messages.length || assertionCount !== assertions.length || supportCount !== assertions.length || concernCount !== mind.length || occupancyCount !== mind.length) {
-    throw new LegacyImportError("COUNT_MISMATCH", JSON.stringify({ messageCount, assertionCount, supportCount, concernCount, occupancyCount }));
+  if (messageCount !== messages.length || assertionCount !== assertions.length || supportCount !== assertions.length || concernCount !== mind.length) {
+    throw new LegacyImportError("COUNT_MISMATCH", JSON.stringify({ messageCount, assertionCount, supportCount, concernCount }));
+  }
+  for (const item of mind) {
+    const row = db.prepare(
+      "SELECT statement, cognitive_status, quarantine_kind, forgotten FROM concerns WHERE concern_id = ?",
+    ).get(`legacy:concern:${item.id}`) as Record<string, unknown> | undefined;
+    if (!row || text(row.statement) !== item.statement) throw new LegacyImportError("HASH_MISMATCH", `concern:${item.id}`);
+    if (row.cognitive_status != null || text(row.quarantine_kind) !== "legacy_unavailable_source" || Number(row.forgotten ?? 0) !== 0) {
+      throw new LegacyImportError("PROVENANCE_MISMATCH", `concern:${item.id}`);
+    }
   }
   for (const message of messages) {
     const row = existingEvidence(db, message);
@@ -416,7 +425,7 @@ export function importLegacySemanticState(input: LegacyImportDatabases): LegacyI
 
   if (input.mode === "verify") {
     verifyImported(input.sidecar, messages, assertions, mind);
-    return { mode: input.mode, counts: { messages: messages.length, assertions: assertions.length, supports: assertions.length, concerns: mind.length, occupancy: mind.length }, duplicateCount: 0, sourceHash: hash, verified: true };
+    return { mode: input.mode, counts: { messages: messages.length, assertions: assertions.length, supports: assertions.length, concerns: mind.length, occupancy: 0 }, duplicateCount: 0, sourceHash: hash, verified: true };
   }
 
   for (const message of messages) {
@@ -441,13 +450,10 @@ export function importLegacySemanticState(input: LegacyImportDatabases): LegacyI
   for (const item of mind) {
     if (input.mode === "dry-run") {
       const concern = input.sidecar.prepare("SELECT 1 AS present FROM concerns WHERE concern_id = ?").get(`legacy:concern:${item.id}`);
-      const occupancy = input.sidecar.prepare("SELECT 1 AS present FROM mind_occupancy WHERE conversation_id = ? AND concern_id = ?").get(item.conversationId, `legacy:concern:${item.id}`);
       if (concern) duplicateCount += 1; else counts.concerns += 1;
-      if (occupancy) duplicateCount += 1; else counts.occupancy += 1;
     } else {
       const result = applyMindState(input.sidecar, item);
       if (result.concernNew) counts.concerns += 1; else duplicateCount += 1;
-      if (result.occupancyNew) counts.occupancy += 1; else duplicateCount += 1;
     }
   }
   return { mode: input.mode, counts, duplicateCount, sourceHash: hash, verified: false };

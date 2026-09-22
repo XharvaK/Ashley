@@ -11,7 +11,7 @@ describe("MAT-II domain pointers", () => {
     try {
       db.prepare(
         `INSERT INTO concerns
-           (concern_id, conversation_id, statement, source_refs_json, dimensions_json, assertion_key, status, snapshot_hash, updated_cycle)
+           (concern_id, conversation_id, statement, source_refs_json, dimensions_json, assertion_key, cognitive_status, snapshot_hash, updated_cycle)
          VALUES (?, ?, ?, '[]', '{}', NULL, 'active', 'snapshot', ?)`
       ).run("concern-1", "conversation-1", "private concern text", "cycle-1");
       db.prepare(
@@ -186,7 +186,7 @@ describe("MAT-II domain pointers", () => {
     try {
       db.prepare(
         `INSERT INTO concerns
-           (concern_id, conversation_id, statement, source_refs_json, dimensions_json, assertion_key, status, snapshot_hash, updated_cycle)
+           (concern_id, conversation_id, statement, source_refs_json, dimensions_json, assertion_key, cognitive_status, snapshot_hash, updated_cycle)
          VALUES (?, ?, ?, '[]', '{}', NULL, 'active', 'snapshot', ?)`
       ).run("pointer-only-concern", "conversation-1", "private concern text", "cycle-1");
 

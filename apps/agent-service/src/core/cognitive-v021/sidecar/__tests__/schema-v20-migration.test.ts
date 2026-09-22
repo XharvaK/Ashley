@@ -12,7 +12,7 @@ describe("cognitive sidecar Schema V20 migration", () => {
 
       openCognitiveSidecarDb(db, { dataPlane: { kind: "isolated" } });
       expect((db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(COGNITIVE_SIDECAR_SCHEMA_VERSION);
-      expect(COGNITIVE_SIDECAR_SCHEMA_VERSION).toBe(23);
+      expect(COGNITIVE_SIDECAR_SCHEMA_VERSION).toBe(24);
       const columns = (db.prepare("PRAGMA table_info(operation_interim_outbox)").all() as Array<{ name: string }>)
         .map((column) => column.name);
       for (const column of [

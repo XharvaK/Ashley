@@ -7,13 +7,13 @@ import { assertThoughtSourceCurrentness } from "./source-currentness.js";
 import { parseThoughtSemanticOutput } from "./parse.js";
 import { bindObservationIntent } from "./operation-binding.js";
 import { concernInspectRefsFor } from "./concern-inspect.js";
-import type { IdentitySlice } from "../types.js";
+import type { CognitiveStatus, IdentitySlice, QuarantineKind } from "../types.js";
 
 const constitution: IdentitySlice = { constitutional: ["truth first"], stableSelf: ["curious"] };
 
 function seedConcern(
   db: DatabaseSync,
-  input: { concernId: string; conversationId: string; statement: string; status?: string },
+  input: { concernId: string; conversationId: string; statement: string; status?: CognitiveStatus | null },
 ): void {
   applyConcernDelta(db, {
     op: "upsert",
@@ -24,9 +24,14 @@ function seedConcern(
       sourceTurnIds: ["turn-1"],
       dimensions: { source: "owner_utterance", status: "asserted", time: "historical", reliability: "owner_supplied" },
       assertionKey: null,
-      status: (input.status ?? "dormant_but_revisitable") as "dormant_but_revisitable",
+      status: input.status === undefined ? "dormant_but_revisitable" : input.status,
     },
   }, { cycleId: "cycle-seed", generation: 1 });
+}
+
+/** Quarantine is a Host/E fact: cognition can never author it. */
+function quarantineConcern(db: DatabaseSync, concernId: string, kind: QuarantineKind): void {
+  db.prepare("UPDATE concerns SET quarantine_kind = ? WHERE concern_id = ?").run(kind, concernId);
 }
 
 function captureFor(db: DatabaseSync, cycle: ReturnType<typeof admitTestCycle>) {
@@ -79,7 +84,7 @@ describe("concern.inspect dedicated capture and parse authority", () => {
     }
   });
 
-  it("rejects non-dormant pointer statuses from the inspect namespace", () => {
+  it("admits exactly the bounded inspectable window and excludes grounded statuses", () => {
     const db = openTestSidecar();
     try {
       const cycle = admitTestCycle(db, {
@@ -90,13 +95,29 @@ describe("concern.inspect dedicated capture and parse authority", () => {
         ["concern-active", "active"],
         ["concern-investigating", "investigating"],
         ["concern-waiting", "waiting_for_evidence"],
-        ["concern-resolved", "resolved"],
-        ["concern-quarantined", "quarantined"],
       ] as const) {
         seedConcern(db, { concernId: id, conversationId: "thread-inspect-status", statement: `${id} meaning.`, status });
       }
+      // Dormant, resolved, and unestablished concerns are deliberately
+      // inspectable; quarantine adds a fourth inspectable reason.
+      seedConcern(db, { concernId: "concern-resolved", conversationId: "thread-inspect-status", statement: "resolved meaning.", status: "resolved" });
+      seedConcern(db, { concernId: "concern-unestablished", conversationId: "thread-inspect-status", statement: "unestablished meaning.", status: null });
+      seedConcern(db, { concernId: "concern-quarantined", conversationId: "thread-inspect-status", statement: "quarantined meaning.", status: null });
+      quarantineConcern(db, "concern-quarantined", "legacy_unavailable_source");
       const capture = captureFor(db, cycle);
-      expect(Object.keys(capture.concernInspectDependencies)).toEqual([]);
+      expect(Object.keys(capture.concernInspectDependencies).sort()).toEqual([
+        "concern-quarantined",
+        "concern-resolved",
+        "concern-unestablished",
+      ]);
+      expect(capture.concernInspectDependencies["concern-quarantined"]).toMatchObject({
+        status: null,
+        quarantineKind: "legacy_unavailable_source",
+      });
+      expect(capture.concernInspectDependencies["concern-resolved"]).toMatchObject({
+        status: "resolved",
+        quarantineKind: null,
+      });
     } finally {
       db.close();
     }
@@ -162,7 +183,7 @@ describe("concern.inspect dedicated capture and parse authority", () => {
   it("binds an accepted inspect intent to its Host expectation end to end", () => {
     const ordinary = new Set(["owner-1"]);
     const authority = concernInspectRefsFor({
-      "concern-pointer-only": { snapshotHash: "snapshot-1", status: "dormant_but_revisitable" },
+      "concern-pointer-only": { snapshotHash: "snapshot-1", status: "dormant_but_revisitable", quarantineKind: null },
     });
     const parsed = parseThoughtSemanticOutput({
       kind: "observation_intent",
@@ -186,6 +207,7 @@ describe("concern.inspect dedicated capture and parse authority", () => {
       concernId: "concern-pointer-only",
       expectedSnapshotHash: "snapshot-1",
       expectedStatus: "dormant_but_revisitable",
+      expectedQuarantineKind: null,
     });
   });
 });

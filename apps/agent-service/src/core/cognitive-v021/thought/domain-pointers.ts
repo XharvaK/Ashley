@@ -5,8 +5,22 @@ import {
 } from "./coverage-manifest.js";
 import type { CoverageDisposition } from "./continuity-candidate.js";
 import { getCurrentSharedCulture } from "../../relationship/projections.js";
+import { cognitiveStatusOf, quarantineKindOf } from "../concerns/lineage.js";
+import {
+  CONCERN_DISCOVERY_K,
+  type CognitiveStatus,
+  type QuarantineKind,
+} from "../types.js";
 
 type DbRow = Record<string, unknown>;
+
+/** Membership statuses: foreground-eligible plus deliberately revisitable. */
+const MEMBERSHIP_STATUSES: readonly CognitiveStatus[] = [
+  "active",
+  "investigating",
+  "waiting_for_evidence",
+  "dormant_but_revisitable",
+];
 
 export type TerminalSuppressionEvidence = Readonly<{
   triggerId: string;
@@ -18,6 +32,20 @@ export type TerminalSuppressionEvidence = Readonly<{
   suppressedAtMs: number | null;
 }>;
 
+/**
+ * Bounded, deterministic, content-free concern discovery window. Ordering is
+ * `concern_id ASC` only: no Host relevance, priority, or semantic ranking is
+ * ever applied. Omitted counts are computed over non-forgotten rows only, so
+ * forgotten existence is never inferable from them.
+ */
+export type ConcernDiscoveryWindow = Readonly<{
+  inspectableIds: readonly string[];
+  revisitableIds: readonly string[];
+  concernAuthorableTargetIds: readonly string[];
+  inspectableOmittedCount: number;
+  revisitableOmittedCount: number;
+}>;
+
 export type DomainPointer = Readonly<{
   domain: string;
   canonicalStore: string;
@@ -27,6 +55,7 @@ export type DomainPointer = Readonly<{
   disposition: CoverageDisposition;
   pointerOnly: boolean;
   terminalEvidence?: readonly TerminalSuppressionEvidence[];
+  concernDiscovery?: ConcernDiscoveryWindow;
 }>;
 
 export type DomainPointersSection = Readonly<{
@@ -144,6 +173,7 @@ function pointerFromRows(
   eligibleRows: readonly PointerRow[],
   queryFailed = false,
   terminalEvidence?: readonly TerminalSuppressionEvidence[],
+  concernDiscovery?: ConcernDiscoveryWindow,
 ): DomainPointer {
   const disposition: CoverageDisposition = queryFailed
     ? "UNREACHABLE"
@@ -165,6 +195,7 @@ function pointerFromRows(
     disposition,
     pointerOnly: disposition === "POINTER_ONLY",
     ...(terminalEvidence ? { terminalEvidence: Object.freeze([...terminalEvidence]) } : {}),
+    ...(concernDiscovery ? { concernDiscovery } : {}),
   };
   Object.defineProperty(pointer, "pointerOnly", {
     value: pointer.pointerOnly,
@@ -258,18 +289,79 @@ function mapRows(raw: readonly DbRow[], idKey: string, statusKey: string, timest
   });
 }
 
+/**
+ * Conversation concerns projection.
+ *
+ * Forgotten rows are structurally absent: they never count as source, eligible,
+ * or ineligible, never appear in entityIds, never appear in a discovery window,
+ * and never inflate an omitted count. When only forgotten rows exist, cognition
+ * sees the equivalent of EMPTY.
+ *
+ * `quarantine_kind` is deliberately not a membership veto for authorship: it
+ * removes a row from foreground/membership, while `concernAuthorableTargetIds`
+ * keeps it reachable as an ordinary write target.
+ */
 function buildConcerns(db: DatabaseSync, conversationId: string): { pointer: DomainPointer; assessment: DomainAssessment } {
   const source = rows(db, `
-    SELECT concern_id, status, updated_cycle
+    SELECT concern_id, cognitive_status, quarantine_kind, updated_cycle
       FROM concerns
-     WHERE conversation_id = ?
+     WHERE conversation_id = ? AND forgotten = 0
      ORDER BY concern_id ASC
   `, conversationId);
-  const sourceRows = mapRows(source, "concern_id", "status", "updated_cycle");
-  const eligibleRows = sourceRows.filter((row) =>
-    ["active", "investigating", "waiting_for_evidence", "dormant_but_revisitable"].includes(row.status),
+  const entries = source.flatMap((item) => {
+    const id = text(item.concern_id).trim();
+    if (!id) return [];
+    return [{
+      id,
+      status: cognitiveStatusOf(item.cognitive_status),
+      quarantineKind: quarantineKindOf(item.quarantine_kind),
+      updatedAtMs: timestamp(item.updated_cycle),
+    }];
+  });
+  const membership = entries.filter((entry) => entry.quarantineKind === null
+    && entry.status !== null
+    && MEMBERSHIP_STATUSES.includes(entry.status));
+  const inspectable = entries.filter((entry) => entry.status === null
+    || entry.status === "dormant_but_revisitable"
+    || entry.status === "resolved"
+    || entry.quarantineKind !== null);
+  const authorable = entries.filter((entry) => entry.status === null
+    || entry.status === "resolved"
+    || entry.quarantineKind !== null);
+  const inspectableWindow = inspectable.slice(0, CONCERN_DISCOVERY_K);
+  const revisitableWindow = inspectableWindow.filter((entry) => entry.status === "resolved");
+  const resolvedTotal = entries.filter((entry) => entry.status === "resolved").length;
+  const discovery: ConcernDiscoveryWindow = Object.freeze({
+    inspectableIds: Object.freeze(inspectableWindow.map((entry) => entry.id)),
+    revisitableIds: Object.freeze(revisitableWindow.map((entry) => entry.id)),
+    concernAuthorableTargetIds: Object.freeze(
+      authorable.slice(0, CONCERN_DISCOVERY_K).map((entry) => entry.id),
+    ),
+    inspectableOmittedCount: Math.max(0, inspectable.length - inspectableWindow.length),
+    revisitableOmittedCount: Math.max(0, resolvedTotal - revisitableWindow.length),
+  });
+  const pointer = pointerFromRows(
+    "concerns",
+    "cognitive-v021.db:concerns",
+    entries.length,
+    membership.map((entry) => ({ id: entry.id, status: entry.status ?? "unknown", updatedAtMs: entry.updatedAtMs })),
+    false,
+    undefined,
+    discovery,
   );
-  return makeDomain("concerns", "cognitive-v021.db:concerns", sourceRows, eligibleRows);
+  return {
+    pointer,
+    assessment: {
+      domain: "concerns",
+      disposition: pointer.disposition,
+      sourceRecordCount: entries.length,
+      eligibleRecordCount: membership.length,
+      ineligibleRecordCount: Math.max(0, entries.length - membership.length),
+      candidateIds: membership.map((entry) => entry.id),
+      required: false,
+      pointerOnly: pointer.pointerOnly,
+    },
+  };
 }
 
 function buildMindOccupancy(db: DatabaseSync, conversationId: string): { pointer: DomainPointer; assessment: DomainAssessment } {

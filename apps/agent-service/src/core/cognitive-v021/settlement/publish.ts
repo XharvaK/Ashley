@@ -6,6 +6,7 @@ import { recheckInterimPublicationReservation } from "../operation/interim.js";
 import { getCurrentCycle } from "../cycle/inbox.js";
 import { activeThoughtMayFinishWhileDetachedCompletionQueued } from "../cycle/cognition-claim.js";
 import type {
+  CognitiveStatus,
   CycleTriggerKind,
   DeliveryIntent,
   DurableNomination,
@@ -15,6 +16,7 @@ import type {
   PublicationRejectionReason,
   SubscriptionDelta,
 } from "../types.js";
+import type { ConcernPublication } from "../concerns/lineage.js";
 import type {
   AttemptInputBasis,
   HardDependencyBundle,
@@ -34,7 +36,7 @@ import {
 } from "../social/room-activation.js";
 import { applyWorkingContextDelta } from "../evidence/working-context.js";
 import { applyDeskDeltas } from "../desk/store.js";
-import { applyConcernDelta, getConcern } from "../concerns/lineage.js";
+import { applyConcernDelta, getConcern, getConcernAuthorityFacts } from "../concerns/lineage.js";
 import { applyOccupancyDelta } from "../concerns/occupancy.js";
 import { enqueueDurableNomination } from "../memory/nomination.js";
 import {
@@ -219,6 +221,56 @@ function applyNomination(db: DatabaseSync, nomination: DurableNomination): void 
   enqueueDurableNomination(db, nomination);
 }
 
+/**
+ * The single runtime authority for the concern/occupancy coherence invariant.
+ *
+ * One accepted transition may never leave `concerns.cognitive_status = X` while
+ * `mind_occupancy.status = Y`. The concern row keeps cognition's authored
+ * status; the occupancy mirror is repaired to equality when it exists, deleted
+ * when no cognition-authored status exists (or the row is forgotten), and never
+ * fabricated here — no priority or generation is invented to make the tables
+ * look tidy.
+ *
+ * Quarantine is deliberately not consulted. Quarantine blocks foreground and
+ * trust; it never blocks cognitive authorship and is never an occupancy veto by
+ * itself.
+ */
+export function applyConcernCognitiveStatus(
+  db: DatabaseSync,
+  concernId: string,
+  status: CognitiveStatus | null,
+  publication: ConcernPublication,
+  options: { forgotten?: boolean } = {},
+): void {
+  if (options.forgotten === true || status === null) {
+    db.prepare("DELETE FROM mind_occupancy WHERE concern_id = ?").run(concernId);
+    return;
+  }
+  db.prepare(
+    `UPDATE mind_occupancy
+        SET status = ?, updated_cycle = ?, updated_generation = ?
+      WHERE concern_id = ? AND updated_generation <= ?`,
+  ).run(status, publication.cycleId, publication.generation, concernId, publication.generation);
+}
+
+function reconcileConcernOccupancyCoherence(
+  db: DatabaseSync,
+  settlement: PublishedCognitiveSettlement,
+): void {
+  const concernIds = new Set<string>();
+  for (const delta of (settlement.concernDeltas ?? [])) {
+    concernIds.add(delta.op === "resolve" ? delta.concernId : delta.record.concernId);
+  }
+  for (const delta of (settlement.occupancyDelta ?? [])) concernIds.add(delta.occupancy.concernId);
+  for (const concernId of concernIds) {
+    const facts = getConcernAuthorityFacts(db, concernId);
+    if (!facts) continue;
+    applyConcernCognitiveStatus(db, concernId, facts.cognitiveStatus, settlement, {
+      forgotten: facts.forgotten,
+    });
+  }
+}
+
 function existingSettlementForCycleGeneration(
   db: DatabaseSync,
   cycleId: string,
@@ -360,6 +412,7 @@ export function publishSemanticTransaction(
     applyDeskDeltas(db, settlement.deskDeltas ?? [], settlement);
     for (const delta of (settlement.concernDeltas ?? [])) applyConcernDelta(db, delta, settlement);
     for (const delta of (settlement.occupancyDelta ?? [])) applyOccupancyDelta(db, delta, settlement);
+    reconcileConcernOccupancyCoherence(db, settlement);
     if (settlement.subscriptions) assertSubscriptionCapacity(db, conversationId, settlement.subscriptions);
     for (const delta of (settlement.futureTriggers ?? [])) applyFutureTriggerDelta(db, delta);
     for (const delta of (settlement.subscriptions ?? [])) applySubscriptionDelta(db, delta);

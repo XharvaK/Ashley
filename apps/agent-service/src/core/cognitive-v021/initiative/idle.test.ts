@@ -22,7 +22,7 @@ function seedActiveOccupancy(db: ReturnType<typeof openTestSidecar>, conversatio
   db.prepare(
     `INSERT INTO concerns
        (concern_id, conversation_id, statement, source_refs_json, dimensions_json,
-        assertion_key, status, snapshot_hash, updated_cycle)
+        assertion_key, cognitive_status, snapshot_hash, updated_cycle)
      VALUES ('concern-idle', ?, 'revisit HY3', '[]', '{}', NULL, 'active', 'snapshot-idle', NULL)`,
   ).run(conversationId);
   db.prepare(
@@ -121,7 +121,7 @@ describe("v0.2.1 idle executive", () => {
       }
       expect(calls).toBe(4);
       expect(db.prepare("SELECT status FROM mind_occupancy WHERE conversation_id = 'thread-dormant'").get()).toMatchObject({ status: "active" });
-      expect(db.prepare("SELECT status FROM concerns WHERE conversation_id = 'thread-dormant'").get()).toMatchObject({ status: "active" });
+      expect(db.prepare("SELECT cognitive_status FROM concerns WHERE conversation_id = 'thread-dormant'").get()).toMatchObject({ cognitive_status: "active" });
     } finally {
       db.close();
     }
@@ -224,7 +224,7 @@ describe("v0.2.1 idle executive", () => {
         "SELECT COUNT(*) AS count FROM conversation_evidence_log WHERE conversation_id = 'thread-budget' AND role = 'system' AND source_status = 'capacity_exhausted'",
       ).get()).toMatchObject({ count: 1 });
       expect(db.prepare("SELECT status FROM mind_occupancy WHERE conversation_id = 'thread-budget'").get()).toMatchObject({ status: "active" });
-      expect(db.prepare("SELECT status FROM concerns WHERE conversation_id = 'thread-budget'").get()).toMatchObject({ status: "active" });
+      expect(db.prepare("SELECT cognitive_status FROM concerns WHERE conversation_id = 'thread-budget'").get()).toMatchObject({ cognitive_status: "active" });
     } finally {
       db.close();
     }
@@ -346,7 +346,7 @@ describe("v0.2.1 idle executive", () => {
       db.prepare(
         `INSERT INTO concerns
            (concern_id, conversation_id, statement, source_refs_json, dimensions_json,
-            assertion_key, status, snapshot_hash, updated_cycle)
+            assertion_key, cognitive_status, snapshot_hash, updated_cycle)
          VALUES ('resolved-concern', 'thread-stale', 'old concern', '[]', '{}', NULL,
                  'resolved', 'resolved-snapshot', NULL)`,
       ).run();
@@ -558,7 +558,7 @@ describe("P1 periodic scheduling through the idle tick (R7 §§5–14)", () => {
       db.prepare(
         `INSERT INTO concerns
            (concern_id, conversation_id, statement, source_refs_json, dimensions_json,
-            assertion_key, status, snapshot_hash, updated_cycle)
+            assertion_key, cognitive_status, snapshot_hash, updated_cycle)
          VALUES ('concern-due', 'thread-due', 'due concern', '[]', '{}', NULL, 'active', 'snapshot-due', NULL)`,
       ).run();
       db.prepare(
@@ -594,7 +594,7 @@ describe("P1 periodic scheduling through the idle tick (R7 §§5–14)", () => {
       db.prepare(
         `INSERT INTO concerns
            (concern_id, conversation_id, statement, source_refs_json, dimensions_json,
-            assertion_key, status, snapshot_hash, updated_cycle)
+            assertion_key, cognitive_status, snapshot_hash, updated_cycle)
          VALUES ('concern-bothdue', 'thread-bothdue', 'due concern', '[]', '{}', NULL, 'active', 'snapshot-bothdue', NULL)`,
       ).run();
       db.prepare(

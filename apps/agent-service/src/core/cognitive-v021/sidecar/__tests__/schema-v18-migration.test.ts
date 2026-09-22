@@ -12,7 +12,7 @@ describe("cognitive sidecar Schema V18 migration", () => {
 
       openCognitiveSidecarDb(db, { dataPlane: { kind: "isolated" } });
       expect((db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(COGNITIVE_SIDECAR_SCHEMA_VERSION);
-      expect(COGNITIVE_SIDECAR_SCHEMA_VERSION).toBe(23);
+      expect(COGNITIVE_SIDECAR_SCHEMA_VERSION).toBe(24);
       expect(db.prepare("PRAGMA table_info(observation_subscriptions)").all()).toEqual(expect.arrayContaining([
         expect.objectContaining({ name: "poll_claim_token" }),
         expect.objectContaining({ name: "poll_claim_expires_at_ms" }),

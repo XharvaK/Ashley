@@ -686,10 +686,11 @@ describe("Whole-Thought Projection Allocator", () => {
         trigger: { kind: "owner_message", ref: tinyRows.at(-1)!.rowId },
       }),
       // Calibrated above the legacy 9_500 default: the normative interim-hold
-      // law in the code-owned Thought instruction moved fixed contract
-      // overhead, so the fit case carries matching headroom. The pressure
-      // behavior below (large rows trim, tiny rows fit) is unchanged.
-      semanticBudgetTokens: 10_000,
+      // law and the concern-authority separation law in the code-owned Thought
+      // instruction moved fixed contract overhead, so the fit case carries
+      // matching headroom. The pressure behavior below (large rows trim, tiny
+      // rows fit) is unchanged.
+      semanticBudgetTokens: 10_500,
       requestId: "req-token-driven-tiny-rows",
     });
 

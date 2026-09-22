@@ -19,6 +19,7 @@ import {
   type RememberDirective,
   type CycleTriggerKind,
   type PublicPresenceContext,
+  type QuarantineKind,
   type DeskEntry,
 } from "../types.js";
 import type { AvailableSocialDestination, SocialAudience } from "../social/types.js";
@@ -28,7 +29,7 @@ import {
 } from "../evidence/conversation-log.js";
 import { listInFlight } from "../effect/in-flight.js";
 import { listWorkingContext } from "../evidence/working-context.js";
-import { listConcerns } from "../concerns/lineage.js";
+import { getConcernAuthorityFacts, listConcerns, listQuarantinedConcernIds } from "../concerns/lineage.js";
 import { getActiveDeferredFrontier } from "../frontier/ledger.js";
 import type { DeferredReactiveFrontierRecord } from "../frontier/types.js";
 import { retrieveCandidates } from "../retrieval/discover.js";
@@ -123,6 +124,12 @@ export type BuildThoughtInputOptions = {
   commitmentDue?: CommitmentDueProjection;
   /** Active disclosure-license entity UUIDs already resolved by the Host. */
   licenses?: string[];
+  /**
+   * Same-cycle only: bounded AUTHORABLE_TARGET concern ids returned by this
+   * cycle's own discover observation. It never carries authority across
+   * cycles, and ordinary allowlist/currentness gates still apply to any write.
+   */
+  concernAuthorableTargetAppend?: readonly string[];
 };
 
 export type ThoughtInputWithC2 = ThoughtInput & {
@@ -142,10 +149,12 @@ function currentConcernDependency(
 
 function currentConcernInspectDependency(
   concern: ReturnType<typeof listConcerns>[number],
+  quarantineKind: QuarantineKind | null,
 ): ConcernInspectDependency {
   return {
     snapshotHash: concern.snapshotHash,
-    status: "dormant_but_revisitable",
+    status: concern.status,
+    quarantineKind,
   };
 }
 
@@ -767,17 +776,39 @@ export function captureThoughtSourcePackage(
     if (concern) concernSnapshots[concernId] = concern.snapshotHash;
   }
   const concernInspectDependencies: Record<string, ConcernInspectDependency> = {};
-  if (audience.kind === "owner_private") {
-    const concernsPointerIds = domainPointers.pointers.find((pointer) => pointer.domain === "concerns")?.entityIds ?? [];
-    for (const concernId of [...new Set(concernsPointerIds)].sort()) {
+  const concernsPointer = domainPointers.pointers.find((pointer) => pointer.domain === "concerns");
+  const concernDiscovery = concernsPointer?.concernDiscovery;
+  if (audience.kind === "owner_private" && concernDiscovery) {
+    for (const concernId of concernDiscovery.inspectableIds) {
       const concern = concernsById.get(concernId);
-      if (!concern || concern.status !== "dormant_but_revisitable") continue;
-      concernInspectDependencies[concernId] = currentConcernInspectDependency(concern);
+      if (!concern) continue;
+      const facts = getConcernAuthorityFacts(options.sidecar, concernId);
+      concernInspectDependencies[concernId] = currentConcernInspectDependency(
+        concern,
+        facts?.quarantineKind ?? null,
+      );
     }
   }
+  // Ordinary write-target window. Quarantine removes a concern from foreground
+  // and membership, never from cognitive authorship: without this the v24
+  // migration's occupancy cleanup would lock quarantined and NULL-status
+  // concerns away from Thought forever.
+  const concernAuthorableTargetIds = [
+    ...new Set([
+      ...(concernDiscovery?.concernAuthorableTargetIds ?? []),
+      ...(options.concernAuthorableTargetAppend ?? []),
+    ]),
+  ].sort();
+  // Quarantine blocks foreground and trust without blocking cognitive
+  // authorship: a quarantined concern keeps its occupancy mirror but never
+  // enters the occupied-concern projection.
+  const quarantinedConcernIds = listQuarantinedConcernIds(
+    options.sidecar,
+    options.cycle.conversationId,
+  );
   const occupiedConcernProjection = buildOccupiedConcernProjection(
     eligibleOccupancy,
-    [...concernsById.values()],
+    [...concernsById.values()].filter((concern) => !quarantinedConcernIds.has(concern.concernId)),
   );
 
   const futurePointer = domainPointers.pointers.find((pointer) => pointer.domain === "future_triggers");
@@ -794,6 +825,7 @@ export function captureThoughtSourcePackage(
       occupancyBoundary: selectedOccupancy.boundary,
       concernMembership: domainPointers.pointers.find((pointer) => pointer.domain === "concerns")?.entityIds ?? [],
       concernDependencies,
+      concernAuthorableTargetIds,
       scheduledFutureTriggerIds: futurePointer?.entityIds ?? [],
       terminalEvidence: futurePointer?.terminalEvidence ?? [],
     },

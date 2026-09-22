@@ -43,7 +43,8 @@ export function bindObservationIntent(input: ObservationBindingInput): BoundObse
       : {
         concernId: concernRefOf(input.intent.request),
         expectedSnapshotHash: input.concernInspectExpectation.snapshotHash,
-        expectedStatus: "dormant_but_revisitable" as const,
+        expectedStatus: input.concernInspectExpectation.status,
+        expectedQuarantineKind: input.concernInspectExpectation.quarantineKind,
       })
     : undefined;
   if (input.intent.operationKind === "concern.inspect" && concernInspectionBinding === undefined) {

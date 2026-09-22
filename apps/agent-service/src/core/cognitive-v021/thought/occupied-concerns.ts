@@ -38,10 +38,15 @@ const EPISTEMIC_RELIABILITIES = new Set<EpistemicReliability>([
   "unavailable_source",
 ]);
 
+/**
+ * Foreground-eligible occupancy statuses. A NULL cognitive status is never
+ * foreground-eligible, and quarantine is not a status at all: it is a separate
+ * Host trust fact that excludes a concern from the projection join.
+ */
 function isEligibleStatus(
-  value: OccupancyStatus,
+  value: OccupancyStatus | null | undefined,
 ): value is OccupiedConcernProjection["status"] {
-  return ELIGIBLE_STATUSES.has(value);
+  return value !== null && value !== undefined && ELIGIBLE_STATUSES.has(value);
 }
 
 function compareOccupancy(left: MindOccupancy, right: MindOccupancy): number {

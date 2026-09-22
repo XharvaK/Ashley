@@ -5,11 +5,11 @@ import { applyConcernDelta, getConcern } from "../concerns/lineage.js";
 import { inspectConcernCurrentness } from "../thought/source-currentness.js";
 import { utf8JsonBytes } from "../thought/projection-allocator/composition-contract.js";
 import { createV021LiveOperationExecutors } from "./live-operations.js";
-import type { ObservationRequest } from "../types.js";
+import type { CognitiveStatus, ObservationRequest, QuarantineKind } from "../types.js";
 
 function seedConcern(
   db: DatabaseSync,
-  input: { concernId: string; conversationId: string; statement: string; status?: string },
+  input: { concernId: string; conversationId: string; statement: string; status?: CognitiveStatus | null },
 ): void {
   applyConcernDelta(db, {
     op: "upsert",
@@ -20,15 +20,25 @@ function seedConcern(
       sourceTurnIds: ["turn-1"],
       dimensions: { source: "owner_utterance", status: "asserted", time: "historical", reliability: "owner_supplied" },
       assertionKey: null,
-      status: (input.status ?? "dormant_but_revisitable") as "dormant_but_revisitable",
+      status: input.status === undefined ? "dormant_but_revisitable" : input.status,
     },
   }, { cycleId: "cycle-seed", generation: 1 });
+}
+
+/** Quarantine is a Host/E fact: cognition can never author it. */
+function quarantineConcern(db: DatabaseSync, concernId: string, kind: QuarantineKind): void {
+  db.prepare("UPDATE concerns SET quarantine_kind = ? WHERE concern_id = ?").run(kind, concernId);
 }
 
 function bindingsFor(db: DatabaseSync, concernId: string): NonNullable<ObservationRequest["concernInspectionBinding"]> {
   const row = getConcern(db, concernId);
   if (!row) throw new Error("fixture_row_missing");
-  return { concernId, expectedSnapshotHash: row.snapshotHash, expectedStatus: "dormant_but_revisitable" };
+  return {
+    concernId,
+    expectedSnapshotHash: row.snapshotHash,
+    expectedStatus: row.status,
+    expectedQuarantineKind: null,
+  };
 }
 
 function requestFor(
@@ -68,6 +78,9 @@ describe("concern.inspect executor branch", () => {
       expect(observation.payload).toEqual({
         concernId: "concern-current",
         result: "current",
+        class: "dormant",
+        cognitiveStatus: "dormant_but_revisitable",
+        quarantine: null,
         statement: "Dormant meaning.",
         statementTruncated: false,
       });
@@ -99,7 +112,9 @@ describe("concern.inspect executor branch", () => {
       expect(observation.payload).toEqual({
         concernId: "concern-stale",
         result: "stale",
-        currentStatus: "dormant_but_revisitable",
+        class: "dormant",
+        cognitiveStatus: "dormant_but_revisitable",
+        quarantine: null,
         statement: "Changed dormant meaning.",
         statementTruncated: false,
       });
@@ -126,7 +141,9 @@ describe("concern.inspect executor branch", () => {
       expect(observation.payload).toMatchObject({
         concernId: "concern-transition",
         result: "stale",
-        currentStatus: "active",
+        class: "active_like",
+        cognitiveStatus: "active",
+        quarantine: null,
         statement: "Revived meaning.",
       });
     } finally {
@@ -150,6 +167,63 @@ describe("concern.inspect executor branch", () => {
       const observation = await executors.executeObservation(requestFor("concern-missing", binding));
       expect(observation.payload).toEqual({ concernId: "concern-missing", result: "missing" });
       expect(utf8JsonBytes(observation)).toBeLessThanOrEqual(640);
+    } finally {
+      nuclear.close();
+      sidecar.close();
+    }
+  });
+
+  it("serves a quarantined concern with its kind, never as a silent trust upgrade", async () => {
+    const nuclear = new DatabaseSync(":memory:");
+    const sidecar = openTestSidecar();
+    try {
+      admitTestCycle(sidecar, {
+        cycleId: "cycle-inspect-quarantine", conversationId: "thread-inspect-quarantine",
+        triggerKind: "owner_message", triggerRef: "owner-inspect-quarantine", occupantId: "doc", nowMs: 1,
+      });
+      seedConcern(sidecar, { concernId: "concern-quarantined", conversationId: "thread-inspect-quarantine", statement: "Unavailable source meaning.", status: null });
+      quarantineConcern(sidecar, "concern-quarantined", "legacy_quarantine_reason_unavailable");
+      const binding = {
+        concernId: "concern-quarantined",
+        expectedSnapshotHash: getConcern(sidecar, "concern-quarantined")!.snapshotHash,
+        expectedStatus: null,
+        expectedQuarantineKind: "legacy_quarantine_reason_unavailable" as const,
+      };
+      const executors = createV021LiveOperationExecutors({ nuclear, sidecar });
+      const observation = await executors.executeObservation(requestFor("concern-quarantined", binding));
+      expect(observation.payload).toEqual({
+        concernId: "concern-quarantined",
+        result: "current",
+        class: "quarantined",
+        cognitiveStatus: null,
+        quarantine: { kind: "legacy_quarantine_reason_unavailable" },
+        statement: "Unavailable source meaning.",
+        statementTruncated: false,
+      });
+    } finally {
+      nuclear.close();
+      sidecar.close();
+    }
+  });
+
+  it("never serves a forgotten concern, even to a matching binding", async () => {
+    const nuclear = new DatabaseSync(":memory:");
+    const sidecar = openTestSidecar();
+    try {
+      admitTestCycle(sidecar, {
+        cycleId: "cycle-inspect-forgotten", conversationId: "thread-inspect-forgotten",
+        triggerKind: "owner_message", triggerRef: "owner-inspect-forgotten", occupantId: "doc", nowMs: 1,
+      });
+      seedConcern(sidecar, { concernId: "concern-forgotten", conversationId: "thread-inspect-forgotten", statement: "Soon forgotten." });
+      const binding = bindingsFor(sidecar, "concern-forgotten");
+      sidecar.prepare(
+        `UPDATE concerns SET statement = '', source_refs_json = '[]', assertion_key = NULL,
+             cognitive_status = NULL, forgotten = 1 WHERE concern_id = ?`,
+      ).run("concern-forgotten");
+      const executors = createV021LiveOperationExecutors({ nuclear, sidecar });
+      const observation = await executors.executeObservation(requestFor("concern-forgotten", binding));
+      expect(observation.payload).toEqual({ concernId: "concern-forgotten", result: "missing" });
+      expect(JSON.stringify(observation.payload)).not.toContain("Soon forgotten.");
     } finally {
       nuclear.close();
       sidecar.close();
@@ -190,16 +264,19 @@ describe("concern.inspect executor branch", () => {
       const verdict = inspectConcernCurrentness(sidecar, "concern-owned", {
         snapshotHash: row.snapshotHash,
         status: "dormant_but_revisitable",
+        quarantineKind: null,
       });
       expect(verdict.matches).toBe(true);
       expect(verdict.currentStatus).toBe("dormant_but_revisitable");
       expect(inspectConcernCurrentness(sidecar, "concern-owned", {
         snapshotHash: "deadbeef",
         status: "dormant_but_revisitable",
+        quarantineKind: null,
       }).matches).toBe(false);
       expect(inspectConcernCurrentness(sidecar, "concern-absent", {
         snapshotHash: "deadbeef",
         status: "dormant_but_revisitable",
+        quarantineKind: null,
       })).toMatchObject({ actual: null, matches: false, currentStatus: null });
     } finally {
       sidecar.close();

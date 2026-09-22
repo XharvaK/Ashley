@@ -131,7 +131,7 @@ describe("P1 occupied-concern projection", () => {
       occupancy("concern-w", "waiting_for_evidence", 7, 4),
       occupancy("concern-dormant", "dormant_but_revisitable", 99, 99),
       occupancy("concern-resolved", "resolved", 99, 99),
-      occupancy("concern-quarantined", "quarantined", 99, 99),
+      occupancy("concern-unestablished", "active", 99, 99),
       occupancy("concern-missing", "active", 100, 100),
     ];
     const concerns = [
@@ -141,7 +141,7 @@ describe("P1 occupied-concern projection", () => {
       concern("concern-w", "The exact statement for W.", "waiting_for_evidence"),
       concern("concern-dormant", "Do not project this dormant statement.", "dormant_but_revisitable"),
       concern("concern-resolved", "Do not project this resolved statement.", "resolved"),
-      concern("concern-quarantined", "Do not project this quarantined statement.", "quarantined"),
+      concern("concern-unestablished", "Do not project this unestablished statement.", null),
     ];
 
     const projected = buildOccupiedConcernProjection(rows, concerns);
@@ -184,7 +184,7 @@ describe("P1 occupied-concern projection", () => {
       expect.objectContaining({ concernId: "concern-missing" }),
       expect.objectContaining({ concernId: "concern-resolved" }),
       expect.objectContaining({ concernId: "concern-dormant" }),
-      expect.objectContaining({ concernId: "concern-quarantined" }),
+      expect.objectContaining({ concernId: "concern-unestablished" }),
     ]));
     expect(projected[0]).not.toHaveProperty("summary");
     expect(projected[0]).not.toHaveProperty("order");
@@ -233,7 +233,7 @@ describe("P1 occupied-concern projection", () => {
       const insertConcern = db.prepare(
         `INSERT INTO concerns
            (concern_id, conversation_id, statement, source_refs_json, dimensions_json,
-            assertion_key, status, snapshot_hash, updated_cycle)
+            assertion_key, cognitive_status, snapshot_hash, updated_cycle)
          VALUES (?, ?, ?, '[]', '{"source":"owner_utterance","status":"asserted","time":"current","reliability":"owner_supplied"}', NULL, ?, ?, 'cycle-p1-db')`,
       );
       insertConcern.run("concern-db-active", "thread-p1-db", "Persisted concern statement for DB.", "active", "snapshot-db-active");
@@ -283,7 +283,11 @@ describe("P1 occupied-concern projection", () => {
       const allocated = allocateThoughtProjection({
         thoughtInput: input,
         requestId: "p1-db-allocator",
-        semanticBudgetTokens: 10_000,
+        // Calibrated above the legacy 10_000 default: the concern-authority
+        // separation instruction and the bounded concern discovery window both
+        // add fixed contract overhead, so the domain-pointers fit case carries
+        // matching headroom.
+        semanticBudgetTokens: 10_500,
         maxOutputTokens: 1_024,
       });
       const visible = JSON.parse(String(allocated.messages[1]?.content ?? "{}")) as Record<string, unknown>;
@@ -305,7 +309,7 @@ describe("P1 occupied-concern projection", () => {
     // Rotation earned by the C1 initiativePreference shadow and the concern.inspect
     // observation kind plus its contract instruction lines; parser identity is unchanged.
     expect(THOUGHT_OUTPUT_SCHEMA_FINGERPRINT).toBe(
-      "sha256:76be30e80bf743b6bf1b5be254423781cae4e3de4e3ed3b8287beeb1a1ebd705",
+      "sha256:4b2c3458ce030eebf223df34fbbd6c95a8b37757443f0b5f3b89d5e5175bd744",
     );
   });
 });

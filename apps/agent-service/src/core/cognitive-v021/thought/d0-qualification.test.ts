@@ -282,7 +282,7 @@ describe("Core D0 local Sparse VNext qualification", () => {
       }],
     }, "07");
     try {
-      const row = fixture.sidecar.prepare("SELECT concern_id, conversation_id, statement, source_refs_json, dimensions_json, assertion_key, status, snapshot_hash FROM concerns").get() as Record<string, string | null>;
+      const row = fixture.sidecar.prepare("SELECT concern_id, conversation_id, statement, source_refs_json, dimensions_json, assertion_key, cognitive_status, snapshot_hash FROM concerns").get() as Record<string, string | null>;
       expect(fixture.result.published).toBe(true);
       expect(row.concern_id).toMatch(/^[0-9a-f-]{36}$/i);
       expect(row.snapshot_hash).toMatch(/^[0-9a-f]{64}$/);
@@ -293,7 +293,7 @@ describe("Core D0 local Sparse VNext qualification", () => {
         sourceTurnIds: JSON.parse(row.source_refs_json ?? "[]"),
         dimensions: JSON.parse(row.dimensions_json ?? "{}"),
         assertionKey: row.assertion_key,
-        status: row.status,
+        status: row.cognitive_status,
       };
       const expected = createHash("sha256").update(JSON.stringify(record), "utf8").digest("hex");
       expect(row.snapshot_hash).toBe(expected);

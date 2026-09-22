@@ -50,7 +50,7 @@ function seedConcern(db: ReturnType<typeof openCognitiveSidecarDb>, status: "act
   db.prepare(
     `INSERT INTO concerns
        (concern_id, conversation_id, statement, source_refs_json, dimensions_json,
-        assertion_key, status, snapshot_hash, updated_cycle)
+        assertion_key, cognitive_status, snapshot_hash, updated_cycle)
      VALUES ('concern-auto', 'thread-auto', 'revisit the paper', '[]', '{}', NULL, ?, 'snapshot-auto', NULL)`,
   ).run(status);
   db.prepare(
@@ -208,8 +208,8 @@ describe("v0.2.1 autonomy acceptance", () => {
       } as any);
 
       expect(published.published).toBe(true);
-      expect(db.prepare("SELECT status FROM concerns WHERE concern_id = 'concern-curiosity'").get())
-        .toMatchObject({ status: "active" });
+      expect(db.prepare("SELECT cognitive_status FROM concerns WHERE concern_id = 'concern-curiosity'").get())
+        .toMatchObject({ cognitive_status: "active" });
       expect(db.prepare("SELECT status FROM mind_occupancy WHERE concern_id = 'concern-curiosity'").get())
         .toMatchObject({ status: "active" });
       expect(listWorkingContext(db, "thread-curiosity-consequence")).toEqual([

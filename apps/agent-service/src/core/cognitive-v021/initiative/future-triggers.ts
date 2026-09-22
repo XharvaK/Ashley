@@ -1,5 +1,5 @@
 import { appendInboxEventInTransaction, getInboxEvent } from "../cycle/inbox.js";
-import { getConcern } from "../concerns/lineage.js";
+import { getConcern, getConcernAuthorityFacts } from "../concerns/lineage.js";
 import { listOccupancy } from "../concerns/occupancy.js";
 import type { DatabaseSync } from "node:sqlite";
 import type { FutureTrigger, InboxEvent, WakeRecord } from "../types.js";
@@ -171,14 +171,22 @@ export function cancelFutureTrigger(db: DatabaseSync, triggerId: string): boolea
   }
 }
 
+/**
+ * A due trigger is evaluated against current concern facts. Quarantine is a
+ * Host/E trust fact and dominates the reason: a provenance-invalidated concern
+ * must not fire a trigger scheduled against a trusted snapshot. A quarantine
+ * clear never revives the old trigger; a new intention needs a new triggerId.
+ */
 function staleReason(db: DatabaseSync, trigger: FutureTrigger): string | null {
   const concern = getConcern(db, trigger.concernId);
+  const facts = getConcernAuthorityFacts(db, trigger.concernId);
+  if (!concern || !facts) return "missing_current_occupancy";
+  if (facts.quarantineKind !== null) return "quarantined_occupancy";
   const occupancy = listOccupancy(db, trigger.conversationId).find((item) => item.concernId === trigger.concernId);
-  if (!concern || !occupancy) return "missing_current_occupancy";
+  if (!occupancy) return "missing_current_occupancy";
   if (concern.snapshotHash !== trigger.snapshotHash) return "snapshot_mismatch";
   if (concern.status === "resolved" || occupancy.status === "resolved") return "resolved_occupancy";
   if (concern.status === "dormant_but_revisitable" || occupancy.status === "dormant_but_revisitable") return "dormant_occupancy";
-  if (concern.status === "quarantined" || occupancy.status === "quarantined") return "quarantined_occupancy";
   if (occupancy.status !== "active" && occupancy.status !== "investigating" && occupancy.status !== "waiting_for_evidence") return "non_grounded_occupancy";
   return null;
 }

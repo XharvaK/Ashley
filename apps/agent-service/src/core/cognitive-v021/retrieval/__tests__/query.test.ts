@@ -66,7 +66,7 @@ describe("Retrieval Query Formation", () => {
     const db = openTestSidecar();
     try {
       db.exec(`
-        INSERT INTO concerns (concern_id, conversation_id, statement, source_refs_json, dimensions_json, assertion_key, status, snapshot_hash)
+        INSERT INTO concerns (concern_id, conversation_id, statement, source_refs_json, dimensions_json, assertion_key, cognitive_status, snapshot_hash)
         VALUES
           ('c1', 'conv-1', 'Statement 1', '[]', '{"source":"owner_utterance","status":"asserted","time":"current","reliability":"owner_supplied"}', 'mem:pref:sleep', 'active', 'hash1'),
           ('c2', 'conv-1', 'Statement 2', '[]', '{"source":"owner_utterance","status":"asserted","time":"current","reliability":"owner_supplied"}', NULL, 'active', 'hash2');

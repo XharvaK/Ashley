@@ -35,10 +35,11 @@ const capabilityReality: CapabilityReality = {
 };
 
 const HARD_TPM_CEILING = quotaContractFor("nim:openai/gpt-oss-20b").tpm; // 16,000
-// The route-neutral semantic inspection contract adds a bounded request
-// envelope to the Thought projection. Keep the fixture demand within the
-// 16,000 TPM qualification ceiling after that contract change.
-const QUALITY_CORPUS_MAX_OUTPUT_TOKENS = 4_070;
+// The route-neutral semantic inspection contract and the concern-authority
+// separation contract each add a bounded envelope to the Thought projection.
+// Keep the fixture demand within the 16,000 TPM qualification ceiling after
+// those contract changes.
+const QUALITY_CORPUS_MAX_OUTPUT_TOKENS = 3_390;
 
 describe("Quality Corpus 18-Scenario Acceptance Qualification (§17.4, §18)", () => {
   for (const scenario of QUALITY_CORPUS_SCENARIOS) {
@@ -82,7 +83,7 @@ describe("Quality Corpus 18-Scenario Acceptance Qualification (§17.4, §18)", (
         if (scenario.concerns) {
           for (const concern of scenario.concerns) {
             sidecar.prepare(`
-              INSERT INTO concerns (concern_id, conversation_id, statement, source_refs_json, dimensions_json, assertion_key, status, snapshot_hash)
+              INSERT INTO concerns (concern_id, conversation_id, statement, source_refs_json, dimensions_json, assertion_key, cognitive_status, snapshot_hash)
               VALUES (?, 'conv-1', 'Concern statement', '[]', '{}', ?, 'active', 'hash')
             `).run(concern.concernId, concern.assertionKey);
           }

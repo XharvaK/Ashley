@@ -394,7 +394,12 @@ describe("Thought semantic output contract", () => {
     expect(instruction).toContain("Operational commitments are distinct from conversational continuation");
     expect(instruction).toContain("Thought authors concern and occupancy deltas");
     expect(instruction).toContain("Set occupancy only for explicitly authored or supplied concerns");
-    expect(instruction).toContain("resolved and quarantined concerns are not eligible for occupied projection");
+    expect(instruction).toContain("Cognitive status is authored only from active, investigating, waiting_for_evidence, dormant_but_revisitable, resolved");
+    expect(instruction).toContain("a supplied null status means none is established yet, never dormant, resolved, active, quarantine, or forgotten");
+    expect(instruction).toContain("Quarantine is Host provenance you can never author or clear");
+    expect(instruction).toContain("without blocking cognitive authorship");
+    expect(instruction).toContain("resolved concerns are not eligible for occupied projection");
+    expect(instruction).not.toContain("quarantined concerns are not eligible");
     expect(instruction).toContain("Every operational effectRef must refer to one of the complete Host-admitted operational effect references supplied in allowedOperationalEffectRefs");
     expect(instruction).toContain("If allowedOperationalEffectRefs is empty, omit commitments.operational");
     expect(instruction).toContain("This contract describes output shape only");
@@ -598,11 +603,11 @@ describe("Thought semantic output contract", () => {
     // Rotation earned by the concern.inspect observation kind plus its
     // contract instruction lines; parser identity is unchanged.
     expect(THOUGHT_SEMANTIC_SCHEMA_FINGERPRINT).toBe(
-      "sha256:76be30e80bf743b6bf1b5be254423781cae4e3de4e3ed3b8287beeb1a1ebd705",
+      "sha256:4b2c3458ce030eebf223df34fbbd6c95a8b37757443f0b5f3b89d5e5175bd744",
     );
     const zeroOp = constrainThoughtOutputSchema(buildOperationalEffectNamespaceFromRefs([]));
     expect(zeroOp.wireSchemaFingerprint).toBe(
-      "sha256:aa10fb6de5a65d00c110a3f15e69ca0c29d16ab77c4e625157900a9201ccf214",
+      "sha256:f0ac343e0d197c663ad5b2d8a142c4439c08347ac4eb06dbf7650beb75359081",
     );
     expect(zeroOp.namespaceConstraintFingerprint).toBe(
       "sha256:d277b3804b25361994107886d1f33f779a7501298b01fe483ebe7c795b6e19c6",

@@ -54,7 +54,7 @@ describe("cognitive sidecar Schema V23 worker failure evidence", () => {
       openCognitiveSidecarDb(db, { dataPlane: { kind: "isolated" } });
       expect((db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version)
         .toBe(COGNITIVE_SIDECAR_SCHEMA_VERSION);
-      expect(COGNITIVE_SIDECAR_SCHEMA_VERSION).toBe(23);
+      expect(COGNITIVE_SIDECAR_SCHEMA_VERSION).toBe(24);
       expect(db.prepare("PRAGMA table_info(detached_operations)").all()).toEqual(expect.arrayContaining([
         expect.objectContaining({ name: "failure_evidence_json" }),
       ]));
@@ -85,9 +85,10 @@ describe("cognitive sidecar Schema V23 worker failure evidence", () => {
       expect(getDetachedOperation(db, freshOp)?.failureEvidenceJson).toBe(evidence);
 
       // Re-running the migration is a no-op: version stays, evidence intact.
+      const versionBefore = (db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version;
       migrateDetachedFailureEvidenceToV23(db);
       migrateDetachedFailureEvidenceToV23(db);
-      expect((db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(23);
+      expect((db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(versionBefore);
       expect(getDetachedOperation(db, freshOp)?.failureEvidenceJson).toBe(evidence);
       expect(getDetachedOperation(db, legacyOp)?.failureEvidenceJson).toBeNull();
     } finally {

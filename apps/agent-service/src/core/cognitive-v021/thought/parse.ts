@@ -526,13 +526,13 @@ function validConcernDelta(value: unknown, allowlist: ReadonlySet<string>): bool
   const item = recordShape(record.record, ["identity", "statement", "sourceTurnRefs", "dimensions", "status"]);
   return !!item && semanticRef(item.identity, allowlist) && nonEmptyString(item.statement)
     && refArray(item.sourceTurnRefs, allowlist) && validEpistemicDimensions(item.dimensions)
-    && ["active", "investigating", "waiting_for_evidence", "dormant_but_revisitable", "resolved", "quarantined"].includes(item.status as string);
+    && ["active", "investigating", "waiting_for_evidence", "dormant_but_revisitable", "resolved"].includes(item.status as string);
 }
 
 function validOccupancyDelta(value: unknown, allowlist: ReadonlySet<string>): boolean {
   const record = recordShape(value, ["op", "concernRef", "status", "priority"]);
   return !!record && record.op === "set" && semanticRef(record.concernRef, allowlist)
-    && ["active", "investigating", "waiting_for_evidence", "dormant_but_revisitable", "resolved", "quarantined"].includes(record.status as string)
+    && ["active", "investigating", "waiting_for_evidence", "dormant_but_revisitable", "resolved"].includes(record.status as string)
     && typeof record.priority === "number" && Number.isInteger(record.priority);
 }
 

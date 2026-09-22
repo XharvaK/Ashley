@@ -1176,3 +1176,54 @@ export const COGNITIVE_SIDECAR_SCHEMA_V23 = String.raw`
 ALTER TABLE detached_operations ADD COLUMN failure_evidence_json TEXT CHECK(failure_evidence_json IS NULL OR json_valid(failure_evidence_json));
 UPDATE cognitive_sidecar_meta SET schema_version = 23, projection_state = 'reconciling' WHERE id = 1;
 `;
+
+/**
+ * V24 separates three independent concern axes.
+ *
+ * - `cognitive_status` is cognition-owned and NULLABLE. NULL means no
+ *   cognition-authored cognitive status has been established; it is never a
+ *   sixth status and never means dormant, resolved, active, quarantine, or
+ *   forgotten. The physical column is renamed from `status` so no legacy
+ *   NOT NULL cognitive column survives.
+ * - `quarantine_kind` is a Host/E provenance-validity fact. Cognition may not
+ *   author or clear it. Quarantine blocks foreground/trust; it never blocks
+ *   cognitive-status authorship and is never an occupancy veto by itself.
+ * - `forgotten` is an Owner privacy fact. Forgotten rows are redacted, hold no
+ *   occupancy, and contribute zero to cognition-facing existence accounting.
+ *
+ * The table rebuild is `concerns.status` -> `concerns.cognitive_status`
+ * closure: the old NOT NULL column does not survive.
+ */
+export const COGNITIVE_SIDECAR_SCHEMA_V24 = String.raw`
+CREATE TABLE concerns_v24 (
+  concern_id TEXT PRIMARY KEY,
+  conversation_id TEXT NOT NULL,
+  statement TEXT NOT NULL,
+  source_refs_json TEXT NOT NULL,
+  dimensions_json TEXT NOT NULL,
+  assertion_key TEXT,
+  cognitive_status TEXT,
+  quarantine_kind TEXT,
+  forgotten INTEGER NOT NULL DEFAULT 0,
+  snapshot_hash TEXT NOT NULL,
+  updated_cycle TEXT
+);
+INSERT INTO concerns_v24 (
+  concern_id, conversation_id, statement, source_refs_json, dimensions_json,
+  assertion_key, cognitive_status, quarantine_kind, forgotten, snapshot_hash, updated_cycle
+)
+SELECT
+  concern_id, conversation_id, statement, source_refs_json, dimensions_json,
+  assertion_key,
+  CASE
+    WHEN status IN ('active', 'investigating', 'waiting_for_evidence',
+                    'dormant_but_revisitable', 'resolved')
+      THEN status
+    ELSE NULL
+  END,
+  NULL,
+  0,
+  snapshot_hash, updated_cycle
+FROM concerns;
+UPDATE cognitive_sidecar_meta SET schema_version = 24, projection_state = 'reconciling' WHERE id = 1;
+`;

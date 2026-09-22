@@ -187,13 +187,13 @@ describe("v0.2.1 ThoughtInput assembly", () => {
       db.prepare(
         `INSERT INTO concerns
            (concern_id, conversation_id, statement, source_refs_json, dimensions_json,
-            assertion_key, status, snapshot_hash, updated_cycle)
+            assertion_key, cognitive_status, snapshot_hash, updated_cycle)
          VALUES ('concern-selected', ?, 'selected', '[]', '{}', NULL, 'active', 'selected-v1', 'seed')`,
       ).run(cycle.conversationId);
       db.prepare(
         `INSERT INTO concerns
            (concern_id, conversation_id, statement, source_refs_json, dimensions_json,
-            assertion_key, status, snapshot_hash, updated_cycle)
+            assertion_key, cognitive_status, snapshot_hash, updated_cycle)
          VALUES ('concern-unrelated', ?, 'unrelated', '[]', '{}', NULL, 'resolved', 'unrelated-v1', 'seed')`,
       ).run(cycle.conversationId);
       db.prepare(

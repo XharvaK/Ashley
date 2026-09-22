@@ -47,10 +47,12 @@ import type {
   CognitionWorkspaceRequest,
 } from "../../../core/types.js";
 import type {
+  CognitiveStatus,
   EffectProposal,
   EffectReceipt,
   Observation,
   ObservationRequest,
+  QuarantineKind,
 } from "../types.js";
 import type { OperationalClaimLicense } from "../../sandbox/engineering-types.js";
 import { getInFlight } from "../effect/in-flight.js";
@@ -300,10 +302,38 @@ function normalizePatchExportRequest(proposal: EffectProposal): CognitionPatchEx
   };
 }
 
+/**
+ * Concern inspection payload. The read is deliberately qualified: quarantine
+ * kind is always present when the concern is quarantined, because ACCESSIBLE is
+ * not TRUSTED. A NULL cognitive status is served as NULL rather than coerced
+ * into a status cognition never authored, and a forgotten concern is
+ * structurally absent (`missing`) rather than redacted-in-place.
+ */
+type ConcernInspectClass = "quarantined" | "unestablished" | "resolved" | "dormant" | "active_like";
+
 type ConcernInspectPayload =
   | { concernId: string; result: "missing" }
-  | { concernId: string; result: "current"; statement: string; statementTruncated: boolean; originalStatementBytes?: number }
-  | { concernId: string; result: "stale"; currentStatus: string; statement: string; statementTruncated: boolean; originalStatementBytes?: number };
+  | {
+      concernId: string;
+      result: "current" | "stale";
+      class: ConcernInspectClass;
+      cognitiveStatus: CognitiveStatus | null;
+      quarantine: { kind: QuarantineKind } | null;
+      statement: string;
+      statementTruncated: boolean;
+      originalStatementBytes?: number;
+    };
+
+function concernInspectClass(
+  status: CognitiveStatus | null,
+  quarantineKind: QuarantineKind | null,
+): ConcernInspectClass {
+  if (quarantineKind !== null) return "quarantined";
+  if (status === null) return "unestablished";
+  if (status === "resolved") return "resolved";
+  if (status === "dormant_but_revisitable") return "dormant";
+  return "active_like";
+}
 
 function executeConcernInspection(
   req: ObservationRequest,
@@ -324,12 +354,21 @@ function executeConcernInspection(
   const currentness = inspectConcernCurrentness(sidecar, binding.concernId, {
     snapshotHash: binding.expectedSnapshotHash,
     status: binding.expectedStatus,
+    quarantineKind: binding.expectedQuarantineKind ?? null,
   });
   const statement = row.statement;
+  const qualification = {
+    class: concernInspectClass(row.status, currentness.currentQuarantineKind),
+    cognitiveStatus: row.status,
+    quarantine: currentness.currentQuarantineKind === null
+      ? null
+      : { kind: currentness.currentQuarantineKind },
+  };
   if (currentness.matches) {
     return projectConcernInspection(req, {
       concernId: binding.concernId,
       result: "current",
+      ...qualification,
       statement,
       statementTruncated: false,
     });
@@ -337,7 +376,7 @@ function executeConcernInspection(
   return projectConcernInspection(req, {
     concernId: binding.concernId,
     result: "stale",
-    currentStatus: currentness.currentStatus ?? row.status,
+    ...qualification,
     statement,
     statementTruncated: false,
   });

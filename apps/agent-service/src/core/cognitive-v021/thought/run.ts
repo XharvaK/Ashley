@@ -1288,6 +1288,21 @@ function materializeSemanticSettlement(
   return result as ThoughtSettlementDraft;
 }
 
+/**
+ * Bounded ordinary write-target window captured with this pass. It is
+ * allowlist membership, not inspection authority: an inspect-only ref still
+ * satisfies no `existingRef` unless it is separately authorable here or via
+ * occupancy/Working Context.
+ */
+function concernAuthorableTargetIdsForInput(
+  input: ThoughtInput | ProjectedThoughtInput,
+): string[] {
+  const captured = input.sourceCurrentness?.concernAuthorableTargetIds;
+  return Array.isArray(captured)
+    ? captured.filter((id): id is string => typeof id === "string" && id.length > 0)
+    : [];
+}
+
 function semanticReferencesForInput(input: ThoughtInput | ProjectedThoughtInput): string[] {
   const effectRefs = operationalNamespaceForThoughtInput(input).allowedOperationalEffectRefs;
   return [
@@ -1295,6 +1310,7 @@ function semanticReferencesForInput(input: ThoughtInput | ProjectedThoughtInput)
     ...input.workingContext.map((item) => item.id),
     ...(input.deskEntries ?? []).map((item) => item.id),
     ...input.occupancy.map((item) => item.concernId),
+    ...concernAuthorableTargetIdsForInput(input),
     ...input.observations.map((item) => item.observationId),
     ...effectRefs,
     ...input.retrieval.hits.flatMap((hit) => "supportRefs" in hit ? [hit.ref, ...hit.supportRefs] : [hit.ref]),
@@ -1322,6 +1338,7 @@ function semanticReferenceTargetsForInput(
   }
   for (const item of input.deskEntries ?? []) recordTarget(item.id, "desk");
   for (const item of input.occupancy) recordTarget(item.concernId, "concern");
+  for (const concernId of concernAuthorableTargetIdsForInput(input)) recordTarget(concernId, "concern");
   for (const item of input.observations) recordTarget(item.observationId, "observation");
   return targets;
 }

@@ -41,7 +41,7 @@ describe("proactive operator status", () => {
       sidecar.prepare(
         `INSERT INTO concerns
            (concern_id, conversation_id, statement, source_refs_json, dimensions_json,
-            assertion_key, status, snapshot_hash, updated_cycle)
+            assertion_key, cognitive_status, snapshot_hash, updated_cycle)
          VALUES (?, ?, ?, '[]', ?, NULL, 'active', 'snapshot', NULL)`,
       ).run(
         "concern-operator-status",

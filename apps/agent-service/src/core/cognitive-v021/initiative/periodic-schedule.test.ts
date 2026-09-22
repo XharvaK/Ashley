@@ -43,7 +43,7 @@ function seedOccupancy(db: ReturnType<typeof openTestSidecar>, conversationId: s
   db.prepare(
     `INSERT INTO concerns
        (concern_id, conversation_id, statement, source_refs_json, dimensions_json,
-        assertion_key, status, snapshot_hash, updated_cycle)
+        assertion_key, cognitive_status, snapshot_hash, updated_cycle)
      VALUES (?, ?, 'revisit periodic concern', '[]', '{}', NULL, 'active', 'snapshot-periodic', NULL)`,
   ).run(`concern-${conversationId}`, conversationId);
   db.prepare(

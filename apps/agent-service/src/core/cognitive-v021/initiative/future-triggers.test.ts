@@ -6,7 +6,7 @@ function seedConcern(db: ReturnType<typeof openTestSidecar>, status: "active" | 
   db.prepare(
     `INSERT INTO concerns
        (concern_id, conversation_id, statement, source_refs_json, dimensions_json,
-        assertion_key, status, snapshot_hash, updated_cycle)
+        assertion_key, cognitive_status, snapshot_hash, updated_cycle)
      VALUES ('concern-1', 'thread-trigger', 'inspect HY3', '[]', '{}', NULL, ?, ?, NULL)`,
   ).run(status, snapshotHash);
   db.prepare(

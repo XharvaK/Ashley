@@ -1,15 +1,18 @@
 import { sha256, stableJson } from "../../model-fabric/hash.js";
 import type { DatabaseSync } from "node:sqlite";
 import type {
+  CognitiveStatus,
   ConcernDelta,
   DeskEntry,
   FutureTriggerDelta,
   MindOccupancy,
   OccupancyDelta,
+  QuarantineKind,
   WorkingContextDelta,
   WorkingContextItem,
   OccupiedConcernProjection,
 } from "../types.js";
+import { cognitiveStatusOf, quarantineKindOf } from "../concerns/lineage.js";
 import { listWorkingContext } from "../evidence/working-context.js";
 import { listOccupancy } from "../concerns/occupancy.js";
 import {
@@ -37,13 +40,15 @@ export type OccupancyCurrentness = Readonly<{
 
 export type ConcernCurrentnessEntry = Readonly<{
   snapshotHash: string;
-  status: string;
+  /** NULL is a real fact: no cognition-authored status has been established. */
+  status: CognitiveStatus | null;
   updatedCycle?: string;
 }>;
 
 export type ConcernInspectDependency = Readonly<{
   snapshotHash: string;
-  status: "dormant_but_revisitable";
+  status: CognitiveStatus | null;
+  quarantineKind: QuarantineKind | null;
 }>;
 
 export type ConcernInspectDependencies = Readonly<
@@ -67,6 +72,13 @@ export type ThoughtSourceCurrentness = Readonly<{
   occupancySelection?: OccupancyCurrentness;
   concernMembership?: readonly string[];
   concernDependencies?: Readonly<Record<string, ConcernCurrentnessEntry | null>>;
+  /**
+   * Bounded ordinary write-target window for non-forgotten concerns that are
+   * resolved, quarantined, or carry no cognition-authored status yet. This is
+   * ordinary allowlist membership, never inspection authority: an inspect ref
+   * alone still satisfies no `existingRef`.
+   */
+  concernAuthorableTargetIds?: readonly string[];
   futureTriggers?: FutureTriggerCurrentness;
   learnedSelfRevisionHead: string;
   relationshipOwnerId: string | null;
@@ -94,6 +106,7 @@ export type ThoughtSourceCaptureState = Readonly<{
   concernMembership?: readonly string[];
   concernDependencies: Readonly<Record<string, ConcernCurrentnessEntry | null>>;
   concernInspectDependencies?: ConcernInspectDependencies;
+  concernAuthorableTargetIds?: readonly string[];
   scheduledFutureTriggerIds: readonly string[];
   terminalEvidence: readonly TerminalSuppressionEvidence[];
 }>;
@@ -195,12 +208,20 @@ function relationshipRevisionHead(
   }
 }
 
+/**
+ * Concern membership is a cognition-facing existence fact. Forgotten rows are
+ * absent, and quarantined rows are not foreground/membership material:
+ * quarantine blocks trust without erasing cognition's ability to author a
+ * status.
+ */
 function currentConcernMembership(db: DatabaseSync, conversationId: string): string[] {
   return db.prepare(
     `SELECT concern_id
        FROM concerns
       WHERE conversation_id = ?
-        AND status IN ('active', 'investigating', 'waiting_for_evidence', 'dormant_but_revisitable')
+        AND forgotten = 0
+        AND quarantine_kind IS NULL
+        AND cognitive_status IN ('active', 'investigating', 'waiting_for_evidence', 'dormant_but_revisitable')
       ORDER BY concern_id ASC`,
   ).all(conversationId).flatMap((value) => {
     const item = row(value);
@@ -240,6 +261,9 @@ export function captureThoughtSourceCurrentness(
       : {}),
     ...(capture?.concernDependencies
       ? { concernDependencies: Object.freeze({ ...capture.concernDependencies }) }
+      : {}),
+    ...(capture?.concernAuthorableTargetIds
+      ? { concernAuthorableTargetIds: Object.freeze([...capture.concernAuthorableTargetIds]) }
       : {}),
     ...(capture?.scheduledFutureTriggerIds || capture?.terminalEvidence
       ? {
@@ -307,17 +331,31 @@ function currentWorkingContextEntry(
   };
 }
 
+/**
+ * Canonical concern fact read for currentness comparison. Forgotten rows read
+ * as absent: a forget that lands between capture and publication must stale the
+ * bound dependency rather than let a redacted concern be re-authored.
+ */
 function currentConcernEntry(db: DatabaseSync, concernId: string): ConcernCurrentnessEntry | null {
   const source = row(db.prepare(
-    `SELECT snapshot_hash, status, updated_cycle
+    `SELECT snapshot_hash, cognitive_status, quarantine_kind, forgotten, updated_cycle
        FROM concerns WHERE concern_id = ? LIMIT 1`,
   ).get(concernId));
   if (!source) return null;
+  if (Number(source.forgotten ?? 0) === 1) return null;
   return {
     snapshotHash: text(source.snapshot_hash),
-    status: text(source.status),
+    status: cognitiveStatusOf(source.cognitive_status),
     updatedCycle: text(source.updated_cycle),
   };
+}
+
+/** Host/E provenance facts used by the single-ref inspection binding. */
+function currentConcernQuarantineKind(db: DatabaseSync, concernId: string): QuarantineKind | null {
+  const source = row(db.prepare(
+    "SELECT quarantine_kind FROM concerns WHERE concern_id = ? LIMIT 1",
+  ).get(concernId));
+  return source ? quarantineKindOf(source.quarantine_kind) : null;
 }
 
 function currentWorkingContextOrder(db: DatabaseSync, conversationId: string): string[] {
@@ -382,19 +420,32 @@ function sameConcernEntry(
     && (expected.updatedCycle === undefined || expected.updatedCycle === actual.updatedCycle);
 }
 
+/**
+ * Compare the captured single-ref inspection binding against canonical state.
+ * NULL cognitive status and quarantine kind are bound facts, so a first
+ * authorship or a Host quarantine transition stales the binding rather than
+ * being silently absorbed.
+ */
 export function inspectConcernCurrentness(
   db: DatabaseSync,
   concernId: string,
   expected: ConcernInspectDependency,
-): { actual: ConcernCurrentnessEntry | null; matches: boolean; currentStatus: string | null } {
+): {
+  actual: ConcernCurrentnessEntry | null;
+  matches: boolean;
+  currentStatus: CognitiveStatus | null;
+  currentQuarantineKind: QuarantineKind | null;
+} {
   const actual = currentConcernEntry(db, concernId);
+  const currentQuarantineKind = currentConcernQuarantineKind(db, concernId);
   return {
     actual,
     matches: sameConcernEntry(
       { snapshotHash: expected.snapshotHash, status: expected.status },
       actual,
-    ),
+    ) && expected.quarantineKind === currentQuarantineKind,
     currentStatus: actual?.status ?? null,
+    currentQuarantineKind,
   };
 }
 

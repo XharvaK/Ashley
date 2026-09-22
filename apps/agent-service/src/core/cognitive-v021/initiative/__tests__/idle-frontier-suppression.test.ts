@@ -9,7 +9,7 @@ function seedActiveOccupancy(db: ReturnType<typeof openTestSidecar>, conversatio
   db.prepare(
     `INSERT INTO concerns
        (concern_id, conversation_id, statement, source_refs_json, dimensions_json,
-        assertion_key, status, snapshot_hash, updated_cycle)
+        assertion_key, cognitive_status, snapshot_hash, updated_cycle)
      VALUES (?, ?, 'active frontier concern', '[]', '{}', NULL, 'active', 'snapshot-idle-frontier', NULL)`,
   ).run(`concern-${conversationId}`, conversationId);
   db.prepare(

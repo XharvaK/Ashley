@@ -675,8 +675,8 @@ describe("v0.2.1 semantic publication transaction", () => {
           },
         }],
       }), { sourceCurrentness })).toMatchObject({ published: true });
-      expect(db.prepare("SELECT status FROM concerns WHERE concern_id = 'concern-authored-new'").get())
-        .toMatchObject({ status: "active" });
+      expect(db.prepare("SELECT cognitive_status FROM concerns WHERE concern_id = 'concern-authored-new'").get())
+        .toMatchObject({ cognitive_status: "active" });
     } finally {
       db.close();
     }

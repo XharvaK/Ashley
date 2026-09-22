@@ -34,6 +34,7 @@ import {
   COGNITIVE_SIDECAR_SCHEMA_V21,
   COGNITIVE_SIDECAR_SCHEMA_V22,
   COGNITIVE_SIDECAR_SCHEMA_V23,
+  COGNITIVE_SIDECAR_SCHEMA_V24,
 } from "./schema.js";
 import { recoverCognitiveSidecar } from "./recovery.js";
 import { cycleIdFor, occurrenceIdFor, wakeIdFor } from "../wake/identity.js";
@@ -168,6 +169,109 @@ export function migrateDetachedFailureEvidenceToV23(existing: DatabaseSync): voi
     return;
   }
   existing.exec("UPDATE cognitive_sidecar_meta SET schema_version = 23, projection_state = 'reconciling' WHERE id = 1");
+}
+
+/**
+ * Operator-facing migration accounting. It is never a cognition-facing
+ * surface: forgotten rows are counted here only as tombstone truth.
+ */
+export type ConcernsV24MigrationReport = Readonly<{
+  forgetSignatureClassified: number;
+  redactedWithoutResolvedLabel: number;
+  importQuarantineClassified: number;
+  unknownQuarantineClassified: number;
+  ambiguousResolvedKeptCognitive: number;
+  divergenceRepaired: number;
+  missingOccupancyLeft: number;
+}>;
+
+const EMPTY_CONCERNS_V24_REPORT: ConcernsV24MigrationReport = Object.freeze({
+  forgetSignatureClassified: 0,
+  redactedWithoutResolvedLabel: 0,
+  importQuarantineClassified: 0,
+  unknownQuarantineClassified: 0,
+  ambiguousResolvedKeptCognitive: 0,
+  divergenceRepaired: 0,
+  missingOccupancyLeft: 0,
+});
+
+function countRows(existing: DatabaseSync, sql: string): number {
+  const row = existing.prepare(sql).get() as { count?: unknown } | undefined;
+  const value = Number(row?.count ?? 0);
+  return Number.isFinite(value) ? value : 0;
+}
+
+/**
+ * V24 concerns migration. Runs inside the caller's `BEGIN IMMEDIATE` on sidecar
+ * open. Classification is strictly mechanical and invents no cognition and no
+ * provenance detail: historical rows without established cognition become NULL,
+ * known legacy-import quarantine keeps its known kind, and unknown historical
+ * quarantine receives the truthful reason-unavailable kind. Redacted rows are
+ * never un-redacted and quarantine is never cleared without proof.
+ *
+ * Guarded by column presence so crash retries and double-opens converge.
+ */
+export function migrateConcernsToV24(existing: DatabaseSync): ConcernsV24MigrationReport {
+  if (hasColumn(existing, "concerns", "cognitive_status")) {
+    existing.exec("UPDATE cognitive_sidecar_meta SET schema_version = 24, projection_state = 'reconciling' WHERE id = 1");
+    return EMPTY_CONCERNS_V24_REPORT;
+  }
+  const forgetSignature = "statement = '' AND source_refs_json = '[]' AND assertion_key IS NULL";
+  const legacyQuarantined = "EXISTS (SELECT 1 FROM concerns legacy WHERE legacy.concern_id = concerns_v24.concern_id AND legacy.status = 'quarantined')";
+  const importSignature = `(
+      concern_id LIKE 'legacy:concern:%'
+      OR (json_valid(dimensions_json) AND json_extract(dimensions_json, '$.reliability') = 'unavailable_source')
+      OR (json_valid(dimensions_json) AND json_extract(dimensions_json, '$.source') = 'prior_settlement')
+    )`;
+  const report = {
+    forgetSignatureClassified: countRows(existing,
+      `SELECT COUNT(*) AS count FROM concerns WHERE status = 'resolved' AND ${forgetSignature}`),
+    redactedWithoutResolvedLabel: countRows(existing,
+      `SELECT COUNT(*) AS count FROM concerns WHERE status <> 'resolved' AND ${forgetSignature}`),
+    importQuarantineClassified: countRows(existing,
+      `SELECT COUNT(*) AS count FROM concerns WHERE status = 'quarantined' AND ${importSignature}`),
+    unknownQuarantineClassified: countRows(existing,
+      `SELECT COUNT(*) AS count FROM concerns WHERE status = 'quarantined' AND NOT ${importSignature}`),
+    ambiguousResolvedKeptCognitive: countRows(existing,
+      // A "wiped" content signal is a redaction-shaped field, not the mere
+      // absence of an assertion key: most concerns never had one.
+      `SELECT COUNT(*) AS count FROM concerns
+        WHERE status = 'resolved'
+          AND (statement = '' OR source_refs_json = '[]')
+          AND NOT (${forgetSignature})`),
+  };
+
+  existing.exec(COGNITIVE_SIDECAR_SCHEMA_V24);
+
+  // Forget wins over every other classification: privacy is fail-closed.
+  existing.exec(`UPDATE concerns_v24 SET forgotten = 1, cognitive_status = NULL, quarantine_kind = NULL WHERE ${forgetSignature}`);
+  existing.exec(`UPDATE concerns_v24 SET quarantine_kind = 'legacy_unavailable_source'
+                   WHERE forgotten = 0 AND ${legacyQuarantined} AND ${importSignature}`);
+  existing.exec(`UPDATE concerns_v24 SET quarantine_kind = 'legacy_quarantine_reason_unavailable'
+                   WHERE forgotten = 0 AND quarantine_kind IS NULL AND ${legacyQuarantined}`);
+  existing.exec("DROP TABLE concerns");
+  existing.exec("ALTER TABLE concerns_v24 RENAME TO concerns");
+
+  // A quarantine-classified, NULL-status, or forgotten concern carries no
+  // cognition-authored occupancy. Legacy quarantine occupancy was never
+  // cognitive. Missing occupancy is left missing; no priority or generation is
+  // invented to make the tables look tidy.
+  existing.exec(`DELETE FROM mind_occupancy
+                   WHERE status = 'quarantined'
+                      OR concern_id IN (
+                        SELECT concern_id FROM concerns
+                         WHERE forgotten = 1 OR quarantine_kind IS NOT NULL OR cognitive_status IS NULL
+                      )`);
+  const divergence = "EXISTS (SELECT 1 FROM concerns c WHERE c.concern_id = mind_occupancy.concern_id AND c.conversation_id = mind_occupancy.conversation_id AND c.forgotten = 0 AND c.quarantine_kind IS NULL AND c.cognitive_status IS NOT NULL AND c.cognitive_status <> mind_occupancy.status)";
+  const divergenceRepaired = countRows(existing, `SELECT COUNT(*) AS count FROM mind_occupancy WHERE ${divergence}`);
+  existing.exec(`UPDATE mind_occupancy
+                    SET status = (SELECT c.cognitive_status FROM concerns c WHERE c.concern_id = mind_occupancy.concern_id AND c.conversation_id = mind_occupancy.conversation_id)
+                  WHERE ${divergence}`);
+  const missingOccupancyLeft = countRows(existing,
+    `SELECT COUNT(*) AS count FROM concerns c
+      WHERE c.cognitive_status IS NOT NULL AND c.forgotten = 0 AND c.quarantine_kind IS NULL
+        AND NOT EXISTS (SELECT 1 FROM mind_occupancy o WHERE o.concern_id = c.concern_id AND o.conversation_id = c.conversation_id)`);
+  return Object.freeze({ ...report, divergenceRepaired, missingOccupancyLeft });
 }
 
 function migrateWatchPollingToV18(existing: DatabaseSync): void {
@@ -523,6 +627,7 @@ export function openCognitiveSidecarDb(
       existing.exec(COGNITIVE_SIDECAR_SCHEMA_V21);
       applyV22Migration(existing);
       migrateDetachedFailureEvidenceToV23(existing);
+      migrateConcernsToV24(existing);
       existing.exec(`PRAGMA user_version = ${COGNITIVE_SIDECAR_SCHEMA_VERSION}`);
       existing.exec("COMMIT");
     } catch (error) {
@@ -547,6 +652,9 @@ export function openCognitiveSidecarDb(
       }
       if (version < 23) {
         migrateDetachedFailureEvidenceToV23(existing);
+      }
+      if (version < 24) {
+        migrateConcernsToV24(existing);
       }
       existing.exec(`PRAGMA user_version = ${COGNITIVE_SIDECAR_SCHEMA_VERSION}`);
       ensureMeta(existing);

@@ -112,9 +112,12 @@ export function applyV021Forget(
       if (!isRow(row) || !hasTopic(row.statement, topic)) continue;
       const concernId = text(row.concern_id);
       concernIds.add(concernId);
+      // Owner forget is a privacy fact, not a cognitive judgment: it redacts
+      // content, marks the row forgotten, and never leaves a Host-written
+      // `resolved` behind as if cognition had settled the concern.
       const result = db.prepare(
         `UPDATE concerns SET statement = '', source_refs_json = '[]', assertion_key = NULL,
-             status = 'resolved', updated_cycle = updated_cycle WHERE concern_id = ?`,
+             cognitive_status = NULL, forgotten = 1, updated_cycle = updated_cycle WHERE concern_id = ?`,
       ).run(concernId);
       changedRows += number(result.changes);
       addTarget(targets, "v021_concern", concernId, "detach");
@@ -150,7 +153,7 @@ export function applyV021Forget(
     for (const row of occupancyRows) {
       if (!isRow(row) || !concernIds.has(text(row.concern_id))) continue;
       const key = `${text(row.conversation_id)}:${text(row.concern_id)}`;
-      const result = db.prepare("UPDATE mind_occupancy SET status = 'resolved' WHERE conversation_id = ? AND concern_id = ?").run(text(row.conversation_id), text(row.concern_id));
+      const result = db.prepare("DELETE FROM mind_occupancy WHERE conversation_id = ? AND concern_id = ?").run(text(row.conversation_id), text(row.concern_id));
       changedRows += number(result.changes);
       addTarget(targets, "v021_occupancy", key, "detach");
     }
@@ -535,13 +538,13 @@ function applyV021ForgetTargetsInTransaction(
   for (const id of targetIds(targets, "v021_concern")) {
     addChanges(db.prepare(
       `UPDATE concerns SET statement = '', source_refs_json = '[]', assertion_key = NULL,
-           status = 'resolved' WHERE concern_id = ?`,
+           cognitive_status = NULL, forgotten = 1 WHERE concern_id = ?`,
     ).run(id), changed);
   }
   for (const key of targetIds(targets, "v021_occupancy")) {
     const separator = key.indexOf(":");
     if (separator <= 0) continue;
-    addChanges(db.prepare("UPDATE mind_occupancy SET status = 'resolved' WHERE conversation_id = ? AND concern_id = ?").run(key.slice(0, separator), key.slice(separator + 1)), changed);
+    addChanges(db.prepare("DELETE FROM mind_occupancy WHERE conversation_id = ? AND concern_id = ?").run(key.slice(0, separator), key.slice(separator + 1)), changed);
   }
   for (const id of targetIds(targets, "v021_future_trigger")) {
     addChanges(db.prepare("UPDATE future_triggers SET status = 'cancelled', payload_json = '{}' WHERE trigger_id = ?").run(id), changed);
