@@ -140,10 +140,12 @@ export type ThoughtInputWithC2 = ThoughtInput & {
 
 function currentConcernDependency(
   concern: ReturnType<typeof listConcerns>[number],
+  quarantineKind: QuarantineKind | null,
 ): ConcernCurrentnessEntry {
   return {
     snapshotHash: concern.snapshotHash,
     status: concern.status,
+    quarantineKind,
   };
 }
 
@@ -742,12 +744,28 @@ export function captureThoughtSourcePackage(
     )
     : baseDomainPointers;
 
+  const concernsPointer = domainPointers.pointers.find((pointer) => pointer.domain === "concerns");
+  const concernDiscovery = concernsPointer?.concernDiscovery;
+  // Ordinary write-target window. Quarantine removes a concern from foreground
+  // and membership, never from cognitive authorship: without this the v24
+  // migration's occupancy cleanup would lock quarantined and NULL-status
+  // concerns away from Thought forever.
+  const concernAuthorableTargetIds = [
+    ...new Set([
+      ...(concernDiscovery?.concernAuthorableTargetIds ?? []),
+      ...(options.concernAuthorableTargetAppend ?? []),
+    ]),
+  ].sort();
+
   const relevantConcernIds = new Set<string>();
   for (const item of eligibleWorkingContext) if (item.concernId) relevantConcernIds.add(item.concernId);
   for (const item of eligibleOccupancy) relevantConcernIds.add(item.concernId);
   for (const pointer of domainPointers.pointers) {
     for (const evidence of pointer.terminalEvidence ?? []) relevantConcernIds.add(evidence.concernId);
   }
+  // A write target must carry its own currentness binding, otherwise the
+  // publication fence refuses an otherwise-authorized first authorship.
+  for (const concernId of concernAuthorableTargetIds) relevantConcernIds.add(concernId);
 
   let futureRows: Array<Record<string, unknown>> = [];
   try {
@@ -772,12 +790,11 @@ export function captureThoughtSourcePackage(
   );
   for (const concernId of [...relevantConcernIds].sort()) {
     const concern = concernsById.get(concernId);
-    concernDependencies[concernId] = concern ? currentConcernDependency(concern) : null;
+    const facts = getConcernAuthorityFacts(options.sidecar, concernId);
+    concernDependencies[concernId] = concern ? currentConcernDependency(concern, facts?.quarantineKind ?? null) : null;
     if (concern) concernSnapshots[concernId] = concern.snapshotHash;
   }
   const concernInspectDependencies: Record<string, ConcernInspectDependency> = {};
-  const concernsPointer = domainPointers.pointers.find((pointer) => pointer.domain === "concerns");
-  const concernDiscovery = concernsPointer?.concernDiscovery;
   if (audience.kind === "owner_private" && concernDiscovery) {
     for (const concernId of concernDiscovery.inspectableIds) {
       const concern = concernsById.get(concernId);
@@ -789,16 +806,6 @@ export function captureThoughtSourcePackage(
       );
     }
   }
-  // Ordinary write-target window. Quarantine removes a concern from foreground
-  // and membership, never from cognitive authorship: without this the v24
-  // migration's occupancy cleanup would lock quarantined and NULL-status
-  // concerns away from Thought forever.
-  const concernAuthorableTargetIds = [
-    ...new Set([
-      ...(concernDiscovery?.concernAuthorableTargetIds ?? []),
-      ...(options.concernAuthorableTargetAppend ?? []),
-    ]),
-  ].sort();
   // Quarantine blocks foreground and trust without blocking cognitive
   // authorship: a quarantined concern keeps its occupancy mirror but never
   // enters the occupied-concern projection.

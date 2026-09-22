@@ -682,6 +682,506 @@ describe("v0.2.1 semantic publication transaction", () => {
     }
   });
 
+  it("allows a genuinely new Thought-authored concern without self-invalidating", () => {
+    const db = openTestSidecar();
+    try {
+      const cycle = admitTestCycle(db, {
+        cycleId: "cycle-new-concern",
+        conversationId: "thread-new-concern",
+        triggerKind: "owner_message",
+        triggerRef: "one",
+        occupantId: "doc",
+        authorityEpoch: 1,
+        nowMs: 1,
+      });
+      const sourceCurrentness = captureThoughtSourcePackage({
+        sidecar: db,
+        cycle,
+        constitution: { constitutional: ["truth"], stableSelf: ["careful"] },
+        capabilityReality: {
+          vision: false, attachmentText: false, conversationalRead: false, webSearch: false,
+          canOfferProjectInspection: false, canOfferWorkspace: false, canOfferVerification: false,
+          canOfferAuthorship: false, canOfferBoundedOperation: false, canOfferPatchExport: false,
+          approvedProjectIds: [],
+        },
+      } as any).sourceCurrentness;
+
+      expect(publishSemanticTransaction(db, settlement({
+        cycleId: cycle.cycleId,
+        triggerRef: cycle.conversationId,
+        workingContextDelta: [],
+        concernDeltas: [{
+          op: "upsert",
+          record: {
+            concernId: "concern-authored-new",
+            conversationId: cycle.conversationId,
+            statement: "A new concern authored by Thought.",
+            sourceTurnIds: [],
+            dimensions: { source: "ashley_interpretation", status: "asserted", time: "current", reliability: "inferred" },
+            assertionKey: null,
+            status: "active",
+          },
+        }],
+      }), { sourceCurrentness })).toMatchObject({ published: true });
+      expect(db.prepare("SELECT cognitive_status FROM concerns WHERE concern_id = 'concern-authored-new'").get())
+        .toMatchObject({ cognitive_status: "active" });
+    } finally {
+      db.close();
+    }
+  });
+
+  it("publishes first authorship for a quarantined NULL concern outside occupancy", () => {
+    const db = openTestSidecar();
+    try {
+      const cycle = admitTestCycle(db, {
+        cycleId: "cycle-authorable-quarantined",
+        conversationId: "thread-authorable-quarantined",
+        triggerKind: "owner_message",
+        triggerRef: "one",
+        occupantId: "doc",
+        authorityEpoch: 1,
+        nowMs: 1,
+      });
+      applyConcernDelta(db, {
+        op: "upsert",
+        record: {
+          concernId: "concern-quarantined-null",
+          conversationId: cycle.conversationId,
+          statement: "Quarantined concern awaiting first authorship.",
+          sourceTurnIds: [],
+          dimensions: { source: "owner_utterance", status: "asserted", time: "historical", reliability: "owner_supplied" },
+          assertionKey: null,
+          status: null,
+        },
+      }, { cycleId: "seed-authorable", generation: 1 });
+      db.prepare("UPDATE concerns SET quarantine_kind = 'legacy_unavailable_source' WHERE concern_id = 'concern-quarantined-null'").run();
+      const capture = captureThoughtSourcePackage({
+        sidecar: db,
+        cycle,
+        constitution: { constitutional: ["truth"], stableSelf: ["careful"] },
+        capabilityReality: {
+          vision: false, attachmentText: false, conversationalRead: false, webSearch: false,
+          canOfferProjectInspection: false, canOfferWorkspace: false, canOfferVerification: false,
+          canOfferAuthorship: false, canOfferBoundedOperation: false, canOfferPatchExport: false,
+          approvedProjectIds: [],
+        },
+      } as any);
+      expect(capture.sourceCurrentness.concernAuthorableTargetIds).toEqual(
+        expect.arrayContaining(["concern-quarantined-null"]),
+      );
+      expect(capture.sourceCurrentness.concernDependencies).toHaveProperty("concern-quarantined-null");
+      expect(capture.sourceCurrentness.concernMembership ?? []).not.toContain("concern-quarantined-null");
+
+      const result = publishSemanticTransaction(db, settlement({
+        cycleId: cycle.cycleId,
+        triggerRef: cycle.conversationId,
+        workingContextDelta: [],
+        concernDeltas: [{
+          op: "upsert",
+          record: {
+            concernId: "concern-quarantined-null",
+            conversationId: cycle.conversationId,
+            statement: "Quarantined concern awaiting first authorship.",
+            sourceTurnIds: [],
+            dimensions: { source: "ashley_interpretation", status: "asserted", time: "current", reliability: "inferred" },
+            assertionKey: null,
+            status: "active",
+          },
+        }],
+      }), { sourceCurrentness: capture.sourceCurrentness });
+      expect(result).toMatchObject({ published: true });
+      expect(db.prepare("SELECT cognitive_status, quarantine_kind FROM concerns WHERE concern_id = 'concern-quarantined-null'").get())
+        .toMatchObject({ cognitive_status: "active", quarantine_kind: "legacy_unavailable_source" });
+      expect(db.prepare("SELECT COUNT(*) AS count FROM mind_occupancy WHERE concern_id = 'concern-quarantined-null'").get())
+        .toMatchObject({ count: 0 });
+      expect(capture.sourceCurrentness.concernMembership ?? []).not.toContain("concern-quarantined-null");
+    } finally {
+      db.close();
+    }
+  });
+
+  it("publishes a resolved to active reversal for an authorable-only concern", () => {
+    const db = openTestSidecar();
+    try {
+      const cycle = admitTestCycle(db, {
+        cycleId: "cycle-authorable-resolved",
+        conversationId: "thread-authorable-resolved",
+        triggerKind: "owner_message",
+        triggerRef: "one",
+        occupantId: "doc",
+        authorityEpoch: 1,
+        nowMs: 1,
+      });
+      applyConcernDelta(db, {
+        op: "upsert",
+        record: {
+          concernId: "concern-resolved-revisit",
+          conversationId: cycle.conversationId,
+          statement: "Resolved concern awaiting revisit.",
+          sourceTurnIds: [],
+          dimensions: { source: "owner_utterance", status: "asserted", time: "historical", reliability: "owner_supplied" },
+          assertionKey: null,
+          status: "resolved",
+        },
+      }, { cycleId: "seed-resolved", generation: 1 });
+      const capture = captureThoughtSourcePackage({
+        sidecar: db,
+        cycle,
+        constitution: { constitutional: ["truth"], stableSelf: ["careful"] },
+        capabilityReality: {
+          vision: false, attachmentText: false, conversationalRead: false, webSearch: false,
+          canOfferProjectInspection: false, canOfferWorkspace: false, canOfferVerification: false,
+          canOfferAuthorship: false, canOfferBoundedOperation: false, canOfferPatchExport: false,
+          approvedProjectIds: [],
+        },
+      } as any);
+      expect(capture.sourceCurrentness.concernAuthorableTargetIds).toEqual(
+        expect.arrayContaining(["concern-resolved-revisit"]),
+      );
+      expect(capture.sourceCurrentness.concernDependencies).toHaveProperty("concern-resolved-revisit");
+      expect(capture.sourceCurrentness.concernMembership ?? []).not.toContain("concern-resolved-revisit");
+
+      const result = publishSemanticTransaction(db, settlement({
+        cycleId: cycle.cycleId,
+        triggerRef: cycle.conversationId,
+        workingContextDelta: [],
+        concernDeltas: [{
+          op: "upsert",
+          record: {
+            concernId: "concern-resolved-revisit",
+            conversationId: cycle.conversationId,
+            statement: "Resolved concern awaiting revisit.",
+            sourceTurnIds: [],
+            dimensions: { source: "ashley_interpretation", status: "asserted", time: "current", reliability: "inferred" },
+            assertionKey: null,
+            status: "active",
+          },
+        }],
+      }), { sourceCurrentness: capture.sourceCurrentness });
+      expect(result).toMatchObject({ published: true });
+      expect(db.prepare("SELECT cognitive_status FROM concerns WHERE concern_id = 'concern-resolved-revisit'").get())
+        .toMatchObject({ cognitive_status: "active" });
+    } finally {
+      db.close();
+    }
+  });
+
+  it("keeps quarantined, NULL, and resolved concerns outside membership", () => {
+    const db = openTestSidecar();
+    try {
+      const cycle = admitTestCycle(db, {
+        cycleId: "cycle-authorable-membership",
+        conversationId: "thread-authorable-membership",
+        triggerKind: "owner_message",
+        triggerRef: "one",
+        occupantId: "doc",
+        authorityEpoch: 1,
+        nowMs: 1,
+      });
+      applyConcernDelta(db, {
+        op: "upsert",
+        record: {
+          concernId: "concern-membership-quarantined",
+          conversationId: cycle.conversationId,
+          statement: "Quarantined membership probe.",
+          sourceTurnIds: [],
+          dimensions: { source: "owner_utterance", status: "asserted", time: "historical", reliability: "owner_supplied" },
+          assertionKey: null,
+          status: "active",
+        },
+      }, { cycleId: "seed-membership", generation: 1 });
+      db.prepare("UPDATE concerns SET quarantine_kind = 'legacy_unavailable_source' WHERE concern_id = 'concern-membership-quarantined'").run();
+      applyConcernDelta(db, {
+        op: "upsert",
+        record: {
+          concernId: "concern-membership-null",
+          conversationId: cycle.conversationId,
+          statement: "Unestablished membership probe.",
+          sourceTurnIds: [],
+          dimensions: { source: "owner_utterance", status: "asserted", time: "historical", reliability: "owner_supplied" },
+          assertionKey: null,
+          status: null,
+        },
+      }, { cycleId: "seed-membership", generation: 1 });
+      applyConcernDelta(db, {
+        op: "upsert",
+        record: {
+          concernId: "concern-membership-resolved",
+          conversationId: cycle.conversationId,
+          statement: "Resolved membership probe.",
+          sourceTurnIds: [],
+          dimensions: { source: "owner_utterance", status: "asserted", time: "historical", reliability: "owner_supplied" },
+          assertionKey: null,
+          status: "resolved",
+        },
+      }, { cycleId: "seed-membership", generation: 1 });
+      const capture = captureThoughtSourcePackage({
+        sidecar: db,
+        cycle,
+        constitution: { constitutional: ["truth"], stableSelf: ["careful"] },
+        capabilityReality: {
+          vision: false, attachmentText: false, conversationalRead: false, webSearch: false,
+          canOfferProjectInspection: false, canOfferWorkspace: false, canOfferVerification: false,
+          canOfferAuthorship: false, canOfferBoundedOperation: false, canOfferPatchExport: false,
+          approvedProjectIds: [],
+        },
+      } as any);
+      expect(capture.sourceCurrentness.concernMembership ?? []).not.toContain("concern-membership-quarantined");
+      expect(capture.sourceCurrentness.concernMembership ?? []).not.toContain("concern-membership-null");
+      expect(capture.sourceCurrentness.concernMembership ?? []).not.toContain("concern-membership-resolved");
+      expect(capture.sourceCurrentness.concernDependencies).toHaveProperty("concern-membership-quarantined");
+      expect(capture.sourceCurrentness.concernDependencies).toHaveProperty("concern-membership-null");
+      expect(capture.sourceCurrentness.concernDependencies).toHaveProperty("concern-membership-resolved");
+    } finally {
+      db.close();
+    }
+  });
+
+  it("stales a bound authorable target after a concurrent status mutation", () => {
+    const db = openTestSidecar();
+    try {
+      const cycle = admitTestCycle(db, {
+        cycleId: "cycle-authorable-stale",
+        conversationId: "thread-authorable-stale",
+        triggerKind: "owner_message",
+        triggerRef: "one",
+        occupantId: "doc",
+        authorityEpoch: 1,
+        nowMs: 1,
+      });
+      applyConcernDelta(db, {
+        op: "upsert",
+        record: {
+          concernId: "concern-authorable-stale",
+          conversationId: cycle.conversationId,
+          statement: "Authorable concern awaiting concurrent mutation.",
+          sourceTurnIds: [],
+          dimensions: { source: "owner_utterance", status: "asserted", time: "historical", reliability: "owner_supplied" },
+          assertionKey: null,
+          status: null,
+        },
+      }, { cycleId: "seed-stale", generation: 1 });
+      const capture = captureThoughtSourcePackage({
+        sidecar: db,
+        cycle,
+        constitution: { constitutional: ["truth"], stableSelf: ["careful"] },
+        capabilityReality: {
+          vision: false, attachmentText: false, conversationalRead: false, webSearch: false,
+          canOfferProjectInspection: false, canOfferWorkspace: false, canOfferVerification: false,
+          canOfferAuthorship: false, canOfferBoundedOperation: false, canOfferPatchExport: false,
+          approvedProjectIds: [],
+        },
+      } as any).sourceCurrentness;
+      applyConcernDelta(db, {
+        op: "upsert",
+        record: {
+          concernId: "concern-authorable-stale",
+          conversationId: cycle.conversationId,
+          statement: "Authorable concern concurrently authored.",
+          sourceTurnIds: [],
+          dimensions: { source: "ashley_interpretation", status: "asserted", time: "current", reliability: "inferred" },
+          assertionKey: null,
+          status: "active",
+        },
+      }, { cycleId: "intervening-stale", generation: 2 });
+
+      expect(publishSemanticTransaction(db, settlement({
+        cycleId: cycle.cycleId,
+        triggerRef: cycle.conversationId,
+        workingContextDelta: [],
+        concernDeltas: [{
+          op: "upsert",
+          record: {
+            concernId: "concern-authorable-stale",
+            conversationId: cycle.conversationId,
+            statement: "Authorable concern stale write attempt.",
+            sourceTurnIds: [],
+            dimensions: { source: "ashley_interpretation", status: "asserted", time: "current", reliability: "inferred" },
+            assertionKey: null,
+            status: "investigating",
+          },
+        }],
+      }), { sourceCurrentness: capture })).toMatchObject({ published: false, reason: "source_currentness_stale" });
+      expect(db.prepare("SELECT COUNT(*) AS count FROM settlements").get()).toMatchObject({ count: 0 });
+    } finally {
+      db.close();
+    }
+  });
+
+  it("stales a bound authorable target after a Host quarantine-kind transition", () => {
+    const db = openTestSidecar();
+    try {
+      const cycle = admitTestCycle(db, {
+        cycleId: "cycle-authorable-kind",
+        conversationId: "thread-authorable-kind",
+        triggerKind: "owner_message",
+        triggerRef: "one",
+        occupantId: "doc",
+        authorityEpoch: 1,
+        nowMs: 1,
+      });
+      applyConcernDelta(db, {
+        op: "upsert",
+        record: {
+          concernId: "concern-authorable-kind",
+          conversationId: cycle.conversationId,
+          statement: "Quarantine-kind transition probe.",
+          sourceTurnIds: [],
+          dimensions: { source: "owner_utterance", status: "asserted", time: "historical", reliability: "owner_supplied" },
+          assertionKey: null,
+          status: null,
+        },
+      }, { cycleId: "seed-kind", generation: 1 });
+      db.prepare("UPDATE concerns SET quarantine_kind = 'legacy_unavailable_source' WHERE concern_id = 'concern-authorable-kind'").run();
+      const capture = captureThoughtSourcePackage({
+        sidecar: db,
+        cycle,
+        constitution: { constitutional: ["truth"], stableSelf: ["careful"] },
+        capabilityReality: {
+          vision: false, attachmentText: false, conversationalRead: false, webSearch: false,
+          canOfferProjectInspection: false, canOfferWorkspace: false, canOfferVerification: false,
+          canOfferAuthorship: false, canOfferBoundedOperation: false, canOfferPatchExport: false,
+          approvedProjectIds: [],
+        },
+      } as any).sourceCurrentness;
+      db.prepare("UPDATE concerns SET quarantine_kind = NULL WHERE concern_id = 'concern-authorable-kind'").run();
+
+      expect(publishSemanticTransaction(db, settlement({
+        cycleId: cycle.cycleId,
+        triggerRef: cycle.conversationId,
+        workingContextDelta: [],
+        concernDeltas: [{
+          op: "upsert",
+          record: {
+            concernId: "concern-authorable-kind",
+            conversationId: cycle.conversationId,
+            statement: "Quarantine-kind transition probe.",
+            sourceTurnIds: [],
+            dimensions: { source: "ashley_interpretation", status: "asserted", time: "current", reliability: "inferred" },
+            assertionKey: null,
+            status: "active",
+          },
+        }],
+      }), { sourceCurrentness: capture })).toMatchObject({ published: false, reason: "source_currentness_stale" });
+      expect(db.prepare("SELECT COUNT(*) AS count FROM settlements").get()).toMatchObject({ count: 0 });
+    } finally {
+      db.close();
+    }
+  });
+
+  it("refuses contradictory paired concern and occupancy statuses without partial mutation", () => {
+    const db = openTestSidecar();
+    try {
+      const cycle = admitTestCycle(db, {
+        cycleId: "cycle-paired-mismatch",
+        conversationId: "thread-paired-mismatch",
+        triggerKind: "owner_message",
+        triggerRef: "one",
+        occupantId: "doc",
+        authorityEpoch: 1,
+        nowMs: 1,
+      });
+      const concernBefore = db.prepare("SELECT COUNT(*) AS count FROM concerns WHERE conversation_id = ?").get(cycle.conversationId);
+      const occupancyBefore = db.prepare("SELECT COUNT(*) AS count FROM mind_occupancy WHERE conversation_id = ?").get(cycle.conversationId);
+      expect(publishSemanticTransaction(db, settlement({
+        cycleId: cycle.cycleId,
+        triggerRef: cycle.conversationId,
+        workingContextDelta: [],
+        concernDeltas: [{
+          op: "upsert",
+          record: {
+            concernId: "concern-paired",
+            conversationId: cycle.conversationId,
+            statement: "Paired mismatch probe.",
+            sourceTurnIds: [],
+            dimensions: { source: "ashley_interpretation", status: "asserted", time: "current", reliability: "inferred" },
+            assertionKey: null,
+            status: "active",
+          },
+        }],
+        occupancyDelta: [{
+          op: "set",
+          occupancy: {
+            conversationId: cycle.conversationId,
+            concernId: "concern-paired",
+            status: "resolved",
+            priority: 5,
+            updatedGeneration: 1,
+          },
+        }],
+      }), {})).toMatchObject({ published: false });
+      expect(db.prepare("SELECT COUNT(*) AS count FROM concerns WHERE conversation_id = ?").get(cycle.conversationId)).toEqual(concernBefore);
+      expect(db.prepare("SELECT COUNT(*) AS count FROM mind_occupancy WHERE conversation_id = ?").get(cycle.conversationId)).toEqual(occupancyBefore);
+      expect(db.prepare("SELECT COUNT(*) AS count FROM settlements").get()).toMatchObject({ count: 0 });
+
+      expect(publishSemanticTransaction(db, settlement({
+        cycleId: cycle.cycleId,
+        triggerRef: cycle.conversationId,
+        workingContextDelta: [],
+        concernDeltas: [{
+          op: "upsert",
+          record: {
+            concernId: "concern-paired-inverse",
+            conversationId: cycle.conversationId,
+            statement: "Paired inverse mismatch probe.",
+            sourceTurnIds: [],
+            dimensions: { source: "ashley_interpretation", status: "asserted", time: "current", reliability: "inferred" },
+            assertionKey: null,
+            status: "resolved",
+          },
+        }],
+        occupancyDelta: [{
+          op: "set",
+          occupancy: {
+            conversationId: cycle.conversationId,
+            concernId: "concern-paired-inverse",
+            status: "active",
+            priority: 5,
+            updatedGeneration: 1,
+          },
+        }],
+      }), {})).toMatchObject({ published: false });
+      expect(db.prepare("SELECT COUNT(*) AS count FROM concerns WHERE conversation_id = ?").get(cycle.conversationId)).toEqual(concernBefore);
+      expect(db.prepare("SELECT COUNT(*) AS count FROM mind_occupancy WHERE conversation_id = ?").get(cycle.conversationId)).toEqual(occupancyBefore);
+      expect(db.prepare("SELECT COUNT(*) AS count FROM settlements").get()).toMatchObject({ count: 0 });
+
+      const matched = publishSemanticTransaction(db, settlement({
+        cycleId: cycle.cycleId,
+        triggerRef: cycle.conversationId,
+        workingContextDelta: [],
+        concernDeltas: [{
+          op: "upsert",
+          record: {
+            concernId: "concern-paired-match",
+            conversationId: cycle.conversationId,
+            statement: "Paired match probe.",
+            sourceTurnIds: [],
+            dimensions: { source: "ashley_interpretation", status: "asserted", time: "current", reliability: "inferred" },
+            assertionKey: null,
+            status: "active",
+          },
+        }],
+        occupancyDelta: [{
+          op: "set",
+          occupancy: {
+            conversationId: cycle.conversationId,
+            concernId: "concern-paired-match",
+            status: "active",
+            priority: 5,
+            updatedGeneration: 1,
+          },
+        }],
+      }), {});
+      expect(matched).toMatchObject({ published: true });
+      expect(db.prepare("SELECT cognitive_status FROM concerns WHERE concern_id = 'concern-paired-match'").get())
+        .toMatchObject({ cognitive_status: "active" });
+      expect(db.prepare("SELECT status FROM mind_occupancy WHERE concern_id = 'concern-paired-match'").get())
+        .toMatchObject({ status: "active" });
+    } finally {
+      db.close();
+    }
+  });
+
   it("rejects a stale learned-self revision head atomically", () => {
     const sidecar = openTestSidecar();
     const nuclear = openNuclearDb(new DatabaseSync(":memory:"));

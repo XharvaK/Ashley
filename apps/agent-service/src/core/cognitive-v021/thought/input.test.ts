@@ -222,8 +222,8 @@ describe("v0.2.1 ThoughtInput assembly", () => {
       });
       expect(source.concernDependencies).toMatchObject({
         "concern-selected": expect.objectContaining({ snapshotHash: "selected-v1" }),
+        "concern-unrelated": expect.objectContaining({ snapshotHash: "unrelated-v1", status: "resolved", quarantineKind: null }),
       });
-      expect(source.concernDependencies).not.toHaveProperty("concern-unrelated");
     } finally {
       db.close();
     }

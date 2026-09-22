@@ -222,6 +222,28 @@ function applyNomination(db: DatabaseSync, nomination: DurableNomination): void 
 }
 
 /**
+ * Contradictory paired cognitive-status claims in one settlement fail closed.
+ * When Thought submits both a concern delta and an occupancy delta for the
+ * same concern with different statuses, Host must not invent which one Thought
+ * "really meant": the settlement is refused before either mutation is applied.
+ */
+export function assertPairedConcernOccupancyCoherence(
+  settlement: PublishedCognitiveSettlement,
+): void {
+  const concernStatuses = new Map<string, CognitiveStatus | null>();
+  for (const delta of (settlement.concernDeltas ?? [])) {
+    const concernId = delta.op === "resolve" ? delta.concernId : delta.record.concernId;
+    concernStatuses.set(concernId, delta.op === "resolve" ? "resolved" : delta.record.status);
+  }
+  for (const delta of (settlement.occupancyDelta ?? [])) {
+    const expected = concernStatuses.get(delta.occupancy.concernId);
+    if (expected !== undefined && expected !== delta.occupancy.status) {
+      throw new Error("concern_occupancy_status_mismatch");
+    }
+  }
+}
+
+/**
  * The single runtime authority for the concern/occupancy coherence invariant.
  *
  * One accepted transition may never leave `concerns.cognitive_status = X` while
@@ -402,6 +424,15 @@ export function publishSemanticTransaction(
     }
 
     if (!consumedObservationsAreAvailable(db, settlement.operations.observationsConsumed)) {
+      db.exec("ROLLBACK");
+      sidecarTransactionOpen = false;
+      rollbackAuthority();
+      return { published: false, replayed: false, reason: "source_currentness_stale", settlementId: null, outboxId: null };
+    }
+
+    try {
+      assertPairedConcernOccupancyCoherence(settlement);
+    } catch {
       db.exec("ROLLBACK");
       sidecarTransactionOpen = false;
       rollbackAuthority();

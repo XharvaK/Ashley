@@ -42,6 +42,8 @@ export type ConcernCurrentnessEntry = Readonly<{
   snapshotHash: string;
   /** NULL is a real fact: no cognition-authored status has been established. */
   status: CognitiveStatus | null;
+  /** Host/E provenance-validity fact. Cognition never authors or clears it. */
+  quarantineKind: QuarantineKind | null;
   updatedCycle?: string;
 }>;
 
@@ -346,6 +348,7 @@ function currentConcernEntry(db: DatabaseSync, concernId: string): ConcernCurren
   return {
     snapshotHash: text(source.snapshot_hash),
     status: cognitiveStatusOf(source.cognitive_status),
+    quarantineKind: quarantineKindOf(source.quarantine_kind),
     updatedCycle: text(source.updated_cycle),
   };
 }
@@ -417,6 +420,7 @@ function sameConcernEntry(
   if (expected === null || actual === null) return expected === actual;
   return expected.snapshotHash === actual.snapshotHash
     && expected.status === actual.status
+    && expected.quarantineKind === actual.quarantineKind
     && (expected.updatedCycle === undefined || expected.updatedCycle === actual.updatedCycle);
 }
 
@@ -441,7 +445,7 @@ export function inspectConcernCurrentness(
   return {
     actual,
     matches: sameConcernEntry(
-      { snapshotHash: expected.snapshotHash, status: expected.status },
+      { snapshotHash: expected.snapshotHash, status: expected.status, quarantineKind: expected.quarantineKind },
       actual,
     ) && expected.quarantineKind === currentQuarantineKind,
     currentStatus: actual?.status ?? null,
