@@ -56,8 +56,13 @@ import type {
 } from "../types.js";
 import type { OperationalClaimLicense } from "../../sandbox/engineering-types.js";
 import { getInFlight } from "../effect/in-flight.js";
-import { getConcern } from "../concerns/lineage.js";
+import { cognitiveStatusOf, getConcern, quarantineKindOf } from "../concerns/lineage.js";
 import { inspectConcernCurrentness } from "../thought/source-currentness.js";
+import {
+  concernDiscoverCursorOf,
+  concernDiscoverLimitOf,
+  isConcernDiscoverRequest,
+} from "../thought/concern-inspect.js";
 import { utf8JsonBytes, REQUIRED_OBSERVATION_ITEM_BYTES } from "../thought/projection-allocator/composition-contract.js";
 import {
   applyPublicPresenceDecision,
@@ -311,6 +316,12 @@ function normalizePatchExportRequest(proposal: EffectProposal): CognitionPatchEx
  */
 type ConcernInspectClass = "quarantined" | "unestablished" | "resolved" | "dormant" | "active_like";
 
+type ConcernDiscoverItem = {
+  concernId: string;
+  cognitiveStatus: CognitiveStatus | null;
+  quarantineKind: QuarantineKind | null;
+};
+
 type ConcernInspectPayload =
   | { concernId: string; result: "missing" }
   | {
@@ -322,6 +333,12 @@ type ConcernInspectPayload =
       statement: string;
       statementTruncated: boolean;
       originalStatementBytes?: number;
+    }
+  | {
+      result: "page" | "cursor_invalid";
+      concerns: ConcernDiscoverItem[];
+      omittedCount: number;
+      nextCursor: string | null;
     };
 
 function concernInspectClass(
@@ -335,11 +352,142 @@ function concernInspectClass(
   return "active_like";
 }
 
+const INSPECTABLE_CONCERN_PREDICATE = `
+  forgotten = 0
+  AND (cognitive_status IS NULL
+    OR cognitive_status IN ('dormant_but_revisitable', 'resolved')
+    OR quarantine_kind IS NOT NULL)`;
+
+function executeConcernDiscover(
+  req: ObservationRequest,
+  sidecar: DatabaseSync,
+): Observation {
+  const cycleRow = sidecar.prepare(
+    "SELECT conversation_id FROM cycle_records WHERE cycle_id = ? LIMIT 1",
+  ).get(req.cycleId) as { conversation_id?: unknown } | undefined;
+  const conversationId = typeof cycleRow?.conversation_id === "string" && cycleRow.conversation_id
+    ? cycleRow.conversation_id
+    : null;
+  if (!conversationId) throw new Error("observation_unavailable");
+
+  const limit = concernDiscoverLimitOf(req.request);
+  const cursor = concernDiscoverCursorOf(req.request);
+  if (cursor !== null) {
+    const cursorRow = sidecar.prepare(
+      "SELECT 1 AS present FROM concerns WHERE concern_id = ? AND conversation_id = ? LIMIT 1",
+    ).get(cursor, conversationId) as { present?: unknown } | undefined;
+    if (!cursorRow) {
+      return projectConcernDiscover(req, {
+        result: "cursor_invalid",
+        concerns: [],
+        omittedCount: 0,
+        nextCursor: null,
+      });
+    }
+  }
+
+  const rows = sidecar.prepare(
+    `SELECT concern_id, cognitive_status, quarantine_kind
+       FROM concerns
+      WHERE conversation_id = ?
+        AND ${INSPECTABLE_CONCERN_PREDICATE}
+        ${cursor === null ? "" : "AND concern_id > ?"}
+      ORDER BY concern_id ASC
+      LIMIT ?`,
+  ).all(...(cursor === null ? [conversationId, limit + 1] : [conversationId, cursor, limit + 1])) as Array<{
+    concern_id?: unknown;
+    cognitive_status?: unknown;
+    quarantine_kind?: unknown;
+  }>;
+
+  const pageRows = rows.slice(0, limit);
+  const toItem = (row: {
+    concern_id?: unknown;
+    cognitive_status?: unknown;
+    quarantine_kind?: unknown;
+  }): ConcernDiscoverItem => ({
+    concernId: typeof row.concern_id === "string" ? row.concern_id : "",
+    cognitiveStatus: cognitiveStatusOf(row.cognitive_status),
+    quarantineKind: quarantineKindOf(row.quarantine_kind),
+  });
+
+  let fitted: ConcernDiscoverItem[] = [];
+  for (let index = 0; index < pageRows.length; index += 1) {
+    const candidate = [...fitted, toItem(pageRows[index])];
+    const moreInPage = index + 1 < pageRows.length;
+    const probe = concernInspectionObservation(req, {
+      result: "page",
+      concerns: candidate,
+      omittedCount: moreInPage ? 1 : 0,
+      nextCursor: moreInPage ? candidate[candidate.length - 1]?.concernId ?? null : null,
+    });
+    if (utf8JsonBytes(probe) > REQUIRED_OBSERVATION_ITEM_BYTES) break;
+    fitted = candidate;
+  }
+  if (fitted.length === 0 && pageRows.length > 0) throw new Error("observation_unavailable");
+
+  let omittedCount = 0;
+  if (fitted.length > 0) {
+    const lastId = fitted[fitted.length - 1].concernId;
+    const remaining = sidecar.prepare(
+      `SELECT COUNT(*) AS count
+         FROM concerns
+        WHERE conversation_id = ?
+          AND ${INSPECTABLE_CONCERN_PREDICATE}
+          AND concern_id > ?`,
+    ).get(conversationId, lastId) as { count?: unknown } | undefined;
+    omittedCount = typeof remaining?.count === "number" ? remaining.count : Number(remaining?.count ?? 0) || 0;
+  } else if (pageRows.length > 0) {
+    omittedCount = pageRows.length;
+  }
+
+  let concerns = fitted;
+  let nextCursor = omittedCount > 0 && concerns.length > 0
+    ? concerns[concerns.length - 1].concernId
+    : null;
+  while (concerns.length > 0) {
+    const probe = concernInspectionObservation(req, {
+      result: "page",
+      concerns,
+      omittedCount,
+      nextCursor,
+    });
+    if (utf8JsonBytes(probe) <= REQUIRED_OBSERVATION_ITEM_BYTES) break;
+    concerns = concerns.slice(0, -1);
+    nextCursor = omittedCount > 0 && concerns.length > 0
+      ? concerns[concerns.length - 1].concernId
+      : null;
+    omittedCount += 1;
+    if (concerns.length === 0) throw new Error("observation_unavailable");
+  }
+
+  return projectConcernDiscover(req, {
+    result: "page",
+    concerns,
+    omittedCount,
+    nextCursor,
+  });
+}
+
+function projectConcernDiscover(
+  req: ObservationRequest,
+  payload: Extract<ConcernInspectPayload, { result: "page" | "cursor_invalid" }>,
+): Observation {
+  const observation = concernInspectionObservation(req, payload);
+  if (utf8JsonBytes(observation) > REQUIRED_OBSERVATION_ITEM_BYTES) {
+    throw new Error("observation_unavailable");
+  }
+  return observation;
+}
+
 function executeConcernInspection(
   req: ObservationRequest,
   sidecar: DatabaseSync | undefined,
 ): Observation {
   if (!sidecar) throw new Error("observation_unavailable");
+  if (isConcernDiscoverRequest(req.request)) {
+    return executeConcernDiscover(req, sidecar);
+  }
   const binding = req.concernInspectionBinding;
   const concernRef = stringValue(requestRecord(req.request)?.concernRef);
   if (!binding || !concernRef || binding.concernId !== concernRef) throw new Error("observation_unavailable");
@@ -399,7 +547,7 @@ function concernInspectionObservation(req: ObservationRequest, payload: ConcernI
 
 function projectConcernInspection(
   req: ObservationRequest,
-  payload: Exclude<ConcernInspectPayload, { result: "missing" }>,
+  payload: Extract<ConcernInspectPayload, { concernId: string; result: "current" | "stale" }>,
 ): Observation {
   const fullBytes = Buffer.byteLength(payload.statement, "utf8");
   const probe = (statement: string, truncated: boolean): number =>

@@ -9,6 +9,7 @@ import type {
   AuthorityCurrentnessBinding,
 } from "../types.js";
 import type { ConcernInspectDependency } from "./source-currentness.js";
+import { isConcernDiscoverRequest } from "./concern-inspect.js";
 
 const OPERATION_DEADLINE_CAP_MS = 120_000;
 
@@ -37,7 +38,8 @@ export function bindObservationIntent(input: ObservationBindingInput): BoundObse
   const deadlineAtMs = input.nowMs + OPERATION_DEADLINE_CAP_MS;
   if (deadlineAtMs <= input.nowMs) throw new Error("deadline_exhausted");
   const requestId = `observation:${randomUUID()}`;
-  const concernInspectionBinding = input.intent.operationKind === "concern.inspect"
+  const discoverRequest = isConcernDiscoverRequest(input.intent.request);
+  const concernInspectionBinding = input.intent.operationKind === "concern.inspect" && !discoverRequest
     ? input.concernInspectionBinding ?? (input.concernInspectExpectation === undefined
       ? undefined
       : {
@@ -47,7 +49,11 @@ export function bindObservationIntent(input: ObservationBindingInput): BoundObse
         expectedQuarantineKind: input.concernInspectExpectation.quarantineKind,
       })
     : undefined;
-  if (input.intent.operationKind === "concern.inspect" && concernInspectionBinding === undefined) {
+  if (
+    input.intent.operationKind === "concern.inspect"
+    && !discoverRequest
+    && concernInspectionBinding === undefined
+  ) {
     throw new Error("concern_inspection_binding_missing");
   }
   return {

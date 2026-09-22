@@ -22,7 +22,7 @@ import { parseThoughtSemanticOutput } from "./parse.js";
 import { getThoughtAttemptCounters } from "./counters.js";
 import { computeDispatchMessagesHash } from "./projection.js";
 import { initObservabilitySchema, openObservabilityStore } from "./diagnostics.js";
-import { listConcerns } from "../concerns/lineage.js";
+import { applyConcernDelta, listConcerns } from "../concerns/lineage.js";
 import { listOccupancy } from "../concerns/occupancy.js";
 import { buildOccupiedConcernProjection } from "./occupied-concerns.js";
 import { createSchedule, evaluatePeriodicPoll } from "../initiative/periodic-schedule.js";
@@ -1848,6 +1848,146 @@ describe("v0.2.1 Thought run", () => {
     const completed = materializeEffectsCompleted(inFlight, receiptsByEffectId);
     expect(completed).toEqual(["e-succ", "e-fail"]);
     expect(materializeEffectsCompleted(inFlight, undefined)).toEqual([]);
+  });
+
+  it("appends same-cycle discover-returned authorable concerns for a subsequent write pass", async () => {
+    const sidecar = openTestSidecar();
+    const attentionDb = openTestSidecar();
+    const conversationId = "thread-same-cycle-discover";
+    const cycle = admitTestCycle(sidecar, {
+      cycleId: "cycle-same-cycle-discover",
+      conversationId,
+      triggerKind: "owner_message",
+      triggerRef: "owner-same-cycle-discover",
+      occupantId: "doc",
+      nowMs: 1,
+    });
+    for (let index = 0; index < 33; index += 1) {
+      applyConcernDelta(sidecar, {
+        op: "upsert",
+        record: {
+          concernId: `concern-a-${String(index).padStart(2, "0")}`,
+          conversationId,
+          statement: `Seeded concern ${index}.`,
+          sourceTurnIds: [],
+          dimensions: { source: "owner_utterance", status: "asserted", time: "historical", reliability: "owner_supplied" },
+          assertionKey: null,
+          status: "resolved",
+        },
+      }, { cycleId: "cycle-seed", generation: 1 });
+    }
+    applyConcernDelta(sidecar, {
+      op: "upsert",
+      record: {
+        concernId: "concern-dormant-page",
+        conversationId,
+        statement: "Dormant on the page only.",
+        sourceTurnIds: [],
+        dimensions: { source: "owner_utterance", status: "asserted", time: "historical", reliability: "owner_supplied" },
+        assertionKey: null,
+        status: "dormant_but_revisitable",
+      },
+    }, { cycleId: "cycle-seed", generation: 1 });
+
+    const evidence = appendOwnerUtterance(sidecar, {
+      conversationId,
+      text: "discover concerns and update the far one",
+      discordMessageIds: ["d-same-cycle-discover"],
+      nowMs: 2,
+    });
+    const event = appendInboxEvent(sidecar, {
+      conversationId,
+      kind: "owner_message",
+      payload: { cycleId: cycle.cycleId, evidenceRowId: evidence.rowId, ownerMessage: evidence.text },
+      createdAtMs: 2,
+    });
+
+    const farConcernId = "concern-a-32";
+    let call = 0;
+    const completeChat = vi.fn(async () => {
+      call += 1;
+      if (call === 1) {
+        return {
+          text: JSON.stringify({
+            kind: "observation_intent",
+            operationKind: "concern.inspect",
+            request: { discover: { limit: 64 } },
+            purpose: "page inspectable concerns",
+            evidenceNeed: "content-free concern ids",
+            existingRefs: [evidence.rowId],
+          }),
+          model: "fake",
+          modelAlias: "fake",
+          resolvedModelId: null,
+        };
+      }
+      return {
+        text: JSON.stringify(makeSemanticSettlement({
+          evidenceUse: {
+            observationRefsUsed: ["observation-discover-1"],
+            retrievalRefsUsed: [],
+            sourceRefsUsed: [],
+            openIntentRefs: [],
+          },
+          concernDeltas: [{
+            op: "upsert",
+            record: {
+              identity: { kind: "existing", ref: farConcernId },
+              statement: "Updated after same-cycle discover.",
+              sourceTurnRefs: [evidence.rowId],
+              dimensions: { source: "ashley_interpretation", status: "asserted", time: "current", reliability: "inferred" },
+              status: "active",
+            },
+          }],
+          speech: { mode: "draft", mustSay: ["updated"], mustNotSay: [], surfaceDraft: "updated", acceptableRealizations: [], presentationDirectives: [] },
+        })),
+        model: "fake",
+        modelAlias: "thought",
+        resolvedModelId: null,
+      };
+    });
+    const executeObservation = vi.fn(async (): Promise<Observation> => ({
+      observationId: "observation-discover-1",
+      cycleId: cycle.cycleId,
+      generation: cycle.generation,
+      derived: false,
+      replaySafe: true,
+      modality: "tool",
+      payload: {
+        result: "page",
+        concerns: [
+          { concernId: farConcernId, cognitiveStatus: "resolved", quarantineKind: null },
+          { concernId: "concern-dormant-page", cognitiveStatus: "dormant_but_revisitable", quarantineKind: null },
+        ],
+        omittedCount: 0,
+        nextCursor: null,
+      },
+      provenance: "sidecar:concern.inspect",
+      dataClassification: "never_public",
+      secretOmitted: false,
+    }));
+
+    try {
+      const result = await runCognitiveCycle(sidecar, attentionDb, event, deps({
+        attentionDb,
+        completeChat,
+        executeObservation,
+      }));
+      expect(result).toMatchObject({ published: true, acceptedThoughtPasses: 2, thoughtModelAttempts: 2 });
+      expect(executeObservation).toHaveBeenCalledTimes(1);
+      expect(sidecar.prepare(
+        "SELECT cognitive_status, statement FROM concerns WHERE concern_id = ?",
+      ).get(farConcernId)).toMatchObject({
+        cognitive_status: "active",
+        statement: "Updated after same-cycle discover.",
+      });
+      expect(sidecar.prepare(
+        "SELECT cognitive_status FROM concerns WHERE concern_id = 'concern-dormant-page'",
+      ).get()).toMatchObject({ cognitive_status: "dormant_but_revisitable" });
+    } finally {
+      sidecar.close();
+      attentionDb.close();
+    }
   });
 });
 

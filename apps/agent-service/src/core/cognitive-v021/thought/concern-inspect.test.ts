@@ -6,7 +6,15 @@ import { captureThoughtSourcePackage } from "./input.js";
 import { assertThoughtSourceCurrentness } from "./source-currentness.js";
 import { parseThoughtSemanticOutput } from "./parse.js";
 import { bindObservationIntent } from "./operation-binding.js";
-import { concernInspectRefsFor } from "./concern-inspect.js";
+import {
+  CONCERN_DISCOVER_DEFAULT_LIMIT,
+  CONCERN_DISCOVER_MAX_LIMIT,
+  concernDiscoverCursorOf,
+  concernDiscoverItemAuthorable,
+  concernDiscoverLimitOf,
+  concernInspectRefsFor,
+  isConcernDiscoverRequest,
+} from "./concern-inspect.js";
 import type { CognitiveStatus, IdentitySlice, QuarantineKind } from "../types.js";
 
 const constitution: IdentitySlice = { constitutional: ["truth first"], stableSelf: ["curious"] };
@@ -209,5 +217,104 @@ describe("concern.inspect dedicated capture and parse authority", () => {
       expectedStatus: "dormant_but_revisitable",
       expectedQuarantineKind: null,
     });
+  });
+
+  it("parses the discover union branch only when the Host authorized discover", () => {
+    const ordinary = new Set(["owner-1"]);
+    const inspect = new Set(["concern-pointer-only"]);
+    const discoverIntent = {
+      kind: "observation_intent",
+      operationKind: "concern.inspect",
+      request: { discover: {} },
+      purpose: "list inspectable concerns",
+      evidenceNeed: "the bounded id page",
+      existingRefs: ["owner-1"],
+    };
+    expect(parseThoughtSemanticOutput(discoverIntent, ordinary, {
+      concernInspectRefs: inspect,
+      concernDiscoverAllowed: true,
+    })).toMatchObject({ ok: true });
+    expect(parseThoughtSemanticOutput(discoverIntent, ordinary, {
+      concernInspectRefs: inspect,
+      concernDiscoverAllowed: false,
+    })).toMatchObject({ ok: false, code: "reference_not_allowlisted", field: "request.discover" });
+    expect(parseThoughtSemanticOutput(discoverIntent, ordinary, {
+      concernInspectRefs: inspect,
+    })).toMatchObject({ ok: false, code: "reference_not_allowlisted", field: "request.discover" });
+    expect(parseThoughtSemanticOutput({
+      ...discoverIntent,
+      request: { discover: {}, concernRef: "concern-pointer-only" },
+    }, ordinary, {
+      concernInspectRefs: inspect,
+      concernDiscoverAllowed: true,
+    })).toMatchObject({ ok: false, code: "wrong_type", field: "request" });
+    expect(parseThoughtSemanticOutput({
+      ...discoverIntent,
+      request: { discover: { cursor: "concern-pointer-only", limit: 4 }, extra: true },
+    }, ordinary, {
+      concernInspectRefs: inspect,
+      concernDiscoverAllowed: true,
+    })).toMatchObject({ ok: false, code: "wrong_type", field: "request" });
+    expect(parseThoughtSemanticOutput({
+      ...discoverIntent,
+      request: { discover: { unexpected: 1 } },
+    }, ordinary, {
+      concernInspectRefs: inspect,
+      concernDiscoverAllowed: true,
+    })).toMatchObject({ ok: false, code: "wrong_type", field: "request.discover" });
+    expect(parseThoughtSemanticOutput({
+      ...discoverIntent,
+      request: { discover: { cursor: "" } },
+    }, ordinary, {
+      concernInspectRefs: inspect,
+      concernDiscoverAllowed: true,
+    })).toMatchObject({ ok: false, code: "wrong_type", field: "request.discover.cursor" });
+    expect(parseThoughtSemanticOutput({
+      ...discoverIntent,
+      request: { discover: { cursor: 7 } },
+    }, ordinary, {
+      concernInspectRefs: inspect,
+      concernDiscoverAllowed: true,
+    })).toMatchObject({ ok: false, code: "wrong_type", field: "request.discover.cursor" });
+    expect(parseThoughtSemanticOutput({
+      ...discoverIntent,
+      request: { discover: { limit: 0 } },
+    }, ordinary, {
+      concernInspectRefs: inspect,
+      concernDiscoverAllowed: true,
+    })).toMatchObject({ ok: false, code: "wrong_type", field: "request.discover.limit" });
+    expect(parseThoughtSemanticOutput({
+      ...discoverIntent,
+      request: { discover: { limit: 1.5 } },
+    }, ordinary, {
+      concernInspectRefs: inspect,
+      concernDiscoverAllowed: true,
+    })).toMatchObject({ ok: false, code: "wrong_type", field: "request.discover.limit" });
+    expect(parseThoughtSemanticOutput({
+      ...discoverIntent,
+      request: { discover: { cursor: "concern-pointer-only", limit: 4 } },
+    }, ordinary, {
+      concernInspectRefs: inspect,
+      concernDiscoverAllowed: true,
+    })).toMatchObject({ ok: true });
+  });
+
+  it("classifies discover requests, bounds limit/cursor, and filters authorable items", () => {
+    expect(isConcernDiscoverRequest({ discover: {} })).toBe(true);
+    expect(isConcernDiscoverRequest({ discover: {}, concernRef: "c" })).toBe(false);
+    expect(isConcernDiscoverRequest({ concernRef: "c" })).toBe(false);
+    expect(isConcernDiscoverRequest(null)).toBe(false);
+    expect(concernDiscoverLimitOf({ discover: {} })).toBe(CONCERN_DISCOVER_DEFAULT_LIMIT);
+    expect(concernDiscoverLimitOf({ discover: { limit: 1000 } })).toBe(CONCERN_DISCOVER_MAX_LIMIT);
+    expect(concernDiscoverLimitOf({ discover: { limit: 8 } })).toBe(8);
+    expect(concernDiscoverLimitOf({ discover: { limit: -1 } })).toBe(CONCERN_DISCOVER_DEFAULT_LIMIT);
+    expect(concernDiscoverCursorOf({ discover: {} })).toBeNull();
+    expect(concernDiscoverCursorOf({ discover: { cursor: "concern-2" } })).toBe("concern-2");
+    expect(concernDiscoverCursorOf({ discover: { cursor: "" } })).toBeNull();
+    expect(concernDiscoverItemAuthorable({ cognitiveStatus: null, quarantineKind: null })).toBe(true);
+    expect(concernDiscoverItemAuthorable({ cognitiveStatus: "resolved", quarantineKind: null })).toBe(true);
+    expect(concernDiscoverItemAuthorable({ cognitiveStatus: null, quarantineKind: "legacy_unavailable_source" })).toBe(true);
+    expect(concernDiscoverItemAuthorable({ cognitiveStatus: "dormant_but_revisitable", quarantineKind: null })).toBe(false);
+    expect(concernDiscoverItemAuthorable({ cognitiveStatus: "active", quarantineKind: null })).toBe(false);
   });
 });

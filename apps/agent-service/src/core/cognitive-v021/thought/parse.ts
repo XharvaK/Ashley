@@ -810,6 +810,7 @@ function parseOperationSemantic(
   allowlist: ReadonlySet<string>,
   kind: "observation_intent" | "effect_intent",
   inspectAllowlist?: ReadonlySet<string>,
+  concernDiscoverAllowed?: boolean,
 ): ThoughtSemanticParseResult {
   const required = kind === "observation_intent"
     ? ["kind", "operationKind", "request", "purpose", "evidenceNeed", "existingRefs"]
@@ -829,12 +830,39 @@ function parseOperationSemantic(
   }
   if (record.operationKind === "concern.inspect") {
     if (kind !== "observation_intent") return semanticFailure("wrong_type", "operationKind");
-    const shape = recordShape(record.request, ["concernRef"]);
-    if (!shape || typeof shape.concernRef !== "string" || shape.concernRef.length === 0) {
-      return semanticFailure("wrong_type", "request");
-    }
-    if (!existingRef(shape.concernRef, inspectAllowlist ?? new Set())) {
-      return semanticFailure("reference_not_allowlisted", "request.concernRef");
+    const requestKeys = Object.keys(record.request);
+    const hasDiscover = requestKeys.includes("discover");
+    const hasConcernRef = requestKeys.includes("concernRef");
+    if (hasDiscover && hasConcernRef) return semanticFailure("wrong_type", "request");
+    if (hasDiscover) {
+      if (concernDiscoverAllowed !== true) {
+        return semanticFailure("reference_not_allowlisted", "request.discover");
+      }
+      if (requestKeys.length !== 1) return semanticFailure("wrong_type", "request");
+      const discover = semanticRecord((record.request as SemanticRecord).discover);
+      if (!discover) return semanticFailure("wrong_type", "request.discover");
+      const discoverAllowedKeys = new Set(["cursor", "limit"]);
+      if (Object.keys(discover).some((key) => !discoverAllowedKeys.has(key))) {
+        return semanticFailure("wrong_type", "request.discover");
+      }
+      if (own(discover, "cursor")) {
+        if (typeof discover.cursor !== "string" || discover.cursor.length === 0) {
+          return semanticFailure("wrong_type", "request.discover.cursor");
+        }
+      }
+      if (own(discover, "limit")) {
+        if (typeof discover.limit !== "number" || !Number.isInteger(discover.limit) || discover.limit < 1) {
+          return semanticFailure("wrong_type", "request.discover.limit");
+        }
+      }
+    } else {
+      const shape = recordShape(record.request, ["concernRef"]);
+      if (!shape || typeof shape.concernRef !== "string" || shape.concernRef.length === 0) {
+        return semanticFailure("wrong_type", "request");
+      }
+      if (!existingRef(shape.concernRef, inspectAllowlist ?? new Set())) {
+        return semanticFailure("reference_not_allowlisted", "request.concernRef");
+      }
     }
   }
   if (record.operationKind === "candidate.develop") {
@@ -866,7 +894,7 @@ function parseOperationSemantic(
 export function parseThoughtSemanticOutput(
   raw: string | unknown,
   allowlistedReferences: ReadonlySet<string>,
-  options?: { concernInspectRefs?: ReadonlySet<string> },
+  options?: { concernInspectRefs?: ReadonlySet<string>; concernDiscoverAllowed?: boolean },
 ): ThoughtSemanticParseResult {
   const parsed = parseSemanticJson(raw);
   if (!parsed.ok) return semanticFailure("invalid_json");
@@ -874,7 +902,13 @@ export function parseThoughtSemanticOutput(
   if (!record) return semanticFailure("root_not_object");
   if (record.kind === "settlement") return parseSettlementSemantic(record, allowlistedReferences);
   if (record.kind === "observation_intent") {
-    return parseOperationSemantic(record, allowlistedReferences, "observation_intent", options?.concernInspectRefs);
+    return parseOperationSemantic(
+      record,
+      allowlistedReferences,
+      "observation_intent",
+      options?.concernInspectRefs,
+      options?.concernDiscoverAllowed,
+    );
   }
   if (record.kind === "effect_intent") return parseOperationSemantic(record, allowlistedReferences, "effect_intent");
   if (record.kind === "abstain") {

@@ -92,6 +92,7 @@ import { adaptPerception } from "../perception/adapter.js";
 import { buildThoughtInput, captureThoughtSourcePackage } from "./input.js";
 import { parseThoughtSemanticOutput, THOUGHT_SEMANTIC_PARSER_ID } from "./parse.js";
 import {
+  concernDiscoverItemAuthorable,
   concernInspectRefsForInput,
   type ConcernInspectAuthority,
 } from "./concern-inspect.js";
@@ -1527,7 +1528,10 @@ export async function runThoughtModel(
     const semanticResult = parseThoughtSemanticOutput(
       completion.text,
       new Set(semanticReferencesForInput(input)),
-      { concernInspectRefs: (options.concernInspectAuthority ?? concernInspectRefsForInput(input)).refs },
+      {
+        concernInspectRefs: (options.concernInspectAuthority ?? concernInspectRefsForInput(input)).refs,
+        concernDiscoverAllowed: (options.concernInspectAuthority ?? concernInspectRefsForInput(input)).discoverAllowed === true,
+      },
     );
     if (!semanticResult.ok) {
       const diagnosticCode = semanticResult.code as ThoughtParserFailureCode;
@@ -2747,6 +2751,7 @@ export async function runCognitiveCycle(
   let lastThoughtRequestId: string = randomUUID();
   let lastThoughtPass = pass;
   let lastDispatchTruth: ThoughtExecutionDispatchTruth = "unknown";
+  const discoveredAuthorableConcernIds = new Set<string>();
 
   try {
     for (;;) {
@@ -2818,6 +2823,9 @@ export async function runCognitiveCycle(
       ...(availableDestinations === undefined ? {} : { availableDestinations }),
       ...(externalBinding ? { licenses: [...externalBinding.licenseRefs] } : {}),
       ...(dueCommitment ? { commitmentDue: dueCommitment } : {}),
+      ...(discoveredAuthorableConcernIds.size > 0
+        ? { concernAuthorableTargetAppend: [...discoveredAuthorableConcernIds] }
+        : {}),
     };
     const sourceCapture = captureThoughtSourcePackage(thoughtInputOptions);
     const sourceCurrentness = sourceCapture.sourceCurrentness;
@@ -2919,6 +2927,7 @@ export async function runCognitiveCycle(
       concernInspectAuthority: {
         refs: new Set(Object.keys(sourceCapture.concernInspectDependencies)),
         expectations: sourceCapture.concernInspectDependencies,
+        discoverAllowed: thoughtAudience === undefined,
       },
     });
     lastThoughtRequestId = invocation.requestId;
@@ -3372,6 +3381,24 @@ export async function runCognitiveCycle(
           generation: cycle.generation,
           observations: [normalized],
         }, deps.nowMs());
+        const discoverPayload = normalized.provenance === "sidecar:concern.inspect"
+          && typeof normalized.payload === "object"
+          && normalized.payload !== null
+          && (normalized.payload as { result?: unknown }).result === "page"
+          && Array.isArray((normalized.payload as { concerns?: unknown }).concerns)
+          ? normalized.payload as { concerns: Array<Record<string, unknown>> }
+          : null;
+        if (discoverPayload) {
+          for (const item of discoverPayload.concerns) {
+            const concernId = typeof item.concernId === "string" ? item.concernId : "";
+            if (!concernId) continue;
+            const cognitiveStatus = typeof item.cognitiveStatus === "string" ? item.cognitiveStatus : null;
+            const quarantineKind = typeof item.quarantineKind === "string" ? item.quarantineKind : null;
+            if (concernDiscoverItemAuthorable({ cognitiveStatus, quarantineKind })) {
+              discoveredAuthorableConcernIds.add(concernId);
+            }
+          }
+        }
       } catch {
         return emitFailure(
           "observation_unavailable",

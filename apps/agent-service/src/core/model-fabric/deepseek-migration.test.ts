@@ -159,7 +159,7 @@ describe("DeepSeek V4 Flash Model Fabric migration witnesses", () => {
     expect(THOUGHT_OUTPUT_CONTRACT_ID).toBe("ashley.thought.semantic.v2");
     expect(THOUGHT_OUTPUT_SCHEMA_ID).toBe("ashley.thought.semantic.v2.schema");
     expect(THOUGHT_OUTPUT_SCHEMA_FINGERPRINT).toBe(
-      "sha256:4b2c3458ce030eebf223df34fbbd6c95a8b37757443f0b5f3b89d5e5175bd744",
+      "sha256:430bf12adad24f96fb741aec2420479c15896c29b899f779c7b995aba22c6a48",
     );
     expect(THOUGHT_SEMANTIC_PARSER_ID).toBe("ashley.thought.semantic-parser.v1");
     expect(parseThoughtSemanticOutput(

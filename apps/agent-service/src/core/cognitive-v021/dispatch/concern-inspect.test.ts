@@ -387,3 +387,217 @@ describe("concern.inspect executor branch", () => {
     }
   });
 });
+
+function discoverRequest(
+  cycleId: string,
+  request: Record<string, unknown>,
+): ObservationRequest {
+  return {
+    requestId: `discover-${cycleId}`,
+    cycleId,
+    generation: 1,
+    kind: "concern.inspect",
+    request,
+    replaySafe: true as const,
+  };
+}
+
+describe("concern.inspect discover executor branch", () => {
+  it("returns a content-free inspectable page ordered concern_id ASC", async () => {
+    const nuclear = new DatabaseSync(":memory:");
+    const sidecar = openTestSidecar();
+    try {
+      admitTestCycle(sidecar, {
+        cycleId: "cp", conversationId: "th",
+        triggerKind: "owner_message", triggerRef: "owner-discover-page", occupantId: "doc", nowMs: 1,
+      });
+      seedConcern(sidecar, { concernId: "act", conversationId: "th", statement: "Active.", status: "active" });
+      seedConcern(sidecar, { concernId: "dorm", conversationId: "th", statement: "Dormant A." });
+      seedConcern(sidecar, { concernId: "res", conversationId: "th", statement: "Resolved B.", status: "resolved" });
+      seedConcern(sidecar, { concernId: "une", conversationId: "th", statement: "Unestablished D.", status: null });
+      seedConcern(sidecar, { concernId: "qtn", conversationId: "th", statement: "Quarantined E.", status: null });
+      quarantineConcern(sidecar, "qtn", "legacy_unavailable_source");
+      seedConcern(sidecar, { concernId: "for", conversationId: "th", statement: "Forgotten F.", status: null });
+      sidecar.prepare(
+        `UPDATE concerns SET statement = '', source_refs_json = '[]', assertion_key = NULL,
+             cognitive_status = NULL, forgotten = 1 WHERE concern_id = 'for'`,
+      ).run();
+      seedConcern(sidecar, { concernId: "oth", conversationId: "th2", statement: "Other thread." });
+      const executors = createV021LiveOperationExecutors({ nuclear, sidecar });
+      const observation = await executors.executeObservation(discoverRequest("cp", { discover: {} }));
+      expect(observation).toMatchObject({
+        modality: "tool",
+        provenance: "sidecar:concern.inspect",
+        dataClassification: "never_public",
+        secretOmitted: false,
+        replaySafe: true,
+      });
+      expect(observation.payload).toEqual({
+        result: "page",
+        concerns: [
+          { concernId: "dorm", cognitiveStatus: "dormant_but_revisitable", quarantineKind: null },
+          { concernId: "qtn", cognitiveStatus: null, quarantineKind: "legacy_unavailable_source" },
+          { concernId: "res", cognitiveStatus: "resolved", quarantineKind: null },
+          { concernId: "une", cognitiveStatus: null, quarantineKind: null },
+        ],
+        omittedCount: 0,
+        nextCursor: null,
+      });
+      expect(JSON.stringify(observation.payload)).not.toContain("statement");
+      expect(JSON.stringify(observation.payload)).not.toContain("act");
+      expect(JSON.stringify(observation.payload)).not.toContain("oth");
+      expect(utf8JsonBytes(observation)).toBeLessThanOrEqual(640);
+      expect(sidecar.prepare("SELECT COUNT(*) AS count FROM observations").get()).toMatchObject({ count: 0 });
+    } finally {
+      nuclear.close();
+      sidecar.close();
+    }
+  });
+
+  it("pages with a keyset cursor and reports omittedCount with nextCursor", async () => {
+    const nuclear = new DatabaseSync(":memory:");
+    const sidecar = openTestSidecar();
+    try {
+      admitTestCycle(sidecar, {
+        cycleId: "cycle-discover-cursor", conversationId: "thread-discover-cursor",
+        triggerKind: "owner_message", triggerRef: "owner-discover-cursor", occupantId: "doc", nowMs: 1,
+      });
+      for (const id of ["concern-1", "concern-2", "concern-3", "concern-4"]) {
+        seedConcern(sidecar, { concernId: id, conversationId: "thread-discover-cursor", statement: `${id} meaning.` });
+      }
+      const executors = createV021LiveOperationExecutors({ nuclear, sidecar });
+      const first = await executors.executeObservation(discoverRequest("cycle-discover-cursor", {
+        discover: { limit: 2 },
+      }));
+      expect(first.payload).toEqual({
+        result: "page",
+        concerns: [
+          { concernId: "concern-1", cognitiveStatus: "dormant_but_revisitable", quarantineKind: null },
+          { concernId: "concern-2", cognitiveStatus: "dormant_but_revisitable", quarantineKind: null },
+        ],
+        omittedCount: 2,
+        nextCursor: "concern-2",
+      });
+      const second = await executors.executeObservation(discoverRequest("cycle-discover-cursor", {
+        discover: { cursor: "concern-2", limit: 2 },
+      }));
+      expect(second.payload).toEqual({
+        result: "page",
+        concerns: [
+          { concernId: "concern-3", cognitiveStatus: "dormant_but_revisitable", quarantineKind: null },
+          { concernId: "concern-4", cognitiveStatus: "dormant_but_revisitable", quarantineKind: null },
+        ],
+        omittedCount: 0,
+        nextCursor: null,
+      });
+      expect(utf8JsonBytes(first)).toBeLessThanOrEqual(640);
+      expect(utf8JsonBytes(second)).toBeLessThanOrEqual(640);
+    } finally {
+      nuclear.close();
+      sidecar.close();
+    }
+  });
+
+  it("fails closed with cursor_invalid for a cursor outside the conversation window", async () => {
+    const nuclear = new DatabaseSync(":memory:");
+    const sidecar = openTestSidecar();
+    try {
+      admitTestCycle(sidecar, {
+        cycleId: "cycle-discover-bad-cursor", conversationId: "thread-discover-bad-cursor",
+        triggerKind: "owner_message", triggerRef: "owner-discover-bad-cursor", occupantId: "doc", nowMs: 1,
+      });
+      seedConcern(sidecar, { concernId: "concern-present", conversationId: "thread-discover-bad-cursor", statement: "Present." });
+      const executors = createV021LiveOperationExecutors({ nuclear, sidecar });
+      const observation = await executors.executeObservation(discoverRequest("cycle-discover-bad-cursor", {
+        discover: { cursor: "concern-absent" },
+      }));
+      expect(observation.payload).toEqual({
+        result: "cursor_invalid",
+        concerns: [],
+        omittedCount: 0,
+        nextCursor: null,
+      });
+      expect(utf8JsonBytes(observation)).toBeLessThanOrEqual(640);
+    } finally {
+      nuclear.close();
+      sidecar.close();
+    }
+  });
+
+  it("throws observation_unavailable when the cycle has no conversation binding", async () => {
+    const nuclear = new DatabaseSync(":memory:");
+    const sidecar = openTestSidecar();
+    try {
+      const executors = createV021LiveOperationExecutors({ nuclear, sidecar });
+      await expect(executors.executeObservation(discoverRequest("cycle-missing", {
+        discover: {},
+      }))).rejects.toThrow("observation_unavailable");
+    } finally {
+      nuclear.close();
+      sidecar.close();
+    }
+  });
+
+  it("shrinks the page to the 640-byte observation bound and keeps omittedCount truthful", async () => {
+    const nuclear = new DatabaseSync(":memory:");
+    const sidecar = openTestSidecar();
+    try {
+      admitTestCycle(sidecar, {
+        cycleId: "cycle-discover-bound", conversationId: "thread-discover-bound",
+        triggerKind: "owner_message", triggerRef: "owner-discover-bound", occupantId: "doc", nowMs: 1,
+      });
+      for (let index = 0; index < 24; index += 1) {
+        const id = `concern-bound-${String(index).padStart(2, "0")}-${"x".repeat(40)}`;
+        seedConcern(sidecar, { concernId: id, conversationId: "thread-discover-bound", statement: `Bound ${index}.` });
+      }
+      const executors = createV021LiveOperationExecutors({ nuclear, sidecar });
+      const observation = await executors.executeObservation(discoverRequest("cycle-discover-bound", {
+        discover: { limit: 64 },
+      }));
+      const payload = observation.payload as {
+        result: string;
+        concerns: Array<{ concernId: string }>;
+        omittedCount: number;
+        nextCursor: string | null;
+      };
+      expect(payload.result).toBe("page");
+      expect(payload.concerns.length).toBeGreaterThan(0);
+      expect(payload.concerns.length).toBeLessThan(24);
+      expect(payload.omittedCount).toBeGreaterThan(0);
+      expect(payload.nextCursor).toBe(payload.concerns.at(-1)?.concernId ?? null);
+      expect(utf8JsonBytes(observation)).toBeLessThanOrEqual(640);
+      expect(JSON.stringify(payload.concerns)).not.toContain("statement");
+    } finally {
+      nuclear.close();
+      sidecar.close();
+    }
+  });
+
+  it("never returns a binding-shaped payload on the discover branch", async () => {
+    const nuclear = new DatabaseSync(":memory:");
+    const sidecar = openTestSidecar();
+    try {
+      admitTestCycle(sidecar, {
+        cycleId: "cycle-discover-shape", conversationId: "thread-discover-shape",
+        triggerKind: "owner_message", triggerRef: "owner-discover-shape", occupantId: "doc", nowMs: 1,
+      });
+      seedConcern(sidecar, { concernId: "concern-shape", conversationId: "thread-discover-shape", statement: "Shape." });
+      const executors = createV021LiveOperationExecutors({ nuclear, sidecar });
+      const observation = await executors.executeObservation(discoverRequest("cycle-discover-shape", {
+        discover: {},
+      }));
+      const keys = Object.keys(observation.payload as Record<string, unknown>);
+      expect(keys.sort()).toEqual(["concerns", "nextCursor", "omittedCount", "result"]);
+      for (const forbidden of ["concernId", "statement", "class", "cognitiveStatus", "quarantine", "statementTruncated", "snapshotHash"]) {
+        expect(keys).not.toContain(forbidden);
+      }
+      const items = (observation.payload as { concerns: Array<Record<string, unknown>> }).concerns;
+      for (const item of items) {
+        expect(Object.keys(item).sort()).toEqual(["cognitiveStatus", "concernId", "quarantineKind"]);
+      }
+    } finally {
+      nuclear.close();
+      sidecar.close();
+    }
+  });
+});

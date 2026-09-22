@@ -307,9 +307,9 @@ describe("P1 occupied-concern projection", () => {
   it("keeps the Thought output semantic schema identity pinned", () => {
     expect(THOUGHT_OUTPUT_SCHEMA_FINGERPRINT).toBe(THOUGHT_SEMANTIC_SCHEMA_FINGERPRINT);
     // Rotation earned by the C1 initiativePreference shadow and the concern.inspect
-    // observation kind plus its contract instruction lines; parser identity is unchanged.
+    // discover union plus its contract instruction lines; parser identity is unchanged.
     expect(THOUGHT_OUTPUT_SCHEMA_FINGERPRINT).toBe(
-      "sha256:4b2c3458ce030eebf223df34fbbd6c95a8b37757443f0b5f3b89d5e5175bd744",
+      "sha256:430bf12adad24f96fb741aec2420479c15896c29b899f779c7b995aba22c6a48",
     );
   });
 });
