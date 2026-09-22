@@ -195,9 +195,14 @@ function withSyntheticC2(input: ThoughtInput): ThoughtInput & {
 
 describe("Whole-Thought Projection Allocator", () => {
   it("degrades ordinary recent history while retaining the exact current trigger", () => {
+    // Fixture calibration (same class as the E2b 16_384 -> 17_000 accommodation):
+    // C1 + concern.inspect instruction growth pushes the disclosed final wire
+    // ~90 tokens over the 32768 caller envelope at repeat(150), so row pressure
+    // eases 150 -> 145. Degradation shape below is unchanged (4 recent rows
+    // omitted, trigger retained exactly) with ~720 tokens headroom.
     const rows = makeConversationRows(
       12,
-      (index) => `synthetic ordinary recent context row ${index} `.repeat(150),
+      (index) => `synthetic ordinary recent context row ${index} `.repeat(145),
     );
     const input = withSyntheticC2(makeThoughtInput({
       rawConversation: rows,
