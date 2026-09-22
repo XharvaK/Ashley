@@ -730,7 +730,7 @@ describe("v0.2.1 semantic publication transaction", () => {
     }
   });
 
-  it("publishes first authorship for a quarantined NULL concern outside occupancy", () => {
+  it("creates coherent occupancy on quarantined NULL first authorship", () => {
     const db = openTestSidecar();
     try {
       const cycle = admitTestCycle(db, {
@@ -788,13 +788,87 @@ describe("v0.2.1 semantic publication transaction", () => {
             status: "active",
           },
         }],
+        occupancyDelta: [{
+          op: "set",
+          occupancy: {
+            conversationId: cycle.conversationId,
+            concernId: "concern-quarantined-null",
+            status: "active",
+            priority: 5,
+            updatedGeneration: 1,
+          },
+        }],
       }), { sourceCurrentness: capture.sourceCurrentness });
       expect(result).toMatchObject({ published: true });
       expect(db.prepare("SELECT cognitive_status, quarantine_kind FROM concerns WHERE concern_id = 'concern-quarantined-null'").get())
         .toMatchObject({ cognitive_status: "active", quarantine_kind: "legacy_unavailable_source" });
-      expect(db.prepare("SELECT COUNT(*) AS count FROM mind_occupancy WHERE concern_id = 'concern-quarantined-null'").get())
-        .toMatchObject({ count: 0 });
+      expect(db.prepare("SELECT status, priority, updated_cycle, updated_generation, conversation_id FROM mind_occupancy WHERE concern_id = 'concern-quarantined-null'").get())
+        .toMatchObject({ status: "active", priority: 5, updated_cycle: cycle.cycleId, updated_generation: 1, conversation_id: cycle.conversationId });
       expect(capture.sourceCurrentness.concernMembership ?? []).not.toContain("concern-quarantined-null");
+    } finally {
+      db.close();
+    }
+  });
+
+  it("refuses concern-only quarantined NULL first authorship without partial mutation", () => {
+    const db = openTestSidecar();
+    try {
+      const cycle = admitTestCycle(db, {
+        cycleId: "cycle-authorable-quarantined-alone",
+        conversationId: "thread-authorable-quarantined-alone",
+        triggerKind: "owner_message",
+        triggerRef: "one",
+        occupantId: "doc",
+        authorityEpoch: 1,
+        nowMs: 1,
+      });
+      applyConcernDelta(db, {
+        op: "upsert",
+        record: {
+          concernId: "concern-quarantined-null-alone",
+          conversationId: cycle.conversationId,
+          statement: "Quarantined concern awaiting first authorship.",
+          sourceTurnIds: [],
+          dimensions: { source: "owner_utterance", status: "asserted", time: "historical", reliability: "owner_supplied" },
+          assertionKey: null,
+          status: null,
+        },
+      }, { cycleId: "seed-authorable", generation: 1 });
+      db.prepare("UPDATE concerns SET quarantine_kind = 'legacy_unavailable_source' WHERE concern_id = 'concern-quarantined-null-alone'").run();
+      const capture = captureThoughtSourcePackage({
+        sidecar: db,
+        cycle,
+        constitution: { constitutional: ["truth"], stableSelf: ["careful"] },
+        capabilityReality: {
+          vision: false, attachmentText: false, conversationalRead: false, webSearch: false,
+          canOfferProjectInspection: false, canOfferWorkspace: false, canOfferVerification: false,
+          canOfferAuthorship: false, canOfferBoundedOperation: false, canOfferPatchExport: false,
+          approvedProjectIds: [],
+        },
+      } as any).sourceCurrentness;
+
+      expect(publishSemanticTransaction(db, settlement({
+        cycleId: cycle.cycleId,
+        triggerRef: cycle.conversationId,
+        workingContextDelta: [],
+        concernDeltas: [{
+          op: "upsert",
+          record: {
+            concernId: "concern-quarantined-null-alone",
+            conversationId: cycle.conversationId,
+            statement: "Quarantined concern awaiting first authorship.",
+            sourceTurnIds: [],
+            dimensions: { source: "ashley_interpretation", status: "asserted", time: "current", reliability: "inferred" },
+            assertionKey: null,
+            status: "active",
+          },
+        }],
+      }), { sourceCurrentness: capture })).toMatchObject({ published: false, reason: "source_currentness_stale" });
+      expect(db.prepare("SELECT cognitive_status, quarantine_kind FROM concerns WHERE concern_id = 'concern-quarantined-null-alone'").get())
+        .toMatchObject({ cognitive_status: null, quarantine_kind: "legacy_unavailable_source" });
+      expect(db.prepare("SELECT COUNT(*) AS count FROM mind_occupancy WHERE concern_id = 'concern-quarantined-null-alone'").get())
+        .toMatchObject({ count: 0 });
+      expect(db.prepare("SELECT COUNT(*) AS count FROM settlements").get()).toMatchObject({ count: 0 });
     } finally {
       db.close();
     }

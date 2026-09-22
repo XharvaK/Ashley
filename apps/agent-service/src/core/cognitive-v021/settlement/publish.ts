@@ -226,8 +226,11 @@ function applyNomination(db: DatabaseSync, nomination: DurableNomination): void 
  * When Thought submits both a concern delta and an occupancy delta for the
  * same concern with different statuses, Host must not invent which one Thought
  * "really meant": the settlement is refused before either mutation is applied.
+ * A NULL to non-null first authorship without its paired occupancy delta is
+ * also refused: Host cannot invent cognition-owned priority or generation.
  */
 export function assertPairedConcernOccupancyCoherence(
+  db: DatabaseSync,
   settlement: PublishedCognitiveSettlement,
 ): void {
   const concernStatuses = new Map<string, CognitiveStatus | null>();
@@ -235,11 +238,24 @@ export function assertPairedConcernOccupancyCoherence(
     const concernId = delta.op === "resolve" ? delta.concernId : delta.record.concernId;
     concernStatuses.set(concernId, delta.op === "resolve" ? "resolved" : delta.record.status);
   }
+  const occupancyStatuses = new Map<string, CognitiveStatus>();
   for (const delta of (settlement.occupancyDelta ?? [])) {
-    const expected = concernStatuses.get(delta.occupancy.concernId);
-    if (expected !== undefined && expected !== delta.occupancy.status) {
+    occupancyStatuses.set(delta.occupancy.concernId, delta.occupancy.status);
+  }
+  for (const [concernId, expected] of concernStatuses) {
+    const paired = occupancyStatuses.get(concernId);
+    if (paired !== undefined && expected !== paired) {
       throw new Error("concern_occupancy_status_mismatch");
     }
+    if (paired !== undefined || expected === null) continue;
+    const facts = getConcernAuthorityFacts(db, concernId);
+    if (!facts || facts.forgotten) continue;
+    const existing = db.prepare(
+      "SELECT 1 AS present FROM mind_occupancy WHERE concern_id = ? LIMIT 1",
+    ).get(concernId) != null;
+    if (existing) continue;
+    if (facts.cognitiveStatus !== null) continue;
+    throw new Error("concern_first_authorship_occupancy_required");
   }
 }
 
@@ -431,7 +447,7 @@ export function publishSemanticTransaction(
     }
 
     try {
-      assertPairedConcernOccupancyCoherence(settlement);
+      assertPairedConcernOccupancyCoherence(db, settlement);
     } catch {
       db.exec("ROLLBACK");
       sidecarTransactionOpen = false;
