@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   checkAuthority,
+  CONCERN_DISCOVERY_K,
   evaluateExternalizationGate,
   invokeThoughtComplete,
   publishSemanticTransaction,
@@ -13,6 +14,7 @@ import type {
   AuthorityStage,
   CapabilityReality,
   CognitiveSettlement,
+  CognitiveStatus,
   CognitiveWorkspace,
   ConcernDelta,
   ConcernRecord,
@@ -55,6 +57,7 @@ import type {
   OutboxDeliveryProjector,
   OutboxSendStatus,
   PublishedCognitiveSettlement,
+  QuarantineKind,
   RememberDirective,
   RetrievalEvidenceSource,
   RetrievalHit,
@@ -82,6 +85,7 @@ type FrozenTypeNames = [
   AuthorityStage,
   CapabilityReality,
   CognitiveSettlement,
+  CognitiveStatus,
   CognitiveWorkspace,
   ConcernDelta,
   ConcernRecord,
@@ -124,6 +128,7 @@ type FrozenTypeNames = [
   OutboxDeliveryProjector,
   OutboxSendStatus,
   PublishedCognitiveSettlement,
+  QuarantineKind,
   RememberDirective,
   RetrievalEvidenceSource,
   RetrievalHit,
@@ -159,5 +164,9 @@ describe("cognitive v0.2.1 frozen exports", () => {
     expect(publishSemanticTransaction).toBeTypeOf("function");
     expect(runCognitiveCycle).toBeTypeOf("function");
     expect(validateThoughtSettlementDraft).toBeTypeOf("function");
+  });
+
+  it("re-exports the concern status unions and the discovery bound", () => {
+    expect(CONCERN_DISCOVERY_K).toBe(32);
   });
 });

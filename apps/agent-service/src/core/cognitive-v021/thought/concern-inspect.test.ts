@@ -179,6 +179,21 @@ describe("concern.inspect dedicated capture and parse authority", () => {
       }],
     }, ordinary)).toMatchObject({ ok: false });
     expect(parseThoughtSemanticOutput({
+      kind: "settlement",
+      speech: { mode: "none" },
+      concernDeltas: [{
+        op: "upsert",
+        record: {
+          identity: { kind: "existing", ref: "owner-1" },
+          statement: "quarantine is Host authority, never cognition-authored",
+          sourceTurnRefs: [],
+          dimensions: { source: "owner_utterance", status: "asserted", time: "historical", reliability: "owner_supplied" },
+          status: "active",
+          quarantine_kind: "legacy_unavailable_source",
+        },
+      }],
+    }, ordinary)).toMatchObject({ ok: false, code: "wrong_type", field: "concernDeltas" });
+    expect(parseThoughtSemanticOutput({
       kind: "observation_intent",
       operationKind: "project.inspect",
       request: { projectId: "project-ashley" },

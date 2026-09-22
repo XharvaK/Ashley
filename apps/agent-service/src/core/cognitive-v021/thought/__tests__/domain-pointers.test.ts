@@ -4,6 +4,7 @@ import { openTestSidecar } from "../../test-support.js";
 import { openNuclearDb } from "../../../db.js";
 import { currentBuildIdentity, currentContractId } from "../../../rollout/capabilities.js";
 import { buildDomainPointers } from "../domain-pointers.js";
+import { CONCERN_DISCOVERY_K } from "../../types.js";
 
 describe("MAT-II domain pointers", () => {
   it("projects compact IDs, status, and timestamps without operational payloads", () => {
@@ -236,6 +237,93 @@ describe("MAT-II domain pointers", () => {
     } finally {
       nuclear.close();
       sidecar.close();
+    }
+  });
+
+  it("bounds the discovery window at CONCERN_DISCOVERY_K with exact omitted counts", () => {
+    const db = openTestSidecar();
+    try {
+      const insert = db.prepare(
+        `INSERT INTO concerns
+           (concern_id, conversation_id, statement, source_refs_json, dimensions_json, assertion_key, cognitive_status, snapshot_hash, updated_cycle)
+         VALUES (?, ?, ?, '[]', '{}', NULL, NULL, 'snapshot', ?)`
+      );
+      for (let index = 0; index < CONCERN_DISCOVERY_K + 5; index += 1) {
+        insert.run(`concern-${String(index).padStart(3, "0")}`, "conversation-1", "private text", "cycle-1");
+      }
+
+      const pointer = buildDomainPointers(db, "conversation-1", "cycle-1").pointers
+        .find((candidate) => candidate.domain === "concerns");
+      const discovery = pointer?.concernDiscovery;
+      expect(discovery).toBeDefined();
+      expect(discovery?.inspectableIds).toHaveLength(CONCERN_DISCOVERY_K);
+      expect(discovery?.inspectableOmittedCount).toBe(5);
+      expect(discovery?.inspectableIds).toEqual([...(discovery?.inspectableIds ?? [])].sort());
+      expect(discovery?.revisitableIds).toEqual([]);
+      expect(discovery?.revisitableOmittedCount).toBe(0);
+      expect(pointer?.entityIds).toEqual([]);
+      expect(pointer?.disposition).toBe("INELIGIBLE");
+    } finally {
+      db.close();
+    }
+  });
+
+  it("excludes forgotten rows from source counts, membership, and the discovery window", () => {
+    const db = openTestSidecar();
+    try {
+      const forgotten = db.prepare(
+        `INSERT INTO concerns
+           (concern_id, conversation_id, statement, source_refs_json, dimensions_json, assertion_key, cognitive_status, snapshot_hash, updated_cycle, forgotten)
+         VALUES (?, ?, ?, '[]', '{}', NULL, NULL, 'snapshot', ?, 1)`
+      );
+      for (const id of ["concern-for-a", "concern-for-b", "concern-for-c"]) {
+        forgotten.run(id, "conversation-1", "private text", "cycle-1");
+      }
+      db.prepare(
+        `INSERT INTO concerns
+           (concern_id, conversation_id, statement, source_refs_json, dimensions_json, assertion_key, cognitive_status, snapshot_hash, updated_cycle)
+         VALUES (?, ?, ?, '[]', '{}', NULL, 'active', 'snapshot', ?)`
+      ).run("concern-live-a", "conversation-1", "private text", "cycle-1");
+      db.prepare(
+        `INSERT INTO concerns
+           (concern_id, conversation_id, statement, source_refs_json, dimensions_json, assertion_key, cognitive_status, snapshot_hash, updated_cycle)
+         VALUES (?, ?, ?, '[]', '{}', NULL, 'active', 'snapshot', ?)`
+      ).run("concern-live-b", "conversation-1", "private text", "cycle-1");
+
+      const pointer = buildDomainPointers(db, "conversation-1", "cycle-1").pointers
+        .find((candidate) => candidate.domain === "concerns");
+      expect(pointer?.entityIds).toEqual(["concern-live-a", "concern-live-b"]);
+      expect(pointer?.concernDiscovery?.inspectableIds).toEqual([]);
+      expect(pointer?.concernDiscovery?.inspectableOmittedCount).toBe(0);
+      expect(pointer?.concernDiscovery?.concernAuthorableTargetIds).toEqual([]);
+      expect(JSON.stringify(pointer)).not.toContain("concern-for-");
+    } finally {
+      db.close();
+    }
+  });
+
+  it("presents only-forgotten conversations as EMPTY without leaking forgotten existence", () => {
+    const db = openTestSidecar();
+    try {
+      const insert = db.prepare(
+        `INSERT INTO concerns
+           (concern_id, conversation_id, statement, source_refs_json, dimensions_json, assertion_key, cognitive_status, snapshot_hash, updated_cycle, forgotten)
+         VALUES (?, ?, ?, '[]', '{}', NULL, NULL, 'snapshot', ?, 1)`
+      );
+      for (const id of ["concern-for-1", "concern-for-2", "concern-for-3"]) {
+        insert.run(id, "conversation-1", "private text", "cycle-1");
+      }
+
+      const pointer = buildDomainPointers(db, "conversation-1", "cycle-1").pointers
+        .find((candidate) => candidate.domain === "concerns");
+      expect(pointer?.disposition).toBe("EMPTY");
+      expect(pointer?.entityIds).toEqual([]);
+      expect(pointer?.concernDiscovery?.inspectableIds).toEqual([]);
+      expect(pointer?.concernDiscovery?.inspectableOmittedCount).toBe(0);
+      expect(pointer?.concernDiscovery?.concernAuthorableTargetIds).toEqual([]);
+      expect(JSON.stringify(pointer)).not.toContain("concern-for-");
+    } finally {
+      db.close();
     }
   });
 });
