@@ -30,8 +30,8 @@ export const ROUTE_BINDINGS: readonly RouteBinding[] = [
   },
   {
     route: "thought",
-    provider: "cloudflare",
-    configuredModelId: "@cf/zai-org/glm-5.3-flash",
+    provider: "command_code",
+    configuredModelId: "meta/muse-spark-1.3-contributor",
     contextProfile: "thought_summary",
     enabled: true,
   },

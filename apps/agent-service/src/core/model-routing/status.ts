@@ -127,10 +127,7 @@ export function routingStatus(db: DatabaseSync): RoutingRouteStatus[] {
       r.provider as ProviderId,
       r.configuredModelId,
     ) as QuotaBucket;
-    const contract: QuotaContract =
-      typeof r.quotaContract === "object"
-        ? r.quotaContract
-        : quotaContractFor(bucket);
+    const contract: QuotaContract = quotaContractFor(bucket);
     const tpmUsed = currentTpmUsage(db, realClock, bucket);
     const lastSuccess = lastSuccessByBucket.get(bucket);
     const lastError = lastErrorByBucket.get(bucket);

@@ -34,6 +34,7 @@ type FamilyMatch = {
 
 type FamilyPolicyEntry =
   | { kind: "reasoning_effort"; value: "none" | "low" | "medium" | "high" }
+  | { kind: "command_code_reasoning_effort"; value: "xhigh" }
   | { kind: "cloudflare_native_default"; effectiveDefault: "max" }
   | {
       kind: "groq_reasoning_effort";
@@ -93,6 +94,12 @@ function parsePolicyEntry(
       throw new Error(`invalid_reasoning_maps:${familyId}:${policy}:effort`);
     }
     return { kind: "reasoning_effort", value: entry.value };
+  }
+  if (entry.kind === "command_code_reasoning_effort") {
+    if (entry.value !== "xhigh") {
+      throw new Error(`invalid_reasoning_maps:${familyId}:${policy}:command_code`);
+    }
+    return { kind: "command_code_reasoning_effort", value: "xhigh" };
   }
   if (entry.kind === "cloudflare_native_default") {
     if (entry.effectiveDefault !== "max") {
@@ -295,6 +302,13 @@ export function translateReasoningPolicy(input: {
       control: { kind: "reasoning_effort", value: entry.value },
     };
   }
+  if (entry.kind === "command_code_reasoning_effort") {
+    return {
+      status: "translated",
+      familyId: family.familyId,
+      control: { kind: "command_code_reasoning_effort", value: "xhigh" },
+    };
+  }
   if (entry.kind === "groq_reasoning_effort") {
     return {
       status: "translated",
@@ -336,6 +350,9 @@ export function formatTranslatedWireControl(
   if (control.kind === "reasoning_effort") {
     return `reasoning_effort=${control.value}`;
   }
+  if (control.kind === "command_code_reasoning_effort") {
+    return `reasoning_effort=${control.value}`;
+  }
   if (control.kind === "groq_reasoning_effort") {
     return `reasoning_effort=${control.value};reasoning_format=${control.reasoningFormat}`;
   }
@@ -355,6 +372,9 @@ export function toTrustedReasoningControl(
 ): TrustedReasoningControl {
   if (control.kind === "reasoning_effort") {
     return { kind: "reasoning_effort", value: control.value };
+  }
+  if (control.kind === "command_code_reasoning_effort") {
+    return { kind: "command_code_reasoning_effort", value: "xhigh" };
   }
   if (control.kind === "groq_reasoning_effort") {
     return {
@@ -447,6 +467,9 @@ export function applyTranslatedControlToNimBody(
     return;
   }
   if (control.kind === "groq_reasoning_effort") {
+    throw new Error("nim_reasoning_control_mismatch");
+  }
+  if (control.kind === "command_code_reasoning_effort") {
     throw new Error("nim_reasoning_control_mismatch");
   }
   if (control.kind === "cloudflare_native_default") {

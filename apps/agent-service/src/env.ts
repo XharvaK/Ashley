@@ -180,6 +180,7 @@ function createEnv() {
   // the direct account endpoint; neither value is logged or sent to Thought.
   cloudflareApiToken: process.env.CLOUDFLARE_API_TOKEN ?? "",
   cloudflareAccountId: process.env.CLOUDFLARE_ACCOUNT_ID ?? "",
+  commandCodeApiKey: process.env.COMMAND_CODE_API_KEY ?? "",
   // Stable Host-owned routing-locality identifier for the exact Cloudflare
   // DeepSeek Thought route. Non-secret, opaque, never model-visible, never
   // logged raw. Empty/unset means affinity is intentionally disabled.
@@ -189,6 +190,12 @@ function createEnv() {
   opencodeZenApiKey: process.env.OPENCODE_ZEN_API_KEY ?? "",
   opencodeZenBaseUrl:
     process.env.OPENCODE_ZEN_BASE_URL ?? "https://opencode.ai/zen/v1",
+  // Command Code CLI worker. It receives no project mount; Host tool dispatch
+  // remains the only path to the admitted project/workspace operations.
+  commandCodeWorkerEnabled: strictBoolean("ASHLEY_COMMAND_CODE_WORKER_ENABLED", false),
+  commandCodeBinaryPath: process.env.ASHLEY_COMMAND_CODE_BIN?.trim() ?? "",
+  commandCodeBubblewrapPath: strictTrimmed("ASHLEY_COMMAND_CODE_BWRAP_BIN", "/usr/bin/bwrap"),
+  commandCodePinnedVersion: strictTrimmed("ASHLEY_COMMAND_CODE_PINNED_VERSION", "1.64.0"),
   // Visible Expression fallback (Wave 3): composition owns whether fallback
   // may run on an eligible turn; Model Fabric owns the provider/model selected
   // for the resolved ashley_expression_fallback route. ON by default; opt out

@@ -17,7 +17,7 @@ import type { ThoughtInvocationContext } from "../cognitive-v021/types.js";
  * `provider:configuredApiModelId`; `resolved_model_id` stays continuity-only.
  */
 
-export type ProviderId = "mistral" | "groq" | "nim" | "cloudflare" | "opencode_zen";
+export type ProviderId = "mistral" | "groq" | "nim" | "cloudflare" | "opencode_zen" | "command_code";
 
 /** Non-secret Mistral account seat used only for bounded credential failover. */
 export type MistralCredentialSeat = "mistral_primary" | "mistral_secondary";
@@ -377,6 +377,7 @@ export type WireDispatchEvidence = Readonly<{
  */
 export type TrustedReasoningControl =
   | { kind: "reasoning_effort"; value: "none" | "low" | "medium" | "high" }
+  | { kind: "command_code_reasoning_effort"; value: "xhigh" }
   | {
       kind: "groq_reasoning_effort";
       value: "default" | "medium";

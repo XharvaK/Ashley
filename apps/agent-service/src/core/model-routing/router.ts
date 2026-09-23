@@ -1,6 +1,7 @@
 import { env } from "../../env.js";
 import { AppError } from "../../errors.js";
 import { routeRecordsFromCurrentPortfolio } from "../model-fabric/portfolio.js";
+import type { PortfolioQuotaContract } from "../model-fabric/portfolio.js";
 import { ROUTE_BINDINGS, routeBinding } from "./registry.js";
 import type {
   ContextProfile,
@@ -24,7 +25,7 @@ export type RouteRecord = {
   configuredModelId: string;
   contextProfile: ContextProfile;
   enabled: boolean;
-  quotaContract: QuotaContract | "env";
+  quotaContract: PortfolioQuotaContract;
 };
 
 export function loadRouteRecords(): RouteRecord[] {
@@ -34,7 +35,7 @@ export function loadRouteRecords(): RouteRecord[] {
     configuredModelId: record.configuredModelId,
     contextProfile: record.contextProfile as ContextProfile,
     enabled: record.enabled,
-    quotaContract: record.quotaContract as QuotaContract | "env",
+    quotaContract: record.quotaContract,
   }));
 }
 
@@ -50,6 +51,8 @@ function contractForProvider(provider: ProviderId): QuotaContract | "env" {
       return { rps: 30, rpm: 600, rpd: 600, tpm: 524288, tpd: 120000 };
     case "opencode_zen":
       return { rps: 10, rpm: 600, rpd: 600, tpm: 16000, tpd: 120000 };
+    case "command_code":
+      return { rps: 1, rpm: 60, rpd: 3600, tpm: 524288, tpd: 524288 * 1440 };
     default:
       return "env";
   }
@@ -114,6 +117,8 @@ function providerKeyPresent(provider: ProviderId): boolean {
       return Boolean(env.cloudflareApiToken && env.cloudflareAccountId);
     case "opencode_zen":
       return Boolean(env.opencodeZenApiKey);
+    case "command_code":
+      return Boolean(env.commandCodeApiKey);
     default:
       return false;
   }
@@ -155,7 +160,15 @@ export function routeForBucket(bucket: QuotaBucket): RouteRecord | undefined {
 export function quotaContractFor(bucket: QuotaBucket): QuotaContract {
   const record = routeForBucket(bucket);
   if (record?.enabled && record.quotaContract !== "env") {
-    return record.quotaContract;
+    const configured = record.quotaContract;
+    const rps = configured.rps ?? 1;
+    return {
+      rps,
+      rpm: configured.rpm ?? rps * 60,
+      rpd: configured.rpd ?? rps * 3600,
+      tpm: configured.tpm,
+      tpd: configured.tpd ?? configured.tpm * 1440,
+    };
   }
   if (!record || !record.enabled) {
     const provider = bucket.split(":", 1)[0] as ProviderId | undefined;

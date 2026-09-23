@@ -14,11 +14,11 @@ import type {
 export type PortfolioQuotaContract =
   | "env"
   | {
-      rps: number;
-      rpm: number;
-      rpd: number;
+      rps: number | null;
+      rpm: number | null;
+      rpd: number | null;
       tpm: number;
-      tpd: number;
+      tpd: number | null;
     };
 
 export type CurrentRouteRecord = {

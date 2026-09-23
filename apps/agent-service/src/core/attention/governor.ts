@@ -133,9 +133,11 @@ export async function runAttentiveDispatch<T>(
       ? env.mistralModel
       : providerId === "nim"
         ? "openai/gpt-oss-20b"
-        : providerId === "opencode_zen"
-          ? "minimax/minimax-m2"
-          : env.groqDefaultModel);
+      : providerId === "opencode_zen"
+        ? "minimax/minimax-m2"
+        : providerId === "command_code"
+          ? "meta/muse-spark-1.3-contributor"
+        : env.groqDefaultModel);
   const quotaBucket = input.quotaBucket ?? `${providerId}:${modelAlias}`;
   // Provider-specific key gate — no attention reservation / no limiter consumption.
   if (providerId === "mistral" && !env.mistralApiKey) {
@@ -153,6 +155,9 @@ export async function runAttentiveDispatch<T>(
   }
   if (providerId === "opencode_zen" && !env.opencodeZenApiKey) {
     throw new AppError("agent_not_ready", "OpenCode Zen API key not configured", 503);
+  }
+  if (providerId === "command_code" && !env.commandCodeApiKey) {
+    throw new AppError("agent_not_ready", "Command Code Provider API credential not configured", 503);
   }
   if (providerId === "cloudflare" && (!env.cloudflareApiToken || !env.cloudflareAccountId)) {
     throw new AppError(

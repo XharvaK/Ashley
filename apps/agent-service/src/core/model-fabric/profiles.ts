@@ -33,10 +33,12 @@ const MODEL_OUTPUT_CEILINGS: Readonly<Record<string, number>> = {
   "cloudflare:@cf/nvidia/nemotron-3-120b-a12b": 8192,
   "cloudflare:@cf/deepseek-ai/deepseek-v4-flash-0731": 65536,
   "cloudflare:@cf/zai-org/glm-5.3-flash": 65536,
+  "command_code:meta/muse-spark-1.3-contributor": 65536,
 };
 
 const MODEL_CONTEXT_LIMITS: Readonly<Record<string, number>> = {
   "cloudflare:@cf/deepseek-ai/deepseek-v4-flash-0731": 32768,
+  "command_code:meta/muse-spark-1.3-contributor": 1_048_576,
 };
 
 const MISTRAL_SMALL = "mistral-small-2603";
@@ -93,7 +95,9 @@ function mechanicalDefinition(
     reasoning: {
       mode: "configurable",
       efforts:
-        provider === "cloudflare" && configuredModelId === CLOUDFLARE_GLM_5_3_FLASH
+        provider === "command_code" && configuredModelId === "meta/muse-spark-1.3-contributor"
+          ? ["xhigh"]
+          : provider === "cloudflare" && configuredModelId === CLOUDFLARE_GLM_5_3_FLASH
           ? ["low", "high", "max"]
           : provider === "mistral" && configuredModelId === MISTRAL_SMALL
           ? ["none", "high"]
@@ -262,6 +266,8 @@ export function backendFor(provider: string): string {
       return "nim";
     case "cloudflare":
       return "cloudflare";
+    case "command_code":
+      return "command_code_provider";
     default:
       return provider;
   }

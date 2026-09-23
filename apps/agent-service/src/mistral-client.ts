@@ -30,6 +30,11 @@ import {
   mapCloudflareError,
 } from "./core/model-routing/adapters/cloudflare-adapter.js";
 import {
+  createCommandCodeAdapter,
+  commandCodeRequestWireAdditionalBytes,
+  mapCommandCodeError,
+} from "./core/model-routing/adapters/command-code-adapter.js";
+import {
   createZenAdapter,
   mapZenError,
 } from "./core/model-routing/adapters/zen-adapter.js";
@@ -220,6 +225,15 @@ function adapterFor(provider: ProviderId): ModelProviderAdapter {
     adapter = createCloudflareAdapter();
   } else if (provider === "opencode_zen") {
     adapter = createZenAdapter();
+  } else if (provider === "command_code") {
+    if (!env.commandCodeApiKey) {
+      throw new AppError(
+        "agent_not_ready",
+        "Command Code Provider API credential not configured",
+        503,
+      );
+    }
+    adapter = createCommandCodeAdapter();
   } else {
     // Unknown / not-yet-implemented providers fail closed.
     throw new AppError(
@@ -617,7 +631,8 @@ export async function completeChat(
         fingerprintTranslated = translatedWireControl ?? undefined;
         fingerprintReasoning =
           translated.control.kind === "reasoning_effort" ||
-          translated.control.kind === "groq_reasoning_effort"
+          translated.control.kind === "groq_reasoning_effort" ||
+          translated.control.kind === "command_code_reasoning_effort"
             ? translated.control.value
             : null;
       } else if (translated.status === "unsupported") {
@@ -886,7 +901,26 @@ export async function completeChat(
           ),
           toolsJson,
         })
-      : undefined;
+      : targetProvider === "command_code"
+        ? commandCodeRequestWireAdditionalBytes({
+            messages,
+            modelId: targetModel,
+            options: {
+              ...options,
+              model: targetModel,
+              maxTokens: dispatchContract.maxTokens,
+              responseFormat: dispatchContract.responseFormat,
+              reasoningEffort: attemptContext.fabricReasoning
+                ? undefined
+                : completionReasoning(
+                    attemptContext.effectiveReasoning ?? attemptContext.requestedWireReasoning,
+                  ),
+            },
+            fabricReasoning: attemptContext.fabricReasoning,
+            fabricStructuredOutput: dispatchContract.structuredOutput ?? undefined,
+            credentialSeat,
+          })
+        : undefined;
     try {
       const result = await runAttentiveDispatch<{
         text: string;
@@ -1119,6 +1153,8 @@ export async function completeChat(
                         ? mapCloudflareError(err)
                       : targetProvider === "opencode_zen"
                         ? mapZenError(err)
+                      : targetProvider === "command_code"
+                        ? mapCommandCodeError(err)
                       : err;
               attachProviderBoundaryFact(mappedError, "providerBoundaryControls", providerBoundaryControls);
               attachProviderBoundaryFact(mappedError, "providerBoundaryTiming", providerBoundaryTiming);
@@ -1135,11 +1171,12 @@ export async function completeChat(
       const returnedModel = result.result.providerModel?.trim() || null;
       if (
         currentPolicy.source !== "activated" &&
-        (targetProvider === "mistral" || targetProvider === "cloudflare") &&
+        (targetProvider === "mistral" || targetProvider === "cloudflare" || targetProvider === "command_code") &&
         isThoughtOwnedPurpose(purpose, logicalRole) &&
         targetModel === currentPolicy.occupant.configuredModelId &&
-        returnedModel !== null &&
-        returnedModel !== targetModel
+        (targetProvider === "command_code"
+          ? returnedModel !== targetModel
+          : returnedModel !== null && returnedModel !== targetModel)
       ) {
         const identityError = new AppError(
           "capability_mismatch",
