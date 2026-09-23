@@ -76,7 +76,9 @@ describe("command-code-worker", () => {
     expect(args).toContain("--tmpfs /tmp");
     expect(args).toContain("--ro-bind /opt/command-code/runtime /opt");
     expect(args).toContain("--effort xhigh");
-    expect(args).toContain("--max-turns 1");
+    const maxTurnsIndex = invocation.args.indexOf("--max-turns");
+    expect(maxTurnsIndex).toBeGreaterThanOrEqual(0);
+    expect(Number(invocation.args[maxTurnsIndex + 1])).toBe(64);
     expect(args).toContain("--output-format json");
     expect(args).toContain("--permission-mode plan");
     expect(args).toContain("--no-session");

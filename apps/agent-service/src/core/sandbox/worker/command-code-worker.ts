@@ -237,7 +237,7 @@ export function buildCommandCodeInvocation(input: CommandCodeInvocationInput): C
     scriptInSandbox,
     "--model", COMMAND_CODE_WORKER_MODEL_ID,
     "--effort", COMMAND_CODE_WORKER_EFFORT,
-    "--max-turns", "1",
+    "--max-turns", "64",
     "--output-format", "json",
     "--permission-mode", "plan",
     "--skip-onboarding",
