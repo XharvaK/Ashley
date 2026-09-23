@@ -1,15 +1,13 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { DatabaseSync } from "node:sqlite";
+import { openNuclearDb } from "../../db.js";
 import { appendInboxEvent } from "../cycle/inbox.js";
 import { appendOwnerUtterance } from "../evidence/conversation-log.js";
 import { applyConcernDelta } from "../concerns/lineage.js";
 import { admitTestCycle, makeSemanticSettlement, openTestSidecar } from "../test-support.js";
 import type { CapabilityReality, IdentitySlice, KernelDeps, Observation } from "../types.js";
-import { cleanupClonedNuclearDbs, openClonedNuclearDb } from "../../nuclear-test-template.js";
 import { incrementThoughtAttemptCounter } from "./counters.js";
 import { runCognitiveCycle } from "./run.js";
-
-afterEach(cleanupClonedNuclearDbs);
 
 const constitution: IdentitySlice = { constitutional: ["truth first"], stableSelf: ["curious"] };
 const capabilityReality: CapabilityReality = {
@@ -123,7 +121,7 @@ function discoveryObservation(cycleId: string, generation: number, concernId: st
 describe("C2 concern discovery lifecycle boundaries", () => {
   it("does not defer discovered authority when discovery is the final pass", async () => {
     const sidecar = openTestSidecar();
-    const nuclear = openClonedNuclearDb();
+    const nuclear = openNuclearDb(new DatabaseSync(":memory:"));
     const conversationId = "thread-discovery-final-pass";
     const { cycle, evidence, event } = setupThread(
       sidecar,
@@ -169,7 +167,7 @@ describe("C2 concern discovery lifecycle boundaries", () => {
 
   it("does not carry a discovery grant into the next cycle", async () => {
     const sidecar = openTestSidecar();
-    const nuclear = openClonedNuclearDb();
+    const nuclear = openNuclearDb(new DatabaseSync(":memory:"));
     const conversationId = "thread-discovery-next-cycle";
     seedResolvedConcerns(sidecar, conversationId, 33);
     const first = setupThread(sidecar, conversationId, "cycle-discovery-first", "owner-discovery-first");
