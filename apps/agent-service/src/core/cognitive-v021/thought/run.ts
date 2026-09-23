@@ -81,7 +81,7 @@ import {
 } from "../../relationship/commitment-admission.js";
 import { captureOwnerDispatchCoverage, proveExactOwnerSupersession } from "../cycle/owner-coverage.js";
 import { getConversationEvidence, listConversationEvidence } from "../evidence/conversation-log.js";
-import { listInFlight } from "../effect/in-flight.js";
+import { listInFlightForThoughtCycle } from "../effect/in-flight.js";
 import { dispatchEffect } from "../effect/proposal.js";
 import {
   buildOperationalEffectNamespace,
@@ -383,7 +383,7 @@ export type ThoughtCompleteInvoker = (
  * only keeps a corrective retry admissible under the shared rolling TPM
  * contract.
  */
-export const STRUCTURAL_RETRY_MAX_OUTPUT_TOKENS = 16_384;
+export const STRUCTURAL_RETRY_MAX_OUTPUT_TOKENS = 65_536;
 
 /** The single adapter boundary for Thought dispatch. attentionDb is mandatory. */
 export async function invokeThoughtComplete(
@@ -1541,6 +1541,7 @@ export async function runThoughtModel(
       const structuralFeedback = createThoughtStructuralFeedback({
         code: diagnosticCode,
         field: semanticResult.field,
+        epistemicRepairs: semanticResult.epistemicRepairs,
         allowlistedReferences: semanticReferencesForInput(input),
         previousCandidate: previousFeedback?.previousCandidate
           ?? parseThoughtStructuralCandidate(completion.text),
@@ -2735,7 +2736,7 @@ export async function runCognitiveCycle(
     }
   };
   let observationsForThought = await perceive();
-  let inFlight = listInFlight(sidecar, cycle.cycleId);
+  let inFlight = listInFlightForThoughtCycle(sidecar, cycle.cycleId);
   let counters = getThoughtAttemptCounters(sidecar, cycle.cycleId, cycle.generation);
   let pass = counters.acceptedThoughtPasses + 1;
   let structuralRetriesForPass = persistedMalformedRetries(sidecar, cycle.cycleId, cycle.generation, pass);
@@ -2982,7 +2983,7 @@ export async function runCognitiveCycle(
         triggerEvidence = latest ?? triggerEvidence;
         ownerMessage = latest?.text ?? ownerMessage;
         observationsForThought = await perceive();
-        inFlight = listInFlight(sidecar, cycle.cycleId);
+        inFlight = listInFlightForThoughtCycle(sidecar, cycle.cycleId);
         authorityObjections = [];
         settlementRevisionFeedback = undefined;
         structuralFeedback = null;
@@ -3494,7 +3495,7 @@ export async function runCognitiveCycle(
           dispatchTerminal,
         );
       }
-      inFlight = listInFlight(sidecar, cycle.cycleId);
+      inFlight = listInFlightForThoughtCycle(sidecar, cycle.cycleId);
       beginThoughtLeg();
       pass += 1;
       structuralRetriesForPass = persistedMalformedRetries(sidecar, cycle.cycleId, cycle.generation, pass);

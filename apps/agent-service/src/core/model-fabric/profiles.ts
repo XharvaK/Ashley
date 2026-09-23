@@ -31,7 +31,7 @@ const MODEL_OUTPUT_CEILINGS: Readonly<Record<string, number>> = {
   "groq:qwen/qwen3.6-27b": 4096,
   "groq:qwen/qwen3.8-27b": 4096,
   "cloudflare:@cf/nvidia/nemotron-3-120b-a12b": 8192,
-  "cloudflare:@cf/deepseek-ai/deepseek-v4-flash-0731": 16384,
+  "cloudflare:@cf/deepseek-ai/deepseek-v4-flash-0731": 65536,
 };
 
 const MODEL_CONTEXT_LIMITS: Readonly<Record<string, number>> = {

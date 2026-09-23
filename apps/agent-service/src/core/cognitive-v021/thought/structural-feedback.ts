@@ -3,6 +3,11 @@ import type {
   ThoughtParserFailureCode,
 } from "../types.js";
 import { buildReferenceAllowlist } from "./reference-allowlist.js";
+import {
+  EPISTEMIC_DIMENSIONS,
+  type EpistemicDimension,
+  type EpistemicDimensionRepair,
+} from "./output-contract.js";
 
 export type ThoughtStructuralCandidate = Readonly<Record<string, unknown>>;
 
@@ -33,6 +38,14 @@ export type ThoughtStructuralFeedback = Readonly<{
   allowlistedReferences: readonly string[];
   correctionScope: StructuralCorrectionScope;
   allowedRepairPath: string | null;
+  allowedRepairPaths: readonly string[];
+  epistemicRepairs: readonly Readonly<{
+    path: string;
+    rejectedValue: string;
+    dimension: EpistemicDimension;
+    definition: string;
+    allowedValues: readonly string[];
+  }>[];
   previousCandidate: ThoughtStructuralCandidate | null;
 }>;
 
@@ -110,6 +123,7 @@ export function createThoughtStructuralFeedback(input: {
   code: ThoughtParserFailureCode;
   field?: string;
   allowlistedReferences?: readonly string[];
+  epistemicRepairs?: readonly EpistemicDimensionRepair[];
   previousCandidate?: string | unknown;
 }): ThoughtStructuralFeedback {
   const allowlistedReferences = input.code === "reference_not_allowlisted"
@@ -120,15 +134,34 @@ export function createThoughtStructuralFeedback(input: {
   const previousCandidate = input.previousCandidate === undefined
     ? null
     : candidateValue(input.previousCandidate);
+  const epistemicRepairs = input.code === "invalid_enum"
+    ? (input.epistemicRepairs ?? []).map((repair) => ({
+        path: repair.path,
+        rejectedValue: repair.value,
+        dimension: repair.dimension,
+        definition: EPISTEMIC_DIMENSIONS[repair.dimension].definition,
+        allowedValues: [...EPISTEMIC_DIMENSIONS[repair.dimension].values],
+      }))
+    : [];
   const localized = Boolean(input.field)
     && previousCandidate !== null
     && isLocalizedCode(input.code);
+  const allowedRepairPaths = localized
+    ? Object.freeze([...new Set(epistemicRepairs.length > 0
+      ? epistemicRepairs.map((repair) => repair.path)
+      : [input.field!])])
+    : Object.freeze([] as string[]);
   return Object.freeze({
     code: input.code,
     field: input.field ?? null,
     allowlistedReferences,
     correctionScope: localized ? "localized" : "global",
     allowedRepairPath: localized ? input.field ?? null : null,
+    allowedRepairPaths,
+    epistemicRepairs: Object.freeze(epistemicRepairs.map((repair) => Object.freeze({
+      ...repair,
+      allowedValues: Object.freeze([...repair.allowedValues]),
+    }))),
     previousCandidate: localized ? previousCandidate : null,
   });
 }
@@ -144,8 +177,12 @@ function pathSegments(path: string): Array<string | number> {
   return (path.match(/[^.[\]]+/g) ?? []).map((part) => /^\d+$/.test(part) ? Number(part) : part);
 }
 
-function pathIsInside(path: readonly (string | number)[], allowed: readonly (string | number)[]): boolean {
-  return path.length >= allowed.length && allowed.every((segment, index) => segment === path[index]);
+function pathIsInside(
+  path: readonly (string | number)[],
+  allowedPaths: readonly (readonly (string | number)[])[],
+): boolean {
+  return allowedPaths.some((allowed) =>
+    path.length >= allowed.length && allowed.every((segment, index) => segment === path[index]));
 }
 
 function renderPath(path: readonly (string | number)[]): string {
@@ -161,10 +198,10 @@ function collectChangedPaths(
   previous: unknown,
   corrected: unknown,
   path: readonly (string | number)[],
-  allowed: readonly (string | number)[],
+  allowedPaths: readonly (readonly (string | number)[])[],
   changed: string[],
 ): void {
-  if (pathIsInside(path, allowed)) return;
+  if (pathIsInside(path, allowedPaths)) return;
   if (Object.is(previous, corrected)) return;
 
   if (Array.isArray(previous) && Array.isArray(corrected)) {
@@ -173,7 +210,7 @@ function collectChangedPaths(
       return;
     }
     for (let index = 0; index < previous.length; index += 1) {
-      collectChangedPaths(previous[index], corrected[index], [...path, index], allowed, changed);
+      collectChangedPaths(previous[index], corrected[index], [...path, index], allowedPaths, changed);
     }
     return;
   }
@@ -181,7 +218,7 @@ function collectChangedPaths(
   if (record(previous) && record(corrected)) {
     const keys = new Set([...Object.keys(previous), ...Object.keys(corrected)]);
     for (const key of [...keys].sort()) {
-      collectChangedPaths(previous[key], corrected[key], [...path, key], allowed, changed);
+      collectChangedPaths(previous[key], corrected[key], [...path, key], allowedPaths, changed);
     }
     return;
   }
@@ -203,12 +240,14 @@ export function validateThoughtStructuralCorrectionScope(
     ? feedback.previousCandidate.kind
     : null;
   const correctedKind = corrected && typeof corrected.kind === "string" ? corrected.kind : null;
-  const allowed = pathSegments(feedback.allowedRepairPath);
+  const allowedPaths = (feedback.allowedRepairPaths.length > 0
+    ? feedback.allowedRepairPaths
+    : [feedback.allowedRepairPath]).map(pathSegments);
   const changedPaths: string[] = [];
   if (!corrected || previousKind !== correctedKind) {
     changedPaths.push("kind");
   } else {
-    collectChangedPaths(feedback.previousCandidate, corrected, [], allowed, changedPaths);
+    collectChangedPaths(feedback.previousCandidate, corrected, [], allowedPaths, changedPaths);
   }
   const uniqueChangedPaths = [...new Set(changedPaths)];
   return uniqueChangedPaths.length === 0
@@ -233,13 +272,20 @@ export function formatThoughtStructuralFeedback(
   const field = feedback.field
     ? ` Failing field/path: ${feedback.field}.`
     : "";
+  const epistemicRepairText = feedback.epistemicRepairs.length > 0
+    ? ` Epistemic field repairs: ${feedback.epistemicRepairs.map((repair) =>
+        `${repair.path} has rejected value ${JSON.stringify(repair.rejectedValue)}; field definition: ${repair.definition}; Permitted values: ${repair.allowedValues.join(", ")}`,
+      ).join(". ")}.`
+    : "";
   const allowlist = feedback.code === "reference_not_allowlisted"
     ? ` Host allowlisted reference IDs: ${JSON.stringify(feedback.allowlistedReferences)}.`
     : "";
-  const scope = feedback.correctionScope === "localized" && feedback.allowedRepairPath
-    ? ` Only ${feedback.allowedRepairPath} may change; preserve the semantic kind and every other field exactly.`
+  const scope = feedback.correctionScope === "localized" && feedback.allowedRepairPaths.length > 1
+    ? ` Only these paths may change: ${feedback.allowedRepairPaths.join(", ")}; preserve the semantic kind and every other field exactly.`
+    : feedback.correctionScope === "localized" && feedback.allowedRepairPath
+      ? ` Only ${feedback.allowedRepairPath} may change; preserve the semantic kind and every other field exactly.`
     : " This is a bounded global structural regeneration; no prior semantic candidate is supplied as a repair target.";
-  return `The previous response failed bounded structural validation (${feedback.code}).${field} ${STRUCTURAL_FEEDBACK[feedback.code]}${allowlist}${scope} Do not change the semantic answer or invent authority.`;
+  return `The previous response failed bounded structural validation (${feedback.code}).${field} ${STRUCTURAL_FEEDBACK[feedback.code]}${epistemicRepairText}${allowlist}${scope} Do not change the semantic answer or invent authority.`;
 }
 
 export function formatThoughtStructuralCorrectionData(
@@ -259,10 +305,13 @@ export function formatThoughtStructuralCorrectionData(
       failureCode: feedback.code,
       failingPath: feedback.field,
       constraint: STRUCTURAL_FEEDBACK[feedback.code],
+      epistemicRepairs: feedback.epistemicRepairs,
       allowedRepairScope: {
         kind: "localized",
         path: feedback.allowedRepairPath,
+        paths: feedback.allowedRepairPaths,
         preserveOutsidePath: true,
+        preserveOutsidePaths: true,
       },
       hostAllowlistedReferenceIds: [...feedback.allowlistedReferences],
     },

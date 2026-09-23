@@ -353,6 +353,7 @@ describe("Model-Visible Thought Projection", () => {
     expect(projected.inFlight[0]).toEqual({
       effectRef: expectedRef,
       status: "in_flight",
+      operationKindAvailability: "NOT_RETAINED",
     });
     expect((projected.inFlight[0] as any).effectId).toBeUndefined();
   });

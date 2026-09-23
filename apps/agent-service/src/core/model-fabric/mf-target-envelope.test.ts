@@ -41,9 +41,9 @@ describe("TARGET portfolio + token envelope reconciliation", () => {
       reasoningPolicy: "high",
       effectiveReasoning: "high",
     });
-    expect(thought.deadlineMs).toBe(60000);
-    expect(thought.maxOutputTokens).toBe(16384);
-    expect(durable.maxOutputTokens).toBe(16384);
+    expect(thought.deadlineMs).toBe(3600000);
+    expect(thought.maxOutputTokens).toBe(65536);
+    expect(durable.maxOutputTokens).toBe(65536);
     expect(expression.occupants[0]).toMatchObject({
       provider: "groq",
       configuredModelId: "qwen/qwen3.8-27b",
@@ -96,7 +96,7 @@ describe("TARGET portfolio + token envelope reconciliation", () => {
     expect(current.rows.find((row) => row.policyRowId === "mfr_exchange_cognition_compat_v1")!.maxOutputTokens).toBe(1100);
     expect(current.rows.find((row) => row.policyRowId === "mfr_curiosity_consolidation_compat_v1")!.maxOutputTokens).toBe(900);
     expect(current.rows.find((row) => row.policyRowId === "mfr_maintenance_compat_v1")!.maxOutputTokens).toBe(2048);
-    expect(current.rows.find((row) => row.policyRowId === "mfr_thought_interactive_compat_v1")!.deadlineMs).toBe(60000);
+    expect(current.rows.find((row) => row.policyRowId === "mfr_thought_interactive_compat_v1")!.deadlineMs).toBe(3600000);
     expect(target.rows.find((row) => row.policyRowId === "mfr_thought_interactive_target_v1")!.deadlineMs).toBe(6000);
     expect(target.rows.find((row) => row.policyRowId === "mfr_thought_observation_target_v1")!.deadlineMs).toBeNull();
   });

@@ -42,6 +42,7 @@ import type {
   Observation,
   ThoughtInput,
 } from "../types.js";
+import { ORDINARY_THOUGHT_BUDGET_MS } from "../types.js";
 import { appendInboxEvent } from "../cycle/inbox.js";
 import { buildOperationalEffectNamespace } from "../effect/effect-ref.js";
 import { appendOwnerUtterance } from "../evidence/conversation-log.js";
@@ -74,8 +75,8 @@ const capabilityReality: CapabilityReality = {
 
 const CLOUDFLARE_MODEL = "@cf/deepseek-ai/deepseek-v4-flash-0731";
 const CLOUDFLARE_BUCKET = `cloudflare:${CLOUDFLARE_MODEL}`;
-const SEEDED_CURRENT_TPM_USAGE = 14_000;
-const TPM_LIMIT = 65_536;
+const SEEDED_CURRENT_TPM_USAGE = 445_000;
+const TPM_LIMIT = 524_288;
 const EXPECTED_RETRY_OUTPUT = STRUCTURAL_RETRY_MAX_OUTPUT_TOKENS;
 const savedCloudflareToken = env.cloudflareApiToken;
 const savedCloudflareAccount = env.cloudflareAccountId;
@@ -160,7 +161,7 @@ afterEach(() => {
 });
 
 describe("v0.2.1 structural Thought retry admission", () => {
-  it("keeps the primary at 16_384 and admits a corrective retry at 16_384 under real rolling TPM accounting", async () => {
+  it("keeps the primary at 65_536 and admits a corrective retry at 65_536 under real rolling TPM accounting", async () => {
     delete process.env.ASHLEY_PHASE0_OFFLINE;
     env.cloudflareApiToken = "test-cloudflare-token";
     env.cloudflareAccountId = "test-account";
@@ -210,11 +211,11 @@ describe("v0.2.1 structural Thought retry admission", () => {
       lane: "urgent_grounded",
       routeId: "thought",
     });
-    expect(currentPolicy.policyRow.maxOutputTokens).toBe(16_384);
+    expect(currentPolicy.policyRow.maxOutputTokens).toBe(65_536);
     expect(quotaContractFor(CLOUDFLARE_BUCKET).tpm).toBe(TPM_LIMIT);
 
     const primary = await runThoughtModel(input, deps(primaryDb), {
-      deadlineAtMs: Date.now() + 60_000,
+      deadlineAtMs: Date.now() + ORDINARY_THOUGHT_BUDGET_MS,
     });
     expect(primary.malformed).toBe(true);
     const primaryRow = primaryDb.prepare(
@@ -225,7 +226,7 @@ describe("v0.2.1 structural Thought retry admission", () => {
         ORDER BY id DESC LIMIT 1`,
      ).get(CLOUDFLARE_BUCKET) as Record<string, unknown>;
     const currentPrimaryEstimatedInput = Number(primaryRow.estimated_input_tokens);
-    expect(Number(primaryRow.estimated_output_tokens)).toBe(16_384);
+    expect(Number(primaryRow.estimated_output_tokens)).toBe(65_536);
     expect(Number(primaryRow.actual_input_tokens)).toBe(4_772);
     expect(Number(primaryRow.actual_output_tokens)).toBe(55);
 
@@ -236,12 +237,12 @@ describe("v0.2.1 structural Thought retry admission", () => {
        providerId: "cloudflare",
        quotaBucket: CLOUDFLARE_BUCKET,
        modelAlias: CLOUDFLARE_MODEL,
-       maxTokens: 16_384,
-      deadlineAtMs: Date.now() + 60_000,
+       maxTokens: 440_000,
+      deadlineAtMs: Date.now() + ORDINARY_THOUGHT_BUDGET_MS,
       ownerId: "doc",
       dispatch: async () => ({
          providerModel: CLOUDFLARE_MODEL,
-        usage: { promptTokens: 12_000, completionTokens: 2_000 },
+        usage: { promptTokens: 5_000, completionTokens: 440_000 },
         result: { text: "seeded" },
       }),
     });
@@ -249,13 +250,13 @@ describe("v0.2.1 structural Thought retry admission", () => {
 
     captureAdmission = {};
     const retry = await runThoughtModel(input, deps(retryDb), {
-      deadlineAtMs: Date.now() + 60_000,
+      deadlineAtMs: Date.now() + ORDINARY_THOUGHT_BUDGET_MS,
       structuralFeedback: "invalid_json",
       maxTokens: EXPECTED_RETRY_OUTPUT,
     } as Parameters<typeof runThoughtModel>[2] & { maxTokens: number });
     expect(retry.output.kind).toBe("settlement");
     expect(captured).toHaveLength(2);
-    expect(captured[0]?.options.maxTokens).toBe(16_384);
+    expect(captured[0]?.options.maxTokens).toBe(65_536);
     expect(captured[1]?.options.maxTokens).toBe(EXPECTED_RETRY_OUTPUT);
     expect(captured[1]?.options.responseFormat).toBe("json_object");
     expect(captured[1]?.messages[1]?.content).toBe(captured[0]?.messages[1]?.content);
@@ -299,11 +300,11 @@ describe("v0.2.1 structural Thought retry admission", () => {
     expect(combinedDemand).toBeLessThanOrEqual(TPM_LIMIT);
     expect(captureAdmission?.state).toBe("running");
     expect(dispatchStartedAt).toBeLessThan(retryDeadline);
-    expect(retryInput + 16_384 + SEEDED_CURRENT_TPM_USAGE).toBeLessThanOrEqual(TPM_LIMIT);
-    expect(retryInput + 50_000 + SEEDED_CURRENT_TPM_USAGE).toBeGreaterThan(TPM_LIMIT);
+    expect(retryInput + 65_536 + SEEDED_CURRENT_TPM_USAGE).toBeLessThanOrEqual(TPM_LIMIT);
+    expect(retryInput + 100_000 + SEEDED_CURRENT_TPM_USAGE).toBeGreaterThan(TPM_LIMIT);
     expect(headroom).toBeGreaterThanOrEqual(0);
     expect(currentPrimaryEstimatedInput).toBeGreaterThan(0);
-    expect(currentPrimaryEstimatedInput + 16_384 + SEEDED_CURRENT_TPM_USAGE).toBeLessThanOrEqual(TPM_LIMIT);
+    expect(currentPrimaryEstimatedInput + 65_536 + SEEDED_CURRENT_TPM_USAGE).toBeLessThanOrEqual(TPM_LIMIT);
 
     console.info([
       `CURRENT_HELLO_RETRY_ESTIMATED_INPUT=${retryInput}`,
@@ -316,12 +317,12 @@ describe("v0.2.1 structural Thought retry admission", () => {
       `HEADROOM=${headroom}`,
       "RETRY_ADMISSION=PASS",
        `CLOUDFLARE_THOUGHT_TPM=${quotaContractFor(CLOUDFLARE_BUCKET).tpm}`,
-       `PRIMARY_16384_TOTAL=${currentPrimaryEstimatedInput + 16_384}`,
-       `CLOUDFLARE_SINGLE_REQUEST_ADMISSIBLE=${currentPrimaryEstimatedInput + 16_384 <= quotaContractFor(CLOUDFLARE_BUCKET).tpm ? "yes" : "no"}`,
+       `PRIMARY_65536_TOTAL=${currentPrimaryEstimatedInput + 65_536}`,
+       `CLOUDFLARE_SINGLE_REQUEST_ADMISSIBLE=${currentPrimaryEstimatedInput + 65_536 <= quotaContractFor(CLOUDFLARE_BUCKET).tpm ? "yes" : "no"}`,
     ].join("\n"));
 
     sidecar.close();
     primaryDb.close();
     retryDb.close();
-  });
+  }, 15_000);
 });

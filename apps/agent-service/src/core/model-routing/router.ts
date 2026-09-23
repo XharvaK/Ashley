@@ -47,7 +47,7 @@ function contractForProvider(provider: ProviderId): QuotaContract | "env" {
     case "nim":
       return { rps: 30, rpm: 600, rpd: 600, tpm: 16000, tpd: 120000 };
     case "cloudflare":
-      return { rps: 30, rpm: 600, rpd: 600, tpm: 65536, tpd: 120000 };
+      return { rps: 30, rpm: 600, rpd: 600, tpm: 524288, tpd: 120000 };
     case "opencode_zen":
       return { rps: 10, rpm: 600, rpd: 600, tpm: 16000, tpd: 120000 };
     default:

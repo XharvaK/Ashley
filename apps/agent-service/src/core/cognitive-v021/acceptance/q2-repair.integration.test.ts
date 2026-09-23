@@ -10,6 +10,8 @@ import { runLiveCognitiveTurn } from "../dispatch/live.js";
 import { appendInboxEvent, claimInboxEvent } from "../cycle/inbox.js";
 import { consumeInboxEvent } from "../cycle/inbox-consumer.js";
 import { appendOwnerUtterance } from "../evidence/conversation-log.js";
+import { getEffectReceipt, listInFlightForThoughtCycle } from "../effect/in-flight.js";
+import { mintEffectRef } from "../effect/effect-ref.js";
 import { insertOutboxPending, updateOutboxStatus } from "../speech/outbox.js";
 import { openCognitiveSidecarDb } from "../sidecar/db.js";
 import { admitTestCycle, makeSemanticSettlement, openTestSidecar } from "../test-support.js";
@@ -179,16 +181,17 @@ describe("Q2 repair integrated lifecycle", () => {
     let releaseEffect!: () => void;
     const effectRelease = new Promise<void>((resolve) => { releaseEffect = resolve; });
     let calls = 0;
+    let dispatchedEffectId = "";
     const completeChat = vi.fn(async (messages: unknown[]) => {
       calls += 1;
-      const input = thoughtInput(messages);
+      thoughtInput(messages);
       return {
         text: JSON.stringify({
           kind: "effect_intent",
-          operationKind: "workspace.write_file",
-          request: { projectId: "project-ashley", path: "src/pending.ts" },
-          purpose: "write the pending file",
-          expectedOutcome: "the file is written",
+          operationKind: "workspace.verify",
+          request: { projectId: "project-ashley", workspaceId: "workspace-candidate", recipeId: "focused-tests" },
+          purpose: "verify the candidate",
+          expectedOutcome: "the verification result is available",
           existingRefs: [],
         }),
         model: "fake",
@@ -196,15 +199,32 @@ describe("Q2 repair integrated lifecycle", () => {
         resolvedModelId: null,
       };
     });
-    const executeEffect = vi.fn(async () => {
+    const executeEffect = vi.fn(async (proposal: { effectId: string; idempotencyKey: string }) => {
+      dispatchedEffectId = proposal.effectId;
       effectStarted();
       await effectRelease;
       return {
         receiptId: "receipt-pending",
-        effectId: "effect-pending",
-        idempotencyKey: "idempotency-pending",
+        effectId: proposal.effectId,
+        idempotencyKey: proposal.idempotencyKey,
         outcome: "succeeded" as const,
-        claims: { state: "succeeded" },
+        claims: {
+          state: "succeeded",
+          profile: "candidate_verification",
+          verificationClaimEffect: {
+            verified: true,
+            projectId: "project-ashley",
+            workspaceId: "workspace-candidate",
+            snapshotId: "snapshot-pending",
+            candidateTreeHash: "a".repeat(64),
+            recipeId: "focused-tests",
+            recipeVersion: "3",
+            recipeDefinitionHash: "b".repeat(64),
+            protocolState: "admitted",
+            verificationOutcome: "verified_failure",
+            completedAtMs: 5,
+          },
+        },
         atMs: 5,
         dataClassification: "never_public" as const,
         secretOmitted: true,
@@ -213,7 +233,11 @@ describe("Q2 repair integrated lifecycle", () => {
     const first = admitCognitiveIngress(sidecar, nuclear, { userId: "doc", message: "start operation" }, { nowMs: 1 });
     const firstEvent = claimInboxEvent(sidecar, { workerId: "test", eventId: first.inboxEventId, nowMs: 2 });
     if (!firstEvent) throw new Error("first_event_not_claimed");
-    const run = runCognitiveCycle(sidecar, nuclear, firstEvent, baseDeps(sidecar, completeChat, { executeEffect }));
+    let staleResult: Awaited<ReturnType<typeof runCognitiveCycle>> | undefined;
+    const run = consumeInboxEvent(sidecar, firstEvent, async (claimedEvent) => {
+      staleResult = await runCognitiveCycle(sidecar, nuclear, claimedEvent, baseDeps(sidecar, completeChat, { executeEffect }));
+      return staleResult;
+    }, 10);
     await started;
 
     const second = admitCognitiveIngress(sidecar, nuclear, { userId: "doc", message: "preempt operation" }, { nowMs: 3 });
@@ -222,14 +246,104 @@ describe("Q2 repair integrated lifecycle", () => {
     expect(sidecar.prepare("SELECT state FROM wakes WHERE cycle_id = ?").get(first.cycleId)).toMatchObject({ state: "reconciling" });
     releaseEffect();
 
-    const result = await run;
+    await run;
+    if (!staleResult) throw new Error("stale_result_missing");
+    const result = staleResult;
     expect(result).toMatchObject({ published: false, generation: first.generation, acceptedSettlements: 0 });
     expect(calls).toBe(1);
     expect(executeEffect).toHaveBeenCalledTimes(1);
     expect(sidecar.prepare("SELECT COUNT(*) AS count FROM settlements").get()).toMatchObject({ count: 0 });
+
+    const oldRef = mintEffectRef(first.cycleId, first.generation, dispatchedEffectId);
+    const resumedEvent = claimInboxEvent(sidecar, {
+      workerId: "resume",
+      eventId: second.inboxEventId,
+      nowMs: 6,
+    });
+    if (!resumedEvent) throw new Error("resumed_event_not_claimed");
+    let resumedProjection: Record<string, unknown> | undefined;
+    let resumedAllowedEffectRefs: string[] = [];
+    const authorityStages: string[] = [];
+    const checkAuthority: KernelDeps["checkAuthority"] = (stage) => {
+      authorityStages.push(stage);
+      return { ok: true };
+    };
+    const loadAuthorityPacks = vi.fn(() => {
+      const receipt = getEffectReceipt(sidecar, dispatchedEffectId);
+      return {
+        ...packs(),
+        receipt: { receiptsByEffectId: receipt ? { [dispatchedEffectId]: receipt } : {} },
+      };
+    });
+    const resumedChat = vi.fn(async (messages: unknown[]) => {
+      const input = thoughtInput(messages);
+      resumedProjection = input.inFlight?.[0] as Record<string, unknown> | undefined;
+      resumedAllowedEffectRefs = (input as unknown as { allowedOperationalEffectRefs?: string[] }).allowedOperationalEffectRefs ?? [];
+      const effectRef = resumedProjection?.effectRef as string | undefined;
+      return {
+        text: JSON.stringify(makeSemanticSettlement({
+          commitments: {
+            ...makeSemanticSettlement().commitments,
+            operational: effectRef ? [{ effectRef, claimedState: "succeeded" }] : [],
+          },
+        })),
+        model: "fake",
+        modelAlias: "thought",
+        resolvedModelId: null,
+      };
+    });
+    const resumedResult = await runCognitiveCycle(sidecar, nuclear, resumedEvent, baseDeps(sidecar, resumedChat, {
+      executeEffect,
+      checkAuthority,
+      loadAuthorityPacks,
+    }));
+
+    expect(resumedResult).toMatchObject({ published: true, generation: second.generation, acceptedSettlements: 1 });
+    expect(resumedChat).toHaveBeenCalledTimes(1);
+    expect(executeEffect).toHaveBeenCalledTimes(1);
+    expect(loadAuthorityPacks).toHaveBeenCalled();
+    expect(authorityStages).toContain("settlement");
+    expect(resumedProjection).toMatchObject({
+      effectRef: mintEffectRef(second.cycleId, second.generation, dispatchedEffectId),
+      operationKind: "workspace.verify",
+      status: "receipted",
+      receipt: { outcome: "succeeded", atMs: 5 },
+      licensedProfile: "candidate_verification",
+      provenance: {
+        receiptRef: "receipt-pending",
+        snapshotId: "snapshot-pending",
+        recipeId: "focused-tests",
+        recipeVersion: "3",
+        recipeDefinitionHash: "b".repeat(64),
+      },
+      material: {
+        snapshotId: "snapshot-pending",
+        candidateTreeHash: "a".repeat(64),
+        recipeId: "focused-tests",
+        recipeVersion: "3",
+        recipeDefinitionHash: "b".repeat(64),
+        verificationOutcome: "verified_failure",
+        completedAtMs: 5,
+      },
+    });
+    expect(resumedProjection?.effectRef).not.toBe(oldRef);
+    expect(resumedAllowedEffectRefs).toContain(resumedProjection?.effectRef);
+    expect(resumedAllowedEffectRefs).not.toContain(oldRef);
+    expect(resumedProjection).not.toHaveProperty("effectId");
+    expect(resumedProjection).not.toHaveProperty("idempotencyKey");
+    const acceptedSettlement = sidecar.prepare(
+      "SELECT payload_json FROM settlements WHERE cycle_id = ? AND generation = ?",
+    ).get(second.cycleId, second.generation) as { payload_json: string } | undefined;
+    if (!acceptedSettlement) throw new Error("accepted_settlement_missing");
+    const acceptedOperations = JSON.parse(acceptedSettlement.payload_json) as {
+      operations?: { effectsCompleted?: string[] };
+    };
+    expect(acceptedOperations.operations?.effectsCompleted).toContain(dispatchedEffectId);
+    expect(listInFlightForThoughtCycle(sidecar, second.cycleId)).toEqual([]);
+    expect(sidecar.prepare("SELECT COUNT(*) AS count FROM settlements").get()).toMatchObject({ count: 1 });
     nuclear.close();
     sidecar.close();
-  });
+  }, 15_000);
 
   it("reclaims a real inbox event after a publication commit and replays its durable identity without a second Thought call or semantic delta", async () => {
     const directory = mkdtempSync(join(tmpdir(), "ashley-q2-replay-"));

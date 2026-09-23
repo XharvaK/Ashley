@@ -25,6 +25,12 @@ import type {
 } from "../types.js";
 import { isMemoryKind } from "../memory/kinds.js";
 import { validateModeBRequest } from "../../sandbox/opencode/mode-b-request.js";
+import {
+  EPISTEMIC_DIMENSIONS,
+  REGISTERED_OPERATION_KINDS,
+  type EpistemicDimension,
+  type EpistemicDimensionRepair,
+} from "./output-contract.js";
 
 export type ThoughtSemanticParseFailureCode =
   | "invalid_json"
@@ -48,31 +54,17 @@ export const THOUGHT_SEMANTIC_PARSER_ID = "ashley.thought.semantic-parser.v1" as
 
 export type ThoughtSemanticParseResult =
   | { ok: true; value: ThoughtSemanticOutput }
-  | { ok: false; code: ThoughtSemanticParseFailureCode; field?: string };
+  | { ok: false; code: ThoughtSemanticParseFailureCode; field?: string; epistemicRepairs?: readonly EpistemicDimensionRepair[] };
 
 type SemanticRecord = Record<string, unknown>;
-type ValidationResult = { ok: true } | { ok: false; code: ThoughtSemanticParseFailureCode; field?: string };
+type ValidationResult = { ok: true } | {
+  ok: false;
+  code: ThoughtSemanticParseFailureCode;
+  field?: string;
+  epistemicRepairs?: readonly EpistemicDimensionRepair[];
+};
 
-const REGISTERED_OPERATION_KINDS = new Set([
-  "conversation.read",
-  "memory.lookup",
-  "project.inspect",
-  "concern.inspect",
-  "workspace.create_directory",
-  "workspace.delete_file",
-  "workspace.edit_text",
-  "workspace.list_directory",
-  "workspace.read_file",
-  "workspace.replace_file",
-  "workspace.search_text",
-  "workspace.verify",
-  "workspace.write_file",
-  "changeset.author",
-  "patch_export",
-  "objective.operate",
-  "candidate.develop",
-  "discord.public_presence",
-]);
+const REGISTERED_OPERATION_KIND_SET: ReadonlySet<string> = new Set(REGISTERED_OPERATION_KINDS);
 
 const OK: ValidationResult = { ok: true };
 
@@ -208,14 +200,27 @@ function optionalObject(
   return { record: child };
 }
 
+function epistemicDimensionRepairs(value: unknown, field: string): EpistemicDimensionRepair[] {
+  const record = recordShape(value, ["source", "status", "time", "reliability"]);
+  if (!record) return [];
+  const repairs: EpistemicDimensionRepair[] = [];
+  for (const dimension of Object.keys(EPISTEMIC_DIMENSIONS) as EpistemicDimension[]) {
+    const value = record[dimension];
+    const definition = EPISTEMIC_DIMENSIONS[dimension];
+    if (typeof value === "string" && !(definition.values as readonly string[]).includes(value)) {
+      repairs.push({ path: `${field}.${dimension}`, value, dimension });
+    }
+  }
+  return repairs;
+}
+
 function validEpistemicDimensions(value: unknown): boolean {
   const record = recordShape(value, ["source", "status", "time", "reliability"]);
-  return !!record && [
-    ["owner_utterance", "ashley_interpretation", "tool", "perception", "receipt", "prior_settlement"],
-    ["asserted", "interpreted", "unverified", "contradicted", "superseded", "unresolved"],
-    ["current", "historical", "unknown_freshness"],
-    ["owner_supplied", "fallible_observation", "receipt_backed", "inferred", "unavailable_source"],
-  ].every((allowed, index) => allowed.includes(record[["source", "status", "time", "reliability"][index]] as string));
+  return !!record && (Object.keys(EPISTEMIC_DIMENSIONS) as EpistemicDimension[]).every((dimension) => {
+    const item = record[dimension];
+    return typeof item === "string" &&
+      (EPISTEMIC_DIMENSIONS[dimension].values as readonly string[]).includes(item);
+  });
 }
 
 function validSemanticRefField(value: unknown, allowlist: ReadonlySet<string>): boolean {
@@ -242,9 +247,19 @@ function validEpistemicCommitment(
   field: string,
 ): ValidationResult {
   const record = recordShape(value, ["dimensions", "statement"], ["surfaceSpan", "observationRefs"]);
-  if (!record || !validEpistemicDimensions(record.dimensions) || !nonEmptyString(record.statement)) {
+  if (!record || !nonEmptyString(record.statement)) {
     return failure("wrong_type", field);
   }
+  const dimensionRepairs = epistemicDimensionRepairs(record.dimensions, `${field}.dimensions`);
+  if (dimensionRepairs.length > 0) {
+    return {
+      ok: false,
+      code: "invalid_enum",
+      field: dimensionRepairs[0].path,
+      epistemicRepairs: dimensionRepairs,
+    };
+  }
+  if (!validEpistemicDimensions(record.dimensions)) return failure("wrong_type", field);
   if (record.surfaceSpan !== undefined && !nonEmptyString(record.surfaceSpan)) {
     return failure("wrong_type", `${field}.surfaceSpan`);
   }
@@ -371,10 +386,23 @@ function validateCommitments(parent: SemanticRecord, allowlist: ReadonlySet<stri
   if (own(record, "epistemic")) {
     if (!Array.isArray(record.epistemic)) return failure("wrong_type", "commitments.epistemic");
     if (record.epistemic.length === 0) return failure("empty_when_present", "commitments.epistemic");
+    const epistemicRepairs: EpistemicDimensionRepair[] = [];
     for (const [index, item] of (record.epistemic as unknown[]).entries()) {
       const result = validEpistemicCommitment(item, allowlist, `commitments.epistemic[${index}]`);
-      if (!result.ok) return result;
+      if (!result.ok) {
+        if (result.code === "invalid_enum" && result.epistemicRepairs) {
+          epistemicRepairs.push(...result.epistemicRepairs);
+          continue;
+        }
+        return result;
+      }
     }
+    if (epistemicRepairs.length > 0) return {
+      ok: false,
+      code: "invalid_enum",
+      field: epistemicRepairs[0].path,
+      epistemicRepairs,
+    };
   }
   let result = prefixFailure(optionalArray(record, "operational", validOperationalClaim), "commitments");
   if (!result.ok) return result;
@@ -673,8 +701,17 @@ function parseSemanticJson(raw: string | unknown): { ok: true; value: unknown } 
   }
 }
 
-function semanticFailure(code: ThoughtSemanticParseFailureCode, field?: string): ThoughtSemanticParseResult {
-  return { ok: false, code, ...(field ? { field } : {}) };
+function semanticFailure(
+  code: ThoughtSemanticParseFailureCode,
+  field?: string,
+  epistemicRepairs?: readonly EpistemicDimensionRepair[],
+): ThoughtSemanticParseResult {
+  return {
+    ok: false,
+    code,
+    ...(field ? { field } : {}),
+    ...(epistemicRepairs ? { epistemicRepairs } : {}),
+  };
 }
 
 function validateSettlementLocalAliases(
@@ -764,7 +801,7 @@ function parseSettlementSemantic(value: SemanticRecord, allowlist: ReadonlySet<s
   if (!own(value, "speech")) return semanticFailure("required_field_missing", "speech");
 
   let result = validateSpeech(value.speech);
-  if (!result.ok) return semanticFailure(result.code, result.field);
+  if (!result.ok) return semanticFailure(result.code, result.field, result.epistemicRepairs);
   if (own(value, "initiativePreference")) {
     // A positive optional-initiative signal attaches only to an authored
     // initiative draft. speech.mode:none keeps its canonical meaning.
@@ -781,7 +818,7 @@ function parseSettlementSemantic(value: SemanticRecord, allowlist: ReadonlySet<s
   result = validateInterpretation(value, allowlist);
   if (!result.ok) return semanticFailure(result.code, result.field);
   result = validateCommitments(value, allowlist);
-  if (!result.ok) return semanticFailure(result.code, result.field);
+  if (!result.ok) return semanticFailure(result.code, result.field, result.epistemicRepairs);
 
   const arrays: Array<[string, (item: unknown) => boolean]> = [
     ["workingContextDeltas", (item) => validWorkingContextDelta(item, allowlist)],
@@ -821,7 +858,7 @@ function parseOperationSemantic(
     kind === "observation_intent" ? ["interimSpeech"] : [],
   );
   if (!record || record.kind !== kind) return semanticFailure("wrong_kind", "kind");
-  if (typeof record.operationKind !== "string" || !REGISTERED_OPERATION_KINDS.has(record.operationKind)) {
+  if (typeof record.operationKind !== "string" || !REGISTERED_OPERATION_KIND_SET.has(record.operationKind)) {
     return semanticFailure("operation_not_registered", "operationKind");
   }
   if (!jsonObject(record.request)) return semanticFailure("wrong_type", "request");

@@ -122,7 +122,7 @@ describe("MF-M2 CURRENT portfolio", () => {
       configuredModelId: "@cf/deepseek-ai/deepseek-v4-flash-0731",
       enabled: true,
       quotaContract: {
-        tpm: 65536,
+        tpm: 524288,
       },
     });
     expect(records.find((record) => record.route === "sandbox_operator_light")).toMatchObject({
@@ -180,7 +180,7 @@ describe("MF-M2 CURRENT portfolio", () => {
       responseFormat: "json_object",
     }));
     expect(dispatch).toHaveBeenCalledWith(expect.objectContaining({
-      options: expect.objectContaining({ maxTokens: 16384 }),
+      options: expect.objectContaining({ maxTokens: 65536 }),
     }));
     database.close();
   });
@@ -210,7 +210,7 @@ describe("MF-M2 CURRENT portfolio", () => {
     }));
     expect(dispatch).toHaveBeenCalledWith(expect.objectContaining({
       options: expect.objectContaining({
-        maxTokens: 16384,
+        maxTokens: 65536,
         responseFormat: "json_object",
         structuredOutput,
       }),
@@ -227,7 +227,7 @@ describe("MF-M2 CURRENT portfolio", () => {
     });
     expect(database.prepare(
       "SELECT estimated_output_tokens AS estimatedOutputTokens FROM attention_requests ORDER BY id DESC LIMIT 1",
-    ).get()).toMatchObject({ estimatedOutputTokens: 16384 });
+    ).get()).toMatchObject({ estimatedOutputTokens: 65536 });
     database.close();
   });
 
@@ -243,9 +243,9 @@ describe("MF-M2 CURRENT portfolio", () => {
       lane: "interactive",
     });
 
-    expect(interactive.policyRow.maxOutputTokens).toBe(16384);
-    expect(interactive.policyRow.deadlineMs).toBe(60000);
-    expect(durable.policyRow.maxOutputTokens).toBe(16384);
+    expect(interactive.policyRow.maxOutputTokens).toBe(65536);
+    expect(interactive.policyRow.deadlineMs).toBe(3600000);
+    expect(durable.policyRow.maxOutputTokens).toBe(65536);
     expect(durable.policyRow.deadlineMs).toBeNull();
   });
 
@@ -264,7 +264,7 @@ describe("MF-M2 CURRENT portfolio", () => {
         purpose: "thought",
         lane: "interactive",
         responseFormat: "json_object",
-        maxTokens: 17000,
+        maxTokens: 65537,
       }),
     ).rejects.toMatchObject({ code: "model_fabric_output_budget_exceeded" });
     expect(dispatch).not.toHaveBeenCalled();
@@ -286,7 +286,7 @@ describe("MF-M2 CURRENT portfolio", () => {
       policy: interactive,
       provider: "cloudflare",
       configuredModelId: "@cf/deepseek-ai/deepseek-v4-flash-0731",
-    }).maxTokens).toBe(16384);
+    }).maxTokens).toBe(65536);
 
     const policyAboveProfile = {
       ...interactive,

@@ -171,7 +171,7 @@ describe("Thought Context Optimization — Coherent Candidate Qualification", ()
         requestId: "req-cloudflare-qual",
       });
 
-      expect(cloudflareAllocation.receipt.hardTpm).toBe(65536);
+      expect(cloudflareAllocation.receipt.hardTpm).toBe(524288);
       expect(cloudflareAllocation.receipt.estimatedInputTokens)
         .toBeLessThanOrEqual(cloudflareAllocation.receipt.semanticProjectionEnvelope.maxInputTokens);
       expect(cloudflareAllocation.receipt.headroomTokens).toBeGreaterThan(0);

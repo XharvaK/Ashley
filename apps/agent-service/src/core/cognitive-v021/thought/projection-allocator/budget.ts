@@ -42,14 +42,14 @@ export type SemanticProjectionEnvelope = Readonly<{
   maxInputTokens: number;
 }>;
 
-export const ORDINARY_THOUGHT_BUDGET_MS = 300_000;
-export const INTERACTIVE_THOUGHT_MAX_OUTPUT = 16_384;
-export const STRUCTURAL_RETRY_MAX_OUTPUT = 16_384;
+export const ORDINARY_THOUGHT_BUDGET_MS = 3_600_000;
+export const INTERACTIVE_THOUGHT_MAX_OUTPUT = 65_536;
+export const STRUCTURAL_RETRY_MAX_OUTPUT = 65_536;
 export const STABLE_RESERVE_TOKENS = 0;
 /** Exact source-baseline default at 440cc0. It is retained for comparison. */
 export const CURRENT_SOURCE_DEFAULT_SEMANTIC_ENVELOPE = 9_500;
 /** Owner-approved restoration target. It is provider-independent. */
-export const OWNER_APPROVED_TARGET_SEMANTIC_ENVELOPE = 32_768;
+export const OWNER_APPROVED_TARGET_SEMANTIC_ENVELOPE = 262_144;
 export const TARGET_SEMANTIC_INPUT_ENVELOPE = OWNER_APPROVED_TARGET_SEMANTIC_ENVELOPE;
 /** Historical source name retained so baseline readers remain exact. */
 export const TEMPORARY_QUALIFICATION_CEILING_TOKENS =

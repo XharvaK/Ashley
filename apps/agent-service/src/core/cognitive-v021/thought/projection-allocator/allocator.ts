@@ -58,9 +58,9 @@ import {
   listTombstoneTargets,
 } from "../../../continuity/forget-preview.js";
 import { recordAllocationReceipt, recordDiagnostic } from "../diagnostics.js";
+import { projectInFlightConsequence } from "../consequence-projection.js";
 import {
   buildOperationalEffectNamespace,
-  mintEffectRef,
 } from "../../effect/effect-ref.js";
 import type {
   C3ExperienceAdapterResult,
@@ -390,10 +390,8 @@ export function allocateThoughtProjection(
     conversationSelection?: ThoughtInput["conversationSelection"];
   };
   const messageMemo = buildThoughtProjectionMessageMemo(opts.structuralFeedback);
-  const projectedInFlight = requiredSectionBounds.inFlight.map((item) => ({
-    effectRef: mintEffectRef(input.cycleId, input.generation, item.effectId),
-    status: item.status,
-  }));
+  const projectedInFlight = requiredSectionBounds.inFlight.map((item) =>
+    projectInFlightConsequence(item, input.cycleId, input.generation, input.audience));
   const operationalNamespace = buildOperationalEffectNamespace(
     input.cycleId,
     input.generation,

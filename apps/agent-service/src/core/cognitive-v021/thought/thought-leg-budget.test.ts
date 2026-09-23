@@ -9,6 +9,7 @@ import {
   MAX_THOUGHT_PASSES,
   ORDINARY_THOUGHT_BUDGET_MS,
 } from "../types.js";
+import { mintEffectRef } from "../effect/effect-ref.js";
 import { runCognitiveCycle } from "./run.js";
 
 const constitution: IdentitySlice = { constitutional: ["truth first"], stableSelf: [] };
@@ -90,8 +91,8 @@ function admit(sidecar: ReturnType<typeof openTestSidecar>, conversationId: stri
 }
 
 describe("Thought-leg budget ownership", () => {
-  it("keeps ordinary Thought at 300s and existing round caps", () => {
-    expect(ORDINARY_THOUGHT_BUDGET_MS).toBe(300_000);
+  it("keeps ordinary Thought at 3,600s and existing round caps", () => {
+    expect(ORDINARY_THOUGHT_BUDGET_MS).toBe(3_600_000);
     expect(MAX_THOUGHT_PASSES).toBe(6);
     expect(MAX_OBSERVATION_ROUNDS).toBe(4);
     expect(MAX_EFFECT_ROUNDS).toBe(4);
@@ -125,7 +126,7 @@ describe("Thought-leg budget ownership", () => {
       { nowMs: () => now },
     ));
     expect(result.published).toBe(true);
-    expect(deadlines).toEqual([301_000, 301_000]);
+    expect(deadlines).toEqual([3_601_000, 3_601_000]);
     sidecar.close();
     attentionDb.close();
   });
@@ -184,20 +185,22 @@ describe("Thought-leg budget ownership", () => {
     ));
     expect(result.published).toBe(true);
     expect(executeObservation).toHaveBeenCalledTimes(1);
-    expect(deadlines[0]).toBe(301_000);
+    expect(deadlines[0]).toBe(3_601_000);
     expect(deadlines[1]).toBe(241_000 + ORDINARY_THOUGHT_BUDGET_MS);
     expect(deadlines[1] - deadlines[0]).toBe(240_000);
     sidecar.close();
     attentionDb.close();
   });
 
-  it("gives Thought B a fresh 300s after an effect", async () => {
+  it("projects a licensed workspace.verify consequence to Thought B without conflating receipt and verification", async () => {
     const sidecar = openTestSidecar();
     const attentionDb = openTestSidecar();
-    const { event } = admit(sidecar, "thread-effect-leg", "try the operation");
+    const { cycle, event } = admit(sidecar, "thread-effect-leg", "verify the candidate");
     let now = 1_000;
     const deadlines: number[] = [];
     let calls = 0;
+    let dispatchedEffectId = "";
+    let laterProjection: Record<string, unknown> | undefined;
     const completeChat: KernelDeps["completeChat"] = async (messages, options) => {
       calls += 1;
       deadlines.push(options.deadlineAtMs ?? -1);
@@ -206,10 +209,10 @@ describe("Thought-leg budget ownership", () => {
         return {
           text: JSON.stringify({
             kind: "effect_intent",
-            operationKind: "workspace.write_file",
-            request: { projectId: "project-ashley", path: "src/ok.ts" },
-            purpose: "try the operation",
-            expectedOutcome: "the file is written",
+            operationKind: "workspace.verify",
+            request: { projectId: "project-ashley", workspaceId: "workspace-candidate", recipeId: "focused-tests" },
+            purpose: "verify the candidate",
+            expectedOutcome: "the verification result is available",
             existingRefs: ["owner-thread-effect-leg"],
           }),
           model: "fake",
@@ -218,9 +221,10 @@ describe("Thought-leg budget ownership", () => {
         };
       }
       const input = JSON.parse(String((messages as Array<{ role?: string; content?: unknown }>).find((item) => item.role === "user")?.content ?? "{}")) as {
-        inFlight?: Array<{ effectRef?: string }>;
+        inFlight?: Array<Record<string, unknown> & { effectRef?: string }>;
       };
-      const effectRef = input.inFlight?.[0]?.effectRef;
+      laterProjection = input.inFlight?.[0];
+      const effectRef = laterProjection?.effectRef as string | undefined;
       return {
         text: JSON.stringify(makeSemanticSettlement({
           commitments: {
@@ -241,14 +245,28 @@ describe("Thought-leg budget ownership", () => {
         resolvedModelId: null,
       };
     };
+    const verificationClaim = {
+      verified: true,
+      projectId: "project-ashley",
+      workspaceId: "workspace-candidate",
+      snapshotId: "snapshot-42",
+      candidateTreeHash: "a".repeat(64),
+      recipeId: "focused-tests",
+      recipeVersion: "3",
+      recipeDefinitionHash: "b".repeat(64),
+      protocolState: "admitted" as const,
+      verificationOutcome: "verified_failure" as const,
+      completedAtMs: 91_000,
+    };
     const executeEffect = vi.fn(async (proposal: { effectId: string; idempotencyKey: string }) => {
+      dispatchedEffectId = proposal.effectId;
       now += 90_000;
       return {
         receiptId: "receipt-ok",
         effectId: proposal.effectId,
         idempotencyKey: proposal.idempotencyKey,
         outcome: "succeeded" as const,
-        claims: { state: "succeeded" },
+        claims: { state: "succeeded", profile: "candidate_verification", verificationClaimEffect: verificationClaim },
         atMs: now,
         dataClassification: "never_public" as const,
         secretOmitted: true,
@@ -262,8 +280,36 @@ describe("Thought-leg budget ownership", () => {
     ));
     expect(result.published).toBe(true);
     expect(executeEffect).toHaveBeenCalledTimes(1);
-    expect(deadlines[0]).toBe(301_000);
+    expect(deadlines[0]).toBe(3_601_000);
     expect(deadlines[1]).toBe(111_000 + ORDINARY_THOUGHT_BUDGET_MS);
+    expect(laterProjection).toMatchObject({
+      effectRef: mintEffectRef(cycle.cycleId, cycle.generation, dispatchedEffectId),
+      operationKind: "workspace.verify",
+      status: "receipted",
+      receipt: { outcome: "succeeded", atMs: 111_000 },
+      licensedProfile: "candidate_verification",
+      provenance: {
+        receiptRef: "receipt-ok",
+        snapshotId: "snapshot-42",
+        recipeId: "focused-tests",
+        recipeVersion: "3",
+        recipeDefinitionHash: "b".repeat(64),
+      },
+      material: {
+        snapshotId: "snapshot-42",
+        candidateTreeHash: "a".repeat(64),
+        recipeId: "focused-tests",
+        recipeVersion: "3",
+        recipeDefinitionHash: "b".repeat(64),
+        verificationOutcome: "verified_failure",
+        completedAtMs: 91_000,
+      },
+    });
+    expect(laterProjection?.receipt).toMatchObject({ outcome: "succeeded" });
+    expect((laterProjection?.material as Record<string, unknown>).verificationOutcome).toBe("verified_failure");
+    expect(laterProjection).not.toHaveProperty("effectId");
+    expect(laterProjection).not.toHaveProperty("idempotencyKey");
+    expect(JSON.stringify(laterProjection)).not.toContain(dispatchedEffectId);
     sidecar.close();
     attentionDb.close();
   });
@@ -274,7 +320,7 @@ describe("Thought-leg budget ownership", () => {
     const { event } = admit(sidecar, "thread-long-op", "inspect this");
     let now = 1_000;
     const completeChat: KernelDeps["completeChat"] = async (_messages, options) => {
-      if ((options.deadlineAtMs ?? 0) === 301_000) {
+      if ((options.deadlineAtMs ?? 0) === 3_601_000) {
         now += 10_000;
         return {
           text: JSON.stringify({
@@ -312,13 +358,13 @@ describe("Thought-leg budget ownership", () => {
     attentionDb.close();
   });
 
-  it("still reports thought_deadline when Thought itself exceeds 300s", async () => {
+  it("still reports thought_deadline when Thought itself exceeds 3,600s", async () => {
     const sidecar = openTestSidecar();
     const attentionDb = openTestSidecar();
     const { event } = admit(sidecar, "thread-thought-timeout", "hello");
     let now = 1_000;
     const completeChat: KernelDeps["completeChat"] = async () => {
-      now = 301_000;
+      now = 3_601_001;
       return { text: "not json", model: "fake", modelAlias: "thought", resolvedModelId: null };
     };
     const result = await runCognitiveCycle(sidecar, attentionDb, event, deps(

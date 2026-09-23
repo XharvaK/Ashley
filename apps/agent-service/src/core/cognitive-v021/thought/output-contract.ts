@@ -4,6 +4,7 @@ import {
 } from "../../model-fabric/dispatch-contract.js";
 import { sha256 } from "../../model-fabric/hash.js";
 import { MEMORY_KINDS } from "../memory/kinds.js";
+import { CONSEQUENCE_AVAILABILITY } from "./consequence-projection.js";
 import type { OperationalEffectNamespace } from "../effect/effect-ref.js";
 import type {
   StructuredOutputRequest,
@@ -49,7 +50,7 @@ const localAliasSchema = { type: "string", pattern: "^[A-Za-z][A-Za-z0-9_-]{0,12
 const semanticRefSchema = { oneOf: [existingSemanticRefSchema, localRefSchema] };
 const nullableSemanticRefSchema = { oneOf: [semanticRefSchema, { type: "null" }] };
 const jsonObjectSchema = { type: "object", additionalProperties: true };
-const REGISTERED_OPERATION_KINDS = [
+export const REGISTERED_OPERATION_KINDS = [
   "conversation.read",
   "memory.lookup",
   "project.inspect",
@@ -69,11 +70,38 @@ const REGISTERED_OPERATION_KINDS = [
   "candidate.develop",
   "discord.public_presence",
 ] as const;
+
+export const EPISTEMIC_DIMENSIONS = Object.freeze({
+  source: Object.freeze({
+    definition: "claim provenance category",
+    values: Object.freeze(["owner_utterance", "ashley_interpretation", "tool", "perception", "receipt", "prior_settlement"] as const),
+  }),
+  status: Object.freeze({
+    definition: "claim's current epistemic state",
+    values: Object.freeze(["asserted", "interpreted", "unverified", "contradicted", "superseded", "unresolved"] as const),
+  }),
+  time: Object.freeze({
+    definition: "time relation of the claimed fact",
+    values: Object.freeze(["current", "historical", "unknown_freshness"] as const),
+  }),
+  reliability: Object.freeze({
+    definition: "evidence reliability category",
+    values: Object.freeze(["owner_supplied", "fallible_observation", "receipt_backed", "inferred", "unavailable_source"] as const),
+  }),
+});
+
+export type EpistemicDimension = keyof typeof EPISTEMIC_DIMENSIONS;
+export type EpistemicDimensionRepair = Readonly<{
+  path: string;
+  value: string;
+  dimension: EpistemicDimension;
+}>;
+
 const dimensionsSchema = strictObject({
-  source: { enum: ["owner_utterance", "ashley_interpretation", "tool", "perception", "receipt", "prior_settlement"] },
-  status: { enum: ["asserted", "interpreted", "unverified", "contradicted", "superseded", "unresolved"] },
-  time: { enum: ["current", "historical", "unknown_freshness"] },
-  reliability: { enum: ["owner_supplied", "fallible_observation", "receipt_backed", "inferred", "unavailable_source"] },
+  source: { enum: [...EPISTEMIC_DIMENSIONS.source.values] },
+  status: { enum: [...EPISTEMIC_DIMENSIONS.status.values] },
+  time: { enum: [...EPISTEMIC_DIMENSIONS.time.values] },
+  reliability: { enum: [...EPISTEMIC_DIMENSIONS.reliability.values] },
 }, ["source", "status", "time", "reliability"]);
 const operationalClaimSchema = strictObject({
   effectRef: { type: "string", minLength: 1 },
@@ -481,6 +509,9 @@ export function constrainThoughtOutputSchema(
 /** Compact compatibility guidance derived from the same code-owned schema. */
 export function thoughtOutputCompatibilityInstruction(): string {
   const settlement = record(THOUGHT_OUTPUT_SCHEMA.oneOf instanceof Array ? THOUGHT_OUTPUT_SCHEMA.oneOf[0] : null);
+  const epistemicDimensionGuidance = Object.entries(EPISTEMIC_DIMENSIONS)
+    .map(([dimension, definition]) => `${dimension}: ${definition.definition}; exact values: ${definition.values.join(", ")}`)
+    .join(". ");
   return [
     `Code-owned Thought contract contractId=${THOUGHT_OUTPUT_CONTRACT_ID} schemaId=${THOUGHT_OUTPUT_SCHEMA_ID} semanticSchemaFingerprint=${THOUGHT_SEMANTIC_SCHEMA_FINGERPRINT}.`,
     `Return exactly one JSON object in one of these permitted kinds/forms: ${rootForms().join("; ")}.`,
@@ -504,10 +535,13 @@ export function thoughtOutputCompatibilityInstruction(): string {
     "Speech mustSay contract: every mustSay entry must appear verbatim in surfaceDraft; the host fidelity checker rejects drafts that omit them. Omit mustSay when no exact literal wording is required. Behavioral, stylistic, or procedural directives do not belong in mustSay; put those in presentationDirectives.",
     "Optional settlement domains and their children must be omitted when unused. Present event arrays must be non-empty; present composite objects must contain a meaningful child. Ordinary speech requires no commitments. speech.mode:none permits only mode. Absence never clears state.",
     "When Ashley's own surface wording makes a governed external read, discovery, or vision claim, author an epistemic commitment with the exact literal surfaceSpan quoted from surfaceDraft and exact supporting observationRefs from the supplied observations; every claim observationRef must also appear in evidenceUse.observationRefsUsed, and the host licenses each surface claim only against its own commitment's refs. When detector-prone wording is purely Ashley's conversational interpretation, use source:ashley_interpretation with status:interpreted plus the exact surfaceSpan and do not fabricate observationRefs. Omit surfaceSpan and observationRefs when unused; a surfaceSpan must occur exactly once in surfaceDraft and bound spans must not overlap.",
+    `Epistemic dimension definitions and exact values: ${epistemicDimensionGuidance}.`,
+    `Registered operationKind values are exactly: ${REGISTERED_OPERATION_KINDS.join(", ")}.`,
     "Every commitments.epistemic item must contain a dimensions object and a statement string. dimensions must contain source, status, time, and reliability; source, status, time, and reliability belong only inside dimensions. MUST NOT place source, status, time, or reliability directly on the epistemic item. surfaceSpan is optional and, when present, must be the exact literal substring of speech.surfaceDraft. observationRefs is optional. Use only observation IDs actually supplied in the current Thought input.",
-    `Canonical epistemic item shape: {"dimensions":{"source":"<allowed source>","status":"<allowed status>","time":"<allowed time>","reliability":"<allowed reliability>"},"statement":"<epistemic proposition>", optional "surfaceSpan":"<exact literal substring of speech.surfaceDraft>", optional "observationRefs":["<exact supplied observationId>"]}.`,
+    `Canonical epistemic item shape: {"dimensions":{"source":"one exact source value","status":"one exact status value","time":"one exact time value","reliability":"one exact reliability value"},"statement":"<epistemic proposition>", optional "surfaceSpan":"<exact literal substring of speech.surfaceDraft>", optional "observationRefs":["<exact supplied observationId>"]}.`,
     "speech.mode:none means Ashley intentionally chooses not to communicate in this cycle; it is not the generic no-op for a turn with no other work. The absence of a new belief, commitment, state change, concern update, operation, or other structured act does not by itself imply silence: a settlement may carry speech.mode:draft alone, and ordinary conversation is itself a valid purpose for speech. When the Owner directly addresses Ashley or makes a conversational bid — such as a greeting, question, presence check, or remark directed at Ashley — participating is ordinarily a legitimate reason to speak even when no other update is required; silence remains fully valid when silence itself is the intended act, such as deliberate withdrawal, refusal, choosing not to interrupt, or a tick with nothing Ashley wants to say.",
     "Operational commitments are distinct from conversational continuation. Every operational effectRef must refer to one of the complete Host-admitted operational effect references supplied in allowedOperationalEffectRefs for this cycle. If allowedOperationalEffectRefs is empty, omit commitments.operational.",
+    `Each Host-projected inFlight entry has a current effectRef and status (lifecycle: in_flight, receipted, or unknown). Its optional receipt.outcome and receipt.atMs are receipt facts; receipt outcome succeeded is not verificationOutcome verified_success and is not objective satisfaction. licensedProfile is separate from operationKind. A candidate_verification material object binds snapshotId, candidateTreeHash, recipeId, recipeVersion, recipeDefinitionHash, verificationOutcome, and completedAtMs; target and provenance preserve their separate bindings. completedAtMs does not establish currentness. Material or target availability, when required to explain an absence or restriction, uses only ${CONSEQUENCE_AVAILABILITY.join(", ")}.`,
     "A future promise requires commitments.commitmentProposals. Each proposal is ordered by ordinal, contains no model-generated id, preserves the exact realizationClause, and is only publishable after Host feasibility admission. Omit commitmentProposals when no future action is being proposed. The Host may reject or defer a proposal without changing its meaning.",
     `Forbidden publication/delivery fields: ${THOUGHT_FORBIDDEN_OUTPUT_FIELDS.join(", ")}.`,
     "This contract describes output shape only; branch selection is Thought-owned, while Ashley code remains authoritative for identity, authority, licensing, and publication.",

@@ -69,7 +69,7 @@ describe("DeepSeek V4 Flash Model Fabric migration witnesses", () => {
       },
       limits: {
         contextTokens: 32768,
-        maxOutputTokens: 16384,
+        maxOutputTokens: 65536,
       },
     });
     expect(profile.limits.maxOutputTokens).not.toBe(2048);
@@ -101,13 +101,13 @@ describe("DeepSeek V4 Flash Model Fabric migration witnesses", () => {
       policy,
       provider: "cloudflare",
       configuredModelId: DEEPSEEK,
-      requestedMaxTokens: 16384,
+      requestedMaxTokens: 65536,
       responseFormat: "json_schema",
       structuredOutput: structuredRequest,
     });
 
     expect(dispatch).toMatchObject({
-      maxTokens: 16384,
+      maxTokens: 65536,
       responseFormat: "json_object",
       structuredOutputMode: "json_object_compatibility",
     });
@@ -139,7 +139,7 @@ describe("DeepSeek V4 Flash Model Fabric migration witnesses", () => {
 
     expect(body).toMatchObject({
       model: DEEPSEEK,
-      max_completion_tokens: 16384,
+      max_completion_tokens: 65536,
       temperature: 1,
       reasoning_effort: "high",
       response_format: {
@@ -155,7 +155,7 @@ describe("DeepSeek V4 Flash Model Fabric migration witnesses", () => {
   });
 
   it("preserves Ashley's semantic input ceiling and parser/validator identities", () => {
-    expect(TARGET_SEMANTIC_INPUT_ENVELOPE).toBe(32768);
+    expect(TARGET_SEMANTIC_INPUT_ENVELOPE).toBe(262144);
     expect(THOUGHT_OUTPUT_CONTRACT_ID).toBe("ashley.thought.semantic.v2");
     expect(THOUGHT_OUTPUT_SCHEMA_ID).toBe("ashley.thought.semantic.v2.schema");
     expect(THOUGHT_OUTPUT_SCHEMA_FINGERPRINT).toBe(

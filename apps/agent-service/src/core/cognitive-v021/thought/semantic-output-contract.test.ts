@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  EPISTEMIC_DIMENSIONS,
+  REGISTERED_OPERATION_KINDS,
   THOUGHT_OUTPUT_SCHEMA,
   THOUGHT_SEMANTIC_SCHEMA_FINGERPRINT,
   constrainThoughtOutputSchema,
@@ -482,6 +484,52 @@ describe("Thought semantic output contract", () => {
     expect(instruction).toContain("surfaceSpan is optional");
     expect(instruction).toContain("observationRefs is optional");
     expect(instruction).toContain("Use only observation IDs actually supplied in the current Thought input");
+    for (const [dimension, definition] of Object.entries(EPISTEMIC_DIMENSIONS)) {
+      expect(instruction).toContain(`${dimension}: ${definition.definition}`);
+      for (const value of definition.values) expect(instruction).toContain(value);
+    }
+    for (const operationKind of REGISTERED_OPERATION_KINDS) {
+      expect(instruction).toContain(operationKind);
+    }
+  });
+
+  it("returns every invalid epistemic dimension with exact allowed alternatives", () => {
+    const invalid = {
+      ...settlement,
+      commitments: {
+        epistemic: [
+          {
+            dimensions: {
+              source: "OWNER",
+              status: "asserted",
+              time: "current",
+              reliability: "receipt_backed",
+            },
+            statement: "A bounded claim.",
+          },
+          {
+            dimensions: {
+              source: "tool",
+              status: "interpreted",
+              time: "now",
+              reliability: "guess",
+            },
+            statement: "Another bounded claim.",
+          },
+        ],
+      },
+    };
+    const result = parseThoughtSemanticOutput(invalid, refs);
+    expect(result).toMatchObject({
+      ok: false,
+      code: "invalid_enum",
+      field: "commitments.epistemic[0].dimensions.source",
+      epistemicRepairs: [
+        { path: "commitments.epistemic[0].dimensions.source", value: "OWNER", dimension: "source" },
+        { path: "commitments.epistemic[1].dimensions.time", value: "now", dimension: "time" },
+        { path: "commitments.epistemic[1].dimensions.reliability", value: "guess", dimension: "reliability" },
+      ],
+    });
   });
 
   it("rejects the exact malformed live B epistemic item shape", () => {

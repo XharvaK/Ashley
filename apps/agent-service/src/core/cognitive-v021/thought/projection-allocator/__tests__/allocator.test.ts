@@ -264,7 +264,7 @@ describe("Whole-Thought Projection Allocator", () => {
         rawConversation: rows,
         trigger: { kind: "owner_message", ref: rows.at(-1)!.rowId },
       }),
-      semanticBudgetTokens: 9_500,
+      semanticBudgetTokens: 10_100,
       requestId: "req-small-ordinary-conversation",
     });
 
@@ -625,6 +625,7 @@ describe("Whole-Thought Projection Allocator", () => {
     const allocated = allocateThoughtProjection({
       thoughtInput: input,
       quotaBucket: "groq:openai/gpt-oss-20b",
+      semanticBudgetTokens: 33_000,
       requestId: "req-compressed",
     });
 
@@ -685,12 +686,10 @@ describe("Whole-Thought Projection Allocator", () => {
         rawConversation: tinyRows,
         trigger: { kind: "owner_message", ref: tinyRows.at(-1)!.rowId },
       }),
-      // Calibrated above the legacy 9_500 default: the normative interim-hold
-      // law and the concern-authority separation law in the code-owned Thought
-      // instruction moved fixed contract overhead, so the fit case carries
-      // matching headroom. The pressure behavior below (large rows trim, tiny
-      // rows fit) is unchanged.
-      semanticBudgetTokens: 10_500,
+      // Calibrated above the legacy 9_500 default for the code-owned Thought
+      // contract and compatibility vocabulary. The pressure behavior below
+      // (large rows trim, tiny rows fit) is unchanged.
+      semanticBudgetTokens: 11_500,
       requestId: "req-token-driven-tiny-rows",
     });
 
@@ -924,6 +923,7 @@ describe("Whole-Thought Projection Allocator", () => {
     expect(allocated.projected.inFlight).toEqual([{
       effectRef: expect.any(String),
       status: "in_flight",
+      operationKindAvailability: "NOT_RETAINED",
     }]);
   });
 
@@ -1466,6 +1466,7 @@ describe("E2b retrieval loss honesty (allocator)", () => {
     const allocated = allocateThoughtProjection({
       thoughtInput: retrievalInput(20, 60),
       quotaBucket: "groq:openai/gpt-oss-20b",
+      semanticBudgetTokens: 33_000,
       requestId: "req-e2b-partial",
     });
 
@@ -1597,6 +1598,7 @@ describe("E2b retrieval loss honesty (allocator)", () => {
     const allocated = allocateThoughtProjection({
       thoughtInput: retrievalInput(20, 60),
       quotaBucket: "groq:openai/gpt-oss-20b",
+      semanticBudgetTokens: 33_000,
       requestId: "req-e2b-refs",
     });
     const omitted = omittedRetrievalRefs(allocated);
@@ -1861,6 +1863,7 @@ describe("E2b retrieval loss honesty (allocator)", () => {
     const pressure = allocateThoughtProjection({
       thoughtInput: heavy,
       quotaBucket: "groq:openai/gpt-oss-20b",
+      semanticBudgetTokens: 33_000,
       requestId: "req-e2b-hash-lossy",
     });
     expect(pressure.projected.retrieval.allocatorOmittedCount).toBeGreaterThan(0);
@@ -1870,6 +1873,7 @@ describe("E2b retrieval loss honesty (allocator)", () => {
     const again = allocateThoughtProjection({
       thoughtInput: heavy,
       quotaBucket: "groq:openai/gpt-oss-20b",
+      semanticBudgetTokens: 33_000,
       requestId: "req-e2b-hash-lossy-again",
     });
     expect(again.hashes).toEqual(pressure.hashes);
@@ -2291,7 +2295,7 @@ describe("E2c optional Working Context loss honesty (allocator)", () => {
 
   it("keeps E2a, E2b, and E2c independent on a joint-fit cycle (M)", () => {
     // Joint probe result (measured): 8 large WC items + 20 large retrieval
-    // hits at the groq envelope sheds all WC (count 8) and some retrieval.
+    // hits at the 32K caller envelope sheds all WC (count 8) and some retrieval.
     const items = largeWcItems("wc-e2c-joint", 8, ["topic"]);
     const retrievalHits = Array.from({ length: 20 }, (_, i) => ({
       kind: "lexical" as const,
@@ -2319,6 +2323,7 @@ describe("E2c optional Working Context loss honesty (allocator)", () => {
     const allocated = allocateThoughtProjection({
       thoughtInput: input,
       quotaBucket: "groq:openai/gpt-oss-20b",
+      semanticBudgetTokens: 32_768,
       requestId: "req-e2c-joint-fit",
     });
 
@@ -2488,10 +2493,10 @@ describe("E2c optional Working Context loss honesty (allocator)", () => {
     // Joint construction: both disclosures present on the final wire while it
     // exceeds the caller envelope. Presence-based classification must report
     // the joint section, not either single-disclosure section. Measured joint
-    // probe: 8 large WC + 20 large retrieval hits at the groq envelope sheds
-    // all WC (count 8) and some retrieval.
+    // probe: 8 large WC + 21 large retrieval hits at the 33K caller envelope
+    // sheds all WC (count 8) and some retrieval.
     const wcItems = largeWcItems("wc-e2c-p", 8, ["topic"]);
-    const retHits = Array.from({ length: 20 }, (_, i) => ({
+    const retHits = Array.from({ length: 21 }, (_, i) => ({
       kind: "lexical" as const,
       sourceStore: "live_memory" as const,
       ref: `mem:e2c:p:${i}`,
@@ -2507,13 +2512,14 @@ describe("E2c optional Working Context loss honesty (allocator)", () => {
     const jointProbe = allocateThoughtProjection({
       thoughtInput: wcInput(wcItems, retHits),
       quotaBucket: "groq:openai/gpt-oss-20b",
+      semanticBudgetTokens: 33_000,
       requestId: "req-e2c-p-probe",
     });
     expect(jointProbe.projected.workingContextSelection?.optionalAllocatorOmittedCount).toBe(8);
     expect(jointProbe.projected.retrieval.allocatorOmittedCount ?? 0).toBeGreaterThan(0);
     const fullTokens = allocateThoughtProjection({
       thoughtInput: wcInput(wcItems, retHits),
-      semanticBudgetTokens: 32_768,
+      semanticBudgetTokens: 33_000,
       requestId: "req-e2c-p-full",
     }).receipt.estimatedInputTokens;
     let error: unknown = null;
@@ -2555,6 +2561,7 @@ describe("E2c optional Working Context loss honesty (allocator)", () => {
     const ok = allocateThoughtProjection({
       thoughtInput: wcInput(wcItems, retHits),
       quotaBucket: "groq:openai/gpt-oss-20b",
+      semanticBudgetTokens: 33_000,
       requestId: "req-e2c-p-ok",
     });
     expect(ok.projected.workingContextSelection?.optionalAllocatorOmittedCount).toBe(8);

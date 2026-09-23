@@ -25,10 +25,10 @@ export type ThoughtCapabilityIdentity = Readonly<{
 }>;
 
 const THOUGHT_RESOURCE_POLICY_COMPONENTS = Object.freeze({
-  ordinaryThoughtBudgetMs: 300_000 as const,
-  interactiveMaxOutput: 16_384 as const,
-  durableProactiveMaxOutput: 16_384 as const,
-  structuralRetryMaxOutput: 16_384 as const,
+  ordinaryThoughtBudgetMs: 3_600_000 as const,
+  interactiveMaxOutput: 65_536 as const,
+  durableProactiveMaxOutput: 65_536 as const,
+  structuralRetryMaxOutput: 65_536 as const,
   structuralRetriesMaxPerSemanticPass: 2 as const,
 });
 

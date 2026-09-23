@@ -121,6 +121,7 @@ export async function dispatchEffect(
     correlationId: proposal.effectId,
     idempotencyKey: proposal.idempotencyKey,
     payload: proposal.request,
+    operationKind: proposal.kind,
     originEventId,
     originAttemptId: (proposal as { originAttemptId?: string | null }).originAttemptId ?? null,
   });

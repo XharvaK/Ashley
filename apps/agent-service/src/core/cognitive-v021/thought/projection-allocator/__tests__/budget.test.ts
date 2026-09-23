@@ -26,18 +26,18 @@ describe("Thought semantic projection budget", () => {
     expect(CURRENT_SOURCE_DEFAULT_SEMANTIC_ENVELOPE).toBe(9_500);
     expect(TEMPORARY_QUALIFICATION_CEILING_TOKENS)
       .toBe(CURRENT_SOURCE_DEFAULT_SEMANTIC_ENVELOPE);
-    expect(OWNER_APPROVED_TARGET_SEMANTIC_ENVELOPE).toBe(32_768);
+    expect(OWNER_APPROVED_TARGET_SEMANTIC_ENVELOPE).toBe(262_144);
     expect(nim.semanticProjectionEnvelope.maxInputTokens)
       .toBe(OWNER_APPROVED_TARGET_SEMANTIC_ENVELOPE);
-    expect(MAX_LOGICAL_SERIALIZED_INPUT_BYTES).toBe(65_408);
+    expect(MAX_LOGICAL_SERIALIZED_INPUT_BYTES).toBe(524_160);
     expect(MAX_SUPPORTED_COMPOSITION_BYTES).toBe(65_356);
     expect(MAX_SUPPORTED_COMPOSITION_ESTIMATED_INPUT_TOKENS).toBe(32_742);
     expect(nim.maxOutputTokens).toBe(INTERACTIVE_THOUGHT_MAX_OUTPUT);
     expect(deriveThoughtBudget({ maxOutputTokens: STRUCTURAL_RETRY_MAX_OUTPUT }).maxOutputTokens)
       .toBe(STRUCTURAL_RETRY_MAX_OUTPUT);
     // P2 16K era: ordinary and structural-retry output share one ceiling.
-    expect(INTERACTIVE_THOUGHT_MAX_OUTPUT).toBe(16_384);
-    expect(STRUCTURAL_RETRY_MAX_OUTPUT).toBe(16_384);
+    expect(INTERACTIVE_THOUGHT_MAX_OUTPUT).toBe(65_536);
+    expect(STRUCTURAL_RETRY_MAX_OUTPUT).toBe(65_536);
   });
 
   it("admits against logical input capacity, independently of provider TPM metadata", () => {    const budget = deriveThoughtBudget({
@@ -60,17 +60,16 @@ describe("Thought semantic projection budget", () => {
     expect(admission.hardTpm).toBe(8000);
   });
 
-  it("admits the full 32K input envelope with the 16K output reserve (no input starvation)", () => {
+  it("admits the 256K input envelope with the 64K output reserve (no input starvation)", () => {
     const budget = deriveThoughtBudget({});
-    expect(budget.semanticBudgetTokens).toBe(32_768);
-    expect(budget.maxOutputTokens).toBe(16_384);
-    // Worst-case demand: full envelope input + 16K reserve admits; the
-    // governor (tpm 65536, worst case ≈32742 + 16384 = 49126) paces.
+    expect(budget.semanticBudgetTokens).toBe(262_144);
+    expect(budget.maxOutputTokens).toBe(65_536);
+    // The local TPM governor paces demand independently of the input ceiling.
     const admission = checkThoughtAdmission(
-      [{ role: "user", content: "x".repeat(60_000) }],
+      [{ role: "user", content: "x".repeat(524_000) }],
       budget,
     );
-    expect(admission.estimate.estimatedInputTokens).toBeLessThanOrEqual(32_768);
+    expect(admission.estimate.estimatedInputTokens).toBeLessThanOrEqual(262_144);
     expect(admission.admitted).toBe(true);
   });
 });

@@ -65,7 +65,7 @@ export const DEFAULT_IDLE_TICK_MS = 60_000 as const;
 export const DEFAULT_MAX_SUBSCRIPTIONS = 16 as const;
 export const DEFAULT_MISS_ROUND_CAP = 1 as const;
 export const DEFAULT_TOOL_CYCLE_LEASE_MS = 120_000 as const;
-export const ORDINARY_THOUGHT_BUDGET_MS = 300_000 as const;
+export const ORDINARY_THOUGHT_BUDGET_MS = 3_600_000 as const;
 export const THOUGHT_UNAVAILABLE_NOTICE =
   "[system] Thought did not complete. Please send the message again." as const;
 
@@ -1060,6 +1060,14 @@ export type InFlightRecord = {
   originEventId: string | null;
   originAttemptId: string | null;
   audienceScope?: SocialAudience | null;
+  /** Retained semantic operation kind from EffectProposal.kind; absent on legacy/redacted rows. */
+  operationKind?: string | null;
+  /** Request fields retained on the effect record; projected through an allowlisted target view only. */
+  request?: unknown;
+  /** True only when the retained request payload carries the governed redaction marker. */
+  payloadRedacted?: boolean;
+  /** Host-side receipt truth; never copied wholesale onto the model wire. */
+  receipt?: EffectReceipt | null;
 };
 export type EffectReceipt = {
   receiptId: string;
@@ -1442,6 +1450,8 @@ export type ThoughtContinuityRecovery = Readonly<{
 }>;
 
 export type ThoughtInput = {
+  /** Host-only disclosure context. Builders attach this non-enumerably. */
+  audience?: SocialAudience;
   cycleId: CycleId;
   generation: Generation;
   occupantId: OccupantId;

@@ -27,7 +27,7 @@ import {
   getConversationEvidence,
   listConversationEvidence,
 } from "../evidence/conversation-log.js";
-import { listInFlight } from "../effect/in-flight.js";
+import { listInFlightForThoughtCycle } from "../effect/in-flight.js";
 import { listWorkingContext } from "../evidence/working-context.js";
 import { getConcernAuthorityFacts, listConcerns, listQuarantinedConcernIds } from "../concerns/lineage.js";
 import { getActiveDeferredFrontier } from "../frontier/ledger.js";
@@ -950,7 +950,7 @@ export function buildThoughtInput(options: BuildThoughtInputOptions): ThoughtInp
 
   const eligibleObservations = filterStructured(options.observations ?? [], audience, licenses);
   const eligibleInFlight = filterInFlight(
-    options.inFlight ?? listInFlight(options.sidecar, options.cycle.cycleId),
+    options.inFlight ?? listInFlightForThoughtCycle(options.sidecar, options.cycle.cycleId),
     audience,
   );
   const rememberDirective = options.rememberDirective && structuredValueEligible(
@@ -1051,6 +1051,12 @@ export function buildThoughtInput(options: BuildThoughtInputOptions): ThoughtInp
 
   Object.defineProperty(thoughtInput, "sourceCurrentness", {
     value: sourceCapture.sourceCurrentness,
+    enumerable: false,
+    writable: false,
+    configurable: false,
+  });
+  Object.defineProperty(thoughtInput, "audience", {
+    value: { ...audience },
     enumerable: false,
     writable: false,
     configurable: false,

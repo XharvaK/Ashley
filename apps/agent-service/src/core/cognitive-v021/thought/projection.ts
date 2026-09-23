@@ -1,7 +1,6 @@
 import { createHash } from "node:crypto";
 import {
   buildOperationalEffectNamespace,
-  mintEffectRef,
 } from "../effect/effect-ref.js";
 import type {
   AssertionKey,
@@ -35,6 +34,12 @@ import type { IdentityOrientationKernel } from "./orientation-kernel.js";
 import type { ThoughtSourceCurrentness } from "./source-currentness.js";
 import type { AvailableSocialDestination } from "../social/types.js";
 import { getOccupiedConcernProjection } from "./occupied-concerns.js";
+import {
+  projectInFlightConsequence,
+  type ProjectedInFlightRecord,
+} from "./consequence-projection.js";
+
+export type { ProjectedInFlightRecord } from "./consequence-projection.js";
 
 export type CompactMemoryEvidence = {
   kind: "key" | "lex";
@@ -83,11 +88,6 @@ export type ProjectedRetrievalResult = {
    * No IDs, snippets, ranks, or refs cross the wire with this count.
    */
   allocatorOmittedCount?: number;
-};
-
-export type ProjectedInFlightRecord = {
-  effectRef: string;
-  status: "in_flight" | "receipted" | "unknown";
 };
 
 export type ProjectedThoughtInput = {
@@ -374,8 +374,12 @@ export function projectThoughtInput(
       miss: isMiss,
     },
     inFlight: fullInput.inFlight.map((item) => ({
-      effectRef: mintEffectRef(fullInput.cycleId, fullInput.generation, item.effectId),
-      status: item.status,
+      ...projectInFlightConsequence(
+        item,
+        fullInput.cycleId,
+        fullInput.generation,
+        fullInput.audience,
+      ),
     })),
     allowedOperationalEffectRefs: [...operationalNamespace.allowedOperationalEffectRefs],
     authorityObjections: fullInput.authorityObjections,

@@ -1,4 +1,4 @@
-import { mintEffectRef } from "../../effect/effect-ref.js";
+import { projectInFlightConsequence } from "../consequence-projection.js";
 import type {
   CompactRetrievalEvidence,
   ProjectedThoughtInput,
@@ -434,10 +434,8 @@ export function buildAllocationCandidates(
       section: "in_flight_receipt",
       required: true,
       priority: 7,
-      data: requiredSectionBounds.inFlight.map((item) => ({
-        effectRef: mintEffectRef(input.cycleId, input.generation, item.effectId),
-        status: item.status,
-      })),
+      data: requiredSectionBounds.inFlight.map((item) =>
+        projectInFlightConsequence(item, input.cycleId, input.generation, input.audience)),
     });
   }
 

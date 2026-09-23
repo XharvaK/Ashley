@@ -149,4 +149,62 @@ describe("Thought structural correction scope", () => {
       expect(formatThoughtStructuralFeedback(feedback), code).toContain(code);
     }
   });
+
+  it("repairs every known-invalid epistemic dimension and preserves all other authored fields", () => {
+    const previous = {
+      kind: "settlement",
+      commitments: {
+        epistemic: [{
+          dimensions: { source: "OWNER", status: "maybe", time: "now", reliability: "guess" },
+          statement: "The same authored proposition.",
+        }],
+      },
+      speech: { mode: "draft", surfaceDraft: "The same authored answer." },
+    };
+    const repairs = [
+      { path: "commitments.epistemic[0].dimensions.source", value: "OWNER", dimension: "source" as const },
+      { path: "commitments.epistemic[0].dimensions.status", value: "maybe", dimension: "status" as const },
+      { path: "commitments.epistemic[0].dimensions.time", value: "now", dimension: "time" as const },
+      { path: "commitments.epistemic[0].dimensions.reliability", value: "guess", dimension: "reliability" as const },
+    ];
+    const feedback = createThoughtStructuralFeedback({
+      code: "invalid_enum",
+      field: repairs[0].path,
+      epistemicRepairs: repairs,
+      previousCandidate: previous,
+    });
+
+    expect(feedback.correctionScope).toBe("localized");
+    expect(feedback.allowedRepairPaths).toEqual(repairs.map((repair) => repair.path));
+    const prompt = formatThoughtStructuralFeedback(feedback) ?? "";
+    expect(prompt).toContain('rejected value "OWNER"');
+    expect(prompt).toContain("Permitted values:");
+    expect(prompt).toContain("claim provenance category");
+    const correctionData = JSON.parse(formatThoughtStructuralCorrectionData(feedback) ?? "null") as {
+      structuralCorrection: {
+        epistemicRepairs: Array<{ path: string; rejectedValue: string; allowedValues: string[] }>;
+        allowedRepairScope: { paths: string[] };
+      };
+    };
+    expect(correctionData.structuralCorrection.epistemicRepairs).toHaveLength(4);
+    expect(correctionData.structuralCorrection.epistemicRepairs[0]).toMatchObject({
+      path: repairs[0].path,
+      rejectedValue: "OWNER",
+      allowedValues: expect.arrayContaining(["owner_utterance", "ashley_interpretation"]),
+    });
+    expect(correctionData.structuralCorrection.allowedRepairScope.paths).toEqual(repairs.map((repair) => repair.path));
+
+    const corrected = structuredClone(previous) as typeof previous;
+    corrected.commitments.epistemic[0].dimensions = {
+      source: "owner_utterance",
+      status: "unresolved",
+      time: "historical",
+      reliability: "inferred",
+    };
+    expect(validateThoughtStructuralCorrectionScope(feedback, corrected)).toEqual({ ok: true });
+    expect(validateThoughtStructuralCorrectionScope(feedback, {
+      ...corrected,
+      speech: { mode: "draft", surfaceDraft: "Changed semantic answer." },
+    })).toMatchObject({ ok: false, violation: { changedPaths: ["speech.surfaceDraft"] } });
+  });
 });
