@@ -1,4 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
+import { existsSync } from "node:fs";
 import { env } from "../../../env.js";
 import {
   executeCandidateAuthorshipV2,
@@ -14,19 +15,14 @@ import {
   type InquiryExperimentRequest,
 } from "../../sandbox/v2-execution.js";
 import {
-  C1_OPENCODE_FREE_CATALOG,
-  createQuotaRouter,
-  executeModeBWorker,
-  loadQuotaState,
-  routeWorkerTask,
-  resolveOpenCodeBinary,
-  saveQuotaState,
+  executeCommandCodeWorker,
+  resolveCommandCodeRuntime,
   MODE_B_DEVELOP,
   MODE_B_INVESTIGATE,
   type ModeBWorkerResult,
   DETACHED_WORKER_MAX_WALL_CLOCK_MS,
   WORKER_FINALIZATION_RESERVE_MS,
-} from "../../sandbox/opencode/index.js";
+} from "../../sandbox/worker/command-code-worker.js";
 import {
   executePatchExportV2,
   type ExecutePatchExportV2Result,
@@ -116,7 +112,7 @@ type LiveOperationAdapters = {
   executeCandidateAuthorshipV2: typeof executeCandidateAuthorshipV2;
   executeInquiryExperimentV2: typeof executeInquiryExperimentV2;
   executePatchExportV2: typeof executePatchExportV2;
-  executeModeBWorker: typeof executeModeBWorker;
+  executeModeBWorker: typeof executeCommandCodeWorker;
 };
 
 export type V021LiveOperationExecutorOptions = {
@@ -630,11 +626,16 @@ function inferDispatchEvidence(
     license.error === "unknown_field" ||
     license.error === "missing_project" ||
     license.error === "missing_workspace" ||
-    license.error === "opencode_pin_mismatch" ||
+    license.error === "command_code_pin_mismatch" ||
+    license.error === "command_code_version_mismatch" ||
+    license.error === "command_code_credentials_missing" ||
     license.error === "worker_gate_denied" ||
-    license.error === "opencode_binary_missing" ||
+    license.error === "command_code_cli_unavailable" ||
+    license.error === "worker_isolation_unavailable" ||
     license.error === "native_tool_forbidden" ||
-    license.error === "opencode_provider_rejected"
+    license.error === "external_service_rejected" ||
+    license.error === "external_service_limited" ||
+    license.error === "external_service_unavailable"
   ) {
     return { provenNotStarted: true };
   }
@@ -754,7 +755,7 @@ export function createV021LiveOperationExecutors(
     executeCandidateAuthorshipV2,
     executeInquiryExperimentV2,
     executePatchExportV2,
-    executeModeBWorker,
+    executeModeBWorker: executeCommandCodeWorker,
     ...options.adapters,
   };
 
@@ -775,14 +776,9 @@ export function createV021LiveOperationExecutors(
     workspaceId?: string,
     deadlineAtMs?: number,
   ): Promise<ModeBWorkerResult> {
-    const catalog = {
-      ...C1_OPENCODE_FREE_CATALOG,
-      candidateDevelopAllowsNvidia: env.opencodeCandidateDevelopAllowsNvidia,
-    };
-    const quotaState = loadQuotaState(env.opencodeQuotaStatePath);
-    const router = createQuotaRouter({ catalog, state: quotaState, nowMs: nowMs() });
     const base = operationBase(nowMs);
-    const sessionDeadlineAtMs = (deadlineAtMs ?? (base + DETACHED_WORKER_MAX_WALL_CLOCK_MS)) - WORKER_FINALIZATION_RESERVE_MS;
+    const operationDeadlineAtMs = deadlineAtMs ?? (base + DETACHED_WORKER_MAX_WALL_CLOCK_MS);
+    const sessionDeadlineAtMs = operationDeadlineAtMs - WORKER_FINALIZATION_RESERVE_MS;
     const sandboxGate = {
       registry,
       masterMode: env.cognitionMode,
@@ -798,12 +794,10 @@ export function createV021LiveOperationExecutors(
       kind,
       request,
       purpose,
-      isolationRoot: env.opencodeHomeDir,
-      binaryPath: env.opencodeBinaryPath,
-      pinnedVersion: env.opencodePinnedVersion,
-      quotaPath: env.opencodeQuotaStatePath,
-      router,
-      persistQuota: (state) => saveQuotaState(env.opencodeQuotaStatePath, state),
+      apiKey: env.commandCodeApiKey,
+      binaryPath: env.commandCodeBinaryPath,
+      bubblewrapPath: env.commandCodeBubblewrapPath,
+      pinnedVersion: env.commandCodePinnedVersion,
       dispatchers: {
         executeProjectInspectionV2: adapters.executeProjectInspectionV2,
         executeWorkspaceExperimentV2: adapters.executeWorkspaceExperimentV2,
@@ -822,10 +816,9 @@ export function createV021LiveOperationExecutors(
         messageEntityUuid: cycleId,
       },
       workspaceId,
-      pathEnv: process.env.PATH ?? "",
       nowMs,
-      deadlineAtMs: sessionDeadlineAtMs,
-      workerEnabled: env.opencodeWorkerEnabled,
+      deadlineAtMs: operationDeadlineAtMs,
+      workerEnabled: env.commandCodeWorkerEnabled,
       gateOk,
       gateError: gateOk ? undefined : "worker_gate_denied",
     });
@@ -834,8 +827,9 @@ export function createV021LiveOperationExecutors(
   return {
     canOfferDetachedInvestigate(): boolean {
       if (options.adapters?.executeModeBWorker) return true;
-      if (env.opencodeWorkerEnabled !== true) return false;
-      if (resolveOpenCodeBinary(env.opencodeBinaryPath) == null) return false;
+      if (env.commandCodeWorkerEnabled !== true || !env.commandCodeApiKey.trim()) return false;
+      const runtime = resolveCommandCodeRuntime(env.commandCodeBinaryPath);
+      if (runtime?.version !== env.commandCodePinnedVersion || !existsSync(env.commandCodeBubblewrapPath)) return false;
       return canOfferWorkerBackedProjectInspection({
         registry,
         masterMode: env.cognitionMode,
@@ -861,27 +855,19 @@ export function createV021LiveOperationExecutors(
         lifecycleEnabled: options.envOverrides?.sandboxEngineeringLifecycleEnabled ?? env.sandboxEngineeringLifecycleEnabled,
         substrateAvailable: options.envOverrides?.substrateAvailable,
       };
-      if (env.opencodeWorkerEnabled !== true || resolveOpenCodeBinary(env.opencodeBinaryPath) == null) {
+      const runtime = resolveCommandCodeRuntime(env.commandCodeBinaryPath);
+      if (
+        env.commandCodeWorkerEnabled !== true
+        || !env.commandCodeApiKey.trim()
+        || runtime?.version !== env.commandCodePinnedVersion
+        || !existsSync(env.commandCodeBubblewrapPath)
+      ) {
         return { available: false as const, reason: "worker_unavailable", terminal: true as const };
       }
       if (!canOfferWorkerBackedProjectInspection(gate)) {
         return { available: false as const, reason: "worker_gate_denied", terminal: true as const };
       }
-      const router = createQuotaRouter({
-        catalog: {
-          ...C1_OPENCODE_FREE_CATALOG,
-          candidateDevelopAllowsNvidia: env.opencodeCandidateDevelopAllowsNvidia,
-        },
-        state: loadQuotaState(env.opencodeQuotaStatePath),
-        nowMs: nowMs(),
-      });
-      const decision = routeWorkerTask(router, "delegated_read");
-      if (decision.ok) return { available: true as const };
-      return {
-        available: false as const,
-        reason: decision.reason,
-        ...(decision.nextProbeAtMs == null ? {} : { nextProbeAtMs: decision.nextProbeAtMs }),
-      };
+      return { available: true as const };
     },
 
     async runDetachedInvestigate(input: {
@@ -1098,7 +1084,7 @@ export function createV021LiveOperationExecutors(
               sourceMessageEntityUuid: proposal.cycleId,
             };
           } catch {
-            license = unavailableLicense("opencode_mode_b", "effect_unavailable");
+            license = unavailableLicense("command_code_mode_b", "effect_unavailable");
           }
         } else if (operation === "patch_export") {
           const request = normalizePatchExportRequest(proposal);

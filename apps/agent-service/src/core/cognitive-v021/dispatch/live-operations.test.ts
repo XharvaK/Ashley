@@ -482,9 +482,9 @@ describe("v0.2.1 live Sandbox V2 operation construction", () => {
   it("routes project.investigate through the Mode-B worker without claiming direct L1", async () => {
     const nuclear = new DatabaseSync(":memory:");
     const executeModeBWorker = vi.fn(async () => ({
-      license: { state: "succeeded" as const, profile: "opencode_mode_b" },
-      selectedModelId: "opencode/nemotron-3.5-lightning-free",
-      quotaClass: "NVIDIA_FREE" as const,
+      license: { state: "succeeded" as const, profile: "command_code_mode_b" },
+      selectedModelId: "meta/muse-spark-1.3-contributor",
+      quotaClass: null,
       steps: [{ operation: "project.read_file", license: { state: "succeeded" as const, profile: "project_investigation" } }],
       summary: "worker prose is not proof",
       payload: { steps: 1 },
@@ -513,9 +513,9 @@ describe("v0.2.1 live Sandbox V2 operation construction", () => {
   it("runs Mode-B candidate.develop through the worker adapter and records Host model evidence", async () => {
     const nuclear = new DatabaseSync(":memory:");
     const executeModeBWorker = vi.fn(async () => ({
-      license: { state: "succeeded" as const, profile: "opencode_mode_b", executionTruth: "effect_verified" as const },
-      selectedModelId: "opencode/muse-spark-1.3-contributor-free",
-      quotaClass: "OTHER_FREE" as const,
+      license: { state: "succeeded" as const, profile: "command_code_mode_b", executionTruth: "effect_verified" as const },
+      selectedModelId: "meta/muse-spark-1.3-contributor",
+      quotaClass: null,
       steps: [],
       summary: "worker prose is not proof",
       payload: { steps: [] },
@@ -530,7 +530,7 @@ describe("v0.2.1 live Sandbox V2 operation construction", () => {
     }));
     expect(executeModeBWorker).toHaveBeenCalledTimes(1);
     expect(receipt.outcome).toBe("succeeded");
-    expect(receipt.claims.selectedModelId).toBe("opencode/muse-spark-1.3-contributor-free");
+    expect(receipt.claims.selectedModelId).toBe("meta/muse-spark-1.3-contributor");
     expect(receipt.claims.summary).toBe("worker prose is not proof");
     nuclear.close();
   });
@@ -540,7 +540,7 @@ describe("v0.2.1 live Sandbox V2 operation construction", () => {
     const executeModeBWorker = vi.fn(async () => ({
       license: {
         state: "none" as const,
-        profile: "opencode_mode_b",
+        profile: "command_code_mode_b",
         error: "worker_capacity_exhausted",
         executionTruth: "no_effect_proven" as const,
       },

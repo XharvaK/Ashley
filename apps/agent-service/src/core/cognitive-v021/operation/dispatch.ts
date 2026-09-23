@@ -44,14 +44,17 @@ import {
 import {
   DETACHED_WORKER_MAX_WALL_CLOCK_MS,
   WORKER_FINALIZATION_RESERVE_MS,
-  OPENCODE_MODEL_TURN_MAX_MS,
-} from "../../sandbox/opencode/catalog.js";
+  WORKER_MODEL_TURN_MAX_MS,
+} from "../../sandbox/worker/contracts.js";
 
 export {
   DETACHED_WORKER_MAX_WALL_CLOCK_MS,
   WORKER_FINALIZATION_RESERVE_MS,
-  OPENCODE_MODEL_TURN_MAX_MS,
+  WORKER_MODEL_TURN_MAX_MS,
 };
+
+/** @deprecated Use WORKER_MODEL_TURN_MAX_MS. Kept for historical test/evidence readers. */
+export const OPENCODE_MODEL_TURN_MAX_MS = WORKER_MODEL_TURN_MAX_MS;
 
 /** Own bounded wall-clock for a detached operation: outside any Thought budget. (1 hour default) */
 export const DETACHED_OPERATION_DEFAULT_DEADLINE_MS = DETACHED_WORKER_MAX_WALL_CLOCK_MS;
@@ -174,6 +177,8 @@ export type WorkerFailureEvidenceRecord = {
   processExit: number | null;
   modelId: string | null;
   openCodeVersion: string | null;
+  commandCodeVersion?: string;
+  externalPrerequisite?: boolean;
 };
 
 const FAILURE_EVIDENCE_MESSAGE_MAX = 300;
@@ -199,6 +204,7 @@ export function toSanitizedFailureEvidenceJson(value: unknown): string | null {
   const row = value as Record<string, unknown>;
   const failureClass = evidenceString(row.failureClass ?? row.errorClass, 128);
   if (!failureClass) return null;
+  const commandCodeVersion = evidenceString(row.commandCodeVersion, 64);
   const record: WorkerFailureEvidenceRecord = {
     failureClass,
     statusCode: evidenceInt(row.statusCode),
@@ -207,6 +213,8 @@ export function toSanitizedFailureEvidenceJson(value: unknown): string | null {
     processExit: evidenceInt(row.processExit ?? row.exitStatus),
     modelId: evidenceString(row.modelId, 256),
     openCodeVersion: evidenceString(row.openCodeVersion, 64),
+    ...(commandCodeVersion ? { commandCodeVersion } : {}),
+    ...(typeof row.externalPrerequisite === "boolean" ? { externalPrerequisite: row.externalPrerequisite } : {}),
   };
   try {
     const json = JSON.stringify(record);

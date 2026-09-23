@@ -5,16 +5,27 @@
  *
  * Wire IDs observed 2026-09-17 from OpenCode 1.18.30 `opencode models`
  * in an isolated HOME with zero credentials.
- */
+*/
+
+import {
+  DETACHED_WORKER_MAX_WALL_CLOCK_MS,
+  MODE_B_DEVELOP,
+  MODE_B_HOST_MAX_STEPS,
+  MODE_B_INVESTIGATE,
+  WORKER_FINALIZATION_RESERVE_MS,
+  WORKER_MODEL_TURN_MAX_MS,
+} from "../worker/contracts.js";
+
+export {
+  DETACHED_WORKER_MAX_WALL_CLOCK_MS,
+  MODE_B_DEVELOP,
+  MODE_B_HOST_MAX_STEPS,
+  MODE_B_INVESTIGATE,
+  WORKER_FINALIZATION_RESERVE_MS,
+};
 
 export const OPENCODE_PINNED_VERSION = "1.18.30";
 
-export const MODE_B_INVESTIGATE = "project.investigate";
-export const MODE_B_DEVELOP = "candidate.develop";
-
-export const MODE_B_HOST_MAX_STEPS = 8;
-
-export const DETACHED_WORKER_MAX_WALL_CLOCK_MS = 3_600_000 as const;
 /**
  * Bounded re-probe interval after a proven OpenCode-class-wide
  * provider/client rejection (e.g. a free-service gate). Same-task sibling
@@ -23,8 +34,7 @@ export const DETACHED_WORKER_MAX_WALL_CLOCK_MS = 3_600_000 as const;
  * no quota state is written for client/provider rejections.
  */
 export const OPENCODE_CLASS_REJECTION_COOLDOWN_MS = 3_600_000 as const;
-export const WORKER_FINALIZATION_RESERVE_MS = 30_000 as const;
-export const OPENCODE_MODEL_TURN_MAX_MS = 300_000 as const;
+export const OPENCODE_MODEL_TURN_MAX_MS = WORKER_MODEL_TURN_MAX_MS;
 export const OPENCODE_TERM_GRACE_MS = 3_000 as const;
 export const OPENCODE_KILL_GRACE_MS = 2_000 as const;
 
