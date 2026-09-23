@@ -319,6 +319,12 @@ describe("cloudflare-adapter", () => {
         `${kind} fields=${JSON.stringify(Object.keys(properties))} required=${JSON.stringify(required)}`,
       );
     }
+    expect(wireMessages[0]?.content).toContain(
+      'Speech mode forms: mode="none", allowedFields=["mode"], requiredFields=["mode"], surfaceDraft=value; mode="draft", allowedFields=["mode","mustSay","mustNotSay","surfaceDraft","presentationDirectives"], requiredFields=["mode","surfaceDraft"], surfaceDraft=string.',
+    );
+    expect(wireMessages[0]?.content).toContain(
+      "Put user-facing language in speech.surfaceDraft; speech.text is not a canonical field.",
+    );
     expect(THOUGHT_OUTPUT_SCHEMA).toHaveProperty("oneOf");
     expect(body).not.toHaveProperty("response_format.json_schema");
   });

@@ -370,7 +370,8 @@ function speechForms(settlement: SchemaRecord): string[] {
   if (!Array.isArray(forms)) return [];
   return forms.map((form) => {
     const shape = record(form);
-    return `mode=${valueDescription(property(shape, "mode"))}, required=${requiredFields(shape).join(",")}, surfaceDraft=${valueDescription(property(shape, "surfaceDraft"))}`;
+    const allowedFields = Object.keys(record(shape.properties));
+    return `mode=${valueDescription(property(shape, "mode"))}, allowedFields=${JSON.stringify(allowedFields)}, requiredFields=${JSON.stringify(requiredFields(shape))}, surfaceDraft=${valueDescription(property(shape, "surfaceDraft"))}`;
   });
 }
 
@@ -378,6 +379,15 @@ function rootBranchKind(branch: unknown): string {
   const kind = property(record(branch), "kind").const;
   if (typeof kind !== "string") throw new Error("thought_schema_branch_kind_missing");
   return kind;
+}
+
+function settlementSpeechForms(): string[] {
+  const branches = record(THOUGHT_OUTPUT_SCHEMA).oneOf;
+  if (!Array.isArray(branches)) return [];
+  const settlement = branches
+    .map((branch) => record(branch))
+    .find((branch) => rootBranchKind(branch) === "settlement");
+  return settlement ? speechForms(settlement) : [];
 }
 
 function rootFieldForms(): string[] {
@@ -398,6 +408,9 @@ const DEEPSEEK_JSON_OBJECT_PROTOCOL = [
   "Canonical branch fields and required fields, derived from the current Ashley semantic schema:",
   ...rootFieldForms(),
   "If kind=settlement, emit only the settlement fields listed above.",
+  "For settlement, speech must match exactly one listed mode form. Each form's allowedFields set is exact; every unlisted speech field is forbidden.",
+  `Speech mode forms: ${settlementSpeechForms().join("; ")}.`,
+  "Put user-facing language in speech.surfaceDraft; speech.text is not a canonical field.",
   "If kind=observation_intent, emit only the observation_intent fields listed above.",
   "If kind=effect_intent, emit only the effect_intent fields listed above.",
   "If kind=abstain, emit only the abstain fields listed above.",
