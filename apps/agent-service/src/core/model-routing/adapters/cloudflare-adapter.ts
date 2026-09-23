@@ -27,16 +27,15 @@ import { thoughtOutputDeepSeekJsonObjectInstruction } from "../../cognitive-v021
 
 const CLOUDFLARE_MODEL = "@cf/nvidia/nemotron-3-120b-a12b";
 const DEEPSEEK_THOUGHT_MODEL = "@cf/deepseek-ai/deepseek-v4-flash-0731";
+const GLM_THOUGHT_MODEL = "@cf/zai-org/glm-5.3-flash";
 const THOUGHT_SEMANTIC_CONTRACT_ID = "ashley.thought.semantic.v2";
 const THOUGHT_SEMANTIC_SCHEMA_ID = "ashley.thought.semantic.v2.schema";
 const THOUGHT_AFFINITY_POLICY = "cloudflare_thought_route_affinity_v1" as const;
 const SESSION_AFFINITY_HEADER = "x-session-affinity";
 /**
- * Exact finite allowlist of the currently qualified Cloudflare DeepSeek
- * Thought-route bindings whose authoritative dispatched ownership is the
- * Thought route (portfolio current-compatibility.v3.json):
- * main interactive/durable Thought, Thought Observation, Reflection.
- * No other binding is eligible, including any invented future binding.
+ * Exact finite allowlist of previously qualified Cloudflare DeepSeek
+ * Thought-route bindings. GLM does not inherit this transport eligibility
+ * without its own qualification.
  */
 const THOUGHT_ROUTE_AFFINITY_BINDINGS: ReadonlySet<string> = new Set([
   "compat_thought_cloudflare_deepseek_v4_flash_json_object_v1",
@@ -79,31 +78,29 @@ type CloudflareResponse = {
   model?: unknown;
 };
 
-function isDeepSeekThoughtJsonObject(
+function isThoughtJsonObjectCompatibility(
   model: string,
   structuredOutput?: TrustedStructuredOutputControl,
 ): boolean {
-  return model === DEEPSEEK_THOUGHT_MODEL
+  return (model === DEEPSEEK_THOUGHT_MODEL || model === GLM_THOUGHT_MODEL)
     && structuredOutput?.kind === "json_object_compatibility"
     && structuredOutput.contractId === THOUGHT_SEMANTIC_CONTRACT_ID
     && structuredOutput.schemaId === THOUGHT_SEMANTIC_SCHEMA_ID;
 }
 
 /**
- * True only for the exact current Cloudflare DeepSeek Thought wire: the
- * configured DeepSeek model plus a trusted json_object_compatibility Thought
- * control whose binding belongs to the finite allowlist of currently
- * qualified Thought-route bindings (main, observation, reflection).
- * Grounded in Model Fabric translation facts available at the adapter
- * boundary — never in message contents or caller claims. Model alone is
- * never sufficient, and no binding outside the allowlist is accepted.
+ * True only for a previously qualified Cloudflare DeepSeek Thought wire:
+ * the configured DeepSeek model plus a trusted json_object_compatibility
+ * Thought control whose binding belongs to the finite allowlist. GLM's
+ * migration does not grant it this unqualified transport behavior.
  */
 export function isThoughtRouteAffinityEligible(
   model: string,
   structuredOutput?: TrustedStructuredOutputControl,
 ): boolean {
   const bindingId = structuredOutput?.bindingId;
-  return isDeepSeekThoughtJsonObject(model, structuredOutput)
+  return model === DEEPSEEK_THOUGHT_MODEL
+    && isThoughtJsonObjectCompatibility(model, structuredOutput)
     && typeof bindingId === "string"
     && THOUGHT_ROUTE_AFFINITY_BINDINGS.has(bindingId);
 }
@@ -149,7 +146,7 @@ function messagesForCloudflareWire(
   model: string,
   structuredOutput?: TrustedStructuredOutputControl,
 ): ChatMessage[] {
-  if (!isDeepSeekThoughtJsonObject(model, structuredOutput)) return messages;
+  if (!isThoughtJsonObjectCompatibility(model, structuredOutput)) return messages;
   const protocol = thoughtOutputDeepSeekJsonObjectInstruction();
   const systemIndex = messages.findIndex((message) => message.role === "system");
   if (systemIndex < 0) {
@@ -393,7 +390,7 @@ function buildRequestBody(
   fabricStructuredOutput?: TrustedStructuredOutputControl,
 ): Record<string, unknown> {
   const wireMessages = messagesForCloudflareWire(messages, model, fabricStructuredOutput);
-  const deepSeekThoughtJsonObject = isDeepSeekThoughtJsonObject(model, fabricStructuredOutput);
+  const thoughtJsonObjectCompatibility = isThoughtJsonObjectCompatibility(model, fabricStructuredOutput);
   const body: Record<string, unknown> = {
     model,
     messages: wireMessages.map((message) => ({
@@ -412,11 +409,20 @@ function buildRequestBody(
   if (options.toolChoice) body.tool_choice = options.toolChoice;
   if (options.presencePenalty !== undefined) body.presence_penalty = options.presencePenalty;
 
-  const reasoning = fabricReasoning ?? (
-    options.reasoningEffort
-      ? { kind: "reasoning_effort", value: options.reasoningEffort } as const
-      : undefined
-  );
+  if (model === GLM_THOUGHT_MODEL && fabricReasoning !== undefined) {
+    throw new AppError(
+      "capability_mismatch",
+      "GLM-5.3 Flash uses its native default reasoning mode",
+      400,
+    );
+  }
+  const reasoning = model === GLM_THOUGHT_MODEL
+    ? undefined
+    : fabricReasoning ?? (
+        options.reasoningEffort
+          ? { kind: "reasoning_effort", value: options.reasoningEffort } as const
+          : undefined
+      );
   if (reasoning?.kind === "chat_template_thinking") {
     throw new AppError(
       "capability_mismatch",
@@ -438,7 +444,7 @@ function buildRequestBody(
     }
   }
 
-  if (deepSeekThoughtJsonObject || fabricStructuredOutput?.kind === "json_object_compatibility") {
+  if (thoughtJsonObjectCompatibility || fabricStructuredOutput?.kind === "json_object_compatibility") {
     body.response_format = { type: "json_object" };
   } else if (fabricStructuredOutput?.kind === "native_json_schema") {
     if (fabricStructuredOutput.wireFormat !== "cloudflare_response_format_json_schema") {

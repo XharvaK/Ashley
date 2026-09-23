@@ -27,7 +27,7 @@ describe("TARGET portfolio + token envelope reconciliation", () => {
     expect(target.kind).toBe("candidate_target");
     expect(target.sourcePath.replaceAll("\\", "/")).toMatch(/target-12-9\.v2\.json$/);
     expect(existsSync(join(target.sourcePath, "..", "target-12-9.v1.json"))).toBe(true);
-    expect(current.portfolioRevisionId).toBe("mfp_current_compatibility_v4");
+    expect(current.portfolioRevisionId).toBe("mfp_current_compatibility_v5");
     expect(current.kind).toBe("current_compatibility");
   });
 
@@ -37,9 +37,9 @@ describe("TARGET portfolio + token envelope reconciliation", () => {
     const expression = current.rows.find((row) => row.policyRowId === "mfr_expression_compat_v1")!;
     expect(thought.occupants[0]).toMatchObject({
       provider: "cloudflare",
-      configuredModelId: "@cf/deepseek-ai/deepseek-v4-flash-0731",
+      configuredModelId: "@cf/zai-org/glm-5.3-flash",
       reasoningPolicy: "high",
-      effectiveReasoning: "high",
+      effectiveReasoning: "max",
     });
     expect(thought.deadlineMs).toBe(3600000);
     expect(thought.maxOutputTokens).toBe(65536);
@@ -76,7 +76,7 @@ describe("TARGET portfolio + token envelope reconciliation", () => {
     });
     expect(current.routeBindings.thought).toMatchObject({
       provider: "cloudflare",
-      configuredModelId: "@cf/deepseek-ai/deepseek-v4-flash-0731",
+      configuredModelId: "@cf/zai-org/glm-5.3-flash",
     });
     expect(current.routeBindings.ashley_expression).toMatchObject({
       provider: "groq",

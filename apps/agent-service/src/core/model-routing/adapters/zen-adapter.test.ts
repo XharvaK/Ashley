@@ -175,7 +175,7 @@ describe("MF-M4 OpenCode Zen adapter", () => {
       ([route]) => route === "thought",
     );
     expect(thought?.[1].provider).toBe("cloudflare");
-    expect(thought?.[1].configuredModelId).toBe("@cf/deepseek-ai/deepseek-v4-flash-0731");
+    expect(thought?.[1].configuredModelId).toBe("@cf/zai-org/glm-5.3-flash");
     expect(Object.values(currentPortfolio().routeBindings)).not.toContainEqual(
       expect.objectContaining({ provider: "opencode_zen" }),
     );

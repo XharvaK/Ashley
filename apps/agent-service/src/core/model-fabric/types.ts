@@ -132,7 +132,7 @@ export type ModelReasoningCapabilities =
   | { mode: "fixed" }
   | {
       mode: "configurable";
-      efforts: readonly ("none" | "low" | "medium" | "high" | "default")[];
+      efforts: readonly ("none" | "low" | "medium" | "high" | "default" | "max")[];
     };
 
 export type ModelCapabilityProfileDefinition = {
@@ -181,6 +181,7 @@ export type ReasoningPolicy =
 
 export type TranslatedWireControl =
   | { kind: "reasoning_effort"; value: "none" | "low" | "medium" | "high" }
+  | { kind: "cloudflare_native_default"; effectiveDefault: "max" }
   | {
       kind: "groq_reasoning_effort";
       value: "default" | "medium";

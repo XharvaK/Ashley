@@ -32,6 +32,7 @@ const MODEL_OUTPUT_CEILINGS: Readonly<Record<string, number>> = {
   "groq:qwen/qwen3.8-27b": 4096,
   "cloudflare:@cf/nvidia/nemotron-3-120b-a12b": 8192,
   "cloudflare:@cf/deepseek-ai/deepseek-v4-flash-0731": 65536,
+  "cloudflare:@cf/zai-org/glm-5.3-flash": 65536,
 };
 
 const MODEL_CONTEXT_LIMITS: Readonly<Record<string, number>> = {
@@ -41,6 +42,7 @@ const MODEL_CONTEXT_LIMITS: Readonly<Record<string, number>> = {
 const MISTRAL_SMALL = "mistral-small-2603";
 const GROQ_QWEN_3_6 = "qwen/qwen3.6-27b";
 const GROQ_QWEN_3_8 = "qwen/qwen3.8-27b";
+const CLOUDFLARE_GLM_5_3_FLASH = "@cf/zai-org/glm-5.3-flash";
 
 function maxOutputTokensFor(provider: string, configuredModelId: string): number {
   return MODEL_OUTPUT_CEILINGS[`${provider}:${configuredModelId}`] ?? 2048;
@@ -91,7 +93,9 @@ function mechanicalDefinition(
     reasoning: {
       mode: "configurable",
       efforts:
-        provider === "mistral" && configuredModelId === MISTRAL_SMALL
+        provider === "cloudflare" && configuredModelId === CLOUDFLARE_GLM_5_3_FLASH
+          ? ["low", "high", "max"]
+          : provider === "mistral" && configuredModelId === MISTRAL_SMALL
           ? ["none", "high"]
           : provider === "groq" && configuredModelId === GROQ_QWEN_3_6
             ? ["none", "default"]

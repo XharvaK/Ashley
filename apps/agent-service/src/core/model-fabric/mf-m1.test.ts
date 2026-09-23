@@ -236,7 +236,7 @@ describe("MF-M1 completeChat receipts", () => {
     env.cloudflareAccountId = "test-account";
     const dispatch = vi.fn().mockResolvedValue({
       text: "thought",
-      providerModel: "@cf/deepseek-ai/deepseek-v4-flash-0731",
+      providerModel: "@cf/zai-org/glm-5.3-flash",
       usage: { promptTokens: 4, completionTokens: 5 },
       finishReason: "stop",
     });
@@ -266,7 +266,7 @@ describe("MF-M1 completeChat receipts", () => {
     expect(receipt.attempts[0]).toMatchObject({
       provider: "cloudflare",
       backend: "cloudflare",
-      configuredModelId: "@cf/deepseek-ai/deepseek-v4-flash-0731",
+      configuredModelId: "@cf/zai-org/glm-5.3-flash",
       fallbackClass: "none",
       providerRequestCount: 1,
     });
@@ -293,7 +293,7 @@ describe("MF-M1 completeChat receipts", () => {
     env.cloudflareAccountId = "test-account";
     const cloudflareDispatch = vi.fn().mockResolvedValue({
       text: "observation",
-      providerModel: "@cf/deepseek-ai/deepseek-v4-flash-0731",
+      providerModel: "@cf/zai-org/glm-5.3-flash",
       usage: { promptTokens: 1, completionTokens: 1 },
       finishReason: "stop",
     });
@@ -322,7 +322,7 @@ describe("MF-M1 completeChat receipts", () => {
     expect(receipt.attempts[0]).toMatchObject({
       dispatchedRouteId: "thought",
       provider: "cloudflare",
-      configuredModelId: "@cf/deepseek-ai/deepseek-v4-flash-0731",
+      configuredModelId: "@cf/zai-org/glm-5.3-flash",
     });
     database.close();
   });

@@ -28,6 +28,7 @@ const originalAccount = env.cloudflareAccountId;
 const originalAffinity = env.cloudflareThoughtAffinityId;
 const MODEL = "@cf/nvidia/nemotron-3-120b-a12b";
 const DEEPSEEK_MODEL = "@cf/deepseek-ai/deepseek-v4-flash-0731";
+const GLM_MODEL = "@cf/zai-org/glm-5.3-flash";
 const messages: ChatMessage[] = [{ role: "user", content: "synthetic qualification input" }];
 
 afterEach(() => {
@@ -82,6 +83,10 @@ const deepseekReflectionStructuredOutput = {
   schemaId: "ashley.thought.semantic.v2.schema",
   schemaFingerprint: THOUGHT_OUTPUT_SCHEMA_FINGERPRINT,
   bindingId: "compat_reflection_cloudflare_deepseek_v4_flash_json_object_v1",
+};
+const glmStructuredOutput = {
+  ...deepseekStructuredOutput,
+  bindingId: "compat_thought_cloudflare_glm_5_3_flash_json_object_v1",
 };
 
 describe("cloudflare-adapter", () => {
@@ -422,9 +427,9 @@ describe("cloudflare-adapter thought route session affinity", () => {
     });
   }
 
-  it("resolves eligibility only for the exact DeepSeek Thought-route bindings", () => {
+  it("resolves affinity only for qualified DeepSeek bindings and keeps GLM ineligible", () => {
     env.cloudflareThoughtAffinityId = AFFINITY_ID;
-    // All three currently qualified Thought-route bindings are eligible.
+    // All three previously qualified DeepSeek Thought-route bindings remain eligible.
     expect(isThoughtRouteAffinityEligible(DEEPSEEK_MODEL, deepseekStructuredOutput)).toBe(true);
     expect(isThoughtRouteAffinityEligible(DEEPSEEK_MODEL, deepseekObservationStructuredOutput)).toBe(true);
     expect(isThoughtRouteAffinityEligible(DEEPSEEK_MODEL, deepseekReflectionStructuredOutput)).toBe(true);
@@ -440,6 +445,13 @@ describe("cloudflare-adapter thought route session affinity", () => {
     expect(isThoughtRouteAffinityEligible(MODEL, deepseekObservationStructuredOutput)).toBe(false);
     expect(isThoughtRouteAffinityEligible(MODEL, deepseekReflectionStructuredOutput)).toBe(false);
     expect(isThoughtRouteAffinityEligible("mistral-small-2603", deepseekStructuredOutput)).toBe(false);
+    // The GLM migration does not inherit DeepSeek's unqualified transport behavior.
+    expect(isThoughtRouteAffinityEligible(GLM_MODEL, glmStructuredOutput)).toBe(false);
+    expect(resolveThoughtRouteAffinity(GLM_MODEL, glmStructuredOutput)).toMatchObject({
+      applied: false,
+      transport: { sessionAffinityApplied: false, affinityPolicy: "none" },
+      value: null,
+    });
     // Resolver honors configuration on top of eligibility, per binding.
     for (const control of [
       deepseekStructuredOutput,

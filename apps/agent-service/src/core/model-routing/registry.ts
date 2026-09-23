@@ -31,7 +31,7 @@ export const ROUTE_BINDINGS: readonly RouteBinding[] = [
   {
     route: "thought",
     provider: "cloudflare",
-    configuredModelId: "@cf/deepseek-ai/deepseek-v4-flash-0731",
+    configuredModelId: "@cf/zai-org/glm-5.3-flash",
     contextProfile: "thought_summary",
     enabled: true,
   },

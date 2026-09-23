@@ -39,12 +39,12 @@ describe("model-routing router", () => {
     expect(resolveRoute("thought_observation")).toMatchObject({
       route: "thought",
       provider: "cloudflare",
-      configuredModelId: "@cf/deepseek-ai/deepseek-v4-flash-0731",
+      configuredModelId: "@cf/zai-org/glm-5.3-flash",
     });
     expect(resolveRoute("reflection_initiative")).toMatchObject({
       route: "thought",
       provider: "cloudflare",
-      configuredModelId: "@cf/deepseek-ai/deepseek-v4-flash-0731",
+      configuredModelId: "@cf/zai-org/glm-5.3-flash",
     });
   });
 
@@ -99,7 +99,7 @@ describe("model-routing router", () => {
       expect.arrayContaining(["provider_id", "route_alias", "quota_bucket"]),
     );
     expect(routeBinding("thought").provider).toBe("cloudflare");
-    expect(routeBinding("thought").configuredModelId).toBe("@cf/deepseek-ai/deepseek-v4-flash-0731");
+    expect(routeBinding("thought").configuredModelId).toBe("@cf/zai-org/glm-5.3-flash");
     db.close();
     continuity.close();
   });

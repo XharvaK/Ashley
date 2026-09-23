@@ -59,7 +59,7 @@ describe("MF-M2 CURRENT portfolio", () => {
     );
   });
 
-  it("keeps both CURRENT Thought occupants on high Cloudflare reasoning", () => {
+  it("keeps both CURRENT Thought occupants on Cloudflare native-default max reasoning", () => {
     const interactive = resolveCurrentPolicy({
       logicalRole: "thought",
       purpose: "thought",
@@ -73,9 +73,9 @@ describe("MF-M2 CURRENT portfolio", () => {
 
     expect(interactive.policyRow.reasoningPolicy).toBe("high");
     expect(interactive.occupant.reasoningPolicy).toBe("high");
-    expect(interactive.occupant.effectiveReasoning).toBe("high");
+    expect(interactive.occupant.effectiveReasoning).toBe("max");
     expect(durable.policyRow.occupancyKey).toBe("durable_proactive");
-    expect(durable.occupant.effectiveReasoning).toBe("high");
+    expect(durable.occupant.effectiveReasoning).toBe("max");
     expect(interactive.registryVersion).toBe(currentPortfolio().registryVersion);
   });
 
@@ -119,7 +119,7 @@ describe("MF-M2 CURRENT portfolio", () => {
     const records = routeRecordsFromCurrentPortfolio();
     expect(records.find((record) => record.route === "thought")).toMatchObject({
       provider: "cloudflare",
-      configuredModelId: "@cf/deepseek-ai/deepseek-v4-flash-0731",
+      configuredModelId: "@cf/zai-org/glm-5.3-flash",
       enabled: true,
       quotaContract: {
         tpm: 524288,
@@ -137,7 +137,7 @@ describe("MF-M2 CURRENT portfolio", () => {
       provider: "cloudflare",
       dispatch: vi.fn().mockResolvedValue({
         text: "{\"kind\":\"speak\"}",
-        providerModel: "@cf/deepseek-ai/deepseek-v4-flash-0731",
+        providerModel: "@cf/zai-org/glm-5.3-flash",
         usage: { promptTokens: 1, completionTokens: 1 },
         finishReason: "stop",
       }),
@@ -152,9 +152,9 @@ describe("MF-M2 CURRENT portfolio", () => {
     expect(result.modelFabric?.resolvedRoute).toMatchObject({
       registryVersion: currentPortfolio().registryVersion,
       policyRowId: "mfr_thought_interactive_compat_v1",
-      occupantId: "mfo_cloudflare_deepseek_v4_flash_high",
+      occupantId: "mfo_cloudflare_glm_5_3_flash_native_max",
       provider: "cloudflare",
-      configuredModelId: "@cf/deepseek-ai/deepseek-v4-flash-0731",
+      configuredModelId: "@cf/zai-org/glm-5.3-flash",
     });
     database.close();
   });
@@ -164,7 +164,7 @@ describe("MF-M2 CURRENT portfolio", () => {
     env.cloudflareAccountId = "test-account";
     const dispatch = vi.fn().mockResolvedValue({
       text: "{}",
-      providerModel: "@cf/deepseek-ai/deepseek-v4-flash-0731",
+      providerModel: "@cf/zai-org/glm-5.3-flash",
       usage: { promptTokens: 1, completionTokens: 1 },
       finishReason: "stop",
     });
@@ -190,7 +190,7 @@ describe("MF-M2 CURRENT portfolio", () => {
     env.cloudflareAccountId = "test-account";
     const dispatch = vi.fn().mockResolvedValue({
       text: "{}",
-      providerModel: "@cf/deepseek-ai/deepseek-v4-flash-0731",
+      providerModel: "@cf/zai-org/glm-5.3-flash",
       usage: { promptTokens: 1, completionTokens: 1 },
       finishReason: "stop",
     });
@@ -285,7 +285,7 @@ describe("MF-M2 CURRENT portfolio", () => {
     expect(resolveDispatchContract({
       policy: interactive,
       provider: "cloudflare",
-      configuredModelId: "@cf/deepseek-ai/deepseek-v4-flash-0731",
+      configuredModelId: "@cf/zai-org/glm-5.3-flash",
     }).maxTokens).toBe(65536);
 
     const policyAboveProfile = {
@@ -307,14 +307,14 @@ describe("MF-M2 CURRENT portfolio", () => {
     const database = openNuclearDb(new DatabaseSync(":memory:"));
     const thought = routingStatus(database).find((route) => route.route === "thought");
     expect(thought?.fabric).toMatchObject({
-      portfolioRevisionId: "mfp_current_compatibility_v4",
+      portfolioRevisionId: "mfp_current_compatibility_v5",
       registryVersion: currentPortfolio().registryVersion,
     });
     expect(thought?.fabric.policyRows).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           policyRowId: "mfr_thought_interactive_compat_v1",
-          occupantId: "mfo_cloudflare_deepseek_v4_flash_high",
+          occupantId: "mfo_cloudflare_glm_5_3_flash_native_max",
           admissionBasis: expect.objectContaining({ kind: "existing_compatibility" }),
           activeActivationRefId: "compatibility_default",
           health: expect.objectContaining({

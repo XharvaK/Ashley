@@ -608,7 +608,9 @@ export async function completeChat(
         semanticPolicy: semantic.policy,
       });
       if (translated.status === "translated") {
-        fabricReasoning = toTrustedReasoningControl(translated.control);
+        if (translated.control.kind !== "cloudflare_native_default") {
+          fabricReasoning = toTrustedReasoningControl(translated.control);
+        }
         translatedWireControl = formatTranslatedWireControl(translated.control);
         effectiveReasoning = translatedWireControl;
         requestedWireReasoning = occupantWire;

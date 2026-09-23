@@ -274,9 +274,9 @@ describe("MF-ACT dispatch authority", () => {
     expect(resolved.policyRow.policyRowId).toBe(
       "mfr_thought_interactive_compat_v1",
     );
-    expect(resolved.occupant.configuredModelId).toBe("@cf/deepseek-ai/deepseek-v4-flash-0731");
+    expect(resolved.occupant.configuredModelId).toBe("@cf/zai-org/glm-5.3-flash");
     expect(resolved.occupant.provider).toBe("cloudflare");
-    expect(resolved.occupant.effectiveReasoning).toBe("high");
+    expect(resolved.occupant.effectiveReasoning).toBe("max");
     expect(resolved.activationRefId).toBeNull();
   });
 
@@ -345,7 +345,7 @@ describe("MF-ACT dispatch authority", () => {
       controlRootMode: "production",
     });
     expect(resolved.source).toBe("current_compatibility");
-    expect(resolved.occupant.configuredModelId).toBe("@cf/deepseek-ai/deepseek-v4-flash-0731");
+    expect(resolved.occupant.configuredModelId).toBe("@cf/zai-org/glm-5.3-flash");
   });
 
   it("E/F: caller model and reasoning pins lose to an activated occupant", async () => {
@@ -398,23 +398,22 @@ describe("MF-ACT dispatch authority", () => {
     database.close();
   });
 
-  it("G: no activation keeps CURRENT Cloudflare Thought and Groq Qwen 3.8 Expression pins", async () => {
+  it("G: no activation keeps CURRENT Cloudflare GLM Thought and Groq Qwen 3.8 Expression pins", async () => {
     const root = controlRoot();
     env.cloudflareApiToken = "test-cloudflare-token";
     env.cloudflareAccountId = "test-account";
     env.groqApiKey = "test";
     const cloudflareDispatch = vi.fn(async (args: {
       modelId: string;
+      options: { reasoningEffort?: string };
       fabricReasoning?: unknown;
     }) => {
-      if (args.modelId === "@cf/deepseek-ai/deepseek-v4-flash-0731") {
-        expect(args.fabricReasoning).toEqual({
-          kind: "reasoning_effort",
-          value: "high",
-        });
+      if (args.modelId === "@cf/zai-org/glm-5.3-flash") {
+        expect(args.options.reasoningEffort).toBeUndefined();
+        expect(args.fabricReasoning).toBeUndefined();
         return {
           text: "{\"kind\":\"speak\"}",
-          providerModel: "@cf/deepseek-ai/deepseek-v4-flash-0731",
+          providerModel: "@cf/zai-org/glm-5.3-flash",
           usage: { promptTokens: 1, completionTokens: 1 },
           finishReason: "stop",
         };
@@ -448,12 +447,12 @@ describe("MF-ACT dispatch authority", () => {
       modelFabricControlDir: root,
       modelFabricControlRootMode: "fixture",
     }));
-    expect(thought.modelAlias).toBe("@cf/deepseek-ai/deepseek-v4-flash-0731");
+    expect(thought.modelAlias).toBe("@cf/zai-org/glm-5.3-flash");
     expect(thought.modelFabric?.resolvedRoute).toMatchObject({
       policyRowId: "mfr_thought_interactive_compat_v1",
-      occupantId: "mfo_cloudflare_deepseek_v4_flash_high",
+      occupantId: "mfo_cloudflare_glm_5_3_flash_native_max",
       provider: "cloudflare",
-      effectiveReasoning: "reasoning_effort=high",
+      effectiveReasoning: "reasoning_effort=omitted;native_default=max",
     });
     thoughtDb.close();
     const expressionDb = db();

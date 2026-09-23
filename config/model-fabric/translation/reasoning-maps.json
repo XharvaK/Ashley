@@ -111,6 +111,21 @@
       }
     },
     {
+      "familyId": "cloudflare_glm_5_3_flash",
+      "match": {
+        "provider": "cloudflare",
+        "configuredModelId": "@cf/zai-org/glm-5.3-flash"
+      },
+      "staleAliases": {},
+      "policies": {
+        "disabled": { "kind": "unsupported", "code": "unsupported_reasoning_mapping" },
+        "economical": { "kind": "unsupported", "code": "unsupported_reasoning_mapping" },
+        "standard": { "kind": "unsupported", "code": "unsupported_reasoning_mapping" },
+        "high": { "kind": "cloudflare_native_default", "effectiveDefault": "max" },
+        "max_supported": { "kind": "cloudflare_native_default", "effectiveDefault": "max" }
+      }
+    },
+    {
       "familyId": "nim_nemotron_lightning",
       "match": {
         "provider": "nim",

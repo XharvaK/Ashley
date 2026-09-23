@@ -50,11 +50,11 @@ describe("route-to-provider mapping", () => {
     expect(b.configuredModelId).toBe("qwen/qwen3.8-27b");
   });
 
-  it("thought routes to the Cloudflare DeepSeek V4 Flash primary", () => {
+  it("thought routes to the Cloudflare GLM-5.3 Flash primary", () => {
     const b = resolveRoute("thought");
     expect(b.route).toBe("thought");
     expect(b.provider).toBe("cloudflare");
-    expect(b.configuredModelId).toBe("@cf/deepseek-ai/deepseek-v4-flash-0731");
+    expect(b.configuredModelId).toBe("@cf/zai-org/glm-5.3-flash");
   });
 
   it.each([
@@ -69,12 +69,12 @@ describe("route-to-provider mapping", () => {
   });
 
   it.each(["thought_observation", "reflection_initiative"])(
-    "Thought-owned purpose %s routes to Cloudflare DeepSeek rather than utility Lightning",
+    "Thought-owned purpose %s routes to Cloudflare GLM rather than utility Lightning",
     (purpose) => {
       const b = resolveRoute(purpose);
       expect(b.route).toBe("thought");
       expect(b.provider).toBe("cloudflare");
-      expect(b.configuredModelId).toBe("@cf/deepseek-ai/deepseek-v4-flash-0731");
+      expect(b.configuredModelId).toBe("@cf/zai-org/glm-5.3-flash");
     },
   );
 
@@ -274,7 +274,7 @@ describe("shared NIM Lightning quota bucket at the dispatch layer", () => {
       const thoughtCompletedRows = Number(
         (
           db.prepare(
-            `SELECT COUNT(*) AS c FROM attention_requests WHERE quota_bucket = 'cloudflare:@cf/deepseek-ai/deepseek-v4-flash-0731' AND outcome = 'completed'`,
+            `SELECT COUNT(*) AS c FROM attention_requests WHERE quota_bucket = 'cloudflare:@cf/zai-org/glm-5.3-flash' AND outcome = 'completed'`,
           ).get() as { c: number }
         ).c,
       );

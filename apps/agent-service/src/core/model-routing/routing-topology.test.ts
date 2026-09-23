@@ -17,7 +17,7 @@ import { routeBinding } from "./registry.js";
 const LIGHTNING = "nvidia/nemotron-3.5-lightning-30b-a3b";
 const QWEN_3_8 = "qwen/qwen3.8-27b";
 const ULTRA = "nvidia/nemotron-3-ultra-550b-a55b";
-const THOUGHT_MODEL = "@cf/deepseek-ai/deepseek-v4-flash-0731";
+const THOUGHT_MODEL = "@cf/zai-org/glm-5.3-flash";
 const MISTRAL_SMALL = "mistral-small-2603";
 
 afterEach(() => {
@@ -28,9 +28,9 @@ describe("Phase 5 successor routing topology", () => {
   it("loads a new current revision while preserving the v2 snapshot", () => {
     const portfolio = currentPortfolio();
 
-    expect(portfolio.portfolioRevisionId).toBe("mfp_current_compatibility_v4");
+    expect(portfolio.portfolioRevisionId).toBe("mfp_current_compatibility_v5");
     expect(portfolio.replacesPortfolioRevisionId).toBe(
-      "mfp_current_compatibility_v3",
+      "mfp_current_compatibility_v4",
     );
     expect(portfolio.sourcePath.replaceAll("\\", "/")).toMatch(
       /current-compatibility\.v3\.json$/,
@@ -105,7 +105,7 @@ describe("Phase 5 successor routing topology", () => {
         provider: "cloudflare",
         configuredModelId: THOUGHT_MODEL,
         reasoningPolicy: "high",
-        effectiveReasoning: "high",
+        effectiveReasoning: "max",
         structuredOutputBinding: {
           mode: "json_object_compatibility",
         },
