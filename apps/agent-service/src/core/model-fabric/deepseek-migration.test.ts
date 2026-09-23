@@ -47,7 +47,7 @@ describe("GLM-5.3 Flash Thought provider migration witnesses", () => {
         provider: "cloudflare",
         configuredModelId: GLM,
         independenceGroup: "zai_glm",
-        reasoningPolicy: "high",
+        reasoningPolicy: "max_supported",
         effectiveReasoning: "max",
         fallbackClassFromPrevious: "none",
         fallbackTriggerClasses: [],
@@ -102,7 +102,7 @@ describe("GLM-5.3 Flash Thought provider migration witnesses", () => {
     expect(profile.profileFingerprint).toMatch(/^sha256:[0-9a-f]{64}$/);
   });
 
-  it("records Ashley high as GLM native-default max and omits reasoning_effort on the request", () => {
+  it("records GLM max_supported as native-default max and omits reasoning controls on the request", () => {
     const policy = resolveCurrentPolicy({
       logicalRole: "thought",
       purpose: "thought",
@@ -119,10 +119,15 @@ describe("GLM-5.3 Flash Thought provider migration witnesses", () => {
       responseFormat: "json_schema",
       structuredOutput: structuredRequest,
     });
+    expect(policy.policyRow.reasoningPolicy).toBe("max_supported");
+    const reasoningPolicy = policy.occupant.reasoningPolicy;
+    if (reasoningPolicy !== "max_supported") {
+      throw new Error("GLM Thought must use max_supported reasoning policy");
+    }
     const reasoning = translateReasoningPolicy({
       provider: "cloudflare",
       configuredModelId: GLM,
-      semanticPolicy: "high",
+      semanticPolicy: reasoningPolicy,
     });
 
     expect(reasoning).toEqual({

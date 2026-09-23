@@ -486,10 +486,82 @@ describe("Thought semantic output contract", () => {
     expect(instruction).toContain("Use only observation IDs actually supplied in the current Thought input");
     for (const [dimension, definition] of Object.entries(EPISTEMIC_DIMENSIONS)) {
       expect(instruction).toContain(`${dimension}: ${definition.definition}`);
-      for (const value of definition.values) expect(instruction).toContain(value);
+      const values = Array.isArray(definition.values)
+        ? definition.values
+        : Object.keys(definition.values);
+      for (const value of values) expect(instruction).toContain(value);
     }
     for (const operationKind of REGISTERED_OPERATION_KINDS) {
       expect(instruction).toContain(operationKind);
+    }
+  });
+
+  it("binds exact per-value epistemic definitions to the canonical parser vocabulary", () => {
+    const expectedDefinitions = {
+      source: {
+        owner_utterance: "The basis of the claim is something the Owner said.",
+        ashley_interpretation: "The claim is Ashley's reading of supplied material.",
+        tool: "The claim rests on a tool-mediated observation.",
+        perception: "The claim rests on a perceptual observation.",
+        receipt: "The claim rests on a recorded operation receipt.",
+        prior_settlement: "The claim rests on an earlier accepted settlement.",
+      },
+      status: {
+        asserted: "The claim is presented as holding, on its stated basis.",
+        interpreted: "The claim is presented as a reading.",
+        unverified: "The claim has not been checked against a governing observation or receipt.",
+        contradicted: "The claim conflicts with supplied evidence.",
+        superseded: "A later accepted claim replaces this one.",
+        unresolved: "The question remains open on the supplied evidence.",
+      },
+      time: {
+        current: "The claim is about the present state as established by governed current observation.",
+        historical: "The claim is about a past state or event and does not assert that it remains true.",
+        unknown_freshness: "Evidence supports the claim, and whether it remains true has not been established.",
+      },
+      reliability: {
+        owner_supplied: "The Owner supplied the content.",
+        fallible_observation: "The claim rests on an observation that can be wrong.",
+        receipt_backed: "An operation receipt backs the claim.",
+        inferred: "The claim is drawn by inference.",
+        unavailable_source: "The originating source cannot be supplied.",
+      },
+    } as const;
+    type Dimension = keyof typeof expectedDefinitions;
+    const authority = EPISTEMIC_DIMENSIONS as unknown as Record<
+      Dimension,
+      { values: Record<string, string> }
+    >;
+    const instruction = thoughtOutputCompatibilityInstruction();
+    for (const values of Object.values(expectedDefinitions)) {
+      for (const definition of Object.values(values)) {
+        expect(instruction).not.toContain(`${definition}.`);
+      }
+    }
+    const baselineDimensions = {
+      source: "owner_utterance",
+      status: "asserted",
+      time: "current",
+      reliability: "owner_supplied",
+    } as const;
+
+    for (const dimension of Object.keys(expectedDefinitions) as Dimension[]) {
+      const expected = Object.entries(expectedDefinitions[dimension]);
+      expect(Object.keys(authority[dimension].values)).toEqual(expected.map(([value]) => value));
+      for (const [value, definition] of expected) {
+        expect(instruction.split(`${value}: ${definition}`).length - 1).toBe(1);
+        const parsed = parseThoughtSemanticOutput({
+          ...settlement,
+          commitments: {
+            ...settlement.commitments,
+            epistemic: [{
+              dimensions: { ...baselineDimensions, [dimension]: value },
+              statement: "A claim with a governed epistemic value.",
+            }],
+          },
+        }, refs);
+        expect(parsed).toMatchObject({ ok: true });
+      }
     }
   });
 

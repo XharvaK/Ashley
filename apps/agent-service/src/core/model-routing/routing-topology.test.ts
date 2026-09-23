@@ -104,7 +104,7 @@ describe("Phase 5 successor routing topology", () => {
       expect(row.occupants[0]).toMatchObject({
         provider: "cloudflare",
         configuredModelId: THOUGHT_MODEL,
-        reasoningPolicy: "high",
+        reasoningPolicy: "max_supported",
         effectiveReasoning: "max",
         structuredOutputBinding: {
           mode: "json_object_compatibility",

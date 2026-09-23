@@ -207,7 +207,7 @@ function epistemicDimensionRepairs(value: unknown, field: string): EpistemicDime
   for (const dimension of Object.keys(EPISTEMIC_DIMENSIONS) as EpistemicDimension[]) {
     const value = record[dimension];
     const definition = EPISTEMIC_DIMENSIONS[dimension];
-    if (typeof value === "string" && !(definition.values as readonly string[]).includes(value)) {
+    if (typeof value === "string" && !Object.prototype.hasOwnProperty.call(definition.values, value)) {
       repairs.push({ path: `${field}.${dimension}`, value, dimension });
     }
   }
@@ -219,7 +219,7 @@ function validEpistemicDimensions(value: unknown): boolean {
   return !!record && (Object.keys(EPISTEMIC_DIMENSIONS) as EpistemicDimension[]).every((dimension) => {
     const item = record[dimension];
     return typeof item === "string" &&
-      (EPISTEMIC_DIMENSIONS[dimension].values as readonly string[]).includes(item);
+      Object.prototype.hasOwnProperty.call(EPISTEMIC_DIMENSIONS[dimension].values, item);
   });
 }
 

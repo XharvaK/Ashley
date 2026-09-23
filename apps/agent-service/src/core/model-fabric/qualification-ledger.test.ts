@@ -75,7 +75,7 @@ function fixture() {
     capability,
     logicalEvidence: { contractId: "ashley.thought.semantic.v1", schemaFingerprint: THOUGHT_OUTPUT_SCHEMA_FINGERPRINT, bindingId: capability.components.logicalBindingId },
     wireEvidence,
-    resourceEvidence: { deadlineMs: 300000, maxOutputTokens: 4096, attempts: 1 },
+    resourceEvidence: { deadlineMs: 3_600_000, maxOutputTokens: 4096, attempts: 1 },
   });
   return { row, occupant, capability, result };
 }
@@ -130,7 +130,7 @@ describe("W1 immutable qualification ledger", () => {
         providerDeclaredEnforcement: "unavailable",
         bindingId: capability.components.wireBindingId,
       },
-      resourceEvidence: { deadlineMs: 300000, maxOutputTokens: 4096, attempts: 1 },
+      resourceEvidence: { deadlineMs: 3_600_000, maxOutputTokens: 4096, attempts: 1 },
     })).toThrow("schema_enforcement_evidence_mismatch");
   });
 

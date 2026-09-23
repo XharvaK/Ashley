@@ -177,12 +177,19 @@ describe("Thought structural correction scope", () => {
     expect(feedback.correctionScope).toBe("localized");
     expect(feedback.allowedRepairPaths).toEqual(repairs.map((repair) => repair.path));
     const prompt = formatThoughtStructuralFeedback(feedback) ?? "";
+    expect(prompt).not.toContain("settlement..");
     expect(prompt).toContain('rejected value "OWNER"');
-    expect(prompt).toContain("Permitted values:");
+    expect(prompt).toContain("Permitted values and definitions:");
     expect(prompt).toContain("claim provenance category");
+    expect(prompt).toContain("owner_utterance: The basis of the claim is something the Owner said.");
     const correctionData = JSON.parse(formatThoughtStructuralCorrectionData(feedback) ?? "null") as {
       structuralCorrection: {
-        epistemicRepairs: Array<{ path: string; rejectedValue: string; allowedValues: string[] }>;
+        previousCandidate: unknown;
+        epistemicRepairs: Array<{
+          path: string;
+          rejectedValue: string;
+          allowedValues: Array<{ value: string; definition: string }>;
+        }>;
         allowedRepairScope: { paths: string[] };
       };
     };
@@ -190,8 +197,13 @@ describe("Thought structural correction scope", () => {
     expect(correctionData.structuralCorrection.epistemicRepairs[0]).toMatchObject({
       path: repairs[0].path,
       rejectedValue: "OWNER",
-      allowedValues: expect.arrayContaining(["owner_utterance", "ashley_interpretation"]),
+      allowedValues: expect.arrayContaining([
+        { value: "owner_utterance", definition: "The basis of the claim is something the Owner said." },
+        { value: "ashley_interpretation", definition: "The claim is Ashley's reading of supplied material." },
+      ]),
     });
+    expect(correctionData.structuralCorrection.previousCandidate).toEqual(previous);
+    expect(correctionData.structuralCorrection).not.toHaveProperty("replacementCandidate");
     expect(correctionData.structuralCorrection.allowedRepairScope.paths).toEqual(repairs.map((repair) => repair.path));
 
     const corrected = structuredClone(previous) as typeof previous;

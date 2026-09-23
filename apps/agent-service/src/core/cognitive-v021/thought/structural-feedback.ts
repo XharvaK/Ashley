@@ -44,7 +44,7 @@ export type ThoughtStructuralFeedback = Readonly<{
     rejectedValue: string;
     dimension: EpistemicDimension;
     definition: string;
-    allowedValues: readonly string[];
+    allowedValues: readonly Readonly<{ value: string; definition: string }>[];
   }>[];
   previousCandidate: ThoughtStructuralCandidate | null;
 }>;
@@ -140,7 +140,8 @@ export function createThoughtStructuralFeedback(input: {
         rejectedValue: repair.value,
         dimension: repair.dimension,
         definition: EPISTEMIC_DIMENSIONS[repair.dimension].definition,
-        allowedValues: [...EPISTEMIC_DIMENSIONS[repair.dimension].values],
+        allowedValues: Object.entries(EPISTEMIC_DIMENSIONS[repair.dimension].values)
+          .map(([value, definition]) => ({ value, definition })),
       }))
     : [];
   const localized = Boolean(input.field)
@@ -160,7 +161,7 @@ export function createThoughtStructuralFeedback(input: {
     allowedRepairPaths,
     epistemicRepairs: Object.freeze(epistemicRepairs.map((repair) => Object.freeze({
       ...repair,
-      allowedValues: Object.freeze([...repair.allowedValues]),
+      allowedValues: Object.freeze(repair.allowedValues.map((value) => Object.freeze({ ...value }))),
     }))),
     previousCandidate: localized ? previousCandidate : null,
   });
@@ -274,8 +275,8 @@ export function formatThoughtStructuralFeedback(
     : "";
   const epistemicRepairText = feedback.epistemicRepairs.length > 0
     ? ` Epistemic field repairs: ${feedback.epistemicRepairs.map((repair) =>
-        `${repair.path} has rejected value ${JSON.stringify(repair.rejectedValue)}; field definition: ${repair.definition}; Permitted values: ${repair.allowedValues.join(", ")}`,
-      ).join(". ")}.`
+        `${repair.path} has rejected value ${JSON.stringify(repair.rejectedValue)}; field definition: ${repair.definition}; Permitted values and definitions: ${repair.allowedValues.map(({ value, definition }) => `${value}: ${definition}`).join("; ")}`,
+      ).join("\n")}`
     : "";
   const allowlist = feedback.code === "reference_not_allowlisted"
     ? ` Host allowlisted reference IDs: ${JSON.stringify(feedback.allowlistedReferences)}.`

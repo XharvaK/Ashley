@@ -71,8 +71,8 @@ describe("MF-M2 CURRENT portfolio", () => {
       lane: "exchange_cognition",
     });
 
-    expect(interactive.policyRow.reasoningPolicy).toBe("high");
-    expect(interactive.occupant.reasoningPolicy).toBe("high");
+    expect(interactive.policyRow.reasoningPolicy).toBe("max_supported");
+    expect(interactive.occupant.reasoningPolicy).toBe("max_supported");
     expect(interactive.occupant.effectiveReasoning).toBe("max");
     expect(durable.policyRow.occupancyKey).toBe("durable_proactive");
     expect(durable.occupant.effectiveReasoning).toBe("max");

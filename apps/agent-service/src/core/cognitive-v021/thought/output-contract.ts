@@ -74,19 +74,43 @@ export const REGISTERED_OPERATION_KINDS = [
 export const EPISTEMIC_DIMENSIONS = Object.freeze({
   source: Object.freeze({
     definition: "claim provenance category",
-    values: Object.freeze(["owner_utterance", "ashley_interpretation", "tool", "perception", "receipt", "prior_settlement"] as const),
+    values: Object.freeze({
+      owner_utterance: "The basis of the claim is something the Owner said.",
+      ashley_interpretation: "The claim is Ashley's reading of supplied material.",
+      tool: "The claim rests on a tool-mediated observation.",
+      perception: "The claim rests on a perceptual observation.",
+      receipt: "The claim rests on a recorded operation receipt.",
+      prior_settlement: "The claim rests on an earlier accepted settlement.",
+    }),
   }),
   status: Object.freeze({
     definition: "claim's current epistemic state",
-    values: Object.freeze(["asserted", "interpreted", "unverified", "contradicted", "superseded", "unresolved"] as const),
+    values: Object.freeze({
+      asserted: "The claim is presented as holding, on its stated basis.",
+      interpreted: "The claim is presented as a reading.",
+      unverified: "The claim has not been checked against a governing observation or receipt.",
+      contradicted: "The claim conflicts with supplied evidence.",
+      superseded: "A later accepted claim replaces this one.",
+      unresolved: "The question remains open on the supplied evidence.",
+    }),
   }),
   time: Object.freeze({
     definition: "time relation of the claimed fact",
-    values: Object.freeze(["current", "historical", "unknown_freshness"] as const),
+    values: Object.freeze({
+      current: "The claim is about the present state as established by governed current observation.",
+      historical: "The claim is about a past state or event and does not assert that it remains true.",
+      unknown_freshness: "Evidence supports the claim, and whether it remains true has not been established.",
+    }),
   }),
   reliability: Object.freeze({
     definition: "evidence reliability category",
-    values: Object.freeze(["owner_supplied", "fallible_observation", "receipt_backed", "inferred", "unavailable_source"] as const),
+    values: Object.freeze({
+      owner_supplied: "The Owner supplied the content.",
+      fallible_observation: "The claim rests on an observation that can be wrong.",
+      receipt_backed: "An operation receipt backs the claim.",
+      inferred: "The claim is drawn by inference.",
+      unavailable_source: "The originating source cannot be supplied.",
+    }),
   }),
 });
 
@@ -98,10 +122,10 @@ export type EpistemicDimensionRepair = Readonly<{
 }>;
 
 const dimensionsSchema = strictObject({
-  source: { enum: [...EPISTEMIC_DIMENSIONS.source.values] },
-  status: { enum: [...EPISTEMIC_DIMENSIONS.status.values] },
-  time: { enum: [...EPISTEMIC_DIMENSIONS.time.values] },
-  reliability: { enum: [...EPISTEMIC_DIMENSIONS.reliability.values] },
+  source: { enum: Object.keys(EPISTEMIC_DIMENSIONS.source.values) },
+  status: { enum: Object.keys(EPISTEMIC_DIMENSIONS.status.values) },
+  time: { enum: Object.keys(EPISTEMIC_DIMENSIONS.time.values) },
+  reliability: { enum: Object.keys(EPISTEMIC_DIMENSIONS.reliability.values) },
 }, ["source", "status", "time", "reliability"]);
 const operationalClaimSchema = strictObject({
   effectRef: { type: "string", minLength: 1 },
@@ -510,8 +534,13 @@ export function constrainThoughtOutputSchema(
 export function thoughtOutputCompatibilityInstruction(): string {
   const settlement = record(THOUGHT_OUTPUT_SCHEMA.oneOf instanceof Array ? THOUGHT_OUTPUT_SCHEMA.oneOf[0] : null);
   const epistemicDimensionGuidance = Object.entries(EPISTEMIC_DIMENSIONS)
-    .map(([dimension, definition]) => `${dimension}: ${definition.definition}; exact values: ${definition.values.join(", ")}`)
-    .join(". ");
+    .map(([dimension, definition]) => {
+      const values = Object.entries(definition.values)
+        .map(([value, meaning]) => `${value}: ${meaning}`)
+        .join("; ");
+      return `${dimension}: ${definition.definition}; exact values and definitions: ${values}`;
+    })
+    .join(" ");
   return [
     `Code-owned Thought contract contractId=${THOUGHT_OUTPUT_CONTRACT_ID} schemaId=${THOUGHT_OUTPUT_SCHEMA_ID} semanticSchemaFingerprint=${THOUGHT_SEMANTIC_SCHEMA_FINGERPRINT}.`,
     `Return exactly one JSON object in one of these permitted kinds/forms: ${rootForms().join("; ")}.`,
@@ -535,7 +564,7 @@ export function thoughtOutputCompatibilityInstruction(): string {
     "Speech mustSay contract: every mustSay entry must appear verbatim in surfaceDraft; the host fidelity checker rejects drafts that omit them. Omit mustSay when no exact literal wording is required. Behavioral, stylistic, or procedural directives do not belong in mustSay; put those in presentationDirectives.",
     "Optional settlement domains and their children must be omitted when unused. Present event arrays must be non-empty; present composite objects must contain a meaningful child. Ordinary speech requires no commitments. speech.mode:none permits only mode. Absence never clears state.",
     "When Ashley's own surface wording makes a governed external read, discovery, or vision claim, author an epistemic commitment with the exact literal surfaceSpan quoted from surfaceDraft and exact supporting observationRefs from the supplied observations; every claim observationRef must also appear in evidenceUse.observationRefsUsed, and the host licenses each surface claim only against its own commitment's refs. When detector-prone wording is purely Ashley's conversational interpretation, use source:ashley_interpretation with status:interpreted plus the exact surfaceSpan and do not fabricate observationRefs. Omit surfaceSpan and observationRefs when unused; a surfaceSpan must occur exactly once in surfaceDraft and bound spans must not overlap.",
-    `Epistemic dimension definitions and exact values: ${epistemicDimensionGuidance}.`,
+    `Epistemic dimension definitions and exact values: ${epistemicDimensionGuidance}`,
     `Registered operationKind values are exactly: ${REGISTERED_OPERATION_KINDS.join(", ")}.`,
     "Every commitments.epistemic item must contain a dimensions object and a statement string. dimensions must contain source, status, time, and reliability; source, status, time, and reliability belong only inside dimensions. MUST NOT place source, status, time, or reliability directly on the epistemic item. surfaceSpan is optional and, when present, must be the exact literal substring of speech.surfaceDraft. observationRefs is optional. Use only observation IDs actually supplied in the current Thought input.",
     `Canonical epistemic item shape: {"dimensions":{"source":"one exact source value","status":"one exact status value","time":"one exact time value","reliability":"one exact reliability value"},"statement":"<epistemic proposition>", optional "surfaceSpan":"<exact literal substring of speech.surfaceDraft>", optional "observationRefs":["<exact supplied observationId>"]}.`,

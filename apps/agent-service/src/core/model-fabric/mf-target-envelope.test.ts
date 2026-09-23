@@ -38,7 +38,7 @@ describe("TARGET portfolio + token envelope reconciliation", () => {
     expect(thought.occupants[0]).toMatchObject({
       provider: "cloudflare",
       configuredModelId: "@cf/zai-org/glm-5.3-flash",
-      reasoningPolicy: "high",
+      reasoningPolicy: "max_supported",
       effectiveReasoning: "max",
     });
     expect(thought.deadlineMs).toBe(3600000);
