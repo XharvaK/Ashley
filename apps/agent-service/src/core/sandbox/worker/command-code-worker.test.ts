@@ -5,6 +5,7 @@ import type { ExecuteProjectInspectionV2Result } from "../v2-execution.js";
 import {
   buildCommandCodeInvocation,
   COMMAND_CODE_WORKER_EFFORT,
+  COMMAND_CODE_WORKER_MAX_TURNS,
   COMMAND_CODE_WORKER_MODEL_ID,
   extractCommandCodeErrorEvidence,
   executeCommandCodeWorker,
@@ -78,7 +79,8 @@ describe("command-code-worker", () => {
     expect(args).toContain("--effort xhigh");
     const maxTurnsIndex = invocation.args.indexOf("--max-turns");
     expect(maxTurnsIndex).toBeGreaterThanOrEqual(0);
-    expect(Number(invocation.args[maxTurnsIndex + 1])).toBe(64);
+    expect(Number(invocation.args[maxTurnsIndex + 1])).toBe(COMMAND_CODE_WORKER_MAX_TURNS);
+    expect(COMMAND_CODE_WORKER_MAX_TURNS).toBe(128);
     expect(args).toContain("--output-format json");
     expect(args).toContain("--permission-mode plan");
     expect(args).toContain("--no-session");

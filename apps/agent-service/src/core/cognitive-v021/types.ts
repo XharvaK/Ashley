@@ -1422,6 +1422,12 @@ export type ThoughtOperationCapability = Readonly<{
   /** Canonical project-binding property from the Sandbox V2 registry. */
   requiresProject: boolean;
   available: boolean;
+  /**
+   * Bounded mechanical reasons established by the ordinary availability
+   * owners when available is false; empty when available. Never a
+   * permission grant and never a fabricated check result.
+   */
+  unavailableReasons: readonly string[];
   requiredRequestFields: readonly string[];
   optionalRequestFields: readonly string[];
   operatorBoundRequestFields: readonly string[];

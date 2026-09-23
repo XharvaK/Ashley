@@ -25,6 +25,8 @@ import {
 export const COMMAND_CODE_WORKER_MODEL_ID = "meta/muse-spark-1.3-contributor";
 export const COMMAND_CODE_WORKER_EFFORT = "xhigh" as const;
 export const COMMAND_CODE_WORKER_PINNED_VERSION = "1.64.0";
+/** CLI-internal turn ceiling. Distinct from the Host-owned step counter. */
+export const COMMAND_CODE_WORKER_MAX_TURNS = 128 as const;
 const COMMAND_CODE_RUNTIME_MOUNT = "/opt";
 const WORKER_HOME = "/tmp/ashley-worker/home";
 const WORKER_TMP = "/tmp/ashley-worker/tmp";
@@ -188,6 +190,57 @@ export function resolveCommandCodeRuntime(
   }
 }
 
+export type CommandCodeWorkerReadinessReason =
+  | "worker_disabled"
+  | "credentials_missing"
+  | "binary_unavailable"
+  | "isolation_unavailable";
+
+export type CommandCodeWorkerReadiness = {
+  enabled: boolean;
+  apiKeyPresent: boolean;
+  binaryReady: boolean;
+  isolationAvailable: boolean;
+  ready: boolean;
+  /** First established blocker in evaluation order; null when ready. */
+  reason: CommandCodeWorkerReadinessReason | null;
+};
+
+/**
+ * Single readiness owner for the selected Command Code worker backend.
+ * Profile-independent: DEVELOP/INVESTIGATE profile differences live in the
+ * registry and capability gates, not here. The projection, the detached
+ * dispatch gates, and qualification preflight resolve the same fact from this
+ * owner; execution revalidates it again inside executeCommandCodeWorker.
+ */
+export function commandCodeWorkerReadiness(input: {
+  workerEnabled: boolean;
+  apiKey: string;
+  binaryPath: string;
+  pinnedVersion: string;
+  bubblewrapPath: string;
+  nodeExecutable?: string;
+}): CommandCodeWorkerReadiness {
+  const enabled = input.workerEnabled === true;
+  const apiKeyPresent = input.apiKey.trim().length > 0;
+  if (!enabled) {
+    return { enabled, apiKeyPresent, binaryReady: false, isolationAvailable: false, ready: false, reason: "worker_disabled" };
+  }
+  if (!apiKeyPresent) {
+    return { enabled, apiKeyPresent, binaryReady: false, isolationAvailable: false, ready: false, reason: "credentials_missing" };
+  }
+  const runtime = resolveCommandCodeRuntime(input.binaryPath, input.nodeExecutable);
+  const binaryReady = runtime !== null && runtime.version === input.pinnedVersion;
+  if (!binaryReady) {
+    return { enabled, apiKeyPresent, binaryReady, isolationAvailable: false, ready: false, reason: "binary_unavailable" };
+  }
+  const isolationAvailable = existsSync(input.bubblewrapPath);
+  if (!isolationAvailable) {
+    return { enabled, apiKeyPresent, binaryReady, isolationAvailable, ready: false, reason: "isolation_unavailable" };
+  }
+  return { enabled, apiKeyPresent, binaryReady, isolationAvailable, ready: true, reason: null };
+}
+
 /** Build the isolated CLI invocation; private prompt and API key stay off argv. */
 export function buildCommandCodeInvocation(input: CommandCodeInvocationInput): CommandCodeInvocation {
   if (!input.apiKey.trim()) throw new Error("command_code_credentials_missing");
@@ -237,7 +290,7 @@ export function buildCommandCodeInvocation(input: CommandCodeInvocationInput): C
     scriptInSandbox,
     "--model", COMMAND_CODE_WORKER_MODEL_ID,
     "--effort", COMMAND_CODE_WORKER_EFFORT,
-    "--max-turns", "64",
+    "--max-turns", String(COMMAND_CODE_WORKER_MAX_TURNS),
     "--output-format", "json",
     "--permission-mode", "plan",
     "--skip-onboarding",

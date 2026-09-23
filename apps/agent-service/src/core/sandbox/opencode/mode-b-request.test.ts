@@ -6,7 +6,7 @@ describe("Mode-B request contract", () => {
   it("accepts the typed Thought fields and tightens maxSteps to the Host ceiling", () => {
     expect(validateModeBRequest({
       kind: "project.investigate",
-      request: { projectId: "project-ashley", focus: "apps/agent-service", maxSteps: 99 },
+      request: { projectId: "project-ashley", focus: "apps/agent-service", maxSteps: 99_999 },
     })).toEqual({
       ok: true,
       value: {
@@ -50,7 +50,7 @@ describe("Mode-B request contract", () => {
   });
 
   it("owns absence, clamp, and rejection at the X-layer boundary (O-H12a/SD11)", () => {
-    expect(MODE_B_HOST_MAX_STEPS).toBe(8);
+    expect(MODE_B_HOST_MAX_STEPS).toBe(128);
     expect(validateModeBRequest({
       kind: "project.investigate",
       request: { projectId: "project-ashley", maxSteps: 3 },

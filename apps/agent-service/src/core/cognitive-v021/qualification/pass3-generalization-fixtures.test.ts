@@ -41,6 +41,7 @@ const operationAffordance = (input: {
   uncertainty: ["Failure or outcome_unknown is not success."],
   requiresProject: true,
   available: true,
+  unavailableReasons: [],
   authorizedProjectIds: ["qualification-fixture"],
 });
 

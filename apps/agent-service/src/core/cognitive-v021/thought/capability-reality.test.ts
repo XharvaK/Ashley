@@ -97,6 +97,7 @@ describe("v0.2.1 CapabilityReality live-surface contract", () => {
           readOnly: true,
           requiresProject: true,
           available: true,
+          unavailableReasons: [],
           requiredRequestFields: ["projectId"],
           optionalRequestFields: ["locator", "question", "focus", "maxSteps"],
           operatorBoundRequestFields: [],
@@ -126,6 +127,7 @@ describe("v0.2.1 CapabilityReality live-surface contract", () => {
           readOnly: true,
           requiresProject: true,
           available: true,
+          unavailableReasons: [],
           requiredRequestFields: ["projectId"],
           optionalRequestFields: ["workspaceId", "recipeId"],
           operatorBoundRequestFields: ["workspaceId", "recipeId"],
@@ -155,10 +157,41 @@ describe("v0.2.1 CapabilityReality live-surface contract", () => {
           readOnly: false,
           requiresProject: true,
           available: true,
+          unavailableReasons: [],
           requiredRequestFields: ["projectId", "changesetId", "adjudication"],
           optionalRequestFields: [],
           operatorBoundRequestFields: ["changesetId"],
           authorizedProjectIds: ["project-ashley"],
+        },
+        {
+          operationKind: "candidate.develop",
+          semanticClass: "effect",
+          label: "Candidate development",
+          description: "Run bounded candidate development in an authorized workspace and return worker evidence.",
+          inputContract: "Requires projectId and may include focus, maxSteps, and an operator-bound workspaceId.",
+          outputContract: "Returns an effect receipt describing bounded worker steps and the resulting candidate artifact state.",
+          evidenceContract: "The receipt describes worker activity only; candidate artifact claims require the separate verification operation.",
+          authorityConditions: [
+            "An active candidate-authorship capability gate must be true.",
+            "The project and workspace must satisfy candidateWorkspaceAllowed and operator-bound checks.",
+          ],
+          hardLimits: [
+            "Work is bounded to the authorized candidate workspace; it cannot deploy or alter production.",
+            "Host-owned worker execution details cannot be selected through this semantic request.",
+          ],
+          uncertainty: [
+            "Worker failure or outcome_unknown leaves candidate state unresolved.",
+            "Worker evidence does not establish that a candidate is verified, accepted, or live.",
+          ],
+          family: "project_experimentation",
+          readOnly: false,
+          requiresProject: true,
+          available: false,
+          unavailableReasons: ["develop_worker_disabled", "engineering_not_authorized"],
+          requiredRequestFields: ["projectId"],
+          optionalRequestFields: ["focus", "maxSteps", "workspaceId"],
+          operatorBoundRequestFields: ["workspaceId"],
+          authorizedProjectIds: [],
         },
       ]);
       expect(reality.operationCapabilities?.some((operation) =>
@@ -311,7 +344,12 @@ describe("v0.2.1 CapabilityReality live-surface contract", () => {
       expect(ready.operationCapabilities?.find((operation) => operation.operationKind === "project.inspect")).toMatchObject({
         available: true,
       });
-      expect(ready.operationCapabilities?.map((operation) => operation.operationKind)).not.toContain("candidate.develop");
+      const develop = ready.operationCapabilities?.find((operation) => operation.operationKind === "candidate.develop");
+      expect(develop).toMatchObject({
+        available: false,
+      });
+      expect(develop?.unavailableReasons).toContain("develop_worker_disabled");
+      expect(develop?.unavailableReasons).not.toContain("quota_unavailable");
 
       const lifecycleOff = getCapabilityReality(db, {
         registry: registry(),

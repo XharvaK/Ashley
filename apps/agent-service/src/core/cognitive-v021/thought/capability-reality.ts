@@ -14,6 +14,10 @@ import {
   loadOperatorProjectReadRegistry,
   type V2ProjectReadRegistry,
 } from "../../sandbox/project-registry.js";
+import {
+  commandCodeWorkerReadiness,
+  type CommandCodeWorkerReadinessReason,
+} from "../../sandbox/worker/command-code-worker.js";
 import type { CapabilityName } from "../../rollout/capabilities.js";
 import type {
   CapabilityReality,
@@ -22,14 +26,6 @@ import type {
   ThoughtSemanticObservation,
 } from "../types.js";
 import type { SocialAudience } from "../social/types.js";
-import {
-  C1_OPENCODE_FREE_CATALOG,
-  createQuotaRouter,
-  loadQuotaState,
-  offerWorkerTask,
-  resolveOpenCodeBinary,
-  type WorkerOfferReason,
-} from "../../sandbox/opencode/index.js";
 
 /** Capabilities with an actual v0.2.1 production adapter in this candidate. */
 const V021_LIVE_OPERATION_CAPABILITIES: ReadonlySet<CapabilityName> = new Set([
@@ -51,10 +47,19 @@ export type CapabilityRealityOptions = {
   audience?: SocialAudience;
   licenses?: readonly string[];
   opencodeWorkerEnabled?: boolean;
-  opencodeQuotaStatePath?: string;
-  opencodeBinaryPath?: string;
-  opencodeCandidateDevelopAllowsNvidia?: boolean;
-  nowMs?: number;
+  commandCodeWorkerEnabled?: boolean;
+  commandCodeApiKey?: string;
+  commandCodeBinaryPath?: string;
+  commandCodePinnedVersion?: string;
+  commandCodeBubblewrapPath?: string;
+  commandCodeNodeExecutable?: string;
+};
+
+const DEVELOP_WORKER_REASON_CODES: Record<CommandCodeWorkerReadinessReason, string> = {
+  worker_disabled: "develop_worker_disabled",
+  credentials_missing: "develop_worker_credentials_missing",
+  binary_unavailable: "develop_worker_binary_unavailable",
+  isolation_unavailable: "develop_worker_isolation_unavailable",
 };
 
 function reasonForCapability(input: {
@@ -85,13 +90,6 @@ function authorizedProjectIds(
     .filter((entry) => entry.enabled && entry.readAllowed && predicate(entry))
     .map((entry) => entry.projectId)
     .sort();
-}
-
-function workerReason(reason: WorkerOfferReason): CapabilityRealityReasonCode {
-  if (reason === "capability_exists" || reason === "capacity_unproven" || reason === "worker_capacity_exhausted" || reason === "unavailable") {
-    return reason;
-  }
-  return "unavailable";
 }
 
 type OperationAffordance = Pick<
@@ -200,7 +198,10 @@ function thoughtOperationCapabilities(input: {
   projectInspectionAvailable: boolean;
   verificationAvailable: boolean;
   patchExportAvailable: boolean;
-  iterativeEngineeringAvailable: boolean;
+  candidateDevelop: {
+    available: boolean;
+    unavailableReasons: readonly string[];
+  };
 }): readonly ThoughtOperationCapability[] {
   const projectReadFileSpec = v2CapabilitySpec("project.read_file");
   const workspaceVerifySpec = v2CapabilitySpec("workspace.verify");
@@ -220,6 +221,12 @@ function thoughtOperationCapabilities(input: {
       typeof entry.exportDestinationCanonicalRoot === "string" &&
       entry.exportDestinationCanonicalRoot.length > 0,
   );
+  // Authority truth for candidate.develop: engineering + candidate workspace
+  // grants on the same project. authorshipAllowed never substitutes.
+  const developProjectIds = authorizedProjectIds(
+    input.registry,
+    (entry) => entry.engineeringAllowed === true && entry.candidateWorkspaceAllowed === true,
+  );
   return Object.freeze([
     Object.freeze({
       operationKind: "project.inspect",
@@ -229,6 +236,7 @@ function thoughtOperationCapabilities(input: {
       readOnly: projectReadFileSpec.readOnly,
       requiresProject: projectReadFileSpec.requiresProject,
       available: input.projectInspectionAvailable,
+      unavailableReasons: Object.freeze([] as string[]),
       requiredRequestFields: Object.freeze(["projectId"]),
       optionalRequestFields: Object.freeze(["locator", "question", "focus", "maxSteps"]),
       operatorBoundRequestFields: Object.freeze([]),
@@ -242,6 +250,7 @@ function thoughtOperationCapabilities(input: {
       readOnly: workspaceVerifySpec.readOnly,
       requiresProject: workspaceVerifySpec.requiresProject,
       available: input.verificationAvailable,
+      unavailableReasons: Object.freeze([] as string[]),
       requiredRequestFields: Object.freeze(["projectId"]),
       optionalRequestFields: Object.freeze(["workspaceId", "recipeId"]),
       operatorBoundRequestFields: Object.freeze(["workspaceId", "recipeId"]),
@@ -255,29 +264,26 @@ function thoughtOperationCapabilities(input: {
       readOnly: patchExportSpec.readOnly,
       requiresProject: patchExportSpec.requiresProject,
       available: input.patchExportAvailable,
+      unavailableReasons: Object.freeze([] as string[]),
       requiredRequestFields: Object.freeze(["projectId", "changesetId", "adjudication"]),
       optionalRequestFields: Object.freeze([]),
       operatorBoundRequestFields: Object.freeze(["changesetId"]),
       authorizedProjectIds: Object.freeze(patchExportProjectIds),
     }),
-    ...(input.iterativeEngineeringAvailable
-      ? [Object.freeze({
-        operationKind: "candidate.develop",
-        semanticClass: "effect" as const,
-        ...OPERATION_AFFORDANCES["candidate.develop"],
-        family: workspaceWriteSpec.family,
-        readOnly: false,
-        requiresProject: true,
-        available: true,
-        requiredRequestFields: Object.freeze(["projectId"]),
-        optionalRequestFields: Object.freeze(["focus", "maxSteps", "workspaceId"]),
-        operatorBoundRequestFields: Object.freeze(["workspaceId"]),
-        authorizedProjectIds: Object.freeze(authorizedProjectIds(
-          input.registry,
-          (entry) => entry.candidateWorkspaceAllowed === true,
-        )),
-      })]
-      : []),
+    Object.freeze({
+      operationKind: "candidate.develop",
+      semanticClass: "effect" as const,
+      ...OPERATION_AFFORDANCES["candidate.develop"],
+      family: workspaceWriteSpec.family,
+      readOnly: false,
+      requiresProject: true,
+      available: input.candidateDevelop.available,
+      unavailableReasons: Object.freeze([...input.candidateDevelop.unavailableReasons]),
+      requiredRequestFields: Object.freeze(["projectId"]),
+      optionalRequestFields: Object.freeze(["focus", "maxSteps", "workspaceId"]),
+      operatorBoundRequestFields: Object.freeze(["workspaceId"]),
+      authorizedProjectIds: Object.freeze(developProjectIds),
+    }),
   ]);
 }
 
@@ -322,17 +328,17 @@ export function getCapabilityReality(
   const patchExportAvailable = V021_LIVE_OPERATION_CAPABILITIES.has("patch_export") &&
     canOfferPatchExport(db, sandboxOptions);
   const workerEnabled = options.opencodeWorkerEnabled ?? env.opencodeWorkerEnabled;
-  const workerReady = workerEnabled &&
-    resolveOpenCodeBinary(options.opencodeBinaryPath ?? env.opencodeBinaryPath) !== null;
-  const catalog = {
-    ...C1_OPENCODE_FREE_CATALOG,
-    candidateDevelopAllowsNvidia:
-      options.opencodeCandidateDevelopAllowsNvidia ?? env.opencodeCandidateDevelopAllowsNvidia,
-  };
-  const workerRouter = createQuotaRouter({
-    catalog,
-    state: loadQuotaState(options.opencodeQuotaStatePath ?? env.opencodeQuotaStatePath),
-    nowMs: options.nowMs ?? Date.now(),
+  // candidate.develop availability resolves the readiness of the selected
+  // execution backend for the DEVELOP profile that will actually dispatch it
+  // (the Command Code worker in this candidate) — never the readiness of a
+  // superseded substrate. Execution revalidates readiness at dispatch.
+  const developReadiness = commandCodeWorkerReadiness({
+    workerEnabled: options.commandCodeWorkerEnabled ?? env.commandCodeWorkerEnabled,
+    apiKey: options.commandCodeApiKey ?? env.commandCodeApiKey,
+    binaryPath: options.commandCodeBinaryPath ?? env.commandCodeBinaryPath,
+    pinnedVersion: options.commandCodePinnedVersion ?? env.commandCodePinnedVersion,
+    bubblewrapPath: options.commandCodeBubblewrapPath ?? env.commandCodeBubblewrapPath,
+    nodeExecutable: options.commandCodeNodeExecutable,
   });
   const workerInspectionReady = canOfferWorkerBackedProjectInspection({
     registry,
@@ -346,16 +352,26 @@ export function getCapabilityReality(
     registry,
     (entry) => entry.engineeringAllowed === true && entry.candidateWorkspaceAllowed === true,
   ).length > 0;
-  const engineeringOffer = workerReady && workspaceAvailable && engineeringAuthorized
-    ? offerWorkerTask(workerRouter, "iterative_engineering")
-    : { offerable: false, reason: "unavailable" as const };
-  const iterativeEngineeringAvailable = engineeringOffer.offerable;
+  // Blockers are established independently where the underlying checks are
+  // independent; the backend reason reflects the first backend blocker the
+  // readiness owner could actually establish. No quota reason is ever
+  // claimed: the selected Command Code DEVELOP backend has no quota owner.
+  const developUnavailableReasons: string[] = [];
+  if (developReadiness.reason !== null) {
+    developUnavailableReasons.push(DEVELOP_WORKER_REASON_CODES[developReadiness.reason]);
+  }
+  if (!workspaceAvailable) developUnavailableReasons.push("candidate_workspace_unavailable");
+  if (!engineeringAuthorized) developUnavailableReasons.push("engineering_not_authorized");
+  const iterativeEngineeringAvailable = developUnavailableReasons.length === 0;
   const operationCapabilities = thoughtOperationCapabilities({
     registry,
     projectInspectionAvailable,
     verificationAvailable,
     patchExportAvailable,
-    iterativeEngineeringAvailable,
+    candidateDevelop: {
+      available: iterativeEngineeringAvailable,
+      unavailableReasons: developUnavailableReasons,
+    },
   });
   const semanticObservations: readonly ThoughtSemanticObservation[] = Object.freeze([
     Object.freeze({
@@ -377,13 +393,7 @@ export function getCapabilityReality(
     canOfferBoundedOperation: false,
     canOfferInquiry: !externalAudience && workspaceAvailable && verificationAvailable,
     canOfferPatchExport: !externalAudience && patchExportAvailable,
-    ...(workerEnabled
-      ? {
-        // Worker capacity is not a semantic capability. Thought sees the
-        // single project.inspect operation above.
-        canOfferIterativeEngineering: !externalAudience && iterativeEngineeringAvailable,
-      }
-      : {}),
+    canOfferIterativeEngineering: !externalAudience && iterativeEngineeringAvailable,
   };
   const reachabilityReasons: Record<string, CapabilityRealityReasonCode> = {};
   for (const name of ["vision", "attachmentText", "conversationalRead", "webSearch"] as const) {
@@ -398,7 +408,7 @@ export function getCapabilityReality(
     });
   }
   const operationFacts: Array<{
-    name: "canOfferProjectInspection" | "canOfferWorkspace" | "canOfferVerification" | "canOfferAuthorship" | "canOfferInquiry" | "canOfferPatchExport";
+    name: "canOfferProjectInspection" | "canOfferWorkspace" | "canOfferVerification" | "canOfferAuthorship" | "canOfferInquiry" | "canOfferPatchExport" | "canOfferIterativeEngineering";
     value: boolean;
     rawValue: boolean;
   }> = [
@@ -408,6 +418,7 @@ export function getCapabilityReality(
     { name: "canOfferAuthorship", value: facts.canOfferAuthorship, rawValue: authorshipAvailable },
     { name: "canOfferInquiry", value: facts.canOfferInquiry, rawValue: workspaceAvailable && verificationAvailable },
     { name: "canOfferPatchExport", value: facts.canOfferPatchExport, rawValue: patchExportAvailable },
+    { name: "canOfferIterativeEngineering", value: facts.canOfferIterativeEngineering, rawValue: iterativeEngineeringAvailable },
   ];
   for (const item of operationFacts) {
     reachabilityReasons[item.name] = reasonForCapability({
@@ -428,13 +439,6 @@ export function getCapabilityReality(
     substrateWithoutAuthority,
     audienceAllowed: audienceCapabilityAllowed,
   });
-  if (workerEnabled) {
-    reachabilityReasons.canOfferIterativeEngineering = facts.canOfferIterativeEngineering
-      ? workerReason(engineeringOffer.reason)
-      : (externalAudience && iterativeEngineeringAvailable
-        ? "another_audience_only"
-        : workerReason(engineeringOffer.reason));
-  }
   const projectedOperationCapabilities = externalAudience
     ? operationCapabilities.map((capability) => ({
       ...capability,

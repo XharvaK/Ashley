@@ -1,5 +1,4 @@
 import type { DatabaseSync } from "node:sqlite";
-import { existsSync } from "node:fs";
 import { env } from "../../../env.js";
 import {
   executeCandidateAuthorshipV2,
@@ -15,8 +14,8 @@ import {
   type InquiryExperimentRequest,
 } from "../../sandbox/v2-execution.js";
 import {
+  commandCodeWorkerReadiness,
   executeCommandCodeWorker,
-  resolveCommandCodeRuntime,
   MODE_B_DEVELOP,
   MODE_B_INVESTIGATE,
   type ModeBWorkerResult,
@@ -827,9 +826,14 @@ export function createV021LiveOperationExecutors(
   return {
     canOfferDetachedInvestigate(): boolean {
       if (options.adapters?.executeModeBWorker) return true;
-      if (env.commandCodeWorkerEnabled !== true || !env.commandCodeApiKey.trim()) return false;
-      const runtime = resolveCommandCodeRuntime(env.commandCodeBinaryPath);
-      if (runtime?.version !== env.commandCodePinnedVersion || !existsSync(env.commandCodeBubblewrapPath)) return false;
+      const readiness = commandCodeWorkerReadiness({
+        workerEnabled: env.commandCodeWorkerEnabled,
+        apiKey: env.commandCodeApiKey,
+        binaryPath: env.commandCodeBinaryPath,
+        pinnedVersion: env.commandCodePinnedVersion,
+        bubblewrapPath: env.commandCodeBubblewrapPath,
+      });
+      if (!readiness.ready) return false;
       return canOfferWorkerBackedProjectInspection({
         registry,
         masterMode: env.cognitionMode,
@@ -855,13 +859,14 @@ export function createV021LiveOperationExecutors(
         lifecycleEnabled: options.envOverrides?.sandboxEngineeringLifecycleEnabled ?? env.sandboxEngineeringLifecycleEnabled,
         substrateAvailable: options.envOverrides?.substrateAvailable,
       };
-      const runtime = resolveCommandCodeRuntime(env.commandCodeBinaryPath);
-      if (
-        env.commandCodeWorkerEnabled !== true
-        || !env.commandCodeApiKey.trim()
-        || runtime?.version !== env.commandCodePinnedVersion
-        || !existsSync(env.commandCodeBubblewrapPath)
-      ) {
+      const readiness = commandCodeWorkerReadiness({
+        workerEnabled: env.commandCodeWorkerEnabled,
+        apiKey: env.commandCodeApiKey,
+        binaryPath: env.commandCodeBinaryPath,
+        pinnedVersion: env.commandCodePinnedVersion,
+        bubblewrapPath: env.commandCodeBubblewrapPath,
+      });
+      if (!readiness.ready) {
         return { available: false as const, reason: "worker_unavailable", terminal: true as const };
       }
       if (!canOfferWorkerBackedProjectInspection(gate)) {

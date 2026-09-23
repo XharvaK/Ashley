@@ -125,6 +125,7 @@ describe("v0.2.1 ThoughtInput assembly", () => {
         readOnly: true,
         requiresProject: true,
         available: true,
+        unavailableReasons: [],
         requiredRequestFields: ["projectId", "path"],
         optionalRequestFields: [],
         operatorBoundRequestFields: [],
