@@ -49,8 +49,9 @@ import type {
   ObservationRequest,
   QuarantineKind,
 } from "../types.js";
+import type { EffectExecutionControl } from "../effect/execution-control.js";
 import type { OperationalClaimLicense } from "../../sandbox/engineering-types.js";
-import { getInFlight } from "../effect/in-flight.js";
+import { getInFlightByEffectId, getInFlightByIdempotencyKey } from "../effect/in-flight.js";
 import { cognitiveStatusOf, getConcern, quarantineKindOf } from "../concerns/lineage.js";
 import { inspectConcernCurrentness } from "../thought/source-currentness.js";
 import {
@@ -129,7 +130,7 @@ export type V021LiveOperationExecutorOptions = {
 
 export type V021LiveOperationExecutors = {
   executeObservation(req: ObservationRequest): Promise<Observation>;
-  executeEffect(proposal: EffectProposal): Promise<EffectReceipt>;
+  executeEffect(proposal: EffectProposal, control?: EffectExecutionControl): Promise<EffectReceipt>;
   /**
    * Raw Mode-B investigate execution for detached dispatch. Returns the
    * worker result unwrapped (no Observation envelope): the detached
@@ -643,8 +644,9 @@ function inferDispatchEvidence(
   }
   if (db) {
     try {
-      const inFlight = getInFlight(db, proposal.effectId) ?? getInFlight(db, proposal.idempotencyKey);
-      if (inFlight?.status === "in_flight" || inFlight?.originAttemptId) {
+      const inFlight = getInFlightByEffectId(db, proposal.effectId)
+        ?? getInFlightByIdempotencyKey(db, proposal.idempotencyKey);
+      if (inFlight) {
         return { provenNotStarted: false };
       }
     } catch {
@@ -774,9 +776,13 @@ export function createV021LiveOperationExecutors(
     purpose: string,
     workspaceId?: string,
     deadlineAtMs?: number,
+    signal?: AbortSignal,
   ): Promise<ModeBWorkerResult> {
     const base = operationBase(nowMs);
-    const operationDeadlineAtMs = deadlineAtMs ?? (base + DETACHED_WORKER_MAX_WALL_CLOCK_MS);
+    const operationDeadlineAtMs = Math.min(
+      deadlineAtMs ?? Number.MAX_SAFE_INTEGER,
+      base + DETACHED_WORKER_MAX_WALL_CLOCK_MS,
+    );
     const sessionDeadlineAtMs = operationDeadlineAtMs - WORKER_FINALIZATION_RESERVE_MS;
     const sandboxGate = {
       registry,
@@ -817,6 +823,7 @@ export function createV021LiveOperationExecutors(
       workspaceId,
       nowMs,
       deadlineAtMs: operationDeadlineAtMs,
+      signal,
       workerEnabled: env.commandCodeWorkerEnabled,
       gateOk,
       gateError: gateOk ? undefined : "worker_gate_denied",
@@ -941,7 +948,7 @@ export function createV021LiveOperationExecutors(
       };
     },
 
-    async executeEffect(proposal): Promise<EffectReceipt> {
+    async executeEffect(proposal, control): Promise<EffectReceipt> {
       const operation = (() => {
         if (proposal.kind === "candidate_workspace_experiment") {
           const value = requestRecord(proposal.request);
@@ -1026,15 +1033,16 @@ export function createV021LiveOperationExecutors(
           if (!request) license = unavailableLicense("project_experimentation", "invalid_request");
           else {
             const base = operationBase(nowMs);
+            const operationDeadlineAtMs = Math.min(base + 60_000, control?.deadlineAtMs ?? Number.MAX_SAFE_INTEGER);
             const result = await adapters.executeWorkspaceExperimentV2({
               ...common,
               request,
               taskId: proposal.effectId,
               messageEntityUuid: proposal.cycleId,
-              deadlineAtMs: base + 60_000,
-              childExecutionDeadlineAtMs: base + 30_000,
-              childTerminationDeadlineAtMs: base + 45_000,
-              settlementDeadlineAtMs: base + 60_000,
+              deadlineAtMs: operationDeadlineAtMs,
+              childExecutionDeadlineAtMs: Math.min(operationDeadlineAtMs, base + 30_000),
+              childTerminationDeadlineAtMs: Math.min(operationDeadlineAtMs, base + 45_000),
+              settlementDeadlineAtMs: operationDeadlineAtMs,
             });
             license = resultLicense(result);
           }
@@ -1043,6 +1051,7 @@ export function createV021LiveOperationExecutors(
           if (!request) license = unavailableLicense("candidate_verification", "invalid_request");
           else {
             const base = operationBase(nowMs);
+            const operationDeadlineAtMs = Math.min(base + 60_000, control?.deadlineAtMs ?? Number.MAX_SAFE_INTEGER);
             const result = await adapters.executeCandidateVerificationV2({
               ...common,
               request: {
@@ -1053,7 +1062,7 @@ export function createV021LiveOperationExecutors(
               taskId: proposal.effectId,
               ownerId: options.ownerId,
               messageEntityUuid: proposal.cycleId,
-              deadlineAtMs: base + 60_000,
+              deadlineAtMs: operationDeadlineAtMs,
             });
             license = resultLicense(result);
           }
@@ -1062,13 +1071,14 @@ export function createV021LiveOperationExecutors(
           if (!request) license = unavailableLicense("candidate_authorship", "invalid_request");
           else {
             const base = operationBase(nowMs);
+            const operationDeadlineAtMs = Math.min(base + 60_000, control?.deadlineAtMs ?? Number.MAX_SAFE_INTEGER);
             const result = await adapters.executeCandidateAuthorshipV2({
               ...common,
               request,
               taskId: proposal.effectId,
               ownerId: options.ownerId,
               messageEntityUuid: proposal.cycleId,
-              deadlineAtMs: base + 60_000,
+              deadlineAtMs: operationDeadlineAtMs,
             });
             license = resultLicense(result);
           }
@@ -1081,6 +1091,8 @@ export function createV021LiveOperationExecutors(
               proposal.cycleId,
               "develop",
               stringValue(value?.workspaceId) ?? undefined,
+              control?.deadlineAtMs,
+              control?.signal,
             );
             modeBResult = result;
             license = {

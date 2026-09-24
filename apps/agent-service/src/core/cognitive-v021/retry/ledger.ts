@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
+import { getUnresolvedInFlightForWake } from "../effect/in-flight.js";
 import {
   type DurableAttemptReceipt,
   type DurableDispatchTruth,
@@ -642,10 +643,7 @@ function recoverExpiredDurableWorkInTransaction(
       result.quarantined += 1;
       continue;
     }
-    const ambiguous = Boolean(db.prepare(
-      `SELECT 1 FROM in_flight_effects
-        WHERE wake_id = ? AND state IN ('in_flight', 'unknown') LIMIT 1`,
-    ).get(current.wake_id));
+    const ambiguous = getUnresolvedInFlightForWake(db, current.wake_id) !== null;
     if (latest.dispatch_truth === "not_started" && !ambiguous) {
       db.prepare(
         `UPDATE inbox_events SET state = 'pending', status = 'pending',
@@ -823,6 +821,60 @@ export function getOpenDurableAttempt(db: DatabaseSync, eventId: string): Durabl
   const value = latestAttempt(db, eventId);
   if (!value || value.finished_at_ms != null || current.state !== "leased" || !current.claim_token) return null;
   return toDurableAttempt(current, value);
+}
+
+export function renewDurableWorkClaimInTransaction(
+  db: DatabaseSync,
+  input: {
+    eventId: string;
+    conversationId: string;
+    wakeId: string;
+    attemptId: string;
+    workerId: string;
+    claimToken: string;
+    nowMs: number;
+    leaseMs: number;
+  },
+): boolean {
+  if (
+    !input.eventId.trim()
+    || !input.conversationId.trim()
+    || !input.wakeId.trim()
+    || !input.attemptId.trim()
+    || !input.workerId.trim()
+    || !input.claimToken.trim()
+    || !Number.isSafeInteger(input.nowMs)
+    || input.nowMs < 0
+    || !Number.isSafeInteger(input.leaseMs)
+    || input.leaseMs <= 0
+  ) return false;
+  const leaseMs = Math.min(15 * 60_000, Math.floor(input.leaseMs));
+  const updated = db.prepare(
+    `UPDATE inbox_events
+        SET lease_expires_at_ms = ?
+      WHERE id = ? AND conversation_id = ? AND wake_id = ?
+        AND state = 'leased' AND status = 'claimed'
+        AND claim_token = ? AND worker_id = ?
+        AND lease_expires_at_ms > ?
+        AND EXISTS (
+          SELECT 1 FROM durable_work_attempts AS attempt
+           WHERE attempt.attempt_id = ? AND attempt.event_id = inbox_events.id
+             AND attempt.wake_id = inbox_events.wake_id
+             AND attempt.worker_id = inbox_events.worker_id
+             AND attempt.ordinal = inbox_events.attempt_count
+             AND attempt.finished_at_ms IS NULL
+        )`,
+  ).run(
+    input.nowMs + leaseMs,
+    input.eventId,
+    input.conversationId,
+    input.wakeId,
+    input.claimToken,
+    input.workerId,
+    input.nowMs,
+    input.attemptId,
+  );
+  return Number(updated.changes) === 1;
 }
 
 export function getDurableAttempt(db: DatabaseSync, attemptId: string): DurableAttemptReceipt | null {

@@ -31,6 +31,7 @@ import {
   type SettlementSemanticOutput,
   type ObservationIntentSemanticOutput,
   type EffectIntentSemanticOutput,
+  type EffectProposal,
   type SemanticRef,
   type Observation,
   type DeliveryIntent,
@@ -3458,7 +3459,7 @@ export async function runCognitiveCycle(
       const proposal = {
         ...invocation.output.effectProposal,
         originEventId: event.id,
-        originAttemptId: null,
+        originAttemptId: event.durableAttemptId ?? null,
       };
       const reloadDispatchState = () => {
         const currentPacks = deps.loadAuthorityPacks();
@@ -3470,14 +3471,37 @@ export async function runCognitiveCycle(
           authorityDb: authorityDbForPacks(deps, currentPacks),
         };
       };
+      const executeEffect = deps.superviseEffectExecution
+        ? (effectProposal: EffectProposal) => deps.superviseEffectExecution!({
+            proposal: effectProposal,
+            deadlineAtMs: thoughtDeadlineAtMs,
+            isCurrent: () => currentLifecycleIs(
+              sidecar,
+              cycle,
+              attemptLifecycleBinding,
+              deps.origin !== "shadow",
+            ),
+            isAuthorized: () => {
+              const packs = deps.loadAuthorityPacks();
+              const currentAuthorityEpoch = packs.stateEpoch.authorityEpoch;
+              return deps.checkAuthority("dispatch", {
+                proposal: effectProposal,
+                packs,
+                authorityEpoch: currentAuthorityEpoch,
+                authorityDb: authorityDbForPacks(deps, packs),
+              }).ok;
+            },
+            execute: (control) => deps.executeEffect(effectProposal, control),
+          })
+        : deps.executeEffect;
       const dispatch = await dispatchEffect(
         sidecar,
         proposal,
         { ...reloadDispatchState(), reload: reloadDispatchState },
-        deps.executeEffect,
+        executeEffect,
       );
       if (!dispatch.dispatched) {
-        if (dispatch.codes.includes("STALE_GENERATION")) {
+        if (dispatch.origin === "fenced" || dispatch.codes.includes("STALE_GENERATION")) {
           counters = getThoughtAttemptCounters(sidecar, cycle.cycleId, cycle.generation);
           return resultWithCounters(cycle.cycleId, cycle.generation, null, counters, staleOwnerResultOptions());
         }
@@ -3496,7 +3520,6 @@ export async function runCognitiveCycle(
         );
       }
       inFlight = listInFlightForThoughtCycle(sidecar, cycle.cycleId);
-      beginThoughtLeg();
       pass += 1;
       structuralRetriesForPass = persistedMalformedRetries(sidecar, cycle.cycleId, cycle.generation, pass);
       continue;

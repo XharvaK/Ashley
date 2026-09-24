@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { EventEmitter } from "node:events";
 import { MODE_B_INVESTIGATE } from "./contracts.js";
 import { toSanitizedFailureEvidenceJson } from "../../cognitive-v021/operation/dispatch.js";
 import type { ExecuteProjectInspectionV2Result } from "../v2-execution.js";
@@ -9,6 +10,7 @@ import {
   COMMAND_CODE_WORKER_MODEL_ID,
   extractCommandCodeErrorEvidence,
   executeCommandCodeWorker,
+  spawnCommandCodeTransport,
   type CommandCodeWorkerTransport,
 } from "./command-code-worker.js";
 
@@ -118,6 +120,86 @@ describe("command-code-worker", () => {
       quotaClass: null,
       summary: "Read the requested project file.",
     });
+  });
+
+  it("stops after cancellation before dispatching a late worker tool request", async () => {
+    const controller = new AbortController();
+    const transport: CommandCodeWorkerTransport = {
+      complete: vi.fn(async (turn) => {
+        expect(turn.signal).toBe(controller.signal);
+        controller.abort("preempt");
+        return {
+          text: JSON.stringify({ type: "tool_request", operation: "project.read_file", request: { path: "README.md" } }),
+          status: 0,
+        };
+      }),
+    };
+    const input = { ...workerInput(transport), signal: controller.signal };
+
+    const result = await executeCommandCodeWorker(input);
+
+    expect(input.dispatchers.executeProjectInspectionV2).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      license: {
+        state: "none",
+        error: "command_code_cancelled",
+        executionTruth: "no_effect_proven",
+      },
+      steps: [],
+    });
+  });
+
+  it("terminates and confirms the Command Code child on cancellation", async () => {
+    vi.useFakeTimers();
+    try {
+      const signals: string[] = [];
+      const child = new EventEmitter() as any;
+      child.stdout = new EventEmitter();
+      child.stderr = new EventEmitter();
+      child.stdin = Object.assign(new EventEmitter(), { end: vi.fn() });
+      child.kill = vi.fn((signal: string) => {
+        signals.push(signal);
+        return true;
+      });
+      const transport = spawnCommandCodeTransport({
+        runtime: {
+          root: "/opt/command-code/runtime",
+          node: "/opt/command-code/runtime/bin/node",
+          script: "/opt/command-code/runtime/lib/node_modules/command-code/dist/index.mjs",
+          version: "1.64.0",
+        },
+        bubblewrapPath: "/usr/bin/bwrap",
+        apiKey: "test-command-code-key",
+      }, {
+        spawnChild: (() => child) as any,
+      });
+      const controller = new AbortController();
+      const completion = transport.complete({
+        modelId: COMMAND_CODE_WORKER_MODEL_ID,
+        effort: COMMAND_CODE_WORKER_EFFORT,
+        prompt: "bounded task",
+        deadlineAtMs: Date.now() + 60_000,
+        signal: controller.signal,
+      });
+      const outcome = completion.then(
+        () => ({ resolved: true as const }),
+        (error: unknown) => ({ resolved: false as const, error }),
+      );
+
+      controller.abort("preempt");
+      expect(signals).toEqual(["SIGTERM"]);
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(signals).toEqual(["SIGTERM", "SIGKILL"]);
+      child.emit("exit", 0);
+      expect(await Promise.race([outcome, Promise.resolve({ pending: true as const })])).toMatchObject({ pending: true });
+      child.emit("close", 0);
+      await expect(outcome).resolves.toMatchObject({
+        resolved: false,
+        error: { message: "command_code_cancelled" },
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("records an upstream 403 as an external prerequisite rejection without retrying", async () => {

@@ -16,8 +16,10 @@ import {
   releaseConversationCognition,
   renewConversationCognition,
 } from "../cycle/cognition-claim.js";
+import { registerActiveEffectExecution } from "../cycle/active.js";
 import { getCycle } from "../cycle/inbox.js";
 import { getWake } from "../wake/ledger.js";
+import { superviseEffectExecution } from "./effect-supervision.js";
 import {
   getPrivateReservation,
   getPrivateReservationForWake,
@@ -290,6 +292,47 @@ export async function runLiveCognitiveTurn(
     throw new Error(CONVERSATION_COGNITION_OCCUPIED);
   }
   try {
+    const effectOwnership = cognitionClaim?.ok
+      && input.event.claimToken
+      && input.event.workerId
+      && input.event.durableAttemptId
+      ? {
+          eventId: input.event.id,
+          conversationId: input.event.conversationId,
+          wakeId: wake.wakeId,
+          cycleId,
+          generation: cycle.generation,
+          workerId: input.event.workerId,
+          claimToken: input.event.claimToken,
+          attemptId: input.event.durableAttemptId,
+          cognitionClaimToken: cognitionClaim.claimToken,
+        }
+      : null;
+    const supervisedEffect = effectOwnership
+      ? async (supervision: Parameters<NonNullable<KernelDeps["superviseEffectExecution"]>>[0]) => {
+          const controller = new AbortController();
+          const active = registerActiveEffectExecution(
+            input.event.conversationId,
+            cycleId,
+            cycle.generation,
+            controller,
+          );
+          try {
+            return await superviseEffectExecution({
+              db: input.sidecar,
+              ownership: effectOwnership,
+              controller,
+              deadlineAtMs: supervision.deadlineAtMs,
+              nowMs: () => Date.now(),
+              isCurrent: supervision.isCurrent,
+              isAuthorized: supervision.isAuthorized,
+              execute: supervision.execute,
+            });
+          } finally {
+            active.unregister();
+          }
+        }
+      : undefined;
     return await runCognitiveCycle(
       input.sidecar,
       input.nuclear,
@@ -305,6 +348,7 @@ export async function runLiveCognitiveTurn(
               }),
             }
           : {}),
+        ...(supervisedEffect ? { superviseEffectExecution: supervisedEffect } : {}),
       },
       { privateBudgetBinding },
     );

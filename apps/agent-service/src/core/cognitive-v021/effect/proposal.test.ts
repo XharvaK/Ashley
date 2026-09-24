@@ -1,7 +1,14 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { admitTestCycle, openTestSidecar } from "../test-support.js";
-import { getInFlight, getEffectReceipt, putInFlight } from "./in-flight.js";
+import {
+  getEffectReceipt,
+  getInFlight,
+  getInFlightByEffectId,
+  getInFlightByIdempotencyKey,
+  putInFlight,
+} from "./in-flight.js";
 import { createEffectProposal, dispatchEffect } from "./proposal.js";
+import { EffectOwnershipLostError } from "./execution-control.js";
 
 describe("v0.2.1 effect proposal", () => {
   it("stores an effectful proposal and rechecks the epoch before execution", async () => {
@@ -31,6 +38,120 @@ describe("v0.2.1 effect proposal", () => {
       expect(executed).toBe(1);
       expect(getEffectReceipt(db, first.effectId)).toMatchObject({ outcome: "succeeded", idempotencyKey: "idem-replay" });
       expect(getInFlight(db, first.effectId)).toMatchObject({ status: "receipted" });
+    } finally {
+      db.close();
+    }
+  });
+
+  it("resolves effect IDs and idempotency keys independently when their strings collide", () => {
+    const db = openTestSidecar();
+    try {
+      admitTestCycle(db, { cycleId: "c-key-collision-a", conversationId: "thread-a", generation: 1, triggerKind: "owner_message", triggerRef: "event-a", occupantId: "doc", nowMs: 1 });
+      admitTestCycle(db, { cycleId: "c-key-collision-b", conversationId: "thread-b", generation: 1, triggerKind: "owner_message", triggerRef: "event-b", occupantId: "doc", nowMs: 2 });
+      const effectIdMatch = putInFlight(db, {
+        effectId: "same-namespace-value",
+        cycleId: "c-key-collision-a",
+        generation: 1,
+        correlationId: "corr-a",
+        idempotencyKey: "idem-a",
+        originEventId: "event-a",
+      });
+      const idempotencyMatch = putInFlight(db, {
+        effectId: "effect-b",
+        cycleId: "c-key-collision-b",
+        generation: 1,
+        correlationId: "corr-b",
+        idempotencyKey: "same-namespace-value",
+        originEventId: "event-b",
+      });
+
+      expect(getInFlightByEffectId(db, "same-namespace-value")?.effectId).toBe(effectIdMatch.effectId);
+      expect(getInFlightByIdempotencyKey(db, "same-namespace-value")?.effectId).toBe(idempotencyMatch.effectId);
+      expect(putInFlight(db, {
+        effectId: "ignored-replay-id",
+        cycleId: "c-key-collision-b",
+        generation: 1,
+        correlationId: "corr-replay",
+        idempotencyKey: "same-namespace-value",
+        originEventId: "event-b",
+      }).effectId).toBe(idempotencyMatch.effectId);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("turns a distinct effect blocked by same-wake occupancy into a dispatch refusal", async () => {
+    const db = openTestSidecar();
+    try {
+      admitTestCycle(db, { cycleId: "c-wake-occupied", conversationId: "thread-occupied", generation: 1, triggerKind: "owner_message", triggerRef: "event-occupied", occupantId: "doc", nowMs: 1 });
+      putInFlight(db, {
+        effectId: "effect-occupant",
+        cycleId: "c-wake-occupied",
+        generation: 1,
+        correlationId: "corr-occupant",
+        idempotencyKey: "idem-occupant",
+        originEventId: "event-occupied",
+      });
+      const second = createEffectProposal({
+        cycleId: "c-wake-occupied",
+        generation: 1,
+        authorityEpoch: 1,
+        idempotencyKey: "idem-distinct",
+        kind: "workspace.verify",
+        request: { path: "src" },
+        originEventId: "event-occupied",
+      });
+      const execute = vi.fn(async () => ({ outcome: "succeeded" as const }));
+
+      const result = await dispatchEffect(db, second, { authorityEpoch: 1, generation: 1 }, execute);
+
+      expect(result).toMatchObject({ dispatched: false, codes: ["IN_FLIGHT_UNKNOWN"], origin: "dispatch" });
+      expect(execute).not.toHaveBeenCalled();
+      expect(db.prepare("SELECT COUNT(*) AS count FROM in_flight_effects WHERE wake_id = (SELECT wake_id FROM cycle_records WHERE cycle_id = ?)")
+        .get("c-wake-occupied")).toMatchObject({ count: 1 });
+    } finally {
+      db.close();
+    }
+  });
+
+  it("allows only one of two competing distinct effects to acquire the same wake", async () => {
+    const db = openTestSidecar();
+    try {
+      admitTestCycle(db, { cycleId: "c-wake-race", conversationId: "thread-wake-race", generation: 1, triggerKind: "owner_message", triggerRef: "event-wake-race", occupantId: "doc", nowMs: 1 });
+      const firstProposal = createEffectProposal({
+        cycleId: "c-wake-race",
+        generation: 1,
+        authorityEpoch: 1,
+        idempotencyKey: "idem-wake-race-a",
+        kind: "workspace.write_file",
+        request: { path: "a.ts" },
+        originEventId: "event-wake-race",
+      });
+      const secondProposal = createEffectProposal({
+        cycleId: "c-wake-race",
+        generation: 1,
+        authorityEpoch: 1,
+        idempotencyKey: "idem-wake-race-b",
+        kind: "workspace.write_file",
+        request: { path: "b.ts" },
+        originEventId: "event-wake-race",
+      });
+      let resolveFirst!: (value: unknown) => void;
+      const firstExecution = new Promise<unknown>((resolve) => { resolveFirst = resolve; });
+      const executeFirst = vi.fn(() => firstExecution);
+      const executeSecond = vi.fn(async () => ({ outcome: "succeeded" }));
+
+      const first = dispatchEffect(db, firstProposal, { authorityEpoch: 1, generation: 1 }, executeFirst);
+      const second = await dispatchEffect(db, secondProposal, { authorityEpoch: 1, generation: 1 }, executeSecond);
+
+      expect(second).toMatchObject({ dispatched: false, codes: ["IN_FLIGHT_UNKNOWN"], origin: "dispatch" });
+      expect(executeFirst).toHaveBeenCalledTimes(1);
+      expect(executeSecond).not.toHaveBeenCalled();
+      expect(db.prepare("SELECT COUNT(*) AS count FROM in_flight_effects WHERE wake_id = (SELECT wake_id FROM cycle_records WHERE cycle_id = ?)")
+        .get("c-wake-race")).toMatchObject({ count: 1 });
+
+      resolveFirst({ outcome: "succeeded" });
+      await expect(first).resolves.toMatchObject({ dispatched: true, receipt: { outcome: "succeeded" } });
     } finally {
       db.close();
     }
@@ -70,6 +191,32 @@ describe("v0.2.1 effect proposal", () => {
       expect(executed).toBe(0);
       expect(getInFlight(db, proposal.effectId)).toMatchObject({ status: "unknown" });
     } finally { db.close(); }
+  });
+
+  it("keeps a possibly dispatched effect unresolved when execution ownership is lost", async () => {
+    const db = openTestSidecar();
+    try {
+      admitTestCycle(db, { cycleId: "c-fenced-effect", conversationId: "thread-fenced", generation: 1, triggerKind: "owner_message", triggerRef: "event-fenced", occupantId: "doc", nowMs: 1 });
+      const proposal = createEffectProposal({
+        cycleId: "c-fenced-effect",
+        generation: 1,
+        authorityEpoch: 1,
+        idempotencyKey: "idem-fenced-effect",
+        kind: "workspace.write_file",
+        request: { path: "x" },
+        originEventId: "event-fenced",
+      });
+
+      const result = await dispatchEffect(db, proposal, { authorityEpoch: 1, generation: 1 }, async () => {
+        throw new EffectOwnershipLostError();
+      });
+
+      expect(result).toMatchObject({ dispatched: false, origin: "fenced", codes: ["effect_ownership_lost"] });
+      expect(getInFlight(db, proposal.effectId)).toMatchObject({ status: "unknown" });
+      expect(getEffectReceipt(db, proposal.effectId)).toBeNull();
+    } finally {
+      db.close();
+    }
   });
 
   it("fails closed when exact originEventId is missing or empty", async () => {

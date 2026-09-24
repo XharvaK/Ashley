@@ -1,10 +1,12 @@
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { checkAuthority } from "../authority/check.js";
+import { EffectOwnershipLostError } from "./execution-control.js";
 import {
   getEffectReceipt,
   getEffectReceiptByIdempotencyKey,
-  getInFlight,
+  getInFlightByIdempotencyKey,
+  getUnresolvedInFlightForCycle,
   markInFlightUnknown,
   putInFlight,
   recordEffectReceipt,
@@ -44,11 +46,12 @@ export type DispatchEffectResult =
        * "authority" = checkAuthority rejected (initial or pre-execute
        * re-verdict). "dispatch" = dispatch mechanics refused without an
        * Authority rejection (stale generation, idempotency occupied).
+       * "fenced" = execution ownership/currentness was lost after admission.
        * Required because IN_FLIGHT_UNKNOWN is polysemous: it is also a
        * genuine AuthorityCode from claim/receipt evaluation, so callers
        * must not infer the parent category from child strings.
        */
-      origin: "authority" | "dispatch";
+      origin: "authority" | "dispatch" | "fenced";
     }
   | { dispatched: true; receipt: EffectReceipt; replayed: boolean };
 
@@ -108,23 +111,33 @@ export async function dispatchEffect(
   const existing = getEffectReceipt(db, proposal.effectId)
     ?? getEffectReceiptByIdempotencyKey(db, proposal.idempotencyKey);
   if (existing) return { dispatched: true, receipt: existing, replayed: true };
-  const existingInFlight = getInFlight(db, proposal.idempotencyKey);
+  const existingInFlight = getInFlightByIdempotencyKey(db, proposal.idempotencyKey);
   if (existingInFlight) return { dispatched: false, codes: ["IN_FLIGHT_UNKNOWN"], origin: "dispatch" };
   const originEventId = proposal.originEventId;
   if (!originEventId || typeof originEventId !== "string" || !originEventId.trim()) {
     throw new Error("origin_event_id_required");
   }
-  const inFlight = putInFlight(db, {
-    effectId: proposal.effectId,
-    cycleId: proposal.cycleId,
-    generation: proposal.generation,
-    correlationId: proposal.effectId,
-    idempotencyKey: proposal.idempotencyKey,
-    payload: proposal.request,
-    operationKind: proposal.kind,
-    originEventId,
-    originAttemptId: (proposal as { originAttemptId?: string | null }).originAttemptId ?? null,
-  });
+  let inFlight;
+  try {
+    inFlight = putInFlight(db, {
+      effectId: proposal.effectId,
+      cycleId: proposal.cycleId,
+      generation: proposal.generation,
+      correlationId: proposal.effectId,
+      idempotencyKey: proposal.idempotencyKey,
+      payload: proposal.request,
+      operationKind: proposal.kind,
+      originEventId,
+      originAttemptId: (proposal as { originAttemptId?: string | null }).originAttemptId ?? null,
+    });
+  } catch (error) {
+    // The partial unique index is the concurrency authority. Re-read its
+    // occupancy after an insert race and report a normal dispatch refusal.
+    if (getUnresolvedInFlightForCycle(db, proposal.cycleId)) {
+      return { dispatched: false, codes: ["IN_FLIGHT_UNKNOWN"], origin: "dispatch" };
+    }
+    throw error;
+  }
   const beforeExecute: DispatchSnapshot = current.reload?.() ?? {
     authorityEpoch: current.authorityEpoch,
     generation: current.generation,
@@ -147,7 +160,13 @@ export async function dispatchEffect(
   }
   let output: unknown;
   try { output = await execute(proposal); }
-  catch (error) { output = { error: error instanceof Error ? error.message : String(error) }; }
+  catch (error) {
+    if (error instanceof EffectOwnershipLostError) {
+      markInFlightUnknown(db, inFlight.effectId);
+      return { dispatched: false, codes: [error.code], origin: "fenced" };
+    }
+    output = { error: error instanceof Error ? error.message : String(error) };
+  }
   const isReceipt = (value: unknown): value is EffectReceipt =>
     typeof value === "object" && value !== null
     && typeof (value as { outcome?: unknown }).outcome === "string"

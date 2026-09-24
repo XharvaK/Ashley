@@ -4,7 +4,7 @@ import { openCognitiveSidecarDb } from "../sidecar/db.js";
 import { admitWake } from "../wake/ledger.js";
 import { appendInboxEvent } from "../cycle/inbox.js";
 import { ownerCoverageHash } from "../owner-obligation.js";
-import { claimNextDurableWork, startDurableAttempt, settleDurableAttempt, DURABLE_WORK_COORDINATION_LEASE_MS } from "./ledger.js";
+import { claimNextDurableWork, startDurableAttempt, settleDurableAttempt, DURABLE_WORK_COORDINATION_LEASE_MS, renewDurableWorkClaimInTransaction } from "./ledger.js";
 import { DEFAULT_TOOL_CYCLE_LEASE_MS, ORDINARY_THOUGHT_BUDGET_MS } from "../types.js";
 import type { HandlerResult } from "../types.js";
 
@@ -464,6 +464,57 @@ describe("P0 coordination-lease coverage (R7 §22)", () => {
         result: { kind: "completed" },
         nowMs: 144_001,
       })).toThrow("durable_work_claim_lost");
+    } finally {
+      sidecar.close();
+    }
+  });
+
+  it("does not resurrect an expired inbox token or extend a replacement durable attempt", () => {
+    const sidecar = db();
+    try {
+      seedEvent(sidecar);
+      const original = startDurableAttempt(sidecar, {
+        eventId: "event:retry",
+        workerId: "worker-old",
+        nowMs: 1_000,
+        leaseMs: 120_000,
+      });
+      if (!original.wakeId) throw new Error("retry_fixture_wake_missing");
+      const ownership = {
+        eventId: "event:retry",
+        conversationId: "conversation:retry",
+        wakeId: original.wakeId,
+        attemptId: original.attemptId,
+        workerId: original.workerId,
+        claimToken: original.claimToken,
+      };
+      expect(renewDurableWorkClaimInTransaction(sidecar, {
+        ...ownership,
+        nowMs: 1_100,
+        leaseMs: 120_000,
+      })).toBe(true);
+      expect(renewDurableWorkClaimInTransaction(sidecar, {
+        ...ownership,
+        nowMs: 121_100,
+        leaseMs: 120_000,
+      })).toBe(false);
+
+      const replacement = claimNextDurableWork(sidecar, {
+        eventId: "event:retry",
+        workerId: "worker-new",
+        nowMs: 121_101,
+      });
+      expect(replacement?.workerId).toBe("worker-new");
+      const replacementState = sidecar.prepare("SELECT worker_id, claim_token, lease_expires_at_ms FROM inbox_events WHERE id = ?")
+        .get("event:retry") as { worker_id: string; claim_token: string; lease_expires_at_ms: number };
+      expect(renewDurableWorkClaimInTransaction(sidecar, {
+        ...ownership,
+        nowMs: 121_102,
+        leaseMs: 120_000,
+      })).toBe(false);
+      expect(sidecar.prepare("SELECT worker_id, claim_token, lease_expires_at_ms FROM inbox_events WHERE id = ?")
+        .get("event:retry")).toEqual(replacementState);
+      expect(replacementState).toMatchObject({ worker_id: "worker-new", claim_token: replacement?.claimToken });
     } finally {
       sidecar.close();
     }

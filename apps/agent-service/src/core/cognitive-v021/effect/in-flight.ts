@@ -86,14 +86,40 @@ function mapInFlight(row: unknown): InFlightRecord | null {
   };
 }
 
+export function getInFlightByEffectId(db: DatabaseSync, effectId: string): InFlightRecord | null {
+  return mapInFlight(db.prepare("SELECT * FROM in_flight_effects WHERE effect_id = ? LIMIT 1").get(effectId));
+}
+
+export function getInFlightByIdempotencyKey(
+  db: DatabaseSync,
+  idempotencyKey: string,
+): InFlightRecord | null {
+  return mapInFlight(db.prepare("SELECT * FROM in_flight_effects WHERE idempotency_key = ? LIMIT 1").get(idempotencyKey));
+}
+
+/** Compatibility lookup: an exact effect ID wins, then an exact key lookup. */
 export function getInFlight(db: DatabaseSync, effectOrIdempotencyKey: string): InFlightRecord | null {
-  return mapInFlight(
-    db.prepare("SELECT * FROM in_flight_effects WHERE effect_id = ? OR idempotency_key = ? LIMIT 1").get(effectOrIdempotencyKey, effectOrIdempotencyKey),
-  );
+  return getInFlightByEffectId(db, effectOrIdempotencyKey)
+    ?? getInFlightByIdempotencyKey(db, effectOrIdempotencyKey);
+}
+
+export function getUnresolvedInFlightForWake(db: DatabaseSync, wakeId: string): InFlightRecord | null {
+  return mapInFlight(db.prepare(
+    `SELECT * FROM in_flight_effects
+      WHERE wake_id = ? AND state IN ('in_flight', 'unknown')
+      LIMIT 1`,
+  ).get(wakeId));
+}
+
+export function getUnresolvedInFlightForCycle(db: DatabaseSync, cycleId: string): InFlightRecord | null {
+  const cycle = db.prepare("SELECT wake_id FROM cycle_records WHERE cycle_id = ? LIMIT 1").get(cycleId) as DbRow | undefined;
+  return typeof cycle?.wake_id === "string"
+    ? getUnresolvedInFlightForWake(db, cycle.wake_id)
+    : null;
 }
 
 export function putInFlight(db: DatabaseSync, input: PutInFlightInput): InFlightRecord {
-  const existing = getInFlight(db, input.idempotencyKey);
+  const existing = getInFlightByIdempotencyKey(db, input.idempotencyKey);
   if (existing) return existing;
   if (!input.originEventId || typeof input.originEventId !== "string" || input.originEventId.trim().length === 0) {
     throw new Error("origin_event_id_required");
@@ -101,6 +127,7 @@ export function putInFlight(db: DatabaseSync, input: PutInFlightInput): InFlight
   const cycle = db.prepare("SELECT wake_id FROM cycle_records WHERE cycle_id = ? LIMIT 1").get(input.cycleId) as DbRow | undefined;
   const wakeId = input.wakeId ?? (typeof cycle?.wake_id === "string" ? cycle.wake_id : null);
   if (!wakeId) throw new Error("wake_required");
+  if (getUnresolvedInFlightForWake(db, wakeId)) throw new Error("wake_effect_occupancy_held");
   const effectId = input.effectId ?? randomUUID();
   const requestRecord = record(input.payload);
   const requestPayload = input.audienceScope === undefined
@@ -135,21 +162,23 @@ export function putInFlight(db: DatabaseSync, input: PutInFlightInput): InFlight
     input.originEventId,
     input.originAttemptId ?? null,
   );
-  const row = getInFlight(db, effectId);
+  const row = getInFlightByEffectId(db, effectId);
   if (!row) throw new Error("in_flight_insert_lost");
   return row;
 }
 
 export function markInFlightUnknown(db: DatabaseSync, effectId: string, _atMs = Date.now()): InFlightRecord {
   db.prepare("UPDATE in_flight_effects SET state = 'unknown' WHERE effect_id = ? AND state = 'in_flight'").run(effectId);
-  const row = getInFlight(db, effectId);
+  const row = getInFlightByEffectId(db, effectId);
   if (!row) throw new Error("in_flight_missing");
   return row;
 }
 
 export function markInFlightReceipted(db: DatabaseSync, effectId: string): InFlightRecord {
-  db.prepare("UPDATE in_flight_effects SET state = 'receipted' WHERE effect_id = ?").run(effectId);
-  const row = getInFlight(db, effectId);
+  const receipt = getEffectReceipt(db, effectId);
+  db.prepare("UPDATE in_flight_effects SET state = ? WHERE effect_id = ?")
+    .run(receipt ? effectStateForReceipt(receipt) : "unknown", effectId);
+  const row = getInFlightByEffectId(db, effectId);
   if (!row) throw new Error("in_flight_missing");
   return row;
 }
@@ -314,6 +343,20 @@ export function getEffectReceiptByIdempotencyKey(
   return mapReceipt(db.prepare("SELECT * FROM effect_receipts WHERE idempotency_key = ?").get(idempotencyKey));
 }
 
+function effectStateForReceipt(receipt: EffectReceipt): InFlightRecord["status"] {
+  if (receipt.outcome === "succeeded" || receipt.outcome === "not_attempted") return "receipted";
+  if (receipt.outcome === "in_progress") return "in_flight";
+  if (receipt.outcome === "failed"
+    && (receipt.claims.executionTruth === "no_effect_proven"
+      || receipt.claims.executionTruth === "effect_verified")) return "receipted";
+  return "unknown";
+}
+
+function updateInFlightOccupancyFromReceipt(db: DatabaseSync, receipt: EffectReceipt): void {
+  db.prepare("UPDATE in_flight_effects SET state = ? WHERE effect_id = ?")
+    .run(effectStateForReceipt(receipt), receipt.effectId);
+}
+
 const VALID_RECEIPT_OUTCOMES = new Set<string>([
   "succeeded",
   "failed",
@@ -328,7 +371,10 @@ export function recordEffectReceipt(db: DatabaseSync, receipt: EffectReceipt): E
   }
   const existing = getEffectReceipt(db, receipt.effectId)
     ?? getEffectReceiptByIdempotencyKey(db, receipt.idempotencyKey);
-  if (existing) return existing;
+  if (existing) {
+    if (existing.effectId === receipt.effectId) updateInFlightOccupancyFromReceipt(db, existing);
+    return existing;
+  }
   db.prepare(
     `INSERT INTO effect_receipts
        (receipt_id, effect_id, idempotency_key, outcome, claims_json, at_ms,
@@ -344,7 +390,7 @@ export function recordEffectReceipt(db: DatabaseSync, receipt: EffectReceipt): E
     receipt.dataClassification,
     receipt.secretOmitted ? 1 : 0,
   );
-  db.prepare("UPDATE in_flight_effects SET state = 'receipted' WHERE effect_id = ?").run(receipt.effectId);
+  updateInFlightOccupancyFromReceipt(db, receipt);
   return getEffectReceipt(db, receipt.effectId) ?? receipt;
 }
 

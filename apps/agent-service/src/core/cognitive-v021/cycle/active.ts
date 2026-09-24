@@ -11,6 +11,7 @@ type ActiveThoughtEntry = {
 };
 
 const activeThoughts = new Map<string, ActiveThoughtEntry>();
+const activeEffectExecutions = new Map<string, ActiveThoughtEntry>();
 
 export type ActiveThoughtHandle = {
   signal: AbortSignal;
@@ -18,12 +19,32 @@ export type ActiveThoughtHandle = {
   unregister(): void;
 };
 
-/** Register only the currently executing provider call for one conversation. */
+/** Register the currently executing provider call for one conversation. */
 export function registerActiveThought(
   conversationId: string,
   cycleId: string,
   generation: number,
   controller = new AbortController(),
+): ActiveThoughtHandle {
+  return registerActive(activeThoughts, conversationId, cycleId, generation, controller);
+}
+
+/** Register an awaited effect so durable cancellation can stop its backend. */
+export function registerActiveEffectExecution(
+  conversationId: string,
+  cycleId: string,
+  generation: number,
+  controller = new AbortController(),
+): ActiveThoughtHandle {
+  return registerActive(activeEffectExecutions, conversationId, cycleId, generation, controller);
+}
+
+function registerActive(
+  owners: Map<string, ActiveThoughtEntry>,
+  conversationId: string,
+  cycleId: string,
+  generation: number,
+  controller: AbortController,
 ): ActiveThoughtHandle {
   const entry: ActiveThoughtEntry = {
     cycleId,
@@ -31,34 +52,38 @@ export function registerActiveThought(
     controller,
     reason: null,
   };
-  activeThoughts.set(conversationId, entry);
+  owners.set(conversationId, entry);
   return {
     signal: controller.signal,
     get cancellationReason() {
       return entry.reason;
     },
     unregister() {
-      if (activeThoughts.get(conversationId) === entry) activeThoughts.delete(conversationId);
+      if (owners.get(conversationId) === entry) owners.delete(conversationId);
     },
   };
 }
 
-/** Cancel an active Thought call after the durable fence has committed. */
+/** Cancel active Thought and effect work after the durable fence commits. */
 export function cancelActiveThought(input: {
   conversationId: string;
   cycleId: string;
   generation: number;
   action: ActiveThoughtCancellationReason;
 }): boolean {
-  const entry = activeThoughts.get(input.conversationId);
-  if (!entry) return false;
-  const matches = input.action === "compose"
-    ? entry.cycleId === input.cycleId && entry.generation === input.generation
-    : entry.generation === input.generation;
-  if (!matches) return false;
-  entry.reason = input.action;
-  if (!entry.controller.signal.aborted) entry.controller.abort(input.action);
-  return true;
+  let cancelled = false;
+  for (const owners of [activeThoughts, activeEffectExecutions]) {
+    const entry = owners.get(input.conversationId);
+    if (!entry) continue;
+    const matches = input.action === "compose"
+      ? entry.cycleId === input.cycleId && entry.generation === input.generation
+      : entry.generation === input.generation;
+    if (!matches) continue;
+    entry.reason = input.action;
+    if (!entry.controller.signal.aborted) entry.controller.abort(input.action);
+    cancelled = true;
+  }
+  return cancelled;
 }
 
 /** Persist the cancellation fence before issuing the best-effort process-local abort. */

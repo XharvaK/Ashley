@@ -82,6 +82,173 @@ describe("v0.2.1 in-flight effect pointers", () => {
     }
   });
 
+  it("admits a second same-wake effect after the first has a conclusive receipt", () => {
+    const db = openTestSidecar();
+    try {
+      const cycle = admitTestCycle(db, {
+        cycleId: "cycle-sequential-effects",
+        conversationId: "thread-sequential-effects",
+        generation: 1,
+        triggerKind: "owner_message",
+        triggerRef: "event-sequential-effects",
+        occupantId: "doc",
+        nowMs: 1,
+      });
+      const first = putInFlight(db, {
+        effectId: "effect-sequential-a",
+        cycleId: cycle.cycleId,
+        generation: cycle.generation,
+        wakeId: cycle.wakeId,
+        correlationId: "corr-sequential-a",
+        idempotencyKey: "idem-sequential-a",
+        originEventId: "event-sequential-effects",
+        dispatchedAtMs: 10,
+      });
+      recordEffectReceipt(db, {
+        receiptId: "receipt-sequential-a",
+        effectId: first.effectId,
+        idempotencyKey: first.idempotencyKey,
+        outcome: "succeeded",
+        claims: { executionTruth: "effect_verified" },
+        atMs: 20,
+        dataClassification: "never_public",
+        secretOmitted: true,
+      });
+
+      const second = putInFlight(db, {
+        effectId: "effect-sequential-b",
+        cycleId: cycle.cycleId,
+        generation: cycle.generation,
+        wakeId: cycle.wakeId,
+        correlationId: "corr-sequential-b",
+        idempotencyKey: "idem-sequential-b",
+        originEventId: "event-sequential-effects",
+        dispatchedAtMs: 30,
+      });
+
+      expect(getEffectReceipt(db, first.effectId)?.outcome).toBe("succeeded");
+      expect(getInFlight(db, first.effectId)?.status).toBe("receipted");
+      expect(getInFlight(db, second.effectId)).toMatchObject({
+        wakeId: first.wakeId,
+        status: "in_flight",
+      });
+      expect(db.prepare("SELECT effect_id FROM in_flight_effects WHERE wake_id = ? ORDER BY dispatched_at_ms")
+        .all(cycle.wakeId)).toEqual([
+          { effect_id: "effect-sequential-a" },
+          { effect_id: "effect-sequential-b" },
+        ]);
+    } finally {
+      db.close();
+    }
+  });
+
+  it.each([
+    ["in-flight", "in_progress", {}, "in_flight"],
+    ["unknown", "outcome_unknown", {}, "unknown"],
+    ["failed-but-indeterminate", "failed", { executionTruth: "effect_indeterminate" }, "unknown"],
+  ] as const)("keeps same-wake occupancy for %s receipts", (_name, outcome, claims, status) => {
+    const db = openTestSidecar();
+    try {
+      const cycle = admitTestCycle(db, {
+        cycleId: `cycle-blocked-${_name}`,
+        conversationId: `thread-blocked-${_name}`,
+        generation: 1,
+        triggerKind: "owner_message",
+        triggerRef: `event-blocked-${_name}`,
+        occupantId: "doc",
+        nowMs: 1,
+      });
+      const first = putInFlight(db, {
+        effectId: `effect-blocked-${_name}`,
+        cycleId: cycle.cycleId,
+        generation: cycle.generation,
+        wakeId: cycle.wakeId,
+        correlationId: `corr-blocked-${_name}`,
+        idempotencyKey: `idem-blocked-${_name}`,
+        originEventId: `event-blocked-${_name}`,
+        dispatchedAtMs: 10,
+      });
+      recordEffectReceipt(db, {
+        receiptId: `receipt-blocked-${_name}`,
+        effectId: first.effectId,
+        idempotencyKey: first.idempotencyKey,
+        outcome,
+        claims,
+        atMs: 20,
+        dataClassification: "never_public",
+        secretOmitted: true,
+      });
+
+      expect(getInFlight(db, first.effectId)?.status).toBe(status);
+      expect(() => putInFlight(db, {
+        effectId: `effect-blocked-next-${_name}`,
+        cycleId: cycle.cycleId,
+        generation: cycle.generation,
+        wakeId: cycle.wakeId,
+        correlationId: `corr-blocked-next-${_name}`,
+        idempotencyKey: `idem-blocked-next-${_name}`,
+        originEventId: `event-blocked-${_name}`,
+        dispatchedAtMs: 30,
+      })).toThrow();
+    } finally {
+      db.close();
+    }
+  });
+
+  it.each([
+    ["success", "succeeded", { executionTruth: "effect_verified" }],
+    ["not-attempted", "not_attempted", { executionTruth: "no_effect_proven" }],
+    ["terminal-failure", "failed", { executionTruth: "no_effect_proven" }],
+    ["completed-effect-with-worker-failure", "failed", { executionTruth: "effect_verified" }],
+  ] as const)("releases occupancy only for mechanically resolved %s receipts", (_name, outcome, claims) => {
+    const db = openTestSidecar();
+    try {
+      const cycle = admitTestCycle(db, {
+        cycleId: `cycle-release-${_name}`,
+        conversationId: `thread-release-${_name}`,
+        generation: 1,
+        triggerKind: "owner_message",
+        triggerRef: `event-release-${_name}`,
+        occupantId: "doc",
+        nowMs: 1,
+      });
+      const first = putInFlight(db, {
+        effectId: `effect-release-${_name}`,
+        cycleId: cycle.cycleId,
+        generation: cycle.generation,
+        wakeId: cycle.wakeId,
+        correlationId: `corr-release-${_name}`,
+        idempotencyKey: `idem-release-${_name}`,
+        originEventId: `event-release-${_name}`,
+        dispatchedAtMs: 10,
+      });
+      recordEffectReceipt(db, {
+        receiptId: `receipt-release-${_name}`,
+        effectId: first.effectId,
+        idempotencyKey: first.idempotencyKey,
+        outcome,
+        claims,
+        atMs: 20,
+        dataClassification: "never_public",
+        secretOmitted: true,
+      });
+
+      expect(getInFlight(db, first.effectId)?.status).toBe("receipted");
+      expect(() => putInFlight(db, {
+        effectId: `effect-release-next-${_name}`,
+        cycleId: cycle.cycleId,
+        generation: cycle.generation,
+        wakeId: cycle.wakeId,
+        correlationId: `corr-release-next-${_name}`,
+        idempotencyKey: `idem-release-next-${_name}`,
+        originEventId: `event-release-${_name}`,
+        dispatchedAtMs: 30,
+      })).not.toThrow();
+    } finally {
+      db.close();
+    }
+  });
+
   it("enforces originEventId at runtime and maps causal provenance", () => {
     const db = openTestSidecar();
     try {

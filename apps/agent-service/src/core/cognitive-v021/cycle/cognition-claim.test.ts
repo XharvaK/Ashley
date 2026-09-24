@@ -91,6 +91,29 @@ describe("per-conversation cognition claim", () => {
     }
   });
 
+  it("does not let an expired holder renew before a replacement claims", () => {
+    const sidecar = openTestSidecar();
+    try {
+      const first = claimConversationCognition(sidecar, {
+        conversationId: "thread-expired-renewal",
+        eventId: "event-old",
+        nowMs: 1_000,
+        leaseMs: 100,
+      });
+      if (!first.ok) throw new Error("claim failed");
+
+      expect(renewConversationCognition(sidecar, {
+        conversationId: "thread-expired-renewal",
+        claimToken: first.claimToken,
+        nowMs: 1_100,
+        leaseMs: 100,
+      })).toBe(false);
+      expect(readConversationCognition(sidecar, "thread-expired-renewal")?.leaseExpiresAtMs).toBe(1_100);
+    } finally {
+      sidecar.close();
+    }
+  });
+
   it("holds different conversations independently", () => {
     const sidecar = openTestSidecar();
     try {

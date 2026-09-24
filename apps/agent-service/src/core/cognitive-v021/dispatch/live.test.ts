@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { appendInboxEvent, updateCycleState } from "../cycle/inbox.js";
+import { appendInboxEvent, getInboxEvent, updateCycleState } from "../cycle/inbox.js";
 import { appendOwnerUtterance } from "../evidence/conversation-log.js";
 import { admitTestCycle, openTestSidecar, makeSemanticSettlement } from "../test-support.js";
 import {
@@ -26,6 +26,7 @@ import {
 } from "../private-budget/ledger.js";
 import { reconcilePolicyClock } from "../private-budget/policy-time-ledger.js";
 import { settleFrontierTerminalReservation } from "../frontier/coordinator.js";
+import { startDurableAttempt } from "../retry/ledger.js";
 
 const constitution: IdentitySlice = { constitutional: ["truth first"], stableSelf: [] };
 const capabilityReality: CapabilityReality = {
@@ -109,6 +110,76 @@ describe("v0.2.1 live dispatcher", () => {
     sidecar.close();
     nuclear.close();
     attentionDb.close();
+  });
+
+  it("supervises an effect under the exact live durable attempt", async () => {
+    const sidecar = openTestSidecar();
+    const nuclear = openTestSidecar();
+    const attentionDb = openTestSidecar();
+    const queued = event(sidecar);
+    const attempt = startDurableAttempt(sidecar, {
+      eventId: queued.id,
+      workerId: "long-effect-worker",
+      nowMs: Date.now(),
+    });
+    const claimed = getInboxEvent(sidecar, queued.id);
+    if (!claimed) throw new Error("claimed_event_missing");
+    let modelCalls = 0;
+    const completeChat = vi.fn(async () => ({
+      text: JSON.stringify(modelCalls++ === 0
+        ? {
+            kind: "effect_intent",
+            operationKind: "workspace.write_file",
+            request: { projectId: "project-ashley", path: "src/long-effect.ts" },
+            purpose: "write the requested file",
+            expectedOutcome: "the file is written",
+            existingRefs: ["owner-live"],
+          }
+        : makeSemanticSettlement()),
+      model: "fake",
+      modelAlias: "fake",
+      resolvedModelId: null,
+    }));
+    const executeEffect: KernelDeps["executeEffect"] = vi.fn(async (proposal, control) => {
+      expect(control?.signal).toBeInstanceOf(AbortSignal);
+      expect(control?.deadlineAtMs).toBeGreaterThan(Date.now());
+      return {
+        receiptId: "receipt-live-supervised",
+        effectId: proposal.effectId,
+        idempotencyKey: proposal.idempotencyKey,
+        outcome: "succeeded" as const,
+        claims: {},
+        atMs: Date.now(),
+        dataClassification: "never_public" as const,
+        secretOmitted: false,
+      };
+    });
+    const projectOutbox = vi.fn(async () => undefined);
+
+    try {
+      const result = await runLiveCognitiveTurn({
+        sidecar,
+        nuclear,
+        event: { ...claimed, durableAttemptId: attempt.attemptId },
+        deps: deps({ attentionDb, nowMs: Date.now, completeChat, executeEffect, projectOutbox }),
+        projector: {
+          project: projectOutbox,
+          projectSystem: vi.fn(async () => undefined),
+        },
+      });
+
+      expect(result.published).toBe(true);
+      expect(executeEffect).toHaveBeenCalledTimes(1);
+      expect(sidecar.prepare("SELECT origin_event_id, origin_attempt_id FROM in_flight_effects").get()).toMatchObject({
+        origin_event_id: queued.id,
+        origin_attempt_id: attempt.attemptId,
+      });
+      expect(sidecar.prepare("SELECT outcome FROM effect_receipts").get()).toMatchObject({ outcome: "succeeded" });
+    } finally {
+      sidecar.close();
+      nuclear.close();
+      attentionDb.close();
+    }
   });
 });
 

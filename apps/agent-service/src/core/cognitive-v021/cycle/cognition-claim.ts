@@ -129,9 +129,18 @@ export function claimConversationCognition(
  * False means the holder was lost (expiry + takeover): the cycle must stop
  * dispatching provider work immediately.
  */
-export function renewConversationCognition(
+export function renewConversationCognitionInTransaction(
   sidecar: DatabaseSync,
-  input: { conversationId: string; claimToken: string; nowMs?: number; leaseMs?: number },
+  input: {
+    conversationId: string;
+    claimToken: string;
+    nowMs: number;
+    leaseMs?: number;
+    eventId?: string;
+    wakeId?: string | null;
+    cycleId?: string | null;
+    generation?: number | null;
+  },
 ): boolean {
   const nowMs = input.nowMs ?? Date.now();
   const leaseMs = input.leaseMs ?? COGNITION_CLAIM_LEASE_MS;
@@ -146,14 +155,37 @@ export function renewConversationCognition(
   ) {
     return false;
   }
+  const identity = [
+    ...(input.eventId === undefined ? [] : ["holder_event_id = ?"]),
+    ...(input.wakeId === undefined ? [] : ["holder_wake_id IS ?"]),
+    ...(input.cycleId === undefined ? [] : ["cycle_id IS ?"]),
+    ...(input.generation === undefined ? [] : ["generation IS ?"]),
+  ];
+  const identityValues = [
+    ...(input.eventId === undefined ? [] : [input.eventId]),
+    ...(input.wakeId === undefined ? [] : [input.wakeId]),
+    ...(input.cycleId === undefined ? [] : [input.cycleId]),
+    ...(input.generation === undefined ? [] : [input.generation]),
+  ];
   const updated = sidecar
     .prepare(
       `UPDATE cognition_claims
           SET lease_expires_at_ms = ?, updated_at_ms = ?
-        WHERE conversation_id = ? AND claim_token = ?`,
+        WHERE conversation_id = ? AND claim_token = ?
+          AND lease_expires_at_ms > ?${identity.length ? ` AND ${identity.join(" AND ")}` : ""}`,
     )
-    .run(nowMs + leaseMs, nowMs, input.conversationId, input.claimToken);
+    .run(nowMs + leaseMs, nowMs, input.conversationId, input.claimToken, nowMs, ...identityValues);
   return Number(updated.changes) === 1;
+}
+
+export function renewConversationCognition(
+  sidecar: DatabaseSync,
+  input: { conversationId: string; claimToken: string; nowMs?: number; leaseMs?: number },
+): boolean {
+  return renewConversationCognitionInTransaction(sidecar, {
+    ...input,
+    nowMs: input.nowMs ?? Date.now(),
+  });
 }
 
 /** Release only our own claim. A stale holder can never release a successor. */

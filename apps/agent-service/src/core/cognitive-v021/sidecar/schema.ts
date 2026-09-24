@@ -1227,3 +1227,11 @@ SELECT
 FROM concerns;
 UPDATE cognitive_sidecar_meta SET schema_version = 24, projection_state = 'reconciling' WHERE id = 1;
 `;
+
+export const COGNITIVE_SIDECAR_SCHEMA_V25 = String.raw`
+DROP INDEX IF EXISTS idx_in_flight_effects_wake;
+CREATE UNIQUE INDEX idx_in_flight_effects_wake
+  ON in_flight_effects(wake_id)
+  WHERE wake_id IS NOT NULL AND state IN ('in_flight', 'unknown');
+UPDATE cognitive_sidecar_meta SET schema_version = 25, projection_state = 'reconciling' WHERE id = 1;
+`;

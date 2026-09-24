@@ -1,4 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
+import { getUnresolvedInFlightForWake } from "../effect/in-flight.js";
 import type {
   ConversationEvidenceRecord,
   InboxEvent,
@@ -638,10 +639,7 @@ export function convergeOrphanPendingWakes(
     }
     const wake = getWake(db, wakeId);
     if (!wake || wake.state !== "pending") continue;
-    const ambiguous = db.prepare(
-      `SELECT 1 FROM in_flight_effects
-        WHERE wake_id = ? AND state IN ('in_flight', 'unknown') LIMIT 1`,
-    ).get(wakeId);
+    const ambiguous = getUnresolvedInFlightForWake(db, wakeId);
     if (ambiguous) continue;
     db.exec("BEGIN IMMEDIATE");
     try {

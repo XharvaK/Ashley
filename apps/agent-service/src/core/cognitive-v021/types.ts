@@ -8,6 +8,7 @@ import type {
 import type { DataClassification } from "../privacy/classification.js";
 import type { SandboxV2CapabilitySpec } from "@composer-assistant/sandbox-v2";
 import type { ThoughtSourceCurrentness } from "./thought/source-currentness.js";
+import type { EffectExecutionControl } from "./effect/execution-control.js";
 import type {
   CommitmentProposal,
   CommitmentRealizationBinding,
@@ -20,7 +21,7 @@ export type { DataClassification } from "../privacy/classification.js";
 export const ARCHITECTURE_EPOCH = "v0.2.1" as const;
 export const IMPLEMENTATION_SPEC_VERSION = "0.2.1.r6" as const;
 export const THOUGHT_CONTRACT_VERSION = 2 as const;
-export const COGNITIVE_SIDECAR_SCHEMA_VERSION = 24 as const;
+export const COGNITIVE_SIDECAR_SCHEMA_VERSION = 25 as const;
 
 /**
  * Hard bound on cognition-facing concern discovery windows and pages. The
@@ -1793,7 +1794,15 @@ export type KernelDeps = {
   executeObservation: (req: ObservationRequest) => Promise<Observation>;
   /** Direct V2 is a Host route, never a Thought-selected capability. */
   canOfferDirectProjectInspection?: () => boolean;
-  executeEffect: (proposal: EffectProposal) => Promise<EffectReceipt>;
+  executeEffect: (proposal: EffectProposal, control?: EffectExecutionControl) => Promise<EffectReceipt>;
+  /** Coordination-owned, bounded supervision for awaited effect execution. */
+  superviseEffectExecution?: (input: {
+    proposal: EffectProposal;
+    deadlineAtMs: number;
+    isCurrent: () => boolean;
+    isAuthorized: () => boolean;
+    execute: (control: EffectExecutionControl) => Promise<unknown>;
+  }) => Promise<unknown>;
   checkAuthority: CheckAuthority;
   loadAuthorityPacks: () => AuthorityPacks;
   expressionEnabled: boolean;

@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
+import { getUnresolvedInFlightForWake } from "../effect/in-flight.js";
 import {
   ARCHITECTURE_EPOCH,
   type CycleTriggerKind,
@@ -237,6 +238,49 @@ export function claimWakeInTransaction(db: DatabaseSync, wakeId: string, workerI
   return { leaseToken, wake: getWakeRequired(db, wakeId) };
 }
 
+export function renewWakeLeaseInTransaction(
+  db: DatabaseSync,
+  input: {
+    wakeId: string;
+    conversationId: string;
+    cycleId: string;
+    workerId: string;
+    leaseToken: string;
+    nowMs: number;
+    leaseMs: number;
+  },
+): boolean {
+  if (
+    !input.wakeId.trim()
+    || !input.conversationId.trim()
+    || !input.cycleId.trim()
+    || !input.workerId.trim()
+    || !input.leaseToken.trim()
+    || !Number.isSafeInteger(input.nowMs)
+    || input.nowMs < 0
+    || !Number.isSafeInteger(input.leaseMs)
+    || input.leaseMs <= 0
+  ) return false;
+  const leaseMs = Math.min(15 * 60_000, Math.floor(input.leaseMs));
+  const updated = db.prepare(
+    `UPDATE wakes
+        SET lease_expires_at_ms = ?, updated_at_ms = ?
+      WHERE wake_id = ? AND conversation_id = ? AND cycle_id = ?
+        AND state = 'authorized' AND lease_owner = ? AND lease_token = ?
+        AND cancellation_id IS NULL AND lease_expires_at_ms > ?`,
+  ).run(
+    input.nowMs + leaseMs,
+    input.nowMs,
+    input.wakeId,
+    input.conversationId,
+    input.cycleId,
+    input.workerId,
+    input.leaseToken,
+    input.nowMs,
+  );
+  return Number(updated.changes) === 1;
+}
+
 export function claimWake(db: DatabaseSync, wakeId: string, workerId: string, nowMs: number, leaseMs: number): { leaseToken: string; wake: WakeRecord } {
   if (!workerId.trim()) throw wakeError("worker_required");
   const boundedLeaseMs = Math.max(1, Math.min(15 * 60_000, Math.floor(leaseMs)));
@@ -392,10 +436,7 @@ export function cancelWake(db: DatabaseSync, input: { wakeId: string; cancellati
 }
 
 function hasAmbiguousEffect(db: DatabaseSync, wakeId: string): boolean {
-  return Boolean(db.prepare(
-    `SELECT 1 FROM in_flight_effects
-      WHERE wake_id = ? AND state IN ('in_flight', 'unknown') LIMIT 1`,
-  ).get(wakeId));
+  return getUnresolvedInFlightForWake(db, wakeId) !== null;
 }
 
 /** Recover one safe lease or one ambiguous consequence at a time. */

@@ -35,6 +35,7 @@ import {
   COGNITIVE_SIDECAR_SCHEMA_V22,
   COGNITIVE_SIDECAR_SCHEMA_V23,
   COGNITIVE_SIDECAR_SCHEMA_V24,
+  COGNITIVE_SIDECAR_SCHEMA_V25,
 } from "./schema.js";
 import { recoverCognitiveSidecar } from "./recovery.js";
 import { cycleIdFor, occurrenceIdFor, wakeIdFor } from "../wake/identity.js";
@@ -272,6 +273,39 @@ export function migrateConcernsToV24(existing: DatabaseSync): ConcernsV24Migrati
       WHERE c.cognitive_status IS NOT NULL AND c.forgotten = 0 AND c.quarantine_kind IS NULL
         AND NOT EXISTS (SELECT 1 FROM mind_occupancy o WHERE o.concern_id = c.concern_id AND o.conversation_id = c.conversation_id)`);
   return Object.freeze({ ...report, divergenceRepaired, missingOccupancyLeft });
+}
+
+/**
+ * V25 effect occupancy repair. Existing receipted rows release wake occupancy
+ * only when their durable receipt proves a terminal external outcome. Missing,
+ * malformed, or ambiguous receipt evidence remains blocking as `unknown`.
+ */
+export function migrateInFlightEffectOccupancyToV25(existing: DatabaseSync): void {
+  existing.exec(`
+    UPDATE in_flight_effects
+       SET state = 'unknown'
+     WHERE state NOT IN ('in_flight', 'unknown', 'receipted');
+    UPDATE in_flight_effects
+       SET state = 'unknown'
+     WHERE state = 'receipted'
+       AND NOT EXISTS (
+         SELECT 1
+           FROM effect_receipts AS receipt
+          WHERE receipt.effect_id = in_flight_effects.effect_id
+            AND (
+              receipt.outcome IN ('succeeded', 'not_attempted')
+              OR (
+                receipt.outcome = 'failed'
+                AND CASE
+                      WHEN json_valid(receipt.claims_json)
+                      THEN json_extract(receipt.claims_json, '$.executionTruth')
+                      ELSE NULL
+                    END IN ('no_effect_proven', 'effect_verified')
+              )
+            )
+       );
+  `);
+  existing.exec(COGNITIVE_SIDECAR_SCHEMA_V25);
 }
 
 function migrateWatchPollingToV18(existing: DatabaseSync): void {
@@ -628,6 +662,7 @@ export function openCognitiveSidecarDb(
       applyV22Migration(existing);
       migrateDetachedFailureEvidenceToV23(existing);
       migrateConcernsToV24(existing);
+      migrateInFlightEffectOccupancyToV25(existing);
       existing.exec(`PRAGMA user_version = ${COGNITIVE_SIDECAR_SCHEMA_VERSION}`);
       existing.exec("COMMIT");
     } catch (error) {
@@ -655,6 +690,9 @@ export function openCognitiveSidecarDb(
       }
       if (version < 24) {
         migrateConcernsToV24(existing);
+      }
+      if (version < 25) {
+        migrateInFlightEffectOccupancyToV25(existing);
       }
       existing.exec(`PRAGMA user_version = ${COGNITIVE_SIDECAR_SCHEMA_VERSION}`);
       ensureMeta(existing);

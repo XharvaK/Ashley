@@ -192,7 +192,7 @@ describe("Thought-leg budget ownership", () => {
     attentionDb.close();
   });
 
-  it("projects a licensed workspace.verify consequence to Thought B without conflating receipt and verification", async () => {
+  it("projects a licensed workspace.verify consequence within the original Thought leg", async () => {
     const sidecar = openTestSidecar();
     const attentionDb = openTestSidecar();
     const { cycle, event } = admit(sidecar, "thread-effect-leg", "verify the candidate");
@@ -281,7 +281,7 @@ describe("Thought-leg budget ownership", () => {
     expect(result.published).toBe(true);
     expect(executeEffect).toHaveBeenCalledTimes(1);
     expect(deadlines[0]).toBe(3_601_000);
-    expect(deadlines[1]).toBe(111_000 + ORDINARY_THOUGHT_BUDGET_MS);
+    expect(deadlines[1]).toBe(deadlines[0]);
     expect(laterProjection).toMatchObject({
       effectRef: mintEffectRef(cycle.cycleId, cycle.generation, dispatchedEffectId),
       operationKind: "workspace.verify",

@@ -92,6 +92,7 @@ export type CommandCodeWorkerTransport = {
     effort: typeof COMMAND_CODE_WORKER_EFFORT;
     prompt: string;
     deadlineAtMs: number;
+    signal?: AbortSignal;
   }): Promise<CommandCodeWorkerTurn>;
 };
 
@@ -116,6 +117,7 @@ export type CommandCodeWorkerInput = {
   workspaceId?: string;
   nowMs: () => number;
   deadlineAtMs?: number;
+  signal?: AbortSignal;
   transport?: CommandCodeWorkerTransport;
   workerEnabled: boolean;
   gateOk?: boolean;
@@ -487,6 +489,7 @@ export function spawnCommandCodeTransport(
   const spawnFn = options.spawnChild ?? spawn;
   return {
     complete(turn) {
+      if (turn.signal?.aborted) return Promise.reject(new Error("command_code_cancelled"));
       const prompt = turn.prompt;
       const invocation = buildCommandCodeInvocation({ ...input, prompt });
       return new Promise((resolve, reject) => {
@@ -504,10 +507,13 @@ export function spawnCommandCodeTransport(
         let timeoutTimer: NodeJS.Timeout | null = null;
         let stopReason: string | null = null;
 
+        const removeAbortListener = () => turn.signal?.removeEventListener("abort", onAbort);
+
         const finishError = (message: string) => {
           if (settled) return;
           settled = true;
           if (timeoutTimer) clearTimeout(timeoutTimer);
+          removeAbortListener();
           reject(new Error(message));
         };
         const stop = (reason: string) => {
@@ -517,11 +523,13 @@ export function spawnCommandCodeTransport(
             finishError(result.closed ? reason : "command_code_termination_unconfirmed");
           });
         };
+        const onAbort = () => stop("command_code_cancelled");
         timeoutTimer = setTimeout(() => stop("command_code_timeout"), remainingMs);
         child.once("close", (status) => {
           (child as unknown as { __commandCodeClosed?: boolean }).__commandCodeClosed = true;
           if (settled) return;
           if (timeoutTimer) clearTimeout(timeoutTimer);
+          removeAbortListener();
           if (stopReason) {
             finishError(stopReason);
             return;
@@ -560,6 +568,8 @@ export function spawnCommandCodeTransport(
           resolve(decoded);
         });
         child.once("error", () => finishError("command_code_process_spawn_failed"));
+        turn.signal?.addEventListener("abort", onAbort, { once: true });
+        if (turn.signal?.aborted) onAbort();
         child.stdout?.on("data", (chunk: Buffer | string) => {
           const part = chunk.toString();
           if (Buffer.byteLength(stdout) + Buffer.byteLength(part) > OUTPUT_MAX_BYTES) {
@@ -732,6 +742,7 @@ export async function executeCommandCodeWorker(input: CommandCodeWorkerInput): P
   });
 
   if (!input.workerEnabled) return empty("worker_disabled");
+  if (input.signal?.aborted) return empty("command_code_cancelled");
   if (input.gateOk === false) return empty(input.gateError ?? "worker_gate_denied");
   if (input.pinnedVersion !== COMMAND_CODE_WORKER_PINNED_VERSION) return empty("command_code_pin_mismatch");
   if (!input.apiKey.trim()) return empty("command_code_credentials_missing");
@@ -768,6 +779,10 @@ export async function executeCommandCodeWorker(input: CommandCodeWorkerInput): P
   const maxSteps = parsed.value.maxSteps;
 
   for (let step = 0; step < maxSteps; step += 1) {
+    if (input.signal?.aborted) {
+      terminalError = "command_code_cancelled";
+      break;
+    }
     if (sessionDeadlineAtMs - input.nowMs() <= 0) {
       terminalError = "deadline_exhausted";
       break;
@@ -781,16 +796,22 @@ export async function executeCommandCodeWorker(input: CommandCodeWorkerInput): P
         effort: COMMAND_CODE_WORKER_EFFORT,
         prompt: hostProtocolPrompt({ request: parsed.value, profile: taskProfile, purpose: input.purpose, history }),
         deadlineAtMs: turnDeadlineAtMs,
+        signal: input.signal,
       });
     } catch (error) {
       const safeReason = error instanceof Error && [
         "command_code_timeout",
+        "command_code_cancelled",
         "command_code_output_limit",
         "command_code_termination_unconfirmed",
       ].includes(error.message)
         ? error.message
         : "command_code_cli_failed";
       terminalError = safeReason;
+      break;
+    }
+    if (input.signal?.aborted) {
+      terminalError = "command_code_cancelled";
       break;
     }
     if (turn.errorEvidence) {

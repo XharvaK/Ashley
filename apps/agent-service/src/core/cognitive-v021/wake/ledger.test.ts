@@ -1,7 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import { openCognitiveSidecarDb } from "../sidecar/db.js";
-import { admitWake, beginConsequence, claimWake, finishWake, authorizeWake } from "./ledger.js";
+import { admitWake, beginConsequence, claimWake, finishWake, authorizeWake, renewWakeLeaseInTransaction } from "./ledger.js";
 
 function db(): DatabaseSync {
   return openCognitiveSidecarDb(new DatabaseSync(":memory:"), { dataPlane: { kind: "isolated" } });
@@ -62,5 +62,50 @@ describe("durable wake ledger", () => {
     const maxGen = sidecar.prepare("SELECT MAX(generation) AS maxGen FROM cycle_records WHERE conversation_id = ?").get("conv-occ") as { maxGen: number };
     expect(maxGen.maxGen).toBe(1);
     sidecar.close();
+  });
+
+  it("does not resurrect an expired wake token or extend a replacement owner", () => {
+    const sidecar = db();
+    try {
+      const admitted = admitWake(sidecar, {
+        occurrenceId: "wake-occurrence:renewal",
+        triggerRef: "turn-renewal",
+        sourceKind: "inbox",
+        conversationId: "conversation-renewal",
+        cycleId: "cycle-renewal",
+        capturedAuthorityRevision: 1,
+        nowMs: 1,
+      });
+      const original = claimWake(sidecar, admitted.wake.wakeId, "worker-old", 10, 100);
+      authorizeWake(sidecar, admitted.wake.wakeId, original.leaseToken, 11);
+
+      expect(renewWakeLeaseInTransaction(sidecar, {
+        wakeId: admitted.wake.wakeId,
+        conversationId: "conversation-renewal",
+        cycleId: "cycle-renewal",
+        workerId: "worker-old",
+        leaseToken: original.leaseToken,
+        nowMs: 110,
+        leaseMs: 100,
+      })).toBe(false);
+
+      const replacement = claimWake(sidecar, admitted.wake.wakeId, "worker-new", 110, 100);
+      const replacementState = sidecar.prepare("SELECT lease_owner, lease_token, lease_expires_at_ms FROM wakes WHERE wake_id = ?")
+        .get(admitted.wake.wakeId) as { lease_owner: string; lease_token: string; lease_expires_at_ms: number };
+      expect(renewWakeLeaseInTransaction(sidecar, {
+        wakeId: admitted.wake.wakeId,
+        conversationId: "conversation-renewal",
+        cycleId: "cycle-renewal",
+        workerId: "worker-old",
+        leaseToken: original.leaseToken,
+        nowMs: 111,
+        leaseMs: 100,
+      })).toBe(false);
+      expect(sidecar.prepare("SELECT lease_owner, lease_token, lease_expires_at_ms FROM wakes WHERE wake_id = ?")
+        .get(admitted.wake.wakeId)).toEqual(replacementState);
+      expect(replacementState).toMatchObject({ lease_owner: "worker-new", lease_token: replacement.leaseToken });
+    } finally {
+      sidecar.close();
+    }
   });
 });
