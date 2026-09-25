@@ -19,6 +19,41 @@ import { admitTestCycle, makeThoughtDraft } from "../test-support.js";
 import type { PublishedCognitiveSettlement } from "../types.js";
 
 describe("v0.2.1 forget matrix", () => {
+  it("redacts matching effect diagnostic content while keeping its causal id", () => {
+    const db = openTestSidecar();
+    try {
+      db.prepare(
+        `INSERT INTO effect_diagnostics
+           (diagnostic_id, effect_id, conversation_id, cycle_id, generation, audience_scope_json,
+            data_classification, secret_omitted, diagnostic_json, at_ms)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(
+        "diagnostic-forget-1",
+        "effect-forget-1",
+        "conversation-forget-1",
+        "cycle-forget-1",
+        1,
+        JSON.stringify({ kind: "owner_private" }),
+        "never_public",
+        1,
+        JSON.stringify({ delegation: { focus: "forgetdiagnostic marker" } }),
+        1,
+      );
+
+      const result = applyV021Forget(db, { topic: "forgetdiagnostic", nowMs: 2 });
+
+      expect(result.targets).toContainEqual(expect.objectContaining({
+        entityType: "v021_effect_diagnostic",
+        entityUuid: "diagnostic-forget-1",
+        action: "redact",
+      }));
+      expect(db.prepare("SELECT diagnostic_id, diagnostic_json FROM effect_diagnostics WHERE diagnostic_id = ?")
+        .get("diagnostic-forget-1")).toEqual({ diagnostic_id: "diagnostic-forget-1", diagnostic_json: "{\"redacted\":true}" });
+    } finally {
+      db.close();
+    }
+  });
+
   it("removes forgotten sidecar rows from the registered FTS store at commit", () => {
     const sidecar = openTestSidecar();
     const derived = openDerivedStore(":memory:");

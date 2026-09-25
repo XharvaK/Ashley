@@ -27,7 +27,7 @@ export type { SourceSupportRef } from "./evidence/interpretation-envelope.js";
 export const ARCHITECTURE_EPOCH = "v0.2.1" as const;
 export const IMPLEMENTATION_SPEC_VERSION = "0.2.1.r6" as const;
 export const THOUGHT_CONTRACT_VERSION = 2 as const;
-export const COGNITIVE_SIDECAR_SCHEMA_VERSION = 27 as const;
+export const COGNITIVE_SIDECAR_SCHEMA_VERSION = 28 as const;
 
 /**
  * Hard bound on cognition-facing concern discovery windows and pages. The
@@ -1653,6 +1653,7 @@ export type V021ForgetEntityType =
   | "v021_subscription"
   | "v021_observation"
   | "v021_effect_receipt"
+  | "v021_effect_diagnostic"
   | "v021_nomination"
   | "v021_memory_assertion"
   | "v021_memory_support"

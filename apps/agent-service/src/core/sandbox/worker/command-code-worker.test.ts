@@ -189,6 +189,37 @@ describe("command-code-worker", () => {
     });
   });
 
+  it("bounds malformed-output diagnostics and records structure without values", async () => {
+    const credential = `sk-${"v".repeat(24)}`;
+    const malformed = JSON.stringify({
+      type: "unknown_message",
+      api_key: credential,
+      ...Object.fromEntries(Array.from({ length: 40 }, (_, index) => [`field_${index}`, `private-value-${index}`])),
+    });
+    const transport: CommandCodeWorkerTransport = {
+      complete: vi.fn(async () => ({ text: malformed, status: 0 })),
+    };
+
+    const result = await executeCommandCodeWorker(workerInput(transport));
+
+    expect(result.license.error).toBe("malformed_worker_output");
+    expect(result).toMatchObject({
+      diagnostics: {
+        malformedWorkerOutput: {
+          decoderVersion: "ashley.command_code.worker_message.v1",
+          failedPredicate: "supported_message_type",
+          envelopeShape: expect.stringContaining("object"),
+          byteCount: Buffer.byteLength(malformed, "utf8"),
+          excerpt: expect.any(String),
+        },
+      },
+    });
+    const diagnostic = JSON.stringify(result.diagnostics);
+    expect(result.diagnostics?.malformedWorkerOutput?.excerpt?.length).toBeLessThanOrEqual(256);
+    expect(diagnostic).not.toContain(credential);
+    expect(diagnostic).not.toContain("private-value-");
+  });
+
   it("preserves the requested maxSteps bound", async () => {
     const transport: CommandCodeWorkerTransport = {
       complete: vi.fn(async () => ({

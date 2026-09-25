@@ -20,6 +20,7 @@ import { registerActiveEffectExecution } from "../cycle/active.js";
 import { getCycle } from "../cycle/inbox.js";
 import { getWake } from "../wake/ledger.js";
 import { superviseEffectExecution } from "./effect-supervision.js";
+import { updateEffectDiagnosticSupervision } from "../effect/diagnostics.js";
 import {
   getPrivateReservation,
   getPrivateReservationForWake,
@@ -327,7 +328,10 @@ export async function runLiveCognitiveTurn(
               isCurrent: supervision.isCurrent,
               isAuthorized: supervision.isAuthorized,
               execute: supervision.execute,
-            });
+              onSummary: (summary) => {
+                updateEffectDiagnosticSupervision(input.sidecar, supervision.proposal.effectId, summary);
+              },
+              });
           } finally {
             active.unregister();
           }

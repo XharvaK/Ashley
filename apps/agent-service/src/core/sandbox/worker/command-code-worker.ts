@@ -22,8 +22,10 @@ import {
   type ToolBridgeDispatchers,
   type WorkerToolCall,
   type WorkerToolProfile,
+  type WorkerToolRequestDiagnostic,
 } from "./tool-bridge.js";
 import { COMMAND_CODE_POLICY } from "../../command-code/policy.js";
+import { CREDENTIAL_OMITTED_PLACEHOLDER, detectCredentialShape } from "../../privacy/secrets.js";
 import {
   formatWorkspaceToolContractPrompt,
   WORKSPACE_TOOL_OPERATIONS,
@@ -64,7 +66,31 @@ export type ModeBWorkerResult = {
   commandCodeInvocations: CommandCodeWorkerInvocationEvidence[];
   summary: string | null;
   payload: Record<string, unknown>;
+  diagnostics?: CommandCodeWorkerDiagnostics;
 };
+
+export type CommandCodeWorkerDiagnostics = Readonly<{
+  validationStage: "pre_spawn" | "bridge" | "runner";
+  deadlineAtMs: number | null;
+  maxStepsRequested: number | null;
+  maxStepsUsed: number;
+  terminationClass: OperationalTerminationClass;
+  toolRequests: readonly (WorkerToolRequestDiagnostic & {
+    historyResult: Readonly<{
+      projectionVersion: "command-code-worker-history.v1";
+      includedIds: readonly string[];
+      omissionMarkers: readonly ["observation_payload_not_persisted", "full_next_turn_prompt_not_stored"];
+    }>;
+  })[];
+  malformedWorkerOutput?: Readonly<{
+    decoderVersion: "ashley.command_code.worker_message.v1";
+    failedPredicate: string;
+    envelopeShape: string;
+    byteCount: number;
+    excerpt?: string;
+    excerptOmitted?: "policy";
+  }>;
+}>;
 
 export type CommandCodeWorkerInvocationEvidence = Readonly<{
   invocationId: string;
@@ -674,17 +700,67 @@ function extractJsonObject(text: string): Record<string, unknown> | null {
 function parseWorkerMessage(text: string):
   | { type: "tool_request"; call: WorkerToolCall }
   | { type: "complete"; summary: string }
-  | { type: "malformed" } {
+  | { type: "malformed"; failedPredicate: string; envelopeShape: string } {
   const parsed = extractJsonObject(text);
-  if (!parsed) return { type: "malformed" };
+  if (!parsed) return { type: "malformed", failedPredicate: "json_object_required", envelopeShape: malformedEnvelopeShape(text) };
   if (parsed.type === "complete") {
     return { type: "complete", summary: typeof parsed.summary === "string" ? parsed.summary : "" };
   }
   if (parsed.type === "tool_request") {
-    if (typeof parsed.operation !== "string" || !isRecord(parsed.request)) return { type: "malformed" };
+    if (typeof parsed.operation !== "string" || !isRecord(parsed.request)) {
+      return { type: "malformed", failedPredicate: "tool_request_shape", envelopeShape: envelopeShape(parsed) };
+    }
     return { type: "tool_request", call: { operation: parsed.operation, request: parsed.request } };
   }
-  return { type: "malformed" };
+  return { type: "malformed", failedPredicate: "supported_message_type", envelopeShape: envelopeShape(parsed) };
+}
+
+function safeFieldName(value: string): string {
+  return detectCredentialShape(value).hit ? CREDENTIAL_OMITTED_PLACEHOLDER : value.slice(0, 80);
+}
+
+function envelopeShape(value: Record<string, unknown>): string {
+  const keys = Object.keys(value).sort();
+  const fields = keys.slice(0, 16).map((key) => ({ field: safeFieldName(key), type: Array.isArray(value[key]) ? "array" : value[key] === null ? "null" : typeof value[key] }));
+  return JSON.stringify({ type: "object", fields, omittedFieldCount: Math.max(0, keys.length - fields.length) }).slice(0, 512);
+}
+
+function malformedEnvelopeShape(text: string): string {
+  const trimmed = text.trim();
+  const fenced = trimmed.match(/^```json\s*([\s\S]*?)```$/i);
+  const candidate = fenced ? fenced[1].trim() : trimmed;
+  try {
+    const parsed: unknown = JSON.parse(candidate) as unknown;
+    return isRecord(parsed) ? envelopeShape(parsed) : JSON.stringify({ type: Array.isArray(parsed) ? "array" : parsed === null ? "null" : typeof parsed });
+  } catch {
+    return JSON.stringify({ type: "invalid_json" });
+  }
+}
+
+function malformedOutputDiagnostic(
+  text: string,
+  malformed: Extract<ReturnType<typeof parseWorkerMessage>, { type: "malformed" }>,
+): NonNullable<CommandCodeWorkerDiagnostics["malformedWorkerOutput"]> {
+  const byteCount = Buffer.byteLength(text, "utf8");
+  const parsed = extractJsonObject(text);
+  const typeValue = parsed?.type;
+  const safeTypeValue = typeof typeValue === "string"
+    && /^[A-Za-z][A-Za-z0-9_.-]{0,79}$/.test(typeValue)
+    && !detectCredentialShape(typeValue).hit
+    ? typeValue
+    : null;
+  const excerpt = malformed.failedPredicate === "supported_message_type" && safeTypeValue
+    ? `type=${safeTypeValue}; failed predicate ${malformed.failedPredicate}`
+    : malformed.failedPredicate === "tool_request_shape"
+      ? "type=tool_request; failed predicate tool_request_shape"
+      : null;
+  return {
+    decoderVersion: "ashley.command_code.worker_message.v1",
+    failedPredicate: malformed.failedPredicate.slice(0, 120),
+    envelopeShape: malformed.envelopeShape,
+    byteCount,
+    ...(excerpt && excerpt.length <= 256 ? { excerpt } : { excerptOmitted: "policy" as const }),
+  };
 }
 
 function remainingInspectionDeadlines(
@@ -806,13 +882,20 @@ function externalError(evidence: CommandCodeErrorEvidence): string {
 }
 
 export async function executeCommandCodeWorker(input: CommandCodeWorkerInput): Promise<ModeBWorkerResult> {
-  const empty = (error: string): ModeBWorkerResult => ({
+  const requestedSteps = isRecord(input.request)
+    && typeof input.request.maxSteps === "number"
+    && Number.isSafeInteger(input.request.maxSteps)
+    ? input.request.maxSteps
+    : null;
+  const empty = (error: string): ModeBWorkerResult => {
+    const terminationClass = terminationClassFor(error, null);
+    return {
     license: {
       state: "none",
       profile: "command_code_mode_b",
       error,
       executionTruth: "no_effect_proven",
-      terminationClass: terminationClassFor(error, null),
+      terminationClass,
     },
     selectedModelId: null,
     quotaClass: null,
@@ -820,7 +903,16 @@ export async function executeCommandCodeWorker(input: CommandCodeWorkerInput): P
     commandCodeInvocations: [],
     summary: null,
     payload: { error },
-  });
+    diagnostics: {
+      validationStage: "pre_spawn",
+      deadlineAtMs: Number.isSafeInteger(input.deadlineAtMs) ? input.deadlineAtMs ?? null : null,
+      maxStepsRequested: requestedSteps,
+      maxStepsUsed: 0,
+      terminationClass,
+      toolRequests: [],
+    },
+  };
+  };
 
   if (!input.workerEnabled) return empty("worker_disabled");
   if (input.signal?.aborted) return empty("command_code_cancelled");
@@ -857,6 +949,8 @@ export async function executeCommandCodeWorker(input: CommandCodeWorkerInput): P
   let selectedModelId: string | null = null;
   let failureEvidence: (CommandCodeErrorEvidence & { externalPrerequisite: boolean; commandCodeVersion: string }) | null = null;
   let history = "";
+  const toolRequestDiagnostics: NonNullable<CommandCodeWorkerDiagnostics["toolRequests"]>[number][] = [];
+  let malformedWorkerOutput: CommandCodeWorkerDiagnostics["malformedWorkerOutput"];
   const taskProfile = profileFor(input.kind);
   const maxSteps = parsed.value.maxSteps;
 
@@ -973,6 +1067,7 @@ export async function executeCommandCodeWorker(input: CommandCodeWorkerInput): P
     const message = parseWorkerMessage(turn.text);
     if (message.type === "malformed") {
       terminalError = "malformed_worker_output";
+      malformedWorkerOutput = malformedOutputDiagnostic(turn.text, message);
       failureEvidence = {
         statusCode: null,
         errorType: "malformed_worker_output",
@@ -1003,6 +1098,14 @@ export async function executeCommandCodeWorker(input: CommandCodeWorkerInput): P
       terminalError = "host_tool_dispatch_failed";
       break;
     }
+    toolRequestDiagnostics.push({
+      ...tool.diagnostic,
+      historyResult: {
+        projectionVersion: "command-code-worker-history.v1",
+        includedIds: [],
+        omissionMarkers: ["observation_payload_not_persisted", "full_next_turn_prompt_not_stored"],
+      },
+    });
     if (!tool.ok) {
       const license: OperationalClaimLicense = {
         state: "none",
@@ -1075,6 +1178,16 @@ export async function executeCommandCodeWorker(input: CommandCodeWorkerInput): P
       commandCodeVersion: failureEvidence?.commandCodeVersion ?? commandCodeVersion,
     }
     : null;
+  const diagnostics: CommandCodeWorkerDiagnostics = {
+    validationStage: toolRequestDiagnostics.at(-1)?.validationStage
+      ?? (commandCodeInvocations.length > 0 ? "runner" : "pre_spawn"),
+    deadlineAtMs,
+    maxStepsRequested: maxSteps,
+    maxStepsUsed: commandCodeInvocations.length,
+    terminationClass: license.terminationClass ?? terminationClassFor(terminalError, summary),
+    toolRequests: toolRequestDiagnostics,
+    ...(malformedWorkerOutput ? { malformedWorkerOutput } : {}),
+  };
   return {
     license,
     selectedModelId,
@@ -1082,6 +1195,7 @@ export async function executeCommandCodeWorker(input: CommandCodeWorkerInput): P
     steps,
     commandCodeInvocations,
     summary,
+    diagnostics,
     payload: {
       operation: input.kind,
       projectId: parsed.value.projectId,

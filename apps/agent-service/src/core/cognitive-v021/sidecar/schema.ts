@@ -1248,3 +1248,21 @@ UPDATE cognitive_sidecar_meta SET schema_version = 26, projection_state = 'recon
 export const COGNITIVE_SIDECAR_SCHEMA_V27 = String.raw`
 UPDATE cognitive_sidecar_meta SET schema_version = 27, projection_state = 'reconciling' WHERE id = 1;
 `;
+
+export const COGNITIVE_SIDECAR_SCHEMA_V28 = String.raw`
+CREATE TABLE IF NOT EXISTS effect_diagnostics (
+  diagnostic_id TEXT PRIMARY KEY,
+  effect_id TEXT NOT NULL UNIQUE,
+  conversation_id TEXT NOT NULL,
+  cycle_id TEXT NOT NULL,
+  generation INTEGER NOT NULL,
+  audience_scope_json TEXT,
+  data_classification TEXT NOT NULL CHECK(data_classification IN ('ordinary', 'sensitive', 'never_public', 'secret')),
+  secret_omitted INTEGER NOT NULL DEFAULT 1 CHECK(secret_omitted IN (0, 1)),
+  diagnostic_json TEXT NOT NULL,
+  at_ms INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_effect_diagnostics_conversation
+  ON effect_diagnostics (conversation_id, at_ms);
+UPDATE cognitive_sidecar_meta SET schema_version = 28, projection_state = 'reconciling' WHERE id = 1;
+`;

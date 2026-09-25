@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type {
   ExecuteProjectInspectionV2Input,
   ExecuteProjectInspectionV2Result,
@@ -9,8 +10,10 @@ import {
   validateWorkspaceWorkerRequest,
   workspaceWorkerFieldError,
   WORKSPACE_TOOL_OPERATIONS,
+  WORKSPACE_WORKER_REQUEST_SCHEMA_ID,
   type WorkspaceWorkerFieldError,
 } from "@composer-assistant/sandbox-v2";
+import { CREDENTIAL_OMITTED_PLACEHOLDER, detectCredentialShape } from "../../privacy/secrets.js";
 
 export const READ_TOOL_OPERATIONS = [
   "project.read_file",
@@ -40,6 +43,27 @@ export type WorkerToolCall = {
   request: Record<string, unknown>;
 };
 
+export type WorkerToolRequestDiagnostic = {
+  request: {
+    operation: string;
+    schemaVersion: string;
+    fieldShapes: readonly { field: string; type: string; lengthBytes?: number }[];
+    omittedFieldCount: number;
+    targetPath: string | null;
+    targetPathRedacted: boolean;
+    targetPathTruncated: boolean;
+    preconditionHash: string | null;
+    failedField: string | null;
+    argumentDigest: `sha256:${string}`;
+  };
+  validationStage: "bridge" | "runner";
+  executionStarted: boolean;
+  resultCode: string | null;
+  beforeSha256: string | null;
+  afterSha256: string | null;
+  verificationRef: string | null;
+};
+
 export type ToolBridgeError =
   | "forbidden_operation"
   | "profile_denied"
@@ -49,6 +73,7 @@ export type ToolBridgeError =
 
 export type ToolBridgeOk = {
   ok: true;
+  diagnostic: WorkerToolRequestDiagnostic;
   inspection?: ExecuteProjectInspectionV2Result;
   workspace?: ExecuteWorkspaceExperimentV2Result;
 };
@@ -57,6 +82,7 @@ export type ToolBridgeDenied = {
   ok: false;
   error: ToolBridgeError;
   fieldErrors: readonly WorkspaceWorkerFieldError[];
+  diagnostic: WorkerToolRequestDiagnostic;
 };
 
 export type ToolBridgeDispatchers = {
@@ -70,6 +96,136 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function stringValue(value: unknown): string | null {
   return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  if (isRecord(value)) {
+    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(",")}}`;
+  }
+  const serialized = JSON.stringify(value);
+  return serialized === undefined ? "null" : serialized;
+}
+
+function fieldType(value: unknown): string {
+  if (value === null) return "null";
+  if (Array.isArray(value)) return "array";
+  return typeof value === "object" ? "object" : typeof value;
+}
+
+function validHash(value: unknown): value is string {
+  return typeof value === "string" && /^[0-9a-f]{64}$/i.test(value);
+}
+
+function safeResultCode(value: unknown): string | null {
+  if (typeof value !== "string" || !value) return null;
+  if (!/^[a-z0-9_.-]{1,120}$/i.test(value) || detectCredentialShape(value).hit) return "result_code_omitted";
+  return value;
+}
+
+function requestDiagnostic(call: WorkerToolCall): WorkerToolRequestDiagnostic["request"] {
+  const request = isRecord(call.request) ? call.request : {};
+  const keys = Object.keys(request).sort();
+  const fieldShapes = keys.slice(0, 32).map((field) => {
+    const value = request[field];
+    return {
+      field: detectCredentialShape(field).hit ? CREDENTIAL_OMITTED_PLACEHOLDER : field.slice(0, 80),
+      type: fieldType(value),
+      ...(typeof value === "string" ? { lengthBytes: Buffer.byteLength(value, "utf8") } : {}),
+    };
+  });
+  const rawPath = ["path", "from", "to", "target"]
+    .map((key) => request[key])
+    .find((value): value is string => typeof value === "string") ?? null;
+  const pathHasCredential = rawPath !== null && detectCredentialShape(rawPath).hit;
+  const targetPathTruncated = rawPath !== null && rawPath.length > 512;
+  const targetPath = pathHasCredential
+    ? CREDENTIAL_OMITTED_PLACEHOLDER
+    : rawPath === null ? null : rawPath.slice(0, 512);
+  const preconditionHash = validHash(request.expectedSha256)
+    ? request.expectedSha256.toLowerCase()
+    : null;
+  const argumentDigest = createHash("sha256").update(canonicalJson(call), "utf8").digest("hex");
+  const operation = call.operation.slice(0, 120);
+  return {
+    operation: detectCredentialShape(operation).hit ? CREDENTIAL_OMITTED_PLACEHOLDER : operation,
+    schemaVersion: WORKSPACE_WORKER_REQUEST_SCHEMA_ID,
+    fieldShapes,
+    omittedFieldCount: Math.max(0, keys.length - fieldShapes.length),
+    targetPath,
+    targetPathRedacted: pathHasCredential,
+    targetPathTruncated,
+    preconditionHash,
+    failedField: null,
+    argumentDigest: `sha256:${argumentDigest}`,
+  };
+}
+
+function bridgeDiagnostic(
+  request: WorkerToolRequestDiagnostic["request"],
+  error: ToolBridgeError,
+  fieldErrors: readonly WorkspaceWorkerFieldError[],
+): WorkerToolRequestDiagnostic {
+  const first = fieldErrors[0];
+  const fieldPath = typeof first?.fieldPath === "string" ? first.fieldPath : null;
+  const failedFieldRaw = fieldPath?.split(".").filter(Boolean).at(-1)?.replace(/\]$/, "") ?? null;
+  return {
+    request: {
+      ...request,
+      failedField: failedFieldRaw && !detectCredentialShape(failedFieldRaw).hit
+        ? failedFieldRaw.slice(0, 80)
+        : failedFieldRaw ? CREDENTIAL_OMITTED_PLACEHOLDER : null,
+    },
+    validationStage: "bridge",
+    executionStarted: false,
+    resultCode: safeResultCode(first?.preconditionCode ?? error),
+    beforeSha256: null,
+    afterSha256: validHash(first?.afterSha256) ? first.afterSha256.toLowerCase() : null,
+    verificationRef: null,
+  };
+}
+
+function runnerDiagnostic(
+  request: WorkerToolRequestDiagnostic["request"],
+  license: {
+    state: string;
+    error?: string | null;
+    fieldErrors?: readonly { fieldPath?: string; expectedSchemaId?: string; preconditionCode?: string; executionStarted?: boolean; afterSha256?: string }[];
+    workspaceClaimEffect?: { beforeSha256?: string; afterSha256?: string } | null;
+    receiptRef?: string | null;
+  },
+  observation?: unknown,
+  dispatchAttempted?: boolean,
+): WorkerToolRequestDiagnostic {
+  const first = license.fieldErrors?.[0];
+  const observed = isRecord(observation) ? observation : {};
+  const afterSha256 = license.workspaceClaimEffect?.afterSha256
+    ?? (validHash(first?.afterSha256) ? first.afterSha256 : null)
+    ?? (validHash(observed.afterSha256) ? observed.afterSha256 : null)
+    ?? (validHash(observed.sha256) ? observed.sha256 : null);
+  const beforeSha256 = license.workspaceClaimEffect?.beforeSha256
+    ?? request.preconditionHash;
+  return {
+    request,
+    validationStage: "runner",
+    executionStarted: first?.executionStarted
+      ?? dispatchAttempted
+      ?? (license.state === "succeeded" || license.state === "outcome_unknown"),
+    resultCode: safeResultCode(first?.preconditionCode ?? license.error ?? null),
+    beforeSha256: validHash(beforeSha256) ? beforeSha256.toLowerCase() : null,
+    afterSha256: validHash(afterSha256) ? afterSha256.toLowerCase() : null,
+    verificationRef: typeof license.receiptRef === "string"
+      ? detectCredentialShape(license.receiptRef).hit ? CREDENTIAL_OMITTED_PLACEHOLDER : license.receiptRef.slice(0, 256)
+      : null,
+  };
+}
+
+function denied(
+  request: WorkerToolRequestDiagnostic["request"],
+  error: ToolBridgeError,
+  fieldErrors: readonly WorkspaceWorkerFieldError[],
+): ToolBridgeDenied {
+  return { ok: false, error, fieldErrors, diagnostic: bridgeDiagnostic(request, error, fieldErrors) };
 }
 
 export function pathEscapesProject(path: string): boolean {
@@ -125,70 +281,47 @@ export async function executeWorkerTool(input: {
   workspaceBase: Omit<ExecuteWorkspaceExperimentV2Input, "request">;
 }): Promise<ToolBridgeOk | ToolBridgeDenied> {
   const operation = input.call.operation;
+  const requestSummary = requestDiagnostic(input.call);
   if ((FORBIDDEN_TOOL_OPERATIONS as readonly string[]).includes(operation)) {
-    return {
-      ok: false,
-      error: "forbidden_operation",
-      fieldErrors: [workspaceWorkerFieldError("$.operation", "forbidden_operation")],
-    };
+    return denied(requestSummary, "forbidden_operation", [workspaceWorkerFieldError("$.operation", "forbidden_operation")]);
   }
   if (!isRecord(input.call.request)) {
-    return {
-      ok: false,
-      error: "invalid_request",
-      fieldErrors: [workspaceWorkerFieldError("$request", "object_required")],
-    };
+    return denied(requestSummary, "invalid_request", [workspaceWorkerFieldError("$request", "object_required")]);
   }
   const escape = inspectPathFields(input.call.request);
   if (escape) {
-    return {
-      ok: false,
-      error: escape,
-      fieldErrors: [workspaceWorkerFieldError("$.path", escape)],
-    };
+    return denied(requestSummary, escape, [workspaceWorkerFieldError("$.path", escape)]);
   }
 
   if (input.profile === "read") {
     if (!(READ_TOOL_OPERATIONS as readonly string[]).includes(operation)) {
-      return {
-        ok: false,
-        error: "profile_denied",
-        fieldErrors: [workspaceWorkerFieldError("$.operation", "profile_denied")],
-      };
+      return denied(requestSummary, "profile_denied", [workspaceWorkerFieldError("$.operation", "profile_denied")]);
     }
     const request = normalizeInspection(input.projectId, input.call);
     if (!request) {
-      return {
-        ok: false,
-        error: "invalid_request",
-        fieldErrors: [workspaceWorkerFieldError("$request", "invalid_request")],
-      };
+      return denied(requestSummary, "invalid_request", [workspaceWorkerFieldError("$request", "invalid_request")]);
     }
     const inspection = await input.dispatchers.executeProjectInspectionV2({
       ...input.inspectionBase,
       request,
     });
-    return { ok: true, inspection };
+    return {
+      ok: true,
+      inspection,
+      diagnostic: runnerDiagnostic(requestSummary, inspection.license, inspection.observation, inspection.dispatchAttempted),
+    };
   }
 
   if (!(CANDIDATE_TOOL_OPERATIONS as readonly string[]).includes(operation)) {
-    return {
-      ok: false,
-      error: "profile_denied",
-      fieldErrors: [workspaceWorkerFieldError("$.operation", "profile_denied")],
-    };
+    return denied(requestSummary, "profile_denied", [workspaceWorkerFieldError("$.operation", "profile_denied")]);
   }
   const validation = validateWorkspaceWorkerRequest(operation, input.call.request);
   if (!validation.ok) {
-    return { ok: false, error: "invalid_request", fieldErrors: validation.fieldErrors };
+    return denied(requestSummary, "invalid_request", validation.fieldErrors);
   }
   const workspaceId = input.workspaceId;
   if (!workspaceId) {
-    return {
-      ok: false,
-      error: "missing_workspace",
-      fieldErrors: [workspaceWorkerFieldError("$.workspaceId", "missing_workspace")],
-    };
+    return denied(requestSummary, "missing_workspace", [workspaceWorkerFieldError("$.workspaceId", "missing_workspace")]);
   }
   const workspaceRequest = {
     ...input.call.request,
@@ -200,5 +333,9 @@ export async function executeWorkerTool(input: {
     ...input.workspaceBase,
     request: workspaceRequest,
   });
-  return { ok: true, workspace };
+  return {
+    ok: true,
+    workspace,
+    diagnostic: runnerDiagnostic(requestSummary, workspace.license, workspace.observation),
+  };
 }

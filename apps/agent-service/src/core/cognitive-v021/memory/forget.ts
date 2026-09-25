@@ -19,6 +19,7 @@ export const V021_FORGET_TARGET_MATRIX = {
   observation_subscriptions: { behavior: "cancel", content: "redact" },
   observations: { behavior: "none", content: "redact" },
   effect_receipts: { behavior: "none", content: "redact" },
+  effect_diagnostics: { behavior: "none", content: "redact" },
   durable_nominations: { behavior: "retract", content: "redact" },
   sidecar_memory_assertions: { behavior: "retract", content: "redact" },
   sidecar_memory_supports: { behavior: "none", content: "redact" },
@@ -180,16 +181,21 @@ export function applyV021Forget(
       { table: "thought_steps", id: "request_id", target: "v021_thought_step" },
       { table: "observations", id: "observation_id", target: "v021_observation" },
       { table: "effect_receipts", id: "receipt_id", target: "v021_effect_receipt" },
+      { table: "effect_diagnostics", id: "diagnostic_id", target: "v021_effect_diagnostic" },
       { table: "settlements", id: "settlement_id", target: "v021_settlement" },
       { table: "inbox_events", id: "id", target: "v021_inbox_event" },
     ];
     for (const descriptor of jsonTables) {
-      const column = descriptor.table === "effect_receipts" ? "claims_json" : "payload_json";
+      const column = descriptor.table === "effect_receipts" ? "claims_json"
+        : descriptor.table === "effect_diagnostics" ? "diagnostic_json" : "payload_json";
       const rows = db.prepare(`SELECT ${descriptor.id}, ${column} FROM ${descriptor.table}`).all();
       for (const row of rows) {
         if (!isRow(row) || !hasTopic(row[column], topic)) continue;
         const id = text(row[descriptor.id]);
-        const result = db.prepare(`UPDATE ${descriptor.table} SET ${column} = ? WHERE ${descriptor.id} = ?`).run(redactJson(row[column], topic), id);
+        const replacement = descriptor.table === "effect_diagnostics"
+          ? JSON.stringify({ redacted: true })
+          : redactJson(row[column], topic);
+        const result = db.prepare(`UPDATE ${descriptor.table} SET ${column} = ? WHERE ${descriptor.id} = ?`).run(replacement, id);
         changedRows += number(result.changes);
         addTarget(targets, descriptor.target, id);
       }
@@ -374,11 +380,13 @@ export function planV021Forget(
     { table: "thought_steps", id: "request_id", target: "v021_thought_step" },
     { table: "observations", id: "observation_id", target: "v021_observation" },
     { table: "effect_receipts", id: "receipt_id", target: "v021_effect_receipt" },
+    { table: "effect_diagnostics", id: "diagnostic_id", target: "v021_effect_diagnostic" },
     { table: "settlements", id: "settlement_id", target: "v021_settlement" },
     { table: "inbox_events", id: "id", target: "v021_inbox_event" },
   ];
   for (const descriptor of jsonTables) {
-    const column = descriptor.table === "effect_receipts" ? "claims_json" : "payload_json";
+    const column = descriptor.table === "effect_receipts" ? "claims_json"
+      : descriptor.table === "effect_diagnostics" ? "diagnostic_json" : "payload_json";
     for (const row of db.prepare(`SELECT ${descriptor.id}, ${column} FROM ${descriptor.table}`).all()) {
       if (!isRow(row) || !hasTopic(row[column], topic)) continue;
       add(descriptor.target, text(row[descriptor.id]));
@@ -513,6 +521,9 @@ function applyV021ForgetTargetsInTransaction(
   }
   for (const id of targetIds(targets, "v021_effect_receipt")) {
     addChanges(db.prepare("UPDATE effect_receipts SET claims_json = ? WHERE receipt_id = ?").run(JSON.stringify({ redacted: true }), id), changed);
+  }
+  for (const id of targetIds(targets, "v021_effect_diagnostic")) {
+    addChanges(db.prepare("UPDATE effect_diagnostics SET diagnostic_json = ? WHERE diagnostic_id = ?").run(JSON.stringify({ redacted: true }), id), changed);
   }
   for (const id of targetIds(targets, "v021_settlement")) {
     addChanges(db.prepare("UPDATE settlements SET payload_json = ? WHERE settlement_id = ?").run(JSON.stringify({ redacted: true }), id), changed);

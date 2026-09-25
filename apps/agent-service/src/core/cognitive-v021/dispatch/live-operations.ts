@@ -22,6 +22,8 @@ import {
   type CommandCodeWorkerInput,
   type ModeBWorkerResult,
   DETACHED_WORKER_MAX_WALL_CLOCK_MS,
+  COMMAND_CODE_WORKER_EFFORT,
+  COMMAND_CODE_WORKER_PINNED_VERSION,
   WORKER_FINALIZATION_RESERVE_MS,
 } from "../../sandbox/worker/command-code-worker.js";
 import {
@@ -51,10 +53,15 @@ import type {
   ObservationRequest,
   QuarantineKind,
 } from "../types.js";
-import { MAX_EFFECT_ROUNDS } from "../types.js";
+import { COGNITIVE_SIDECAR_SCHEMA_VERSION, MAX_EFFECT_ROUNDS } from "../types.js";
 import type { EffectExecutionControl } from "../effect/execution-control.js";
 import type { OperationalClaimLicense } from "../../sandbox/engineering-types.js";
 import { getInFlightByEffectId, getInFlightByIdempotencyKey } from "../effect/in-flight.js";
+import { recordEffectDiagnostic } from "../effect/diagnostics.js";
+import { currentBuildIdentity, currentContractId, qualificationCheckoutIdentity } from "../../rollout/capabilities.js";
+import { CREDENTIAL_OMITTED_PLACEHOLDER, detectCredentialShape } from "../../privacy/secrets.js";
+import { WORKSPACE_WORKER_REQUEST_SCHEMA_ID } from "@composer-assistant/sandbox-v2";
+import type { SocialAudience } from "../social/types.js";
 import { cognitiveStatusOf, getConcern, quarantineKindOf } from "../concerns/lineage.js";
 import { inspectConcernCurrentness } from "../thought/source-currentness.js";
 import {
@@ -732,6 +739,78 @@ function receiptFromLicense(
   };
 }
 
+function persistModeBEffectDiagnostic(
+  proposal: EffectProposal,
+  result: ModeBWorkerResult,
+  db: DatabaseSync | undefined,
+  atMs: number,
+): string | null {
+  if (!db || !result.diagnostics) return null;
+  const cycle = db.prepare("SELECT conversation_id FROM cycle_records WHERE cycle_id = ? LIMIT 1")
+    .get(proposal.cycleId) as RecordValue | undefined;
+  const inFlight = getInFlightByEffectId(db, proposal.effectId);
+  const conversationId = stringValue(cycle?.conversation_id);
+  const audienceScope = inFlight?.audienceScope ?? null;
+  if (!conversationId || !audienceScope || inFlight?.cycleId !== proposal.cycleId) return null;
+
+  const request = requestRecord(proposal.request);
+  const focus = stringValue(request?.focus);
+  const safeFocus = focus
+    ? detectCredentialShape(focus).hit ? CREDENTIAL_OMITTED_PLACEHOLDER : focus.slice(0, 1024)
+    : null;
+  const rawBuildIdentity = currentBuildIdentity();
+  const artifactGitSha = qualificationCheckoutIdentity();
+  const releaseId = env.ashleyReleaseId.trim();
+  const diagnostics = result.diagnostics;
+  const diagnostic = {
+    release: {
+      currentBuildIdentity: detectCredentialShape(rawBuildIdentity).hit ? CREDENTIAL_OMITTED_PLACEHOLDER : rawBuildIdentity,
+      currentBuildIdentitySource: releaseId ? "ASHLEY_RELEASE_ID" : "git_fallback",
+      artifactGitSha,
+      artifactTreeSha: null,
+      releaseIdentityConflict: rawBuildIdentity !== artifactGitSha,
+      contractId: currentContractId(),
+      sidecarSchemaVersion: COGNITIVE_SIDECAR_SCHEMA_VERSION,
+      toolContractVersion: WORKSPACE_WORKER_REQUEST_SCHEMA_ID,
+    },
+    invocation: {
+      modelId: result.selectedModelId ?? result.commandCodeInvocations[0]?.configuredModelId ?? null,
+      effort: result.commandCodeInvocations[0]?.effort ?? COMMAND_CODE_WORKER_EFFORT,
+      pin: result.commandCodeInvocations[0]?.cliVersion ?? COMMAND_CODE_WORKER_PINNED_VERSION,
+      maxStepsRequested: diagnostics.maxStepsRequested,
+      maxStepsUsed: diagnostics.maxStepsUsed,
+      terminationClass: diagnostics.terminationClass,
+    },
+    delegation: {
+      projectId: request?.projectId && !detectCredentialShape(String(request.projectId)).hit
+        ? String(request.projectId).slice(0, 256)
+        : request?.projectId ? CREDENTIAL_OMITTED_PLACEHOLDER : null,
+      focus: safeFocus,
+      authorityRevision: proposal.authorityEpoch,
+      deadlineAtMs: diagnostics.deadlineAtMs,
+    },
+    toolRequests: diagnostics.toolRequests,
+    validationStage: diagnostics.validationStage,
+    execution: {
+      started: diagnostics.toolRequests.some((tool) => tool.executionStarted),
+      effectTruth: result.license.executionTruth ?? "unknown",
+    },
+    completionBindingId: proposal.effectId,
+    ...(diagnostics.malformedWorkerOutput ? { malformedWorkerOutput: diagnostics.malformedWorkerOutput } : {}),
+  };
+  return recordEffectDiagnostic(db, {
+    effectId: proposal.effectId,
+    conversationId,
+    cycleId: proposal.cycleId,
+    generation: proposal.generation,
+    audienceScope: audienceScope as SocialAudience,
+    dataClassification: "never_public",
+    secretOmitted: true,
+    diagnostic,
+    atMs,
+  }).diagnosticId;
+}
+
 function receiptContinuationClaims(input: {
   proposal: EffectProposal;
   license: OperationalClaimLicense;
@@ -1218,6 +1297,8 @@ export function createV021LiveOperationExecutors(
       let license: OperationalClaimLicense;
       let modeBResult: ModeBWorkerResult | null = null;
       let continuationSteps: readonly RecordValue[] | undefined;
+      let diagnosticRef: string | null = null;
+      let diagnosticPersistence: "not_requested" | "recorded" | "unavailable" | "failed" = "not_requested";
       try {
         if (operation === "objective.operate") {
           const request = normalizeInquiryRequest(proposal);
@@ -1340,6 +1421,23 @@ export function createV021LiveOperationExecutors(
       } catch {
         license = unavailableLicense("cognitive_effect", "effect_unavailable");
       }
+      if (operation === MODE_B_DEVELOP) {
+        if (modeBResult) {
+          try {
+            diagnosticRef = persistModeBEffectDiagnostic(
+              proposal,
+              modeBResult,
+              options.sidecar,
+              nowMs(),
+            );
+            diagnosticPersistence = diagnosticRef ? "recorded" : "unavailable";
+          } catch {
+            diagnosticPersistence = "failed";
+          }
+        } else {
+          diagnosticPersistence = "unavailable";
+        }
+      }
       const receipt = receiptFromLicense(proposal, license, nowMs, options.sidecar);
       const continuationClaims = receiptContinuationClaims({
         proposal,
@@ -1349,7 +1447,14 @@ export function createV021LiveOperationExecutors(
         db: options.sidecar,
       });
       if (!modeBResult) {
-        return { ...receipt, claims: { ...receipt.claims, ...continuationClaims } };
+        return {
+          ...receipt,
+          claims: {
+            ...receipt.claims,
+            ...continuationClaims,
+            ...(diagnosticPersistence !== "not_requested" ? { diagnosticPersistence } : {}),
+          },
+        };
       }
       return {
         ...receipt,
@@ -1359,6 +1464,8 @@ export function createV021LiveOperationExecutors(
           selectedModelId: modeBResult.selectedModelId,
           summary: modeBResult.summary,
           commandCodeInvocations: modeBResult.commandCodeInvocations,
+          ...(diagnosticPersistence !== "not_requested" ? { diagnosticPersistence } : {}),
+          ...(diagnosticRef ? { diagnosticRef } : {}),
         },
       };
     },

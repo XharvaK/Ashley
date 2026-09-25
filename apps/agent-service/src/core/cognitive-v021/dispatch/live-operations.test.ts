@@ -8,8 +8,15 @@ import type {
 } from "../../sandbox/v2-execution.js";
 import type { ExecutePatchExportV2Result } from "../../sandbox/patch-export-execution.js";
 import type { Observation, EffectProposal } from "../types.js";
+import { putInFlight } from "../effect/in-flight.js";
 import { admitTestCycle, openTestSidecar } from "../test-support.js";
 import { readPublicPresenceState } from "../public-presence.js";
+import { env } from "../../../env.js";
+import {
+  COMMAND_CODE_WORKER_PINNED_VERSION,
+  executeCommandCodeWorker,
+  type CommandCodeWorkerTransport,
+} from "../../sandbox/worker/command-code-worker.js";
 import { createV021LiveOperationExecutors } from "./live-operations.js";
 
 function projectObservation(): NonNullable<ExecuteProjectInspectionV2Result["observation"]> {
@@ -443,6 +450,132 @@ describe("v0.2.1 live Sandbox V2 operation construction", () => {
     expect(JSON.stringify(receipt)).not.toContain("private file body must not enter the receipt");
     sidecar.close();
     nuclear.close();
+  });
+
+  it("persists a content-free, audience-bound develop diagnostic for a rejected replace", async () => {
+    const nuclear = new DatabaseSync(":memory:");
+    const sidecar = openTestSidecar();
+    const cycle = admitTestCycle(sidecar, {
+      cycleId: "cycle-modeb-diagnostic",
+      conversationId: "conversation-modeb-diagnostic",
+      triggerKind: "owner_message",
+      triggerRef: "owner-modeb-diagnostic",
+      authorityEpoch: 9,
+      nowMs: 1_800_000_000_000,
+    });
+    const secretPath = `src/sk-${"q".repeat(24)}.ts`;
+    const privateBody = "FILE_BODY_DO_NOT_PERSIST_74b6";
+    const transport: CommandCodeWorkerTransport = {
+      complete: vi.fn(async () => ({
+        text: JSON.stringify({
+          type: "tool_request",
+          operation: "workspace.replace_file",
+          request: { path: secretPath, content: privateBody },
+        }),
+        status: 0,
+      })),
+    };
+    const executeModeBWorker = vi.fn((workerInput: Parameters<typeof executeCommandCodeWorker>[0]) =>
+      executeCommandCodeWorker({
+        ...workerInput,
+        apiKey: "test-command-code-key",
+        pinnedVersion: COMMAND_CODE_WORKER_PINNED_VERSION,
+        workerEnabled: true,
+        gateOk: true,
+        transport,
+      }));
+    const previousReleaseId = env.ashleyReleaseId;
+    env.ashleyReleaseId = "release-label-does-not-match-checkout";
+    try {
+      putInFlight(sidecar, {
+        effectId: "modeb-diagnostic-effect",
+        cycleId: cycle.cycleId,
+        generation: cycle.generation,
+        correlationId: "modeb-diagnostic-correlation",
+        idempotencyKey: "modeb-diagnostic-idempotency",
+        originEventId: "owner-modeb-diagnostic",
+        audienceScope: { kind: "owner_private" },
+        operationKind: "candidate.develop",
+        payload: { projectId: "project-ashley", focus: "replace one source file" },
+      });
+      const executors = createV021LiveOperationExecutors({
+        nuclear,
+        sidecar,
+        nowMs: () => 1_800_000_000_000,
+        adapters: { executeModeBWorker },
+      });
+
+      const receipt = await executors.executeEffect(effectProposal({
+        effectId: "modeb-diagnostic-effect",
+        cycleId: cycle.cycleId,
+        generation: cycle.generation,
+        idempotencyKey: "modeb-diagnostic-idempotency",
+        authorityEpoch: 9,
+        kind: "candidate.develop",
+        request: {
+          projectId: "project-ashley",
+          workspaceId: "workspace-1",
+          focus: "replace one source file",
+          maxSteps: 1,
+        },
+      }));
+
+      const row = sidecar.prepare("SELECT * FROM effect_diagnostics WHERE effect_id = ? LIMIT 1")
+        .get("modeb-diagnostic-effect") as Record<string, unknown> | undefined;
+      expect(row).toBeDefined();
+      const diagnostic = JSON.parse(String(row?.diagnostic_json)) as Record<string, any>;
+      expect(diagnostic).toMatchObject({
+        release: { releaseIdentityConflict: true },
+        invocation: {
+          modelId: expect.any(String),
+          effort: "xhigh",
+          pin: "1.64.0",
+          maxStepsRequested: 1,
+          maxStepsUsed: 1,
+          terminationClass: "RESOURCE_EXHAUSTED",
+        },
+        delegation: {
+          projectId: "project-ashley",
+          focus: "replace one source file",
+          authorityRevision: 9,
+          deadlineAtMs: expect.any(Number),
+        },
+        completionBindingId: "modeb-diagnostic-effect",
+        toolRequests: [{
+          request: {
+            operation: "workspace.replace_file",
+          schemaVersion: "ashley.workspace_worker_request.v1",
+          targetPath: "[credential omitted]",
+          targetPathRedacted: true,
+          preconditionHash: null,
+          failedField: "expectedSha256",
+          argumentDigest: expect.stringMatching(/^sha256:[0-9a-f]{64}$/),
+          },
+          validationStage: "bridge",
+          executionStarted: false,
+          resultCode: "required_field_missing",
+          historyResult: {
+            projectionVersion: "command-code-worker-history.v1",
+            includedIds: [],
+            omissionMarkers: expect.arrayContaining(["observation_payload_not_persisted"]),
+          },
+        }],
+        execution: { started: false, effectTruth: "no_effect_proven" },
+      });
+      expect(row?.conversation_id).toBe(cycle.conversationId);
+      expect(row?.audience_scope_json).toBe('{"kind":"owner_private"}');
+      expect(row?.data_classification).toBe("never_public");
+      expect(row?.secret_omitted).toBe(1);
+      expect(receipt.claims.diagnosticRef).toBe(row?.diagnostic_id);
+      expect(String(row?.diagnostic_json)).not.toContain(secretPath);
+      expect(String(row?.diagnostic_json)).not.toContain(privateBody);
+      expect(String(row?.diagnostic_json)).not.toContain("FILE_BODY");
+      expect(transport.complete).toHaveBeenCalledTimes(1);
+    } finally {
+      env.ashleyReleaseId = previousReleaseId;
+      sidecar.close();
+      nuclear.close();
+    }
   });
 
   it("routes Thought-adjudicated patch export without adding a notification effect", async () => {

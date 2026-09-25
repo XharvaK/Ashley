@@ -100,6 +100,45 @@ describe("long effect ownership supervision", () => {
     }
   });
 
+  it("reports one six-hour renewal summary instead of persisting heartbeat rows", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(BASE);
+    const fixture = setup();
+    try {
+      let finish!: (value: string) => void;
+      const execution = new Promise<string>((resolve) => { finish = resolve; });
+      const summaries: unknown[] = [];
+      const controller = new AbortController();
+      const supervised = superviseEffectExecution({
+        db: fixture.db,
+        ownership: fixture.ownership,
+        controller,
+        deadlineAtMs: BASE + 6 * 60 * 60_000 + 60_000,
+        nowMs: () => Date.now(),
+        isCurrent: () => true,
+        isAuthorized: () => true,
+        execute: () => execution,
+        onSummary: (summary) => { summaries.push(summary); },
+      });
+
+      await vi.advanceTimersByTimeAsync(6 * 60 * 60_000);
+      finish("completed");
+      await expect(supervised).resolves.toBe("completed");
+
+      expect(summaries).toHaveLength(1);
+      expect(summaries[0]).toMatchObject({
+        initialDeadlineAtMs: BASE + 6 * 60 * 60_000 + 60_000,
+        renewalCount: 720,
+        firstSuccessfulRenewalAtMs: BASE + 30_000,
+        lastSuccessfulRenewalAtMs: BASE + 6 * 60 * 60_000,
+        maxObservedGapMs: 30_000,
+        fenceOrAbortReason: null,
+      });
+    } finally {
+      fixture.db.close();
+    }
+  });
+
   it.each(["wake", "inbox", "cognition"] as const)("rolls back the whole renewal set when the %s lease expires", async (lostMember) => {
     vi.useFakeTimers();
     vi.setSystemTime(BASE);
