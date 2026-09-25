@@ -949,7 +949,7 @@ export async function executeWorkspaceExperimentV2(
         bytesRead: res.result.kind === "workspace.read_file" ? res.result.bytes : undefined,
         bytesWritten: (res.result as any).bytesWritten,
         beforeSha256: (request as any).expectedSha256,
-        afterSha256: (res.result as any).contentHash ?? (res.result as any).sha256,
+        afterSha256: (res.result as any).afterSha256 ?? (res.result as any).contentHash ?? (res.result as any).sha256,
         completedAtMs: res.executedAtMs,
       };
 
@@ -963,16 +963,19 @@ export async function executeWorkspaceExperimentV2(
         logicalRelativePath,
         sourceSnapshotId,
         contentUtf8:
-          res.result.kind === "workspace.read_file" && typeof res.result.contentBase64 === "string"
-            ? Buffer.from(res.result.contentBase64, "base64").toString("utf8")
+          res.result.kind === "workspace.read_file" && typeof res.result.contentUtf8 === "string"
+            ? res.result.contentUtf8
             : undefined,
+        encoding: res.result.kind === "workspace.read_file" ? res.result.encoding : undefined,
+        extent: res.result.kind === "workspace.read_file" ? res.result.extent : undefined,
+        completeness: res.result.kind === "workspace.read_file" ? res.result.completeness : undefined,
         entries: res.result.kind === "workspace.list_directory" ? res.result.entries : undefined,
         matches: res.result.kind === "workspace.search_text" ? res.result.matches : undefined,
         filesScanned: res.result.kind === "workspace.search_text" ? res.result.filesScanned : undefined,
         bytesWritten: (res.result as any).bytesWritten,
         bytesRead: res.result.kind === "workspace.read_file" ? res.result.bytes : undefined,
         beforeSha256: (request as any).expectedSha256,
-        afterSha256: (res.result as any).contentHash ?? (res.result as any).sha256,
+        afterSha256: (res.result as any).afterSha256 ?? (res.result as any).contentHash ?? (res.result as any).sha256,
         contentHash: (res.result as any).contentHash,
         deleted: (res.result as any).deleted,
         verifiedAbsent: (res.result as any).verifiedAbsent,

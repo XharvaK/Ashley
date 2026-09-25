@@ -440,7 +440,6 @@ export async function executeWorkspaceExperiment(
               ? {
                   path: request.path,
                   content: (request as any).content,
-                  mustNotExist: (request as any).mustNotExist === true,
                   workspaceId: acquisition.workspaceId,
                 }
               : request.operation === "workspace.replace_file"

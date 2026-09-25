@@ -142,8 +142,6 @@ export type SandboxV2WorkspaceWriteFileRequest = {
   path: string;
   /** UTF-8 content to write. */
   content: string;
-  /** If true, the target path must not exist. */
-  mustNotExist: true;
 };
 
 export type SandboxV2WorkspaceReplaceFileRequest = {
@@ -178,8 +176,8 @@ export type SandboxV2WorkspaceDeleteFileRequest = {
   projectId: string;
   workspaceId?: string;
   path: string;
-  /** Expected SHA-256 of the current file content (precondition, optional). */
-  expectedSha256?: string;
+  /** Expected lowercase SHA-256 of the current raw file bytes (precondition). */
+  expectedSha256: string;
 };
 
 export type SandboxV2WorkspaceCreateDirectoryRequest = {
@@ -311,7 +309,12 @@ export type SandboxV2OperationResult =
       path: string;
       bytes: number;
       contentBase64: string;
+      contentUtf8: string;
+      encoding: "utf8";
+      extent: { startByte: number; endByteExclusive: number; totalBytes: number };
+      completeness: "complete";
       sha256: string;
+      afterSha256: string;
       truncated: false;
     }
   | {
@@ -771,9 +774,16 @@ export function isWorkspaceReadFileResult(
     isFiniteNumber(value.bytes) &&
     value.bytes >= 0 &&
     typeof value.contentBase64 === "string" &&
-    value.contentBase64.length > 0 &&
+    typeof value.contentUtf8 === "string" &&
+    value.encoding === "utf8" &&
+    isRecord(value.extent) &&
+    value.extent.startByte === 0 &&
+    value.extent.endByteExclusive === value.bytes &&
+    value.extent.totalBytes === value.bytes &&
+    value.completeness === "complete" &&
     typeof value.sha256 === "string" &&
-    value.sha256.length === 64 &&
+    /^[0-9a-f]{64}$/.test(value.sha256) &&
+    value.afterSha256 === value.sha256 &&
     value.truncated === false
   );
 }

@@ -96,6 +96,15 @@ export {
   type WorkspaceExperimentSpawnInput,
   type WorkspaceExperimentSpawnOutput,
 } from "./workspace/executor.js";
+export {
+  WORKSPACE_TOOL_OPERATIONS,
+  WORKSPACE_WORKER_REQUEST_SCHEMA,
+  WORKSPACE_RUNNER_REQUEST_VALIDATOR_SOURCE,
+  formatWorkspaceToolContractPrompt,
+  validateWorkspaceWorkerRequest,
+  type WorkspaceWorkerOperation,
+  type WorkspaceWorkerRequestValidation,
+} from "./workspace/worker-contract.js";
 
 export {
   WorkspaceManager,

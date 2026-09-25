@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { EventEmitter } from "node:events";
-import { MODE_B_INVESTIGATE } from "./contracts.js";
+import { MODE_B_DEVELOP, MODE_B_INVESTIGATE } from "./contracts.js";
 import { toSanitizedFailureEvidenceJson } from "../../cognitive-v021/operation/dispatch.js";
 import type { ExecuteProjectInspectionV2Result } from "../v2-execution.js";
 import {
@@ -151,6 +151,93 @@ describe("command-code-worker", () => {
         },
       ],
     });
+  });
+
+  it("puts the required workspace fields and write/hash semantics in the worker prompt", async () => {
+    const transport: CommandCodeWorkerTransport = {
+      complete: vi.fn(async () => ({
+        text: JSON.stringify({ type: "complete", summary: "No workspace operation was needed." }),
+        status: 0,
+      })),
+    };
+
+    await executeCommandCodeWorker({
+      ...workerInput(transport),
+      kind: MODE_B_DEVELOP,
+      workspaceId: "workspace-prompt-test",
+    });
+
+    const prompt = vi.mocked(transport.complete).mock.calls[0]?.[0].prompt ?? "";
+    expect(prompt).toContain("expectedSha256");
+    expect(prompt).toContain("raw-byte SHA-256");
+    expect(prompt).toContain("create-only");
+    expect(prompt).toContain("file_exists");
+    expect(prompt).toContain("read_file is limited to 65536 bytes and refuses non-UTF-8");
+    expect(prompt).toContain("search_text matches literal substrings within lines");
+    expect(prompt).toContain("truncated=true indicates omitted matches or traversal");
+    expect(prompt).not.toContain('"request":{...}');
+  });
+
+  it("keeps the read hash and target ahead of content truncated from worker history", async () => {
+    const content = "x".repeat(20_000);
+    const afterSha256 = "b".repeat(64);
+    const outputs = [
+      JSON.stringify({
+        type: "tool_request",
+        operation: "workspace.read_file",
+        request: { path: "src/large.ts" },
+      }),
+      JSON.stringify({ type: "complete", summary: "Read the file." }),
+    ];
+    const transport: CommandCodeWorkerTransport = {
+      complete: vi.fn(async () => ({ text: outputs.shift()!, status: 0 })),
+    };
+    const base = workerInput(transport);
+    const input = {
+      ...base,
+      kind: MODE_B_DEVELOP,
+      workspaceId: "workspace-hash-test",
+      dispatchers: {
+        ...base.dispatchers,
+        executeWorkspaceExperimentV2: vi.fn(async () => ({
+          license: {
+            state: "succeeded" as const,
+            profile: "workspace_experiment" as const,
+            executionTruth: "effect_verified" as const,
+            workspaceClaimEffect: {
+              projectId: "project-ashley",
+              workspaceId: "workspace-hash-test",
+              operation: "workspace.read_file",
+              logicalRelativePath: "src/large.ts",
+              sourceSnapshotId: "snapshot-1",
+              bytesRead: content.length,
+              afterSha256,
+              completedAtMs: 1,
+              verified: true,
+              claimEffectId: "effect-1",
+            },
+          },
+          observation: {
+            kind: "workspace_experiment_observation" as const,
+            projectId: "project-ashley",
+            workspaceId: "workspace-hash-test",
+            verified: true,
+            executedAtMs: 1,
+            operation: "workspace.read_file",
+            path: "src/large.ts",
+            contentUtf8: content,
+            afterSha256,
+          },
+        })),
+      },
+    } as Parameters<typeof executeCommandCodeWorker>[0];
+
+    await executeCommandCodeWorker(input);
+
+    const nextPrompt = vi.mocked(transport.complete).mock.calls[1]?.[0].prompt ?? "";
+    expect(nextPrompt).toContain(afterSha256);
+    expect(nextPrompt).toContain("src/large.ts");
+    expect(nextPrompt).not.toContain(content);
   });
 
   it("stops after cancellation before dispatching a late worker tool request", async () => {

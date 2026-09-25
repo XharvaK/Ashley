@@ -24,6 +24,10 @@ import {
   type WorkerToolProfile,
 } from "./tool-bridge.js";
 import { COMMAND_CODE_POLICY } from "../../command-code/policy.js";
+import {
+  formatWorkspaceToolContractPrompt,
+  WORKSPACE_TOOL_OPERATIONS,
+} from "@composer-assistant/sandbox-v2";
 
 export const COMMAND_CODE_WORKER_MODEL_ID = COMMAND_CODE_POLICY.modelId;
 export const COMMAND_CODE_WORKER_EFFORT = COMMAND_CODE_POLICY.effort;
@@ -636,16 +640,18 @@ function hostProtocolPrompt(input: {
 }): string {
   const tools = input.profile === "read"
     ? "project.read_file, project.list_directory, project.search_text"
-    : "workspace.read_file, workspace.list_directory, workspace.search_text, workspace.write_file, workspace.replace_file, workspace.edit_text, workspace.delete_file, workspace.create_directory";
+    : WORKSPACE_TOOL_OPERATIONS.join(", ");
   return [
     "You are a bounded mechanical worker. You have no authority of your own.",
     "Reply with exactly one JSON object and no other prose.",
     "Host, not the worker, executes all requested tools.",
     `Allowed tool operations: ${tools}.`,
-    "To request a tool: {\"type\":\"tool_request\",\"operation\":\"<operation>\",\"request\":{...}}",
+    "Tool request message fields: type=tool_request, operation=<allowed operation>, request=<object with exactly the listed fields>.",
     "To finish: {\"type\":\"complete\",\"summary\":\"<short mechanical summary>\"}.",
     "Paths in request must be project-relative with no leading slash and no .. segments.",
     "Do not claim that a file was read or written unless a tool result in this prompt says so.",
+    input.profile === "candidate" ? formatWorkspaceToolContractPrompt() : "",
+    input.profile === "candidate" ? "File preconditions use raw-byte SHA-256. A read result reports afterSha256, encoding, completeness, and byte extent before file content." : "",
     `projectId: ${input.request.projectId}`,
     input.request.focus ? `focus: ${input.request.focus}` : "",
     `purpose: ${input.purpose}`,
@@ -717,12 +723,20 @@ function appendToolHistory(history: string, entry: {
   license: OperationalClaimLicense;
   observation: unknown;
 }): string {
+  const observation = isRecord(entry.observation) ? entry.observation : {};
+  const effect = entry.license.workspaceClaimEffect;
   const record = {
     operation: entry.operation,
     state: entry.license.state,
     error: entry.license.error ?? null,
     executionTruth: entry.license.executionTruth ?? null,
     receiptRef: entry.license.receiptRef ?? null,
+    targetPath: effect?.logicalRelativePath ?? observation.logicalRelativePath ?? observation.path ?? null,
+    afterSha256: effect?.afterSha256 ?? observation.afterSha256 ?? null,
+    beforeSha256: effect?.beforeSha256 ?? observation.beforeSha256 ?? null,
+    encoding: observation.encoding ?? null,
+    completeness: observation.completeness ?? null,
+    extent: observation.extent ?? null,
     observation: entry.observation,
   };
   let serialized: string;

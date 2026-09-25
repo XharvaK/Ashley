@@ -5,6 +5,7 @@ import type {
   ExecuteWorkspaceExperimentV2Result,
 } from "../v2-execution.js";
 import type { CognitionInspectionRequest, CognitionWorkspaceRequest } from "../../types.js";
+import { validateWorkspaceWorkerRequest, WORKSPACE_TOOL_OPERATIONS } from "@composer-assistant/sandbox-v2";
 
 export const READ_TOOL_OPERATIONS = [
   "project.read_file",
@@ -12,16 +13,7 @@ export const READ_TOOL_OPERATIONS = [
   "project.search_text",
 ] as const;
 
-export const CANDIDATE_TOOL_OPERATIONS = [
-  "workspace.read_file",
-  "workspace.list_directory",
-  "workspace.search_text",
-  "workspace.write_file",
-  "workspace.replace_file",
-  "workspace.edit_text",
-  "workspace.delete_file",
-  "workspace.create_directory",
-] as const;
+export const CANDIDATE_TOOL_OPERATIONS = WORKSPACE_TOOL_OPERATIONS;
 
 const FORBIDDEN_TOOL_OPERATIONS = [
   "patch_export",
@@ -150,7 +142,10 @@ export async function executeWorkerTool(input: {
   if (!(CANDIDATE_TOOL_OPERATIONS as readonly string[]).includes(operation)) {
     return { ok: false, error: "profile_denied" };
   }
-  const workspaceId = input.workspaceId ?? stringValue(input.call.request.workspaceId);
+  if (!validateWorkspaceWorkerRequest(operation, input.call.request).ok) {
+    return { ok: false, error: "invalid_request" };
+  }
+  const workspaceId = input.workspaceId;
   if (!workspaceId) return { ok: false, error: "missing_workspace" };
   const workspaceRequest = {
     ...input.call.request,

@@ -40,7 +40,6 @@ function effectProposal(overrides: Partial<EffectProposal> = {}): EffectProposal
       workspaceId: "workspace-1",
       path: "src/new.ts",
       content: "export const value = 1;\n",
-      mustNotExist: true,
     },
     ...overrides,
   };

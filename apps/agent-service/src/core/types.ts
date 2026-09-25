@@ -142,6 +142,9 @@ export type WorkspaceExperimentObservation = {
   executedAtMs: number;
   logicalRelativePath?: string;
   contentUtf8?: string;
+  encoding?: "utf8";
+  extent?: { startByte: number; endByteExclusive: number; totalBytes: number };
+  completeness?: "complete";
   entries?: SandboxV2InspectionEntry[];
   matches?: SandboxV2SearchMatch[];
   filesScanned?: number;

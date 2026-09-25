@@ -1,24 +1,17 @@
 /**
  * Embedded inline runner source for Sandbox V2 M3 candidate workspace experiments.
  */
+import { WORKSPACE_RUNNER_REQUEST_VALIDATOR_SOURCE } from "./worker-contract.js";
+
 export const SANDBOX_V2_WORKSPACE_RUNNER_SOURCE = `"use strict";
 
 var fs = require("fs");
 var crypto = require("crypto");
 var net = require("net");
 
+${WORKSPACE_RUNNER_REQUEST_VALIDATOR_SOURCE}
+
 var WORKSPACE = "/workspace";
-var WORKSPACE_MAX_BYTES = 100 * 1024 * 1024;
-var REQUEST_MAX_BYTES = 128 * 1024;
-var READ_MAX_BYTES = 64 * 1024;
-var WRITE_MAX_BYTES = 64 * 1024;
-var LIST_MAX_ENTRIES = 2000;
-var SEARCH_PATTERN_MAX = 256;
-var SEARCH_MAX_MATCHES = 2000;
-var SEARCH_MAX_FILES = 2000;
-var SEARCH_MAX_FILE_BYTES = 128 * 1024;
-var SEARCH_MAX_DEPTH = 12;
-var SEARCH_MATCH_TEXT_MAX = 512;
 var NL = String.fromCharCode(10);
 var CR = String.fromCharCode(13);
 var NUL = String.fromCharCode(0);
@@ -54,7 +47,7 @@ function readStdin() {
     process.stdin.setEncoding("utf8");
     process.stdin.on("data", function (chunk) {
       data += chunk;
-      if (data.length > REQUEST_MAX_BYTES) {
+      if (Buffer.byteLength(data, "utf8") > WORKSPACE_REQUEST_MAX_BYTES) {
         process.stdin.destroy();
         fail("stdin-overflow");
       }
@@ -184,19 +177,31 @@ function readFileOp(rel) {
   }
   if (st.isSymbolicLink()) { fail("symlink_forbidden"); }
   if (!st.isFile()) { fail("not_a_file"); }
-  if (st.size > READ_MAX_BYTES) { fail("file_too_large"); }
+  if (st.size > WORKSPACE_READ_MAX_BYTES) { fail("file_too_large"); }
   var buf;
   try {
     buf = fs.readFileSync(abs);
   } catch (e) {
     fail("read_failed");
   }
+  var contentUtf8;
+  try {
+    contentUtf8 = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(buf);
+  } catch (e) {
+    fail("not_utf8");
+  }
+  var afterSha256 = crypto.createHash("sha256").update(buf).digest("hex");
   return {
     kind: "workspace.read_file",
     path: rel,
     bytes: buf.length,
     contentBase64: buf.toString("base64"),
-    sha256: crypto.createHash("sha256").update(buf).digest("hex"),
+    contentUtf8: contentUtf8,
+    encoding: "utf8",
+    extent: { startByte: 0, endByteExclusive: buf.length, totalBytes: buf.length },
+    completeness: "complete",
+    sha256: afterSha256,
+    afterSha256: afterSha256,
     truncated: false
   };
 }
@@ -221,8 +226,8 @@ function listDirOp(rel) {
   } catch (e) {
     fail("readdir_failed");
   }
-  var truncated = names.length > LIST_MAX_ENTRIES;
-  var limit = Math.min(names.length, LIST_MAX_ENTRIES);
+  var truncated = names.length > WORKSPACE_LIST_MAX_ENTRIES;
+  var limit = Math.min(names.length, WORKSPACE_LIST_MAX_ENTRIES);
   var entries = [];
   for (var i = 0; i < limit; i += 1) {
     var name = names[i];
@@ -260,8 +265,8 @@ function searchOp(rel, pattern, maxMatches) {
   var truncated = false;
   var filesScanned = 0;
   function walk(dir, relPath, depth) {
-    if (depth > SEARCH_MAX_DEPTH) { truncated = true; return; }
-    if (matches.length >= maxMatches || filesScanned >= SEARCH_MAX_FILES) {
+    if (depth > WORKSPACE_SEARCH_MAX_DEPTH) { truncated = true; return; }
+    if (matches.length >= maxMatches || filesScanned >= WORKSPACE_SEARCH_MAX_FILES) {
       truncated = true;
       return;
     }
@@ -273,7 +278,7 @@ function searchOp(rel, pattern, maxMatches) {
     }
     for (var i = 0; i < entries.length; i += 1) {
       var entry = entries[i];
-      if (matches.length >= maxMatches || filesScanned >= SEARCH_MAX_FILES) {
+      if (matches.length >= maxMatches || filesScanned >= WORKSPACE_SEARCH_MAX_FILES) {
         truncated = true;
         return;
       }
@@ -291,7 +296,7 @@ function searchOp(rel, pattern, maxMatches) {
         } catch (e) {
           continue;
         }
-        if (fst.size > SEARCH_MAX_FILE_BYTES) { continue; }
+        if (fst.size > WORKSPACE_SEARCH_MAX_FILE_BYTES) { continue; }
         var content;
         try {
           content = fs.readFileSync(abs2, "utf8");
@@ -306,7 +311,7 @@ function searchOp(rel, pattern, maxMatches) {
             line = line.slice(0, -1);
           }
           if (line.indexOf(pattern) !== -1) {
-            var text = line.length > SEARCH_MATCH_TEXT_MAX ? line.slice(0, SEARCH_MATCH_TEXT_MAX) : line;
+            var text = line.length > WORKSPACE_SEARCH_MATCH_TEXT_MAX ? line.slice(0, WORKSPACE_SEARCH_MATCH_TEXT_MAX) : line;
             matches.push({ path: childRel, line: j + 1, text: text });
           }
         }
@@ -369,7 +374,7 @@ function writeFileOp(req) {
     fail("file_exists");
   }
   var byteLen = Buffer.byteLength(req.content, "utf8");
-  if (byteLen > WRITE_MAX_BYTES) { fail("content_too_large"); }
+  if (byteLen > WORKSPACE_WRITE_MAX_BYTES) { fail("content_too_large"); }
   var curBytes = computeWorkspaceBytes();
   if (curBytes + byteLen > WORKSPACE_MAX_BYTES) { fail("workspace_limit_exceeded"); }
 
@@ -428,7 +433,7 @@ function replaceFileOp(req) {
   if (existingHash !== req.expectedSha256) { fail("hash_mismatch"); }
 
   var byteLen = Buffer.byteLength(req.content, "utf8");
-  if (byteLen > WRITE_MAX_BYTES) { fail("content_too_large"); }
+  if (byteLen > WORKSPACE_WRITE_MAX_BYTES) { fail("content_too_large"); }
   var delta = byteLen - st.size;
   if (delta > 0) {
     var curBytes = computeWorkspaceBytes();
@@ -477,14 +482,20 @@ function editTextOp(req) {
   }
   if (st.isSymbolicLink()) { fail("symlink_forbidden"); }
   if (!st.isFile()) { fail("not_a_file"); }
-  var existing;
+  var existingBuf;
   try {
-    existing = fs.readFileSync(abs, "utf8");
+    existingBuf = fs.readFileSync(abs);
   } catch (e) {
     fail("read_failed");
   }
-  var existingHash = crypto.createHash("sha256").update(existing, "utf8").digest("hex");
+  var existingHash = crypto.createHash("sha256").update(existingBuf).digest("hex");
   if (existingHash !== req.expectedSha256) { fail("hash_mismatch"); }
+  var existing;
+  try {
+    existing = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(existingBuf);
+  } catch (e) {
+    fail("not_utf8");
+  }
 
   var count = 0;
   var lastIndex = -1;
@@ -500,7 +511,7 @@ function editTextOp(req) {
   if (count === 0) { fail("no_matches"); }
   var newContent = existing.replace(req.oldText, req.newText);
   var byteLen = Buffer.byteLength(newContent, "utf8");
-  if (byteLen > WRITE_MAX_BYTES) { fail("content_too_large"); }
+  if (byteLen > WORKSPACE_WRITE_MAX_BYTES) { fail("content_too_large"); }
   var delta = byteLen - st.size;
   if (delta > 0) {
     var curBytes = computeWorkspaceBytes();
@@ -548,12 +559,10 @@ function deleteFileOp(path, expectedSha256) {
   }
   if (st.isSymbolicLink()) { fail("symlink_forbidden"); }
   if (!st.isFile()) { fail("not_a_file"); }
-  if (typeof expectedSha256 === "string" && expectedSha256.length === 64) {
-    var existingBuf;
-    try { existingBuf = fs.readFileSync(abs); } catch (e) { fail("read_failed"); }
-    var existingHash = crypto.createHash("sha256").update(existingBuf).digest("hex");
-    if (existingHash !== expectedSha256) { fail("hash_mismatch"); }
-  }
+  var existingBuf;
+  try { existingBuf = fs.readFileSync(abs); } catch (e) { fail("read_failed"); }
+  var existingHash = crypto.createHash("sha256").update(existingBuf).digest("hex");
+  if (existingHash !== expectedSha256) { fail("hash_mismatch"); }
   try {
     fs.unlinkSync(abs);
   } catch (e) {
@@ -645,54 +654,31 @@ async function main() {
     fail("bad-request");
   }
   OP = req.operation;
-  if (typeof req.probePort !== "number" || !Number.isInteger(req.probePort) || req.probePort <= 0) {
-    fail("bad-request");
+  if (!Object.prototype.hasOwnProperty.call(WORKSPACE_WORKER_REQUEST_SCHEMA, req.operation)) {
+    fail("unsupported_operation");
   }
-  if (typeof req.sentinelPath !== "string" || typeof req.fdSentinelCanonical !== "string") {
-    fail("bad-request");
-  }
+  if (!validateWorkspaceRunnerRequest(req)) { fail("bad-request"); }
 
   var result;
   if (req.operation === "workspace.read_file") {
-    if (typeof req.path !== "string") { fail("bad-request"); }
     result = readFileOp(req.path);
   } else if (req.operation === "workspace.list_directory") {
-    if (typeof req.path !== "string") { fail("bad-request"); }
     result = listDirOp(req.path);
   } else if (req.operation === "workspace.search_text") {
-    if (typeof req.pattern !== "string" || req.pattern.length < 1 || req.pattern.length > SEARCH_PATTERN_MAX) {
-      fail("bad-request");
-    }
-    if (req.path !== undefined && typeof req.path !== "string") { fail("bad-request"); }
-    var maxMatches = SEARCH_MAX_MATCHES;
+    var maxMatches = WORKSPACE_SEARCH_MAX_MATCHES;
     if (req.maxMatches !== undefined) {
-      if (!Number.isInteger(req.maxMatches) || req.maxMatches < 1 || req.maxMatches > SEARCH_MAX_MATCHES) {
-        fail("bad-request");
-      }
       maxMatches = req.maxMatches;
     }
     result = searchOp(req.path === undefined ? "." : req.path, req.pattern, maxMatches);
   } else if (req.operation === "workspace.write_file") {
-    if (typeof req.path !== "string") { fail("bad-request"); }
-    if (typeof req.content !== "string") { fail("bad-request"); }
-    if (typeof req.mustNotExist !== "boolean") { fail("bad-request"); }
     result = writeFileOp(req);
   } else if (req.operation === "workspace.replace_file") {
-    if (typeof req.path !== "string") { fail("bad-request"); }
-    if (typeof req.content !== "string") { fail("bad-request"); }
-    if (typeof req.expectedSha256 !== "string" || req.expectedSha256.length !== 64) { fail("bad-request"); }
     result = replaceFileOp(req);
   } else if (req.operation === "workspace.edit_text") {
-    if (typeof req.path !== "string") { fail("bad-request"); }
-    if (typeof req.oldText !== "string") { fail("bad-request"); }
-    if (typeof req.newText !== "string") { fail("bad-request"); }
-    if (typeof req.expectedSha256 !== "string" || req.expectedSha256.length !== 64) { fail("bad-request"); }
     result = editTextOp(req);
   } else if (req.operation === "workspace.delete_file") {
-    if (typeof req.path !== "string") { fail("bad-request"); }
     result = deleteFileOp(req.path, req.expectedSha256);
   } else if (req.operation === "workspace.create_directory") {
-    if (typeof req.path !== "string") { fail("bad-request"); }
     result = createDirectoryOp(req.path);
   } else {
     fail("unsupported_operation");

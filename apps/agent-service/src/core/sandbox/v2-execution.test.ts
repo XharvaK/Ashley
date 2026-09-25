@@ -896,7 +896,6 @@ describe("Sandbox V2 Execution Adapter & Operator Registry", () => {
           projectId: "project-ashley",
           path: "witness.txt",
           content: "witness-data",
-          mustNotExist: true,
         },
         dispatcher: mockDispatcher,
         registry: reg,
@@ -950,7 +949,6 @@ describe("Sandbox V2 Execution Adapter & Operator Registry", () => {
           projectId: "project-ashley",
           path: "witness.txt",
           content: "witness-data",
-          mustNotExist: true,
         },
         dispatcher: {
           dispatch: async (): Promise<SandboxV2Result> => {
@@ -1232,7 +1230,6 @@ describe("Sandbox V2 Execution Adapter & Operator Registry", () => {
                 projectId: "project-ashley",
                 path: "probe.txt",
                 content: "fixture",
-                mustNotExist: true,
               },
             },
             {
@@ -1290,7 +1287,6 @@ describe("Sandbox V2 Execution Adapter & Operator Registry", () => {
                 projectId: "project-ashley",
                 path: "probe.txt",
                 content: "fixture",
-                mustNotExist: true,
               },
             },
             {

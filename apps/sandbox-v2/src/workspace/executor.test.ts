@@ -114,7 +114,6 @@ describe("Stage 2 — Workspace Experiment Executor", () => {
         projectId: "composer-assistant",
         path: "witness.txt",
         content: "witness-data",
-        mustNotExist: true,
       },
       {
         registry,
@@ -175,7 +174,6 @@ describe("Stage 2 — Workspace Experiment Executor", () => {
         projectId: "composer-assistant",
         path: "witness.txt",
         content: "witness-data",
-        mustNotExist: true,
       },
       {
         registry,
@@ -240,7 +238,6 @@ describe("Stage 2 — Workspace Experiment Executor", () => {
         projectId: "composer-assistant",
         path: "witness.txt",
         content: "witness-data",
-        mustNotExist: true,
       },
       {
         registry,
@@ -273,7 +270,6 @@ describe("Stage 2 — Workspace Experiment Executor", () => {
         projectId: "composer-assistant",
         path: "oversized.txt",
         content: "x".repeat(V2_LIMITS.M3_WRITE_MAX_BYTES + 100),
-        mustNotExist: true,
       },
       {
         registry,
@@ -304,7 +300,6 @@ describe("Stage 2 — Workspace Experiment Executor", () => {
         projectId: "composer-assistant",
         path: "witness.txt",
         content: "witness-data",
-        mustNotExist: true,
       },
       {
         registry,
@@ -366,7 +361,6 @@ describe("Stage 2 — Workspace Experiment Executor", () => {
         projectId: "composer-assistant",
         path: "large.txt",
         content: "x".repeat(130 * 1024), // 130 KiB
-        mustNotExist: true,
       },
       {
         registry,
@@ -386,7 +380,7 @@ describe("Stage 2 — Workspace Experiment Executor", () => {
       const parsedReq = JSON.parse(input.requestJson);
       expect(parsedReq.operation).toBe("workspace.write_file");
       expect(parsedReq.path).toBe("witness.txt");
-      expect(parsedReq.mustNotExist).toBe(true);
+      expect(parsedReq).not.toHaveProperty("mustNotExist");
       return {
         version: 2,
         operation: "workspace.write_file",
@@ -412,7 +406,6 @@ describe("Stage 2 — Workspace Experiment Executor", () => {
         projectId: "composer-assistant",
         path: "witness.txt",
         content: "witness-data",
-        mustNotExist: true,
       },
       {
         registry,
@@ -446,7 +439,6 @@ describe("Stage 2 — Workspace Experiment Executor", () => {
         projectId: "composer-assistant",
         path: "witness.txt",
         content: "witness-data",
-        mustNotExist: true,
       },
       {
         registry,
