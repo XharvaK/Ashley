@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import path from "node:path";
-import type { OperationalClaimLicense } from "../engineering-types.js";
+import type { OperationalClaimLicense, OperationalTerminationClass } from "../engineering-types.js";
 import type {
   ExecuteProjectInspectionV2Input,
   ExecuteWorkspaceExperimentV2Input,
@@ -730,6 +730,7 @@ function appendToolHistory(history: string, entry: {
     state: entry.license.state,
     error: entry.license.error ?? null,
     executionTruth: entry.license.executionTruth ?? null,
+    fieldErrors: entry.license.fieldErrors ?? [],
     receiptRef: entry.license.receiptRef ?? null,
     targetPath: effect?.logicalRelativePath ?? observation.logicalRelativePath ?? observation.path ?? null,
     afterSha256: effect?.afterSha256 ?? observation.afterSha256 ?? null,
@@ -759,6 +760,36 @@ function appendToolHistory(history: string, entry: {
   return `${marker}${combined.slice(-(WORKER_TOOL_HISTORY_MAX_CHARS - marker.length))}`;
 }
 
+function terminationClassFor(
+  terminalError: string | null,
+  summary: string | null,
+): OperationalTerminationClass {
+  if (terminalError === null && summary !== null) return "SUCCESS";
+  if (["malformed_worker_output", "malformed_cli_output"].includes(terminalError ?? "")) return "MALFORMED_RESULT";
+  if ([
+    "worker_step_limit", "deadline_exhausted", "worker_capacity_exhausted",
+    "command_code_timeout", "command_code_output_limit",
+  ].includes(terminalError ?? "")) return "RESOURCE_EXHAUSTED";
+  if (["command_code_cancelled", "effect_ownership_lost"].includes(terminalError ?? "")) return "CANCELLED";
+  if ([
+    "forbidden_operation", "profile_denied", "worker_gate_denied", "worker_disabled",
+    "authority_stale", "capability_gate_denied", "capability_unavailable",
+  ].includes(terminalError ?? "")) return "BLOCKED";
+  return "FAILED";
+}
+
+function workerExecutionTruth(steps: readonly ModeBWorkerStep[]): NonNullable<OperationalClaimLicense["executionTruth"]> {
+  const truths = steps.map((step) => step.license.executionTruth);
+  const unknown = truths.some((truth) =>
+    truth === "effect_unknown" || truth === "effect_indeterminate" || truth === "effect_partial",
+  );
+  const verified = truths.some((truth) => truth === "effect_verified" || truth === "effect_partial");
+  if (unknown && verified) return "effect_partial";
+  if (unknown) return "effect_unknown";
+  if (verified) return "effect_verified";
+  return "no_effect_proven";
+}
+
 function externalPrerequisite(evidence: CommandCodeErrorEvidence): boolean {
   const hay = `${evidence.errorType ?? ""} ${evidence.message ?? ""}`.toLowerCase();
   return evidence.statusCode === 401
@@ -776,7 +807,13 @@ function externalError(evidence: CommandCodeErrorEvidence): string {
 
 export async function executeCommandCodeWorker(input: CommandCodeWorkerInput): Promise<ModeBWorkerResult> {
   const empty = (error: string): ModeBWorkerResult => ({
-    license: { state: "none", profile: "command_code_mode_b", error, executionTruth: "no_effect_proven" },
+    license: {
+      state: "none",
+      profile: "command_code_mode_b",
+      error,
+      executionTruth: "no_effect_proven",
+      terminationClass: terminationClassFor(error, null),
+    },
     selectedModelId: null,
     quotaClass: null,
     steps: [],
@@ -967,11 +1004,23 @@ export async function executeCommandCodeWorker(input: CommandCodeWorkerInput): P
       break;
     }
     if (!tool.ok) {
+      const license: OperationalClaimLicense = {
+        state: "none",
+        profile: "command_code_tool_bridge",
+        error: tool.error,
+        executionTruth: "no_effect_proven",
+        fieldErrors: tool.fieldErrors,
+      };
       steps.push({
         operation: message.call.operation,
-        license: { state: "none", profile: "command_code_tool_bridge", error: tool.error, executionTruth: "no_effect_proven" },
+        license,
       });
-      history += `\nstep ${step + 1} ${message.call.operation} error ${tool.error}`;
+      history = appendToolHistory(history, {
+        step: step + 1,
+        operation: message.call.operation,
+        license,
+        observation: null,
+      });
       continue;
     }
     if (tool.inspection) {
@@ -1005,9 +1054,11 @@ export async function executeCommandCodeWorker(input: CommandCodeWorkerInput): P
     state,
     profile: "command_code_mode_b",
     ...(terminalError ? { error: terminalError } : {}),
-    executionTruth: anyChild
-      ? (state === "succeeded" ? "effect_verified" : "effect_indeterminate")
-      : "no_effect_proven",
+    executionTruth: workerExecutionTruth(steps),
+    terminationClass: terminationClassFor(terminalError, summary),
+    ...(steps.some((step) => step.license.fieldErrors?.length)
+      ? { fieldErrors: steps.flatMap((step) => step.license.fieldErrors ?? []) }
+      : {}),
     ...(lastWorkspace?.license.workspaceClaimEffect
       ? { workspaceClaimEffect: lastWorkspace.license.workspaceClaimEffect }
       : {}),
@@ -1041,6 +1092,10 @@ export async function executeCommandCodeWorker(input: CommandCodeWorkerInput): P
         operation: step.operation,
         state: step.license.state,
         error: step.license.error ?? null,
+        executionTruth: step.license.executionTruth ?? null,
+        fieldErrors: step.license.fieldErrors ?? [],
+        workspaceClaimEffect: step.license.workspaceClaimEffect ?? null,
+        verificationClaimEffect: step.license.verificationClaimEffect ?? null,
         observation: step.observation ?? null,
       })),
       lastObservation: lastObservation?.observation ?? null,

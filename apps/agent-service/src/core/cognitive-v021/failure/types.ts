@@ -8,6 +8,9 @@ export type C3ExternalEffectTruth =
   | "not_attempted"
   | "no_effect_proven"
   | "effect_verified"
+  | "effect_unknown"
+  | "effect_partial"
+  /** Deprecated read-path alias for legacy persisted records. */
   | "effect_indeterminate";
 
 export type C3RawEvidenceRef = {

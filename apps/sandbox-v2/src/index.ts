@@ -99,10 +99,14 @@ export {
 export {
   WORKSPACE_TOOL_OPERATIONS,
   WORKSPACE_WORKER_REQUEST_SCHEMA,
+  WORKSPACE_WORKER_REQUEST_SCHEMA_ID,
   WORKSPACE_RUNNER_REQUEST_VALIDATOR_SOURCE,
   formatWorkspaceToolContractPrompt,
   validateWorkspaceWorkerRequest,
+  workspaceWorkerFieldError,
+  workspaceWorkerFieldPath,
   type WorkspaceWorkerOperation,
+  type WorkspaceWorkerFieldError,
   type WorkspaceWorkerRequestValidation,
 } from "./workspace/worker-contract.js";
 

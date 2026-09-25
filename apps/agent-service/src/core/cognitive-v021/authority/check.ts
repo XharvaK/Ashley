@@ -186,14 +186,22 @@ function checkSettlement(
     const effectId = effectRefMap.refToId.get(claim.effectRef)!;
     licensedEffectIds.add(effectId);
     const hostTruth = resolveHostEffectTruth(effectId, packs, activeEffects, receiptDb);
+    const receipt = receiptFor(effectId, packs, receiptDb);
+    const receiptExecutionTruth = receipt?.claims.executionTruth;
+    const successContradictsEffectTruth = claim.claimedState === "succeeded"
+      && receipt?.outcome === "succeeded"
+      && typeof receiptExecutionTruth === "string"
+      && ["effect_unknown", "effect_partial", "effect_indeterminate"].includes(receiptExecutionTruth);
     const evaluation = evaluateClaimMatrix(claim.claimedState, hostTruth);
-    if (!evaluation.ok) {
+    if (successContradictsEffectTruth) {
+      codes.push("RECEIPT_CONTRADICTS_CLAIM");
+    } else if (!evaluation.ok) {
       codes.push(evaluation.code);
     }
     // NS-I1 bidirectional terminal binding:
     // If the host receipt is terminal (succeeded | failed), that effect's effectId MUST be in effectsCompleted before PASS is possible.
-    const receipt = receiptFor(effectId, packs, receiptDb);
     if (
+      !successContradictsEffectTruth &&
       evaluation.ok &&
       receipt != null &&
       (receipt.outcome === "succeeded" || receipt.outcome === "failed") &&

@@ -8,6 +8,7 @@ import { applyWorkingContextDelta, listWorkingContext } from "./working-context.
 import { admitTestCycle, openTestSidecar } from "../test-support.js";
 import type { WorkingContextDelta } from "../types.js";
 import { parseThoughtSemanticOutput } from "../thought/parse.js";
+import { putInFlight, recordEffectReceipt } from "../effect/in-flight.js";
 
 function directive(id: string, support: unknown[], overrides: Record<string, unknown> = {}) {
   return {
@@ -65,6 +66,42 @@ function addObservation(db: ReturnType<typeof openTestSidecar>, observationId: s
         payload_json, provenance, data_classification, secret_omitted, created_at_ms)
      VALUES (?, 'cycle-envelope', 1, 0, 1, 'text', '{}', 'test', 'ordinary', 0, 11)`,
   ).run(observationId);
+}
+
+function addReceipt(
+  db: ReturnType<typeof openTestSidecar>,
+  receiptId: string,
+  conversationId = "thread-envelope",
+) {
+  const cycleId = `cycle-${receiptId}`;
+  const triggerRef = `trigger-${receiptId}`;
+  const cycle = admitTestCycle(db, {
+    cycleId,
+    conversationId,
+    triggerKind: "owner_message",
+    triggerRef,
+    occupantId: "doc",
+    authorityEpoch: 1,
+    nowMs: 10,
+  });
+  const effect = putInFlight(db, {
+    effectId: `effect-${receiptId}`,
+    cycleId,
+    generation: cycle.generation,
+    correlationId: `correlation-${receiptId}`,
+    idempotencyKey: `idempotency-${receiptId}`,
+    originEventId: triggerRef,
+  });
+  recordEffectReceipt(db, {
+    receiptId,
+    effectId: effect.effectId,
+    idempotencyKey: effect.idempotencyKey,
+    outcome: "succeeded",
+    claims: { executionTruth: "effect_verified" },
+    atMs: 11,
+    dataClassification: "never_public",
+    secretOmitted: true,
+  });
 }
 
 describe("Working Context interpretation envelope", () => {
@@ -264,7 +301,6 @@ describe("Working Context interpretation envelope", () => {
     { kind: "document_page_region", artifactId: "a1", representationId: "r1", page: 1 },
     { kind: "image_region", artifactId: "a1", representationId: "r1" },
     { kind: "structured_path", artifactId: "a1", representationId: "r1", path: "/x" },
-    { kind: "receipt_ref", receiptId: "receipt-1" },
   ])("fails closed for the unimplemented $kind support reference", (support) => {
     const db = openTestSidecar();
     try {
@@ -276,6 +312,56 @@ describe("Working Context interpretation envelope", () => {
           support,
         ]),
       }, { cycleId: "cycle-publish", generation: 1, nowMs: 20 })).toThrow("support_ref_kind_unimplemented");
+      expect(listWorkingContext(db, "thread-envelope")).toEqual([]);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("resolves a same-conversation receipt as effect evidence", () => {
+    const db = openTestSidecar();
+    try {
+      addReceipt(db, "receipt-same-conversation");
+      applyWorkingContextDelta(db, {
+        op: "upsert",
+        item: directive("wc-receipt-support", [{ kind: "receipt_ref", receiptId: "receipt-same-conversation" }], {
+          kind: "descriptive_belief",
+        }),
+      }, { cycleId: "cycle-publish", generation: 2, nowMs: 20 });
+
+      expect(listWorkingContext(db, "thread-envelope")[0]?.interpretationEnvelope).toMatchObject({
+        attribution: { principalKind: "receipt", principalId: null },
+        support: [{ kind: "receipt_ref", receiptId: "receipt-same-conversation" }],
+      });
+    } finally {
+      db.close();
+    }
+  });
+
+  it("does not let a receipt reference satisfy a directive Owner-span requirement", () => {
+    const db = openTestSidecar();
+    try {
+      addReceipt(db, "receipt-not-owner-span");
+      expect(() => applyWorkingContextDelta(db, {
+        op: "upsert",
+        item: directive("wc-receipt-only-directive", [{ kind: "receipt_ref", receiptId: "receipt-not-owner-span" }]),
+      }, { cycleId: "cycle-publish", generation: 2, nowMs: 20 })).toThrow("support_ref_principal_invalid");
+      expect(listWorkingContext(db, "thread-envelope")).toEqual([]);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("rejects a receipt outside the caller conversation", () => {
+    const db = openTestSidecar();
+    try {
+      addReceipt(db, "receipt-other-conversation", "thread-other");
+      expect(() => applyWorkingContextDelta(db, {
+        op: "upsert",
+        item: directive("wc-cross-conversation-receipt", [{ kind: "receipt_ref", receiptId: "receipt-other-conversation" }], {
+          kind: "descriptive_belief",
+        }),
+      }, { cycleId: "cycle-publish", generation: 2, nowMs: 20 })).toThrow("support_ref_unresolvable");
       expect(listWorkingContext(db, "thread-envelope")).toEqual([]);
     } finally {
       db.close();

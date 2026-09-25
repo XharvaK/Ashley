@@ -5,7 +5,12 @@ import type {
   ExecuteWorkspaceExperimentV2Result,
 } from "../v2-execution.js";
 import type { CognitionInspectionRequest, CognitionWorkspaceRequest } from "../../types.js";
-import { validateWorkspaceWorkerRequest, WORKSPACE_TOOL_OPERATIONS } from "@composer-assistant/sandbox-v2";
+import {
+  validateWorkspaceWorkerRequest,
+  workspaceWorkerFieldError,
+  WORKSPACE_TOOL_OPERATIONS,
+  type WorkspaceWorkerFieldError,
+} from "@composer-assistant/sandbox-v2";
 
 export const READ_TOOL_OPERATIONS = [
   "project.read_file",
@@ -51,6 +56,7 @@ export type ToolBridgeOk = {
 export type ToolBridgeDenied = {
   ok: false;
   error: ToolBridgeError;
+  fieldErrors: readonly WorkspaceWorkerFieldError[];
 };
 
 export type ToolBridgeDispatchers = {
@@ -120,18 +126,44 @@ export async function executeWorkerTool(input: {
 }): Promise<ToolBridgeOk | ToolBridgeDenied> {
   const operation = input.call.operation;
   if ((FORBIDDEN_TOOL_OPERATIONS as readonly string[]).includes(operation)) {
-    return { ok: false, error: "forbidden_operation" };
+    return {
+      ok: false,
+      error: "forbidden_operation",
+      fieldErrors: [workspaceWorkerFieldError("$.operation", "forbidden_operation")],
+    };
   }
-  if (!isRecord(input.call.request)) return { ok: false, error: "invalid_request" };
+  if (!isRecord(input.call.request)) {
+    return {
+      ok: false,
+      error: "invalid_request",
+      fieldErrors: [workspaceWorkerFieldError("$request", "object_required")],
+    };
+  }
   const escape = inspectPathFields(input.call.request);
-  if (escape) return { ok: false, error: escape };
+  if (escape) {
+    return {
+      ok: false,
+      error: escape,
+      fieldErrors: [workspaceWorkerFieldError("$.path", escape)],
+    };
+  }
 
   if (input.profile === "read") {
     if (!(READ_TOOL_OPERATIONS as readonly string[]).includes(operation)) {
-      return { ok: false, error: "profile_denied" };
+      return {
+        ok: false,
+        error: "profile_denied",
+        fieldErrors: [workspaceWorkerFieldError("$.operation", "profile_denied")],
+      };
     }
     const request = normalizeInspection(input.projectId, input.call);
-    if (!request) return { ok: false, error: "invalid_request" };
+    if (!request) {
+      return {
+        ok: false,
+        error: "invalid_request",
+        fieldErrors: [workspaceWorkerFieldError("$request", "invalid_request")],
+      };
+    }
     const inspection = await input.dispatchers.executeProjectInspectionV2({
       ...input.inspectionBase,
       request,
@@ -140,13 +172,24 @@ export async function executeWorkerTool(input: {
   }
 
   if (!(CANDIDATE_TOOL_OPERATIONS as readonly string[]).includes(operation)) {
-    return { ok: false, error: "profile_denied" };
+    return {
+      ok: false,
+      error: "profile_denied",
+      fieldErrors: [workspaceWorkerFieldError("$.operation", "profile_denied")],
+    };
   }
-  if (!validateWorkspaceWorkerRequest(operation, input.call.request).ok) {
-    return { ok: false, error: "invalid_request" };
+  const validation = validateWorkspaceWorkerRequest(operation, input.call.request);
+  if (!validation.ok) {
+    return { ok: false, error: "invalid_request", fieldErrors: validation.fieldErrors };
   }
   const workspaceId = input.workspaceId;
-  if (!workspaceId) return { ok: false, error: "missing_workspace" };
+  if (!workspaceId) {
+    return {
+      ok: false,
+      error: "missing_workspace",
+      fieldErrors: [workspaceWorkerFieldError("$.workspaceId", "missing_workspace")],
+    };
+  }
   const workspaceRequest = {
     ...input.call.request,
     operation,

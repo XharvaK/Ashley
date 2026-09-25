@@ -53,6 +53,8 @@ export type PhaseLifecycleEvent =
 export type M3ExecutionTruth =
   | "no_effect_proven"
   | "effect_verified"
+  | "effect_unknown"
+  | "effect_partial"
   | "effect_indeterminate";
 
 export type PhaseLifecyclePhaseSummary = {
@@ -118,6 +120,8 @@ const BRANCHES = new Set<TurnDeadlineBranchKind>([
 const EXECUTION_TRUTHS = new Set<M3ExecutionTruth>([
   "no_effect_proven",
   "effect_verified",
+  "effect_unknown",
+  "effect_partial",
   "effect_indeterminate",
 ]);
 

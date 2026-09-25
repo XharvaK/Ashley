@@ -343,7 +343,31 @@ export function getEffectReceiptByIdempotencyKey(
   return mapReceipt(db.prepare("SELECT * FROM effect_receipts WHERE idempotency_key = ?").get(idempotencyKey));
 }
 
+/** Resolve an effect receipt only inside the conversation that owns its effect. */
+export function resolveReceiptRef(
+  db: DatabaseSync,
+  receiptId: string,
+  conversationId: string,
+): EffectReceipt | null {
+  if (!receiptId.trim() || !conversationId.trim()) return null;
+  return mapReceipt(db.prepare(
+    `SELECT r.*
+       FROM effect_receipts r
+       JOIN in_flight_effects f ON f.effect_id = r.effect_id
+       JOIN cycle_records c ON c.cycle_id = f.cycle_id
+      WHERE r.receipt_id = ?
+        AND c.conversation_id = ?
+        AND r.data_classification <> 'secret'
+      LIMIT 1`,
+  ).get(receiptId, conversationId));
+}
+
 function effectStateForReceipt(receipt: EffectReceipt): InFlightRecord["status"] {
+  if (
+    receipt.claims.executionTruth === "effect_unknown" ||
+    receipt.claims.executionTruth === "effect_partial" ||
+    receipt.claims.executionTruth === "effect_indeterminate"
+  ) return "unknown";
   if (receipt.outcome === "succeeded" || receipt.outcome === "not_attempted") return "receipted";
   if (receipt.outcome === "in_progress") return "in_flight";
   if (receipt.outcome === "failed"

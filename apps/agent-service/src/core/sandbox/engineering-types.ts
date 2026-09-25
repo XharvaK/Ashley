@@ -303,6 +303,22 @@ export type OperationalClaimState =
   | "failed"
   | "outcome_unknown";
 
+export type OperationalTerminationClass =
+  | "SUCCESS"
+  | "MALFORMED_RESULT"
+  | "RESOURCE_EXHAUSTED"
+  | "CANCELLED"
+  | "BLOCKED"
+  | "FAILED";
+
+export type OperationalFieldError = Readonly<{
+  fieldPath: string;
+  expectedSchemaId: string;
+  preconditionCode: string;
+  executionStarted: boolean;
+  afterSha256?: string;
+}>;
+
 export type OperationalClaimLicense = {
   state: OperationalClaimState;
   taskId?: string | null;
@@ -315,11 +331,16 @@ export type OperationalClaimLicense = {
   patchExportClaimEffect?: PatchExportClaimEffect | null;
   receiptRef?: string | null;
   error?: string | null;
+  terminationClass?: OperationalTerminationClass | null;
+  fieldErrors?: readonly OperationalFieldError[];
   refusalReason?: string | null;
   sourceMessageEntityUuid?: string | null;
   executionTruth?:
     | "no_effect_proven"
     | "effect_verified"
+    | "effect_unknown"
+    | "effect_partial"
+    /** Deprecated read-path alias for legacy effect receipts. */
     | "effect_indeterminate"
     | null;
   lateEvidenceVerified?: boolean | null;

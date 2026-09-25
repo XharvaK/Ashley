@@ -280,6 +280,171 @@ describe("v0.2.1 live Sandbox V2 operation construction", () => {
     nuclear.close();
   });
 
+  it("preserves per-step unknown truth and verified history in an inquiry receipt", async () => {
+    const nuclear = new DatabaseSync(":memory:");
+    const executeInquiryExperimentV2 = vi.fn(async (): Promise<ExecuteInquiryExperimentV2Result> => ({
+      state: "outcome_unknown",
+      experimentId: "inquiry-partial",
+      workspaceId: "workspace-1",
+      terminalState: "active",
+      terminalized: false,
+      stepResults: [
+        {
+          index: 0,
+          kind: "candidate_workspace_experiment",
+          operation: "workspace.write_file",
+          license: {
+            state: "succeeded",
+            profile: "workspace_experiment",
+            executionTruth: "effect_verified",
+            workspaceClaimEffect: {
+              verified: true,
+              projectId: "project-ashley",
+              workspaceId: "workspace-1",
+              operation: "workspace.write_file",
+              logicalRelativePath: "src/known.ts",
+              sourceSnapshotId: "snapshot-1",
+              completedAtMs: 2,
+              beforeSha256: "a".repeat(64),
+              afterSha256: "b".repeat(64),
+            },
+          },
+          observation: null,
+        },
+        {
+          index: 1,
+          kind: "candidate_workspace_experiment",
+          operation: "workspace.replace_file",
+          license: {
+            state: "outcome_unknown",
+            profile: "workspace_experiment",
+            executionTruth: "effect_unknown",
+          },
+          observation: null,
+        },
+      ],
+    }));
+    const executors = createV021LiveOperationExecutors({ nuclear, adapters: { executeInquiryExperimentV2 } });
+
+    const receipt = await executors.executeEffect(effectProposal({
+      effectId: "inquiry-partial-effect",
+      kind: "objective.operate",
+      request: {
+        operation: "objective.operate",
+        projectId: "project-ashley",
+        experimentId: "inquiry-partial",
+        objective: "inspect two bounded workspace paths",
+        steps: [
+          { kind: "candidate_workspace_experiment", request: { operation: "workspace.write_file", path: "src/known.ts", content: "known" } },
+          { kind: "candidate_workspace_experiment", request: { operation: "workspace.replace_file", path: "src/unknown.ts", content: "unknown", expectedSha256: "c".repeat(64) } },
+        ],
+        budget: { maxSteps: 2, deadlineAtMs: Date.now() + 60_000 },
+      },
+    }));
+
+    expect(receipt).toMatchObject({
+      outcome: "outcome_unknown",
+      claims: {
+        executionTruth: "effect_partial",
+        steps: [
+          { operation: "workspace.write_file", executionTruth: "effect_verified" },
+          { operation: "workspace.replace_file", executionTruth: "effect_unknown" },
+        ],
+        knownHashes: [{ step: 1, beforeSha256: "a".repeat(64), afterSha256: "b".repeat(64) }],
+        unknownRemainder: [{ step: 2, operation: "workspace.replace_file", executionTruth: "effect_unknown" }],
+      },
+    });
+    nuclear.close();
+  });
+
+  it("keeps Mode-B receipt facts while omitting observations and file bodies", async () => {
+    const nuclear = new DatabaseSync(":memory:");
+    const sidecar = openTestSidecar();
+    const cycle = admitTestCycle(sidecar, {
+      cycleId: "cycle-modeb-receipt",
+      conversationId: "thread-modeb-receipt",
+      triggerKind: "owner_message",
+      triggerRef: "owner-modeb-receipt",
+      occupantId: "doc",
+      authorityEpoch: 9,
+      nowMs: 1,
+    });
+    sidecar.prepare(
+      "INSERT INTO thought_attempt_counters (cycle_id, generation, effect_rounds) VALUES (?, ?, ?)",
+    ).run(cycle.cycleId, cycle.generation, 2);
+    const fieldErrors = [{
+      fieldPath: "$.expectedSha256",
+      expectedSchemaId: "ashley.workspace_worker_request.v1",
+      preconditionCode: "hash_mismatch",
+      executionStarted: false,
+      afterSha256: "d".repeat(64),
+    }];
+    const executeModeBWorker = vi.fn(async () => ({
+      license: {
+        state: "succeeded",
+        profile: "command_code_mode_b",
+        executionTruth: "effect_unknown",
+        terminationClass: "SUCCESS",
+        fieldErrors,
+      },
+      selectedModelId: "meta/muse-spark-1.3-contributor",
+      quotaClass: null,
+      commandCodeInvocations: [],
+      steps: [],
+      summary: null,
+      payload: {
+        steps: [{
+          operation: "workspace.replace_file",
+          state: "none",
+          error: "invalid_request",
+          executionTruth: "effect_unknown",
+          fieldErrors,
+          workspaceClaimEffect: { beforeSha256: "c".repeat(64), afterSha256: null },
+          verificationClaimEffect: null,
+          observation: { contentUtf8: "private file body must not enter the receipt" },
+        }],
+      },
+    } as any));
+    const executors = createV021LiveOperationExecutors({
+      nuclear,
+      sidecar,
+      adapters: { executeModeBWorker },
+    });
+
+    const receipt = await executors.executeEffect(effectProposal({
+      effectId: "modeb-continuation-effect",
+      cycleId: cycle.cycleId,
+      generation: cycle.generation,
+      authorityEpoch: 9,
+      kind: "candidate.develop",
+      request: {
+        projectId: "project-ashley",
+        workspaceId: "workspace-1",
+        delegatedPurpose: "make one bounded edit",
+      },
+    }));
+
+    expect(receipt).toMatchObject({
+      outcome: "succeeded",
+      claims: {
+        terminationClass: "SUCCESS",
+        executionTruth: "effect_unknown",
+        delegatedPurpose: "make one bounded edit",
+        fieldErrors,
+        knownHashes: [{ step: 1, beforeSha256: "c".repeat(64), afterSha256: "d".repeat(64) }],
+        unknownRemainder: [{ step: 1, operation: "workspace.replace_file", executionTruth: "effect_unknown" }],
+        verificationState: "not_run",
+        remainingAuthority: { workerDelegation: "terminated", proposalAuthorityEpoch: 9 },
+        remainingEffectRounds: 2,
+        summary: null,
+        steps: [{ operation: "workspace.replace_file", executionTruth: "effect_unknown", fieldErrors }],
+      },
+    });
+    expect(JSON.stringify(receipt)).not.toContain("private file body must not enter the receipt");
+    sidecar.close();
+    nuclear.close();
+  });
+
   it("routes Thought-adjudicated patch export without adding a notification effect", async () => {
     const nuclear = new DatabaseSync(":memory:");
     const executePatchExportV2 = vi.fn(async (input: unknown): Promise<ExecutePatchExportV2Result> => {

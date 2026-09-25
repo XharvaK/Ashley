@@ -441,7 +441,16 @@ export type SandboxV2OperationResult =
 export type SandboxV2ExecutionTruth =
   | "no_effect_proven"
   | "effect_verified"
-  | "effect_indeterminate";
+  | "effect_unknown"
+  | "effect_indeterminate"; // Deprecated read-path alias for legacy effect receipts.
+
+export type SandboxV2WorkspaceFailure = Readonly<{
+  fieldPath: string;
+  expectedSchemaId: string;
+  preconditionCode: string;
+  executionStarted: boolean;
+  afterSha256?: string;
+}>;
 
 export type SandboxV2Result =
   | {
@@ -452,6 +461,8 @@ export type SandboxV2Result =
       sourceSnapshotId?: string;
       /** Present for M3 workspace execution. */
       executionTruth?: SandboxV2ExecutionTruth;
+      /** Mechanical request failure details; values and file bodies are never included. */
+      fieldErrors?: readonly SandboxV2WorkspaceFailure[];
       cancellationRequested?: boolean;
       cancellationAcknowledged?: boolean;
       /**
@@ -476,6 +487,8 @@ export type SandboxV2Result =
       error: string;
       /** Present for M3 workspace execution. */
       executionTruth?: SandboxV2ExecutionTruth;
+      /** Mechanical request failure details; values and file bodies are never included. */
+      fieldErrors?: readonly SandboxV2WorkspaceFailure[];
       /** Safe fact only: valid evidence arrived after the current-turn settlement cutoff. */
       lateEvidenceVerified?: boolean;
       cancellationRequested?: boolean;

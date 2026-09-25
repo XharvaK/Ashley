@@ -153,6 +153,235 @@ describe("command-code-worker", () => {
     });
   });
 
+  it("keeps proven no-effect tool failures when the final worker message is malformed", async () => {
+    const outputs = [
+      ...Array.from({ length: 3 }, () => JSON.stringify({
+        type: "tool_request",
+        operation: "workspace.read_file",
+        request: {},
+      })),
+      "The requested file could not be read.",
+    ];
+    const transport: CommandCodeWorkerTransport = {
+      complete: vi.fn(async () => ({ text: outputs.shift()!, status: 0 })),
+    };
+
+    const result = await executeCommandCodeWorker({
+      ...workerInput(transport),
+      kind: MODE_B_DEVELOP,
+      request: { projectId: "project-ashley", maxSteps: 5 },
+      workspaceId: "workspace-no-effect",
+    });
+
+    expect(result.license).toMatchObject({
+      state: "failed",
+      error: "malformed_worker_output",
+      terminationClass: "MALFORMED_RESULT",
+      executionTruth: "no_effect_proven",
+    });
+    expect(result.steps).toHaveLength(3);
+    expect(result.steps.map((step) => step.license.executionTruth)).toEqual([
+      "no_effect_proven", "no_effect_proven", "no_effect_proven",
+    ]);
+    expect(result.steps[0]?.license.fieldErrors?.[0]).toMatchObject({
+      fieldPath: "$.path",
+      executionStarted: false,
+    });
+  });
+
+  it("preserves the requested maxSteps bound", async () => {
+    const transport: CommandCodeWorkerTransport = {
+      complete: vi.fn(async () => ({
+        text: JSON.stringify({
+          type: "tool_request",
+          operation: "workspace.read_file",
+          request: {},
+        }),
+        status: 0,
+      })),
+    };
+
+    const result = await executeCommandCodeWorker({
+      ...workerInput(transport),
+      kind: MODE_B_DEVELOP,
+      request: { projectId: "project-ashley", maxSteps: 5 },
+      workspaceId: "workspace-max-steps",
+    });
+
+    expect(transport.complete).toHaveBeenCalledTimes(5);
+    expect(result.steps).toHaveLength(5);
+    expect(result.license).toMatchObject({
+      error: "worker_step_limit",
+      terminationClass: "RESOURCE_EXHAUSTED",
+      executionTruth: "no_effect_proven",
+    });
+  });
+
+  it("keeps unknown child effect truth after a successful worker summary", async () => {
+    const outputs = [
+      JSON.stringify({ type: "tool_request", operation: "workspace.read_file", request: { path: "README.md" } }),
+      JSON.stringify({ type: "complete", summary: "The read request was handled." }),
+    ];
+    const transport: CommandCodeWorkerTransport = {
+      complete: vi.fn(async () => ({ text: outputs.shift()!, status: 0 })),
+    };
+    const base = workerInput(transport);
+    const input = {
+      ...base,
+      kind: MODE_B_DEVELOP,
+      workspaceId: "workspace-unknown-child",
+      dispatchers: {
+        ...base.dispatchers,
+        executeWorkspaceExperimentV2: vi.fn(async () => ({
+          license: { state: "succeeded" as const, profile: "workspace_experiment" as const, executionTruth: "effect_unknown" as const },
+          observation: null,
+        })),
+      },
+    } as Parameters<typeof executeCommandCodeWorker>[0];
+
+    const result = await executeCommandCodeWorker(input);
+
+    expect(result.license).toMatchObject({
+      state: "succeeded",
+      terminationClass: "SUCCESS",
+      executionTruth: "effect_unknown",
+    });
+    expect(result.steps[0]?.license.executionTruth).toBe("effect_unknown");
+  });
+
+  it("aggregates an earlier verified step and a later unknown step as partial", async () => {
+    const outputs = [
+      JSON.stringify({ type: "tool_request", operation: "workspace.read_file", request: { path: "README.md" } }),
+      JSON.stringify({ type: "tool_request", operation: "workspace.read_file", request: { path: "package.json" } }),
+      JSON.stringify({ type: "complete", summary: "Both requests were handled." }),
+    ];
+    const transport: CommandCodeWorkerTransport = {
+      complete: vi.fn(async () => ({ text: outputs.shift()!, status: 0 })),
+    };
+    const base = workerInput(transport);
+    let call = 0;
+    const input = {
+      ...base,
+      kind: MODE_B_DEVELOP,
+      workspaceId: "workspace-partial-child",
+      dispatchers: {
+        ...base.dispatchers,
+        executeWorkspaceExperimentV2: vi.fn(async () => ({
+          license: {
+            state: "succeeded" as const,
+            profile: "workspace_experiment" as const,
+            executionTruth: (call++ === 0 ? "effect_verified" : "effect_unknown") as "effect_verified" | "effect_unknown",
+          },
+          observation: null,
+        })),
+      },
+    } as Parameters<typeof executeCommandCodeWorker>[0];
+
+    const result = await executeCommandCodeWorker(input);
+
+    expect(result.license.executionTruth).toBe("effect_partial");
+    expect(result.steps.map((step) => step.license.executionTruth)).toEqual(["effect_verified", "effect_unknown"]);
+  });
+
+  it("keeps a verified write when the worker's final message is malformed", async () => {
+    const outputs = [
+      JSON.stringify({
+        type: "tool_request",
+        operation: "workspace.write_file",
+        request: { path: "src/created.ts", content: "export const value = 1;" },
+      }),
+      "The write was successful.",
+    ];
+    const transport: CommandCodeWorkerTransport = {
+      complete: vi.fn(async () => ({ text: outputs.shift()!, status: 0 })),
+    };
+    const base = workerInput(transport);
+    const afterSha256 = "e".repeat(64);
+    const input = {
+      ...base,
+      kind: MODE_B_DEVELOP,
+      workspaceId: "workspace-malformed-final",
+      dispatchers: {
+        ...base.dispatchers,
+        executeWorkspaceExperimentV2: vi.fn(async () => ({
+          license: {
+            state: "succeeded" as const,
+            profile: "workspace_experiment" as const,
+            executionTruth: "effect_verified" as const,
+            workspaceClaimEffect: {
+              projectId: "project-ashley",
+              workspaceId: "workspace-malformed-final",
+              operation: "workspace.write_file",
+              logicalRelativePath: "src/created.ts",
+              sourceSnapshotId: "snapshot-1",
+              completedAtMs: 1,
+              beforeSha256: "f".repeat(64),
+              afterSha256,
+              verified: true,
+            },
+          },
+          observation: null,
+        })),
+      },
+    } as Parameters<typeof executeCommandCodeWorker>[0];
+
+    const result = await executeCommandCodeWorker(input);
+
+    expect(result.license).toMatchObject({
+      error: "malformed_worker_output",
+      terminationClass: "MALFORMED_RESULT",
+      executionTruth: "effect_verified",
+    });
+    expect(result.steps[0]?.license.workspaceClaimEffect?.afterSha256).toBe(afterSha256);
+  });
+
+  it("shows the prior read hash and field error in the next worker turn", async () => {
+    const outputs = [
+      JSON.stringify({ type: "tool_request", operation: "workspace.read_file", request: { path: "README.md" } }),
+      JSON.stringify({ type: "tool_request", operation: "workspace.write_file", request: { path: "README.md" } }),
+      JSON.stringify({ type: "complete", summary: "The request was rejected before a write." }),
+    ];
+    const transport: CommandCodeWorkerTransport = {
+      complete: vi.fn(async () => ({ text: outputs.shift()!, status: 0 })),
+    };
+    const base = workerInput(transport);
+    const afterSha256 = "f".repeat(64);
+    const input = {
+      ...base,
+      kind: MODE_B_DEVELOP,
+      workspaceId: "workspace-field-feedback",
+      dispatchers: {
+        ...base.dispatchers,
+        executeWorkspaceExperimentV2: vi.fn(async () => ({
+          license: {
+            state: "succeeded" as const,
+            profile: "workspace_experiment" as const,
+            executionTruth: "effect_verified" as const,
+            workspaceClaimEffect: {
+              projectId: "project-ashley",
+              workspaceId: "workspace-field-feedback",
+              operation: "workspace.read_file",
+              logicalRelativePath: "README.md",
+              sourceSnapshotId: "snapshot-1",
+              completedAtMs: 1,
+              afterSha256,
+              verified: true,
+            },
+          },
+          observation: null,
+        })),
+      },
+    } as Parameters<typeof executeCommandCodeWorker>[0];
+
+    const result = await executeCommandCodeWorker(input);
+
+    expect(result.license.terminationClass).toBe("SUCCESS");
+    const nextPrompt = vi.mocked(transport.complete).mock.calls[2]?.[0].prompt ?? "";
+    expect(nextPrompt).toContain(afterSha256);
+    expect(nextPrompt).toContain("$.content");
+    expect(nextPrompt).toContain("required_field_missing");
+  });
+
   it("puts the required workspace fields and write/hash semantics in the worker prompt", async () => {
     const transport: CommandCodeWorkerTransport = {
       complete: vi.fn(async () => ({

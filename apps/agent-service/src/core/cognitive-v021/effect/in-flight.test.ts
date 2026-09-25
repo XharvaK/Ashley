@@ -6,6 +6,7 @@ import {
   markInFlightUnknown,
   putInFlight,
   recordEffectReceipt,
+  resolveReceiptRef,
 } from "./in-flight.js";
 import { appendInboxEvent, claimInboxEvent } from "../cycle/inbox.js";
 import { mintEffectRef } from "./effect-ref.js";
@@ -82,6 +83,73 @@ describe("v0.2.1 in-flight effect pointers", () => {
     }
   });
 
+  it("resolves receipt references only for the owning conversation and non-secret rows", () => {
+    const db = openTestSidecar();
+    try {
+      const same = admitTestCycle(db, {
+        cycleId: "cycle-receipt-visible",
+        conversationId: "thread-receipt-visible",
+        triggerKind: "owner_message",
+        triggerRef: "event-receipt-visible",
+        occupantId: "doc",
+        nowMs: 1,
+      });
+      const sameEffect = putInFlight(db, {
+        effectId: "effect-receipt-visible",
+        cycleId: same.cycleId,
+        generation: same.generation,
+        correlationId: "corr-receipt-visible",
+        idempotencyKey: "idem-receipt-visible",
+        originEventId: "event-receipt-visible",
+      });
+      recordEffectReceipt(db, {
+        receiptId: "receipt-visible",
+        effectId: sameEffect.effectId,
+        idempotencyKey: sameEffect.idempotencyKey,
+        outcome: "succeeded",
+        claims: {},
+        atMs: 2,
+        dataClassification: "never_public",
+        secretOmitted: true,
+      });
+
+      const secret = admitTestCycle(db, {
+        cycleId: "cycle-receipt-secret",
+        conversationId: "thread-receipt-visible",
+        triggerKind: "owner_message",
+        triggerRef: "event-receipt-secret",
+        occupantId: "doc",
+        nowMs: 3,
+      });
+      const secretEffect = putInFlight(db, {
+        effectId: "effect-receipt-secret",
+        cycleId: secret.cycleId,
+        generation: secret.generation,
+        correlationId: "corr-receipt-secret",
+        idempotencyKey: "idem-receipt-secret",
+        originEventId: "event-receipt-secret",
+      });
+      recordEffectReceipt(db, {
+        receiptId: "receipt-secret",
+        effectId: secretEffect.effectId,
+        idempotencyKey: secretEffect.idempotencyKey,
+        outcome: "succeeded",
+        claims: {},
+        atMs: 4,
+        dataClassification: "secret",
+        secretOmitted: true,
+      });
+
+      expect(resolveReceiptRef(db, "receipt-visible", "thread-receipt-visible")?.receiptId)
+        .toBe("receipt-visible");
+      expect(resolveReceiptRef(db, "receipt-visible", "thread-other")).toBeNull();
+      expect(resolveReceiptRef(db, "receipt-secret", "thread-receipt-visible")).toBeNull();
+      expect(resolveReceiptRef(db, "receipt-missing", "thread-receipt-visible")).toBeNull();
+    } finally {
+      db.close();
+    }
+  });
+
   it("admits a second same-wake effect after the first has a conclusive receipt", () => {
     const db = openTestSidecar();
     try {
@@ -145,6 +213,7 @@ describe("v0.2.1 in-flight effect pointers", () => {
   it.each([
     ["in-flight", "in_progress", {}, "in_flight"],
     ["unknown", "outcome_unknown", {}, "unknown"],
+    ["success-with-unknown-effect", "succeeded", { executionTruth: "effect_unknown" }, "unknown"],
     ["failed-but-indeterminate", "failed", { executionTruth: "effect_indeterminate" }, "unknown"],
   ] as const)("keeps same-wake occupancy for %s receipts", (_name, outcome, claims, status) => {
     const db = openTestSidecar();

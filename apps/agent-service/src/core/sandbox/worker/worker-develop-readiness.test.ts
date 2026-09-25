@@ -177,7 +177,7 @@ describe("Mode B worker resource policy", () => {
     expect(transport.complete).toHaveBeenCalledTimes(2);
     expect(dispatchers.executeProjectInspectionV2).not.toHaveBeenCalled();
     expect(result).toMatchObject({
-      license: { state: "failed", error: "worker_step_limit", executionTruth: "effect_indeterminate" },
+      license: { state: "failed", error: "worker_step_limit", executionTruth: "no_effect_proven" },
     });
     const invocation = buildCommandCodeInvocation({
       runtime: {

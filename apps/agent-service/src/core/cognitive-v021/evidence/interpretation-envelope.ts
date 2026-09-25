@@ -1,5 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 import { getConversationEvidence } from "./conversation-log.js";
+import { resolveReceiptRef } from "../effect/in-flight.js";
 
 export type SourceSupportRegion = Readonly<{
   x: number;
@@ -425,6 +426,12 @@ function assertSupportRefs(
       case "observation_ref":
         resolved.push(assertObservationVisibleToConversation(db, ref.observationId, conversationId));
         break;
+      case "receipt_ref": {
+        const receipt = resolveReceiptRef(db, ref.receiptId, conversationId);
+        if (!receipt) throw new Error("support_ref_unresolvable");
+        resolved.push({ principalKind: "receipt", principalId: null, sourceTimeMs: receipt.atMs });
+        break;
+      }
       default:
         throw new Error("support_ref_kind_unimplemented");
     }

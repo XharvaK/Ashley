@@ -330,6 +330,36 @@ describe("v0.2.1 deterministic Authority", () => {
       expect(result).toEqual({ ok: true });
     });
 
+    it("rejects a success claim when the succeeded receipt records an unknown effect", () => {
+      const effectId = "eff-success-unknown";
+      const effectRef = mintEffectRef("cycle-1", 1, effectId);
+      const draft = makeThoughtDraft({
+        cycleId: "cycle-1",
+        generation: 1,
+        operations: { ...makeThoughtDraft().operations, effectsCompleted: [effectId] },
+        commitments: {
+          ...makeThoughtDraft().commitments,
+          operational: [{ effectRef, claimedState: "succeeded" }],
+        },
+      });
+      const result = checkAuthority("settlement", {
+        settlement: draft,
+        packs: packs({ receipt: { receiptsByEffectId: { [effectId]: {
+          receiptId: "r-unknown",
+          effectId,
+          idempotencyKey: "i-unknown",
+          outcome: "succeeded",
+          claims: { executionTruth: "effect_unknown" },
+          atMs: 1,
+          dataClassification: "ordinary",
+          secretOmitted: false,
+        } } } }),
+        authorityEpoch: 1,
+      });
+
+      expect(result).toMatchObject({ ok: false, codes: ["RECEIPT_CONTRADICTS_CLAIM"] });
+    });
+
     it("claim succeeded + receipt succeeded + effectsCompleted empty -> RECEIPT_REQUIRED", () => {
       const effectId = "eff-1";
       const effectRef = mintEffectRef("cycle-1", 1, effectId);

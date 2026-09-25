@@ -31,14 +31,64 @@ var SEARCH_EXCLUDED_DIRS = {
 };
 
 var OP = "unknown";
+var EFFECT_EXECUTION_STARTED = false;
+var CURRENT_TARGET_SHA256 = null;
 
 function emit(obj) {
   process.stdout.write(JSON.stringify(obj) + NL);
 }
 
-function fail(code) {
-  emit({ version: 2, operation: OP, ok: false, code: code });
+function fail(code, details) {
+  var failure = {
+    version: 2,
+    operation: OP,
+    ok: false,
+    code: code,
+    executionStarted: EFFECT_EXECUTION_STARTED
+  };
+  var afterSha256 = details && Object.prototype.hasOwnProperty.call(details, "afterSha256")
+    ? details.afterSha256
+    : CURRENT_TARGET_SHA256;
+  if (typeof afterSha256 === "string" && /^[0-9a-f]{64}$/.test(afterSha256)) {
+    failure.afterSha256 = afterSha256;
+  }
+  if (details && details.effectProof) failure.effectProof = details.effectProof;
+  emit(failure);
   process.exit(1);
+}
+
+function failWriteAfterCleanup(tmpAbs, targetAbs, beforeSha256, targetWasAbsent) {
+  var cleanupComplete = false;
+  try {
+    fs.unlinkSync(tmpAbs);
+    cleanupComplete = true;
+  } catch (e) {
+    cleanupComplete = !!(e && e.code === "ENOENT");
+  }
+  var afterSha256 = null;
+  var targetAbsent = false;
+  try {
+    var targetStat = fs.lstatSync(targetAbs);
+    if (targetStat.isFile() && !targetStat.isSymbolicLink()) {
+      afterSha256 = crypto.createHash("sha256").update(fs.readFileSync(targetAbs)).digest("hex");
+    }
+  } catch (e) {
+    targetAbsent = !!(e && e.code === "ENOENT");
+  }
+  var targetUnchanged = targetWasAbsent
+    ? targetAbsent
+    : typeof beforeSha256 === "string" && afterSha256 === beforeSha256;
+  fail("write_failed", {
+    afterSha256: afterSha256,
+    effectProof: {
+      cleanupComplete: cleanupComplete,
+      beforeSha256: beforeSha256,
+      afterSha256: afterSha256,
+      targetWasAbsent: targetWasAbsent,
+      targetAbsent: targetAbsent,
+      targetUnchanged: targetUnchanged
+    }
+  });
 }
 
 function readStdin() {
@@ -380,11 +430,12 @@ function writeFileOp(req) {
 
   var tmpAbs = parentAbs + "/.tmp." + Date.now() + "." + crypto.randomBytes(4).toString("hex");
   try {
+    CURRENT_TARGET_SHA256 = null;
+    EFFECT_EXECUTION_STARTED = true;
     fs.writeFileSync(tmpAbs, req.content, "utf8");
     fs.renameSync(tmpAbs, abs);
   } catch (e) {
-    try { fs.unlinkSync(tmpAbs); } catch {}
-    fail("write_failed");
+    failWriteAfterCleanup(tmpAbs, abs, null, true);
   }
   var finalSt;
   try {
@@ -430,6 +481,7 @@ function replaceFileOp(req) {
     fail("read_failed");
   }
   var existingHash = crypto.createHash("sha256").update(existingBuf).digest("hex");
+  CURRENT_TARGET_SHA256 = existingHash;
   if (existingHash !== req.expectedSha256) { fail("hash_mismatch"); }
 
   var byteLen = Buffer.byteLength(req.content, "utf8");
@@ -442,11 +494,12 @@ function replaceFileOp(req) {
 
   var tmpAbs = abs + ".tmp." + Date.now() + "." + crypto.randomBytes(4).toString("hex");
   try {
+    CURRENT_TARGET_SHA256 = null;
+    EFFECT_EXECUTION_STARTED = true;
     fs.writeFileSync(tmpAbs, req.content, "utf8");
     fs.renameSync(tmpAbs, abs);
   } catch (e) {
-    try { fs.unlinkSync(tmpAbs); } catch {}
-    fail("write_failed");
+    failWriteAfterCleanup(tmpAbs, abs, existingHash, false);
   }
   var finalSt;
   try {
@@ -489,6 +542,7 @@ function editTextOp(req) {
     fail("read_failed");
   }
   var existingHash = crypto.createHash("sha256").update(existingBuf).digest("hex");
+  CURRENT_TARGET_SHA256 = existingHash;
   if (existingHash !== req.expectedSha256) { fail("hash_mismatch"); }
   var existing;
   try {
@@ -520,11 +574,12 @@ function editTextOp(req) {
 
   var tmpAbs = abs + ".tmp." + Date.now() + "." + crypto.randomBytes(4).toString("hex");
   try {
+    CURRENT_TARGET_SHA256 = null;
+    EFFECT_EXECUTION_STARTED = true;
     fs.writeFileSync(tmpAbs, newContent, "utf8");
     fs.renameSync(tmpAbs, abs);
   } catch (e) {
-    try { fs.unlinkSync(tmpAbs); } catch {}
-    fail("write_failed");
+    failWriteAfterCleanup(tmpAbs, abs, existingHash, false);
   }
   var finalSt;
   try {
@@ -562,8 +617,11 @@ function deleteFileOp(path, expectedSha256) {
   var existingBuf;
   try { existingBuf = fs.readFileSync(abs); } catch (e) { fail("read_failed"); }
   var existingHash = crypto.createHash("sha256").update(existingBuf).digest("hex");
+  CURRENT_TARGET_SHA256 = existingHash;
   if (existingHash !== expectedSha256) { fail("hash_mismatch"); }
   try {
+    CURRENT_TARGET_SHA256 = null;
+    EFFECT_EXECUTION_STARTED = true;
     fs.unlinkSync(abs);
   } catch (e) {
     fail("delete_failed");
@@ -604,6 +662,8 @@ function createDirectoryOp(path) {
       if (!st.isDirectory()) { fail("not_a_directory"); }
     } else {
       try {
+        CURRENT_TARGET_SHA256 = null;
+        EFFECT_EXECUTION_STARTED = true;
         fs.mkdirSync(cur);
       } catch (e) {
         fail("mkdir_failed");

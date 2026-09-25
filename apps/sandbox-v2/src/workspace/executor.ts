@@ -56,8 +56,14 @@ import {
   type SandboxV2WorkspaceDeleteFileRequest,
   type SandboxV2WorkspaceCreateDirectoryRequest,
   type SandboxV2Result,
+  type SandboxV2ExecutionTruth,
+  type SandboxV2WorkspaceFailure,
 } from "../v2-types.js";
 import type { ProtectedRootsConfig } from "@composer-assistant/sandbox-policy";
+import {
+  WORKSPACE_WORKER_REQUEST_SCHEMA_ID,
+  workspaceWorkerFieldPath,
+} from "./worker-contract.js";
 
 export type WorkspaceExperimentSpawnInput = {
   /** The durable workspace tree directory mounted writable as /workspace. */
@@ -172,6 +178,79 @@ function parseSingleJson(output: string): unknown | null {
   } catch {
     return null;
   }
+}
+
+type WorkspaceRunnerFailureEvidence = Readonly<{
+  code: string;
+  executionStarted: boolean;
+  afterSha256?: string;
+  effectProof?: Readonly<{
+    cleanupComplete: boolean;
+    beforeSha256: string | null;
+    afterSha256: string | null;
+    targetWasAbsent: boolean;
+    targetAbsent: boolean;
+    targetUnchanged: boolean;
+  }>;
+}>;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function parseWorkspaceRunnerFailure(value: unknown, operation: string): WorkspaceRunnerFailureEvidence | null {
+  if (!isRecord(value) || value.version !== 2 || value.operation !== operation || value.ok !== false
+    || typeof value.code !== "string" || !/^[a-z][a-z0-9_-]{0,63}$/.test(value.code)
+    || typeof value.executionStarted !== "boolean") return null;
+  const allowed = new Set(["version", "operation", "ok", "code", "executionStarted", "afterSha256", "effectProof"]);
+  if (Object.keys(value).some((key) => !allowed.has(key))) return null;
+  let afterSha256: string | undefined;
+  if (value.afterSha256 !== undefined) {
+    if (typeof value.afterSha256 !== "string" || !/^[0-9a-f]{64}$/.test(value.afterSha256)) return null;
+    afterSha256 = value.afterSha256;
+  }
+  let effectProof: WorkspaceRunnerFailureEvidence["effectProof"];
+  if (value.effectProof !== undefined) {
+    if (!isRecord(value.effectProof)
+      || Object.keys(value.effectProof).sort().join(",") !== "afterSha256,beforeSha256,cleanupComplete,targetAbsent,targetUnchanged,targetWasAbsent"
+      || typeof value.effectProof.cleanupComplete !== "boolean"
+      || typeof value.effectProof.targetWasAbsent !== "boolean"
+      || typeof value.effectProof.targetAbsent !== "boolean"
+      || typeof value.effectProof.targetUnchanged !== "boolean"
+      || (value.effectProof.beforeSha256 !== null
+        && (typeof value.effectProof.beforeSha256 !== "string" || !/^[0-9a-f]{64}$/.test(value.effectProof.beforeSha256)))
+      || (value.effectProof.afterSha256 !== null
+        && (typeof value.effectProof.afterSha256 !== "string" || !/^[0-9a-f]{64}$/.test(value.effectProof.afterSha256)))) return null;
+    effectProof = {
+      cleanupComplete: value.effectProof.cleanupComplete,
+      beforeSha256: value.effectProof.beforeSha256 as string | null,
+      afterSha256: value.effectProof.afterSha256 as string | null,
+      targetWasAbsent: value.effectProof.targetWasAbsent,
+      targetAbsent: value.effectProof.targetAbsent,
+      targetUnchanged: value.effectProof.targetUnchanged,
+    };
+  }
+  return {
+    code: value.code,
+    executionStarted: value.executionStarted,
+    ...(afterSha256 ? { afterSha256 } : {}),
+    ...(effectProof ? { effectProof } : {}),
+  };
+}
+
+const PROVEN_PREWRITE_FAILURE_CODES = new Set([
+  "bad-request", "file_exists", "hash_mismatch", "no_matches", "ambiguous_matches",
+  "file_not_found", "not_utf8", "invalid_path", "not_found", "content_too_large",
+  "symlink_forbidden", "path_escapes_workspace", "not_a_file", "read_failed",
+  "workspace_limit_exceeded", "unsupported_operation",
+]);
+
+function provesWriteFailureHadNoEffect(evidence: WorkspaceRunnerFailureEvidence): boolean {
+  const proof = evidence.effectProof;
+  if (evidence.code !== "write_failed" || evidence.executionStarted !== true || !proof
+    || !proof.cleanupComplete || !proof.targetUnchanged) return false;
+  if (proof.targetWasAbsent) return proof.targetAbsent && proof.beforeSha256 === null && proof.afterSha256 === null;
+  return !proof.targetAbsent && proof.beforeSha256 !== null && proof.afterSha256 === proof.beforeSha256;
 }
 
 export function isV2InspectionAvailable(): boolean {
@@ -293,15 +372,33 @@ export async function executeWorkspaceExperiment(
     "workspace.search_text",
   ].includes(operation);
   let dispatched = false;
-  const currentFailureTruth = (): "no_effect_proven" | "effect_indeterminate" =>
-    dispatched && mutatingOperation ? "effect_indeterminate" : "no_effect_proven";
-  const failed = (error: string, executedAtMs = nowMs()): SandboxV2Result => ({
-    outcome: "failed",
-    operation,
-    error,
-    executionTruth: currentFailureTruth(),
-    executedAtMs,
-  });
+  const currentFailureTruth = (): SandboxV2ExecutionTruth =>
+    dispatched && mutatingOperation ? "effect_unknown" : "no_effect_proven";
+  const failed = (
+    error: string,
+    executedAtMs = nowMs(),
+    evidence: Readonly<{
+      executionTruth?: SandboxV2ExecutionTruth;
+      executionStarted?: boolean;
+      afterSha256?: string;
+    }> = {},
+  ): SandboxV2Result => {
+    const fieldError: SandboxV2WorkspaceFailure = {
+      fieldPath: workspaceWorkerFieldPath(operation, error),
+      expectedSchemaId: WORKSPACE_WORKER_REQUEST_SCHEMA_ID,
+      preconditionCode: error,
+      executionStarted: evidence.executionStarted ?? (dispatched && mutatingOperation),
+      ...(evidence.afterSha256 ? { afterSha256: evidence.afterSha256 } : {}),
+    };
+    return {
+      outcome: "failed",
+      operation,
+      error,
+      executionTruth: evidence.executionTruth ?? currentFailureTruth(),
+      fieldErrors: [fieldError],
+      executedAtMs,
+    };
+  };
   const executedAtMs = nowMs();
 
   if (
@@ -521,9 +618,20 @@ export async function executeWorkspaceExperiment(
     if (parsed === null) {
       return failed(run.exitCode === 0 ? "malformed-output" : "runner-error");
     }
-    const asRecord = parsed as Record<string, unknown>;
     if (run.exitCode !== 0) {
-      return failed(typeof asRecord.code === "string" ? asRecord.code : "runner-error");
+      const runnerFailure = parseWorkspaceRunnerFailure(parsed, operation);
+      if (!runnerFailure) return failed("runner-error");
+      const prewriteProven = PROVEN_PREWRITE_FAILURE_CODES.has(runnerFailure.code)
+        && runnerFailure.executionStarted === false;
+      const writeFailureProven = provesWriteFailureHadNoEffect(runnerFailure);
+      const executionTruth: SandboxV2ExecutionTruth = !mutatingOperation || prewriteProven || writeFailureProven
+        ? "no_effect_proven"
+        : "effect_unknown";
+      return failed(runnerFailure.code, nowMs(), {
+        executionTruth,
+        executionStarted: runnerFailure.executionStarted,
+        ...(runnerFailure.afterSha256 ? { afterSha256: runnerFailure.afterSha256 } : {}),
+      });
     }
     if (!isWorkspaceRunnerEvidence(parsed, operation)) {
       return failed("invalid-result");

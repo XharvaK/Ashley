@@ -29,7 +29,16 @@ describe("worker tool bridge workspace schema", () => {
 
     const result = await executeWorkerTool(request);
 
-    expect(result).toEqual({ ok: false, error: "invalid_request" });
+    expect(result).toMatchObject({
+      ok: false,
+      error: "invalid_request",
+      fieldErrors: [{
+        fieldPath: "$.mustNotExist",
+        expectedSchemaId: "ashley.workspace_worker_request.v1",
+        preconditionCode: "unexpected_field",
+        executionStarted: false,
+      }],
+    });
     expect(request.dispatchers.executeWorkspaceExperimentV2).not.toHaveBeenCalled();
   });
 
@@ -41,7 +50,16 @@ describe("worker tool bridge workspace schema", () => {
 
     const result = await executeWorkerTool(request);
 
-    expect(result).toEqual({ ok: false, error: "invalid_request" });
+    expect(result).toMatchObject({
+      ok: false,
+      error: "invalid_request",
+      fieldErrors: [{
+        fieldPath: "$.expectedSha256",
+        expectedSchemaId: "ashley.workspace_worker_request.v1",
+        preconditionCode: "required_field_missing",
+        executionStarted: false,
+      }],
+    });
     expect(request.dispatchers.executeWorkspaceExperimentV2).not.toHaveBeenCalled();
   });
 
@@ -53,7 +71,16 @@ describe("worker tool bridge workspace schema", () => {
 
     const result = await executeWorkerTool(request);
 
-    expect(result).toEqual({ ok: false, error: "forbidden_operation" });
+    expect(result).toEqual({
+      ok: false,
+      error: "forbidden_operation",
+      fieldErrors: [{
+        fieldPath: "$.operation",
+        expectedSchemaId: "ashley.workspace_worker_request.v1",
+        preconditionCode: "forbidden_operation",
+        executionStarted: false,
+      }],
+    });
     expect(request.dispatchers.executeWorkspaceExperimentV2).not.toHaveBeenCalled();
   });
 });

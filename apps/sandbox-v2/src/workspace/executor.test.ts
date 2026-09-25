@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
@@ -45,6 +45,20 @@ function makeRunner(evidence: (input: WorkspaceExperimentSpawnInput) => unknown)
     return {
       exitCode: 0,
       stdout,
+      stderr: "",
+      timedOut: false,
+      stdoutOverflow: false,
+      stderrOverflow: false,
+    };
+  };
+}
+
+function makeRunnerFailure(code: string) {
+  return async (input: WorkspaceExperimentSpawnInput) => {
+    const request = JSON.parse(input.requestJson) as { operation: string };
+    return {
+      exitCode: 1,
+      stdout: JSON.stringify({ version: 2, operation: request.operation, ok: false, code, executionStarted: false }),
       stderr: "",
       timedOut: false,
       stdoutOverflow: false,
@@ -162,7 +176,7 @@ describe("Stage 2 — Workspace Experiment Executor", () => {
     expect(1_700 - nowMs).toBe(210);
   });
 
-  it("maps unacknowledged mutating termination to indeterminate truth without redispatch", async () => {
+  it("maps unacknowledged mutating termination to unknown truth without redispatch", async () => {
     const { registry, manager } = createTestSetup();
     let nowMs = 1_000;
     let dispatches = 0;
@@ -213,7 +227,7 @@ describe("Stage 2 — Workspace Experiment Executor", () => {
     expect(result).toMatchObject({
       outcome: "failed",
       error: "timeout",
-      executionTruth: "effect_indeterminate",
+      executionTruth: "effect_unknown",
       cancellationRequested: true,
       cancellationAcknowledged: false,
     });
@@ -260,6 +274,161 @@ describe("Stage 2 — Workspace Experiment Executor", () => {
     });
   });
 
+  it.each([
+    ["C2 replace_file", "workspace.replace_file", "bad-request"],
+    ["C2 write_file", "workspace.write_file", "file_exists"],
+    ["C2 edit_text", "workspace.edit_text", "bad-request"],
+    ["C3 write_file", "workspace.write_file", "bad-request"],
+    ["C3 write_file existing target", "workspace.write_file", "file_exists"],
+    ["C3 edit_text", "workspace.edit_text", "bad-request"],
+    ["C3 replace_file", "workspace.replace_file", "bad-request"],
+  ] as const)("proves recovered %s pre-write rejection had no effect without reconstructing its request body", async (_name, operation, code) => {
+    const { registry, manager } = createTestSetup();
+    let dispatches = 0;
+    const result = await executeWorkspaceExperiment(
+      {
+        version: 2,
+        operation,
+        projectId: "composer-assistant",
+        path: "src/ledger.ts",
+      } as Parameters<typeof executeWorkspaceExperiment>[0],
+      {
+        registry,
+        workspaceManager: manager,
+        spawnRunner: async (input) => {
+          dispatches += 1;
+          const request = JSON.parse(input.requestJson) as Record<string, unknown>;
+          expect(request.operation).toBe(operation);
+          expect(request).not.toHaveProperty("content");
+          expect(request).not.toHaveProperty("oldText");
+          expect(request).not.toHaveProperty("newText");
+          expect(request).not.toHaveProperty("expectedSha256");
+          return makeRunnerFailure(code)(input);
+        },
+      },
+    );
+
+    expect(dispatches).toBe(1);
+    expect(result).toMatchObject({
+      outcome: "failed",
+      error: code,
+      executionTruth: "no_effect_proven",
+    });
+  });
+
+  it("exposes only the current raw-byte hash for a hash precondition rejection", async () => {
+    const { registry, manager } = createTestSetup();
+    const afterSha256 = "a".repeat(64);
+    const result = await executeWorkspaceExperiment(
+      {
+        version: 2,
+        operation: "workspace.replace_file",
+        projectId: "composer-assistant",
+        path: "src/ledger.ts",
+        content: "replacement-content",
+        expectedSha256: "b".repeat(64),
+      },
+      {
+        registry,
+        workspaceManager: manager,
+        spawnRunner: async (input) => {
+          const request = JSON.parse(input.requestJson) as { operation: string };
+          return {
+            exitCode: 1,
+            stdout: JSON.stringify({
+              version: 2,
+              operation: request.operation,
+              ok: false,
+              code: "hash_mismatch",
+              executionStarted: false,
+              afterSha256,
+            }),
+            stderr: "",
+            timedOut: false,
+            stdoutOverflow: false,
+            stderrOverflow: false,
+          };
+        },
+      },
+    );
+
+    expect(result).toMatchObject({ outcome: "failed", error: "hash_mismatch", executionTruth: "no_effect_proven" });
+    if (result.outcome === "failed") {
+      expect(result.fieldErrors).toEqual([{
+        fieldPath: "$.expectedSha256",
+        expectedSchemaId: "ashley.workspace_worker_request.v1",
+        preconditionCode: "hash_mismatch",
+        executionStarted: false,
+        afterSha256,
+      }]);
+      expect(JSON.stringify(result)).not.toContain("replacement-content");
+    }
+  });
+
+  it.each([
+    ["cleanup completed and existing bytes stayed unchanged", {
+      cleanupComplete: true,
+      beforeSha256: "a".repeat(64),
+      afterSha256: "a".repeat(64),
+      targetWasAbsent: false,
+      targetAbsent: false,
+      targetUnchanged: true,
+    }, "a".repeat(64), "no_effect_proven"],
+    ["cleanup failed", {
+      cleanupComplete: false,
+      beforeSha256: "a".repeat(64),
+      afterSha256: "a".repeat(64),
+      targetWasAbsent: false,
+      targetAbsent: false,
+      targetUnchanged: true,
+    }, "a".repeat(64), "effect_unknown"],
+    ["target bytes changed", {
+      cleanupComplete: true,
+      beforeSha256: "a".repeat(64),
+      afterSha256: "b".repeat(64),
+      targetWasAbsent: false,
+      targetAbsent: false,
+      targetUnchanged: false,
+    }, "b".repeat(64), "effect_unknown"],
+  ] as const)("classifies write_failed only when %s", async (_name, effectProof, afterSha256, expectedTruth) => {
+    const { registry, manager } = createTestSetup();
+    const result = await executeWorkspaceExperiment(
+      {
+        version: 2,
+        operation: "workspace.replace_file",
+        projectId: "composer-assistant",
+        path: "src/ledger.ts",
+        content: "replacement-content",
+        expectedSha256: "a".repeat(64),
+      },
+      {
+        registry,
+        workspaceManager: manager,
+        spawnRunner: async (input) => {
+          const request = JSON.parse(input.requestJson) as { operation: string };
+          return {
+            exitCode: 1,
+            stdout: JSON.stringify({
+              version: 2,
+              operation: request.operation,
+              ok: false,
+              code: "write_failed",
+              executionStarted: true,
+              afterSha256,
+              effectProof,
+            }),
+            stderr: "",
+            timedOut: false,
+            stdoutOverflow: false,
+            stderrOverflow: false,
+          };
+        },
+      },
+    );
+
+    expect(result).toMatchObject({ outcome: "failed", error: "write_failed", executionTruth: expectedTruth });
+  });
+
   it("classifies oversized write content (> 64 KiB) as content_too_large and no_effect_proven before dispatch", async () => {
     const { registry, manager } = createTestSetup();
     let dispatches = 0;
@@ -289,8 +458,8 @@ describe("Stage 2 — Workspace Experiment Executor", () => {
     });
   });
 
-  it("classifies a post-dispatch mutating timeout as effect_indeterminate and never redispatches", async () => {
-    const { registry, manager } = createTestSetup();
+  it("keeps a successful rename unknown when the runner times out before returning evidence", async () => {
+    const { registry, manager, treeRoot } = createTestSetup();
     let nowMs = 2_000;
     let dispatches = 0;
     const result = await executeWorkspaceExperiment(
@@ -310,6 +479,9 @@ describe("Stage 2 — Workspace Experiment Executor", () => {
         spawnRunner: async (input) => {
           dispatches += 1;
           expect(input.timeoutMs).toBe(300);
+          const temporaryPath = join(treeRoot, "witness.tmp");
+          writeFileSync(temporaryPath, "witness-data", "utf8");
+          renameSync(temporaryPath, join(treeRoot, "witness.txt"));
           nowMs = 2_310;
           return {
             exitCode: null,
@@ -324,10 +496,11 @@ describe("Stage 2 — Workspace Experiment Executor", () => {
     );
 
     expect(dispatches).toBe(1);
+    expect(readFileSync(join(treeRoot, "witness.txt"), "utf8")).toBe("witness-data");
     expect(result).toMatchObject({
       outcome: "failed",
       error: "timeout",
-      executionTruth: "effect_indeterminate",
+      executionTruth: "effect_unknown",
     });
   });
 

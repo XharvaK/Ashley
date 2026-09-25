@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { openTestSidecar } from "../../test-support.js";
 import {
+  buildRetryC3TerminalFailure,
   listC3TerminalExperiences,
   recordC3TerminalExperience,
   safeRecordC3TerminalExperience,
@@ -71,6 +72,33 @@ describe("C3 terminal experience recorder", () => {
         failureClass: "cancelled",
       }))).toBeNull();
       expect(db.prepare("SELECT COUNT(*) AS count FROM c3_terminal_experiences").get()).toEqual({ count: 1 });
+    } finally {
+      db.close();
+    }
+  });
+
+  it("writes effect_unknown for ambiguous dispatch and keeps the legacy alias readable", () => {
+    const retry = buildRetryC3TerminalFailure({
+      eventId: "event-unknown-effect",
+      attemptId: "attempt-unknown-effect",
+      wakeId: "wake-unknown-effect",
+      cycleId: "cycle-unknown-effect",
+      generation: 1,
+      ordinal: 2,
+      dispatchTruth: "dispatch_started",
+      failureClass: "age_exhausted",
+      errorCode: null,
+      occurredAtMs: 200,
+    });
+    expect(retry?.externalEffectTruth).toBe("effect_unknown");
+
+    const db = openTestSidecar();
+    try {
+      const legacy = recordC3TerminalExperience(db, experience({
+        experienceId: "c3:legacy-effect-truth",
+        externalEffectTruth: "effect_indeterminate",
+      }));
+      expect(legacy?.externalEffectTruth).toBe("effect_indeterminate");
     } finally {
       db.close();
     }

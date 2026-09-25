@@ -89,7 +89,7 @@ function validateRecord(input: C3TerminalExperienceRecord): void {
   if (input.publicationState !== "published" && input.publicationState !== "unpublished") {
     throw new Error("c3_experience_publication_state_invalid");
   }
-  if (!["not_attempted", "no_effect_proven", "effect_verified", "effect_indeterminate"].includes(input.externalEffectTruth)) {
+  if (!["not_attempted", "no_effect_proven", "effect_verified", "effect_unknown", "effect_partial", "effect_indeterminate"].includes(input.externalEffectTruth)) {
     throw new Error("c3_experience_effect_truth_invalid");
   }
   if (!Number.isInteger(input.generation) || input.generation < 0 || !Number.isInteger(input.occurredAtMs)) {
@@ -218,7 +218,7 @@ function safeSourceCurrentness(cycleId: string, generation: number, supplied?: s
 }
 
 function effectTruthForDispatch(dispatchTruth: string): C3ExternalEffectTruth {
-  return dispatchTruth === "not_started" ? "no_effect_proven" : "effect_indeterminate";
+  return dispatchTruth === "not_started" ? "no_effect_proven" : "effect_unknown";
 }
 
 function effectTruthForThought(failureClass: string): C3ExternalEffectTruth {
@@ -409,7 +409,7 @@ export function buildDeliveryC3TerminalFailure(
   const failureClass = `delivery_${input.state}`;
   const delivered = input.deliveredBubbleCount ?? 0;
   const effectTruth: C3ExternalEffectTruth = input.state === "partially_delivered" || delivered > 0
-    ? "effect_indeterminate"
+    ? "effect_unknown"
     : "no_effect_proven";
   return {
     experienceId: `c3:delivery:${input.reservationId}:${failureClass}`,

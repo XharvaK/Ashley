@@ -40,7 +40,7 @@ describe("nuclear schema v29 phase lifecycle telemetry", () => {
   it("installs Migration 29 on fresh databases", () => {
     const db = openNuclearDb(new DatabaseSync(":memory:"));
     try {
-      expect(NUCLEAR_SUPPORTED_VERSION).toBe(50);
+      expect(NUCLEAR_SUPPORTED_VERSION).toBe(51);
       expect(schemaVersion(db)).toBe(NUCLEAR_SUPPORTED_VERSION);
       expect(
         columnExists(db, "delivery_reservations", "phase_lifecycle_json"),
@@ -296,6 +296,28 @@ describe("bounded delivery-owned phase lifecycle", () => {
     expect(parsePhaseLifecycleJson(null)).toBeNull();
     expect(parsePhaseLifecycleJson("not-json")).toBeNull();
     expect(parsePhaseLifecycleJson(JSON.stringify({ version: 99 }))).toBeNull();
+  });
+
+  it("round-trips new unknown and partial effect truth while reading the legacy alias", () => {
+    const parsed = parsePhaseLifecycleJson(JSON.stringify({
+      version: 1,
+      planVersion: "x",
+      qualification: "unqualified",
+      selectedBranch: null,
+      selectedAtOffsetMs: null,
+      deadlineOffsetsMs: {},
+      phases: {
+        candidate_workspace_experiment: { state: "failed", executionTruth: "effect_unknown" },
+        candidate_verification: { state: "failed", executionTruth: "effect_partial" },
+        candidate_authorship: { state: "failed", executionTruth: "effect_indeterminate" },
+      },
+    }));
+
+    expect(parsed?.phases).toEqual({
+      candidate_workspace_experiment: { state: "failed", executionTruth: "effect_unknown" },
+      candidate_verification: { state: "failed", executionTruth: "effect_partial" },
+      candidate_authorship: { state: "failed", executionTruth: "effect_indeterminate" },
+    });
   });
 
   it("M3+M4 deadline key count exceeds 40 and stays under the 64 parser ceiling", () => {

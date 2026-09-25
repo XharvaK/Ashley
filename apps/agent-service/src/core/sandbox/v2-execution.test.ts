@@ -975,7 +975,7 @@ describe("Sandbox V2 Execution Adapter & Operator Registry", () => {
       expect(result.observation).toBeNull();
       expect(result.license).toMatchObject({
         state: "outcome_unknown",
-        executionTruth: "effect_indeterminate",
+        executionTruth: "effect_unknown",
         error: "timeout",
         cancellationRequested: true,
         cancellationAcknowledged: false,
@@ -1255,6 +1255,56 @@ describe("Sandbox V2 Execution Adapter & Operator Registry", () => {
       expect(result.stepResults[0]?.observation?.verified).toBe(true);
       expect(result.stepResults[1]?.license.verificationClaimEffect).toBeDefined();
       expect(dispatched).toEqual(["workspace.write_file", "workspace.verify"]);
+    });
+
+    it("keeps a new unknown effect truth from becoming a failed inquiry", async () => {
+      const registry = new V2ProjectReadRegistry([{
+        projectId: "project-ashley",
+        canonicalRoot: "/home/xarvak/project-ashley",
+        displayName: "Ashley",
+        enabled: true,
+        readAllowed: true,
+        candidateWorkspaceAllowed: true,
+        engineeringAllowed: false,
+      }]);
+      const result = await executeInquiryExperimentV2({
+        request: {
+          operation: "objective.operate",
+          projectId: "project-ashley",
+          experimentId: "inquiry-unknown-effect",
+          objective: "Record the unresolved result without retrying it.",
+          steps: [{
+            kind: "candidate_workspace_experiment",
+            request: {
+              version: 2,
+              operation: "workspace.write_file",
+              projectId: "project-ashley",
+              path: "probe.txt",
+              content: "fixture",
+            },
+          }],
+          budget: { maxSteps: 1, deadlineAtMs: Date.now() + 60_000 },
+        },
+        registry,
+        dispatcher: {
+          dispatch: async (request: SandboxV2Request): Promise<SandboxV2Result> => ({
+            outcome: "failed",
+            operation: request.operation,
+            error: "runner_timeout",
+            executionTruth: "effect_unknown",
+            dispatchAttempted: true,
+            executedAtMs: Date.now(),
+          }),
+        } as unknown as SandboxV2Dispatcher,
+        skipCapabilityGate: true,
+        envOverrides: {
+          sandboxEngineeringLifecycleEnabled: true,
+          sandboxAvailable: () => true,
+        },
+      });
+
+      expect(result.state).toBe("outcome_unknown");
+      expect(result.stepResults[0]?.license.executionTruth).toBe("effect_unknown");
     });
 
     it("refuses an empty inquiry recipe allowlist before dispatch", async () => {

@@ -1018,13 +1018,17 @@ export async function executeWorkspaceExperimentV2(
     return {
       license: {
         state:
-          res.executionTruth === "effect_indeterminate"
+          res.executionTruth === "effect_unknown"
+            || res.executionTruth === "effect_indeterminate"
             ? "outcome_unknown"
             : "failed",
         taskId: expTaskId(`v2-exp-${res.executedAtMs}`),
         profile: "project_experimentation",
         error: res.error ?? "workspace_experiment_failed",
-        executionTruth: res.executionTruth ?? "no_effect_proven",
+        executionTruth: res.executionTruth === "effect_indeterminate"
+          ? "effect_unknown"
+          : res.executionTruth ?? "no_effect_proven",
+        ...(res.fieldErrors ? { fieldErrors: res.fieldErrors } : {}),
         lateEvidenceVerified: res.lateEvidenceVerified === true,
         cancellationRequested: res.cancellationRequested === true,
         cancellationAcknowledged: res.cancellationAcknowledged === true,
@@ -1280,7 +1284,9 @@ export async function executeInquiryExperimentV2(
           license: child.license,
           observation: child.observation,
         });
-        if (child.license.executionTruth === "effect_indeterminate") indeterminate = true;
+        if (["effect_unknown", "effect_partial", "effect_indeterminate"].includes(child.license.executionTruth ?? "")) {
+          indeterminate = true;
+        }
         if (child.license.state === "succeeded") return { ok: true };
         return { ok: false, error: child.license.error ?? "inquiry_step_failed" };
       }
@@ -1309,7 +1315,9 @@ export async function executeInquiryExperimentV2(
         license: child.license,
         observation: null,
       });
-      if (child.license.executionTruth === "effect_indeterminate") indeterminate = true;
+      if (["effect_unknown", "effect_partial", "effect_indeterminate"].includes(child.license.executionTruth ?? "")) {
+        indeterminate = true;
+      }
       if (child.license.state === "succeeded") return { ok: true };
       return { ok: false, error: child.license.error ?? "inquiry_step_failed" };
     },

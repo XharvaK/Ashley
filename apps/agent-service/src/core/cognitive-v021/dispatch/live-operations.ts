@@ -51,6 +51,7 @@ import type {
   ObservationRequest,
   QuarantineKind,
 } from "../types.js";
+import { MAX_EFFECT_ROUNDS } from "../types.js";
 import type { EffectExecutionControl } from "../effect/execution-control.js";
 import type { OperationalClaimLicense } from "../../sandbox/engineering-types.js";
 import { getInFlightByEffectId, getInFlightByIdempotencyKey } from "../effect/in-flight.js";
@@ -616,6 +617,8 @@ function licenseClaims(license: OperationalClaimLicense): Record<string, unknown
     ...(license.profile ? { profile: license.profile } : {}),
     ...(license.taskId ? { taskId: license.taskId } : {}),
     ...(license.error ? { error: license.error } : {}),
+    ...(license.terminationClass ? { terminationClass: license.terminationClass } : {}),
+    ...(license.fieldErrors ? { fieldErrors: license.fieldErrors } : {}),
     ...(license.executionTruth ? { executionTruth: license.executionTruth } : {}),
     ...(license.receiptRef ? { receiptRef: license.receiptRef } : {}),
     ...(license.effectEvidence ? { effectEvidence: license.effectEvidence } : {}),
@@ -729,6 +732,108 @@ function receiptFromLicense(
   };
 }
 
+function receiptContinuationClaims(input: {
+  proposal: EffectProposal;
+  license: OperationalClaimLicense;
+  modeBResult: ModeBWorkerResult | null;
+  steps?: readonly RecordValue[];
+  db?: DatabaseSync;
+}): Record<string, unknown> {
+  const request = requestRecord(input.proposal.request);
+  const delegatedPurpose = stringValue(request?.delegatedPurpose) ?? stringValue(request?.purpose);
+  let remainingEffectRounds: number | null = null;
+  if (input.db) {
+    try {
+      const row = input.db.prepare(
+        `SELECT effect_rounds FROM thought_attempt_counters
+          WHERE cycle_id = ? AND generation = ? LIMIT 1`,
+      ).get(input.proposal.cycleId, input.proposal.generation) as RecordValue | undefined;
+      const used = typeof row?.effect_rounds === "number" ? row.effect_rounds : Number(row?.effect_rounds);
+      if (Number.isSafeInteger(used) && used >= 0) {
+        remainingEffectRounds = Math.max(0, MAX_EFFECT_ROUNDS - used);
+      }
+    } catch {
+      remainingEffectRounds = null;
+    }
+  }
+
+  const sourceSteps = input.modeBResult && Array.isArray(input.modeBResult.payload.steps)
+    ? input.modeBResult.payload.steps.filter(isRecord)
+    : input.steps ?? [];
+  const steps: RecordValue[] = [];
+  const knownHashes: Array<{ step: number | null; beforeSha256?: string; afterSha256?: string }> = [];
+  const unknownRemainder: Array<{ step: number | null; operation: string; executionTruth: string }> = [];
+  let verificationState = "not_run";
+  const validHash = (value: unknown): value is string =>
+    typeof value === "string" && /^[0-9a-f]{64}$/.test(value);
+  for (let index = 0; index < sourceSteps.length; index += 1) {
+    const source = sourceSteps[index];
+    const operation = typeof source.operation === "string" ? source.operation : "unknown";
+    const executionTruth = typeof source.executionTruth === "string" ? source.executionTruth : "unknown";
+    const effect = isRecord(source.workspaceClaimEffect) ? source.workspaceClaimEffect : null;
+    const errors = Array.isArray(source.fieldErrors) ? source.fieldErrors.filter(isRecord) : [];
+    const fieldErrors = errors.map((error): RecordValue => ({
+      ...(typeof error.fieldPath === "string" ? { fieldPath: error.fieldPath } : {}),
+      ...(typeof error.expectedSchemaId === "string" ? { expectedSchemaId: error.expectedSchemaId } : {}),
+      ...(typeof error.preconditionCode === "string" ? { preconditionCode: error.preconditionCode } : {}),
+      ...(typeof error.executionStarted === "boolean" ? { executionStarted: error.executionStarted } : {}),
+      ...(validHash(error.afterSha256) ? { afterSha256: error.afterSha256 } : {}),
+    }));
+    const beforeSha256 = validHash(effect?.beforeSha256) ? effect.beforeSha256 : undefined;
+    const effectAfterSha256 = validHash(effect?.afterSha256) ? effect.afterSha256 : undefined;
+    const failureAfterSha256 = fieldErrors.map((error) => error.afterSha256).find(validHash);
+    const afterSha256 = effectAfterSha256 ?? failureAfterSha256;
+    const verification = isRecord(source.verificationClaimEffect) ? source.verificationClaimEffect : null;
+    if (verification && typeof verification.verificationOutcome === "string") {
+      verificationState = verification.verificationOutcome;
+    }
+    steps.push({
+      operation,
+      ...(typeof source.state === "string" ? { state: source.state } : {}),
+      ...(typeof source.error === "string" ? { error: source.error } : {}),
+      executionTruth,
+      fieldErrors,
+      ...(beforeSha256 ? { beforeSha256 } : {}),
+      ...(afterSha256 ? { afterSha256 } : {}),
+    });
+    if (["effect_unknown", "effect_indeterminate", "effect_partial"].includes(executionTruth)) {
+      unknownRemainder.push({ step: index + 1, operation, executionTruth });
+    }
+    if (beforeSha256 || afterSha256) {
+      knownHashes.push({
+        step: index + 1,
+        ...(beforeSha256 ? { beforeSha256 } : {}),
+        ...(afterSha256 ? { afterSha256 } : {}),
+      });
+    }
+  }
+  const licenseVerification = input.license.verificationClaimEffect;
+  if (licenseVerification) verificationState = licenseVerification.verificationOutcome;
+  if (unknownRemainder.length === 0
+    && (input.license.executionTruth === "effect_unknown"
+      || input.license.executionTruth === "effect_indeterminate"
+      || input.license.executionTruth === "effect_partial")) {
+    unknownRemainder.push({
+      step: null,
+      operation: typeof request?.operation === "string" ? request.operation : input.proposal.kind,
+      executionTruth: input.license.executionTruth,
+    });
+  }
+
+  return {
+    ...(delegatedPurpose ? { delegatedPurpose } : {}),
+    steps,
+    knownHashes,
+    unknownRemainder,
+    verificationState,
+    remainingAuthority: {
+      workerDelegation: "terminated",
+      proposalAuthorityEpoch: input.proposal.authorityEpoch,
+    },
+    remainingEffectRounds,
+  };
+}
+
 function unavailableLicense(profile: string, error: string): OperationalClaimLicense {
   return { state: "none", profile, error, executionTruth: "no_effect_proven" };
 }
@@ -750,16 +855,24 @@ function inquiryResultLicense(
 ): OperationalClaimLicense {
   const workspaceStep = [...result.stepResults].reverse().find((step) => step.license.workspaceClaimEffect);
   const verificationStep = [...result.stepResults].reverse().find((step) => step.license.verificationClaimEffect);
+  const truths = result.stepResults.map((step) => step.license.executionTruth);
+  const unknown = truths.some((truth) =>
+    truth === "effect_unknown" || truth === "effect_indeterminate" || truth === "effect_partial",
+  );
+  const verified = truths.some((truth) => truth === "effect_verified" || truth === "effect_partial");
+  const executionTruth = unknown && verified
+    ? "effect_partial"
+    : unknown
+      ? "effect_unknown"
+      : verified || result.state === "succeeded"
+        ? "effect_verified"
+        : result.state === "outcome_unknown" ? "effect_unknown" : undefined;
   return {
     state: result.state,
     taskId,
     profile: "inquiry_experiment",
     ...(result.error ? { error: result.error } : {}),
-    ...(result.state === "succeeded"
-      ? { executionTruth: "effect_verified" as const }
-      : result.state === "outcome_unknown"
-        ? { executionTruth: "effect_indeterminate" as const }
-        : {}),
+    ...(executionTruth ? { executionTruth } : {}),
     ...(workspaceStep?.license.workspaceClaimEffect
       ? { workspaceClaimEffect: workspaceStep.license.workspaceClaimEffect }
       : {}),
@@ -1104,6 +1217,7 @@ export function createV021LiveOperationExecutors(
 
       let license: OperationalClaimLicense;
       let modeBResult: ModeBWorkerResult | null = null;
+      let continuationSteps: readonly RecordValue[] | undefined;
       try {
         if (operation === "objective.operate") {
           const request = normalizeInquiryRequest(proposal);
@@ -1116,6 +1230,15 @@ export function createV021LiveOperationExecutors(
               taskId: proposal.effectId,
               messageEntityUuid: proposal.cycleId,
             });
+            continuationSteps = result.stepResults.map((step) => ({
+              operation: step.operation,
+              state: step.license.state,
+              error: step.license.error ?? null,
+              executionTruth: step.license.executionTruth ?? null,
+              fieldErrors: step.license.fieldErrors ?? [],
+              workspaceClaimEffect: step.license.workspaceClaimEffect ?? null,
+              verificationClaimEffect: step.license.verificationClaimEffect ?? null,
+            }));
             license = inquiryResultLicense(result, proposal.effectId, proposal.cycleId);
           }
         } else if (WORKSPACE_OPERATIONS.has(operation)) {
@@ -1218,14 +1341,23 @@ export function createV021LiveOperationExecutors(
         license = unavailableLicense("cognitive_effect", "effect_unavailable");
       }
       const receipt = receiptFromLicense(proposal, license, nowMs, options.sidecar);
-      if (!modeBResult) return receipt;
+      const continuationClaims = receiptContinuationClaims({
+        proposal,
+        license,
+        modeBResult,
+        steps: continuationSteps,
+        db: options.sidecar,
+      });
+      if (!modeBResult) {
+        return { ...receipt, claims: { ...receipt.claims, ...continuationClaims } };
+      }
       return {
         ...receipt,
         claims: {
           ...receipt.claims,
+          ...continuationClaims,
           selectedModelId: modeBResult.selectedModelId,
           summary: modeBResult.summary,
-          steps: modeBResult.payload.steps,
           commandCodeInvocations: modeBResult.commandCodeInvocations,
         },
       };

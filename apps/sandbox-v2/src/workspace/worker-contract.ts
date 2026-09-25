@@ -90,11 +90,57 @@ export const WORKSPACE_WORKER_REQUEST_SCHEMA = {
 
 export type WorkspaceWorkerOperation = keyof typeof WORKSPACE_WORKER_REQUEST_SCHEMA;
 
+export const WORKSPACE_WORKER_REQUEST_SCHEMA_ID = "ashley.workspace_worker_request.v1" as const;
+
+export type WorkspaceWorkerFieldError = Readonly<{
+  fieldPath: string;
+  expectedSchemaId: typeof WORKSPACE_WORKER_REQUEST_SCHEMA_ID;
+  preconditionCode: string;
+  executionStarted: boolean;
+  afterSha256?: string;
+}>;
+
 export const WORKSPACE_TOOL_OPERATIONS = Object.freeze(
   Object.keys(WORKSPACE_WORKER_REQUEST_SCHEMA) as WorkspaceWorkerOperation[],
 );
 
-export type WorkspaceWorkerRequestValidation = { ok: true } | { ok: false; error: "invalid_request" };
+export type WorkspaceWorkerRequestValidation =
+  | { ok: true }
+  | { ok: false; error: "invalid_request"; fieldErrors: readonly WorkspaceWorkerFieldError[] };
+
+function fieldPath(key: string): string {
+  return /^[A-Za-z_$][A-Za-z0-9_$.-]{0,79}$/.test(key) ? `$.${key}` : "$request";
+}
+
+function fieldError(field: string, preconditionCode: string): WorkspaceWorkerFieldError {
+  return {
+    fieldPath: field,
+    expectedSchemaId: WORKSPACE_WORKER_REQUEST_SCHEMA_ID,
+    preconditionCode,
+    executionStarted: false,
+  };
+}
+
+export function workspaceWorkerFieldError(
+  fieldPath: string,
+  preconditionCode: string,
+): WorkspaceWorkerFieldError {
+  return fieldError(fieldPath, preconditionCode);
+}
+
+export function workspaceWorkerFieldPath(operation: string, preconditionCode: string): string {
+  if (preconditionCode === "hash_mismatch") return "$.expectedSha256";
+  if (preconditionCode === "no_matches" || preconditionCode === "ambiguous_matches") return "$.oldText";
+  if (preconditionCode === "content_too_large" || preconditionCode === "workspace_limit_exceeded") {
+    return operation === "workspace.edit_text" ? "$.newText" : "$.content";
+  }
+  if ([
+    "invalid_path", "not_found", "file_not_found", "file_exists", "symlink_forbidden",
+    "path_escapes_workspace", "not_a_file", "read_failed", "not_utf8", "verify_failed",
+    "symlink_forbidden_after_write",
+  ].includes(preconditionCode)) return "$.path";
+  return preconditionCode === "bad-request" ? "$request" : "$.operation";
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -127,23 +173,32 @@ export function validateWorkspaceWorkerRequest(
   operation: string,
   request: unknown,
 ): WorkspaceWorkerRequestValidation {
-  if (!isRecord(request)) return { ok: false, error: "invalid_request" };
+  if (!isRecord(request)) {
+    return { ok: false, error: "invalid_request", fieldErrors: [fieldError("$request", "object_required")] };
+  }
   const spec = Object.prototype.hasOwnProperty.call(WORKSPACE_WORKER_REQUEST_SCHEMA, operation)
     ? WORKSPACE_WORKER_REQUEST_SCHEMA[operation as WorkspaceWorkerOperation]
     : undefined;
-  if (!spec) return { ok: false, error: "invalid_request" };
+  if (!spec) {
+    return { ok: false, error: "invalid_request", fieldErrors: [fieldError("$.operation", "unsupported_operation")] };
+  }
   const fields = spec.fields as Record<string, WorkerField>;
+  const fieldErrors: WorkspaceWorkerFieldError[] = [];
   for (const key of Object.keys(request)) {
-    if (!Object.prototype.hasOwnProperty.call(fields, key)) return { ok: false, error: "invalid_request" };
+    if (!Object.prototype.hasOwnProperty.call(fields, key)) {
+      fieldErrors.push(fieldError(fieldPath(key), "unexpected_field"));
+    }
   }
   for (const [key, field] of Object.entries(fields)) {
     if (!Object.prototype.hasOwnProperty.call(request, key)) {
-      if (field.required) return { ok: false, error: "invalid_request" };
+      if (field.required) fieldErrors.push(fieldError(`$.${key}`, "required_field_missing"));
       continue;
     }
-    if (!validateField(request[key], field)) return { ok: false, error: "invalid_request" };
+    if (!validateField(request[key], field)) fieldErrors.push(fieldError(`$.${key}`, "field_constraint_failed"));
   }
-  return { ok: true };
+  return fieldErrors.length === 0
+    ? { ok: true }
+    : { ok: false, error: "invalid_request", fieldErrors: fieldErrors.slice(0, 16) };
 }
 
 export function formatWorkspaceToolContractPrompt(): string {
@@ -157,6 +212,7 @@ export function formatWorkspaceToolContractPrompt(): string {
     return `${operation}: ${spec.description}\n  request fields: ${fields.join("; ")}`;
   });
   return [
+    `Expected request schema id: ${WORKSPACE_WORKER_REQUEST_SCHEMA_ID}. Host failures may report a field path and precondition code; they never include a rejected field value.`,
     `Exact workspace request fields follow. Unknown fields are rejected. Request JSON is limited to ${V2_LIMITS.WORKSPACE_REQUEST_MAX_BYTES} bytes; read_file is limited to ${V2_LIMITS.READ_MAX_BYTES} bytes and refuses non-UTF-8; list_directory returns at most ${V2_LIMITS.LIST_MAX_ENTRIES} entries; writes are limited to ${V2_LIMITS.M3_WRITE_MAX_BYTES} UTF-8 bytes; workspace storage is limited to ${V2_LIMITS.WORKSPACE_MAX_BYTES} bytes.`,
     `search_text matches literal substrings within lines, under the requested directory or workspace root. Pattern length is at most ${V2_LIMITS.SEARCH_PATTERN_MAX}; each call returns at most ${V2_LIMITS.SEARCH_MAX_MATCHES} matches, scans at most ${V2_LIMITS.SEARCH_MAX_FILES} files of at most ${V2_LIMITS.SEARCH_MAX_FILE_BYTES} bytes each and depth ${V2_LIMITS.SEARCH_MAX_DEPTH}, and limits each returned line preview to ${V2_LIMITS.SEARCH_MATCH_TEXT_MAX} characters. truncated=true indicates omitted matches or traversal; filesScanned reports the number of files examined.`,
     ...operationLines,
