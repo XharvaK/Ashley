@@ -215,7 +215,7 @@ export type CompletionOptions = {
   maxTokens?: number;
   temperature?: number;
   presencePenalty?: number;
-  reasoningEffort?: "none" | "low" | "medium" | "high";
+  reasoningEffort?: "none" | "low" | "medium" | "high" | "xhigh";
   /** Provider wire format after Model Fabric resolution. */
   responseFormat?: "json_object" | "json_schema";
   /** Code-owned shape request; adapters use only the trusted control below. */
@@ -253,6 +253,8 @@ export type CompletionOptions = {
   };
   /** Trusted kernel-owned Thought context; never populated from model output. */
   thoughtInvocationContext?: Omit<ThoughtInvocationContext, "allocationId">;
+  /** Internal Thought switch to the fixed Command Code-owned policy. */
+  directCommandCodeThought?: boolean;
 };
 
 export type ProviderCompletion = {
@@ -269,6 +271,10 @@ export type ProviderCompletion = {
   cfRay?: string | null;
   /** Actual HTTP response status observed at the provider boundary. */
   providerHttpStatus?: number;
+  /** Hash of the exact serialized outbound request body, when emitted. */
+  providerRequestHash?: `sha256:${string}`;
+  /** Hash of the provider result text, when returned. */
+  providerResponseHash?: `sha256:${string}`;
   /** Provider finish_reason when supplied (stop, length, …). Never a secret. */
   finishReason?: string | null;
   /** Bounded provider response shape and accounting diagnostics. */

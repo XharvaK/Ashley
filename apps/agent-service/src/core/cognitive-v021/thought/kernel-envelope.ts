@@ -1,6 +1,7 @@
 import { sha256 } from "../../model-fabric/hash.js";
+import { COMMAND_CODE_POLICY } from "../../command-code/policy.js";
 import type {
-  CapturedModelAttemptIdentity,
+  CapturedThoughtAttemptIdentity,
   KernelEnvelope,
   ThoughtInvocationContext,
   ThoughtSemanticOutput,
@@ -11,7 +12,7 @@ export const THOUGHT_KERNEL_ENVELOPE_VERSION = "ashley.thought.kernel-envelope.v
 
 export type KernelEnvelopeBuildInput = {
   context: ThoughtInvocationContext;
-  attempt: CapturedModelAttemptIdentity;
+  attempt: CapturedThoughtAttemptIdentity;
   response: ThoughtSemanticOutput;
   parserValidatorIdentity: string;
   runtimeArtifactIdentity: string;
@@ -83,19 +84,49 @@ export function validateKernelEnvelope(value: unknown): KernelEnvelopeValidation
   if (typeof envelope.capturedAttempt !== "object" || envelope.capturedAttempt === null) return { ok: false, code: "attempt_missing" };
   const attempt = envelope.capturedAttempt;
   if (attempt.allocationId !== envelope.allocationId) return { ok: false, code: "attempt_allocation" };
-  if (!validNonEmpty(attempt.modelFabricInvocationId) || !validNonEmpty(attempt.modelFabricAttemptId)
-    || !validNonEmpty(attempt.provider) || !validNonEmpty(attempt.configuredModelId)
-    || !validNonEmpty(attempt.occupantId) || !validNonEmpty(attempt.contractId)
-    || !validNonEmpty(attempt.buildIdentity) || !validNonEmpty(attempt.logicalStructuredOutputId)
-    || !validNonEmpty(attempt.semanticSchemaFingerprint) || !validNonEmpty(attempt.wireSchemaFingerprint)
-    || !validNonEmpty(attempt.actualWireBindingId)
-    || !validNonEmpty(attempt.schemaEnforcementMode) || !validNonEmpty(attempt.resourcePolicyFingerprint)) {
-    return { ok: false, code: "attempt_identity" };
-  }
-  if (!Number.isInteger(attempt.attemptOrdinal) || attempt.attemptOrdinal < 1
-    || !Number.isInteger(attempt.dispatchSequence) || attempt.dispatchSequence < 0
-    || !Number.isInteger(attempt.modelEpoch) || attempt.modelEpoch < 0) {
-    return { ok: false, code: "attempt_ordinals" };
+  if ("backend" in attempt) {
+    if (
+      attempt.backend !== "command_code_api" ||
+      attempt.provider !== "command_code" ||
+      attempt.requestedModelId !== COMMAND_CODE_POLICY.modelId ||
+      attempt.providerModel !== attempt.requestedModelId ||
+      attempt.reasoningEffort !== COMMAND_CODE_POLICY.effort ||
+      !validNonEmpty(attempt.providerInvocationId) ||
+      !validNonEmpty(attempt.providerAttemptId) ||
+      !validNonEmpty(attempt.contractId) ||
+      !validNonEmpty(attempt.buildIdentity) ||
+      !validNonEmpty(attempt.logicalStructuredOutputId) ||
+      !validNonEmpty(attempt.semanticSchemaFingerprint) ||
+      !validNonEmpty(attempt.wireSchemaFingerprint) ||
+      !validNonEmpty(attempt.actualWireBindingId) ||
+      !validNonEmpty(attempt.schemaEnforcementMode) ||
+      !validNonEmpty(attempt.requestHash) ||
+      !attempt.requestHash.startsWith("sha256:") ||
+      !validNonEmpty(attempt.responseHash) ||
+      !attempt.responseHash.startsWith("sha256:") ||
+      !Number.isInteger(attempt.providerHttpStatus) ||
+      attempt.providerHttpStatus < 100 || attempt.providerHttpStatus > 599 ||
+      (attempt.providerRequestId !== null && !validNonEmpty(attempt.providerRequestId)) ||
+      attempt.providerAttempts !== 1 || attempt.alternateProviderAttempts !== 0
+    ) return { ok: false, code: "attempt_identity" };
+    if (attempt.attemptOrdinal !== 1 || !Number.isInteger(attempt.dispatchSequence) || attempt.dispatchSequence < 0) {
+      return { ok: false, code: "attempt_ordinals" };
+    }
+  } else {
+    if (!validNonEmpty(attempt.modelFabricInvocationId) || !validNonEmpty(attempt.modelFabricAttemptId)
+      || !validNonEmpty(attempt.provider) || !validNonEmpty(attempt.configuredModelId)
+      || !validNonEmpty(attempt.occupantId) || !validNonEmpty(attempt.contractId)
+      || !validNonEmpty(attempt.buildIdentity) || !validNonEmpty(attempt.logicalStructuredOutputId)
+      || !validNonEmpty(attempt.semanticSchemaFingerprint) || !validNonEmpty(attempt.wireSchemaFingerprint)
+      || !validNonEmpty(attempt.actualWireBindingId)
+      || !validNonEmpty(attempt.schemaEnforcementMode) || !validNonEmpty(attempt.resourcePolicyFingerprint)) {
+      return { ok: false, code: "attempt_identity" };
+    }
+    if (!Number.isInteger(attempt.attemptOrdinal) || attempt.attemptOrdinal < 1
+      || !Number.isInteger(attempt.dispatchSequence) || attempt.dispatchSequence < 0
+      || !Number.isInteger(attempt.modelEpoch) || attempt.modelEpoch < 0) {
+      return { ok: false, code: "attempt_ordinals" };
+    }
   }
   if (attempt.routeAlias !== null && !validNonEmpty(attempt.routeAlias)) return { ok: false, code: "attempt_route" };
   if (typeof envelope.responseHash !== "string" || !envelope.responseHash.startsWith("sha256:")) return { ok: false, code: "response_hash" };

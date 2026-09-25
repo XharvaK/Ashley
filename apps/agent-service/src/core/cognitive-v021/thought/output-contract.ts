@@ -1,7 +1,7 @@
 import {
   THOUGHT_OUTPUT_CONTRACT_ID,
   THOUGHT_OUTPUT_SCHEMA_ID,
-} from "../../model-fabric/dispatch-contract.js";
+} from "./contract-identity.js";
 import { sha256 } from "../../model-fabric/hash.js";
 import { MEMORY_KINDS } from "../memory/kinds.js";
 import { CONSEQUENCE_AVAILABILITY } from "./consequence-projection.js";

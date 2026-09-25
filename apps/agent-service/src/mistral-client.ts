@@ -1,3 +1,4 @@
+import { createHash, randomUUID } from "node:crypto";
 import { Mistral } from "@mistralai/mistralai";
 import type { DatabaseSync } from "node:sqlite";
 import { env } from "./env.js";
@@ -42,6 +43,7 @@ import { requireRouteEnabled } from "./core/model-routing/router.js";
 import {
   quotaBucketFor,
   isDeadlineTimeoutError,
+  attachProviderHttpStatusBoundary,
   type ProviderId,
   type RouteId,
   type ContextProfile,
@@ -52,6 +54,7 @@ import {
   type ToolCallResult,
   type Lane,
   type CompletionOptions,
+  type ProviderCompletion,
   type MistralCredentialSeat,
   type ProviderResponseDiagnostics,
   type ProviderBoundaryControls,
@@ -90,6 +93,18 @@ import {
   type ModelFabricDispatchMetadata,
 } from "./core/model-fabric/index.js";
 import type { WireDispatchEvidence } from "./core/model-routing/types.js";
+import { COMMAND_CODE_POLICY } from "./core/command-code/policy.js";
+import {
+  attachCommandCodeBoundaryEvidence,
+  attachCommandCodeThoughtEvidence,
+  commandCodeBoundaryEvidenceFromError,
+  commandCodeThoughtEvidenceFromError,
+  type CommandCodeBoundaryEvidence,
+  type CommandCodeThoughtEvidence,
+  type CommandCodeTransportOutcome,
+} from "./core/command-code/evidence.js";
+import type { CapturedThoughtAttemptIdentity, ThoughtInvocationContext } from "./core/cognitive-v021/types.js";
+export type { CapturedThoughtAttemptIdentity } from "./core/cognitive-v021/types.js";
 import {
   buildThoughtCapabilityIdentity,
   thoughtResourcePolicyIdentity,
@@ -114,6 +129,10 @@ import { sha256Text, stableJson } from "./core/model-fabric/hash.js";
 import { THOUGHT_KERNEL_ENVELOPE_VERSION } from "./core/cognitive-v021/thought/kernel-envelope.js";
 import { THOUGHT_SEMANTIC_PARSER_ID } from "./core/cognitive-v021/thought/parse.js";
 import { THOUGHT_SEMANTIC_SCHEMA_FINGERPRINT } from "./core/cognitive-v021/thought/output-contract.js";
+import {
+  THOUGHT_OUTPUT_CONTRACT_ID,
+  THOUGHT_OUTPUT_SCHEMA_ID,
+} from "./core/cognitive-v021/thought/contract-identity.js";
 import type { ContextBudgetMode } from "./core/context-allocation/types.js";
 export type {
   ChatMessage,
@@ -156,27 +175,6 @@ export class DispatchDataPlaneMissingError extends Error {
 const clients = new Map<MistralCredentialSeat, Mistral>();
 
 export const MISTRAL_RETRY_CONFIG = { strategy: "none" } as const;
-
-export type CapturedThoughtAttemptIdentity = {
-  allocationId: number;
-  modelFabricInvocationId: string;
-  modelFabricAttemptId: string;
-  attemptOrdinal: number;
-  dispatchSequence: number;
-  routeAlias: string | null;
-  provider: ProviderId;
-  configuredModelId: string;
-  occupantId: string;
-  modelEpoch: number;
-  contractId: string;
-  buildIdentity: string;
-  logicalStructuredOutputId: string;
-  semanticSchemaFingerprint: string;
-  wireSchemaFingerprint: string;
-  actualWireBindingId: string;
-  schemaEnforcementMode: string;
-  resourcePolicyFingerprint: string;
-};
 
 function mistralKeyForSeat(seat: MistralCredentialSeat): string {
   return seat === "mistral_secondary"
@@ -427,6 +425,477 @@ function combineSignals(
   return { merged: deadline, deadline };
 }
 
+const COMMAND_CODE_THOUGHT_MAX_OUTPUT_TOKENS = 65_536;
+
+function commandCodeHash(value: string): `sha256:${string}` {
+  return `sha256:${createHash("sha256").update(value, "utf8").digest("hex")}`;
+}
+
+function directThoughtFailureClass(error: unknown): string | undefined {
+  const raw = error instanceof AppError
+    ? error.code
+    : error instanceof Error
+      ? error.name
+      : undefined;
+  if (!raw) return undefined;
+  const bounded = raw.trim().slice(0, 128);
+  return /^[A-Za-z0-9_.:-]+$/.test(bounded) ? bounded : "sanitized_failure";
+}
+
+async function completeDirectCommandCodeThought(
+  messages: ChatMessage[],
+  options: CognitiveDispatchOptions,
+  lane: AttentionLane,
+): Promise<{
+  text: string;
+  model: string;
+  modelAlias: string;
+  resolvedModelId: string | null;
+  provider: "command_code";
+  providerModel?: string | null;
+  providerRequestId?: string | null;
+  toolCalls?: ToolCallResult[];
+  usage?: TokenUsage;
+  finishReason?: string | null;
+  responseDiagnostics?: ProviderResponseDiagnostics;
+  providerBoundaryControls?: ProviderBoundaryControls;
+  providerBoundaryTiming?: ProviderBoundaryTiming;
+  attentionRequestId: number;
+  acceptedDispatchIdentity: AcceptedDispatchIdentity;
+  capturedAttemptIdentity: CapturedThoughtAttemptIdentity;
+  commandCodeEvidence: CommandCodeThoughtEvidence;
+  wireEvidence?: WireDispatchEvidence;
+  contextProjection?: ContextProjection;
+}> {
+  const context = options.thoughtInvocationContext;
+  if (!context || options.purpose !== "thought") {
+    throw new AppError("capability_mismatch", "direct_command_code_thought_context_required", 400);
+  }
+  const structuredOutput = options.structuredOutput;
+  if (
+    structuredOutput?.contractId !== THOUGHT_OUTPUT_CONTRACT_ID ||
+    structuredOutput.schemaId !== THOUGHT_OUTPUT_SCHEMA_ID
+  ) {
+    throw new AppError("capability_mismatch", "command_code_thought_contract_required", 400);
+  }
+
+  const providerInvocationId = randomUUID();
+  const providerAttemptId = `${providerInvocationId}:attempt:1`;
+  const thoughtContext = context as Omit<ThoughtInvocationContext, "allocationId">;
+  const maxTokens = options.maxTokens ?? COMMAND_CODE_THOUGHT_MAX_OUTPUT_TOKENS;
+  const controls: ProviderBoundaryControls = {
+    maxTokens,
+    reasoningConfiguration: COMMAND_CODE_POLICY.effort,
+    ...(options.temperature === undefined ? {} : { temperature: options.temperature }),
+    ...(options.deadlineAtMs == null ? {} : { deadlineAtMs: options.deadlineAtMs }),
+  };
+  const actualWireBindingId = `${structuredOutput.contractId}:${structuredOutput.schemaId}`;
+  const adapterArgs = {
+    messages,
+    modelId: COMMAND_CODE_POLICY.modelId,
+    options: {
+      ...options,
+      model: COMMAND_CODE_POLICY.modelId,
+      maxTokens,
+      reasoningEffort: COMMAND_CODE_POLICY.effort,
+      responseFormat: "json_schema" as const,
+      structuredOutput,
+    },
+    signal: options.signal,
+  };
+  const wireAdditionalBytes = commandCodeRequestWireAdditionalBytes(adapterArgs);
+  const privateBudgetBinding = options.privateBudgetBinding;
+  let privateBudgetBound = false;
+  let privateBudgetCommitted = false;
+  let privateBudgetRepairOrdinal: number | null = null;
+  let adapterInvoked = false;
+  let providerBoundaryTiming: ProviderBoundaryTiming | undefined;
+  let completion: ProviderCompletion | undefined;
+
+  const evidenceFor = (
+    boundary: CommandCodeBoundaryEvidence | undefined,
+    transportOutcome: CommandCodeTransportOutcome,
+    providerAttempts: number,
+    failureClass?: string,
+  ): CommandCodeThoughtEvidence => Object.freeze({
+    schema: "ashley.command_code.thought_evidence.v1",
+    backend: "command_code_api",
+    providerInvocationId,
+    providerAttemptId,
+    thoughtInvocationId: thoughtContext.invocationId,
+    conversationId: thoughtContext.conversationId ?? null,
+    cycleId: thoughtContext.cycleId,
+    generation: thoughtContext.generation,
+    wakeId: thoughtContext.wakeId ?? null,
+    requestedModelId: COMMAND_CODE_POLICY.modelId,
+    providerModel: boundary?.providerModel ?? completion?.providerModel ?? null,
+    reasoningEffort: COMMAND_CODE_POLICY.effort,
+    requestHash: boundary?.requestHash ?? completion?.providerRequestHash ?? null,
+    responseHash: boundary?.responseHash ?? completion?.providerResponseHash ?? null,
+    providerRequestId: boundary?.providerRequestId ?? completion?.providerRequestId ?? null,
+    providerHttpStatus: boundary?.providerHttpStatus ?? completion?.providerHttpStatus ?? null,
+    providerAttempts,
+    alternateProviderAttempts: 0,
+    transportOutcome,
+    ...(failureClass ? { failureClass } : {}),
+  });
+
+  const attachDirectFailureEvidence = (error: unknown): void => {
+    if (commandCodeThoughtEvidenceFromError(error)) return;
+    const boundary = commandCodeBoundaryEvidenceFromError(error);
+    const transportOutcome = boundary?.transportOutcome
+      ?? (adapterInvoked ? "sent_outcome_unknown" : "not_sent");
+    const providerAttempts = transportOutcome === "not_sent" ? 0 : 1;
+    attachCommandCodeThoughtEvidence(error, evidenceFor(
+      boundary,
+      transportOutcome,
+      providerAttempts,
+      directThoughtFailureClass(error),
+    ));
+    attachProviderBoundaryFact(error, "providerBoundaryControls", controls);
+    if (providerBoundaryTiming) attachProviderBoundaryFact(error, "providerBoundaryTiming", providerBoundaryTiming);
+  };
+
+  try {
+    assertOutboundAllowed("command_code");
+    if (privateBudgetBinding) {
+      const childReason = thoughtContext.structuralAttemptOrdinal > 0
+        ? "structural_repair"
+        : "cycle_continuation";
+      const bound = bindPrivateReservationOrRepairAttempt(privateBudgetBinding.sidecar, {
+        reservationId: privateBudgetBinding.reservationId,
+        invocationId: providerInvocationId,
+        attemptId: providerAttemptId,
+        wakeId: privateBudgetBinding.wakeId ?? thoughtContext.wakeId ?? undefined,
+        conversationId: privateBudgetBinding.conversationId ?? thoughtContext.conversationId ?? undefined,
+        childReason,
+        nowMs: Date.now(),
+      });
+      privateBudgetRepairOrdinal = bound.kind === "child" ? bound.ordinal : null;
+      privateBudgetBound = true;
+    }
+
+    const attentive = await runAttentiveDispatch<{
+      text: string;
+      toolCalls?: ToolCallResult[];
+      usage?: TokenUsage;
+      providerModel?: string | null;
+      providerRequestId?: string | null;
+      providerHttpStatus?: number;
+      providerRequestHash?: `sha256:${string}`;
+      providerResponseHash?: `sha256:${string}`;
+      finishReason?: string | null;
+      responseDiagnostics?: ProviderResponseDiagnostics;
+      wireEvidence?: WireDispatchEvidence;
+      providerBoundaryControls?: ProviderBoundaryControls;
+      providerBoundaryTiming?: ProviderBoundaryTiming;
+    }>(options.attentionDb, {
+      messages,
+      purpose: "thought",
+      lane,
+      providerId: "command_code",
+      quotaBucket: `command_code:${COMMAND_CODE_POLICY.modelId}`,
+      routeAlias: options.route ?? "thought",
+      modelAlias: COMMAND_CODE_POLICY.modelId,
+      maxTokens,
+      toolsJson: options.tools ? JSON.stringify(options.tools) : undefined,
+      wireAdditionalBytes,
+      signal: options.signal,
+      deadlineAtMs: options.deadlineAtMs,
+      decisionId: options.decisionId,
+      deliveryReservationId: options.deliveryReservationId,
+      cognitiveJobId: options.cognitiveJobId,
+      ownerId: options.ownerId,
+      ageOriginAtMs: options.ageOriginAtMs,
+      thoughtAttemptBinding: {
+        thoughtInvocationId: thoughtContext.invocationId,
+        thoughtCycleId: thoughtContext.cycleId,
+        thoughtGeneration: thoughtContext.generation,
+        thoughtSemanticPass: thoughtContext.semanticPass,
+        thoughtStructuralAttempt: thoughtContext.structuralAttemptOrdinal,
+        thoughtAuthorityEpoch: thoughtContext.authorityEpoch,
+        thoughtAuthorityVectorJson: JSON.stringify(thoughtContext.authorityVersionVector),
+        thoughtTriggerRef: thoughtContext.triggerRef,
+        semanticProjectionHash: thoughtContext.semanticProjectionHash,
+        dispatchMessagesHash: thoughtContext.dispatchMessagesHash,
+        allowlistFingerprint: thoughtContext.allowlistFingerprint,
+        providerInvocationId,
+        providerAttemptId,
+        actualProvider: "command_code",
+        actualOccupantId: "command_code-policy.v1",
+        actualWireBindingId,
+        schemaEnforcementMode: "json_object_compatibility",
+        resourcePolicyFingerprint: thoughtResourcePolicyIdentity().fingerprint,
+        absoluteDeadlineAtMs: thoughtContext.absoluteDeadlineAtMs,
+      },
+      dispatch: async ({ modelAlias, signal }) => {
+        if (privateBudgetBinding && !privateBudgetCommitted) {
+          if (privateBudgetRepairOrdinal == null) {
+            commitPrivateDispatch(privateBudgetBinding.sidecar, {
+              reservationId: privateBudgetBinding.reservationId,
+              invocationId: providerInvocationId,
+              attemptId: providerAttemptId,
+              nowMs: Date.now(),
+            });
+          } else {
+            commitPrivateRepairDispatch(privateBudgetBinding.sidecar, {
+              reservationId: privateBudgetBinding.reservationId,
+              invocationId: providerInvocationId,
+              attemptId: providerAttemptId,
+              nowMs: Date.now(),
+            });
+          }
+          privateBudgetCommitted = true;
+        }
+        const { merged, deadline } = combineSignals(signal, options.deadlineAtMs);
+        const requestStartedAtMs = Date.now();
+        const adapter = adapterFor("command_code");
+        adapterInvoked = true;
+        try {
+          const result = await adapter.dispatch({
+            ...adapterArgs,
+            modelId: modelAlias,
+            options: { ...adapterArgs.options, model: modelAlias },
+            signal: merged,
+          });
+          const responseAtMs = Date.now();
+          providerBoundaryTiming = Object.freeze({
+            requestStartedAtMs,
+            responseAtMs,
+            elapsedMs: Math.max(0, responseAtMs - requestStartedAtMs),
+            ...(options.deadlineAtMs == null ? {} : { remainingDeadlineMs: Math.max(0, options.deadlineAtMs - responseAtMs) }),
+            outcome: "response_received" as const,
+          });
+          completion = result;
+          const boundary: CommandCodeBoundaryEvidence = {
+            backend: "command_code_api",
+            requestedModelId: COMMAND_CODE_POLICY.modelId,
+            reasoningEffort: COMMAND_CODE_POLICY.effort,
+            ...(result.providerRequestHash ? { requestHash: result.providerRequestHash } : {}),
+            providerModel: result.providerModel ?? null,
+            providerRequestId: result.providerRequestId ?? null,
+            providerHttpStatus: result.providerHttpStatus ?? null,
+            ...(result.providerResponseHash ? { responseHash: result.providerResponseHash } : {}),
+            transportOutcome: "response_received",
+          };
+          if (
+            result.providerModel !== COMMAND_CODE_POLICY.modelId ||
+            !result.providerRequestHash ||
+            !result.providerResponseHash ||
+            result.providerResponseHash !== commandCodeHash(result.text) ||
+            !Number.isInteger(result.providerHttpStatus)
+          ) {
+            const error = new AppError("capability_mismatch", "command_code_direct_evidence_incomplete", 502);
+            attachCommandCodeThoughtEvidence(error, evidenceFor(boundary, "response_received", 1, error.code));
+            throw error;
+          }
+          if (privateBudgetBinding && privateBudgetCommitted) {
+            if (privateBudgetRepairOrdinal == null) {
+              recordPrivateProviderResponse(privateBudgetBinding.sidecar, {
+                reservationId: privateBudgetBinding.reservationId,
+                invocationId: providerInvocationId,
+                attemptId: providerAttemptId,
+                nowMs: Date.now(),
+              });
+            } else {
+              recordPrivateRepairResponse(privateBudgetBinding.sidecar, {
+                reservationId: privateBudgetBinding.reservationId,
+                invocationId: providerInvocationId,
+                attemptId: providerAttemptId,
+                providerRequestId: result.providerRequestId ?? undefined,
+                nowMs: Date.now(),
+              });
+            }
+          }
+          return {
+            providerModel: result.providerModel,
+            providerRequestId: result.providerRequestId,
+            usage: result.usage,
+            result: {
+              text: result.text,
+              toolCalls: result.toolCalls,
+              usage: result.usage,
+              providerModel: result.providerModel,
+              providerRequestId: result.providerRequestId,
+              providerHttpStatus: result.providerHttpStatus,
+              providerRequestHash: result.providerRequestHash,
+              providerResponseHash: result.providerResponseHash,
+              finishReason: result.finishReason,
+              responseDiagnostics: result.responseDiagnostics,
+              wireEvidence: result.wireEvidence,
+              providerBoundaryControls: controls,
+              providerBoundaryTiming,
+            },
+          };
+        } catch (error) {
+          const responseAtMs = Date.now();
+          providerBoundaryTiming ??= Object.freeze({
+            requestStartedAtMs,
+            responseAtMs,
+            elapsedMs: Math.max(0, responseAtMs - requestStartedAtMs),
+            ...(options.deadlineAtMs == null ? {} : { remainingDeadlineMs: Math.max(0, options.deadlineAtMs - responseAtMs) }),
+            outcome: "error" as const,
+          });
+          const boundary = commandCodeBoundaryEvidenceFromError(error);
+          if (boundary?.providerHttpStatus != null) attachProviderHttpStatusBoundary(error, boundary.providerHttpStatus);
+          attachDirectFailureEvidence(error);
+          if (isDeadlineTimeoutError(error, { signal, deadlineSignal: deadline, deadlineAtMs: options.deadlineAtMs })) {
+            const timeoutError = new AppError("timeout", "Thought provider deadline exceeded", 408);
+            const captured = commandCodeThoughtEvidenceFromError(error);
+            if (boundary) attachCommandCodeBoundaryEvidence(timeoutError, boundary);
+            if (captured) {
+              attachCommandCodeThoughtEvidence(timeoutError, { ...captured, failureClass: "timeout" });
+            } else {
+              attachDirectFailureEvidence(timeoutError);
+            }
+            attachProviderBoundaryFact(timeoutError, "providerBoundaryControls", controls);
+            if (providerBoundaryTiming) attachProviderBoundaryFact(timeoutError, "providerBoundaryTiming", providerBoundaryTiming);
+            throw timeoutError;
+          }
+          const mappedError = mapCommandCodeError(error);
+          if (mappedError !== error) {
+            const captured = commandCodeThoughtEvidenceFromError(error);
+            if (captured) attachCommandCodeThoughtEvidence(mappedError, captured);
+            const boundary = commandCodeBoundaryEvidenceFromError(error);
+            if (boundary) {
+              if (boundary.providerHttpStatus != null) attachProviderHttpStatusBoundary(mappedError, boundary.providerHttpStatus);
+              attachProviderBoundaryFact(mappedError, "providerBoundaryControls", controls);
+              if (providerBoundaryTiming) attachProviderBoundaryFact(mappedError, "providerBoundaryTiming", providerBoundaryTiming);
+            }
+          }
+          throw mappedError;
+        }
+      },
+    });
+
+    const inner = attentive.result;
+    const boundary: CommandCodeBoundaryEvidence = {
+      backend: "command_code_api",
+      requestedModelId: COMMAND_CODE_POLICY.modelId,
+      reasoningEffort: COMMAND_CODE_POLICY.effort,
+      requestHash: inner.providerRequestHash!,
+      providerModel: inner.providerModel,
+      providerRequestId: inner.providerRequestId,
+      providerHttpStatus: inner.providerHttpStatus,
+      responseHash: inner.providerResponseHash!,
+      transportOutcome: "response_received",
+    };
+    const commandCodeEvidence = evidenceFor(boundary, "response_received", 1);
+    const capturedAttemptIdentity: CapturedThoughtAttemptIdentity = {
+      backend: "command_code_api",
+      allocationId: attentive.requestId,
+      attentionRequestId: attentive.requestId,
+      providerInvocationId,
+      providerAttemptId,
+      attemptOrdinal: 1,
+      dispatchSequence: attentive.acceptedDispatchIdentity.dispatchSequence,
+      routeAlias: attentive.acceptedDispatchIdentity.routeAlias,
+      provider: "command_code",
+      requestedModelId: COMMAND_CODE_POLICY.modelId,
+      providerModel: inner.providerModel! as typeof COMMAND_CODE_POLICY.modelId,
+      reasoningEffort: COMMAND_CODE_POLICY.effort,
+      providerRequestId: inner.providerRequestId ?? null,
+      providerHttpStatus: inner.providerHttpStatus!,
+      requestHash: inner.providerRequestHash!,
+      responseHash: inner.providerResponseHash!,
+      providerAttempts: 1,
+      alternateProviderAttempts: 0,
+      contractId: attentive.acceptedDispatchIdentity.contractId,
+      buildIdentity: attentive.acceptedDispatchIdentity.buildIdentity,
+      logicalStructuredOutputId: structuredOutput.contractId,
+      semanticSchemaFingerprint: structuredOutput.schemaFingerprint,
+      wireSchemaFingerprint: structuredOutput.schemaFingerprint,
+      actualWireBindingId,
+      schemaEnforcementMode: "json_object_compatibility",
+    };
+    return {
+      text: inner.text,
+      model: attentive.modelAlias,
+      modelAlias: attentive.modelAlias,
+      resolvedModelId: attentive.resolvedModelId,
+      provider: "command_code",
+      providerModel: inner.providerModel,
+      providerRequestId: inner.providerRequestId,
+      toolCalls: inner.toolCalls,
+      usage: attentive.usage ?? inner.usage,
+      finishReason: inner.finishReason ?? null,
+      responseDiagnostics: inner.responseDiagnostics,
+      providerBoundaryControls: controls,
+      providerBoundaryTiming: inner.providerBoundaryTiming,
+      attentionRequestId: attentive.requestId,
+      acceptedDispatchIdentity: attentive.acceptedDispatchIdentity,
+      capturedAttemptIdentity,
+      commandCodeEvidence,
+      wireEvidence: inner.wireEvidence,
+      contextProjection: options.contextProjection,
+    };
+  } catch (error) {
+    attachDirectFailureEvidence(error);
+    const boundary = commandCodeBoundaryEvidenceFromError(error);
+    const transportOutcome = boundary?.transportOutcome
+      ?? (adapterInvoked ? "sent_outcome_unknown" : "not_sent");
+    if (privateBudgetBinding && privateBudgetBound) {
+      try {
+        if (privateBudgetCommitted && transportOutcome === "response_received") {
+          if (privateBudgetRepairOrdinal == null) {
+            recordPrivateProviderResponse(privateBudgetBinding.sidecar, {
+              reservationId: privateBudgetBinding.reservationId,
+              invocationId: providerInvocationId,
+              attemptId: providerAttemptId,
+              nowMs: Date.now(),
+            });
+          } else {
+            recordPrivateRepairResponse(privateBudgetBinding.sidecar, {
+              reservationId: privateBudgetBinding.reservationId,
+              invocationId: providerInvocationId,
+              attemptId: providerAttemptId,
+              providerRequestId: boundary?.providerRequestId ?? undefined,
+              nowMs: Date.now(),
+            });
+          }
+        } else if (!privateBudgetCommitted && transportOutcome === "not_sent") {
+          const proofRef = `command-code:${providerInvocationId}:${providerAttemptId}:not-sent`;
+          if (privateBudgetRepairOrdinal != null) {
+            releasePrivateRepairAttempt(privateBudgetBinding.sidecar, {
+              reservationId: privateBudgetBinding.reservationId,
+              invocationId: providerInvocationId,
+              proofRef,
+              nowMs: Date.now(),
+            });
+          } else {
+            const reservation = getPrivateReservation(privateBudgetBinding.sidecar, privateBudgetBinding.reservationId);
+            if (reservation && (reservation.state === "held" || reservation.state === "reconcile_required")) {
+              const continuable = reservation.state === "held"
+                && (options.signal as { reason?: unknown } | undefined)?.reason === "compose";
+              if (continuable) {
+                recordPrivateReservationNoDispatchProof(privateBudgetBinding.sidecar, {
+                  reservationId: privateBudgetBinding.reservationId,
+                  invocationId: reservation.invocationId ?? providerInvocationId,
+                  attemptId: reservation.attemptId ?? providerAttemptId,
+                  proofRef,
+                  nowMs: Date.now(),
+                });
+              } else {
+                releasePrivateReservation(privateBudgetBinding.sidecar, {
+                  reservationId: privateBudgetBinding.reservationId,
+                  proofRef,
+                  dispatchTruth: "not_started",
+                  invocationId: reservation.invocationId ?? providerInvocationId,
+                  attemptId: reservation.attemptId ?? providerAttemptId,
+                  nowMs: Date.now(),
+                });
+              }
+            }
+          }
+        }
+      } catch {
+        // Preserve the provider or dispatch failure; recovery owns unsettled reservations.
+      }
+    }
+    throw error;
+  }
+}
+
 export async function completeChat(
   messages: ChatMessage[],
   options: CognitiveDispatchOptions,
@@ -436,6 +905,7 @@ export async function completeChat(
   model: string;
   modelAlias: string;
   resolvedModelId: string | null;
+  provider?: ProviderId;
   providerModel?: string | null;
   providerRequestId?: string | null;
   cfRay?: string | null;
@@ -450,6 +920,7 @@ export async function completeChat(
   acceptedDispatchIdentity?: AcceptedDispatchIdentity;
   /** Exact Thought attempt identity returned by the Attention/Model Fabric bind. */
   capturedAttemptIdentity?: CapturedThoughtAttemptIdentity;
+  commandCodeEvidence?: CommandCodeThoughtEvidence;
   modelFabric?: ModelFabricDispatchMetadata;
   wireEvidence?: WireDispatchEvidence;
   capabilityIdentity?: ThoughtCapabilityIdentity;
@@ -461,6 +932,12 @@ export async function completeChat(
   const attentionDb = options.attentionDb;
   const mapped = mapLegacyLane(options.lane, options.purpose);
   const purpose = mapped.purpose;
+  if (options.directCommandCodeThought) {
+    if (purpose !== "thought") {
+      throw new AppError("capability_mismatch", "direct_command_code_thought_purpose_required", 400);
+    }
+    return completeDirectCommandCodeThought(messages, options, mapped.lane);
+  }
   const contextProjection = options.contextProjection ?? (
     options.contextProjectionEvidenceRefs
       ? createContextProjection({

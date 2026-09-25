@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import path from "node:path";
@@ -21,9 +22,10 @@ import {
   type WorkerToolCall,
   type WorkerToolProfile,
 } from "./tool-bridge.js";
+import { COMMAND_CODE_POLICY } from "../../command-code/policy.js";
 
-export const COMMAND_CODE_WORKER_MODEL_ID = "meta/muse-spark-1.3-contributor";
-export const COMMAND_CODE_WORKER_EFFORT = "xhigh" as const;
+export const COMMAND_CODE_WORKER_MODEL_ID = COMMAND_CODE_POLICY.modelId;
+export const COMMAND_CODE_WORKER_EFFORT = COMMAND_CODE_POLICY.effort;
 export const COMMAND_CODE_WORKER_PINNED_VERSION = "1.64.0";
 /** CLI-internal turn ceiling. Distinct from the Host-owned step counter. */
 export const COMMAND_CODE_WORKER_MAX_TURNS = 128 as const;
@@ -54,9 +56,30 @@ export type ModeBWorkerResult = {
   selectedModelId: string | null;
   quotaClass: string | null;
   steps: ModeBWorkerStep[];
+  commandCodeInvocations: CommandCodeWorkerInvocationEvidence[];
   summary: string | null;
   payload: Record<string, unknown>;
 };
+
+export type CommandCodeWorkerInvocationEvidence = Readonly<{
+  invocationId: string;
+  operationId: string | null;
+  conversationId: string | null;
+  cycleId: string | null;
+  generation: number | null;
+  wakeId: string | null;
+  backend: "command_code_cli";
+  configuredModelId: string;
+  effort: typeof COMMAND_CODE_WORKER_EFFORT;
+  cliVersion: string;
+  turnIndex: number;
+  processExitStatus: number | null;
+  resultHash: `sha256:${string}` | null;
+  outcome: "completed" | "transport_error" | "protocol_error" | "process_error";
+  protocolError?: string;
+  /** The Command Code CLI does not expose a provider-returned model identity. */
+  returnedModelEvidence: "not_reported_by_cli";
+}>;
 
 export type ModeBWorkerStep = {
   operation: string;
@@ -115,6 +138,11 @@ export type CommandCodeWorkerInput = {
   inspectionBase: Omit<ExecuteProjectInspectionV2Input, "request">;
   workspaceBase: Omit<ExecuteWorkspaceExperimentV2Input, "request">;
   workspaceId?: string;
+  operationId?: string;
+  conversationId?: string;
+  cycleId?: string;
+  generation?: number;
+  wakeId?: string;
   nowMs: () => number;
   deadlineAtMs?: number;
   signal?: AbortSignal;
@@ -737,6 +765,7 @@ export async function executeCommandCodeWorker(input: CommandCodeWorkerInput): P
     selectedModelId: null,
     quotaClass: null,
     steps: [],
+    commandCodeInvocations: [],
     summary: null,
     payload: { error },
   });
@@ -770,6 +799,7 @@ export async function executeCommandCodeWorker(input: CommandCodeWorkerInput): P
   if (sessionDeadlineAtMs - input.nowMs() <= 0) return empty("deadline_exhausted");
 
   const steps: ModeBWorkerStep[] = [];
+  const commandCodeInvocations: CommandCodeWorkerInvocationEvidence[] = [];
   let summary: string | null = null;
   let terminalError: string | null = null;
   let selectedModelId: string | null = null;
@@ -790,6 +820,40 @@ export async function executeCommandCodeWorker(input: CommandCodeWorkerInput): P
     const turnDeadlineAtMs = Math.min(sessionDeadlineAtMs, input.nowMs() + WORKER_MODEL_TURN_MAX_MS);
     selectedModelId = COMMAND_CODE_WORKER_MODEL_ID;
     let turn: CommandCodeWorkerTurn;
+    const invocation: {
+      invocationId: string;
+      operationId: string | null;
+      conversationId: string | null;
+      cycleId: string | null;
+      generation: number | null;
+      wakeId: string | null;
+      backend: "command_code_cli";
+      configuredModelId: string;
+      effort: typeof COMMAND_CODE_WORKER_EFFORT;
+      cliVersion: string;
+      turnIndex: number;
+      processExitStatus: number | null;
+      resultHash: `sha256:${string}` | null;
+      outcome: CommandCodeWorkerInvocationEvidence["outcome"];
+      protocolError?: string;
+      returnedModelEvidence: "not_reported_by_cli";
+    } = {
+      invocationId: randomUUID(),
+      operationId: input.operationId ?? null,
+      conversationId: input.conversationId ?? null,
+      cycleId: input.cycleId ?? null,
+      generation: input.generation ?? null,
+      wakeId: input.wakeId ?? null,
+      backend: "command_code_cli",
+      configuredModelId: COMMAND_CODE_WORKER_MODEL_ID,
+      effort: COMMAND_CODE_WORKER_EFFORT,
+      cliVersion: commandCodeVersion,
+      turnIndex: step + 1,
+      processExitStatus: null,
+      resultHash: null,
+      outcome: "transport_error",
+      returnedModelEvidence: "not_reported_by_cli",
+    };
     try {
       turn = await transport.complete({
         modelId: COMMAND_CODE_WORKER_MODEL_ID,
@@ -799,6 +863,7 @@ export async function executeCommandCodeWorker(input: CommandCodeWorkerInput): P
         signal: input.signal,
       });
     } catch (error) {
+      commandCodeInvocations.push(invocation);
       const safeReason = error instanceof Error && [
         "command_code_timeout",
         "command_code_cancelled",
@@ -810,6 +875,13 @@ export async function executeCommandCodeWorker(input: CommandCodeWorkerInput): P
       terminalError = safeReason;
       break;
     }
+    invocation.processExitStatus = turn.status;
+    invocation.resultHash = `sha256:${createHash("sha256").update(turn.text, "utf8").digest("hex")}`;
+    invocation.outcome = turn.protocolError
+      ? "protocol_error"
+      : turn.status === 0 ? "completed" : "process_error";
+    if (turn.protocolError) invocation.protocolError = turn.protocolError;
+    commandCodeInvocations.push(invocation);
     if (input.signal?.aborted) {
       terminalError = "command_code_cancelled";
       break;
@@ -942,11 +1014,13 @@ export async function executeCommandCodeWorker(input: CommandCodeWorkerInput): P
     selectedModelId,
     quotaClass: null,
     steps,
+    commandCodeInvocations,
     summary,
     payload: {
       operation: input.kind,
       projectId: parsed.value.projectId,
       selectedModelId,
+      commandCodeInvocations,
       summary,
       steps: steps.map((step) => ({
         operation: step.operation,

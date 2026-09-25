@@ -210,6 +210,45 @@ describe("Thought Diagnostics & Observability DB", () => {
     }
   });
 
+  it("round-trips the actual allocator constraint without labeling it token overflow", () => {
+    const obs = openObservabilityStore(":memory:");
+    try {
+      const allocationFailure = {
+        kind: "serialized_request_bytes" as const,
+        constraint: "logical_input_byte_envelope",
+        measuredValue: 524_161,
+        unit: "bytes" as const,
+        limit: 524_160,
+        stage: "observation_validation" as const,
+        measurementBasis: "exact" as const,
+      };
+      obs.recordDiagnostic({
+        cycleId: "cycle-observation-byte-overflow",
+        generation: 2,
+        requestId: "req-observation-byte-overflow",
+        pass: 1,
+        code: "context_allocation_required_overflow",
+        stage: "allocation",
+        dispatchTruth: "not_sent",
+        requiredOverflowSection: "observations",
+        allocationFailure,
+      });
+
+      const stored = obs.db.prepare(
+        "SELECT cycle_metrics_json FROM thought_dispatch_diagnostics WHERE request_id = ?",
+      ).get("req-observation-byte-overflow") as { cycle_metrics_json: string };
+      expect(JSON.parse(stored.cycle_metrics_json)).toMatchObject({
+        allocation_failure: allocationFailure,
+        estimated_input_tokens: null,
+        semantic_budget_tokens: null,
+        overflow_tokens: null,
+      });
+      expect(obs.listDiagnostics()[0]).toMatchObject({ allocationFailure });
+    } finally {
+      obs.close();
+    }
+  });
+
   it("round-trips bounded abort and affinity telemetry without prose", () => {
     const obs = openObservabilityStore(":memory:");
     try {
@@ -1304,6 +1343,58 @@ describe("Thought Diagnostics & Observability DB", () => {
     } finally {
       obs.close();
       vi.unstubAllEnvs();
+    }
+  });
+
+  it("round-trips provider-neutral direct Command Code attempt evidence", () => {
+    const obs = openObservabilityStore(":memory:");
+    try {
+      const providerFailure: ThoughtDispatchDiagnostic["providerFailure"] = {
+        dispatchTruth: "sent",
+        parserStatus: "passed",
+        validatorStatus: "passed",
+        structuralRetryStatus: "not_applicable",
+        provider: "command_code",
+        model: "meta/muse-spark-1.3-contributor",
+        providerModel: "meta/muse-spark-1.3-contributor",
+        backend: "command_code_api",
+        providerInvocationId: "provider-invocation:direct-diagnostic",
+        providerAttemptId: "provider-invocation:direct-diagnostic:attempt:1",
+        requestHash: `sha256:${"a".repeat(64)}`,
+        responseHash: `sha256:${"b".repeat(64)}`,
+        providerAttemptCount: 1,
+        alternateProviderAttempts: 0,
+        transportOutcome: "response_received",
+        reasoningConfiguration: "xhigh",
+        providerHttpStatus: 200,
+      };
+      obs.recordDiagnostic({
+        cycleId: "cycle-direct-command-code",
+        generation: 1,
+        requestId: "request-direct-command-code",
+        pass: 1,
+        code: "provider_returned",
+        stage: "provider_dispatch",
+        dispatchTruth: "sent",
+        providerFailure,
+      });
+
+      expect(obs.listDiagnostics()[0].providerFailure).toMatchObject(providerFailure);
+      const stored = obs.db.prepare(
+        "SELECT provider_failure_json FROM thought_dispatch_diagnostics WHERE request_id = ?",
+      ).get("request-direct-command-code") as { provider_failure_json: string };
+      expect(JSON.parse(stored.provider_failure_json)).toMatchObject({
+        backend: "command_code_api",
+        providerInvocationId: "provider-invocation:direct-diagnostic",
+        providerAttemptId: "provider-invocation:direct-diagnostic:attempt:1",
+        requestHash: `sha256:${"a".repeat(64)}`,
+        responseHash: `sha256:${"b".repeat(64)}`,
+        providerAttemptCount: 1,
+        alternateProviderAttempts: 0,
+        transportOutcome: "response_received",
+      });
+    } finally {
+      obs.close();
     }
   });
 

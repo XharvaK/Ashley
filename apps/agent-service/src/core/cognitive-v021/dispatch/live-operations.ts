@@ -18,6 +18,8 @@ import {
   executeCommandCodeWorker,
   MODE_B_DEVELOP,
   MODE_B_INVESTIGATE,
+  type CommandCodeWorkerInvocationEvidence,
+  type CommandCodeWorkerInput,
   type ModeBWorkerResult,
   DETACHED_WORKER_MAX_WALL_CLOCK_MS,
   WORKER_FINALIZATION_RESERVE_MS,
@@ -115,6 +117,21 @@ type LiveOperationAdapters = {
   executeModeBWorker: typeof executeCommandCodeWorker;
 };
 
+type ModeBWorkerEvidenceBinding = Readonly<{
+  kind: CommandCodeWorkerInput["kind"];
+  operationId: string | null;
+  conversationId: string | null;
+  cycleId: string | null;
+  generation: number | null;
+  wakeId: string | null;
+}>;
+
+type ModeBWorkerEvidenceSnapshot = Readonly<{
+  license: Readonly<Pick<OperationalClaimLicense, "state" | "error">>;
+  selectedModelId: string | null;
+  commandCodeInvocations: readonly Readonly<CommandCodeWorkerInvocationEvidence>[];
+}>;
+
 export type V021LiveOperationExecutorOptions = {
   nuclear: DatabaseSync;
   sidecar?: DatabaseSync;
@@ -124,6 +141,11 @@ export type V021LiveOperationExecutorOptions = {
   workspaceManager?: WorkspaceManager;
   dispatcher?: SandboxV2Dispatcher;
   envOverrides?: LiveSandboxOverrides;
+  /** Host-side evidence observer. Receives frozen, non-secret evidence only. */
+  onModeBWorkerResult?: (
+    input: ModeBWorkerEvidenceBinding,
+    result: ModeBWorkerEvidenceSnapshot,
+  ) => void;
   /** Test-only seams that still call the approved adapter contract. */
   adapters?: Partial<LiveOperationAdapters>;
 };
@@ -138,7 +160,11 @@ export type V021LiveOperationExecutors = {
    */
   runDetachedInvestigate(input: {
     request: unknown;
+    operationId?: string;
+    conversationId?: string;
     cycleId: string;
+    generation?: number;
+    wakeId?: string;
     purpose: string;
     deadlineAtMs?: number;
   }): Promise<ModeBWorkerResult>;
@@ -777,7 +803,37 @@ export function createV021LiveOperationExecutors(
     workspaceId?: string,
     deadlineAtMs?: number,
     signal?: AbortSignal,
+    evidenceBinding?: {
+      operationId?: string;
+      conversationId?: string;
+      cycleId?: string;
+      generation?: number;
+      wakeId?: string;
+    },
   ): Promise<ModeBWorkerResult> {
+    let cycleEvidence: Record<string, unknown> | undefined;
+    if (options.sidecar) {
+      try {
+        cycleEvidence = options.sidecar.prepare(
+          "SELECT conversation_id, generation, wake_id FROM cycle_records WHERE cycle_id = ? LIMIT 1",
+        ).get(cycleId) as Record<string, unknown> | undefined;
+      } catch {
+        cycleEvidence = undefined;
+      }
+    }
+    const boundEvidence = {
+      ...evidenceBinding,
+      conversationId: typeof cycleEvidence?.conversation_id === "string"
+        ? cycleEvidence.conversation_id
+        : evidenceBinding?.conversationId,
+      cycleId,
+      generation: typeof cycleEvidence?.generation === "number"
+        ? cycleEvidence.generation
+        : evidenceBinding?.generation,
+      wakeId: typeof cycleEvidence?.wake_id === "string"
+        ? cycleEvidence.wake_id
+        : evidenceBinding?.wakeId,
+    };
     const base = operationBase(nowMs);
     const operationDeadlineAtMs = Math.min(
       deadlineAtMs ?? Number.MAX_SAFE_INTEGER,
@@ -795,7 +851,7 @@ export function createV021LiveOperationExecutors(
       : kind === MODE_B_INVESTIGATE
         ? canOfferWorkerBackedProjectInspection(sandboxGate)
         : canOfferCandidateWorkspace(options.nuclear, sandboxGate);
-    return adapters.executeModeBWorker({
+    const workerInput: CommandCodeWorkerInput = {
       kind,
       request,
       purpose,
@@ -821,13 +877,39 @@ export function createV021LiveOperationExecutors(
         messageEntityUuid: cycleId,
       },
       workspaceId,
+      ...boundEvidence,
       nowMs,
       deadlineAtMs: operationDeadlineAtMs,
       signal,
       workerEnabled: env.commandCodeWorkerEnabled,
       gateOk,
       gateError: gateOk ? undefined : "worker_gate_denied",
-    });
+    };
+    const result = await adapters.executeModeBWorker(workerInput);
+    try {
+      const evidenceBinding: ModeBWorkerEvidenceBinding = Object.freeze({
+        kind: workerInput.kind,
+        operationId: workerInput.operationId ?? null,
+        conversationId: workerInput.conversationId ?? null,
+        cycleId: workerInput.cycleId ?? null,
+        generation: workerInput.generation ?? null,
+        wakeId: workerInput.wakeId ?? null,
+      });
+      const evidenceSnapshot: ModeBWorkerEvidenceSnapshot = Object.freeze({
+        license: Object.freeze({
+          state: result.license.state,
+          error: result.license.error ?? null,
+        }),
+        selectedModelId: result.selectedModelId,
+        commandCodeInvocations: Object.freeze(
+          result.commandCodeInvocations.map((invocation) => Object.freeze({ ...invocation })),
+        ),
+      });
+      options.onModeBWorkerResult?.(evidenceBinding, evidenceSnapshot);
+    } catch {
+      // Evidence observers cannot change a worker's execution result.
+    }
+    return result;
   }
 
   return {
@@ -884,11 +966,15 @@ export function createV021LiveOperationExecutors(
 
     async runDetachedInvestigate(input: {
       request: unknown;
+      operationId?: string;
+      conversationId?: string;
       cycleId: string;
+      generation?: number;
+      wakeId?: string;
       purpose: string;
       deadlineAtMs?: number;
     }): Promise<ModeBWorkerResult> {
-      return runModeB(MODE_B_INVESTIGATE, input.request, input.cycleId, input.purpose, undefined, input.deadlineAtMs);
+      return runModeB(MODE_B_INVESTIGATE, input.request, input.cycleId, input.purpose, undefined, input.deadlineAtMs, undefined, input);
     },
 
     async executeObservation(req): Promise<Observation> {
@@ -898,7 +984,11 @@ export function createV021LiveOperationExecutors(
       if (req.kind === MODE_B_INVESTIGATE) {
         let result: ModeBWorkerResult;
         try {
-          result = await runModeB(req.kind, req.request, req.cycleId, "investigate");
+          result = await runModeB(req.kind, req.request, req.cycleId, "investigate", undefined, undefined, undefined, {
+            operationId: req.requestId,
+            cycleId: req.cycleId,
+            generation: req.generation,
+          });
         } catch {
           throw new Error("observation_unavailable");
         }
@@ -1093,6 +1183,11 @@ export function createV021LiveOperationExecutors(
               stringValue(value?.workspaceId) ?? undefined,
               control?.deadlineAtMs,
               control?.signal,
+              {
+                operationId: proposal.effectId,
+                cycleId: proposal.cycleId,
+                generation: proposal.generation,
+              },
             );
             modeBResult = result;
             license = {
@@ -1131,6 +1226,7 @@ export function createV021LiveOperationExecutors(
           selectedModelId: modeBResult.selectedModelId,
           summary: modeBResult.summary,
           steps: modeBResult.payload.steps,
+          commandCodeInvocations: modeBResult.commandCodeInvocations,
         },
       };
     },

@@ -6,6 +6,7 @@ import {
   completeChat,
 } from "../../../mistral-client.js";
 import type { ChatMessage } from "../../model-routing/types.js";
+import { commandCodeThoughtEvidenceFromError } from "../../command-code/evidence.js";
 import {
   ORDINARY_THOUGHT_BUDGET_MS,
   MAX_AUTHORITY_REVISIONS,
@@ -455,6 +456,37 @@ export function executionProvenanceFromMetadata(
   });
 }
 
+function executionProvenanceFromDirectCommandCode(
+  evidence: NonNullable<Awaited<ReturnType<typeof completeChat>>["commandCodeEvidence"]>,
+): ThoughtExecutionProvenance {
+  return Object.freeze({
+    dispatchTruth: evidence.transportOutcome === "response_received"
+      ? "sent"
+      : evidence.transportOutcome === "not_sent"
+        ? "not_sent"
+        : "unknown",
+    providerAttempts: evidence.providerAttempts,
+  });
+}
+
+function executionProvenanceForCompletion(
+  completion: Awaited<ReturnType<typeof completeChat>>,
+): ThoughtExecutionProvenance {
+  return completion.commandCodeEvidence
+    ? executionProvenanceFromDirectCommandCode(completion.commandCodeEvidence)
+    : executionProvenanceFromMetadata(completion.modelFabric);
+}
+
+function executionProvenanceForError(
+  error: unknown,
+  completion?: Awaited<ReturnType<typeof completeChat>>,
+): ThoughtExecutionProvenance {
+  const directEvidence = commandCodeThoughtEvidenceFromError(error)
+    ?? completion?.commandCodeEvidence;
+  if (directEvidence) return executionProvenanceFromDirectCommandCode(directEvidence);
+  return executionProvenanceFromMetadata(establishedExecutionMetadata(metadataFromError(error), completion));
+}
+
 function mergeExecutionProvenance(
   current: ThoughtExecutionProvenance | null,
   next: ThoughtExecutionProvenance,
@@ -550,9 +582,11 @@ function providerFailureCapture(input: {
 }): ThoughtProviderFailureCapture {
   const metadata = input.metadata ?? input.completion?.modelFabric ?? null;
   const attempt = terminalModelAttempt(metadata);
+  const directEvidence = input.completion?.commandCodeEvidence
+    ?? commandCodeThoughtEvidenceFromError(input.error);
   const providerHttpStatus = attempt?.receiptStage === "provider_response"
     ? attempt.providerHttpStatus
-    : undefined;
+    : directEvidence?.providerHttpStatus ?? undefined;
   const canonicalUsage = attempt?.receiptStage === "provider_response"
     ? attempt.usage
     : undefined;
@@ -576,17 +610,27 @@ function providerFailureCapture(input: {
   const capturedAttempt = completion?.capturedAttemptIdentity;
   const provider = attempt?.provider
     ?? metadata?.resolvedRoute?.provider
-    ?? capturedAttempt?.provider;
+    ?? (directEvidence?.backend === "command_code_api"
+      ? "command_code"
+      : capturedAttempt?.provider);
+  const capturedModelId = capturedAttempt
+    ? ("requestedModelId" in capturedAttempt
+        ? capturedAttempt.requestedModelId
+        : capturedAttempt.configuredModelId)
+    : undefined;
   const model = attempt?.configuredModelId
-    ?? capturedAttempt?.configuredModelId
+    ?? directEvidence?.requestedModelId
+    ?? capturedModelId
     ?? completion?.modelAlias;
-  const providerModel = completion?.providerModel ?? undefined;
+  const providerModel = completion?.providerModel ?? directEvidence?.providerModel ?? undefined;
   // P3 S5: provider request identity + cache/usage truth. Missing numeric
   // evidence stays absent (UNKNOWN downstream) — never coerced (no Number()
   // wrapping: Number(null) === 0 would launder missingness into observed
   // zero). cachedSource marks WHERE the cached count was observed.
   const providerRequestId = typeof completion?.providerRequestId === "string" && completion.providerRequestId
     ? completion.providerRequestId
+    : typeof directEvidence?.providerRequestId === "string" && directEvidence.providerRequestId
+      ? directEvidence.providerRequestId
     : typeof (attempt as { providerRequestId?: unknown } | undefined)?.providerRequestId === "string"
       && (attempt as { providerRequestId: string }).providerRequestId
       ? (attempt as { providerRequestId: string }).providerRequestId
@@ -611,6 +655,7 @@ function providerFailureCapture(input: {
     ?? attempt?.structuredOutputSchemaFingerprint
     ?? input.options.structuredOutput?.schemaFingerprint;
   const reasoningConfiguration = controls?.reasoningConfiguration
+    ?? directEvidence?.reasoningEffort
     ?? attempt?.effectiveReasoningSent
     ?? attempt?.translatedWireControl
     ?? attempt?.effectiveReasoning
@@ -633,16 +678,26 @@ function providerFailureCapture(input: {
     ...(cachedSource ? { cachedSource } : {}),
     ...(attempt?.invocationId
       ? { modelFabricInvocationId: attempt.invocationId }
-      : capturedAttempt?.modelFabricInvocationId
+      : capturedAttempt && "modelFabricInvocationId" in capturedAttempt && capturedAttempt.modelFabricInvocationId
         ? { modelFabricInvocationId: capturedAttempt.modelFabricInvocationId }
       : receipt?.invocationId
         ? { modelFabricInvocationId: receipt.invocationId }
         : {}),
     ...(attempt?.attemptId
       ? { modelFabricAttemptId: attempt.attemptId }
-      : capturedAttempt?.modelFabricAttemptId
+      : capturedAttempt && "modelFabricAttemptId" in capturedAttempt && capturedAttempt.modelFabricAttemptId
         ? { modelFabricAttemptId: capturedAttempt.modelFabricAttemptId }
         : {}),
+    ...(directEvidence ? {
+      backend: directEvidence.backend,
+      providerInvocationId: directEvidence.providerInvocationId,
+      providerAttemptId: directEvidence.providerAttemptId,
+      ...(directEvidence.requestHash ? { requestHash: directEvidence.requestHash } : {}),
+      ...(directEvidence.responseHash ? { responseHash: directEvidence.responseHash } : {}),
+      providerAttemptCount: directEvidence.providerAttempts,
+      alternateProviderAttempts: directEvidence.alternateProviderAttempts,
+      transportOutcome: directEvidence.transportOutcome,
+    } : {}),
     ...(attempt?.attemptOrdinal !== undefined
       ? { attemptOrdinal: attempt.attemptOrdinal }
       : capturedAttempt?.attemptOrdinal !== undefined
@@ -742,7 +797,7 @@ function providerFailureCaptureForCompletion(
   status: ThoughtProviderCaptureStatus,
 ): ThoughtProviderFailureCapture {
   const dispatchTruth: ThoughtProviderFailureCapture["dispatchTruth"] =
-    executionProvenanceFromMetadata(completion.modelFabric).dispatchTruth;
+    executionProvenanceForCompletion(completion).dispatchTruth;
   return providerFailureCapture({
     completion,
     options,
@@ -761,7 +816,7 @@ function providerFailureCaptureForError(
   const metadata = establishedExecutionMetadata(errorMetadata, completion);
   const dispatchTruth = !dispatchStarted && !completion
     ? NOT_SENT_EXECUTION_PROVENANCE.dispatchTruth
-    : executionProvenanceFromMetadata(metadata).dispatchTruth;
+    : executionProvenanceForError(error, completion).dispatchTruth;
   return providerFailureCapture({
     metadata,
     completion,
@@ -771,7 +826,9 @@ function providerFailureCaptureForError(
     status: {
       parserStatus: "not_run",
       validatorStatus: "not_run",
-      failureClass: metadata?.failure?.sanitizedCauseClass ?? safeFailureClass(error),
+      failureClass: commandCodeThoughtEvidenceFromError(error)?.failureClass
+        ?? metadata?.failure?.sanitizedCauseClass
+        ?? safeFailureClass(error),
       structuralRetryStatus: "not_applicable",
     },
   });
@@ -1367,6 +1424,8 @@ export async function runThoughtModel(
   options: {
     pass?: number;
     requestId?: string;
+    conversationId?: string;
+    wakeId?: string;
     signal?: AbortSignal;
     deadlineAtMs: number;
     structuralFeedback?: StructuralFeedbackInput;
@@ -1390,6 +1449,7 @@ export async function runThoughtModel(
     responseFormat: "json_schema",
     structuredOutput: thoughtOutputStructuredRequest(operationalNamespace),
     purpose: "thought",
+    directCommandCodeThought: true,
     lane: "urgent_grounded",
     ownerId: input.occupantId,
     deadlineAtMs: options.deadlineAtMs,
@@ -1483,6 +1543,8 @@ export async function runThoughtModel(
       // returned allocation ID.
       allocationId: 0,
       cycleId: input.cycleId,
+      conversationId: options.conversationId ?? null,
+      wakeId: options.wakeId ?? null,
       generation: input.generation,
       semanticPass: pass,
       structuralAttemptOrdinal: options.structuralFeedback ? 1 : 0,
@@ -1523,7 +1585,7 @@ export async function runThoughtModel(
         requestId,
         cancelled: true,
         inputTokens: completion.usage?.promptTokens ?? estimatedInputTokens,
-        thoughtExecutionProvenance: executionProvenanceFromMetadata(completion.modelFabric),
+        thoughtExecutionProvenance: executionProvenanceForCompletion(completion),
       };
     }
     const semanticResult = parseThoughtSemanticOutput(
@@ -1575,7 +1637,7 @@ export async function runThoughtModel(
             structuralRetryStatus: "not_scheduled",
             },
           ),
-        thoughtExecutionProvenance: executionProvenanceFromMetadata(completion.modelFabric),
+        thoughtExecutionProvenance: executionProvenanceForCompletion(completion),
       };
     }
     const semantic = semanticResult.value;
@@ -1609,7 +1671,7 @@ export async function runThoughtModel(
             structuralRetryStatus: "not_scheduled",
             },
           ),
-        thoughtExecutionProvenance: executionProvenanceFromMetadata(completion.modelFabric),
+        thoughtExecutionProvenance: executionProvenanceForCompletion(completion),
       };
     }
     const kernelEnvelope = completion.capturedAttemptIdentity
@@ -1739,7 +1801,7 @@ export async function runThoughtModel(
           structuralRetryStatus: "not_applicable",
         },
       ),
-      thoughtExecutionProvenance: executionProvenanceFromMetadata(completion.modelFabric),
+      thoughtExecutionProvenance: executionProvenanceForCompletion(completion),
     };
   } catch (error) {
     const cancelled = options.signal?.aborted === true
@@ -1776,15 +1838,13 @@ export async function runThoughtModel(
             }
           : {}),
         thoughtExecutionProvenance: lastCompletion
-          ? executionProvenanceFromMetadata(lastCompletion.modelFabric)
+          ? executionProvenanceForCompletion(lastCompletion)
           : UNKNOWN_EXECUTION_PROVENANCE,
       };
     }
     const executionProvenance = !dispatchStarted && !lastCompletion
       ? NOT_SENT_EXECUTION_PROVENANCE
-      : executionProvenanceFromMetadata(
-        establishedExecutionMetadata(metadataFromError(error), lastCompletion),
-      );
+      : executionProvenanceForError(error, lastCompletion);
     // AppError code "timeout" is minted only by the dispatch deadline branch;
     // the shared Model Fabric classifier maps it (and raw deadline
     // TimeoutErrors) to the internal timeout code. A received provider
@@ -2867,6 +2927,7 @@ export async function runCognitiveCycle(
       }
     } catch (err) {
       if (err instanceof RequiredOverflowError) {
+        const tokenFailure = err.failure?.unit === "tokens";
         if (deps.observabilityDb) {
           try {
             recordDiagnostic(deps.observabilityDb, {
@@ -2878,9 +2939,12 @@ export async function runCognitiveCycle(
               stage: "allocation",
               dispatchTruth: "not_sent",
               requiredOverflowSection: err.section,
-              estimatedInputTokens: err.estimatedInputTokens,
-              semanticBudgetTokens: err.semanticBudgetTokens,
-              overflowTokens: Math.max(0, err.estimatedInputTokens - err.semanticBudgetTokens),
+              allocationFailure: err.failure,
+              estimatedInputTokens: tokenFailure ? err.estimatedInputTokens : null,
+              semanticBudgetTokens: tokenFailure ? err.semanticBudgetTokens : null,
+              overflowTokens: tokenFailure
+                ? Math.max(0, err.estimatedInputTokens - err.semanticBudgetTokens)
+                : null,
               createdAtMs: deps.nowMs(),
             });
           } catch {
@@ -2925,6 +2989,8 @@ export async function runCognitiveCycle(
         ? STRUCTURAL_RETRY_MAX_OUTPUT_TOKENS
         : undefined,
       nowMs: deps.nowMs(),
+      conversationId: cycle.conversationId,
+      wakeId: cycle.wakeId,
       privateBudgetBinding: options.privateBudgetBinding,
       concernInspectAuthority: {
         refs: new Set(Object.keys(sourceCapture.concernInspectDependencies)),

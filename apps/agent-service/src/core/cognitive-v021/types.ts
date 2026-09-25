@@ -1,4 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
+import type { COMMAND_CODE_POLICY } from "../command-code/policy.js";
 import type { StructuredOutputRequest } from "../model-fabric/types.js";
 import type { ChatMessage, CompletionOptions, ProviderId } from "../model-routing/types.js";
 import type {
@@ -98,6 +99,8 @@ export type ThoughtInvocationContext = {
   invocationId: string;
   allocationId: number;
   cycleId: CycleId;
+  conversationId?: ConversationId | null;
+  wakeId?: string | null;
   generation: Generation;
   semanticPass: number;
   structuralAttemptOrdinal: number;
@@ -133,12 +136,44 @@ export type CapturedModelAttemptIdentity = {
   resourcePolicyFingerprint: string;
 };
 
+export type CapturedDirectCommandCodeAttemptIdentity = {
+  backend: "command_code_api";
+  allocationId: number;
+  attentionRequestId: number;
+  providerInvocationId: string;
+  providerAttemptId: string;
+  attemptOrdinal: 1;
+  dispatchSequence: number;
+  routeAlias: string | null;
+  provider: "command_code";
+  requestedModelId: typeof COMMAND_CODE_POLICY.modelId;
+  providerModel: typeof COMMAND_CODE_POLICY.modelId;
+  reasoningEffort: typeof COMMAND_CODE_POLICY.effort;
+  providerRequestId: string | null;
+  providerHttpStatus: number;
+  requestHash: string;
+  responseHash: string;
+  providerAttempts: 1;
+  alternateProviderAttempts: 0;
+  contractId: string;
+  buildIdentity: string;
+  logicalStructuredOutputId: string;
+  semanticSchemaFingerprint: string;
+  wireSchemaFingerprint: string;
+  actualWireBindingId: string;
+  schemaEnforcementMode: string;
+};
+
+export type CapturedThoughtAttemptIdentity =
+  | CapturedModelAttemptIdentity
+  | CapturedDirectCommandCodeAttemptIdentity;
+
 export type KernelEnvelope = ThoughtInvocationContext & {
   protocolIdentity: string;
   kernelEnvelopeVersion: "ashley.thought.kernel-envelope.v1";
   parserValidatorIdentity: string;
   runtimeArtifactIdentity: string;
-  capturedAttempt: CapturedModelAttemptIdentity;
+  capturedAttempt: CapturedThoughtAttemptIdentity;
   responseHash: string;
 };
 

@@ -3,6 +3,26 @@ import type { RequirednessContract } from "./sections.js";
 import type { SemanticProjectionEnvelope } from "./budget.js";
 import type { CoverageManifest } from "../coverage-manifest.js";
 
+export type AllocationFailureKind =
+  | "structural_safety"
+  | "serialized_request_bytes"
+  | "provider_context_limit"
+  | "semantic_token_budget"
+  | "required_set_packing"
+  | "evidence_count_limit"
+  | "retained_detail_access";
+
+export type AllocationFailureDiagnostic = Readonly<{
+  kind: AllocationFailureKind;
+  constraint: string;
+  measuredValue: number;
+  unit: "bytes" | "tokens" | "items" | "levels" | "nodes";
+  limit: number;
+  stage: "required_set_validation" | "observation_validation" | "global_allocation" | "final_render" | "provider_dispatch";
+  measurementBasis: "exact" | "lower_bound";
+  fallback?: "retained_detail_access_unavailable";
+}>;
+
 export type AllocationTokenBreakdown = {
   static_contract_tokens: number;
   conversation_tokens: number;

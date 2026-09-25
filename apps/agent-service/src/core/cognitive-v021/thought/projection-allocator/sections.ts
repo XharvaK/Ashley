@@ -20,8 +20,6 @@ import type { C3ExperienceAdapterResult } from "../c3-adapter.js";
 import {
   PROTECTED_PRIOR_DIALOGUE_COUNT,
   REQUIRED_LEARNED_SELF_BYTES,
-  REQUIRED_OBSERVATION_COUNT,
-  REQUIRED_OBSERVATION_ITEM_BYTES,
   REQUIRED_OCCUPANCY_COUNT,
   type DialogueProtection,
   utf8JsonBytes,
@@ -240,9 +238,7 @@ function boundLearnedSelfSlice(
 function boundObservations(observations: readonly Observation[]): Observation[] {
   return [...observations]
     .sort((left, right) => right.generation - left.generation
-      || left.observationId.localeCompare(right.observationId))
-    .filter((observation) => utf8JsonBytes(observation) <= REQUIRED_OBSERVATION_ITEM_BYTES)
-    .slice(0, REQUIRED_OBSERVATION_COUNT);
+      || left.observationId.localeCompare(right.observationId));
 }
 
 function boundOccupancy(occupancy: readonly ThoughtOccupancy[]): ThoughtOccupancy[] {

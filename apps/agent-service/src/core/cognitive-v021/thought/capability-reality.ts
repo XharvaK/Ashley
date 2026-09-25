@@ -46,7 +46,6 @@ export type CapabilityRealityOptions = {
   substrateAvailable?: boolean;
   audience?: SocialAudience;
   licenses?: readonly string[];
-  opencodeWorkerEnabled?: boolean;
   commandCodeWorkerEnabled?: boolean;
   commandCodeApiKey?: string;
   commandCodeBinaryPath?: string;
@@ -327,7 +326,6 @@ export function getCapabilityReality(
     canOfferCandidateAuthorship(db, sandboxOptions);
   const patchExportAvailable = V021_LIVE_OPERATION_CAPABILITIES.has("patch_export") &&
     canOfferPatchExport(db, sandboxOptions);
-  const workerEnabled = options.opencodeWorkerEnabled ?? env.opencodeWorkerEnabled;
   // candidate.develop availability resolves the readiness of the selected
   // execution backend for the DEVELOP profile that will actually dispatch it
   // (the Command Code worker in this candidate) — never the readiness of a
@@ -340,14 +338,14 @@ export function getCapabilityReality(
     bubblewrapPath: options.commandCodeBubblewrapPath ?? env.commandCodeBubblewrapPath,
     nodeExecutable: options.commandCodeNodeExecutable,
   });
-  const workerInspectionReady = canOfferWorkerBackedProjectInspection({
+  const workerInspectionReady = developReadiness.ready && canOfferWorkerBackedProjectInspection({
     registry,
     masterMode,
     lifecycleEnabled: options.lifecycleEnabled,
     substrateAvailable: options.substrateAvailable,
   });
   const projectInspectionAvailable = V021_LIVE_OPERATION_CAPABILITIES.has("project_inspection") &&
-    (directProjectInspectionAvailable || (workerEnabled && workerInspectionReady));
+    (directProjectInspectionAvailable || workerInspectionReady);
   const engineeringAuthorized = authorizedProjectIds(
     registry,
     (entry) => entry.engineeringAllowed === true && entry.candidateWorkspaceAllowed === true,

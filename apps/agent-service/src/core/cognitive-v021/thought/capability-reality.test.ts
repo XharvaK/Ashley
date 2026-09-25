@@ -288,7 +288,7 @@ describe("v0.2.1 CapabilityReality live-surface contract", () => {
     }
   });
 
-  it("keeps M6 dark and L1-direct independent of OpenCode quota", () => {
+  it("keeps M6 dark and direct project inspection independent of worker readiness", () => {
     const db = activeDb();
     try {
       const reality = getCapabilityReality(db, {
@@ -296,10 +296,8 @@ describe("v0.2.1 CapabilityReality live-surface contract", () => {
         masterMode: "apply",
         lifecycleEnabled: true,
         substrateAvailable: true,
-        opencodeWorkerEnabled: true,
-        opencodeBinaryPath: process.execPath,
-        opencodeQuotaStatePath: "this-path-does-not-exist.json",
-      } as Parameters<typeof getCapabilityReality>[1]);
+        commandCodeWorkerEnabled: false,
+      });
       expect(reality.canOfferBoundedOperation).toBe(false);
       expect(reality.canOfferProjectInspection).toBe(true);
       expect(reality.canOfferDelegatedInvestigation).toBeUndefined();
@@ -312,10 +310,8 @@ describe("v0.2.1 CapabilityReality live-surface contract", () => {
         masterMode: "apply",
         lifecycleEnabled: true,
         substrateAvailable: true,
-        opencodeWorkerEnabled: true,
-        opencodeBinaryPath: "",
-        opencodeQuotaStatePath: "this-path-does-not-exist.json",
-      } as Parameters<typeof getCapabilityReality>[1]);
+        commandCodeWorkerEnabled: false,
+      });
       expect(notReady.canOfferProjectInspection).toBe(true);
       expect(notReady.canOfferDelegatedInvestigation).toBeUndefined();
       expect(notReady.operationCapabilities?.map((operation) => operation.operationKind)).toContain("project.inspect");
@@ -324,7 +320,7 @@ describe("v0.2.1 CapabilityReality live-surface contract", () => {
     }
   });
 
-  it("offers worker-backed project inspection without exposing substrate vocabulary", () => {
+  it("does not offer worker-backed project inspection when the Command Code worker is not ready", () => {
     const db = openNuclearDb(new DatabaseSync(":memory:"));
     listCapabilityStatuses(db, "apply");
     db.prepare("UPDATE capability_releases SET state = 'active' WHERE capability != 'project_inspection'").run();
@@ -334,15 +330,13 @@ describe("v0.2.1 CapabilityReality live-surface contract", () => {
         masterMode: "apply",
         lifecycleEnabled: true,
         substrateAvailable: true,
-        opencodeWorkerEnabled: true,
-        opencodeBinaryPath: process.execPath,
-        opencodeQuotaStatePath: "this-path-does-not-exist.json",
-      } as Parameters<typeof getCapabilityReality>[1]);
+        commandCodeWorkerEnabled: false,
+      });
       expect(ready.canOfferBoundedOperation).toBe(false);
-      expect(ready.canOfferProjectInspection).toBe(true);
+      expect(ready.canOfferProjectInspection).toBe(false);
       expect(ready.canOfferDelegatedInvestigation).toBeUndefined();
       expect(ready.operationCapabilities?.find((operation) => operation.operationKind === "project.inspect")).toMatchObject({
-        available: true,
+        available: false,
       });
       const develop = ready.operationCapabilities?.find((operation) => operation.operationKind === "candidate.develop");
       expect(develop).toMatchObject({
@@ -356,10 +350,8 @@ describe("v0.2.1 CapabilityReality live-surface contract", () => {
         masterMode: "apply",
         lifecycleEnabled: false,
         substrateAvailable: true,
-        opencodeWorkerEnabled: true,
-        opencodeBinaryPath: process.execPath,
-        opencodeQuotaStatePath: "this-path-does-not-exist.json",
-      } as Parameters<typeof getCapabilityReality>[1]);
+        commandCodeWorkerEnabled: false,
+      });
       expect(lifecycleOff.canOfferProjectInspection).toBe(false);
       expect(lifecycleOff.canOfferDelegatedInvestigation).toBeUndefined();
       expect(lifecycleOff.operationCapabilities?.find((operation) => operation.operationKind === "project.inspect"))

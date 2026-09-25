@@ -61,8 +61,12 @@ export type ThoughtAttemptBinding = {
   semanticProjectionHash: string;
   dispatchMessagesHash: string;
   allowlistFingerprint: string;
-  mfInvocationId: string;
-  mfAttemptId: string;
+  /** Legacy Model Fabric identity. New direct Command Code calls omit these. */
+  mfInvocationId?: string;
+  mfAttemptId?: string;
+  /** Provider-neutral identity minted at the direct provider boundary. */
+  providerInvocationId?: string;
+  providerAttemptId?: string;
   actualProvider: string;
   actualOccupantId: string;
   actualWireBindingId: string;
@@ -546,6 +550,11 @@ export function bindThoughtAttempt(
   if (!Number.isInteger(input.allocationId) || input.allocationId <= 0) {
     throw new Error("thought_attempt_context_incomplete");
   }
+  const legacyIdentity = Boolean(input.mfInvocationId && input.mfAttemptId);
+  const providerIdentity = Boolean(input.providerInvocationId && input.providerAttemptId);
+  if (legacyIdentity === providerIdentity) {
+    throw new Error("thought_attempt_identity_incomplete");
+  }
   db.exec("BEGIN IMMEDIATE");
   try {
     const result = db.prepare(
@@ -555,25 +564,28 @@ export function bindThoughtAttempt(
               thought_authority_epoch = ?, thought_authority_vector_json = ?,
               thought_trigger_ref = ?, semantic_projection_hash = ?,
               dispatch_messages_hash = ?, allowlist_fingerprint = ?,
-              mf_invocation_id = ?, mf_attempt_id = ?, actual_provider = ?,
+              mf_invocation_id = ?, mf_attempt_id = ?,
+              provider_invocation_id = ?, provider_attempt_id = ?, actual_provider = ?,
               actual_occupant_id = ?, actual_wire_binding_id = ?,
               schema_enforcement_mode = ?, resource_policy_fingerprint = ?,
               absolute_deadline_at_ms = ?
-        WHERE id = ? AND mf_attempt_id IS NULL AND thought_invocation_id IS NULL`,
+        WHERE id = ? AND mf_attempt_id IS NULL AND provider_attempt_id IS NULL
+          AND thought_invocation_id IS NULL`,
     ).run(
       input.thoughtInvocationId, input.thoughtCycleId, input.thoughtGeneration,
       input.thoughtSemanticPass, input.thoughtStructuralAttempt, input.thoughtAuthorityEpoch,
       input.thoughtAuthorityVectorJson, input.thoughtTriggerRef, input.semanticProjectionHash,
-      input.dispatchMessagesHash, input.allowlistFingerprint, input.mfInvocationId,
-      input.mfAttemptId, input.actualProvider, input.actualOccupantId, input.actualWireBindingId,
+      input.dispatchMessagesHash, input.allowlistFingerprint, input.mfInvocationId ?? null,
+      input.mfAttemptId ?? null, input.providerInvocationId ?? null, input.providerAttemptId ?? null,
+      input.actualProvider, input.actualOccupantId, input.actualWireBindingId,
       input.schemaEnforcementMode, input.resourcePolicyFingerprint, input.absoluteDeadlineAtMs,
       input.allocationId,
     );
     if (result.changes !== 1) {
       const row = db.prepare(
-        "SELECT id, state, thought_invocation_id, mf_attempt_id FROM attention_requests WHERE id = ?",
+        "SELECT id, state, thought_invocation_id, mf_attempt_id, provider_attempt_id FROM attention_requests WHERE id = ?",
       ).get(input.allocationId) as Row | undefined;
-      if (row && (row.thought_invocation_id != null || row.mf_attempt_id != null)) {
+      if (row && (row.thought_invocation_id != null || row.mf_attempt_id != null || row.provider_attempt_id != null)) {
         throw new Error("thought_attempt_already_bound");
       }
       throw new Error("stale_attention_state");
@@ -591,6 +603,7 @@ export function getThoughtAttempt(db: DatabaseSync, allocationId: number): Row |
             thought_semantic_pass, thought_structural_attempt, thought_authority_epoch,
             thought_authority_vector_json, thought_trigger_ref, semantic_projection_hash,
             dispatch_messages_hash, allowlist_fingerprint, mf_invocation_id, mf_attempt_id,
+            provider_invocation_id, provider_attempt_id,
             actual_provider, actual_occupant_id, actual_wire_binding_id,
             schema_enforcement_mode, resource_policy_fingerprint, absolute_deadline_at_ms
        FROM attention_requests WHERE id = ?`,

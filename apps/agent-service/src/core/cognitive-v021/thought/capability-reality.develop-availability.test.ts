@@ -102,27 +102,33 @@ describe("candidate.develop selected-backend DEVELOP availability", () => {
     }
   });
 
-  it("is independent of the superseded OpenCode substrate enablement", () => {
+  it("uses the active Command Code readiness for worker-backed inspection and DEVELOP", () => {
     const db = activeDb();
     try {
-      const withOpenCodeReady = getCapabilityReality(db, {
+      db.prepare("UPDATE capability_releases SET state = 'observe' WHERE capability = 'project_inspection'").run();
+      const backend = readyBackendOptions();
+      const withCommandCodeReady = getCapabilityReality(db, {
         registry: registry(true),
         masterMode: "apply",
         lifecycleEnabled: true,
         substrateAvailable: true,
-        opencodeWorkerEnabled: true,
-        ...readyBackendOptions(),
-      } as Parameters<typeof getCapabilityReality>[1]);
-      const withOpenCodeDisabled = getCapabilityReality(db, {
-        registry: registry(true),
-        masterMode: "apply",
-        lifecycleEnabled: true,
-        substrateAvailable: true,
-        opencodeWorkerEnabled: false,
-        ...readyBackendOptions(),
+        ...backend,
       });
-      expect(developRow(withOpenCodeReady)).toMatchObject({ available: true });
-      expect(developRow(withOpenCodeDisabled)).toMatchObject({ available: true, unavailableReasons: [] });
+      const withCommandCodeDisabled = getCapabilityReality(db, {
+        registry: registry(true),
+        masterMode: "apply",
+        lifecycleEnabled: true,
+        substrateAvailable: true,
+        ...backend,
+        commandCodeWorkerEnabled: false,
+      });
+      expect(withCommandCodeReady.canOfferProjectInspection).toBe(true);
+      expect(developRow(withCommandCodeReady)).toMatchObject({ available: true });
+      expect(withCommandCodeDisabled.canOfferProjectInspection).toBe(false);
+      expect(developRow(withCommandCodeDisabled)).toMatchObject({
+        available: false,
+        unavailableReasons: ["develop_worker_disabled"],
+      });
     } finally {
       db.close();
     }
@@ -136,11 +142,8 @@ describe("candidate.develop selected-backend DEVELOP availability", () => {
         masterMode: "apply",
         lifecycleEnabled: true,
         substrateAvailable: true,
-        // OpenCode substrate enabled and resolved: the worker-backed
-        // INVESTIGATE leg is available, but it is not the DEVELOP backend.
-        opencodeWorkerEnabled: true,
-        opencodeBinaryPath: process.execPath,
-        opencodeQuotaStatePath: "this-path-does-not-exist.json",
+        // The Command Code worker is disabled; no other provider's readiness can substitute.
+        commandCodeWorkerEnabled: false,
       } as Parameters<typeof getCapabilityReality>[1]);
       expect(reality.operationCapabilities?.find((operation) => operation.operationKind === "project.inspect"))
         .toMatchObject({ available: true });

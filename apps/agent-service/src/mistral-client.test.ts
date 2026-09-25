@@ -389,7 +389,10 @@ describe("mapMistralError", () => {
         privateBudgetBinding: { sidecar, reservationId: reserved.reservation.reservationId },
       }));
       const row = sidecar.prepare("SELECT state, dispatch_truth, invocation_id, attempt_id FROM private_budget_reservations WHERE reservation_id = ?").get(reserved.reservation.reservationId) as Record<string, unknown>;
-      expect(row).toMatchObject({ state: "committed", dispatch_truth: "responded", invocation_id: result.capturedAttemptIdentity?.modelFabricInvocationId, attempt_id: result.capturedAttemptIdentity?.modelFabricAttemptId });
+      const capturedAttempt = result.capturedAttemptIdentity;
+      expect(capturedAttempt && "modelFabricInvocationId" in capturedAttempt ? capturedAttempt.modelFabricInvocationId : undefined).toBe(row.invocation_id);
+      expect(capturedAttempt && "modelFabricAttemptId" in capturedAttempt ? capturedAttempt.modelFabricAttemptId : undefined).toBe(row.attempt_id);
+      expect(row).toMatchObject({ state: "committed", dispatch_truth: "responded" });
       expect(dispatch).toHaveBeenCalledTimes(1);
     } finally {
       attentionDb.close();

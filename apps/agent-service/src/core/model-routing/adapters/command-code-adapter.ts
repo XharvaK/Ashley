@@ -1,8 +1,17 @@
+import { createHash } from "node:crypto";
 import { env } from "../../../env.js";
 import { AppError } from "../../../errors.js";
 import { thoughtOutputDeepSeekJsonObjectInstruction } from "../../cognitive-v021/thought/output-contract.js";
-import type { TrustedStructuredOutputControl } from "../../model-fabric/types.js";
-import { wireEvidenceFor } from "../../model-fabric/wire-evidence.js";
+import {
+  THOUGHT_OUTPUT_CONTRACT_ID,
+  THOUGHT_OUTPUT_SCHEMA_ID,
+} from "../../cognitive-v021/thought/contract-identity.js";
+import { COMMAND_CODE_POLICY } from "../../command-code/policy.js";
+import {
+  attachCommandCodeBoundaryEvidence,
+  type CommandCodeBoundaryEvidence,
+  type CommandCodeTransportOutcome,
+} from "../../command-code/evidence.js";
 import type {
   ChatMessage,
   ModelProviderAdapter,
@@ -12,12 +21,10 @@ import type {
 } from "../types.js";
 import { attachProviderHttpStatusBoundary } from "../types.js";
 
-export const COMMAND_CODE_MUSE_MODEL = "meta/muse-spark-1.3-contributor" as const;
+export const COMMAND_CODE_MUSE_MODEL = COMMAND_CODE_POLICY.modelId;
 export const COMMAND_CODE_CHAT_COMPLETIONS_URL =
   "https://api.commandcode.ai/provider/v1/chat/completions" as const;
 const MAX_OUTPUT_TOKENS = 65_536;
-const THOUGHT_CONTRACT_ID = "ashley.thought.semantic.v2";
-const THOUGHT_SCHEMA_ID = "ashley.thought.semantic.v2.schema";
 
 type CommandCodeResponse = {
   id?: unknown;
@@ -87,22 +94,18 @@ function mapMessages(messages: ChatMessage[]): Array<Record<string, unknown>> {
 }
 
 function buildRequestBody(args: ProviderDispatchArgs): Record<string, unknown> {
-  if (args.modelId !== COMMAND_CODE_MUSE_MODEL) {
+  if (args.modelId !== COMMAND_CODE_POLICY.modelId) {
     throw new AppError("capability_mismatch", "command_code_model_not_qualified", 400);
   }
-  if (
-    args.fabricReasoning?.kind !== "command_code_reasoning_effort" ||
-    args.fabricReasoning.value !== "xhigh"
-  ) {
-    throw new AppError("capability_mismatch", "command_code_xhigh_control_required", 400);
+  if (args.options.reasoningEffort !== COMMAND_CODE_POLICY.effort) {
+    throw new AppError("capability_mismatch", "command_code_policy_effort_required", 400);
   }
-  const structured = args.fabricStructuredOutput;
+  const structured = args.options.structuredOutput;
   if (
-    structured?.kind !== "json_object_compatibility" ||
-    structured.contractId !== THOUGHT_CONTRACT_ID ||
-    structured.schemaId !== THOUGHT_SCHEMA_ID
+    structured?.contractId !== THOUGHT_OUTPUT_CONTRACT_ID ||
+    structured.schemaId !== THOUGHT_OUTPUT_SCHEMA_ID
   ) {
-    throw new AppError("capability_mismatch", "command_code_thought_json_compatibility_required", 400);
+    throw new AppError("capability_mismatch", "command_code_thought_contract_required", 400);
   }
   if (args.options.tools?.length) {
     throw new AppError("capability_mismatch", "command_code_thought_tools_unsupported", 400);
@@ -112,13 +115,17 @@ function buildRequestBody(args: ProviderDispatchArgs): Record<string, unknown> {
     throw new AppError("capability_mismatch", "command_code_output_limit_unsupported", 400);
   }
   return {
-    model: COMMAND_CODE_MUSE_MODEL,
+    model: COMMAND_CODE_POLICY.modelId,
     messages: mapMessages(args.messages),
     max_tokens: maxTokens,
-    reasoning_effort: "xhigh",
+    reasoning_effort: COMMAND_CODE_POLICY.effort,
     response_format: { type: "json_object" },
     ...(args.options.temperature !== undefined ? { temperature: args.options.temperature } : {}),
   };
+}
+
+function sha256(value: string): `sha256:${string}` {
+  return `sha256:${createHash("sha256").update(value, "utf8").digest("hex")}`;
 }
 
 export function commandCodeRequestWireAdditionalBytes(args: ProviderDispatchArgs): number {
@@ -168,87 +175,119 @@ export function createCommandCodeAdapter(
   return {
     provider: "command_code",
     async dispatch(args): Promise<ProviderCompletion> {
-      const apiKey = env.commandCodeApiKey;
-      if (!apiKey) {
-        throw new AppError("agent_not_ready", "Command Code Provider API credential not configured", 503);
-      }
-      const body = buildRequestBody(args);
-      const serializedBody = JSON.stringify(body);
-      const response = await fetcher(COMMAND_CODE_CHAT_COMPLETIONS_URL, {
-        method: "POST",
-        headers: {
-          authorization: `Bearer ${apiKey}`,
-          "content-type": "application/json",
-        },
-        body: serializedBody,
-        signal: args.signal ?? args.options.signal,
-      });
-      if (!response.ok) throw providerStatusError(response.status, response.headers);
-
-      let raw: unknown;
-      try {
-        raw = await response.json();
-      } catch {
-        throw new AppError("provider_unavailable", "command_code_invalid_json_response", 502);
-      }
-      if (!isRecord(raw)) {
-        throw new AppError("provider_unavailable", "command_code_invalid_response", 502);
-      }
-      const result = raw as CommandCodeResponse;
-      const returnedModel = typeof result.model === "string" ? result.model : null;
-      if (returnedModel !== COMMAND_CODE_MUSE_MODEL) {
-        throw new AppError("capability_mismatch", "command_code_model_identity_mismatch", 502);
-      }
-      const firstChoice = Array.isArray(result.choices) ? result.choices[0] : undefined;
-      const content = firstChoice?.message?.content;
-      if (typeof content !== "string") {
-        throw new AppError("provider_unavailable", "command_code_missing_text_content", 502);
-      }
-      const structured = args.fabricStructuredOutput as TrustedStructuredOutputControl;
-      const wireEvidence = wireEvidenceFor({
-        adapterId: "ashley.adapter.command_code.v1",
-        body,
-        structuredOutput: structured,
-      });
-      const usage = toUsage(result.usage);
-      const finish = finishReason(firstChoice?.finish_reason);
-      return {
-        text: content,
-        ...(usage ? { usage } : {}),
-        providerModel: returnedModel,
-        providerRequestId:
-          typeof result.id === "string" && result.id.length > 0
-            ? result.id
-            : response.headers.get("x-request-id"),
-        providerHttpStatus: response.status,
-        finishReason: finish,
-        responseDiagnostics: {
-          contentContainerType: "string",
-          contentChunkTypes: [],
-          textChunkCount: 1,
-          thinkingChunkCount: 0,
-          finalTextBytes: Buffer.byteLength(content, "utf8"),
-          finishReason: finish,
-          finishReasonClass: finish === "stop"
-            ? "STOP"
-            : finish === "length"
-              ? "LENGTH"
-              : finish === "content_filter"
-                ? "CONTENT_FILTER"
-                : finish === "tool_calls"
-                  ? "TOOL"
-                  : finish === null
-                    ? "UNKNOWN"
-                    : "OTHER",
-          outputTokenLimit: args.options.maxTokens ?? MAX_OUTPUT_TOKENS,
-          outputTokens: usage?.completionTokens ?? null,
-          reasoningTokens: usage?.reasoningTokens ?? null,
-          requestWireBytes: Buffer.byteLength(serializedBody, "utf8"),
-          requestWireAdditionalBytes: requestWireAdditionalBytes(body),
-          extractionFailure: "none",
-        },
-        wireEvidence,
+      const boundary: {
+        backend: "command_code_api";
+        requestedModelId: string;
+        reasoningEffort: typeof COMMAND_CODE_POLICY.effort;
+        requestHash?: `sha256:${string}`;
+        providerModel?: string | null;
+        providerRequestId?: string | null;
+        providerHttpStatus?: number | null;
+        responseHash?: `sha256:${string}`;
+        transportOutcome: CommandCodeTransportOutcome;
+      } = {
+        backend: "command_code_api",
+        requestedModelId: args.modelId,
+        reasoningEffort: COMMAND_CODE_POLICY.effort,
+        transportOutcome: "not_sent",
       };
+      try {
+        const apiKey = env.commandCodeApiKey;
+        if (!apiKey) {
+          throw new AppError("agent_not_ready", "Command Code Provider API credential not configured", 503);
+        }
+        const body = buildRequestBody(args);
+        const serializedBody = JSON.stringify(body);
+        const providerRequestHash = sha256(serializedBody);
+        boundary.requestHash = providerRequestHash;
+        boundary.transportOutcome = "sent_outcome_unknown";
+        const response = await fetcher(COMMAND_CODE_CHAT_COMPLETIONS_URL, {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${apiKey}`,
+            "content-type": "application/json",
+          },
+          body: serializedBody,
+          signal: args.signal ?? args.options.signal,
+        });
+        boundary.transportOutcome = "response_received";
+        boundary.providerHttpStatus = response.status;
+        boundary.providerRequestId = response.headers.get("x-request-id");
+        if (!response.ok) throw providerStatusError(response.status, response.headers);
+
+        let raw: unknown;
+        try {
+          raw = await response.json();
+        } catch {
+          throw new AppError("provider_unavailable", "command_code_invalid_json_response", 502);
+        }
+        if (!isRecord(raw)) {
+          throw new AppError("provider_unavailable", "command_code_invalid_response", 502);
+        }
+        const result = raw as CommandCodeResponse;
+        const returnedModel = typeof result.model === "string" ? result.model : null;
+        boundary.providerModel = returnedModel;
+        if (typeof result.id === "string" && result.id.length > 0) boundary.providerRequestId = result.id;
+        if (returnedModel !== COMMAND_CODE_POLICY.modelId) {
+          throw new AppError("capability_mismatch", "command_code_model_identity_mismatch", 502);
+        }
+        const firstChoice = Array.isArray(result.choices) ? result.choices[0] : undefined;
+        const content = firstChoice?.message?.content;
+        if (typeof content !== "string") {
+          throw new AppError("provider_unavailable", "command_code_missing_text_content", 502);
+        }
+        const providerResponseHash = sha256(content);
+        boundary.responseHash = providerResponseHash;
+        const wireEvidence = {
+          adapterId: "ashley.adapter.command_code.v1",
+          wireFormat: "json_object",
+          sanitizedBodyDigest: providerRequestHash,
+          emittedEnforcementMode: "json_object_compatibility",
+          providerDeclaredEnforcement: "unavailable",
+          bindingId: `${THOUGHT_OUTPUT_CONTRACT_ID}:${THOUGHT_OUTPUT_SCHEMA_ID}`,
+        } as const;
+        const usage = toUsage(result.usage);
+        const finish = finishReason(firstChoice?.finish_reason);
+        return {
+          text: content,
+          ...(usage ? { usage } : {}),
+          providerModel: returnedModel,
+          providerRequestId: boundary.providerRequestId,
+          providerHttpStatus: response.status,
+          providerRequestHash,
+          providerResponseHash,
+          finishReason: finish,
+          responseDiagnostics: {
+            contentContainerType: "string",
+            contentChunkTypes: [],
+            textChunkCount: 1,
+            thinkingChunkCount: 0,
+            finalTextBytes: Buffer.byteLength(content, "utf8"),
+            finishReason: finish,
+            finishReasonClass: finish === "stop"
+              ? "STOP"
+              : finish === "length"
+                ? "LENGTH"
+                : finish === "content_filter"
+                  ? "CONTENT_FILTER"
+                  : finish === "tool_calls"
+                    ? "TOOL"
+                    : finish === null
+                      ? "UNKNOWN"
+                      : "OTHER",
+            outputTokenLimit: args.options.maxTokens ?? MAX_OUTPUT_TOKENS,
+            outputTokens: usage?.completionTokens ?? null,
+            reasoningTokens: usage?.reasoningTokens ?? null,
+            requestWireBytes: Buffer.byteLength(serializedBody, "utf8"),
+            requestWireAdditionalBytes: requestWireAdditionalBytes(body),
+            extractionFailure: "none",
+          },
+          wireEvidence,
+        };
+      } catch (error) {
+        attachCommandCodeBoundaryEvidence(error, boundary as CommandCodeBoundaryEvidence);
+        throw error;
+      }
     },
   };
 }

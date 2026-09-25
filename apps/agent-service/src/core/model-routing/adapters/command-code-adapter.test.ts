@@ -1,18 +1,17 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { env } from "../../../env.js";
 import { AppError } from "../../../errors.js";
-import { thoughtOutputDeepSeekJsonObjectInstruction } from "../../cognitive-v021/thought/output-contract.js";
-import { capabilityProfileFor } from "../../model-fabric/profiles.js";
-import { translateReasoningPolicy } from "../../model-fabric/reasoning-translation.js";
-import { currentPortfolio } from "../../model-fabric/portfolio.js";
-import type { StructuredOutputSchemaFingerprint } from "../../model-fabric/types.js";
-import { quotaContractFor } from "../router.js";
+import {
+  thoughtOutputDeepSeekJsonObjectInstruction,
+  thoughtOutputStructuredRequest,
+} from "../../cognitive-v021/thought/output-contract.js";
+import { COMMAND_CODE_POLICY } from "../../command-code/policy.js";
+import { commandCodeBoundaryEvidenceFromError } from "../../command-code/evidence.js";
 import type { ChatMessage } from "../types.js";
 import { createCommandCodeAdapter } from "./command-code-adapter.js";
 
 const originalKey = env.commandCodeApiKey;
-const MODEL = "meta/muse-spark-1.3-contributor";
-const SCHEMA_FINGERPRINT = "sha256:test-schema" as StructuredOutputSchemaFingerprint;
+const MODEL = COMMAND_CODE_POLICY.modelId;
 const messages: ChatMessage[] = [{ role: "user", content: "Return the requested JSON." }];
 
 function fakeResponse(body: unknown, status = 200) {
@@ -30,33 +29,10 @@ afterEach(() => {
 });
 
 describe("command-code-adapter", () => {
-  it("resolves the current Thought route to Muse xhigh under the existing local budget", () => {
-    const modelProfile = capabilityProfileFor("command_code", MODEL);
-    const translation = translateReasoningPolicy({
-      provider: "command_code",
-      configuredModelId: MODEL,
-      semanticPolicy: "max_supported",
-    });
-    const thoughtRow = currentPortfolio().rows.find((row) => row.policyRowId === "mfr_thought_interactive_compat_v1");
-
-    expect(currentPortfolio().portfolioRevisionId).toBe("mfp_current_compatibility_v6");
-    expect(thoughtRow?.occupants[0]).toMatchObject({
-      provider: "command_code",
-      configuredModelId: MODEL,
-      effectiveReasoning: "xhigh",
-    });
-    expect(translation).toMatchObject({
-      status: "translated",
-      control: { kind: "command_code_reasoning_effort", value: "xhigh" },
-    });
-    expect(modelProfile.reasoning).toEqual({ mode: "configurable", efforts: ["xhigh"] });
-    expect(modelProfile.limits).toMatchObject({
-      contextTokens: 1_048_576,
-      maxOutputTokens: 65_536,
-    });
-    expect(quotaContractFor(`command_code:${MODEL}`)).toMatchObject({
-      rps: 1,
-      tpm: 524_288,
+  it("uses the single Command Code policy for both model and effort", () => {
+    expect(COMMAND_CODE_POLICY).toEqual({
+      modelId: "meta/muse-spark-1.3-contributor",
+      effort: "xhigh",
     });
   });
 
@@ -84,14 +60,10 @@ describe("command-code-adapter", () => {
     const result = await adapter.dispatch({
       messages,
       modelId: MODEL,
-      options: { maxTokens: 65_536 },
-      fabricReasoning: { kind: "command_code_reasoning_effort", value: "xhigh" },
-      fabricStructuredOutput: {
-        kind: "json_object_compatibility",
-        contractId: "ashley.thought.semantic.v2",
-        schemaId: "ashley.thought.semantic.v2.schema",
-        schemaFingerprint: SCHEMA_FINGERPRINT,
-        bindingId: "compat_thought_command_code_muse_json_object_v1",
+      options: {
+        maxTokens: 65_536,
+        reasoningEffort: COMMAND_CODE_POLICY.effort,
+        structuredOutput: thoughtOutputStructuredRequest(),
       },
     });
 
@@ -127,7 +99,7 @@ describe("command-code-adapter", () => {
     });
   });
 
-  it("fails closed without the trusted xhigh control and does not call the provider", async () => {
+  it("fails closed without the policy-owned xhigh effort and does not call the provider", async () => {
     env.commandCodeApiKey = "test-command-code-key";
     const fetcher = vi.fn(async () => fakeResponse({}));
     const adapter = createCommandCodeAdapter(fetcher);
@@ -135,9 +107,36 @@ describe("command-code-adapter", () => {
     await expect(adapter.dispatch({
       messages,
       modelId: MODEL,
-      options: { maxTokens: 65_536 },
+      options: { maxTokens: 65_536, structuredOutput: thoughtOutputStructuredRequest() },
     })).rejects.toMatchObject({ code: "capability_mismatch" });
     expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it("records a missing credential as not sent with zero provider dispatches", async () => {
+    env.commandCodeApiKey = "";
+    const fetcher = vi.fn(async () => fakeResponse({}));
+    const adapter = createCommandCodeAdapter(fetcher);
+    let caught: unknown;
+    try {
+      await adapter.dispatch({
+        messages,
+        modelId: MODEL,
+        options: {
+          maxTokens: 65_536,
+          reasoningEffort: COMMAND_CODE_POLICY.effort,
+          structuredOutput: thoughtOutputStructuredRequest(),
+        },
+      });
+    } catch (error) {
+      caught = error;
+    }
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(commandCodeBoundaryEvidenceFromError(caught)).toMatchObject({
+      backend: "command_code_api",
+      requestedModelId: MODEL,
+      reasoningEffort: COMMAND_CODE_POLICY.effort,
+      transportOutcome: "not_sent",
+    });
   });
 
   it("classifies external HTTP refusal without retaining response text or credentials", async () => {
@@ -149,15 +148,7 @@ describe("command-code-adapter", () => {
     await expect(adapter.dispatch({
       messages,
       modelId: MODEL,
-      options: { maxTokens: 65_536 },
-      fabricReasoning: { kind: "command_code_reasoning_effort", value: "xhigh" },
-      fabricStructuredOutput: {
-        kind: "json_object_compatibility",
-        contractId: "ashley.thought.semantic.v2",
-        schemaId: "ashley.thought.semantic.v2.schema",
-        schemaFingerprint: SCHEMA_FINGERPRINT,
-        bindingId: "compat_thought_command_code_muse_json_object_v1",
-      },
+      options: { maxTokens: 65_536, reasoningEffort: COMMAND_CODE_POLICY.effort, structuredOutput: thoughtOutputStructuredRequest() },
     })).rejects.toMatchObject({
       code: "provider_unavailable",
       message: "command_code_external_service_rejected_403",
@@ -174,15 +165,7 @@ describe("command-code-adapter", () => {
     await expect(adapter.dispatch({
       messages,
       modelId: MODEL,
-      options: { maxTokens: 65_536 },
-      fabricReasoning: { kind: "command_code_reasoning_effort", value: "xhigh" },
-      fabricStructuredOutput: {
-        kind: "json_object_compatibility",
-        contractId: "ashley.thought.semantic.v2",
-        schemaId: "ashley.thought.semantic.v2.schema",
-        schemaFingerprint: SCHEMA_FINGERPRINT,
-        bindingId: "compat_thought_command_code_muse_json_object_v1",
-      },
+      options: { maxTokens: 65_536, reasoningEffort: COMMAND_CODE_POLICY.effort, structuredOutput: thoughtOutputStructuredRequest() },
     })).rejects.toMatchObject({ code: "capability_mismatch" });
   });
 });

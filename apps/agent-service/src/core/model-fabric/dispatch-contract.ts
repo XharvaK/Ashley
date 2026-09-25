@@ -9,9 +9,12 @@ import type {
 } from "./types.js";
 import { sha256 } from "./hash.js";
 import { capabilityProfileFor } from "./profiles.js";
+import {
+  THOUGHT_OUTPUT_CONTRACT_ID,
+  THOUGHT_OUTPUT_SCHEMA_ID,
+} from "../cognitive-v021/thought/contract-identity.js";
 
-export const THOUGHT_OUTPUT_CONTRACT_ID = "ashley.thought.semantic.v2";
-export const THOUGHT_OUTPUT_SCHEMA_ID = "ashley.thought.semantic.v2.schema";
+export { THOUGHT_OUTPUT_CONTRACT_ID, THOUGHT_OUTPUT_SCHEMA_ID };
 
 export type ResolvedDispatchContract = Readonly<{
   maxTokens: number;

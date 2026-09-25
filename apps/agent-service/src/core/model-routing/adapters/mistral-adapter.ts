@@ -244,6 +244,11 @@ function reasoningEffortFor(
     }
     return fabricReasoning.value;
   }
+  if (options.reasoningEffort === "xhigh") {
+    throw Object.assign(new Error("mistral_reasoning_effort_unsupported"), {
+      code: "mistral_reasoning_effort_unsupported",
+    });
+  }
   return options.reasoningEffort;
 }
 

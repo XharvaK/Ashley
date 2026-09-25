@@ -481,17 +481,21 @@ describe("v0.2.1 live Sandbox V2 operation construction", () => {
 
   it("routes project.investigate through the Mode-B worker without claiming direct L1", async () => {
     const nuclear = new DatabaseSync(":memory:");
-    const executeModeBWorker = vi.fn(async () => ({
+    const workerResult = {
       license: { state: "succeeded" as const, profile: "command_code_mode_b" },
       selectedModelId: "meta/muse-spark-1.3-contributor",
       quotaClass: null,
+      commandCodeInvocations: [],
       steps: [{ operation: "project.read_file", license: { state: "succeeded" as const, profile: "project_investigation" } }],
       summary: "worker prose is not proof",
       payload: { steps: 1 },
-    }));
+    };
+    const executeModeBWorker = vi.fn(async () => workerResult);
+    const onModeBWorkerResult = vi.fn();
     const executors = createV021LiveOperationExecutors({
       nuclear,
       adapters: { executeModeBWorker },
+      onModeBWorkerResult,
     });
     const observation = await executors.executeObservation({
       requestId: "investigate-1",
@@ -507,32 +511,86 @@ describe("v0.2.1 live Sandbox V2 operation construction", () => {
       provenance: "worker:project.investigate",
       payload: { steps: 1 },
     });
+    const observedCalls = onModeBWorkerResult.mock.calls as unknown as Array<[
+      Record<string, unknown>,
+      Record<string, unknown>,
+    ]>;
+    const [binding, workerEvidence] = observedCalls[0]!;
+    expect(binding).toMatchObject({
+      kind: "project.investigate",
+      operationId: "investigate-1",
+      cycleId: "cycle-1",
+      generation: 1,
+    });
+    expect(binding).not.toHaveProperty("apiKey");
+    expect(Object.isFrozen(binding)).toBe(true);
+    expect(workerEvidence).toMatchObject({
+      license: { state: "succeeded" },
+      selectedModelId: "meta/muse-spark-1.3-contributor",
+      commandCodeInvocations: [],
+    });
+    expect(workerEvidence).not.toHaveProperty("payload");
+    expect(Object.isFrozen(workerEvidence)).toBe(true);
+    expect(Object.isFrozen(workerEvidence.commandCodeInvocations)).toBe(true);
+    try {
+      (workerEvidence.commandCodeInvocations as unknown[]).push({ backend: "other" });
+    } catch {
+      // A frozen observer snapshot must not affect the worker return.
+    }
+    expect(workerResult.commandCodeInvocations).toEqual([]);
+    expect(observation).not.toHaveProperty("commandCodeInvocations");
     nuclear.close();
   });
 
   it("runs Mode-B candidate.develop through the worker adapter and records Host model evidence", async () => {
     const nuclear = new DatabaseSync(":memory:");
-    const executeModeBWorker = vi.fn(async () => ({
+    const sidecar = openTestSidecar();
+    const cycle = admitTestCycle(sidecar, {
+      cycleId: "cycle-command-code-binding",
+      conversationId: "thread-command-code-binding",
+      triggerKind: "owner_message",
+      triggerRef: "owner-command-code-binding",
+      occupantId: "doc",
+      authorityEpoch: 1,
+      nowMs: 1,
+    });
+    const workerInputs: unknown[] = [];
+    const executeModeBWorker = vi.fn(async (input: unknown) => {
+      workerInputs.push(input);
+      return ({
       license: { state: "succeeded" as const, profile: "command_code_mode_b", executionTruth: "effect_verified" as const },
       selectedModelId: "meta/muse-spark-1.3-contributor",
       quotaClass: null,
+      commandCodeInvocations: [],
       steps: [],
       summary: "worker prose is not proof",
       payload: { steps: [] },
-    }));
+      });
+    });
     const executors = createV021LiveOperationExecutors({
       nuclear,
+      sidecar,
       adapters: { executeModeBWorker },
     });
     const receipt = await executors.executeEffect(effectProposal({
       kind: "candidate.develop",
+      cycleId: cycle.cycleId,
+      generation: cycle.generation,
       request: { projectId: "project-ashley", workspaceId: "ws-1" },
     }));
     expect(executeModeBWorker).toHaveBeenCalledTimes(1);
     expect(receipt.outcome).toBe("succeeded");
     expect(receipt.claims.selectedModelId).toBe("meta/muse-spark-1.3-contributor");
     expect(receipt.claims.summary).toBe("worker prose is not proof");
+    expect(workerInputs[0]).toMatchObject({
+      operationId: "effect-1",
+      conversationId: cycle.conversationId,
+      cycleId: cycle.cycleId,
+      generation: cycle.generation,
+      wakeId: cycle.wakeId,
+    });
     nuclear.close();
+    sidecar.close();
   });
 
   it("maps pre-tool worker exhaustion to not_attempted", async () => {
@@ -546,6 +604,7 @@ describe("v0.2.1 live Sandbox V2 operation construction", () => {
       },
       selectedModelId: null,
       quotaClass: null,
+      commandCodeInvocations: [],
       steps: [],
       summary: null,
       payload: { error: "worker_capacity_exhausted" },

@@ -189,31 +189,85 @@ export function attachSourceCurrentness(
   return projected as ProjectedThoughtInput;
 }
 
-/**
- * Derive the model-visible observation view. Executor/model identity is a
- * Host-owned execution fact, not cognition evidence: the raw durable
- * Observation retains it, and only this derived view omits the single
- * top-level payload key `selectedModelId`. Pure and non-mutating: inputs,
- * observations, and payloads are copied, never edited in place. No
- * deep-scrub of strings and no nested-key handling.
- */
-function modelVisibleObservations(observations: Observation[]): Observation[] {
-  let changed = false;
-  const mapped = observations.map((observation) => {
-    const payload = observation.payload;
-    if (
-      typeof payload !== "object"
-      || payload === null
-      || Array.isArray(payload)
-      || !Object.prototype.hasOwnProperty.call(payload, "selectedModelId")
-    ) {
-      return observation;
+const MAX_DUPLICATE_COMPARISON_NODES = 65_536;
+const MAX_DUPLICATE_COMPARISON_DEPTH = 64;
+
+function exactJsonValueEqual(left: unknown, right: unknown): boolean {
+  let remainingNodes = MAX_DUPLICATE_COMPARISON_NODES;
+  const compare = (leftValue: unknown, rightValue: unknown, depth: number): boolean => {
+    remainingNodes -= 1;
+    if (remainingNodes < 0 || depth > MAX_DUPLICATE_COMPARISON_DEPTH) return false;
+    if (Object.is(leftValue, rightValue)) return true;
+    if (typeof leftValue !== typeof rightValue || leftValue === null || rightValue === null) return false;
+    if (typeof leftValue !== "object" || typeof rightValue !== "object") return false;
+    if (Array.isArray(leftValue) || Array.isArray(rightValue)) {
+      if (!Array.isArray(leftValue) || !Array.isArray(rightValue)
+        || leftValue.length !== rightValue.length
+        || leftValue.length > MAX_DUPLICATE_COMPARISON_NODES) return false;
+      for (let index = 0; index < leftValue.length; index += 1) {
+        if (!compare(leftValue[index], rightValue[index], depth + 1)) return false;
+      }
+      return true;
     }
-    changed = true;
-    const { selectedModelId: _omitted, ...rest } = payload as Record<string, unknown>;
-    return { ...observation, payload: rest };
-  });
-  return changed ? mapped : observations;
+    const leftPrototype = Object.getPrototypeOf(leftValue);
+    const rightPrototype = Object.getPrototypeOf(rightValue);
+    if ((leftPrototype !== Object.prototype && leftPrototype !== null)
+      || (rightPrototype !== Object.prototype && rightPrototype !== null)) return false;
+    const leftKeys = Object.keys(leftValue);
+    const rightKeys = Object.keys(rightValue);
+    if (leftKeys.length !== rightKeys.length
+      || leftKeys.length > MAX_DUPLICATE_COMPARISON_NODES) return false;
+    for (let index = 0; index < leftKeys.length; index += 1) {
+      const key = leftKeys[index];
+      if (key !== rightKeys[index]
+        || !compare(
+          (leftValue as Record<string, unknown>)[key!],
+          (rightValue as Record<string, unknown>)[key!],
+          depth + 1,
+        )) return false;
+    }
+    return true;
+  };
+  try {
+    return compare(left, right, 0);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Derive one canonical model-visible observation. Executor/model identity is
+ * a Host-owned execution fact. A root `lastObservation` is omitted only when
+ * it exactly repeats an observation already retained in a worker step. The
+ * raw durable observation remains unchanged. Large or malformed values that
+ * exceed the bounded comparison path are preserved for allocator validation.
+ */
+export function modelVisibleObservation(observation: Observation): Observation {
+  const payload = observation.payload;
+  if (typeof payload !== "object" || payload === null || Array.isArray(payload)) return observation;
+  const objectPayload = payload as Record<string, unknown>;
+  const removeSelectedModel = Object.prototype.hasOwnProperty.call(objectPayload, "selectedModelId");
+  const steps = objectPayload.steps;
+  const lastObservation = objectPayload.lastObservation;
+  const removeDuplicateLastObservation = Object.prototype.hasOwnProperty.call(objectPayload, "lastObservation")
+    && Array.isArray(steps)
+    && steps.length <= MAX_DUPLICATE_COMPARISON_NODES
+    && steps.some((step) => typeof step === "object"
+      && step !== null
+      && !Array.isArray(step)
+      && Object.prototype.hasOwnProperty.call(step, "observation")
+      && exactJsonValueEqual((step as Record<string, unknown>).observation, lastObservation));
+  if (!removeSelectedModel && !removeDuplicateLastObservation) return observation;
+  const projectedPayload = { ...objectPayload };
+  if (removeSelectedModel) delete projectedPayload.selectedModelId;
+  if (removeDuplicateLastObservation) delete projectedPayload.lastObservation;
+  return { ...observation, payload: projectedPayload };
+}
+
+/** Pure, non-mutating projection for the complete model-visible observation set. */
+function modelVisibleObservations(observations: Observation[]): Observation[] {
+  const projected = observations.map(modelVisibleObservation);
+  return projected.every((item, index) => item === observations[index]) ? observations : projected;
 }
 
 /**

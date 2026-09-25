@@ -100,7 +100,13 @@ describe("command-code-worker", () => {
     const transport: CommandCodeWorkerTransport = {
       complete: vi.fn(async () => ({ text: outputs.shift()!, status: 0 })),
     };
-    const input = workerInput(transport);
+    const input = {
+      ...workerInput(transport),
+      operationId: "operation:direct-worker-1",
+      conversationId: "conversation:direct-worker-1",
+      cycleId: "cycle:direct-worker-1",
+      generation: 6,
+    };
 
     const result = await executeCommandCodeWorker(input);
 
@@ -119,6 +125,31 @@ describe("command-code-worker", () => {
       selectedModelId: COMMAND_CODE_WORKER_MODEL_ID,
       quotaClass: null,
       summary: "Read the requested project file.",
+      commandCodeInvocations: [
+        {
+          operationId: "operation:direct-worker-1",
+          conversationId: "conversation:direct-worker-1",
+          cycleId: "cycle:direct-worker-1",
+          generation: 6,
+          backend: "command_code_cli",
+          configuredModelId: COMMAND_CODE_WORKER_MODEL_ID,
+          effort: COMMAND_CODE_WORKER_EFFORT,
+          cliVersion: "1.64.0",
+          turnIndex: 1,
+          processExitStatus: 0,
+          resultHash: expect.stringMatching(/^sha256:/),
+          returnedModelEvidence: "not_reported_by_cli",
+        },
+        {
+          operationId: "operation:direct-worker-1",
+          backend: "command_code_cli",
+          configuredModelId: COMMAND_CODE_WORKER_MODEL_ID,
+          effort: COMMAND_CODE_WORKER_EFFORT,
+          turnIndex: 2,
+          processExitStatus: 0,
+          resultHash: expect.stringMatching(/^sha256:/),
+        },
+      ],
     });
   });
 

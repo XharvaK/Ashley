@@ -21,7 +21,7 @@ import { buildCoverageManifest } from "../../coverage-manifest.js";
 import { modelVisibleThoughtProjection } from "../../projection.js";
 import {
   REQUIRED_LEARNED_SELF_BYTES,
-  REQUIRED_OBSERVATION_ITEM_BYTES,
+  REQUIRED_OBSERVATION_MAX_NODES,
 } from "../composition-contract.js";
 import { mintEffectRef } from "../../../effect/effect-ref.js";
 
@@ -494,7 +494,14 @@ describe("Whole-Thought Projection Allocator", () => {
     expect(error).toBeInstanceOf(RequiredOverflowError);
     expect(error).toMatchObject({
       section: "recent_raw",
-      semanticBudgetTokens: 9_500,
+      failure: {
+        kind: "serialized_request_bytes",
+        constraint: "logical_input_byte_envelope",
+        unit: "bytes",
+        limit: MAX_LOGICAL_SERIALIZED_INPUT_BYTES,
+        stage: "global_allocation",
+        measurementBasis: "exact",
+      },
     });
   });
 
@@ -674,9 +681,17 @@ describe("Whole-Thought Projection Allocator", () => {
     expect(error).toBeInstanceOf(RequiredOverflowError);
     expect(error).toMatchObject({
       section: "orientation_kernel",
-      semanticBudgetTokens: 9_500,
+      failure: {
+        kind: "serialized_request_bytes",
+        constraint: "logical_input_byte_envelope",
+        unit: "bytes",
+        limit: MAX_LOGICAL_SERIALIZED_INPUT_BYTES,
+        stage: "global_allocation",
+        measurementBasis: "exact",
+      },
     });
-    expect((error as RequiredOverflowError).estimatedInputTokens).toBeGreaterThan(9_500);
+    expect((error as RequiredOverflowError).failure?.measuredValue)
+      .toBeGreaterThan(MAX_LOGICAL_SERIALIZED_INPUT_BYTES);
   });
 
   it("uses token pressure rather than a fixed required turn count", () => {
@@ -1044,82 +1059,493 @@ describe("Whole-Thought Projection Allocator", () => {
     ]));
   });
 
-  it("bounds required observations by newest eligible generation and item bytes", () => {
-    const observations = [
-      {
-        observationId: "observation-too-large",
-        cycleId: "cycle-test-1",
-        generation: 100,
-        derived: false,
-        replaySafe: true,
-        modality: "text" as const,
-        payload: { text: "oversized observation ".repeat(100) },
-        provenance: "test:oversized",
-        dataClassification: "ordinary" as const,
-        secretOmitted: false,
-      },
-      ...Array.from({ length: 10 }, (_, index) => ({
-        observationId: `observation-${index + 1}`,
-        cycleId: "cycle-test-1",
-        generation: index + 1,
-        derived: false,
-        replaySafe: true,
-        modality: "text" as const,
-        payload: { text: `observation ${index + 1}` },
-        provenance: `test:${index + 1}`,
-        dataClassification: "ordinary" as const,
-        secretOmitted: false,
-      })),
-    ];
+  it("admits multiple required observations above the former local byte bound", () => {
+    const observations = Array.from({ length: 3 }, (_, index) => ({
+      observationId: `observation-${index + 1}`,
+      cycleId: "cycle-test-1",
+      generation: index + 1,
+      derived: false,
+      replaySafe: true,
+      modality: "tool" as const,
+      payload: { text: `verified evidence ${index + 1} `.repeat(80) },
+      provenance: `worker:test:${index + 1}`,
+      dataClassification: "ordinary" as const,
+      secretOmitted: false,
+    }));
+
+    expect(observations.every(
+      (observation) => Buffer.byteLength(JSON.stringify(observation), "utf8") > 640,
+    )).toBe(true);
 
     const allocated = allocateThoughtProjection({
       thoughtInput: makeThoughtInput({ observations }),
       semanticBudgetTokens: 32_768,
-      requestId: "req-required-observation-local-contract",
+      requestId: "req-required-observation-global-allocation",
     });
     const visible = modelVisibleThoughtProjection(allocated.projected) as {
       observations: typeof observations;
     };
 
-    expect(visible.observations).toHaveLength(8);
-    expect(visible.observations.map((observation) => observation.observationId)).toEqual([
-      "observation-10",
-      "observation-9",
-      "observation-8",
-      "observation-7",
-      "observation-6",
-      "observation-5",
-      "observation-4",
-      "observation-3",
-    ]);
-    expect(visible.observations.every(
-      (observation) => JSON.stringify(observation).length <= REQUIRED_OBSERVATION_ITEM_BYTES,
-    )).toBe(true);
-    expect(visible.observations.some(
-      (observation) => observation.observationId === "observation-too-large",
-    )).toBe(false);
+    expect(visible.observations).toEqual([...observations].reverse());
   });
 
-  it("fails closed when no required observation can fit its local item bound", () => {
-    const observations = Array.from({ length: 2 }, (_, index) => ({
-      observationId: `observation-overflow-${index}`,
+  it("admits the exact preserved 2460-byte detached completion observation", () => {
+    const observation = {
+      observationId: "v021:observation:detached:detached-operation:19f1fa8434b7a360c49d21d5708f433bea142c3374c8700f37b36609e60b2a8d",
+      cycleId: "cycle:41c453c9dd4d25689b33460394a1916ae05584b620e0b91f632dd230752edf45",
+      generation: 2,
+      derived: false,
+      replaySafe: true,
+      modality: "tool" as const,
+      payload: {
+        operation: "project.investigate",
+        projectId: "bclp-qv4-cold-chain-depot",
+        selectedModelId: "meta/muse-spark-1.3-contributor",
+        summary: "Lot CC-91 verified stacking limit 840 kg per README.md: Lot CC-91 has a verified stacking limit of 840 kg.",
+        steps: [
+          {
+            operation: "project.list_directory",
+            state: "succeeded",
+            error: null,
+            observation: {
+              projectId: "bclp-qv4-cold-chain-depot",
+              operation: "project.list_directory",
+              path: ".",
+              verified: true,
+              truncated: false,
+              executedAtMs: 1790280964862,
+              entries: [
+                { name: "README.md", kind: "file", size: 171 },
+                { name: "src", kind: "dir", size: 0 },
+                { name: "tsconfig.json", kind: "file", size: 158 },
+              ],
+            },
+          },
+          {
+            operation: "project.search_text",
+            state: "succeeded",
+            error: null,
+            observation: {
+              projectId: "bclp-qv4-cold-chain-depot",
+              operation: "project.search_text",
+              path: ".",
+              pattern: "CC-91",
+              verified: true,
+              truncated: false,
+              executedAtMs: 1790281103162,
+              matches: [
+                {
+                  path: "README.md",
+                  line: 3,
+                  text: "Lot CC-91 has a verified stacking limit of 840 kg. The limit applies only to this recorded lot. Bay K-2 has an approved capacity of 12 crates.",
+                },
+              ],
+              filesScanned: 4,
+            },
+          },
+          {
+            operation: "project.read_file",
+            state: "succeeded",
+            error: null,
+            observation: {
+              projectId: "bclp-qv4-cold-chain-depot",
+              operation: "project.read_file",
+              path: "README.md",
+              verified: true,
+              truncated: false,
+              executedAtMs: 1790281113216,
+              contentUtf8: "# Cold Chain Depot Fixture\n\nLot CC-91 has a verified stacking limit of 840 kg. The limit applies only to this recorded lot. Bay K-2 has an approved capacity of 12 crates.\n",
+              bytes: 171,
+              sha256: "4d43928738ac2742a025d020ce2bbfd9f0fa4e37db57084e6fe747dc67015b7a",
+            },
+          },
+        ],
+        lastObservation: {
+          projectId: "bclp-qv4-cold-chain-depot",
+          operation: "project.read_file",
+          path: "README.md",
+          verified: true,
+          truncated: false,
+          executedAtMs: 1790281113216,
+          contentUtf8: "# Cold Chain Depot Fixture\n\nLot CC-91 has a verified stacking limit of 840 kg. The limit applies only to this recorded lot. Bay K-2 has an approved capacity of 12 crates.\n",
+          bytes: 171,
+          sha256: "4d43928738ac2742a025d020ce2bbfd9f0fa4e37db57084e6fe747dc67015b7a",
+        },
+      },
+      provenance: "worker:project.investigate",
+      dataClassification: "never_public" as const,
+      secretOmitted: true,
+    };
+
+    expect(Buffer.byteLength(JSON.stringify(observation), "utf8")).toBe(2_460);
+
+    const allocated = allocateThoughtProjection({
+      thoughtInput: makeThoughtInput({ observations: [observation] }),
+      semanticBudgetTokens: 262_144,
+      requestId: "req-qv4-preserved-2460-byte-observation",
+    });
+    const visible = modelVisibleThoughtProjection(allocated.projected) as {
+      observations: typeof observation[];
+    };
+
+    expect(allocated.receipt.decision.included).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "observations", section: "observations", required: true }),
+    ]));
+    expect(visible.observations).toHaveLength(1);
+    expect(JSON.stringify(visible.observations[0])).toContain("840 kg");
+    const serializedProviderMessages = JSON.stringify(allocated.messages);
+    expect(serializedProviderMessages).toContain("840 kg");
+    expect(serializedProviderMessages).toContain("4d43928738ac2742a025d020ce2bbfd9f0fa4e37db57084e6fe747dc67015b7a");
+    expect(serializedProviderMessages).not.toContain("lastObservation");
+    expect((visible.observations[0]?.payload as typeof observation.payload).steps[2]?.observation)
+      .toEqual(observation.payload.lastObservation);
+  });
+
+  it("packs required observations before optional retrieval history", () => {
+    const base = makeThoughtInput();
+    const observation = {
+      observationId: "observation-priority",
+      cycleId: "cycle-test-1",
+      generation: 2,
+      derived: false,
+      replaySafe: true,
+      modality: "tool" as const,
+      payload: { text: "material completion evidence ".repeat(300) },
+      provenance: "worker:test:observation-priority",
+      dataClassification: "ordinary" as const,
+      secretOmitted: false,
+    };
+    const input = {
+      ...base,
+      observations: [observation],
+      retrieval: {
+        ...base.retrieval,
+        hits: [{
+          ...base.retrieval.hits[0]!,
+          ref: "optional-large-history",
+          snippet: "optional historical context ".repeat(2_500),
+        }],
+      },
+    };
+
+    const allocated = allocateThoughtProjection({
+      thoughtInput: input,
+      semanticBudgetTokens: 32_768,
+      requestId: "req-required-observation-priority",
+    });
+
+    expect(allocated.projected.observations).toEqual([observation]);
+    expect(allocated.receipt.decision.included).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "observations", section: "observations", required: true }),
+    ]));
+    expect(allocated.receipt.decision.omitted).toEqual(expect.arrayContaining([
+      expect.objectContaining({ section: "retrieval_compact", required: false }),
+    ]));
+  });
+
+  it("fails explicitly instead of silently dropping required observations above the supported count", () => {
+    const observations = Array.from({ length: 9 }, (_, index) => ({
+      observationId: `observation-count-${index}`,
       cycleId: "cycle-test-1",
       generation: index + 1,
       derived: false,
       replaySafe: true,
       modality: "text" as const,
-      payload: { text: "oversized observation ".repeat(100) },
-      provenance: `test:overflow:${index}`,
+      payload: { text: `required observation ${index}` },
+      provenance: `test:count:${index}`,
       dataClassification: "ordinary" as const,
       secretOmitted: false,
     }));
 
-    expect(() => allocateThoughtProjection({
-      thoughtInput: makeThoughtInput({ observations }),
-      requestId: "req-required-observation-local-overflow",
-    })).toThrowError(expect.objectContaining({
+    let error: unknown;
+    try {
+      allocateThoughtProjection({
+        thoughtInput: makeThoughtInput({ observations }),
+        requestId: "req-required-observation-count-overflow",
+      });
+    } catch (caught) {
+      error = caught;
+    }
+
+    expect(error).toBeInstanceOf(RequiredOverflowError);
+    expect(error).toMatchObject({
       section: "observations",
-    }));
+      failure: {
+        kind: "evidence_count_limit",
+        constraint: "required_observation_count",
+        measuredValue: 9,
+        unit: "items",
+        limit: 8,
+        stage: "required_set_validation",
+      },
+    });
+  });
+
+  it("reports semantic-budget overflow when required observations cannot be packed", () => {
+    const observations = [{
+      observationId: "observation-global-token-overflow",
+      cycleId: "cycle-test-1",
+      generation: 1,
+      derived: false,
+      replaySafe: true,
+      modality: "tool" as const,
+      payload: { text: "complete required evidence ".repeat(3_000) },
+      provenance: "worker:test:global-token-overflow",
+      dataClassification: "ordinary" as const,
+      secretOmitted: false,
+    }];
+
+    let error: unknown;
+    try {
+      allocateThoughtProjection({
+        thoughtInput: makeThoughtInput({ observations }),
+        semanticBudgetTokens: 32_768,
+        requestId: "req-required-observation-global-token-overflow",
+      });
+    } catch (caught) {
+      error = caught;
+    }
+
+    expect(error).toBeInstanceOf(RequiredOverflowError);
+    expect(error).toMatchObject({
+      section: "observations",
+      failure: {
+        kind: "required_set_packing",
+        constraint: "semantic_token_budget",
+        unit: "tokens",
+        limit: 32_768,
+        stage: "global_allocation",
+        fallback: "retained_detail_access_unavailable",
+      },
+    });
+    expect((error as RequiredOverflowError).failure?.measuredValue).toBeGreaterThan(32_768);
+  });
+
+  it("reports the whole-request byte constraint when required observations cannot be packed globally", () => {
+    const baseInput = makeThoughtInput({
+      workingContext: makeThoughtInput().workingContext.filter((item) => item.type === "correction"),
+      retrieval: { ...makeThoughtInput().retrieval, hits: [] },
+    });
+    const observations = [{
+      observationId: "observation-global-overflow",
+      cycleId: "cycle-test-1",
+      generation: 1,
+      derived: false,
+      replaySafe: true,
+      modality: "tool" as const,
+      payload: { text: "x".repeat(MAX_LOGICAL_SERIALIZED_INPUT_BYTES - 8_000) },
+      provenance: "worker:test:global-overflow",
+      dataClassification: "ordinary" as const,
+      secretOmitted: false,
+    }];
+
+    let error: unknown;
+    try {
+      allocateThoughtProjection({
+        thoughtInput: { ...baseInput, observations },
+        semanticBudgetTokens: 262_144,
+        requestId: "req-required-observation-global-overflow",
+      });
+    } catch (caught) {
+      error = caught;
+    }
+
+    expect(error).toBeInstanceOf(RequiredOverflowError);
+    expect(error).toMatchObject({
+      section: "observations",
+      failure: {
+        kind: "serialized_request_bytes",
+        constraint: "logical_input_byte_envelope",
+        unit: "bytes",
+        limit: MAX_LOGICAL_SERIALIZED_INPUT_BYTES,
+        stage: "global_allocation",
+        measurementBasis: "exact",
+      },
+    });
+    expect((error as RequiredOverflowError).failure?.measuredValue)
+      .toBeGreaterThan(MAX_LOGICAL_SERIALIZED_INPUT_BYTES);
+  });
+
+  it("reports malformed or cyclic observations as structural safety failures", () => {
+    const cyclicPayload: Record<string, unknown> = { text: "evidence" };
+    cyclicPayload.self = cyclicPayload;
+    const observation = {
+      observationId: "observation-cyclic",
+      cycleId: "cycle-test-1",
+      generation: 1,
+      derived: false,
+      replaySafe: true,
+      modality: "tool" as const,
+      payload: cyclicPayload,
+      provenance: "worker:test:cyclic",
+      dataClassification: "ordinary" as const,
+      secretOmitted: false,
+    };
+
+    let error: unknown;
+    try {
+      allocateThoughtProjection({
+        thoughtInput: makeThoughtInput({ observations: [observation] }),
+        requestId: "req-required-observation-malformed",
+      });
+    } catch (caught) {
+      error = caught;
+    }
+
+    expect(error).toBeInstanceOf(RequiredOverflowError);
+    expect(error).toMatchObject({
+      failure: {
+        kind: "structural_safety",
+        constraint: "malformed_json_structure",
+        unit: "nodes",
+        stage: "observation_validation",
+      },
+    });
+  });
+
+  it("rejects a malformed required-observation collection instead of treating it as empty", () => {
+    const malformedInput = {
+      ...makeThoughtInput(),
+      observations: { observationId: "not-an-array" },
+    } as unknown as ThoughtInput;
+
+    let error: unknown;
+    try {
+      allocateThoughtProjection({
+        thoughtInput: malformedInput,
+        requestId: "req-required-observation-collection-shape",
+      });
+    } catch (caught) {
+      error = caught;
+    }
+
+    expect(error).toBeInstanceOf(RequiredOverflowError);
+    expect(error).toMatchObject({
+      section: "observations",
+      failure: {
+        kind: "structural_safety",
+        constraint: "required_observation_collection_shape",
+        measuredValue: 1,
+        unit: "items",
+        limit: 0,
+        stage: "required_set_validation",
+      },
+    });
+  });
+
+  it("rejects excessive observation nesting before serialization", () => {
+    let payload: unknown = "evidence";
+    for (let index = 0; index < 65; index += 1) payload = { nested: payload };
+    const observation = {
+      observationId: "observation-deep",
+      cycleId: "cycle-test-1",
+      generation: 1,
+      derived: false,
+      replaySafe: true,
+      modality: "tool" as const,
+      payload,
+      provenance: "worker:test:deep",
+      dataClassification: "ordinary" as const,
+      secretOmitted: false,
+    };
+
+    let error: unknown;
+    try {
+      allocateThoughtProjection({
+        thoughtInput: makeThoughtInput({ observations: [observation] }),
+        requestId: "req-required-observation-depth-overflow",
+      });
+    } catch (caught) {
+      error = caught;
+    }
+
+    expect(error).toBeInstanceOf(RequiredOverflowError);
+    expect(error).toMatchObject({
+      failure: {
+        kind: "structural_safety",
+        constraint: "max_nesting_depth",
+        unit: "levels",
+        limit: 64,
+        stage: "observation_validation",
+      },
+    });
+    expect((error as RequiredOverflowError).failure?.measuredValue).toBeGreaterThan(64);
+  });
+
+  it("rejects pathological observation collection cardinality before serialization", () => {
+    const observation = {
+      observationId: "observation-cardinality",
+      cycleId: "cycle-test-1",
+      generation: 1,
+      derived: false,
+      replaySafe: true,
+      modality: "tool" as const,
+      payload: { items: new Array(REQUIRED_OBSERVATION_MAX_NODES + 1) },
+      provenance: "worker:test:cardinality",
+      dataClassification: "ordinary" as const,
+      secretOmitted: false,
+    };
+
+    let error: unknown;
+    try {
+      allocateThoughtProjection({
+        thoughtInput: makeThoughtInput({ observations: [observation] }),
+        requestId: "req-required-observation-cardinality-overflow",
+      });
+    } catch (caught) {
+      error = caught;
+    }
+
+    expect(error).toBeInstanceOf(RequiredOverflowError);
+    expect(error).toMatchObject({
+      failure: {
+        kind: "structural_safety",
+        constraint: "max_collection_items",
+        measuredValue: REQUIRED_OBSERVATION_MAX_NODES + 1,
+        unit: "items",
+        limit: REQUIRED_OBSERVATION_MAX_NODES,
+        stage: "observation_validation",
+      },
+    });
+  });
+
+  it("reports an observation that exceeds the whole-request serialized byte ceiling", () => {
+    const observation = {
+      observationId: "observation-request-bytes",
+      cycleId: "cycle-test-1",
+      generation: 1,
+      derived: false,
+      replaySafe: true,
+      modality: "tool" as const,
+      payload: { text: "x".repeat(MAX_LOGICAL_SERIALIZED_INPUT_BYTES + 1) },
+      provenance: "worker:test:request-bytes",
+      dataClassification: "ordinary" as const,
+      secretOmitted: false,
+    };
+
+    let error: unknown;
+    try {
+      allocateThoughtProjection({
+        thoughtInput: makeThoughtInput({ observations: [observation] }),
+        semanticBudgetTokens: MAX_LOGICAL_SERIALIZED_INPUT_BYTES,
+        requestId: "req-required-observation-request-bytes",
+      });
+    } catch (caught) {
+      error = caught;
+    }
+
+    expect(error).toBeInstanceOf(RequiredOverflowError);
+    expect(error).toMatchObject({
+      failure: {
+        kind: "serialized_request_bytes",
+        constraint: "logical_input_byte_envelope",
+        unit: "bytes",
+        limit: MAX_LOGICAL_SERIALIZED_INPUT_BYTES,
+        stage: "observation_validation",
+      },
+    });
+    expect((error as RequiredOverflowError).failure?.measuredValue)
+      .toBeGreaterThan(MAX_LOGICAL_SERIALIZED_INPUT_BYTES);
   });
 
   it("drops linked learned-self entries before the broad slice at its local byte bound", () => {
@@ -2132,7 +2558,14 @@ describe("E2c optional Working Context loss honesty (allocator)", () => {
     expect(error).toBeInstanceOf(RequiredOverflowError);
     expect(error).toMatchObject({
       section: "working_context_pool",
-      semanticBudgetTokens: 32_768,
+      failure: {
+        kind: "required_set_packing",
+        constraint: "required_working_context_item_byte_bound",
+        unit: "bytes",
+        limit: 640,
+        stage: "required_set_validation",
+        measurementBasis: "exact",
+      },
     });
   });
 

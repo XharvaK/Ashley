@@ -328,6 +328,16 @@ type CompletionCapture = {
   responseDiagnostics: ProviderResponseDiagnostics | null;
 };
 
+function attemptIdFromIdentity(attempt: CapturedThoughtAttemptIdentity | undefined): string | null {
+  if (!attempt) return null;
+  return "providerAttemptId" in attempt ? attempt.providerAttemptId : attempt.modelFabricAttemptId;
+}
+
+function modelIdFromIdentity(attempt: CapturedThoughtAttemptIdentity | undefined): string | null {
+  if (!attempt) return null;
+  return "requestedModelId" in attempt ? attempt.requestedModelId : attempt.configuredModelId;
+}
+
 type AuthorityRevisionPassEvidence = Readonly<{
   semanticPass: number;
   authorityCodes: readonly string[];
@@ -1677,9 +1687,9 @@ function captureDispatchEvidenceFromCompletion(
     dispatchStage: "provider_dispatch",
     providerRequestStarted: true,
     providerResponseReceived: true,
-    attemptId: attempt?.modelFabricAttemptId ?? null,
+    attemptId: attemptIdFromIdentity(attempt),
     provider: attempt?.provider ?? null,
-    model: attempt?.configuredModelId ?? completion.resolvedModelId ?? null,
+    model: modelIdFromIdentity(attempt) ?? completion.resolvedModelId ?? null,
     wireEvidence: completion.wireEvidence ?? null,
     capabilityFingerprint: completion.capabilityIdentity?.fingerprint ?? null,
     responseDiagnostics: completion.responseDiagnostics ?? null,
@@ -2034,7 +2044,7 @@ function kernelBindingDiagnostic(
     authorityEpoch: input.authorityEpoch,
     provider: CANDIDATE.provider,
     model: CANDIDATE.model,
-    attemptId: attempt?.modelFabricAttemptId ?? null,
+    attemptId: attemptIdFromIdentity(attempt),
     allocationId: attempt?.allocationId ?? null,
   };
   const actual = envelope
@@ -2044,8 +2054,8 @@ function kernelBindingDiagnostic(
         generation: envelope.generation,
         authorityEpoch: envelope.authorityEpoch,
         provider: envelope.capturedAttempt.provider,
-        model: envelope.capturedAttempt.configuredModelId,
-        attemptId: envelope.capturedAttempt.modelFabricAttemptId,
+        model: modelIdFromIdentity(envelope.capturedAttempt),
+        attemptId: attemptIdFromIdentity(envelope.capturedAttempt),
         allocationId: envelope.capturedAttempt.allocationId,
       }
     : null;
@@ -2061,10 +2071,10 @@ function kernelBindingDiagnostic(
     if (envelope.cycleId !== input.cycleId) reasons.push("cycle_id_mismatch");
     if (envelope.generation !== input.generation) reasons.push("generation_mismatch");
     if (envelope.authorityEpoch !== input.authorityEpoch) reasons.push("authority_epoch_mismatch");
-    if (envelope.capturedAttempt.modelFabricAttemptId !== attempt.modelFabricAttemptId) reasons.push("attempt_id_mismatch");
+    if (attemptIdFromIdentity(envelope.capturedAttempt) !== attemptIdFromIdentity(attempt)) reasons.push("attempt_id_mismatch");
     if (envelope.capturedAttempt.allocationId !== attempt.allocationId) reasons.push("allocation_id_mismatch");
     if (envelope.capturedAttempt.provider !== CANDIDATE.provider) reasons.push("provider_mismatch");
-    if (envelope.capturedAttempt.configuredModelId !== CANDIDATE.model) reasons.push("model_mismatch");
+    if (modelIdFromIdentity(envelope.capturedAttempt) !== CANDIDATE.model) reasons.push("model_mismatch");
   }
   return gateDiagnostic(
     reasons.length === 0 ? "PASS" : "FAIL",
@@ -2272,7 +2282,7 @@ function gateEvidenceForSequence(input: {
   return {
     transport: completion ? "success" : "failure",
     provider: finalCapture?.provider ?? attempt?.provider,
-    model: finalCapture?.model ?? attempt?.configuredModelId,
+    model: finalCapture?.model ?? modelIdFromIdentity(attempt) ?? undefined,
     kernelBinding: semantic === undefined ? "NOT_REACHED" : kernelDiagnostic.status,
     fencing: fencingDiagnosticValue.status,
     authorityReachability: authorityDiagnosticValue.status,
@@ -2862,11 +2872,10 @@ async function runFixtureQualification(
     ): ThoughtQualificationCaseResult => Object.freeze({
       ...result,
       invocationIds: Object.freeze(sequence.invocations.map((item) => item.requestId)),
-      providerAttemptIds: Object.freeze(sequence.captures.flatMap((capture) =>
-        capture.completion?.capturedAttemptIdentity?.modelFabricAttemptId
-          ? [capture.completion.capturedAttemptIdentity.modelFabricAttemptId]
-          : [],
-      )),
+      providerAttemptIds: Object.freeze(sequence.captures.flatMap((capture) => {
+        const attemptId = attemptIdFromIdentity(capture.completion?.capturedAttemptIdentity);
+        return attemptId ? [attemptId] : [];
+      })),
     });
     const negativeWitnesses = [
       negativeWitness(withIds(stale, settlementSequence), "generation changed before the second publication fence"),

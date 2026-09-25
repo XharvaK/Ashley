@@ -428,7 +428,9 @@ describe("Model-Visible Thought Projection", () => {
       expect(shown.projectId).toEqual(raw.projectId);
       expect(shown.summary).toEqual(raw.summary);
       expect(shown.steps).toEqual(raw.steps);
-      expect(shown.lastObservation).toEqual(raw.lastObservation);
+      expect(shown).not.toHaveProperty("lastObservation");
+      expect((shown.steps as Array<{ observation?: unknown }>)[0]?.observation)
+        .toEqual(raw.lastObservation);
       expect(shown.nested).toEqual(raw.nested);
       expect(observation.provenance).toBe(base.observations[index]?.provenance);
       expect(observation.observationId).toBe(base.observations[index]?.observationId);
@@ -449,6 +451,63 @@ describe("Model-Visible Thought Projection", () => {
     expect((wireUser.observations[0]?.payload as Record<string, unknown>).nested)
       .toEqual({ selectedModelId: "opencode/nemotron-3.5-lightning-free" });
     expect(JSON.stringify(base.observations)).toContain("selectedModelId");
+  });
+
+  it("omits only an exactly duplicated lastObservation from the model-visible view", () => {
+    const duplicate: Observation = {
+      observationId: "obs-duplicate-last",
+      cycleId: "cycle-1",
+      generation: 1,
+      derived: false,
+      replaySafe: true,
+      modality: "tool",
+      payload: {
+        operation: "project.investigate",
+        projectId: "project-1",
+        steps: [{ operation: "project.read_file", observation: { content: "full file evidence" } }],
+        lastObservation: { content: "full file evidence" },
+      },
+      provenance: "worker:project.investigate",
+      dataClassification: "never_public",
+      secretOmitted: true,
+    };
+    const distinct: Observation = {
+      ...duplicate,
+      observationId: "obs-distinct-last",
+      payload: {
+        ...(duplicate.payload as Record<string, unknown>),
+        lastObservation: { content: "additional evidence" },
+      },
+    };
+
+    const base = projectThoughtInput(makeThoughtInput({ observations: [duplicate, distinct] }), []).projected;
+    const visible = modelVisibleThoughtProjection(base) as Pick<ProjectedThoughtInput, "observations">;
+    const visiblePayloads = visible.observations.map((item) => item.payload as Record<string, unknown>);
+
+    expect((base.observations[0]?.payload as Record<string, unknown>).lastObservation)
+      .toEqual({ content: "full file evidence" });
+    expect(visiblePayloads[0]).not.toHaveProperty("lastObservation");
+    expect(visiblePayloads[0]?.steps).toEqual((duplicate.payload as Record<string, unknown>).steps);
+    expect(visiblePayloads[1]?.lastObservation).toEqual({ content: "additional evidence" });
+    expect(visible.observations.map((item) => ({
+      observationId: item.observationId,
+      provenance: item.provenance,
+      dataClassification: item.dataClassification,
+      secretOmitted: item.secretOmitted,
+    }))).toEqual([
+      {
+        observationId: duplicate.observationId,
+        provenance: duplicate.provenance,
+        dataClassification: duplicate.dataClassification,
+        secretOmitted: duplicate.secretOmitted,
+      },
+      {
+        observationId: distinct.observationId,
+        provenance: distinct.provenance,
+        dataClassification: distinct.dataClassification,
+        secretOmitted: distinct.secretOmitted,
+      },
+    ]);
   });
 });
 

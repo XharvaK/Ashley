@@ -7,12 +7,22 @@ import { validateModeBRequest } from "./mode-b-request.js";
 import {
   buildCommandCodeInvocation,
   commandCodeWorkerReadiness,
+  COMMAND_CODE_WORKER_EFFORT,
   COMMAND_CODE_WORKER_MAX_TURNS,
+  COMMAND_CODE_WORKER_MODEL_ID,
   COMMAND_CODE_WORKER_PINNED_VERSION,
   executeCommandCodeWorker,
   resolveCommandCodeRuntime,
   type CommandCodeWorkerTransport,
 } from "./command-code-worker.js";
+import { COMMAND_CODE_POLICY } from "../../command-code/policy.js";
+
+describe("Command Code worker policy", () => {
+  it("derives its model and effort from the shared policy seam", () => {
+    expect(COMMAND_CODE_WORKER_MODEL_ID).toBe(COMMAND_CODE_POLICY.modelId);
+    expect(COMMAND_CODE_WORKER_EFFORT).toBe(COMMAND_CODE_POLICY.effort);
+  });
+});
 
 function fakeRuntimeInstall(pin = COMMAND_CODE_WORKER_PINNED_VERSION) {
   const root = mkdtempSync(join(tmpdir(), "ccw-readiness-"));

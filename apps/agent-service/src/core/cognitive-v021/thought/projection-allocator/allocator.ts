@@ -12,6 +12,7 @@ import {
   computeSemanticProjectionHash,
   attachC2CompatibilityFields,
   attachSourceCurrentness,
+  modelVisibleObservation,
   modelVisibleThoughtProjection,
   projectRetrievalHit,
   type CompactRetrievalEvidence,
@@ -34,6 +35,7 @@ import {
   type AllocationCandidate,
 } from "./sections.js";
 import type {
+  AllocationFailureDiagnostic,
   AllocationDiagnostics,
   AllocationReceipt,
   AllocationTokenBreakdown,
@@ -45,9 +47,10 @@ import {
 } from "../coverage-manifest.js";
 import {
   REQUIRED_LEARNED_SELF_BYTES,
-  REQUIRED_OBSERVATION_ITEM_BYTES,
+  REQUIRED_OBSERVATION_COUNT,
   REQUIRED_WC_ITEM_BYTES,
   REQUIRED_WC_PROJECTED_POOL_BYTES,
+  inspectRequiredObservation,
   utf8JsonBytes,
 } from "./composition-contract.js";
 import {
@@ -79,6 +82,7 @@ export class RequiredOverflowError extends AppError {
   readonly section: string;
   readonly estimatedInputTokens: number;
   readonly semanticBudgetTokens: number;
+  readonly failure: AllocationFailureDiagnostic | null;
 
   constructor(
     message: string,
@@ -86,12 +90,14 @@ export class RequiredOverflowError extends AppError {
       section?: string;
       estimatedInputTokens?: number;
       semanticBudgetTokens?: number;
+      failure?: AllocationFailureDiagnostic;
     } = {},
   ) {
     super("context_allocation_required_overflow", message, 422);
     this.section = details.section ?? "unknown";
     this.estimatedInputTokens = details.estimatedInputTokens ?? 0;
     this.semanticBudgetTokens = details.semanticBudgetTokens ?? 0;
+    this.failure = details.failure ?? null;
   }
 }
 
@@ -266,9 +272,83 @@ export function allocateThoughtProjection(
       {
         section: "trigger_evidence",
         estimatedInputTokens: 0,
-        semanticBudgetTokens: budget.semanticBudgetTokens,
+        failure: {
+          kind: "structural_safety",
+          constraint: "required_trigger_present",
+          measuredValue: 0,
+          unit: "items",
+          limit: 1,
+          stage: "required_set_validation",
+          measurementBasis: "exact",
+        },
       },
     );
+  }
+  const rawObservations: unknown = (input as { observations?: unknown }).observations;
+  if (rawObservations !== undefined && !Array.isArray(rawObservations)) {
+    throw new RequiredOverflowError(
+      "Required observations must be supplied as an array",
+      {
+        section: "observations",
+        failure: {
+          kind: "structural_safety",
+          constraint: "required_observation_collection_shape",
+          measuredValue: 1,
+          unit: "items",
+          limit: 0,
+          stage: "required_set_validation",
+          measurementBasis: "exact",
+        },
+      },
+    );
+  }
+  const inputObservations = rawObservations === undefined
+    ? []
+    : rawObservations as NonNullable<ThoughtInput["observations"]>;
+  if (inputObservations.length > REQUIRED_OBSERVATION_COUNT) {
+    throw new RequiredOverflowError(
+      `Required observation count exceeds the supported count (count: ${inputObservations.length}, limit: ${REQUIRED_OBSERVATION_COUNT})`,
+      {
+        section: "observations",
+        failure: {
+          kind: "evidence_count_limit",
+          constraint: "required_observation_count",
+          measuredValue: inputObservations.length,
+          unit: "items",
+          limit: REQUIRED_OBSERVATION_COUNT,
+          stage: "required_set_validation",
+          measurementBasis: "exact",
+        },
+      },
+    );
+  }
+  for (const observation of inputObservations) {
+    if (typeof observation !== "object" || observation === null || Array.isArray(observation)) {
+      throw new RequiredOverflowError(
+        "A required observation must have an object root",
+        {
+          section: "observations",
+          failure: {
+            kind: "structural_safety",
+            constraint: "observation_root_shape",
+            measuredValue: 1,
+            unit: "nodes",
+            limit: 1,
+            stage: "observation_validation",
+            measurementBasis: "exact",
+          },
+        },
+      );
+    }
+    const inspection = inspectRequiredObservation(observation);
+    if (!inspection.ok) {
+      const { failure } = inspection;
+      const measurement = failure.measurementBasis === "lower_bound" ? "at least " : "";
+      throw new RequiredOverflowError(
+        `Required observation failed ${failure.constraint} (measured ${measurement}${failure.measuredValue} ${failure.unit}, limit ${failure.limit} ${failure.unit}, stage ${failure.stage})`,
+        { section: "observations", failure },
+      );
+    }
   }
   const requiredSectionBounds = boundRequiredSectionData(input);
   if (requiredSectionBounds.learnedSelfSlice === null) {
@@ -277,25 +357,49 @@ export function allocateThoughtProjection(
       `Required learned-self slice exceeds the local byte bound (bytes: ${learnedSelfBytes}, limit: ${REQUIRED_LEARNED_SELF_BYTES})`,
       {
         section: "learned_self",
-        estimatedInputTokens: Math.ceil(learnedSelfBytes / BYTES_PER_TOKEN),
-        semanticBudgetTokens: budget.semanticBudgetTokens,
+        failure: {
+          kind: "required_set_packing",
+          constraint: "required_learned_self_byte_bound",
+          measuredValue: learnedSelfBytes,
+          unit: "bytes",
+          limit: REQUIRED_LEARNED_SELF_BYTES,
+          stage: "required_set_validation",
+          measurementBasis: "exact",
+        },
       },
     );
   }
   const boundedLearnedSelfSlice = requiredSectionBounds.learnedSelfSlice;
-  if (input.observations.length > 0 && requiredSectionBounds.observations.length === 0) {
-    const observationBytes = Math.max(
-      ...input.observations.map((observation) => utf8JsonBytes(observation)),
-    );
-    throw new RequiredOverflowError(
-      `No required observation fits the local item bound (largestBytes: ${observationBytes}, limit: ${REQUIRED_OBSERVATION_ITEM_BYTES})`,
-      {
-        section: "observations",
-        estimatedInputTokens: Math.ceil(observationBytes / BYTES_PER_TOKEN),
-        semanticBudgetTokens: budget.semanticBudgetTokens,
-      },
-    );
+  const canonicalObservations = requiredSectionBounds.observations.map(modelVisibleObservation);
+  for (const observation of canonicalObservations) {
+    const inspection = inspectRequiredObservation(observation);
+    if (!inspection.ok) {
+      const { failure } = inspection;
+      throw new RequiredOverflowError(
+        `Canonical required observation failed ${failure.constraint} (measured ${failure.measuredValue} ${failure.unit}, limit ${failure.limit} ${failure.unit}, stage ${failure.stage})`,
+        { section: "observations", failure },
+      );
+    }
+    if (inspection.serializedBytes > MAX_LOGICAL_SERIALIZED_INPUT_BYTES) {
+      const failure: AllocationFailureDiagnostic = {
+        kind: "serialized_request_bytes",
+        constraint: "logical_input_byte_envelope",
+        measuredValue: inspection.serializedBytes,
+        unit: "bytes",
+        limit: MAX_LOGICAL_SERIALIZED_INPUT_BYTES,
+        stage: "observation_validation",
+        measurementBasis: "exact",
+      };
+      throw new RequiredOverflowError(
+        `Canonical required observation exceeds the whole-request byte envelope (bytes: ${inspection.serializedBytes}, limit: ${MAX_LOGICAL_SERIALIZED_INPUT_BYTES}, stage: observation_validation)`,
+        { section: "observations", failure },
+      );
+    }
   }
+  const boundedRequiredSectionData = Object.freeze({
+    ...requiredSectionBounds,
+    observations: canonicalObservations,
+  });
 
   // Prepare full provenance and compact retrieval hits
   const provenance = new Map<string, RetrievalHit>();
@@ -311,7 +415,7 @@ export function allocateThoughtProjection(
     input,
     compactRetrievalHits,
     continuityContext,
-    requiredSectionBounds,
+    boundedRequiredSectionData,
   );
   const excludedCandidates = allCandidates.filter((candidate) =>
     candidate.continuityCandidate?.invalidationReason !== undefined,
@@ -360,8 +464,19 @@ export function allocateThoughtProjection(
       `Required Working Context exceeds the bounded projected pool (bytes: ${offendingBytes}, itemLimit: ${REQUIRED_WC_ITEM_BYTES}, poolLimit: ${REQUIRED_WC_PROJECTED_POOL_BYTES})`,
       {
         section: "working_context_pool",
-        estimatedInputTokens: Math.ceil(offendingBytes / BYTES_PER_TOKEN),
-        semanticBudgetTokens: budget.semanticBudgetTokens,
+        failure: {
+          kind: "required_set_packing",
+          constraint: oversizedRequiredWorkingContext
+            ? "required_working_context_item_byte_bound"
+            : "required_working_context_pool_byte_bound",
+          measuredValue: offendingBytes,
+          unit: "bytes",
+          limit: oversizedRequiredWorkingContext
+            ? REQUIRED_WC_ITEM_BYTES
+            : REQUIRED_WC_PROJECTED_POOL_BYTES,
+          stage: "required_set_validation",
+          measurementBasis: "exact",
+        },
       },
     );
   }
@@ -378,6 +493,7 @@ export function allocateThoughtProjection(
   const workingContextIncluded: WorkingContextItem[] = [];
   const deskEntriesIncluded: DeskEntry[] = [];
   const retrievalHitsIncluded: CompactRetrievalEvidence[] = [];
+  let observationsIncluded = boundedRequiredSectionData.observations.length === 0;
   let orientationKernelIncluded = false;
   let domainPointersIncluded = false;
   let c3ExperiencesIncluded = false;
@@ -390,12 +506,12 @@ export function allocateThoughtProjection(
     conversationSelection?: ThoughtInput["conversationSelection"];
   };
   const messageMemo = buildThoughtProjectionMessageMemo(opts.structuralFeedback);
-  const projectedInFlight = requiredSectionBounds.inFlight.map((item) =>
+  const projectedInFlight = boundedRequiredSectionData.inFlight.map((item) =>
     projectInFlightConsequence(item, input.cycleId, input.generation, input.audience));
   const operationalNamespace = buildOperationalEffectNamespace(
     input.cycleId,
     input.generation,
-    requiredSectionBounds.inFlight.map((item) => item.effectId),
+    boundedRequiredSectionData.inFlight.map((item) => item.effectId),
   );
 
   const structuralTokens = (value: unknown): number => {
@@ -424,6 +540,7 @@ export function allocateThoughtProjection(
     // passes finalizeDisclosure, repairing source miss truth and emitting the
     // exact allocator-stage omission count. No speculative disclosure exists.
     finalizeDisclosure = false,
+    includeObservations = observationsIncluded,
   ): ProjectedThoughtInput & {
     c3Experiences?: {
       version: 1;
@@ -486,7 +603,7 @@ export function allocateThoughtProjection(
           }
         : {}),
       ...(input.deskEntries === undefined ? {} : { deskEntries }),
-      occupancy: requiredSectionBounds.occupancy,
+      occupancy: boundedRequiredSectionData.occupancy,
       ...(includeDomainPointers && c2Input.domainPointers !== undefined
         ? { domainPointers: c2Input.domainPointers }
         : {}),
@@ -508,7 +625,7 @@ export function allocateThoughtProjection(
       generation: input.generation,
       trigger: input.trigger,
       ...(input.commitmentDue === undefined ? {} : { commitmentDue: input.commitmentDue }),
-      observations: requiredSectionBounds.observations,
+      observations: includeObservations ? boundedRequiredSectionData.observations : [],
       inFlight: projectedInFlight,
       allowedOperationalEffectRefs: [...operationalNamespace.allowedOperationalEffectRefs],
       authorityObjections: input.authorityObjections,
@@ -586,6 +703,7 @@ export function allocateThoughtProjection(
     let tentativeDeskEntries = deskEntriesIncluded;
     let tentativeRetrieval = retrievalHitsIncluded;
     let tentativeConversation = conversationIncluded;
+    let tentativeObservationsIncluded = observationsIncluded;
     let tentativeOrientationKernel = orientationKernelIncluded;
     let tentativeDomainPointers = domainPointersIncluded;
     let tentativeC3Experiences = c3ExperiencesIncluded;
@@ -598,6 +716,8 @@ export function allocateThoughtProjection(
       tentativeDeskEntries = [...deskEntriesIncluded, candidate.data as DeskEntry];
     } else if (candidate.section === "retrieval_compact") {
       tentativeRetrieval = [...retrievalHitsIncluded, candidate.data as CompactRetrievalEvidence];
+    } else if (candidate.section === "observations") {
+      tentativeObservationsIncluded = true;
     } else if (candidate.section === "orientation_kernel") {
       tentativeOrientationKernel = true;
     } else if (candidate.section === "domain_pointers") {
@@ -614,6 +734,8 @@ export function allocateThoughtProjection(
       tentativeOrientationKernel,
       tentativeDomainPointers,
       tentativeC3Experiences,
+      false,
+      tentativeObservationsIncluded,
     );
     thoughtMessagesForProjectionCallCount += 1;
     const tentativeMessages = thoughtMessagesForProjection(
@@ -626,8 +748,13 @@ export function allocateThoughtProjection(
       maxTokens: budget.maxOutputTokens,
     });
     const totalDemand = estimate.estimatedInputTokens + estimate.estimatedOutputTokens;
+    const tentativeInputBytes = estimateRequestInputBytes(tentativeMessages);
+    const exceedsSerializedByteEnvelope = tentativeInputBytes > MAX_LOGICAL_SERIALIZED_INPUT_BYTES;
 
-    if (estimate.estimatedInputTokens <= budget.semanticBudgetTokens) {
+    if (
+      estimate.estimatedInputTokens <= budget.semanticBudgetTokens
+      && !exceedsSerializedByteEnvelope
+    ) {
       // Accepted!
       includedCandidates.push(candidate);
       if (candidate.section === "recent_raw") {
@@ -638,6 +765,8 @@ export function allocateThoughtProjection(
         deskEntriesIncluded.push(candidate.data as DeskEntry);
       } else if (candidate.section === "retrieval_compact") {
         retrievalHitsIncluded.push(candidate.data as CompactRetrievalEvidence);
+      } else if (candidate.section === "observations") {
+        observationsIncluded = true;
       } else if (candidate.section === "orientation_kernel") {
         orientationKernelIncluded = true;
       } else if (candidate.section === "domain_pointers") {
@@ -648,12 +777,40 @@ export function allocateThoughtProjection(
     } else {
       // Exceeds TPM budget
       if (candidate.required) {
+        if (exceedsSerializedByteEnvelope) {
+          const failure: AllocationFailureDiagnostic = {
+            kind: "serialized_request_bytes",
+            constraint: "logical_input_byte_envelope",
+            measuredValue: tentativeInputBytes,
+            unit: "bytes",
+            limit: MAX_LOGICAL_SERIALIZED_INPUT_BYTES,
+            stage: "global_allocation",
+            measurementBasis: "exact",
+          };
+          throw new RequiredOverflowError(
+            `Required section '${candidate.section}' exceeds the whole-request byte envelope (bytes: ${tentativeInputBytes}, limit: ${MAX_LOGICAL_SERIALIZED_INPUT_BYTES})`,
+            { section: candidate.section, failure },
+          );
+        }
+        const failure: AllocationFailureDiagnostic = {
+          kind: "required_set_packing",
+          constraint: "semantic_token_budget",
+          measuredValue: estimate.estimatedInputTokens,
+          unit: "tokens",
+          limit: budget.semanticBudgetTokens,
+          stage: "global_allocation",
+          measurementBasis: "exact",
+          ...(candidate.section === "observations"
+            ? { fallback: "retained_detail_access_unavailable" as const }
+            : {}),
+        };
         throw new RequiredOverflowError(
-          `Context allocation overflow on required section '${candidate.section}' (input: ${estimate.estimatedInputTokens}, semanticBudgetTokens: ${budget.semanticBudgetTokens})`,
+          `Required section '${candidate.section}' cannot be packed within the semantic input budget (input: ${estimate.estimatedInputTokens} tokens, limit: ${budget.semanticBudgetTokens} tokens)`,
           {
             section: candidate.section,
             estimatedInputTokens: estimate.estimatedInputTokens,
             semanticBudgetTokens: budget.semanticBudgetTokens,
+            failure,
           },
         );
       }
@@ -689,6 +846,7 @@ export function allocateThoughtProjection(
     domainPointersIncluded,
     c3ExperiencesIncluded,
     true,
+    observationsIncluded,
   );
   thoughtMessagesForProjectionCallCount += 1;
   const finalMessages = thoughtMessagesForProjection(finalProjected, undefined, messageMemo);
@@ -726,6 +884,15 @@ export function allocateThoughtProjection(
         section,
         estimatedInputTokens: finalEstimate.estimatedInputTokens,
         semanticBudgetTokens: budget.semanticBudgetTokens,
+        failure: {
+          kind: "semantic_token_budget",
+          constraint: "semantic_token_budget",
+          measuredValue: finalEstimate.estimatedInputTokens,
+          unit: "tokens",
+          limit: budget.semanticBudgetTokens,
+          stage: "final_render",
+          measurementBasis: "exact",
+        },
       },
     );
   }
@@ -737,6 +904,15 @@ export function allocateThoughtProjection(
         section: "logical_input_envelope",
         estimatedInputTokens: finalEstimate.estimatedInputTokens,
         semanticBudgetTokens: budget.semanticBudgetTokens,
+        failure: {
+          kind: "serialized_request_bytes",
+          constraint: "logical_input_byte_envelope",
+          measuredValue: finalLogicalInputBytes,
+          unit: "bytes",
+          limit: MAX_LOGICAL_SERIALIZED_INPUT_BYTES,
+          stage: "final_render",
+          measurementBasis: "exact",
+        },
       },
     );
   }

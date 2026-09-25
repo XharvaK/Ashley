@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import type {
+  AllocationFailureDiagnostic,
   AllocationDiagnostics,
   AllocationReceipt,
   AllocationTokenBreakdown,
@@ -46,6 +47,14 @@ export type ThoughtProviderFailureCapture = Readonly<{
   /** Configured model identity; provider-reported identity is separate. */
   model?: string;
   providerModel?: string;
+  backend?: string;
+  providerInvocationId?: string;
+  providerAttemptId?: string;
+  requestHash?: string;
+  responseHash?: string;
+  providerAttemptCount?: number;
+  alternateProviderAttempts?: number;
+  transportOutcome?: "not_sent" | "sent_outcome_unknown" | "response_received";
   modelFabricInvocationId?: string;
   modelFabricAttemptId?: string;
   attemptOrdinal?: number;
@@ -127,6 +136,7 @@ export type ThoughtDispatchDiagnostic = {
   fallbackFromAttemptId?: string | null;
   secondaryDispatchTruth?: "not_sent" | null;
   requiredOverflowSection?: string | null;
+  allocationFailure?: AllocationFailureDiagnostic | null;
   semanticBudgetTokens?: number | null;
   overflowTokens?: number | null;
   cycleMetrics?: ThoughtCycleTokenMetrics | null;
@@ -405,20 +415,66 @@ function parseCycleMetrics(value: unknown): ThoughtCycleTokenMetrics | null {
 
 type RequiredOverflowDiagnosticDetails = {
   requiredOverflowSection: string | null;
+  allocationFailure: AllocationFailureDiagnostic | null;
   semanticBudgetTokens: number | null;
   overflowTokens: number | null;
 };
 
 function requiredOverflowPayload(diag: ThoughtDispatchDiagnostic): Record<string, unknown> | null {
   const hasDetails = diag.requiredOverflowSection !== undefined
+    || diag.allocationFailure !== undefined
     || diag.semanticBudgetTokens !== undefined
     || diag.overflowTokens !== undefined;
   if (!hasDetails) return null;
   return {
     required_overflow_section: diag.requiredOverflowSection ?? null,
+    allocation_failure: diag.allocationFailure ?? null,
     estimated_input_tokens: diag.estimatedInputTokens ?? null,
     semantic_budget_tokens: diag.semanticBudgetTokens ?? null,
     overflow_tokens: diag.overflowTokens ?? null,
+  };
+}
+
+function parseAllocationFailure(value: unknown): AllocationFailureDiagnostic | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const parsed = value as Record<string, unknown>;
+  const kinds = new Set([
+    "structural_safety",
+    "serialized_request_bytes",
+    "provider_context_limit",
+    "semantic_token_budget",
+    "required_set_packing",
+    "evidence_count_limit",
+    "retained_detail_access",
+  ]);
+  const units = new Set(["bytes", "tokens", "items", "levels", "nodes"]);
+  const stages = new Set([
+    "required_set_validation",
+    "observation_validation",
+    "global_allocation",
+    "final_render",
+    "provider_dispatch",
+  ]);
+  if (
+    typeof parsed.kind !== "string" || !kinds.has(parsed.kind)
+    || typeof parsed.constraint !== "string" || !/^[a-z0-9_]{1,128}$/.test(parsed.constraint)
+    || typeof parsed.measuredValue !== "number" || !Number.isFinite(parsed.measuredValue) || parsed.measuredValue < 0
+    || typeof parsed.unit !== "string" || !units.has(parsed.unit)
+    || typeof parsed.limit !== "number" || !Number.isFinite(parsed.limit) || parsed.limit < 0
+    || typeof parsed.stage !== "string" || !stages.has(parsed.stage)
+    || (parsed.measurementBasis !== "exact" && parsed.measurementBasis !== "lower_bound")
+  ) return null;
+  return {
+    kind: parsed.kind as AllocationFailureDiagnostic["kind"],
+    constraint: parsed.constraint,
+    measuredValue: parsed.measuredValue,
+    unit: parsed.unit as AllocationFailureDiagnostic["unit"],
+    limit: parsed.limit,
+    stage: parsed.stage as AllocationFailureDiagnostic["stage"],
+    measurementBasis: parsed.measurementBasis,
+    ...(parsed.fallback === "retained_detail_access_unavailable"
+      ? { fallback: "retained_detail_access_unavailable" as const }
+      : {}),
   };
 }
 
@@ -427,6 +483,7 @@ function parseRequiredOverflowDetails(value: unknown): RequiredOverflowDiagnosti
   try {
     const parsed = JSON.parse(value) as Record<string, unknown>;
     const hasDetails = typeof parsed.required_overflow_section === "string"
+      || parsed.allocation_failure !== undefined
       || typeof parsed.semantic_budget_tokens === "number"
       || typeof parsed.overflow_tokens === "number";
     if (!hasDetails) return null;
@@ -434,6 +491,7 @@ function parseRequiredOverflowDetails(value: unknown): RequiredOverflowDiagnosti
       requiredOverflowSection: typeof parsed.required_overflow_section === "string"
         ? parsed.required_overflow_section
         : null,
+      allocationFailure: parseAllocationFailure(parsed.allocation_failure),
       semanticBudgetTokens: typeof parsed.semantic_budget_tokens === "number"
         ? parsed.semantic_budget_tokens
         : null,
@@ -502,6 +560,11 @@ function providerFailurePayload(
     ["provider", 64],
     ["model", 160],
     ["providerModel", 160],
+    ["backend", 64],
+    ["providerInvocationId", 128],
+    ["providerAttemptId", 160],
+    ["requestHash", 128],
+    ["responseHash", 128],
     ["modelFabricInvocationId", 128],
     ["modelFabricAttemptId", 128],
     ["canonicalSchemaFingerprint", 128],
@@ -523,6 +586,9 @@ function providerFailurePayload(
   const abortReasonName = capture.abortReasonName;
   if (abortReasonName === "TimeoutError" || abortReasonName === "AbortError" || abortReasonName === "none") {
     value.abortReasonName = abortReasonName;
+  }
+  if (capture.transportOutcome === "not_sent" || capture.transportOutcome === "sent_outcome_unknown" || capture.transportOutcome === "response_received") {
+    value.transportOutcome = capture.transportOutcome;
   }
   const booleans: Array<keyof ThoughtProviderFailureCapture> = [
     "noHttpResponse",
@@ -549,6 +615,8 @@ function providerFailurePayload(
     ["requestWireBytes", "finite"],
     ["requestWireAdditionalBytes", "finite"],
     ["providerHttpStatus", "integer"],
+    ["providerAttemptCount", "integer"],
+    ["alternateProviderAttempts", "integer"],
     ["reasoningTokens", "integer"],
     ["cachedInputTokens", "integer"],
     ["neuronUsage", "integer"],
@@ -606,7 +674,9 @@ function parseProviderFailureCapture(value: unknown): ThoughtProviderFailureCapt
       structuralRetryStatus,
     };
     const strings: Array<[keyof ThoughtProviderFailureCapture, number]> = [
-      ["provider", 64], ["model", 160], ["providerModel", 160],
+    ["provider", 64], ["model", 160], ["providerModel", 160],
+    ["backend", 64], ["providerInvocationId", 128], ["providerAttemptId", 160],
+    ["requestHash", 128], ["responseHash", 128],
       ["modelFabricInvocationId", 128], ["modelFabricAttemptId", 128],
       ["canonicalSchemaFingerprint", 128], ["wireSchemaFingerprint", 128],
       ["wireBindingId", 160], ["wireFormat", 96], ["wireBodyDigest", 128],
@@ -626,6 +696,9 @@ function parseProviderFailureCapture(value: unknown): ThoughtProviderFailureCapt
     if (parsed.abortReasonName !== undefined) {
       (capture as Record<string, unknown>).abortReasonName = abortReasonName;
     }
+    if (parsed.transportOutcome === "not_sent" || parsed.transportOutcome === "sent_outcome_unknown" || parsed.transportOutcome === "response_received") {
+      (capture as Record<string, unknown>).transportOutcome = parsed.transportOutcome;
+    }
     for (const key of ["noHttpResponse", "sessionAffinityApplied"] as const) {
       if (typeof parsed[key] === "boolean") (capture as Record<string, unknown>)[key] = parsed[key];
     }
@@ -639,6 +712,7 @@ function parseProviderFailureCapture(value: unknown): ThoughtProviderFailureCapt
       ["inputTokens", "finite"], ["completionTokens", "finite"],
       ["requestWireBytes", "finite"], ["requestWireAdditionalBytes", "finite"],
       ["providerHttpStatus", "integer"],
+      ["providerAttemptCount", "integer"], ["alternateProviderAttempts", "integer"],
       ["reasoningTokens", "integer"], ["cachedInputTokens", "integer"],
       ["neuronUsage", "integer"],
       ["contentBytes", "finite"], ["reasoningContentBytes", "finite"],

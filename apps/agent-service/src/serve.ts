@@ -205,7 +205,10 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
     const runDetachedWorker = async (workerInput: Parameters<NonNullable<Parameters<typeof dispatchDetachedOperation>[2]>>[0]) => {
       const result = await liveOperationExecutors.runDetachedInvestigate({
         request: workerInput.request,
+        operationId: workerInput.operation.operationId,
+        conversationId: workerInput.operation.conversationId,
         cycleId: workerInput.operation.originCycleId,
+        generation: workerInput.operation.originGeneration,
         purpose: workerInput.purpose,
         deadlineAtMs: workerInput.operation.operationDeadlineAtMs,
       });

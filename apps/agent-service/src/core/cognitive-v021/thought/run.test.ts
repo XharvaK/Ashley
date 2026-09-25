@@ -822,13 +822,19 @@ describe("v0.2.1 Thought run", () => {
         stage: "allocation",
         dispatchTruth: "not_sent",
         requiredOverflowSection: "working_context_pool",
-        estimatedInputTokens: expect.any(Number),
-        semanticBudgetTokens: 32_768,
-        overflowTokens: expect.any(Number),
+        estimatedInputTokens: null,
+        semanticBudgetTokens: null,
+        overflowTokens: null,
+        allocationFailure: {
+          kind: "required_set_packing",
+          constraint: "required_working_context_item_byte_bound",
+          measuredValue: expect.any(Number),
+          unit: "bytes",
+          limit: 640,
+          stage: "required_set_validation",
+          measurementBasis: "exact",
+        },
       });
-      expect(diagnostic!.overflowTokens).toBe(
-        diagnostic!.estimatedInputTokens! - diagnostic!.semanticBudgetTokens!,
-      );
       const storedPayload = observabilityDb.prepare(
         "SELECT cycle_metrics_json FROM thought_dispatch_diagnostics WHERE code = 'context_allocation_required_overflow'",
       ).get() as { cycle_metrics_json: string };
