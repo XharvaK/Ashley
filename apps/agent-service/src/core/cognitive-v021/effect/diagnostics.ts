@@ -240,3 +240,50 @@ export function updateEffectDiagnosticSupervision(
   return Number(db.prepare("UPDATE effect_diagnostics SET diagnostic_json = ? WHERE effect_id = ?")
     .run(serialized, effectId).changes) === 1;
 }
+
+/** Merge a final worker diagnostic while preserving acceptance-time continuation evidence. */
+export function mergeEffectDiagnostic(
+  db: DatabaseSync,
+  effectId: string,
+  update: Record<string, unknown>,
+): boolean {
+  if (!effectId.trim()) return false;
+  const row = db.prepare("SELECT diagnostic_json FROM effect_diagnostics WHERE effect_id = ? LIMIT 1")
+    .get(effectId) as DbRow | undefined;
+  const current = parseDiagnostic(row?.diagnostic_json);
+  if (!current || current.redacted === true) return false;
+  const merged = {
+    ...current,
+    ...update,
+    ...(current.continuation === undefined ? {} : { continuation: current.continuation }),
+  };
+  const serialized = JSON.stringify(merged);
+  if (serialized.length > MAX_EFFECT_DIAGNOSTIC_CHARS) return false;
+  return Number(db.prepare("UPDATE effect_diagnostics SET diagnostic_json = ? WHERE effect_id = ?")
+    .run(serialized, effectId).changes) === 1;
+}
+
+export function updateEffectDiagnosticContinuation(
+  db: DatabaseSync,
+  effectId: string,
+  continuation: { state: string; terminalClass: string; effectTruth: string },
+): boolean {
+  if (!effectId.trim()
+    || !/^[a-z0-9_.-]{1,80}$/i.test(continuation.state)
+    || !/^[a-z0-9_.-]{1,80}$/i.test(continuation.terminalClass)
+    || !/^[a-z0-9_.-]{1,80}$/i.test(continuation.effectTruth)) return false;
+  const row = db.prepare("SELECT diagnostic_json FROM effect_diagnostics WHERE effect_id = ? LIMIT 1")
+    .get(effectId) as DbRow | undefined;
+  const diagnostic = parseDiagnostic(row?.diagnostic_json);
+  if (!diagnostic || diagnostic.redacted === true || !isRecord(diagnostic.continuation)) return false;
+  diagnostic.continuation = {
+    ...diagnostic.continuation,
+    state: continuation.state,
+    terminalClass: continuation.terminalClass,
+    effectTruth: continuation.effectTruth,
+  };
+  const serialized = JSON.stringify(diagnostic);
+  if (serialized.length > MAX_EFFECT_DIAGNOSTIC_CHARS) return false;
+  return Number(db.prepare("UPDATE effect_diagnostics SET diagnostic_json = ? WHERE effect_id = ?")
+    .run(serialized, effectId).changes) === 1;
+}

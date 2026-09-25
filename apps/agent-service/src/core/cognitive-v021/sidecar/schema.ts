@@ -1266,3 +1266,29 @@ CREATE INDEX IF NOT EXISTS idx_effect_diagnostics_conversation
   ON effect_diagnostics (conversation_id, at_ms);
 UPDATE cognitive_sidecar_meta SET schema_version = 28, projection_state = 'reconciling' WHERE id = 1;
 `;
+
+export const COGNITIVE_SIDECAR_SCHEMA_V29 = String.raw`
+CREATE TABLE IF NOT EXISTS effect_continuations (
+  effect_id TEXT PRIMARY KEY,
+  conversation_id TEXT NOT NULL,
+  cycle_id TEXT NOT NULL,
+  generation INTEGER NOT NULL,
+  deadline_at_ms INTEGER NOT NULL,
+  remaining_effect_rounds INTEGER NOT NULL CHECK(remaining_effect_rounds >= 0),
+  purpose TEXT NOT NULL,
+  target_json TEXT NOT NULL,
+  runtime_id TEXT NOT NULL,
+  lease_token TEXT NOT NULL,
+  lease_expires_at_ms INTEGER NOT NULL,
+  state TEXT NOT NULL CHECK(state IN ('running', 'succeeded', 'failed', 'outcome_unknown', 'cancelled')),
+  terminal_class TEXT,
+  effect_truth TEXT,
+  diagnostic_ref TEXT,
+  completion_event_ref TEXT,
+  started_at_ms INTEGER NOT NULL,
+  updated_at_ms INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_effect_continuations_recovery
+  ON effect_continuations (state, deadline_at_ms, started_at_ms);
+UPDATE cognitive_sidecar_meta SET schema_version = 29, projection_state = 'reconciling' WHERE id = 1;
+`;

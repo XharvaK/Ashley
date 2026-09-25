@@ -396,6 +396,25 @@ export function recordEffectReceipt(db: DatabaseSync, receipt: EffectReceipt): E
   const existing = getEffectReceipt(db, receipt.effectId)
     ?? getEffectReceiptByIdempotencyKey(db, receipt.idempotencyKey);
   if (existing) {
+    if (existing.effectId === receipt.effectId
+      && existing.outcome === "in_progress"
+      && receipt.outcome !== "in_progress") {
+      db.prepare(
+        `UPDATE effect_receipts
+            SET outcome = ?, claims_json = ?, at_ms = ?, data_classification = ?, secret_omitted = ?
+          WHERE effect_id = ? AND outcome = 'in_progress'`,
+      ).run(
+        receipt.outcome,
+        JSON.stringify(receipt.claims),
+        receipt.atMs,
+        receipt.dataClassification,
+        receipt.secretOmitted ? 1 : 0,
+        receipt.effectId,
+      );
+      const promoted = getEffectReceipt(db, receipt.effectId) ?? existing;
+      updateInFlightOccupancyFromReceipt(db, promoted);
+      return promoted;
+    }
     if (existing.effectId === receipt.effectId) updateInFlightOccupancyFromReceipt(db, existing);
     return existing;
   }

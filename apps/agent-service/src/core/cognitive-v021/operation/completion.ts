@@ -10,6 +10,17 @@ import { getDetachedOperation } from "./detached.js";
 import { getInterimOutboxByOperation } from "./interim.js";
 import { getWorkerUndertaking } from "./worker-queue.js";
 import { isAuthorizedOwnerId } from "../../../owner-auth.js";
+import { getEffectReceipt, getInFlightByEffectId, recordEffectReceipt } from "../effect/in-flight.js";
+import {
+  abandonEffectContinuation,
+  effectContinuationBindingHash,
+  EFFECT_CONTINUATION_PUBLICATION_MARGIN_MS,
+  EFFECT_CONTINUATION_RUNTIME_ID,
+  getEffectContinuation,
+  listRunningEffectContinuations,
+  recordEffectContinuationCompletion,
+} from "../effect/continuation.js";
+import type { EffectReceipt } from "../types.js";
 
 export type ProduceCompletionResult =
   | { ok: true; eventId: string; created: boolean }
@@ -79,7 +90,71 @@ export function produceOperationCompletion(
     return { ok: false, reason: "invalid_operation" };
   }
   const operation = getDetachedOperation(sidecar, operationId);
-  if (!operation) return { ok: false, reason: "detached_operation_missing" };
+  if (!operation) {
+    const continuation = getEffectContinuation(sidecar, operationId);
+    if (!continuation) return { ok: false, reason: "detached_operation_missing" };
+    if (continuation.state === "running") return { ok: false, reason: "effect_continuation_not_terminal" };
+    const receipt = getEffectReceipt(sidecar, operationId);
+    if (!receipt || receipt.outcome === "in_progress") {
+      return { ok: false, reason: "effect_continuation_receipt_missing" };
+    }
+    const eventId = completionEventIdFor(operationId);
+    if (continuation.completionEventRef) {
+      return { ok: true, eventId: continuation.completionEventRef, created: false };
+    }
+    const existingEvent = getInboxEvent(sidecar, eventId);
+    if (existingEvent) {
+      recordEffectContinuationCompletion(sidecar, operationId, eventId, nowMs);
+      return { ok: true, eventId, created: false };
+    }
+    const inFlight = getInFlightByEffectId(sidecar, operationId);
+    if (!inFlight || inFlight.cycleId !== continuation.cycleId
+      || inFlight.generation !== continuation.generation) {
+      return { ok: false, reason: "effect_continuation_binding_missing" };
+    }
+    const bindingHash = effectContinuationBindingHash(continuation);
+    const observationBindingHashValue = observationBindingHash({ observationIds: [], observations: [] });
+    const payload = {
+      effectContinuationId: operationId,
+      operationId,
+      effectId: operationId,
+      effectBindingHash: bindingHash,
+      terminalState: continuation.state,
+      terminalClass: continuation.terminalClass ?? "UNKNOWN",
+      effectTruth: continuation.effectTruth ?? "unknown",
+      purpose: continuation.purpose,
+      target: continuation.target,
+      diagnosticRef: continuation.diagnosticRef,
+      deadlineAtMs: continuation.deadlineAtMs,
+      remainingEffectRounds: continuation.remainingEffectRounds,
+      originCycleId: continuation.cycleId,
+      originGeneration: continuation.generation,
+      originOwnerEventId: inFlight.originEventId,
+      observationRef: null,
+      receiptRef: receipt.receiptId,
+      observationsCapture: "none",
+      observationIds: [],
+      observationCount: 0,
+      observationBindingHash: observationBindingHashValue,
+      triggerRef: `operation-completion:${operationId}`,
+    };
+    appendInboxEvent(sidecar, {
+      id: eventId,
+      conversationId: continuation.conversationId,
+      kind: "observation_or_receipt",
+      payload,
+      createdAtMs: nowMs,
+    });
+    appendSystemEvent(sidecar, {
+      conversationId: continuation.conversationId,
+      text: `Develop effect ${continuation.state} (${continuation.terminalClass ?? "UNKNOWN"}; effect truth ${continuation.effectTruth ?? "unknown"}). Purpose: ${truncate(continuation.purpose, 280)}. Target: ${JSON.stringify(continuation.target)}. Refs: effect ${operationId}, diagnostic ${continuation.diagnosticRef ?? "unavailable"}, receipt ${receipt.receiptId}.`,
+      producingCycleId: continuation.cycleId,
+      dataClassification: "never_public",
+      nowMs,
+    });
+    recordEffectContinuationCompletion(sidecar, operationId, eventId, nowMs);
+    return { ok: true, eventId, created: true };
+  }
   if (operation.terminalState === null) {
     return { ok: false, reason: "detached_operation_not_terminal" };
   }
@@ -200,7 +275,7 @@ export function produceOperationCompletion(
  */
 export function reconcileMissingCompletions(
   sidecar: DatabaseSync,
-  options: { nowMs?: number; limit?: number } = {},
+  options: { nowMs?: number; limit?: number; runtimeId?: string } = {},
 ): { produced: string[]; failures: string[] } {
   const nowMs = options.nowMs ?? Date.now();
   const limit = Math.max(1, Math.min(100, Math.floor(options.limit ?? 50)));
@@ -221,6 +296,71 @@ export function reconcileMissingCompletions(
       else failures.push(row.operation_id);
     } catch {
       failures.push(row.operation_id);
+    }
+  }
+  const continuationRows = listRunningEffectContinuations(sidecar, limit);
+  for (const continuation of continuationRows) {
+    if (continuation.runtimeId === (options.runtimeId ?? EFFECT_CONTINUATION_RUNTIME_ID)
+      && nowMs < continuation.deadlineAtMs + EFFECT_CONTINUATION_PUBLICATION_MARGIN_MS) continue;
+    const existingReceipt = getEffectReceipt(sidecar, continuation.effectId);
+    let receipt = existingReceipt;
+    if (!receipt || receipt.outcome === "in_progress") {
+      const inFlight = getInFlightByEffectId(sidecar, continuation.effectId);
+      if (!inFlight) {
+        failures.push(continuation.effectId);
+        continue;
+      }
+      const timeout = nowMs >= continuation.deadlineAtMs + EFFECT_CONTINUATION_PUBLICATION_MARGIN_MS;
+      const unknownReceipt: EffectReceipt = {
+        receiptId: `v021:effect:${continuation.effectId}:recovered-unknown`,
+        effectId: continuation.effectId,
+        idempotencyKey: inFlight.idempotencyKey,
+        outcome: "outcome_unknown",
+        claims: {
+          executionTruth: "effect_unknown",
+          terminationClass: timeout ? "RESOURCE_EXHAUSTED" : "CANCELLED",
+          errorCode: timeout ? "effect_deadline_exhausted" : "effect_process_restarted",
+        },
+        atMs: nowMs,
+        dataClassification: "never_public",
+        secretOmitted: true,
+      };
+      receipt = recordEffectReceipt(sidecar, unknownReceipt);
+    }
+    const terminalClass = typeof receipt.claims.terminationClass === "string"
+      ? receipt.claims.terminationClass
+      : receipt.outcome === "succeeded" ? "SUCCESS" : "FAILED";
+    const effectTruth = typeof receipt.claims.executionTruth === "string"
+      ? receipt.claims.executionTruth
+      : receipt.outcome === "succeeded" ? "unknown" : "effect_unknown";
+    const state = terminalClass === "CANCELLED"
+      ? "cancelled" as const
+      : receipt.outcome === "succeeded"
+        ? "succeeded" as const
+        : receipt.outcome === "failed"
+          ? "failed" as const
+          : "outcome_unknown" as const;
+    abandonEffectContinuation(sidecar, {
+      effectId: continuation.effectId,
+      nowMs,
+      terminalClass,
+      effectTruth,
+      state,
+    });
+  }
+  const terminalContinuations = sidecar.prepare(
+    `SELECT effect_id FROM effect_continuations
+      WHERE state <> 'running' AND completion_event_ref IS NULL
+      ORDER BY started_at_ms ASC, effect_id ASC LIMIT ?`,
+  ).all(limit) as Array<{ effect_id?: unknown }>;
+  for (const row of terminalContinuations) {
+    if (typeof row.effect_id !== "string" || !row.effect_id) continue;
+    try {
+      const result = produceOperationCompletion(sidecar, row.effect_id, { nowMs });
+      if (result.ok) produced.push(result.eventId);
+      else failures.push(row.effect_id);
+    } catch {
+      failures.push(row.effect_id);
     }
   }
   return { produced, failures };

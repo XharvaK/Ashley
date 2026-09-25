@@ -108,6 +108,7 @@ export type BuildThoughtInputOptions = {
   /** Host factual context for the one semantic capacity-wait turn. */
   capacityWait?: ThoughtInput["capacityWait"];
   settlementOnly?: boolean;
+  effectContinuation?: ThoughtInput["effectContinuation"];
   /** One coherent source package for the current semantic pass. */
   sourceCapture?: ThoughtSourceCapture;
   /** Audience for this lifecycle. Legacy Owner callers default to Owner-private. */
@@ -463,6 +464,46 @@ function settlementOnlyCapabilityReality(capability: CapabilityReality): Capabil
     canOfferIterativeEngineering: false,
     ...(operationCapabilities === undefined ? {} : { operationCapabilities }),
     ...(semanticObservations === undefined ? {} : { semanticObservations }),
+    ...(reachability === undefined ? {} : { reachability }),
+  };
+}
+
+function effectContinuationCapabilityReality(
+  capability: CapabilityReality,
+  allowVerification: boolean,
+): CapabilityReality {
+  const allowed = new Set(["project.inspect", "concern.inspect", ...(allowVerification ? ["workspace.verify"] : [])]);
+  const operationCapabilities = capability.operationCapabilities?.map((item) => {
+    if (allowed.has(item.operationKind)) return item;
+    return {
+      ...item,
+      available: false,
+      unavailableReasons: ["effect_round_budget_exhausted"],
+      authorizedProjectIds: [],
+    };
+  });
+  const reachability = capability.reachability
+    ? {
+        ...capability.reachability,
+        reasons: Object.fromEntries(
+          Object.keys(capability.reachability.reasons).map((key) => [
+            key,
+            allowed.has(key) ? capability.reachability!.reasons[key] : "unavailable" as const,
+          ]),
+        ),
+      }
+    : undefined;
+  return {
+    ...capability,
+    canOfferWorkspace: false,
+    canOfferVerification: allowVerification && capability.canOfferVerification,
+    canOfferAuthorship: false,
+    canOfferBoundedOperation: false,
+    canOfferInquiry: false,
+    canOfferPatchExport: false,
+    canOfferDelegatedInvestigation: false,
+    canOfferIterativeEngineering: false,
+    ...(operationCapabilities === undefined ? {} : { operationCapabilities }),
     ...(reachability === undefined ? {} : { reachability }),
   };
 }
@@ -954,9 +995,11 @@ export function buildThoughtInput(options: BuildThoughtInputOptions): ThoughtInp
     licenses,
     options.authenticatedOwner === true,
   );
-  const effectiveCapabilityReality = options.settlementOnly === true
-    ? settlementOnlyCapabilityReality(capabilityReality)
-    : capabilityReality;
+  const effectiveCapabilityReality = options.effectContinuation
+    ? effectContinuationCapabilityReality(capabilityReality, options.effectContinuation.allowVerification)
+    : options.settlementOnly === true
+      ? settlementOnlyCapabilityReality(capabilityReality)
+      : capabilityReality;
   const identity = constitution as IdentitySlice & Partial<IdentityOrientationSource>;
   const orientationKernel = options.orientationKernel && audience.kind === "owner_private"
     ? options.orientationKernel
@@ -1070,6 +1113,12 @@ export function buildThoughtInput(options: BuildThoughtInputOptions): ThoughtInp
     learnedSelfSlice,
     capabilityReality: effectiveCapabilityReality,
     ...(options.publicPresence === undefined ? {} : { publicPresence: options.publicPresence }),
+    ...(options.effectContinuation === undefined ? {} : {
+      effectContinuation: {
+        ...options.effectContinuation,
+        target: { ...options.effectContinuation.target },
+      },
+    }),
     ...(options.settlementOnly === undefined ? {} : { settlementOnly: options.settlementOnly }),
     ...(options.capacityWait === undefined ? {} : { capacityWait: { ...options.capacityWait } }),
     ...(options.availableDestinations === undefined ? {} : {

@@ -87,6 +87,11 @@ import { getConversationEvidence, listConversationEvidence } from "../evidence/c
 import { listInFlightForThoughtCycle } from "../effect/in-flight.js";
 import { dispatchEffect } from "../effect/proposal.js";
 import {
+  effectContinuationFromCompletion,
+  finishEffectContinuation,
+} from "../effect/continuation.js";
+import { produceOperationCompletion } from "../operation/completion.js";
+import {
   buildOperationalEffectNamespace,
   buildOperationalEffectNamespaceFromRefs,
 } from "../effect/effect-ref.js";
@@ -174,6 +179,7 @@ import { renderForTransport } from "../../conversation/rendering.js";
 import {
   getThoughtAttemptCounters,
   incrementThoughtAttemptCounter,
+  seedThoughtAttemptCountersEffectRounds,
   type ThoughtAttemptCounters,
 } from "./counters.js";
 import { buildKernelEnvelope } from "./kernel-envelope.js";
@@ -1432,6 +1438,8 @@ export async function runThoughtModel(
     deadlineAtMs: number;
     structuralFeedback?: StructuralFeedbackInput;
     settlementRevisionFeedback?: SettlementRevisionFeedback;
+    /** Host-bound disclosure context; never included in the model projection. */
+    audience?: ThoughtInput["audience"];
     /** Optional caller narrowing; it may never widen the Model Fabric policy. */
     maxTokens?: number;
     /** Qualification-only seam for the exact NIM candidate; no fallback is allowed. */
@@ -1766,9 +1774,11 @@ export async function runThoughtModel(
                   generation: bound.generation,
                   idempotencyKey: bound.idempotencyKey,
                   kind: bound.kind,
-                   request: bound.request,
-                   authorityEpoch: bound.authorityEpoch,
-                   authorityCurrentness: bound.authorityCurrentness,
+                  purpose: semantic.purpose,
+                  request: bound.request,
+                  audienceScope: options.audience ?? null,
+                  authorityEpoch: bound.authorityEpoch,
+                  authorityCurrentness: bound.authorityCurrentness,
                 },
                 correlationId: bound.correlationId,
                 expectedResultType: "effect_receipt" as const,
@@ -2072,11 +2082,16 @@ function deliveryIntentFor(
           triggerKind === "recovery" ? "recovery" :
             triggerKind === "observation_or_receipt" ? "operation_completion" :
             external ? "external_message" : "owner_message_reactive";
+  const predecessorEventId = triggerKind === "observation_or_receipt"
+    && typeof payload.originOwnerEventId === "string"
+    ? payload.originOwnerEventId
+    : undefined;
   const rawOwnerId = resolveCanonicalOwnerPrincipal(sidecar, {
     payload,
     cycle,
     triggerEvidence,
     continuityRecovery,
+    predecessorEventId,
   });
   const channel = typeof payload.channel === "string" && payload.channel.trim()
     ? payload.channel
@@ -2359,6 +2374,7 @@ function resultWithCounters(
     publicationReason?: PublicationRejectionReason;
     ownerObligationResolution?: OwnerObligationResolution;
     ownerSupersession?: Extract<import("../types.js").HandlerResult, { kind: "superseded" }>;
+    effectContinuationId?: string;
   } = {},
 ): KernelRunResult {
   return {
@@ -2378,6 +2394,7 @@ function resultWithCounters(
     ...(options.ownerObligationResolution
       ? { ownerObligationResolution: options.ownerObligationResolution }
       : {}),
+    ...(options.effectContinuationId ? { effectContinuationId: options.effectContinuationId } : {}),
     ...(options.ownerSupersession
       ? { ownerSupersession: options.ownerSupersession }
       : {}),
@@ -2424,6 +2441,28 @@ function currentLifecycleIs(
     attemptId: attemptBinding.attemptId,
     attemptInputBasis: attemptBinding.attemptInputBasis,
   });
+}
+
+function continuationTargetMatches(
+  target: Readonly<Record<string, string>>,
+  request: unknown,
+): boolean {
+  if (typeof request !== "object" || request === null || Array.isArray(request)) return false;
+  const value = request as Record<string, unknown>;
+  const nested = typeof value.request === "object" && value.request !== null && !Array.isArray(value.request)
+    ? value.request as Record<string, unknown>
+    : value;
+  let matched = false;
+  for (const key of ["projectId", "workspaceId"] as const) {
+    const expected = target[key];
+    if (!expected) continue;
+    const actual = nested[key];
+    if (typeof actual === "string") {
+      if (actual !== expected) return false;
+      matched = true;
+    }
+  }
+  return matched;
 }
 
 function authorityDbForPacks(
@@ -2542,6 +2581,29 @@ export async function runCognitiveCycle(
       authorityEpoch: typeof payload.authorityEpoch === "number" ? payload.authorityEpoch : 1,
       nowMs: deps.nowMs(),
     });
+  const hasEffectContinuationCompletion = Object.prototype.hasOwnProperty.call(payload, "effectContinuationId");
+  const effectContinuationCompletion = hasEffectContinuationCompletion
+    ? effectContinuationFromCompletion(sidecar, {
+        eventId: event.id,
+        conversationId: event.conversationId,
+        payload,
+      })
+    : null;
+  if (hasEffectContinuationCompletion && !effectContinuationCompletion) {
+    throw new Error("effect_completion_binding_invalid");
+  }
+  if (effectContinuationCompletion) {
+    if (cycle.cycleId === effectContinuationCompletion.cycleId
+      || cycle.generation <= effectContinuationCompletion.generation) {
+      throw new Error("effect_completion_cycle_binding_invalid");
+    }
+    seedThoughtAttemptCountersEffectRounds(
+      sidecar,
+      cycle.cycleId,
+      cycle.generation,
+      MAX_EFFECT_ROUNDS - effectContinuationCompletion.remainingEffectRounds,
+    );
+  }
   const originProfile = resolveOriginProfile(sidecar, event, cycle);
   if (!originProfile) throw new Error("origin_profile_unavailable");
   const dueCommitment = commitmentDueProjection(nuclear, cycle, payload);
@@ -2600,6 +2662,7 @@ export async function runCognitiveCycle(
   const thoughtAudience = ownerRoomDestination
     ? { kind: "room" as const, roomId: ownerRoomDestination.roomId }
     : externalAudience;
+  const effectiveThoughtAudience = thoughtAudience ?? { kind: "owner_private" as const };
   const ownerRoomOwnerId = ownerRoomDestination && typeof triggerEvidence?.speakerPrincipalId === "string"
     ? triggerEvidence.speakerPrincipalId.trim()
     : "";
@@ -2820,7 +2883,23 @@ export async function runCognitiveCycle(
   try {
     for (;;) {
     counters = getThoughtAttemptCounters(sidecar, cycle.cycleId, cycle.generation);
-    const settlementOnly = counters.effectRounds >= MAX_EFFECT_ROUNDS;
+    const zeroBudgetEffectCompletion = effectContinuationCompletion?.remainingEffectRounds === 0;
+    const completionVerificationUsed = zeroBudgetEffectCompletion && inFlight.some((item) =>
+      item.operationKind === "workspace.verify" || item.operationKind === "candidate_verification",
+    );
+    const effectContinuationInput = zeroBudgetEffectCompletion
+      ? {
+          effectId: effectContinuationCompletion.effectId,
+          purpose: effectContinuationCompletion.purpose,
+          target: effectContinuationCompletion.target,
+          terminalClass: effectContinuationCompletion.terminalClass ?? "UNKNOWN",
+          effectTruth: effectContinuationCompletion.effectTruth ?? "unknown",
+          deadlineAtMs: effectContinuationCompletion.deadlineAtMs,
+          remainingEffectRounds: effectContinuationCompletion.remainingEffectRounds,
+          allowVerification: !completionVerificationUsed,
+        }
+      : undefined;
+    const settlementOnly = counters.effectRounds >= MAX_EFFECT_ROUNDS && !zeroBudgetEffectCompletion;
     structuralRetriesForPass = persistedMalformedRetries(sidecar, cycle.cycleId, cycle.generation, pass);
     if (deps.renewConversationCognition && !deps.renewConversationCognition()) {
       // The conversation cognition holder was lost (expiry + takeover by a
@@ -2874,6 +2953,7 @@ export async function runCognitiveCycle(
       constitution: deps.constitution,
       capabilityReality: cycleCapabilityReality,
       ...(settlementOnly ? { settlementOnly: true } : {}),
+      ...(effectContinuationInput ? { effectContinuation: effectContinuationInput } : {}),
       ...(capacityWait ? { capacityWait } : {}),
       ...(publicPresence === undefined ? {} : { publicPresence }),
       observations: observationsForThought,
@@ -2883,7 +2963,7 @@ export async function runCognitiveCycle(
       authorityObjections,
       derivedStore: deps.derivedStore,
       authorityDb: deps.attentionDb,
-      ...(thoughtAudience ? { audience: thoughtAudience } : {}),
+      audience: effectiveThoughtAudience,
       ...(ownerRoomDestination ? { authenticatedOwner: true } : {}),
       ...(crossSurfaceScope ? { crossSurfaceConversationIds: crossSurfaceScope } : {}),
       ...(availableDestinations === undefined ? {} : { availableDestinations }),
@@ -2990,6 +3070,7 @@ export async function runCognitiveCycle(
       deadlineAtMs: thoughtDeadlineAtMs,
       structuralFeedback: structuralFeedback ?? undefined,
       settlementRevisionFeedback,
+      audience: effectiveThoughtAudience,
       maxTokens: structuralFeedback
         ? STRUCTURAL_RETRY_MAX_OUTPUT_TOKENS
         : undefined,
@@ -3280,6 +3361,21 @@ export async function runCognitiveCycle(
     }
 
     if (invocation.output.kind === "observation_request") {
+      if (effectContinuationCompletion?.remainingEffectRounds === 0) {
+        const request = invocation.output.observationRequest;
+        const inspectionTargetMatches = request.kind === "project.inspect"
+          && continuationTargetMatches(effectContinuationCompletion.target, request.request);
+        if (request.kind !== "concern.inspect" && !inspectionTargetMatches) {
+          return emitFailure(
+            "completion_effect_target_mismatch",
+            undefined,
+            makeThoughtTerminal("operation_dispatch", {
+              codes: ["completion_effect_target_mismatch"],
+              stage: "effect_continuation",
+            }),
+          );
+        }
+      }
       const packs = deps.loadAuthorityPacks();
       const verdict = deps.checkAuthority("proposal", {
         proposal: invocation.output.observationRequest,
@@ -3507,6 +3603,23 @@ export async function runCognitiveCycle(
     }
 
     if (invocation.output.kind === "effect_proposal") {
+      const completionVerification = effectContinuationCompletion?.remainingEffectRounds === 0
+        && !completionVerificationUsed
+        && invocation.output.effectProposal.kind === "workspace.verify"
+        && continuationTargetMatches(
+          effectContinuationCompletion.target,
+          invocation.output.effectProposal.request,
+        );
+      if (effectContinuationCompletion?.remainingEffectRounds === 0 && !completionVerification) {
+        return emitFailure(
+          "completion_verification_only",
+          undefined,
+          makeThoughtTerminal("operation_dispatch", {
+            codes: ["completion_verification_only"],
+            stage: "effect_continuation",
+          }),
+        );
+      }
       const packs = deps.loadAuthorityPacks();
       const verdict = deps.checkAuthority("proposal", {
         proposal: invocation.output.effectProposal,
@@ -3539,14 +3652,16 @@ export async function runCognitiveCycle(
           makeThoughtTerminal("authority", { codes: verdict.codes, stage: "authority_proposal" }),
         );
       }
-      if (counters.effectRounds >= MAX_EFFECT_ROUNDS) {
+      if (counters.effectRounds >= MAX_EFFECT_ROUNDS && !completionVerification) {
         return emitFailure(
           "pass_exhausted",
           undefined,
           makeThoughtTerminal("budget_exhausted", { codes: ["pass_exhausted"], stage: "effect_rounds" }),
         );
       }
-      incrementThoughtAttemptCounter(sidecar, cycle.cycleId, cycle.generation, "effectRounds");
+      if (!completionVerification) {
+        counters = incrementThoughtAttemptCounter(sidecar, cycle.cycleId, cycle.generation, "effectRounds");
+      }
       updateCycleState(sidecar, cycle.cycleId, "awaiting_operation", deps.nowMs());
       const effectDeadlineAtMs = deps.nowMs() + LONG_OPERATION_HORIZON_MS;
       const proposal = {
@@ -3554,6 +3669,10 @@ export async function runCognitiveCycle(
         originEventId: event.id,
         originAttemptId: event.durableAttemptId ?? null,
       };
+      const detachedDevelop = proposal.kind === "candidate.develop"
+        && typeof deps.acceptEffectContinuation === "function"
+        && typeof deps.superviseEffectExecution === "function";
+      let continuationLease: { effectId: string; leaseToken: string } | null = null;
       const reloadDispatchState = () => {
         const currentPacks = deps.loadAuthorityPacks();
         const current = getCurrentCycle(sidecar, cycle.conversationId, { includeIdle: true });
@@ -3585,6 +3704,7 @@ export async function runCognitiveCycle(
               }).ok;
             },
             execute: (control) => deps.executeEffect(effectProposal, control),
+            ...(continuationLease ? { continuationLease } : {}),
           })
         : deps.executeEffect;
       const dispatch = await dispatchEffect(
@@ -3592,6 +3712,47 @@ export async function runCognitiveCycle(
         proposal,
         { ...reloadDispatchState(), reload: reloadDispatchState },
         executeEffect,
+        undefined,
+        detachedDevelop
+          ? {
+              detachAfterAdmission: true,
+              onAccepted: () => {
+                continuationLease = deps.acceptEffectContinuation!({
+                  proposal,
+                  deadlineAtMs: effectDeadlineAtMs,
+                  remainingEffectRounds: MAX_EFFECT_ROUNDS - counters.effectRounds,
+                });
+              },
+              onTerminal: (receipt) => {
+                if (!continuationLease) throw new Error("effect_continuation_lease_missing");
+                const terminalClass = typeof receipt.claims.terminationClass === "string"
+                  ? receipt.claims.terminationClass
+                  : receipt.outcome === "succeeded" ? "SUCCESS" : "FAILED";
+                const effectTruth = typeof receipt.claims.executionTruth === "string"
+                  ? receipt.claims.executionTruth
+                  : "unknown";
+                const state = terminalClass === "CANCELLED"
+                  ? "cancelled" as const
+                  : receipt.outcome === "succeeded"
+                    ? "succeeded" as const
+                    : receipt.outcome === "outcome_unknown"
+                      ? "outcome_unknown" as const
+                      : "failed" as const;
+                if (!finishEffectContinuation(sidecar, {
+                  effectId: continuationLease.effectId,
+                  leaseToken: continuationLease.leaseToken,
+                  state,
+                  terminalClass,
+                  effectTruth,
+                  nowMs: Math.max(deps.nowMs(), receipt.atMs),
+                })) throw new Error("effect_continuation_terminal_write_failed");
+                const completion = produceOperationCompletion(sidecar, continuationLease.effectId, {
+                  nowMs: Math.max(deps.nowMs(), receipt.atMs),
+                });
+                if (!completion.ok) throw new Error(`effect_completion_failed:${completion.reason}`);
+              },
+            }
+          : undefined,
       );
       if (!dispatch.dispatched) {
         if (dispatch.origin === "fenced" || dispatch.codes.includes("STALE_GENERATION")) {
@@ -3611,6 +3772,17 @@ export async function runCognitiveCycle(
           undefined,
           dispatchTerminal,
         );
+      }
+      if ("pending" in dispatch && dispatch.pending) {
+        updateCycleState(sidecar, cycle.cycleId, "silent", deps.nowMs());
+        counters = getThoughtAttemptCounters(sidecar, cycle.cycleId, cycle.generation);
+        return resultWithCounters(cycle.cycleId, cycle.generation, null, counters, {
+          thoughtExecutionProvenance: currentExecutionProvenance(),
+          ownerObligationResolution: ownerResolutionFor("deferred", {
+            effectContinuationId: dispatch.effectId,
+          }),
+          effectContinuationId: dispatch.effectId,
+        });
       }
       inFlight = listInFlightForThoughtCycle(sidecar, cycle.cycleId);
       pass += 1;

@@ -60,6 +60,22 @@ export function ensureThoughtAttemptCounters(
   ).run(cycleId, generation);
 }
 
+/** Seed only a new completion cycle from its persisted effect continuation budget. */
+export function seedThoughtAttemptCountersEffectRounds(
+  db: DatabaseSync,
+  cycleId: string,
+  generation: number,
+  effectRounds: number,
+): boolean {
+  if (!cycleId.trim() || !Number.isSafeInteger(generation) || generation < 0
+    || !Number.isSafeInteger(effectRounds) || effectRounds < 0) return false;
+  const result = db.prepare(
+    `INSERT OR IGNORE INTO thought_attempt_counters (cycle_id, generation, effect_rounds)
+     VALUES (?, ?, ?)`,
+  ).run(cycleId, generation, effectRounds);
+  return Number(result.changes) === 1;
+}
+
 export function getThoughtAttemptCounters(
   db: DatabaseSync,
   cycleId: string,

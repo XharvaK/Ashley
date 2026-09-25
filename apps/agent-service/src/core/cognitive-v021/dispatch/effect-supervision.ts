@@ -13,6 +13,9 @@ import {
   renewDurableWorkClaimInTransaction,
 } from "../retry/ledger.js";
 import { renewWakeLeaseInTransaction } from "../wake/ledger.js";
+import {
+  renewEffectContinuationLease,
+} from "../effect/continuation.js";
 
 export const EFFECT_OWNERSHIP_HEARTBEAT_MS = 30_000 as const;
 /** The sidecar SQLite busy timeout bounds receipt persistence to five seconds. */
@@ -39,12 +42,20 @@ export type SuperviseEffectExecutionInput<T> = {
   isCurrent: () => boolean;
   isAuthorized: () => boolean;
   execute: (control: EffectExecutionControl) => Promise<T>;
+  continuationLease?: { effectId: string; leaseToken: string };
   onSummary?: (summary: EffectSupervisionDiagnosticSummary) => void;
 };
 
 function renewOwnershipSet(input: SuperviseEffectExecutionInput<unknown>): boolean {
   const nowMs = input.nowMs();
   if (!Number.isSafeInteger(nowMs) || nowMs < 0) return false;
+  if (input.continuationLease) {
+    if (!input.isCurrent() || !input.isAuthorized()) return false;
+    return renewEffectContinuationLease(input.db, {
+      ...input.continuationLease,
+      nowMs,
+    });
+  }
   const owner = input.ownership;
   input.db.exec("BEGIN IMMEDIATE");
   try {
@@ -145,6 +156,10 @@ export async function superviseEffectExecution<T>(
       return;
     }
     fenceOrAbortReason = safeReason(input.controller.signal.reason) ?? "abort_requested";
+    // The command-code worker returns field-level effect truth after this
+    // cancellation fence. Keep the continuation lease while it settles; the
+    // absolute horizon still bounds a worker that never reports back.
+    if (input.controller.signal.reason === "command_code_cancelled") return;
     lose(fenceOrAbortReason);
   };
   input.controller.signal.addEventListener("abort", onAbort, { once: true });

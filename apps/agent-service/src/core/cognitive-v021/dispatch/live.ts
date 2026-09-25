@@ -22,6 +22,12 @@ import { getWake } from "../wake/ledger.js";
 import { superviseEffectExecution } from "./effect-supervision.js";
 import { updateEffectDiagnosticSupervision } from "../effect/diagnostics.js";
 import {
+  acceptEffectContinuation as persistEffectContinuation,
+  attachEffectContinuationLease,
+  EFFECT_CONTINUATION_RUNTIME_ID,
+  isEffectContinuationCurrent,
+} from "../effect/continuation.js";
+import {
   getPrivateReservation,
   getPrivateReservationForWake,
 } from "../private-budget/ledger.js";
@@ -328,6 +334,15 @@ export async function runLiveCognitiveTurn(
               isCurrent: supervision.isCurrent,
               isAuthorized: supervision.isAuthorized,
               execute: supervision.execute,
+              ...(supervision.continuationLease
+                ? {
+                    continuationLease: supervision.continuationLease,
+                    isCurrent: () => isEffectContinuationCurrent(input.sidecar, {
+                      ...supervision.continuationLease!,
+                      nowMs: Date.now(),
+                    }),
+                  }
+                : {}),
               onSummary: (summary) => {
                 updateEffectDiagnosticSupervision(input.sidecar, supervision.proposal.effectId, summary);
               },
@@ -350,6 +365,19 @@ export async function runLiveCognitiveTurn(
                 claimToken: cognitionClaim.claimToken,
                 nowMs: Date.now(),
               }),
+              acceptEffectContinuation: (continuationInput) => {
+                if (!cognitionClaim.ok) throw new Error("effect_continuation_cognition_claim_missing");
+                const accepted = persistEffectContinuation(input.sidecar, {
+                  proposal: continuationInput.proposal,
+                  conversationId: input.event.conversationId,
+                  deadlineAtMs: continuationInput.deadlineAtMs,
+                  remainingEffectRounds: continuationInput.remainingEffectRounds,
+                  cognitionClaimToken: cognitionClaim.claimToken,
+                  runtimeId: EFFECT_CONTINUATION_RUNTIME_ID,
+                  nowMs: Date.now(),
+                });
+                return attachEffectContinuationLease(accepted.continuation);
+              },
             }
           : {}),
         ...(supervisedEffect ? { superviseEffectExecution: supervisedEffect } : {}),

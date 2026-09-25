@@ -192,18 +192,19 @@ export function renewConversationCognition(
 export function releaseConversationCognition(
   sidecar: DatabaseSync,
   input: { conversationId: string; claimToken: string },
-): void {
+): boolean {
   if (
     typeof input.conversationId !== "string"
     || input.conversationId.length === 0
     || typeof input.claimToken !== "string"
     || input.claimToken.length === 0
   ) {
-    return;
+    return false;
   }
-  sidecar
+  const result = sidecar
     .prepare("DELETE FROM cognition_claims WHERE conversation_id = ? AND claim_token = ?")
     .run(input.conversationId, input.claimToken);
+  return Number(result.changes) === 1;
 }
 
 export function readConversationCognition(

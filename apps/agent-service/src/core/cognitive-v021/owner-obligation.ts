@@ -31,6 +31,8 @@ export type OwnerObligationInput = Readonly<{
    * project.investigate. Never a generic deferred continuation.
    */
   detachedOperationId?: string | null;
+  /** Long develop effect accepted under its own supervised continuation lease. */
+  effectContinuationId?: string | null;
   /** Global queue continuation owner before detached execution is bound. */
   workerUndertakingId?: string | null;
   /** True when Thought authored an interim hold draft bound to the operation. */
@@ -137,6 +139,16 @@ export function resolveOwnerObligation(input: OwnerObligationInput): OwnerObliga
         ...base,
         ownerObligationOutcome: "transferred",
         successorIdentity: `detached_operation:${input.detachedOperationId}`,
+        remainingResponsibility: "operation_pending",
+        deliveryDisposition: input.interimSpeechAuthored === true ? "delivery_pending" : "not_applicable",
+      };
+    }
+    if (input.attemptOutcome === "deferred" && typeof input.effectContinuationId === "string"
+      && input.effectContinuationId.length > 0) {
+      return {
+        ...base,
+        ownerObligationOutcome: "transferred",
+        successorIdentity: `effect_continuation:${input.effectContinuationId}`,
         remainingResponsibility: "operation_pending",
         deliveryDisposition: input.interimSpeechAuthored === true ? "delivery_pending" : "not_applicable",
       };

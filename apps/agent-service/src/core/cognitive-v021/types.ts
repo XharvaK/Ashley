@@ -27,7 +27,7 @@ export type { SourceSupportRef } from "./evidence/interpretation-envelope.js";
 export const ARCHITECTURE_EPOCH = "v0.2.1" as const;
 export const IMPLEMENTATION_SPEC_VERSION = "0.2.1.r6" as const;
 export const THOUGHT_CONTRACT_VERSION = 2 as const;
-export const COGNITIVE_SIDECAR_SCHEMA_VERSION = 28 as const;
+export const COGNITIVE_SIDECAR_SCHEMA_VERSION = 29 as const;
 
 /**
  * Hard bound on cognition-facing concern discovery windows and pages. The
@@ -1095,6 +1095,10 @@ export type EffectProposal = {
   idempotencyKey: IdempotencyKey;
   kind: string;
   request: unknown;
+  /** Thought-authored operation purpose, retained for bounded completion context. */
+  purpose?: string;
+  /** Host-bound disclosure scope; never read from the model-authored request. */
+  audienceScope?: SocialAudience | null;
   authorityEpoch: AuthorityEpoch;
   authorityCurrentness?: AuthorityCurrentnessBinding;
   originEventId?: string;
@@ -1132,6 +1136,34 @@ export type EffectReceipt = {
   dataClassification: DataClassification;
   secretOmitted: boolean;
 };
+
+export type EffectContinuationState =
+  | "running"
+  | "succeeded"
+  | "failed"
+  | "outcome_unknown"
+  | "cancelled";
+
+export type EffectContinuationRecord = Readonly<{
+  effectId: string;
+  conversationId: string;
+  cycleId: string;
+  generation: number;
+  deadlineAtMs: number;
+  remainingEffectRounds: number;
+  purpose: string;
+  target: Readonly<Record<string, string>>;
+  runtimeId: string;
+  leaseToken: string;
+  leaseExpiresAtMs: number;
+  state: EffectContinuationState;
+  terminalClass: string | null;
+  effectTruth: string | null;
+  diagnosticRef: string | null;
+  completionEventRef: string | null;
+  startedAtMs: number;
+  updatedAtMs: number;
+}>;
 
 export type AuthorityCode =
   | "CURRENTNESS_UNVERIFIED"
@@ -1569,6 +1601,17 @@ export type ThoughtInput = {
     usedEffectRounds: number;
     remainingEffectRounds: number;
   }>;
+  /** Mechanical continuation facts for a completed bounded develop effect. */
+  effectContinuation?: Readonly<{
+    effectId: string;
+    purpose: string;
+    target: Readonly<Record<string, string>>;
+    terminalClass: string;
+    effectTruth: string;
+    deadlineAtMs: number;
+    remainingEffectRounds: number;
+    allowVerification: boolean;
+  }>;
   settlementOnly?: boolean;
 };
 export type ThoughtCompleteOptions = CognitiveDispatchOptions & {
@@ -1861,7 +1904,14 @@ export type KernelDeps = {
     isCurrent: () => boolean;
     isAuthorized: () => boolean;
     execute: (control: EffectExecutionControl) => Promise<unknown>;
+    continuationLease?: { effectId: string; leaseToken: string };
   }) => Promise<unknown>;
+  /** Host transfer made only after a develop effect has a durable in-flight row. */
+  acceptEffectContinuation?: (input: {
+    proposal: EffectProposal;
+    deadlineAtMs: number;
+    remainingEffectRounds: number;
+  }) => { effectId: string; leaseToken: string };
   checkAuthority: CheckAuthority;
   loadAuthorityPacks: () => AuthorityPacks;
   expressionEnabled: boolean;
@@ -1934,6 +1984,8 @@ export type KernelRunResult = {
    * detached_operation:<id> with remainingResponsibility operation_pending.
    */
   detachedOperationId?: string;
+  /** Durably accepted develop effect whose completion owns the next wake. */
+  effectContinuationId?: string;
   /** Durable global queue identity before a worker operation is bound. */
   workerUndertakingId?: string;
 };

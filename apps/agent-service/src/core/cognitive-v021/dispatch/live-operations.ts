@@ -57,7 +57,7 @@ import { COGNITIVE_SIDECAR_SCHEMA_VERSION, MAX_EFFECT_ROUNDS } from "../types.js
 import type { EffectExecutionControl } from "../effect/execution-control.js";
 import type { OperationalClaimLicense } from "../../sandbox/engineering-types.js";
 import { getInFlightByEffectId, getInFlightByIdempotencyKey } from "../effect/in-flight.js";
-import { recordEffectDiagnostic } from "../effect/diagnostics.js";
+import { mergeEffectDiagnostic, recordEffectDiagnostic } from "../effect/diagnostics.js";
 import { currentBuildIdentity, currentContractId, qualificationCheckoutIdentity } from "../../rollout/capabilities.js";
 import { CREDENTIAL_OMITTED_PLACEHOLDER, detectCredentialShape } from "../../privacy/secrets.js";
 import { WORKSPACE_WORKER_REQUEST_SCHEMA_ID } from "@composer-assistant/sandbox-v2";
@@ -798,7 +798,7 @@ function persistModeBEffectDiagnostic(
     completionBindingId: proposal.effectId,
     ...(diagnostics.malformedWorkerOutput ? { malformedWorkerOutput: diagnostics.malformedWorkerOutput } : {}),
   };
-  return recordEffectDiagnostic(db, {
+  const row = recordEffectDiagnostic(db, {
     effectId: proposal.effectId,
     conversationId,
     cycleId: proposal.cycleId,
@@ -808,7 +808,9 @@ function persistModeBEffectDiagnostic(
     secretOmitted: true,
     diagnostic,
     atMs,
-  }).diagnosticId;
+  });
+  mergeEffectDiagnostic(db, proposal.effectId, diagnostic);
+  return row.diagnosticId;
 }
 
 function receiptContinuationClaims(input: {

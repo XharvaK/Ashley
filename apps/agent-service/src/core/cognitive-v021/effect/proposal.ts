@@ -12,6 +12,7 @@ import {
   recordEffectReceipt,
 } from "./in-flight.js";
 import type { AuthorityPacks, EffectProposal, EffectReceipt } from "../types.js";
+import { produceOperationCompletion } from "../operation/completion.js";
 
 export function createEffectProposal(input: {
   effectId?: string;
@@ -21,6 +22,7 @@ export function createEffectProposal(input: {
   idempotencyKey?: string;
   kind: string;
   request: unknown;
+  audienceScope?: EffectProposal["audienceScope"];
   originEventId?: string;
   originAttemptId?: string | null;
 }): EffectProposal {
@@ -31,6 +33,7 @@ export function createEffectProposal(input: {
     idempotencyKey: input.idempotencyKey ?? randomUUID(),
     kind: input.kind,
     request: input.request,
+    audienceScope: input.audienceScope,
     authorityEpoch: input.authorityEpoch,
     originEventId: input.originEventId,
     originAttemptId: input.originAttemptId,
@@ -53,7 +56,14 @@ export type DispatchEffectResult =
        */
       origin: "authority" | "dispatch" | "fenced";
     }
-  | { dispatched: true; receipt: EffectReceipt; replayed: boolean };
+  | { dispatched: true; receipt: EffectReceipt; replayed: boolean }
+  | { dispatched: true; pending: true; effectId: string };
+
+export type EffectContinuationDispatchOptions = Readonly<{
+  detachAfterAdmission?: boolean;
+  onAccepted?: () => void;
+  onTerminal?: (receipt: EffectReceipt) => void;
+}>;
 
 type DispatchSnapshot = {
   authorityEpoch: number;
@@ -78,6 +88,7 @@ export async function dispatchEffect(
   },
   execute: (proposal: EffectProposal) => Promise<unknown>,
   packs?: AuthorityPacks | (() => AuthorityPacks),
+  continuation?: EffectContinuationDispatchOptions,
 ): Promise<DispatchEffectResult> {
   const initial: DispatchSnapshot = current.reload?.() ?? {
     authorityEpoch: current.authorityEpoch,
@@ -129,6 +140,7 @@ export async function dispatchEffect(
       operationKind: proposal.kind,
       originEventId,
       originAttemptId: (proposal as { originAttemptId?: string | null }).originAttemptId ?? null,
+      audienceScope: proposal.audienceScope,
     });
   } catch (error) {
     // The partial unique index is the concurrency authority. Re-read its
@@ -158,40 +170,130 @@ export async function dispatchEffect(
     markInFlightUnknown(db, inFlight.effectId);
     return { dispatched: false, codes: ["STALE_GENERATION"], origin: "dispatch" };
   }
-  let output: unknown;
-  try { output = await execute(proposal); }
+  const isReceipt = (value: unknown): value is EffectReceipt =>
+    typeof value === "object" && value !== null
+    && typeof (value as { outcome?: unknown }).outcome === "string"
+    && typeof (value as { receiptId?: unknown }).receiptId === "string";
+  const cancellationCode = (code: string): boolean =>
+    code === "command_code_cancelled"
+    || code === "effect_ownership_lost"
+    || code === "preempt"
+    || code === "compose";
+  const receiptFor = (output: unknown): EffectReceipt => {
+    const failed = typeof output === "object" && output !== null && "error" in output;
+    const receipt: EffectReceipt = isReceipt(output)
+      ? {
+          ...output,
+          effectId: proposal.effectId,
+          idempotencyKey: proposal.idempotencyKey,
+          claims: output.claims ?? {},
+          atMs: output.atMs ?? Date.now(),
+          dataClassification: output.dataClassification ?? "never_public",
+          secretOmitted: output.secretOmitted === true,
+        }
+      : {
+          receiptId: randomUUID(),
+          effectId: proposal.effectId,
+          idempotencyKey: proposal.idempotencyKey,
+          outcome: failed ? "failed" : "succeeded",
+          claims: typeof output === "object" && output !== null ? output as Record<string, unknown> : { result: output },
+          atMs: Date.now(),
+          dataClassification: "never_public",
+          secretOmitted: false,
+        };
+    if (continuation?.detachAfterAdmission
+      && receipt.claims.terminationClass === "CANCELLED"
+      && receipt.outcome === "succeeded") {
+      return {
+        ...receipt,
+        outcome: "outcome_unknown",
+        claims: {
+          ...receipt.claims,
+          errorCode: typeof receipt.claims.errorCode === "string"
+            ? receipt.claims.errorCode
+            : "cancelled_effect_cannot_be_success",
+        },
+      };
+    }
+    if (continuation?.detachAfterAdmission && receipt.outcome === "in_progress") {
+      return {
+        ...receipt,
+        outcome: "outcome_unknown",
+        claims: {
+          ...receipt.claims,
+          executionTruth: "effect_unknown",
+          terminationClass: typeof receipt.claims.terminationClass === "string"
+            ? receipt.claims.terminationClass
+            : "FAILED",
+          errorCode: "continuation_worker_returned_in_progress",
+        },
+      };
+    }
+    return receipt;
+  };
+  const runAndRecord = async (): Promise<EffectReceipt> => {
+    let output: unknown;
+    try {
+      output = await execute(proposal);
+    } catch (error) {
+      if (error instanceof EffectOwnershipLostError && !continuation?.detachAfterAdmission) throw error;
+      if (error instanceof EffectOwnershipLostError) {
+        output = {
+          outcome: "outcome_unknown",
+          receiptId: `v021:effect:${proposal.effectId}:fenced`,
+          effectId: proposal.effectId,
+          idempotencyKey: proposal.idempotencyKey,
+          claims: {
+            executionTruth: "effect_unknown",
+            terminationClass: cancellationCode(error.code) ? "CANCELLED" : "RESOURCE_EXHAUSTED",
+            errorCode: error.code,
+          },
+          atMs: Date.now(),
+          dataClassification: "never_public",
+          secretOmitted: true,
+        } satisfies EffectReceipt;
+      } else {
+        output = { error: error instanceof Error ? error.message : String(error) };
+      }
+    }
+    const durableReceipt = recordEffectReceipt(db, receiptFor(output));
+    continuation?.onTerminal?.(durableReceipt);
+    return durableReceipt;
+  };
+
+  if (continuation?.detachAfterAdmission) {
+    try {
+      if (proposal.kind !== "candidate.develop") throw new Error("effect_continuation_kind_invalid");
+      continuation.onAccepted?.();
+    } catch {
+      const refused: EffectReceipt = {
+        receiptId: `v021:effect:${proposal.effectId}:not-attempted`,
+        effectId: proposal.effectId,
+        idempotencyKey: proposal.idempotencyKey,
+        outcome: "not_attempted",
+        claims: { executionTruth: "no_effect_proven", terminationClass: "FAILED", errorCode: "effect_continuation_transfer_failed" },
+        atMs: Date.now(),
+        dataClassification: "never_public",
+        secretOmitted: true,
+      };
+      return { dispatched: true, receipt: recordEffectReceipt(db, refused), replayed: false };
+    }
+    void runAndRecord().catch(() => {
+      // Startup recovery converts any accepted continuation left running by
+      // a persistence/process failure to effect_unknown and backfills its wake.
+      try { produceOperationCompletion(db, proposal.effectId); } catch { /* bounded startup reconciliation owns retry */ }
+    });
+    return { dispatched: true, pending: true, effectId: proposal.effectId };
+  }
+
+  let durableReceipt: EffectReceipt;
+  try { durableReceipt = await runAndRecord(); }
   catch (error) {
     if (error instanceof EffectOwnershipLostError) {
       markInFlightUnknown(db, inFlight.effectId);
       return { dispatched: false, codes: [error.code], origin: "fenced" };
     }
-    output = { error: error instanceof Error ? error.message : String(error) };
+    throw error;
   }
-  const isReceipt = (value: unknown): value is EffectReceipt =>
-    typeof value === "object" && value !== null
-    && typeof (value as { outcome?: unknown }).outcome === "string"
-    && typeof (value as { receiptId?: unknown }).receiptId === "string";
-  const failed = typeof output === "object" && output !== null && "error" in output;
-  const receipt: EffectReceipt = isReceipt(output)
-    ? {
-        ...output,
-        effectId: proposal.effectId,
-        idempotencyKey: proposal.idempotencyKey,
-        claims: output.claims ?? {},
-        atMs: output.atMs ?? Date.now(),
-        dataClassification: output.dataClassification ?? "never_public",
-        secretOmitted: output.secretOmitted === true,
-      }
-    : {
-        receiptId: randomUUID(),
-        effectId: proposal.effectId,
-        idempotencyKey: proposal.idempotencyKey,
-        outcome: failed ? "failed" : "succeeded",
-        claims: typeof output === "object" && output !== null ? output as Record<string, unknown> : { result: output },
-        atMs: Date.now(),
-        dataClassification: "never_public",
-        secretOmitted: false,
-      };
-  const durableReceipt = recordEffectReceipt(db, receipt);
   return { dispatched: true, receipt: durableReceipt, replayed: false };
 }

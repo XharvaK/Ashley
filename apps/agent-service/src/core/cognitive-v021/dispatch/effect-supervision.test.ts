@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { claimConversationCognition } from "../cycle/cognition-claim.js";
+import { acceptEffectContinuation, isEffectContinuationCurrent } from "../effect/continuation.js";
+import { putInFlight } from "../effect/in-flight.js";
 import { admitTestCycle, openTestSidecar } from "../test-support.js";
 import { startDurableAttempt } from "../retry/ledger.js";
 import { superviseEffectExecution } from "./effect-supervision.js";
@@ -134,6 +136,93 @@ describe("long effect ownership supervision", () => {
         maxObservedGapMs: 30_000,
         fenceOrAbortReason: null,
       });
+    } finally {
+      fixture.db.close();
+    }
+  });
+
+  it("releases the Thought claim while a six-hour worker fixture remains running", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(BASE);
+    const fixture = setup();
+    try {
+      const proposal = {
+        effectId: "effect-continuation-supervision",
+        cycleId: fixture.cycle.cycleId,
+        generation: fixture.cycle.generation,
+        idempotencyKey: "idem-continuation-supervision",
+        kind: "candidate.develop",
+        purpose: "complete the bounded change",
+        request: { projectId: "project-1", workspaceId: "workspace-1", audienceScope: { kind: "owner_private" } },
+        authorityEpoch: 1,
+      };
+      putInFlight(fixture.db, {
+        effectId: proposal.effectId,
+        cycleId: proposal.cycleId,
+        generation: proposal.generation,
+        wakeId: fixture.ownership.wakeId,
+        correlationId: proposal.effectId,
+        idempotencyKey: proposal.idempotencyKey,
+        payload: proposal.request,
+        operationKind: proposal.kind,
+        originEventId: fixture.ownership.eventId,
+        originAttemptId: fixture.ownership.attemptId,
+      });
+      const accepted = acceptEffectContinuation(fixture.db, {
+        proposal,
+        conversationId: fixture.cycle.conversationId,
+        deadlineAtMs: BASE + 6 * 60 * 60_000 + 60_000,
+        remainingEffectRounds: 3,
+        cognitionClaimToken: fixture.cognition.claimToken,
+        runtimeId: "runtime-supervision-test",
+        nowMs: BASE,
+      });
+      expect(fixture.db.prepare("SELECT 1 FROM cognition_claims WHERE conversation_id = ?")
+        .get(fixture.cycle.conversationId)).toBeUndefined();
+
+      const nextThought = claimConversationCognition(fixture.db, {
+        conversationId: fixture.cycle.conversationId,
+        eventId: "next-thought-event",
+        wakeId: fixture.ownership.wakeId,
+        cycleId: fixture.cycle.cycleId,
+        generation: fixture.cycle.generation,
+        nowMs: BASE,
+      });
+      expect(nextThought.ok).toBe(true);
+
+      let finish!: (value: string) => void;
+      const execution = new Promise<string>((resolve) => { finish = resolve; });
+      const summaries: unknown[] = [];
+      const controller = new AbortController();
+      const supervised = superviseEffectExecution({
+        db: fixture.db,
+        ownership: fixture.ownership,
+        continuationLease: { effectId: proposal.effectId, leaseToken: accepted.continuation.leaseToken },
+        controller,
+        deadlineAtMs: accepted.continuation.deadlineAtMs,
+        nowMs: () => Date.now(),
+        isCurrent: () => isEffectContinuationCurrent(fixture.db, {
+          effectId: proposal.effectId,
+          leaseToken: accepted.continuation.leaseToken,
+          nowMs: Date.now(),
+        }),
+        isAuthorized: () => true,
+        execute: () => execution,
+        onSummary: (summary) => { summaries.push(summary); },
+      });
+
+      await vi.advanceTimersByTimeAsync(6 * 60 * 60_000);
+      expect(controller.signal.aborted).toBe(false);
+      expect(fixture.db.prepare("SELECT claim_token FROM cognition_claims WHERE conversation_id = ?")
+        .get(fixture.cycle.conversationId)).toMatchObject({ claim_token: nextThought.ok ? nextThought.claimToken : null });
+      finish("completed");
+      await expect(supervised).resolves.toBe("completed");
+      expect(summaries).toMatchObject([{
+        initialDeadlineAtMs: BASE + 6 * 60 * 60_000 + 60_000,
+        renewalCount: 720,
+        lastSuccessfulRenewalAtMs: BASE + 6 * 60 * 60_000,
+      }]);
+      expect(accepted.continuation.deadlineAtMs).toBe(BASE + 6 * 60 * 60_000 + 60_000);
     } finally {
       fixture.db.close();
     }

@@ -1,7 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { admitTestCycle, openTestSidecar } from "../test-support.js";
 import { getInboxEvent } from "../cycle/inbox.js";
+import { claimConversationCognition } from "../cycle/cognition-claim.js";
 import { resolveObservationBinding } from "../observation/persistence.js";
+import { getEffectReceipt, putInFlight, recordEffectReceipt } from "../effect/in-flight.js";
+import {
+  acceptEffectContinuation,
+  effectContinuationFromCompletion,
+  finishEffectContinuation,
+  getEffectContinuation,
+} from "../effect/continuation.js";
 import type { DetachedOperationTerminalState } from "./detached.js";
 import {
   admitDetachedOperation,
@@ -73,6 +81,96 @@ function toTerminal(
     nowMs: nowMs + 1_000,
   });
   if (!terminal.ok) throw new Error("terminal failed");
+}
+
+function admitDevelopContinuation(
+  sidecar: ReturnType<typeof openTestSidecar>,
+  conversationId: string,
+  effectId: string,
+  nowMs = 1_000,
+) {
+  const originEventId = `owner-${effectId}`;
+  const cycle = admitTestCycle(sidecar, {
+    cycleId: `cycle-${effectId}`,
+    conversationId,
+    triggerKind: "owner_message",
+    triggerRef: originEventId,
+    occupantId: "doc",
+    authorityEpoch: 1,
+    nowMs,
+  });
+  if (!cycle.wakeId) throw new Error("wake_missing");
+  const claim = claimConversationCognition(sidecar, {
+    conversationId,
+    eventId: originEventId,
+    wakeId: cycle.wakeId,
+    cycleId: cycle.cycleId,
+    generation: cycle.generation,
+    nowMs,
+  });
+  if (!claim.ok) throw new Error("cognition_claim_missing");
+  const proposal = {
+    effectId,
+    cycleId: cycle.cycleId,
+    generation: cycle.generation,
+    idempotencyKey: `idem-${effectId}`,
+    kind: "candidate.develop",
+    purpose: "apply the bounded candidate change",
+    request: {
+      projectId: "project-ashley",
+      workspaceId: "workspace-ashley",
+      audienceScope: { kind: "owner_private" },
+    },
+    authorityEpoch: 1,
+  };
+  putInFlight(sidecar, {
+    effectId,
+    cycleId: cycle.cycleId,
+    generation: cycle.generation,
+    wakeId: cycle.wakeId,
+    correlationId: effectId,
+    idempotencyKey: proposal.idempotencyKey,
+    payload: proposal.request,
+    operationKind: proposal.kind,
+    originEventId,
+  });
+  const deadlineAtMs = nowMs + 6 * 60 * 60_000;
+  const accepted = acceptEffectContinuation(sidecar, {
+    proposal,
+    conversationId,
+    deadlineAtMs,
+    remainingEffectRounds: 2,
+    cognitionClaimToken: claim.claimToken,
+    runtimeId: "runtime-completion-test",
+    nowMs,
+  });
+  return { cycle, proposal, deadlineAtMs, accepted };
+}
+
+function recordTerminalEffectReceipt(
+  sidecar: ReturnType<typeof openTestSidecar>,
+  effectId: string,
+  idempotencyKey: string,
+  input: {
+    outcome: "succeeded" | "failed" | "outcome_unknown";
+    terminalClass: string;
+    effectTruth: string;
+  },
+  nowMs: number,
+) {
+  return recordEffectReceipt(sidecar, {
+    receiptId: `receipt-${effectId}`,
+    effectId,
+    idempotencyKey,
+    outcome: input.outcome,
+    claims: {
+      terminationClass: input.terminalClass,
+      executionTruth: input.effectTruth,
+    },
+    atMs: nowMs,
+    dataClassification: "never_public",
+    secretOmitted: true,
+  });
 }
 
 describe("operation completion producer", () => {
@@ -230,6 +328,147 @@ describe("operation completion producer", () => {
     } finally {
       first.sidecar.close();
       second.sidecar.close();
+    }
+  });
+
+  it("binds an exactly-once develop completion to its effect truth and fixed deadline", () => {
+    const sidecar = openTestSidecar();
+    const effectId = "effect-completion-bound";
+    const conversationId = "thread-effect-completion-bound";
+    try {
+      const { proposal, deadlineAtMs, accepted } = admitDevelopContinuation(sidecar, conversationId, effectId);
+      recordTerminalEffectReceipt(sidecar, effectId, proposal.idempotencyKey, {
+        outcome: "succeeded",
+        terminalClass: "SUCCESS",
+        effectTruth: "effect_verified",
+      }, deadlineAtMs - 1_000);
+      expect(finishEffectContinuation(sidecar, {
+        effectId,
+        leaseToken: accepted.continuation.leaseToken,
+        state: "succeeded",
+        terminalClass: "SUCCESS",
+        effectTruth: "effect_verified",
+        nowMs: deadlineAtMs - 1_000,
+      })).toBe(true);
+
+      const first = produceOperationCompletion(sidecar, effectId, { nowMs: deadlineAtMs - 500 });
+      const second = produceOperationCompletion(sidecar, effectId, { nowMs: deadlineAtMs - 100 });
+      expect(first).toEqual({ ok: true, eventId: completionEventIdFor(effectId), created: true });
+      expect(second).toEqual({ ok: true, eventId: completionEventIdFor(effectId), created: false });
+      const event = getInboxEvent(sidecar, completionEventIdFor(effectId));
+      const payload = event?.payload as Record<string, unknown>;
+      expect(payload).toMatchObject({
+        effectContinuationId: effectId,
+        operationId: effectId,
+        effectId,
+        effectBindingHash: expect.any(String),
+        terminalState: "succeeded",
+        terminalClass: "SUCCESS",
+        effectTruth: "effect_verified",
+        purpose: "apply the bounded candidate change",
+        target: { projectId: "project-ashley", workspaceId: "workspace-ashley" },
+        diagnosticRef: accepted.diagnosticId,
+        deadlineAtMs,
+        remainingEffectRounds: 2,
+        receiptRef: `receipt-${effectId}`,
+      });
+      expect(effectContinuationFromCompletion(sidecar, {
+        eventId: completionEventIdFor(effectId),
+        conversationId,
+        payload,
+      })).toMatchObject({ effectId, deadlineAtMs, remainingEffectRounds: 2 });
+      sidecar.prepare("UPDATE effect_receipts SET claims_json = ? WHERE effect_id = ?")
+        .run(JSON.stringify({ terminationClass: "SUCCESS", executionTruth: "no_effect_proven" }), effectId);
+      expect(effectContinuationFromCompletion(sidecar, {
+        eventId: completionEventIdFor(effectId),
+        conversationId,
+        payload,
+      })).toBeNull();
+      expect(getEffectContinuation(sidecar, effectId)?.deadlineAtMs).toBe(deadlineAtMs);
+      expect(getEffectContinuation(sidecar, effectId)?.completionEventRef).toBe(completionEventIdFor(effectId));
+      expect(getEffectReceipt(sidecar, effectId)?.outcome).toBe("succeeded");
+      expect(sidecar.prepare("SELECT COUNT(*) AS count FROM inbox_events WHERE id = ?")
+        .get(completionEventIdFor(effectId))).toEqual({ count: 1 });
+    } finally {
+      sidecar.close();
+    }
+  });
+
+  it("recovers a past-deadline continuation as unknown without rerunning its effect", () => {
+    const sidecar = openTestSidecar();
+    const effectId = "effect-completion-expired";
+    const conversationId = "thread-effect-completion-expired";
+    try {
+      const { deadlineAtMs, accepted } = admitDevelopContinuation(sidecar, conversationId, effectId);
+      const recoveredAtMs = deadlineAtMs + 5_000;
+      const recovered = reconcileMissingCompletions(sidecar, { nowMs: recoveredAtMs });
+      expect(recovered).toEqual({
+        produced: [completionEventIdFor(effectId)],
+        failures: [],
+      });
+      expect(getEffectContinuation(sidecar, effectId)).toMatchObject({
+        state: "outcome_unknown",
+        deadlineAtMs,
+        terminalClass: "RESOURCE_EXHAUSTED",
+        effectTruth: "effect_unknown",
+        completionEventRef: completionEventIdFor(effectId),
+      });
+      expect(getEffectReceipt(sidecar, effectId)).toMatchObject({
+        outcome: "outcome_unknown",
+        claims: {
+          terminationClass: "RESOURCE_EXHAUSTED",
+          executionTruth: "effect_unknown",
+        },
+      });
+      expect(getInboxEvent(sidecar, completionEventIdFor(effectId))?.payload).toMatchObject({
+        terminalState: "outcome_unknown",
+        terminalClass: "RESOURCE_EXHAUSTED",
+        effectTruth: "effect_unknown",
+        deadlineAtMs,
+      });
+      expect(accepted.continuation.deadlineAtMs).toBe(deadlineAtMs);
+      expect(reconcileMissingCompletions(sidecar, { nowMs: recoveredAtMs + 1 }))
+        .toEqual({ produced: [], failures: [] });
+    } finally {
+      sidecar.close();
+    }
+  });
+
+  it("records cancellation without converting proven partial effect truth into success", () => {
+    const sidecar = openTestSidecar();
+    const effectId = "effect-completion-cancelled";
+    const conversationId = "thread-effect-completion-cancelled";
+    try {
+      const { proposal, deadlineAtMs, accepted } = admitDevelopContinuation(sidecar, conversationId, effectId);
+      recordTerminalEffectReceipt(sidecar, effectId, proposal.idempotencyKey, {
+        outcome: "outcome_unknown",
+        terminalClass: "CANCELLED",
+        effectTruth: "effect_partial",
+      }, deadlineAtMs - 1_000);
+      expect(finishEffectContinuation(sidecar, {
+        effectId,
+        leaseToken: accepted.continuation.leaseToken,
+        state: "cancelled",
+        terminalClass: "CANCELLED",
+        effectTruth: "effect_partial",
+        nowMs: deadlineAtMs - 1_000,
+      })).toBe(true);
+      const produced = produceOperationCompletion(sidecar, effectId, { nowMs: deadlineAtMs - 500 });
+      expect(produced).toMatchObject({ ok: true, eventId: completionEventIdFor(effectId) });
+      const event = getInboxEvent(sidecar, completionEventIdFor(effectId));
+      expect(event?.payload).toMatchObject({
+        terminalState: "cancelled",
+        terminalClass: "CANCELLED",
+        effectTruth: "effect_partial",
+      });
+      expect(getEffectReceipt(sidecar, effectId)?.outcome).toBe("outcome_unknown");
+      expect(effectContinuationFromCompletion(sidecar, {
+        eventId: completionEventIdFor(effectId),
+        conversationId,
+        payload: event?.payload as Record<string, unknown>,
+      })).toMatchObject({ state: "cancelled", terminalClass: "CANCELLED", effectTruth: "effect_partial" });
+    } finally {
+      sidecar.close();
     }
   });
 });

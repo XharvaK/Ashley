@@ -43,6 +43,31 @@ describe("v0.2.1 effect proposal", () => {
     }
   });
 
+  it("persists the host-bound audience on an effect proposal", async () => {
+    const db = openTestSidecar();
+    try {
+      admitTestCycle(db, { cycleId: "c-audience", conversationId: "thread-audience", generation: 1, triggerKind: "owner_message", triggerRef: "event-audience", occupantId: "doc", nowMs: 1 });
+      const proposal = createEffectProposal({
+        cycleId: "c-audience",
+        generation: 1,
+        authorityEpoch: 1,
+        kind: "candidate.develop",
+        request: { projectId: "project-ashley" },
+        audienceScope: { kind: "owner_private" },
+        originEventId: "event-audience",
+      });
+
+      const result = await dispatchEffect(db, proposal, { authorityEpoch: 1, generation: 1 }, async () => ({ outcome: "succeeded" }));
+
+      expect(result).toMatchObject({ dispatched: true });
+      expect(getInFlight(db, proposal.effectId)).toMatchObject({
+        audienceScope: { kind: "owner_private" },
+      });
+    } finally {
+      db.close();
+    }
+  });
+
   it("resolves effect IDs and idempotency keys independently when their strings collide", () => {
     const db = openTestSidecar();
     try {
@@ -265,4 +290,61 @@ describe("v0.2.1 effect proposal", () => {
       expect(dispatchResult).toMatchObject({ dispatched: false, codes: ["IN_FLIGHT_UNKNOWN"], origin: "dispatch" });
     } finally { db.close(); }
   });
+
+  it.each(["command_code_cancelled", "effect_ownership_lost", "preempt", "compose"] as const)(
+    "records detached %s fences as cancellation",
+    async (reason) => {
+      const db = openTestSidecar();
+      try {
+        admitTestCycle(db, {
+          cycleId: `c-detached-${reason}`,
+          conversationId: `thread-detached-${reason}`,
+          generation: 1,
+          triggerKind: "owner_message",
+          triggerRef: `event-detached-${reason}`,
+          occupantId: "doc",
+          nowMs: 1,
+        });
+        const proposal = createEffectProposal({
+          cycleId: `c-detached-${reason}`,
+          generation: 1,
+          authorityEpoch: 1,
+          kind: "candidate.develop",
+          request: { projectId: "project-ashley" },
+          audienceScope: { kind: "owner_private" },
+          originEventId: `event-detached-${reason}`,
+        });
+        let resolveTerminal!: (value: unknown) => void;
+        const terminal = new Promise<unknown>((resolve) => { resolveTerminal = resolve; });
+        const result = await dispatchEffect(
+          db,
+          proposal,
+          { authorityEpoch: 1, generation: 1 },
+          async () => { throw new EffectOwnershipLostError(reason); },
+          undefined,
+          {
+            detachAfterAdmission: true,
+            onAccepted: () => undefined,
+            onTerminal: (receipt) => resolveTerminal(receipt),
+          },
+        );
+
+        expect(result).toMatchObject({ dispatched: true, pending: true, effectId: proposal.effectId });
+        await expect(terminal).resolves.toMatchObject({
+          outcome: "outcome_unknown",
+          claims: {
+            executionTruth: "effect_unknown",
+            terminationClass: "CANCELLED",
+            errorCode: reason,
+          },
+        });
+        expect(getEffectReceipt(db, proposal.effectId)).toMatchObject({
+          outcome: "outcome_unknown",
+          claims: { terminationClass: "CANCELLED" },
+        });
+      } finally {
+        db.close();
+      }
+    },
+  );
 });
