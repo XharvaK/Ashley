@@ -391,6 +391,7 @@ const SUPPORTED_SCHEMA_KEYWORDS = new Set([
   "pattern",
   "maxItems",
   "minimum",
+  "exclusiveMinimum",
   "maximum",
 ]);
 
@@ -554,6 +555,14 @@ function validateSchemaNode(
     return oracleFailure("type_mismatch:" + path, "type", path, `${schemaPath}/type`);
   }
   if (typeof value === "number") {
+    if (typeof schema.exclusiveMinimum === "number" && value <= schema.exclusiveMinimum) {
+      return oracleFailure(
+        "exclusiveMinimum_mismatch:" + path,
+        "exclusiveMinimum",
+        path,
+        `${schemaPath}/exclusiveMinimum`,
+      );
+    }
     if (typeof schema.minimum === "number" && value < schema.minimum) {
       return oracleFailure("minimum_mismatch:" + path, "minimum", path, `${schemaPath}/minimum`);
     }

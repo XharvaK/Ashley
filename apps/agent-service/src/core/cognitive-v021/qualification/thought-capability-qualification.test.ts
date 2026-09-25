@@ -180,6 +180,7 @@ describe("successor Thought qualification", () => {
       "additionalProperties",
       "const",
       "enum",
+      "exclusiveMinimum",
       "items",
       "maxItems",
       "maxLength",
@@ -201,6 +202,17 @@ describe("successor Thought qualification", () => {
       type: "object",
       format: "unsupported",
     })).toThrow("thought_schema_oracle_unsupported_keyword:format");
+  });
+
+  it("enforces numeric exclusiveMinimum boundaries", () => {
+    const schema = { type: "number", exclusiveMinimum: 0 };
+    expect(validateQualificationSchema(0.01, schema).ok).toBe(true);
+    expect(validateQualificationSchema(0, schema)).toMatchObject({
+      ok: false,
+      code: "exclusiveMinimum_mismatch:$",
+      keyword: "exclusiveMinimum",
+    });
+    expect(validateQualificationSchema(-0.01, schema).ok).toBe(false);
   });
 
   it("fails each conjunct independently when its evidence is false", () => {

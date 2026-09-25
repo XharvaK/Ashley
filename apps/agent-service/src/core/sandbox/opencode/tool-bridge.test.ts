@@ -30,7 +30,23 @@ describe("OpenCode V2 tool bridge", () => {
       inspectionBase,
       workspaceBase,
     });
-    expect(write).toEqual({ ok: false, error: "profile_denied" });
+    expect(write).toMatchObject({
+      ok: false,
+      error: "profile_denied",
+      fieldErrors: [{
+        fieldPath: "$.operation",
+        preconditionCode: "profile_denied",
+      }],
+      diagnostic: {
+        request: {
+          operation: "workspace.write_file",
+          failedField: "operation",
+        },
+        validationStage: "bridge",
+        executionStarted: false,
+        resultCode: "profile_denied",
+      },
+    });
     expect(executeWorkspaceExperimentV2).not.toHaveBeenCalled();
 
     const git = await executeWorkerTool({
@@ -42,7 +58,24 @@ describe("OpenCode V2 tool bridge", () => {
       inspectionBase,
       workspaceBase,
     });
-    expect(git).toEqual({ ok: false, error: "forbidden_operation" });
+    expect(git).toMatchObject({
+      ok: false,
+      error: "forbidden_operation",
+      fieldErrors: [{
+        fieldPath: "$.operation",
+        preconditionCode: "forbidden_operation",
+        executionStarted: false,
+      }],
+      diagnostic: {
+        request: {
+          operation: "git.commit",
+          failedField: "operation",
+        },
+        validationStage: "bridge",
+        executionStarted: false,
+        resultCode: "forbidden_operation",
+      },
+    });
 
     const escape = await executeWorkerTool({
       profile: "read",
@@ -52,7 +85,23 @@ describe("OpenCode V2 tool bridge", () => {
       inspectionBase,
       workspaceBase,
     });
-    expect(escape).toEqual({ ok: false, error: "path_escape" });
+    expect(escape).toMatchObject({
+      ok: false,
+      error: "path_escape",
+      fieldErrors: [{
+        fieldPath: "$.path",
+        preconditionCode: "path_escape",
+      }],
+      diagnostic: {
+        request: {
+          operation: "project.read_file",
+          failedField: "path",
+        },
+        validationStage: "bridge",
+        executionStarted: false,
+        resultCode: "path_escape",
+      },
+    });
     expect(executeProjectInspectionV2).not.toHaveBeenCalled();
   });
 

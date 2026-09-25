@@ -309,7 +309,7 @@ describe("P1 occupied-concern projection", () => {
     // Rotation earned by the C1 initiativePreference shadow and the concern.inspect
     // discover union plus its contract instruction lines; parser identity is unchanged.
     expect(THOUGHT_OUTPUT_SCHEMA_FINGERPRINT).toBe(
-      "sha256:430bf12adad24f96fb741aec2420479c15896c29b899f779c7b995aba22c6a48",
+      "sha256:6693c658f733e4a4fca3f9f30986b84a0d8e9516f591846b7e8c16cc6f0912aa",
     );
   });
 });

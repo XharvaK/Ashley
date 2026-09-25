@@ -491,7 +491,7 @@ describe("v0.2.1 delivery reconciliation", () => {
         "SELECT failure_class, external_effect_truth FROM c3_terminal_experiences WHERE source_domain_owner = 'delivery'",
       ).get()).toMatchObject({
         failure_class: "delivery_partially_delivered",
-        external_effect_truth: "effect_indeterminate",
+        external_effect_truth: "effect_unknown",
       });
     } finally {
       sidecar.close();
