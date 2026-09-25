@@ -21,6 +21,7 @@ import type {
   AvailableSocialDestination,
   SocialAudience,
 } from "./social/types.js";
+import type { ObservationView } from "./observation/view.js";
 
 export type { DataClassification } from "../privacy/classification.js";
 export type { SourceSupportRef } from "./evidence/interpretation-envelope.js";
@@ -28,7 +29,7 @@ export type { SourceSupportRef } from "./evidence/interpretation-envelope.js";
 export const ARCHITECTURE_EPOCH = "v0.2.1" as const;
 export const IMPLEMENTATION_SPEC_VERSION = "0.2.1.r6" as const;
 export const THOUGHT_CONTRACT_VERSION = 2 as const;
-export const COGNITIVE_SIDECAR_SCHEMA_VERSION = 31 as const;
+export const COGNITIVE_SIDECAR_SCHEMA_VERSION = 32 as const;
 
 /**
  * Hard bound on cognition-facing concern discovery windows and pages. The
@@ -814,6 +815,8 @@ export type Observation = {
   rawOutranksDerivedOf?: string;
   dataClassification: DataClassification;
   secretOmitted: boolean;
+  /** Retained-artifact identity and the view offered by this observation. */
+  view?: ObservationView;
   audienceScope?: SocialAudience | null;
   protectionStatus?: "admitted" | "unresolved" | null;
   /** Host-operational claim binding for external-watch ingestion. */

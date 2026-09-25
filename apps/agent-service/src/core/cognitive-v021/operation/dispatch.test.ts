@@ -277,7 +277,14 @@ describe("detached worker dispatch", () => {
       const detached = admitTestDetached(sidecar, detachInput());
       if (!detached.detached) throw new Error("detach failed");
       const opId = detached.operation.operationId;
-      const result = await dispatchDetachedOperation(sidecar, opId, successWorker, { nowMs: 2_000 });
+      const result = await dispatchDetachedOperation(sidecar, opId, async () => ({
+        ok: true,
+        payload: {
+          operation: "project.investigate",
+          summary: "found it",
+          steps: [{ operation: "project.read_file", observation: { content: "step evidence" } }],
+        },
+      }), { nowMs: 2_000 });
       expect(result.ok).toBe(true);
       if (!result.ok) return;
       expect(result.operation).toMatchObject({ state: "succeeded", terminalState: "succeeded" });
@@ -287,7 +294,17 @@ describe("detached worker dispatch", () => {
         "SELECT provenance, payload_json FROM observations WHERE observation_id = ?",
       ).get(`v021:observation:detached:${opId}`) as { provenance: string; payload_json: string };
       expect(stored.provenance).toBe("worker:project.investigate");
-      expect(JSON.parse(stored.payload_json)).toMatchObject({ summary: "found it" });
+      expect(JSON.parse(stored.payload_json)).toMatchObject({
+        summary: "found it",
+        summaryDerivation: {
+          derivation: "worker_interpretation",
+          stepObservationIds: [`v021:observation:detached:${opId}:step:0`],
+        },
+        steps: [{
+          observationId: `v021:observation:detached:${opId}:step:0`,
+          observation: { content: "step evidence" },
+        }],
+      });
     } finally {
       sidecar.close();
     }

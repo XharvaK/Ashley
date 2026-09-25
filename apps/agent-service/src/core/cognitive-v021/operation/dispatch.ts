@@ -258,6 +258,34 @@ function workerObservationId(operationId: string): string {
   return `v021:observation:detached:${operationId}`;
 }
 
+function workerPayloadWithSummaryDerivation(
+  payload: unknown,
+  operationId: string,
+): unknown {
+  if (typeof payload !== "object" || payload === null || Array.isArray(payload)) return payload;
+  const workerPayload = payload as Record<string, unknown>;
+  if (typeof workerPayload.summary !== "string") return payload;
+  const stepObservationIds: string[] = [];
+  const steps = Array.isArray(workerPayload.steps)
+    ? workerPayload.steps.map((value, index) => {
+      if (typeof value !== "object" || value === null || Array.isArray(value)) return value;
+      const step = value as Record<string, unknown>;
+      if (step.observation == null) return step;
+      const observationId = `${workerObservationId(operationId)}:step:${index}`;
+      stepObservationIds.push(observationId);
+      return { ...step, observationId };
+    })
+    : undefined;
+  return {
+    ...workerPayload,
+    ...(steps === undefined ? {} : { steps }),
+    summaryDerivation: {
+      derivation: "worker_interpretation",
+      stepObservationIds,
+    },
+  };
+}
+
 function workerRequestForInspection(request: Record<string, unknown>): Record<string, unknown> {
   // Route-neutral project.inspect history is translated at the Host seam.
   // Historical project.investigate requests are normalized to the same
@@ -419,7 +447,7 @@ export async function dispatchDetachedOperation(
         derived: false,
         replaySafe: true,
         modality: "tool",
-        payload: result.payload,
+        payload: workerPayloadWithSummaryDerivation(result.payload, operationId),
         provenance: "worker:project.investigate",
         dataClassification: "never_public",
         secretOmitted: true,

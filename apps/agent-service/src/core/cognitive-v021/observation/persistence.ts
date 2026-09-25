@@ -1,6 +1,11 @@
 import type { DatabaseSync } from "node:sqlite";
 import { sha256, stableJson } from "../../model-fabric/hash.js";
 import type { DataClassification } from "../../privacy/classification.js";
+import {
+  canonicalObservationView,
+  observationViewFromStorage,
+  observationViewMetadataJson,
+} from "./view.js";
 import type { Observation, SubscriptionPollClaim } from "../types.js";
 
 export type CanonicalObservation = {
@@ -9,6 +14,7 @@ export type CanonicalObservation = {
   replaySafe: boolean;
   modality: Observation["modality"];
   payload: unknown;
+  view?: NonNullable<Observation["view"]>;
   provenance: string;
   rawOutranksDerivedOf: string | null;
   dataClassification: DataClassification;
@@ -122,12 +128,14 @@ function canonicalFromObservation(observation: Observation): CanonicalObservatio
   } catch {
     throw new ObservationBindingError("observation_payload_invalid");
   }
+  const view = canonicalObservationView(observation.view);
   return {
     observationId,
     derived,
     replaySafe,
     modality: observation.modality,
     payload,
+    ...(view === null ? {} : { view }),
     provenance,
     rawOutranksDerivedOf,
     dataClassification: observation.dataClassification,
@@ -159,12 +167,18 @@ function canonicalFromRow(value: unknown): CanonicalObservation {
   const rawOutranksDerivedOf = found.raw_outranks_derived_of == null
     ? null
     : requiredText(found.raw_outranks_derived_of, "observation_row_invalid");
+  const view = observationViewFromStorage(
+    found.parent_artifact_id,
+    found.representation_id,
+    found.view_metadata_json,
+  );
   return {
     observationId,
     derived,
     replaySafe,
     modality: modality as Observation["modality"],
     payload: parsePayload(found.payload_json),
+    ...(view === null ? {} : { view }),
     provenance,
     rawOutranksDerivedOf,
     dataClassification: dataClassification as DataClassification,
@@ -175,6 +189,7 @@ function canonicalFromRow(value: unknown): CanonicalObservation {
 function rowFor(db: DatabaseSync, observationId: string): Record<string, unknown> | null {
   return row(db.prepare(
     `SELECT observation_id, derived, replay_safe, modality, payload_json,
+            parent_artifact_id, representation_id, view_metadata_json,
             provenance, raw_outranks_derived_of, data_classification, secret_omitted
        FROM observations
       WHERE observation_id = ?`,
@@ -193,6 +208,7 @@ function remapObservation(
     replaySafe: canonical.replaySafe,
     modality: canonical.modality,
     payload: canonical.payload,
+    ...(canonical.view == null ? {} : { view: canonical.view }),
     provenance: canonical.provenance,
     ...(canonical.rawOutranksDerivedOf === null ? {} : { rawOutranksDerivedOf: canonical.rawOutranksDerivedOf }),
     dataClassification: canonical.dataClassification,
@@ -243,8 +259,8 @@ export function persistOrVerifyObservation(
       `INSERT INTO observations
          (observation_id, cycle_id, generation, derived, replay_safe, modality,
           payload_json, provenance, raw_outranks_derived_of, data_classification,
-          secret_omitted, created_at_ms)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          secret_omitted, parent_artifact_id, representation_id, view_metadata_json, created_at_ms)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       canonical.observationId,
       observation.cycleId,
@@ -257,6 +273,9 @@ export function persistOrVerifyObservation(
       canonical.rawOutranksDerivedOf,
       canonical.dataClassification,
       canonical.secretOmitted ? 1 : 0,
+      canonical.view?.parentArtifactId ?? null,
+      canonical.view?.representationId ?? null,
+      observationViewMetadataJson(canonical.view ?? null),
       createdAtMs,
     );
     return canonical;

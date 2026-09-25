@@ -3,7 +3,7 @@ import { admitTestCycle, openTestSidecar, makeThoughtDraft } from "../test-suppo
 import { openDerivedStore } from "../retrieval/derived-store.js";
 import { appendEvidenceInTransaction, appendOwnerUtterance, listConversationEvidence } from "../evidence/conversation-log.js";
 import { listWorkingContext } from "../evidence/working-context.js";
-import type { CapabilityReality, IdentitySlice, MindOccupancy, WorkingContextItem } from "../types.js";
+import type { CapabilityReality, IdentitySlice, MindOccupancy, Observation, WorkingContextItem } from "../types.js";
 import { buildThoughtInput, filterCapabilityReality, frontierAwareEvidenceSelection } from "./input.js";
 import { appendCycleLogIds, getCycle } from "../cycle/inbox.js";
 import {
@@ -612,6 +612,50 @@ describe("W1-P2 legacy Working Context audience", () => {
         audience: { kind: "room", roomId },
       });
       expect(externalInput.workingContext).toEqual([]);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("drops observations with unknown audience from room input", () => {
+    const db = openTestSidecar();
+    try {
+      const roomId = "room:external";
+      const cycle = admitTestCycle(db, {
+        conversationId: roomId,
+        triggerKind: "owner_message",
+        triggerRef: "room-observation-input",
+        occupantId: "doc",
+        nowMs: 1,
+      });
+      const observation = (overrides: Partial<Observation>): Observation => ({
+        observationId: "observation:room-view",
+        cycleId: cycle.cycleId,
+        generation: cycle.generation,
+        derived: false,
+        replaySafe: true,
+        modality: "tool",
+        payload: { content: "evidence" },
+        provenance: "test:source",
+        dataClassification: "ordinary",
+        secretOmitted: false,
+        ...overrides,
+      });
+
+      const input = makeInput(db, cycle, {
+        audience: { kind: "room", roomId },
+        observations: [
+          observation({}),
+          observation({
+            observationId: "observation:admitted-room-view",
+            audienceScope: { kind: "room", roomId },
+            protectionStatus: "admitted",
+          }),
+        ],
+      });
+
+      expect(input.observations.map((item) => item.observationId))
+        .toEqual(["observation:admitted-room-view"]);
     } finally {
       db.close();
     }

@@ -161,6 +161,7 @@ import type {
   ModelFabricDispatchMetadata,
 } from "../../model-fabric/types.js";
 import { sha256Text } from "../../model-fabric/hash.js";
+import { canonicalObservationView } from "../observation/view.js";
 import type {
   ProviderBoundaryControls,
   ProviderBoundaryTiming,
@@ -2030,6 +2031,15 @@ function suppliedObservations(
       classification !== "never_public" &&
       classification !== "secret"
     ) return [];
+    let view: Observation["view"] | null = null;
+    if (item.view !== undefined) {
+      try {
+        view = canonicalObservationView(item.view);
+      } catch {
+        return [];
+      }
+      if (view === null) return [];
+    }
     return [{
       observationId,
       cycleId: cycle.cycleId,
@@ -2039,6 +2049,7 @@ function suppliedObservations(
       modality: modality as Observation["modality"],
       payload: item.payload,
       provenance,
+      ...(view === null ? {} : { view }),
       ...(typeof item.rawOutranksDerivedOf === "string"
         ? { rawOutranksDerivedOf: item.rawOutranksDerivedOf }
         : {}),

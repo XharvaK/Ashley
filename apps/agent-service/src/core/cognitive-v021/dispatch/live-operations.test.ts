@@ -97,6 +97,17 @@ describe("v0.2.1 live Sandbox V2 operation construction", () => {
       dataClassification: "never_public",
     });
     expect(observation.payload).toEqual(projectObservation());
+    expect(observation.view).toMatchObject({
+      parentArtifactId: expect.stringMatching(/^artifact:v1:[0-9a-f]{64}$/),
+      representationId: expect.stringMatching(/^representation:v1:[0-9a-f]{64}$/),
+      requestedSelector: { kind: "whole_file" },
+      returnedSelector: { kind: "whole_file" },
+      completeness: "complete",
+      omission: null,
+      continuation: null,
+      errors: [],
+      contentHashBasis: "raw_bytes",
+    });
     nuclear.close();
   });
 

@@ -655,3 +655,57 @@ describe("E2c optional Working Context loss honesty (projection seam)", () => {
     expect(WC_OPTIONAL_OMISSION_GUIDANCE).toContain("Required Working Context items are excluded from this count");
   });
 });
+
+describe("W1-P4 worker summary source projection", () => {
+  it("refuses a worker summary when a designated step observation is missing", () => {
+    const detached: Observation = {
+      observationId: "observation:detached",
+      cycleId: "cycle-1",
+      generation: 1,
+      derived: false,
+      replaySafe: true,
+      modality: "tool",
+      payload: {
+        summary: "worker interpretation",
+        summaryDerivation: {
+          derivation: "worker_interpretation",
+          stepObservationIds: ["observation:detached:step:0"],
+        },
+        steps: [],
+      },
+      provenance: "worker:project.investigate",
+      dataClassification: "never_public",
+      secretOmitted: true,
+    };
+    expect(() => projectThoughtInput(makeThoughtInput({ observations: [detached] }), []))
+      .toThrow("required_observation_view_missing");
+  });
+
+  it("keeps the required step observation beside its worker summary", () => {
+    const stepObservationId = "observation:detached:step:0";
+    const detached: Observation = {
+      observationId: "observation:detached",
+      cycleId: "cycle-1",
+      generation: 1,
+      derived: false,
+      replaySafe: true,
+      modality: "tool",
+      payload: {
+        summary: "worker interpretation",
+        summaryDerivation: {
+          derivation: "worker_interpretation",
+          stepObservationIds: [stepObservationId],
+        },
+        steps: [{ observationId: stepObservationId, observation: { content: "raw step" } }],
+      },
+      provenance: "worker:project.investigate",
+      dataClassification: "never_public",
+      secretOmitted: true,
+    };
+    const projected = projectThoughtInput(makeThoughtInput({ observations: [detached] }), []).projected;
+    const visible = modelVisibleThoughtProjection(projected) as Pick<ProjectedThoughtInput, "observations">;
+
+    expect((visible.observations[0]?.payload as Record<string, unknown>).steps)
+      .toEqual([{ observationId: stepObservationId, observation: { content: "raw step" } }]);
+  });
+});

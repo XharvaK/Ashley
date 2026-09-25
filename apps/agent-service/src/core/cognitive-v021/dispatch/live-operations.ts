@@ -64,6 +64,7 @@ import { WORKSPACE_WORKER_REQUEST_SCHEMA_ID } from "@composer-assistant/sandbox-
 import type { SocialAudience } from "../social/types.js";
 import { cognitiveStatusOf, getConcern, quarantineKindOf } from "../concerns/lineage.js";
 import { inspectConcernCurrentness } from "../thought/source-currentness.js";
+import { projectFileArtifactIdentity } from "../observation/view.js";
 import {
   concernDiscoverCursorOf,
   concernDiscoverLimitOf,
@@ -1218,6 +1219,24 @@ export function createV021LiveOperationExecutors(
         result.observation.projectId !== request.projectId ||
         result.observation.operation !== request.operation
       ) throw new Error("observation_unavailable");
+      const fileObservation = result.observation.operation === "project.read_file"
+        ? result.observation
+        : null;
+      const view = fileObservation === null ? undefined : {
+        ...projectFileArtifactIdentity({
+          projectId: fileObservation.projectId,
+          path: fileObservation.path,
+          rawByteHash: fileObservation.sha256,
+          capturedAtMs: fileObservation.executedAtMs,
+        }),
+        requestedSelector: { kind: "whole_file" } as const,
+        returnedSelector: { kind: "whole_file" } as const,
+        completeness: fileObservation.truncated ? "partial" as const : "complete" as const,
+        omission: fileObservation.truncated ? { reason: "truncated" } as const : null,
+        continuation: null,
+        errors: [],
+        contentHashBasis: "raw_bytes",
+      };
       return {
         observationId: `v021:observation:${req.requestId}`,
         cycleId: req.cycleId,
@@ -1229,6 +1248,7 @@ export function createV021LiveOperationExecutors(
         provenance: "sandbox-v2:project-inspection",
         dataClassification: "never_public",
         secretOmitted: false,
+        ...(view === undefined ? {} : { view }),
       };
     },
 

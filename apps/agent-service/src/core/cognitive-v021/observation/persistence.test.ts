@@ -4,6 +4,7 @@ import { openTestSidecar } from "../test-support.js";
 import { claimObservationSubscriptionPoll, createObservationSubscription, MIN_EXTERNAL_WATCH_POLL_INTERVAL_MS } from "./subscriptions.js";
 import {
   observationBindingHash,
+  getCanonicalObservationById,
   persistOrVerifyObservation,
   persistOrVerifyObservations,
   recoverObservationBindingForCycle,
@@ -82,6 +83,51 @@ describe("P2 observation persistence and binding", () => {
           generation: 1,
           created_at_ms: 100,
         });
+    } finally {
+      db.close();
+    }
+  });
+
+  it("binds view identity and descriptor changes into canonical observation identity", () => {
+    const db = openTestSidecar();
+    try {
+      const first = {
+        ...observation(),
+        view: {
+          parentArtifactId: "artifact:first",
+          representationId: "representation:first",
+          contentHashBasis: "raw_bytes" as const,
+        },
+      } as Observation;
+      const changedParent = {
+        ...first,
+        view: {
+          ...first.view,
+          parentArtifactId: "artifact:second",
+        },
+      };
+
+      expect(persistOrVerifyObservation(db, first, 100).view).toEqual(first.view);
+      expect(getCanonicalObservationById(db, first.observationId)?.view).toEqual(first.view);
+      expect(db.prepare(
+        "SELECT parent_artifact_id, representation_id FROM observations WHERE observation_id = ?",
+      ).get(first.observationId)).toEqual({
+        parent_artifact_id: "artifact:first",
+        representation_id: "representation:first",
+      });
+      expect(() => persistOrVerifyObservation(db, changedParent, 200))
+        .toThrow("observation_binding_conflict");
+    } finally {
+      db.close();
+    }
+  });
+
+  it("keeps legacy rows without capture metadata unknown", () => {
+    const db = openTestSidecar();
+    try {
+      persistOrVerifyObservation(db, observation({ observationId: "observation:legacy" }), 100);
+
+      expect(getCanonicalObservationById(db, "observation:legacy")).not.toHaveProperty("view");
     } finally {
       db.close();
     }

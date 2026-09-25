@@ -253,6 +253,29 @@ export function modelVisibleObservation(observation: Observation): Observation {
   const payload = observation.payload;
   if (typeof payload !== "object" || payload === null || Array.isArray(payload)) return observation;
   const objectPayload = payload as Record<string, unknown>;
+  const summaryDerivation = objectPayload.summaryDerivation;
+  if (summaryDerivation !== undefined) {
+    if (typeof summaryDerivation !== "object" || summaryDerivation === null || Array.isArray(summaryDerivation)
+      || typeof objectPayload.summary !== "string") {
+      throw new Error("worker_summary_derivation_invalid");
+    }
+    const derivation = summaryDerivation as Record<string, unknown>;
+    if (derivation.derivation !== "worker_interpretation" || !Array.isArray(derivation.stepObservationIds)) {
+      throw new Error("worker_summary_derivation_invalid");
+    }
+    const steps = Array.isArray(objectPayload.steps) ? objectPayload.steps : [];
+    for (const observationId of derivation.stepObservationIds) {
+      if (typeof observationId !== "string" || observationId.length === 0) {
+        throw new Error("worker_summary_derivation_invalid");
+      }
+      const retainedStep = steps.some((step) => typeof step === "object"
+        && step !== null
+        && !Array.isArray(step)
+        && (step as Record<string, unknown>).observationId === observationId
+        && (step as Record<string, unknown>).observation != null);
+      if (!retainedStep) throw new Error("required_observation_view_missing");
+    }
+  }
   const removeSelectedModel = Object.prototype.hasOwnProperty.call(objectPayload, "selectedModelId");
   const steps = objectPayload.steps;
   const lastObservation = objectPayload.lastObservation;

@@ -1315,3 +1315,16 @@ ALTER TABLE desk_entries ADD COLUMN support_refs_json TEXT NOT NULL DEFAULT '[]'
   CHECK(json_valid(support_refs_json) AND json_type(support_refs_json) = 'array');
 UPDATE cognitive_sidecar_meta SET schema_version = 31, projection_state = 'reconciling' WHERE id = 1;
 `;
+
+/** Add queryable artifact identity and a nullable canonical view descriptor to observations. */
+export const COGNITIVE_SIDECAR_SCHEMA_V32 = String.raw`
+ALTER TABLE observations ADD COLUMN parent_artifact_id TEXT;
+ALTER TABLE observations ADD COLUMN representation_id TEXT;
+ALTER TABLE observations ADD COLUMN view_metadata_json TEXT
+  CHECK(view_metadata_json IS NULL OR json_valid(view_metadata_json));
+CREATE INDEX IF NOT EXISTS idx_observations_parent_artifact
+  ON observations(parent_artifact_id) WHERE parent_artifact_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_observations_representation
+  ON observations(representation_id) WHERE representation_id IS NOT NULL;
+UPDATE cognitive_sidecar_meta SET schema_version = 32, projection_state = 'reconciling' WHERE id = 1;
+`;
