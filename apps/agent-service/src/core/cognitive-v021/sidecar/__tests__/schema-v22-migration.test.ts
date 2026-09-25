@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { openTestSidecar } from "../../test-support.js";
+import { openTestSidecar, setTestSidecarVersion } from "../../test-support.js";
 import { COGNITIVE_SIDECAR_SCHEMA_VERSION } from "../../types.js";
 import { openCognitiveSidecarDb } from "../db.js";
 import { COGNITIVE_SIDECAR_SCHEMA_V19 } from "../schema.js";
@@ -64,8 +64,7 @@ function makePopulatedV21Fixture() {
       1_000 + index,
     );
   }
-  db.prepare("UPDATE cognitive_sidecar_meta SET schema_version = 21 WHERE id = 1").run();
-  db.exec("PRAGMA user_version = 21");
+  setTestSidecarVersion(db, 21);
   return db;
 }
 

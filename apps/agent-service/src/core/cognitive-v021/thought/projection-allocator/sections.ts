@@ -498,6 +498,23 @@ export function buildAllocationCandidates(
   // 11-14. Type-Aware Working Context: Essential subtypes are REQUIRED
   const wcItems = input.workingContext ?? [];
   for (const item of wcItems) {
+    if (item.legacyScope === "legacy_unknown_scope") {
+      const { interpretationEnvelope: _ignoredEnvelope, ...historicalItem } = item;
+      candidates.push({
+        id: `wc:${item.id}`,
+        section: "working_context_other",
+        required: false,
+        priority: 17,
+        ref: item.id,
+        data: {
+          ...historicalItem,
+          kind: "legacy_working_context_history",
+          applicabilityLifecycle: "needs_review",
+          legacyScope: "legacy_unknown_scope",
+        },
+      });
+      continue;
+    }
     if (item.interpretationEnvelope?.kind === "directive_interpretation") {
       const quote = item.interpretationEnvelope.support.find((ref) => ref.kind === "conversation_text_span");
       if (!quote || quote.kind !== "conversation_text_span") {
@@ -564,6 +581,7 @@ export function buildAllocationCandidates(
   // 15-16. Optional Working Context: Topic and Other (ordered by updatedGeneration desc)
   const optionalWc = wcItems.filter(
     (item) =>
+      item.legacyScope !== "legacy_unknown_scope" &&
       item.interpretationEnvelope?.kind !== "directive_interpretation" &&
       item.type !== "correction" &&
       item.type !== "referent" &&

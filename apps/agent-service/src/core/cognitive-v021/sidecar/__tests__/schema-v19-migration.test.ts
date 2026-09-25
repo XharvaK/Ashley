@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { openTestSidecar } from "../../test-support.js";
+import { openTestSidecar, setTestSidecarVersion } from "../../test-support.js";
 import { openCognitiveSidecarDb } from "../db.js";
 import { COGNITIVE_SIDECAR_SCHEMA_VERSION } from "../../types.js";
 
@@ -7,12 +7,11 @@ describe("cognitive sidecar Schema V19 migration", () => {
   it("preserves detached history while applying the global queue successor", () => {
     const db = openTestSidecar();
     try {
-      db.exec("PRAGMA user_version = 19");
-      db.prepare("UPDATE cognitive_sidecar_meta SET schema_version = 19 WHERE id = 1").run();
+      setTestSidecarVersion(db, 19);
 
       openCognitiveSidecarDb(db, { dataPlane: { kind: "isolated" } });
       expect((db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(COGNITIVE_SIDECAR_SCHEMA_VERSION);
-      expect(COGNITIVE_SIDECAR_SCHEMA_VERSION).toBe(25);
+      expect(COGNITIVE_SIDECAR_SCHEMA_VERSION).toBe(27);
       const columns = (db.prepare("PRAGMA table_info(detached_operations)").all() as Array<{ name: string }>)
         .map((column) => column.name);
       for (const column of [

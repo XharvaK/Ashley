@@ -54,11 +54,24 @@ function mapItem(row: unknown, conversationId: string): WorkingContextItem | nul
   if (status !== "active" && status !== "superseded" && status !== "abandoned") return null;
   const interpretationEnvelope = payload.interpretationEnvelope === undefined
     ? undefined
-    : parseStoredWorkingContextInterpretationEnvelope(payload.interpretationEnvelope, row.applicability_lifecycle);
+    : parseStoredWorkingContextInterpretationEnvelope(
+      payload.interpretationEnvelope,
+      row.legacy_scope === "legacy_unknown_scope" ? "needs_review" : row.applicability_lifecycle,
+    );
   if (payload.interpretationEnvelope !== undefined && !interpretationEnvelope) return null;
+  const legacyScope = row.legacy_scope === "legacy_unknown_scope" ? "legacy_unknown_scope" : null;
+  const applicabilityLifecycle = legacyScope
+    ? "needs_review"
+    : row.applicability_lifecycle === "current" || row.applicability_lifecycle === "needs_review"
+      || row.applicability_lifecycle === "superseded" || row.applicability_lifecycle === "withdrawn"
+      ? row.applicability_lifecycle
+      : interpretationEnvelope?.applicabilityLifecycle ?? null;
   const envelopeAudience = interpretationEnvelope?.audience.kind === "unknown"
     ? null
     : interpretationEnvelope?.audience ?? undefined;
+  const mappedAudience = legacyScope && row.audience_state !== "known"
+    ? null
+    : audienceScope(envelopeAudience ?? payload.audienceScope);
   return {
     id: typeof row.id === "string" ? row.id : String(row.id ?? ""),
     conversationId,
@@ -69,7 +82,8 @@ function mapItem(row: unknown, conversationId: string): WorkingContextItem | nul
     status,
     supersedesId: typeof payload.supersedesId === "string" ? payload.supersedesId : null,
     updatedGeneration: Number(row.updated_generation ?? payload.updatedGeneration ?? 0),
-    audienceScope: audienceScope(envelopeAudience ?? payload.audienceScope),
+    audienceScope: mappedAudience,
+    ...(legacyScope ? { applicabilityLifecycle, legacyScope } : {}),
     sourcePrincipal: interpretationEnvelope?.attribution.principalId ?? (typeof payload.sourcePrincipal === "string" ? payload.sourcePrincipal : null),
     sourceEvidenceRef: interpretationEnvelope
       ? interpretationEnvelope.support.find((ref) => ref.kind === "conversation_text_span")?.evidenceRowId ?? null
@@ -92,7 +106,8 @@ export function listWorkingContext(
   const limit = Math.max(1, Math.min(1000, options.limit ?? 1000));
   const filter = options.includeSuperseded ? "" : "AND superseded = 0";
   return db.prepare(
-    `SELECT id, conversation_id, payload_json, superseded, updated_generation, applicability_lifecycle
+    `SELECT id, conversation_id, payload_json, superseded, updated_generation,
+            applicability_lifecycle, audience_state, legacy_scope
        FROM working_context_items
       WHERE conversation_id = ? ${filter}
       ORDER BY COALESCE(updated_generation, 0) DESC, id ASC

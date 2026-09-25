@@ -1244,3 +1244,7 @@ ALTER TABLE working_context_items ADD COLUMN audience_state TEXT NOT NULL DEFAUL
 ALTER TABLE working_context_items ADD COLUMN legacy_scope TEXT;
 UPDATE cognitive_sidecar_meta SET schema_version = 26, projection_state = 'reconciling' WHERE id = 1;
 `;
+
+export const COGNITIVE_SIDECAR_SCHEMA_V27 = String.raw`
+UPDATE cognitive_sidecar_meta SET schema_version = 27, projection_state = 'reconciling' WHERE id = 1;
+`;

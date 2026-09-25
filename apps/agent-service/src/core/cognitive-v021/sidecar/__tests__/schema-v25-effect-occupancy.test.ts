@@ -1,15 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { admitTestCycle, openTestSidecar } from "../../test-support.js";
+import { admitTestCycle, openTestSidecar, setTestSidecarVersion } from "../../test-support.js";
 import { putInFlight, recordEffectReceipt } from "../../effect/in-flight.js";
 import { openCognitiveSidecarDb } from "../db.js";
 import { COGNITIVE_SIDECAR_SCHEMA_VERSION } from "../../types.js";
 
 function prepareV24(db: ReturnType<typeof openTestSidecar>): void {
-  db.exec(`
-    UPDATE in_flight_effects SET state = 'receipted';
-    PRAGMA user_version = 24;
-    UPDATE cognitive_sidecar_meta SET schema_version = 24 WHERE id = 1;
-  `);
+  db.exec("UPDATE in_flight_effects SET state = 'receipted'");
+  setTestSidecarVersion(db, 24);
 }
 
 describe("cognitive sidecar Schema V25 effect occupancy", () => {
@@ -102,8 +99,8 @@ describe("cognitive sidecar Schema V25 effect occupancy", () => {
       prepareV24(db);
       openCognitiveSidecarDb(db, { dataPlane: { kind: "isolated" } });
 
-      expect(COGNITIVE_SIDECAR_SCHEMA_VERSION).toBe(25);
-      expect(db.prepare("PRAGMA user_version").get()).toMatchObject({ user_version: 25 });
+      expect(COGNITIVE_SIDECAR_SCHEMA_VERSION).toBe(27);
+      expect(db.prepare("PRAGMA user_version").get()).toMatchObject({ user_version: 27 });
       expect(db.prepare("SELECT COUNT(*) AS count FROM in_flight_effects").get()).toMatchObject({ count: 3 });
       expect(db.prepare("SELECT COUNT(*) AS count FROM effect_receipts").get()).toMatchObject({ count: 2 });
       expect(db.prepare("SELECT state FROM in_flight_effects WHERE effect_id = ?").get(resolved.effectId))

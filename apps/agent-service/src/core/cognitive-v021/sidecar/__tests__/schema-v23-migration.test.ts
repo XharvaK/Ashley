@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { openTestSidecar } from "../../test-support.js";
+import { openTestSidecar, setTestSidecarVersion } from "../../test-support.js";
 import { migrateDetachedFailureEvidenceToV23, openCognitiveSidecarDb } from "../db.js";
 import { COGNITIVE_SIDECAR_SCHEMA_VERSION } from "../../types.js";
 import {
@@ -48,13 +48,12 @@ describe("cognitive sidecar Schema V23 worker failure evidence", () => {
       expect(legacyTerminal.ok).toBe(true);
       // Simulate a pre-V23 store carrying that row.
       db.exec("ALTER TABLE detached_operations DROP COLUMN failure_evidence_json");
-      db.exec("PRAGMA user_version = 22");
-      db.prepare("UPDATE cognitive_sidecar_meta SET schema_version = 22 WHERE id = 1").run();
+      setTestSidecarVersion(db, 22);
 
       openCognitiveSidecarDb(db, { dataPlane: { kind: "isolated" } });
       expect((db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version)
         .toBe(COGNITIVE_SIDECAR_SCHEMA_VERSION);
-      expect(COGNITIVE_SIDECAR_SCHEMA_VERSION).toBe(25);
+      expect(COGNITIVE_SIDECAR_SCHEMA_VERSION).toBe(27);
       expect(db.prepare("PRAGMA table_info(detached_operations)").all()).toEqual(expect.arrayContaining([
         expect.objectContaining({ name: "failure_evidence_json" }),
       ]));

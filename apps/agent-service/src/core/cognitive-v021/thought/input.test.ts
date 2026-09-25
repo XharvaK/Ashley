@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { admitTestCycle, openTestSidecar, makeThoughtDraft } from "../test-support.js";
 import { openDerivedStore } from "../retrieval/derived-store.js";
 import { appendEvidenceInTransaction, appendOwnerUtterance, listConversationEvidence } from "../evidence/conversation-log.js";
+import { listWorkingContext } from "../evidence/working-context.js";
 import type { CapabilityReality, IdentitySlice, MindOccupancy, WorkingContextItem } from "../types.js";
 import { buildThoughtInput, filterCapabilityReality, frontierAwareEvidenceSelection } from "./input.js";
 import { appendCycleLogIds, getCycle } from "../cycle/inbox.js";
@@ -563,6 +564,54 @@ describe("v0.2.1 ThoughtInput assembly", () => {
       expect(input.rawConversation).toHaveLength(12);
       expect(input.conversationSelection?.currentTriggerRowId).toBe(currentTrigger.rowId);
       expect(input.conversationSelection?.omittedEvidenceIds).toEqual([]);
+    } finally {
+      db.close();
+    }
+  });
+});
+
+describe("W1-P2 legacy Working Context audience", () => {
+  it("keeps unknown-scope history Owner-private and removes it for an external audience", () => {
+    const db = openTestSidecar();
+    try {
+      const roomId = "room:owner-guild:owner-channel";
+      const cycle = admitTestCycle(db, {
+        conversationId: roomId,
+        triggerKind: "owner_message",
+        triggerRef: "legacy-room-owner",
+        occupantId: "doc",
+        nowMs: 1,
+      });
+      const payload = {
+        type: "topic",
+        text: "Keep this topic until further notice.",
+        concernId: null,
+        sourceTurnIds: ["turn-legacy-room"],
+        status: "active",
+        supersedesId: null,
+      };
+      db.prepare(
+        `INSERT INTO working_context_items
+           (id, conversation_id, type, payload_json, superseded, updated_cycle, updated_generation,
+            applicability_lifecycle, audience_state, legacy_scope)
+         VALUES (?, ?, 'topic', ?, 0, ?, 13, 'needs_review', 'unknown', 'legacy_unknown_scope')`,
+      ).run("legacy-room-topic", roomId, JSON.stringify(payload), cycle.cycleId);
+      const workingContext = listWorkingContext(db, roomId);
+
+      const ownerInput = makeInput(db, cycle, { workingContext });
+      expect(ownerInput.workingContext).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          id: "legacy-room-topic",
+          legacyScope: "legacy_unknown_scope",
+          applicabilityLifecycle: "needs_review",
+        }),
+      ]));
+
+      const externalInput = makeInput(db, cycle, {
+        workingContext,
+        audience: { kind: "room", roomId },
+      });
+      expect(externalInput.workingContext).toEqual([]);
     } finally {
       db.close();
     }

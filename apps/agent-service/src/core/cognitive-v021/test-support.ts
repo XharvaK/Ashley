@@ -12,6 +12,20 @@ export function openTestSidecar(): DatabaseSync {
   });
 }
 
+/** Rewind an in-memory current sidecar to a structurally valid historical fixture version. */
+export function setTestSidecarVersion(db: DatabaseSync, version: number): void {
+  if (!Number.isSafeInteger(version) || version < 0) throw new Error("test_sidecar_version_invalid");
+  if (version < 26) {
+    const columns = new Set((db.prepare("PRAGMA table_info(working_context_items)").all() as Array<{ name?: unknown }>)
+      .map((row) => typeof row.name === "string" ? row.name : ""));
+    for (const column of ["legacy_scope", "audience_state", "applicability_lifecycle"]) {
+      if (columns.has(column)) db.exec(`ALTER TABLE working_context_items DROP COLUMN ${column}`);
+    }
+  }
+  db.exec(`PRAGMA user_version = ${version}`);
+  db.prepare("UPDATE cognitive_sidecar_meta SET schema_version = ? WHERE id = 1").run(version);
+}
+
 export function makeThoughtDraft(
   overrides: Partial<ThoughtSettlementDraft> = {},
 ): ThoughtSettlementDraft {

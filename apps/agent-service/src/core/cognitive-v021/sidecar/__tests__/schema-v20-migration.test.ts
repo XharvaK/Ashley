@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { openTestSidecar } from "../../test-support.js";
+import { openTestSidecar, setTestSidecarVersion } from "../../test-support.js";
 import { openCognitiveSidecarDb } from "../db.js";
 import { COGNITIVE_SIDECAR_SCHEMA_VERSION } from "../../types.js";
 
@@ -7,12 +7,11 @@ describe("cognitive sidecar Schema V20 migration", () => {
   it("creates operation_interim_outbox and is idempotent", () => {
     const db = openTestSidecar();
     try {
-      db.exec("PRAGMA user_version = 20");
-      db.prepare("UPDATE cognitive_sidecar_meta SET schema_version = 20 WHERE id = 1").run();
+      setTestSidecarVersion(db, 20);
 
       openCognitiveSidecarDb(db, { dataPlane: { kind: "isolated" } });
       expect((db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(COGNITIVE_SIDECAR_SCHEMA_VERSION);
-      expect(COGNITIVE_SIDECAR_SCHEMA_VERSION).toBe(25);
+      expect(COGNITIVE_SIDECAR_SCHEMA_VERSION).toBe(27);
       const columns = (db.prepare("PRAGMA table_info(operation_interim_outbox)").all() as Array<{ name: string }>)
         .map((column) => column.name);
       for (const column of [

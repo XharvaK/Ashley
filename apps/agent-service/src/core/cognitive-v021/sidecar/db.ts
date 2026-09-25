@@ -37,6 +37,7 @@ import {
   COGNITIVE_SIDECAR_SCHEMA_V24,
   COGNITIVE_SIDECAR_SCHEMA_V25,
   COGNITIVE_SIDECAR_SCHEMA_V26,
+  COGNITIVE_SIDECAR_SCHEMA_V27,
 } from "./schema.js";
 import { recoverCognitiveSidecar } from "./recovery.js";
 import { cycleIdFor, occurrenceIdFor, wakeIdFor } from "../wake/identity.js";
@@ -79,6 +80,46 @@ function userVersion(existing: DatabaseSync): number {
     user_version?: number;
   };
   return Number(row.user_version ?? 0);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function hasValidatedLegacyAudienceScope(payload: unknown): boolean {
+  if (!isRecord(payload) || !isRecord(payload.audienceScope)) return false;
+  const scope = payload.audienceScope;
+  if (scope.kind === "owner_private") return true;
+  if (scope.kind === "owner_dm") return typeof scope.threadId === "string" && scope.threadId.trim().length > 0;
+  if (scope.kind === "dm") return typeof scope.principalId === "string" && scope.principalId.trim().length > 0;
+  if (scope.kind === "room") return typeof scope.roomId === "string" && scope.roomId.trim().length > 0;
+  return false;
+}
+
+/** Mark unscoped pre-envelope Working Context for historical review. */
+function migrateLegacyWorkingContextToV27(existing: DatabaseSync): void {
+  const rows = existing.prepare(
+    `SELECT id, payload_json
+       FROM working_context_items
+      WHERE legacy_scope IS NULL AND applicability_lifecycle IS NULL`,
+  ).all() as Array<{ id?: unknown; payload_json?: unknown }>;
+  const update = existing.prepare(
+    `UPDATE working_context_items
+        SET applicability_lifecycle = 'needs_review', audience_state = ?,
+            legacy_scope = 'legacy_unknown_scope'
+      WHERE id = ? AND legacy_scope IS NULL AND applicability_lifecycle IS NULL`,
+  );
+  for (const row of rows) {
+    if (typeof row.id !== "string") continue;
+    let payload: unknown = null;
+    if (typeof row.payload_json === "string") {
+      try { payload = JSON.parse(row.payload_json) as unknown; } catch { /* malformed history stays review-only */ }
+    }
+    if (isRecord(payload) && payload.interpretationEnvelope !== undefined && payload.interpretationEnvelope !== null) {
+      continue;
+    }
+    update.run(hasValidatedLegacyAudienceScope(payload) ? "known" : "unknown", row.id);
+  }
 }
 
 function hasColumn(existing: DatabaseSync, table: string, column: string): boolean {
@@ -665,6 +706,8 @@ export function openCognitiveSidecarDb(
       migrateConcernsToV24(existing);
       migrateInFlightEffectOccupancyToV25(existing);
       existing.exec(COGNITIVE_SIDECAR_SCHEMA_V26);
+      migrateLegacyWorkingContextToV27(existing);
+      existing.exec(COGNITIVE_SIDECAR_SCHEMA_V27);
       existing.exec(`PRAGMA user_version = ${COGNITIVE_SIDECAR_SCHEMA_VERSION}`);
       existing.exec("COMMIT");
     } catch (error) {
@@ -697,6 +740,10 @@ export function openCognitiveSidecarDb(
         migrateInFlightEffectOccupancyToV25(existing);
       }
       if (version < 26) existing.exec(COGNITIVE_SIDECAR_SCHEMA_V26);
+      if (version < 27) {
+        migrateLegacyWorkingContextToV27(existing);
+        existing.exec(COGNITIVE_SIDECAR_SCHEMA_V27);
+      }
       existing.exec(`PRAGMA user_version = ${COGNITIVE_SIDECAR_SCHEMA_VERSION}`);
       ensureMeta(existing);
       existing.exec("COMMIT");

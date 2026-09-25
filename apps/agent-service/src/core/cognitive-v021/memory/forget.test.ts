@@ -230,6 +230,50 @@ describe("v0.2.1 forget matrix", () => {
     }
   });
 
+  it("redacts a legacy Working Context quote without turning privacy redaction into withdrawal", () => {
+    const db = openTestSidecar();
+    try {
+      const text = "erase-legacy-topic keeps the historical wording";
+      db.prepare(
+        `INSERT INTO working_context_items
+           (id, conversation_id, type, payload_json, superseded, updated_cycle, updated_generation,
+            applicability_lifecycle, audience_state, legacy_scope)
+         VALUES (?, ?, 'topic', ?, 0, NULL, 3, 'needs_review', 'unknown', 'legacy_unknown_scope')`,
+      ).run("legacy-forget-topic", "thread-legacy-forget", JSON.stringify({
+        type: "topic",
+        text,
+        concernId: null,
+        sourceTurnIds: [],
+        status: "active",
+        supersedesId: null,
+        interpretationEnvelope: {
+          support: [{ kind: "conversation_text_span", quote: text }],
+        },
+      }));
+
+      applyV021Forget(db, { topic: "erase-legacy-topic", nowMs: 4 });
+
+      const row = db.prepare(
+        `SELECT payload_json, superseded, applicability_lifecycle, legacy_scope
+           FROM working_context_items WHERE id = ?`,
+      ).get("legacy-forget-topic") as Record<string, unknown>;
+      expect(String(row.payload_json)).not.toContain("erase-legacy-topic");
+      expect(String(row.payload_json)).not.toContain(text);
+      expect(JSON.parse(String(row.payload_json))).toMatchObject({
+        type: "repair",
+        text: "",
+        status: "abandoned",
+      });
+      expect(row).toMatchObject({
+        superseded: 1,
+        applicability_lifecycle: "needs_review",
+        legacy_scope: "legacy_unknown_scope",
+      });
+    } finally {
+      db.close();
+    }
+  });
+
   it("cancels a projected undelivered Nuclear reservation before local redaction", async () => {
     const sidecar = openTestSidecar();
     const nuclear = openNuclearDb(new DatabaseSync(":memory:"));

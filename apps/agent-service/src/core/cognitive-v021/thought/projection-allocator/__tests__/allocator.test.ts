@@ -3150,3 +3150,41 @@ describe("W1-P1 directive Working Context projection", () => {
     })).toThrow(RequiredOverflowError);
   });
 });
+
+describe("W1-P2 legacy Working Context projection", () => {
+  it("routes legacy rows to labeled history and overrides stale currentness", () => {
+    const legacy = {
+      id: "e1a31488",
+      conversationId: "conv-1",
+      type: "topic" as const,
+      text: "Keep this topic until further notice.",
+      concernId: null,
+      sourceTurnIds: ["turn-legacy"],
+      status: "active" as const,
+      supersedesId: null,
+      updatedGeneration: 13,
+      audienceScope: null,
+      applicabilityLifecycle: "current" as const,
+      legacyScope: "legacy_unknown_scope" as const,
+    };
+    const candidates = buildAllocationCandidates(makeThoughtInput({ workingContext: [legacy] }), []);
+    const historical = candidates.find((candidate) => candidate.id === "wc:e1a31488");
+
+    expect(historical).toMatchObject({
+      section: "working_context_other",
+      required: false,
+      data: {
+        id: "e1a31488",
+        kind: "legacy_working_context_history",
+        text: "Keep this topic until further notice.",
+        applicabilityLifecycle: "needs_review",
+        legacyScope: "legacy_unknown_scope",
+      },
+    });
+    expect(JSON.stringify(historical?.data)).not.toContain("current");
+    expect(candidates.some((candidate) =>
+      candidate.id === "wc:e1a31488"
+        && ["working_context_directive", "working_context_topic", "working_context_correction"].includes(candidate.section),
+    )).toBe(false);
+  });
+});

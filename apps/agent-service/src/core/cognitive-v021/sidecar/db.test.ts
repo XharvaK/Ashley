@@ -4,6 +4,7 @@ import { reservedProductionCognitiveSidecarDbPath } from "../../data-plane.js";
 import { admitWake } from "../wake/ledger.js";
 import { reservePrivateThought } from "../private-budget/ledger.js";
 import { openCognitiveSidecarDb, readCognitiveProjectionState } from "./db.js";
+import { setTestSidecarVersion } from "../test-support.js";
 import {
   COGNITIVE_SIDECAR_SCHEMA_V1,
   COGNITIVE_SIDECAR_SCHEMA_V2,
@@ -247,8 +248,7 @@ describe("cognitive v0.2.1 sidecar database", () => {
         ALTER TABLE cycle_records DROP COLUMN attempt_input_basis_json;
         ALTER TABLE cycle_records DROP COLUMN attempt_id;
       `);
-      db.exec("PRAGMA user_version = 8");
-      db.prepare("UPDATE cognitive_sidecar_meta SET schema_version = 8 WHERE id = 1").run();
+      setTestSidecarVersion(db, 8);
       openCognitiveSidecarDb(db, { dataPlane: { kind: "isolated" } });
       const indexColumns = (
         db.prepare("PRAGMA index_info(idx_private_budget_consuming)").all() as Array<{ seqno: number; cid: number; name: string }>
@@ -516,7 +516,7 @@ describe("cognitive v0.2.1 sidecar database", () => {
   it("rejects newer sidecar content and rolls back a failed v2 upgrade", () => {
     const newer = new DatabaseSync(":memory:");
     try {
-      newer.exec("PRAGMA user_version = 26");
+      newer.exec("PRAGMA user_version = 28");
       let failure: unknown;
       try {
         openCognitiveSidecarDb(newer, { dataPlane: { kind: "isolated" } });
@@ -525,7 +525,7 @@ describe("cognitive v0.2.1 sidecar database", () => {
       }
       expect(failure).toMatchObject({ code: "unsupported_cognitive_sidecar_schema" });
       expect(failure).toBeInstanceOf(Error);
-      expect((failure as Error).message).toBe("unsupported_cognitive_sidecar_schema:26>25");
+      expect((failure as Error).message).toBe("unsupported_cognitive_sidecar_schema:28>27");
     } finally {
       newer.close();
     }

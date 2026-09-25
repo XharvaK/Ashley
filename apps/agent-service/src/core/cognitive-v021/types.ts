@@ -27,7 +27,7 @@ export type { SourceSupportRef } from "./evidence/interpretation-envelope.js";
 export const ARCHITECTURE_EPOCH = "v0.2.1" as const;
 export const IMPLEMENTATION_SPEC_VERSION = "0.2.1.r6" as const;
 export const THOUGHT_CONTRACT_VERSION = 2 as const;
-export const COGNITIVE_SIDECAR_SCHEMA_VERSION = 26 as const;
+export const COGNITIVE_SIDECAR_SCHEMA_VERSION = 27 as const;
 
 /**
  * Hard bound on cognition-facing concern discovery windows and pages. The
@@ -398,6 +398,9 @@ export type WorkingContextItem = {
   supersedesId: string | null;
   updatedGeneration: Generation;
   interpretationEnvelope?: WorkingContextInterpretationEnvelope;
+  /** Host-owned lifecycle and legacy-scope labels hydrated from the sidecar row. */
+  applicabilityLifecycle?: "current" | "needs_review" | "superseded" | "withdrawn" | null;
+  legacyScope?: "legacy_unknown_scope" | null;
   /** Audience/protection facets are optional for legacy Owner rows. */
   audienceScope?: SocialAudience | null;
   sourcePrincipal?: string | null;
@@ -408,7 +411,10 @@ export type WorkingContextItem = {
   licenseRefs?: string[];
 };
 
-type WorkingContextItemDelta = Omit<WorkingContextItem, "updatedGeneration" | "interpretationEnvelope"> & {
+type WorkingContextItemDelta = Omit<
+  WorkingContextItem,
+  "updatedGeneration" | "interpretationEnvelope" | "applicabilityLifecycle" | "legacyScope"
+> & {
   interpretationEnvelope?: WorkingContextInterpretationDraft;
 };
 
