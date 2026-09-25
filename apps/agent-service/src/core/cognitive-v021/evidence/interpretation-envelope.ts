@@ -94,6 +94,11 @@ export type InterpretationAttribution = Readonly<{
   principalId: string | null;
 }>;
 
+export type InterpretationSupportUnavailableReason =
+  | "source_redacted"
+  | "source_forgotten"
+  | "source_inaccessible";
+
 /** Host-completed envelope stored beside the existing Working Context text. */
 export type WorkingContextInterpretationEnvelope = WorkingContextInterpretationDraft & Readonly<{
   owningRecordId: string;
@@ -105,6 +110,7 @@ export type WorkingContextInterpretationEnvelope = WorkingContextInterpretationD
   sourceTimeMs: number | null;
   interpretationTimeMs: number;
   applicabilityLifecycle: "current" | "needs_review" | "superseded" | "withdrawn";
+  supportUnavailableReason?: InterpretationSupportUnavailableReason;
 }>;
 
 type RecordValue = Record<string, unknown>;
@@ -293,7 +299,7 @@ export function parseStoredWorkingContextInterpretationEnvelope(
     "derivationParents", "revisionOf", "revisionEvidenceRefs", "audience", "owningRecordId", "revision",
     "authoringCycleId", "supportAvailability", "attribution", "sourceTimeMs", "interpretationTimeMs",
     "applicabilityLifecycle",
-  ])) return null;
+  ], ["supportUnavailableReason"])) return null;
   const draft = parseWorkingContextInterpretationDraft({
     kind: value.kind,
     support: value.support,
@@ -310,6 +316,11 @@ export function parseStoredWorkingContextInterpretationEnvelope(
   if (!draft || !nonEmptyText(value.owningRecordId) || !finiteInteger(value.revision) || value.revision < 0
     || !nonEmptyText(value.authoringCycleId)
     || (value.supportAvailability !== "intact" && value.supportAvailability !== "unavailable")
+    || (value.supportAvailability === "unavailable"
+      && value.supportUnavailableReason !== "source_redacted"
+      && value.supportUnavailableReason !== "source_forgotten"
+      && value.supportUnavailableReason !== "source_inaccessible")
+    || (value.supportAvailability === "intact" && value.supportUnavailableReason !== undefined)
     || !isRecord(attribution) || !exactKeys(attribution, ["principalKind", "principalId"])
     || !["owner", "external_human", "external_bot", "ashley", "observation", "receipt", "mixed", "unknown"].includes(String(attribution.principalKind))
     || (attribution.principalId !== null && typeof attribution.principalId !== "string")
@@ -329,6 +340,9 @@ export function parseStoredWorkingContextInterpretationEnvelope(
     sourceTimeMs: value.sourceTimeMs as number | null,
     interpretationTimeMs: value.interpretationTimeMs,
     applicabilityLifecycle: lifecycleValue as WorkingContextInterpretationEnvelope["applicabilityLifecycle"],
+    ...(value.supportUnavailableReason === undefined
+      ? {}
+      : { supportUnavailableReason: value.supportUnavailableReason as InterpretationSupportUnavailableReason }),
   };
 }
 
@@ -439,6 +453,18 @@ function assertSupportRefs(
   return resolved;
 }
 
+function supportSourceIdentity(ref: SourceSupportRef): string {
+  switch (ref.kind) {
+    case "conversation_text_span": return `conversation_evidence:${ref.evidenceRowId}`;
+    case "observation_ref": return `observation:${ref.observationId}`;
+    case "receipt_ref": return `receipt:${ref.receiptId}`;
+    case "artifact_text_span":
+    case "document_page_region":
+    case "image_region":
+    case "structured_path": return `artifact:${ref.artifactId}:${ref.representationId}`;
+  }
+}
+
 export function validateAndBuildWorkingContextInterpretationEnvelope(input: {
   db: DatabaseSync;
   itemId: string;
@@ -479,9 +505,31 @@ export function validateAndBuildWorkingContextInterpretationEnvelope(input: {
   }
   if (envelope.revisionOf !== null) {
     const prior = input.db.prepare(
-      "SELECT id FROM working_context_items WHERE id = ? AND conversation_id = ? LIMIT 1",
+      `SELECT id, payload_json, applicability_lifecycle
+         FROM working_context_items WHERE id = ? AND conversation_id = ? LIMIT 1`,
     ).get(envelope.revisionOf, input.conversationId);
-    if (!prior || envelope.revisionOf === input.itemId) throw new Error("interpretation_revision_unresolvable");
+    if (!prior || envelope.revisionOf === input.itemId || !isRecord(prior)) {
+      throw new Error("interpretation_revision_unresolvable");
+    }
+    let priorPayload: unknown;
+    try { priorPayload = JSON.parse(String(prior.payload_json)); } catch { priorPayload = null; }
+    const priorStoredEnvelope = isRecord(priorPayload) ? priorPayload.interpretationEnvelope : null;
+    const priorLifecycle = typeof prior.applicability_lifecycle === "string"
+      ? prior.applicability_lifecycle
+      : isRecord(priorStoredEnvelope) ? priorStoredEnvelope.applicabilityLifecycle : null;
+    const priorEnvelope = parseStoredWorkingContextInterpretationEnvelope(priorStoredEnvelope, priorLifecycle);
+    if (!priorEnvelope) {
+      throw new Error("interpretation_revision_unresolvable");
+    }
+    if (envelope.revisionEvidenceRefs.length === 0) {
+      throw new Error("interpretation_revision_evidence_required");
+    }
+    const priorSupportIds = new Set(
+      [...priorEnvelope.support, ...priorEnvelope.revisionEvidenceRefs].map(supportSourceIdentity),
+    );
+    if (!envelope.revisionEvidenceRefs.some((ref) => !priorSupportIds.has(supportSourceIdentity(ref)))) {
+      throw new Error("interpretation_revision_evidence_not_new");
+    }
   }
   const namedPrincipalSources = resolved.filter((source) =>
     source.principalKind !== "observation" && source.principalKind !== "receipt" && source.principalKind !== "unknown",

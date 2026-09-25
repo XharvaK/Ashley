@@ -444,4 +444,215 @@ describe("Working Context interpretation envelope", () => {
       db.close();
     }
   });
+
+  it("requires new evidence when an interpretation revises an existing row", () => {
+    const db = openTestSidecar();
+    try {
+      const source = addOwnerSource(db);
+      const ref = {
+        kind: "conversation_text_span" as const,
+        evidenceRowId: source.rowId,
+        start: 0,
+        end: 7,
+        quote: "not yet",
+      };
+      applyWorkingContextDelta(db, {
+        op: "upsert",
+        item: directive("wc-revision-evidence-prior", [ref]),
+      }, { cycleId: "cycle-prior", generation: 1, nowMs: 20 });
+      const newSource = addOwnerSource(db, "updated boundary");
+      const newRef = {
+        kind: "conversation_text_span" as const,
+        evidenceRowId: newSource.rowId,
+        start: 0,
+        end: "updated boundary".length,
+        quote: "updated boundary",
+      };
+
+      expect(() => applyWorkingContextDelta(db, {
+        op: "upsert",
+        item: directive("wc-revision-evidence-missing", [ref], {
+          revisionOf: "wc-revision-evidence-prior",
+        }),
+      }, { cycleId: "cycle-revision", generation: 2, nowMs: 21 })).toThrow("interpretation_revision_evidence_required");
+
+      expect(() => applyWorkingContextDelta(db, {
+        op: "upsert",
+        item: directive("wc-revision-requires-supersede", [ref], {
+          revisionOf: "wc-revision-evidence-prior",
+          revisionEvidenceRefs: [newRef],
+        }),
+      }, { cycleId: "cycle-revision", generation: 2, nowMs: 21 }))
+        .toThrow("interpretation_revision_requires_supersede");
+    } finally {
+      db.close();
+    }
+  });
+
+  it("marks a current interpretation for review when its source becomes inaccessible", () => {
+    const db = openTestSidecar();
+    try {
+      const source = addOwnerSource(db, "source that will disappear");
+      applyWorkingContextDelta(db, {
+        op: "upsert",
+        item: directive("wc-inaccessible-source", [{
+          kind: "conversation_text_span",
+          evidenceRowId: source.rowId,
+          start: 0,
+          end: "source that will disappear".length,
+          quote: "source that will disappear",
+        }]),
+      }, { cycleId: "cycle-source", generation: 1, nowMs: 20 });
+      db.prepare("DELETE FROM conversation_evidence_log WHERE row_id = ?").run(source.rowId);
+
+      expect(listWorkingContext(db, "thread-envelope")).toMatchObject([{
+        id: "wc-inaccessible-source",
+        text: "Until further notice.",
+        interpretationEnvelope: {
+          supportAvailability: "unavailable",
+          supportUnavailableReason: "source_inaccessible",
+          applicabilityLifecycle: "needs_review",
+        },
+      }]);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("records a redacted source as unavailable without treating it as a withdrawal", () => {
+    const db = openTestSidecar();
+    try {
+      const source = addOwnerSource(db, "redacted source text");
+      applyWorkingContextDelta(db, {
+        op: "upsert",
+        item: directive("wc-redacted-source", [{
+          kind: "conversation_text_span",
+          evidenceRowId: source.rowId,
+          start: 0,
+          end: "redacted source text".length,
+          quote: "redacted source text",
+        }]),
+      }, { cycleId: "cycle-source", generation: 1, nowMs: 20 });
+      db.prepare("UPDATE conversation_evidence_log SET text = NULL, source_status = 'redacted' WHERE row_id = ?")
+        .run(source.rowId);
+
+      expect(listWorkingContext(db, "thread-envelope")).toMatchObject([{
+        id: "wc-redacted-source",
+        status: "active",
+        interpretationEnvelope: {
+          supportAvailability: "unavailable",
+          supportUnavailableReason: "source_redacted",
+          applicabilityLifecycle: "needs_review",
+        },
+      }]);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("marks the prior revision superseded and dependent interpretations for review", () => {
+    const db = openTestSidecar();
+    try {
+      const originalSource = addOwnerSource(db, "not yet");
+      const replacementSource = addOwnerSource(db, "not anymore");
+      const originalRef = {
+        kind: "conversation_text_span" as const,
+        evidenceRowId: originalSource.rowId,
+        start: 0,
+        end: 7,
+        quote: "not yet",
+      };
+      const replacementRef = {
+        kind: "conversation_text_span" as const,
+        evidenceRowId: replacementSource.rowId,
+        start: 0,
+        end: "not anymore".length,
+        quote: "not anymore",
+      };
+      applyWorkingContextDelta(db, {
+        op: "upsert",
+        item: directive("wc-original", [originalRef]),
+      }, { cycleId: "cycle-original", generation: 1, nowMs: 20 });
+      applyWorkingContextDelta(db, {
+        op: "upsert",
+        item: directive("wc-dependent", [originalRef], {
+          kind: "descriptive_belief",
+          derivationParents: ["wc-original"],
+        }),
+      }, { cycleId: "cycle-dependent", generation: 2, nowMs: 21 });
+
+      expect(() => applyWorkingContextDelta(db, {
+        op: "supersede",
+        id: "wc-original",
+        replacement: directive("wc-same-evidence", [originalRef], {
+          revisionOf: "wc-original",
+          revisionEvidenceRefs: [originalRef],
+        }),
+      }, { cycleId: "cycle-same-evidence", generation: 3, nowMs: 22 }))
+        .toThrow("interpretation_revision_evidence_not_new");
+
+      applyWorkingContextDelta(db, {
+        op: "supersede",
+        id: "wc-original",
+        replacement: directive("wc-replacement", [replacementRef], {
+          revisionOf: "wc-original",
+          revisionEvidenceRefs: [replacementRef],
+        }),
+      }, { cycleId: "cycle-replacement", generation: 3, nowMs: 22 });
+
+      const rows = listWorkingContext(db, "thread-envelope", { includeSuperseded: true });
+      expect(listWorkingContext(db, "thread-envelope").some((row) => row.id === "wc-original")).toBe(false);
+      expect(rows.find((row) => row.id === "wc-original")).toMatchObject({
+        status: "superseded",
+        interpretationEnvelope: { applicabilityLifecycle: "superseded" },
+      });
+      expect(rows.find((row) => row.id === "wc-replacement")).toMatchObject({
+        status: "active",
+        interpretationEnvelope: {
+          revisionOf: "wc-original",
+          revisionEvidenceRefs: [replacementRef],
+          applicabilityLifecycle: "current",
+        },
+      });
+      expect(rows.find((row) => row.id === "wc-dependent")).toMatchObject({
+        interpretationEnvelope: {
+          applicabilityLifecycle: "needs_review",
+          supportAvailability: "intact",
+        },
+      });
+    } finally {
+      db.close();
+    }
+  });
+
+  it("uses structured abandon as withdrawal without redacting its source", () => {
+    const db = openTestSidecar();
+    try {
+      const source = addOwnerSource(db, "not yet");
+      applyWorkingContextDelta(db, {
+        op: "upsert",
+        item: directive("wc-withdrawn", [{
+          kind: "conversation_text_span",
+          evidenceRowId: source.rowId,
+          start: 0,
+          end: 7,
+          quote: "not yet",
+        }]),
+      }, { cycleId: "cycle-withdraw", generation: 1, nowMs: 20 });
+
+      applyWorkingContextDelta(db, { op: "abandon", id: "wc-withdrawn" }, {
+        cycleId: "cycle-withdraw", generation: 2, nowMs: 21,
+      });
+
+      expect(listWorkingContext(db, "thread-envelope", { includeSuperseded: true })[0]).toMatchObject({
+        id: "wc-withdrawn",
+        status: "abandoned",
+        interpretationEnvelope: { applicabilityLifecycle: "withdrawn" },
+      });
+      expect(db.prepare("SELECT text, source_status FROM conversation_evidence_log WHERE row_id = ?").get(source.rowId))
+        .toMatchObject({ text: "not yet", source_status: "received" });
+    } finally {
+      db.close();
+    }
+  });
 });

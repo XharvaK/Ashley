@@ -11,12 +11,57 @@ import { openDerivedStore, registerDerivedStoreForSidecar } from "../retrieval/d
 import { searchConversationFts, searchMemoryFts } from "../retrieval/fts.js";
 import { upsertMemoryAssertion } from "./assertions.js";
 import { buildOwnerKnowledgeView } from "./views.js";
-import { applyV021Forget, applyV021ForgetTargets } from "./forget.js";
+import { applyV021Forget, applyV021ForgetTargets, planV021Forget } from "./forget.js";
 import { appendMemorySupport } from "./supports.js";
 import { buildLearnedSelfSlice } from "../identity/learned-self.js";
 import { publishSemanticTransaction } from "../settlement/publish.js";
 import { admitTestCycle, makeThoughtDraft } from "../test-support.js";
 import type { PublishedCognitiveSettlement } from "../types.js";
+
+function addInterpretedWorkingContext(
+  db: ReturnType<typeof openTestSidecar>,
+  input: { id: string; text: string; sourceText: string; conversationId?: string },
+) {
+  const conversationId = input.conversationId ?? "thread-interpretation-forget";
+  const source = appendOwnerUtterance(db, {
+    conversationId,
+    text: input.sourceText,
+    nowMs: 1,
+  });
+  const support = {
+    kind: "conversation_text_span",
+    evidenceRowId: source.rowId,
+    start: 0,
+    end: input.sourceText.length,
+    quote: input.sourceText,
+  };
+  applyWorkingContextDelta(db, {
+    op: "upsert",
+    item: {
+      id: input.id,
+      conversationId,
+      type: "owner_teaching",
+      text: input.text,
+      concernId: null,
+      sourceTurnIds: [],
+      status: "active",
+      supersedesId: null,
+      interpretationEnvelope: {
+        kind: "directive_interpretation",
+        support: [support],
+        audience: { kind: "owner_private" },
+        applicability: { subject: "Ashley", target: "this conversation", conversationId },
+        boundaryBasis: { temporal: "explicit_in_source" },
+        applicabilityInterval: { until: "unknown" },
+        conditions: { text: "", unresolved: false },
+        derivationParents: [],
+        revisionOf: null,
+        revisionEvidenceRefs: [],
+      },
+    },
+  } as never, { cycleId: "cycle-interpretation-forget", generation: 1, nowMs: 2 });
+  return source;
+}
 
 describe("v0.2.1 forget matrix", () => {
   it("redacts matching effect diagnostic content while keeping its causal id", () => {
@@ -304,6 +349,198 @@ describe("v0.2.1 forget matrix", () => {
         applicability_lifecycle: "needs_review",
         legacy_scope: "legacy_unknown_scope",
       });
+    } finally {
+      db.close();
+    }
+  });
+
+  it("keeps a dependent interpretation for review when its cited source is forgotten", () => {
+    const db = openTestSidecar();
+    try {
+      const source = addInterpretedWorkingContext(db, {
+        id: "wc-source-forgotten",
+        text: "The room boundary still applies.",
+        sourceText: "erase-source marker",
+      });
+      expect(planV021Forget(db, { topic: "erase-source marker" }).targets)
+        .not.toContainEqual(expect.objectContaining({ entityType: "v021_working_context", entityUuid: "wc-source-forgotten" }));
+
+      applyV021Forget(db, { topic: "erase-source marker", nowMs: 3 });
+
+      expect(db.prepare("SELECT text, source_status FROM conversation_evidence_log WHERE row_id = ?").get(source.rowId))
+        .toMatchObject({ text: null, source_status: "redacted" });
+      expect(listWorkingContext(db, "thread-interpretation-forget")).toMatchObject([{
+        id: "wc-source-forgotten",
+        text: "The room boundary still applies.",
+        status: "active",
+        interpretationEnvelope: {
+          support: [],
+          supportAvailability: "unavailable",
+          supportUnavailableReason: "source_forgotten",
+          applicabilityLifecycle: "needs_review",
+        },
+      }]);
+      expect(db.prepare("SELECT applicability_lifecycle FROM working_context_items WHERE id = ?")
+        .get("wc-source-forgotten")).toEqual({ applicability_lifecycle: "needs_review" });
+    } finally {
+      db.close();
+    }
+  });
+
+  it("propagates exact evidence targets as support loss without withdrawing the dependent", () => {
+    const db = openTestSidecar();
+    try {
+      const source = addInterpretedWorkingContext(db, {
+        id: "wc-exact-source-forgotten",
+        text: "The exact-target interpretation remains stored.",
+        sourceText: "exact-target source text",
+        conversationId: "thread-exact-interpretation-forget",
+      });
+
+      applyV021ForgetTargets(db, [{
+        entityType: "v021_conversation_evidence",
+        entityUuid: source.rowId,
+        action: "redact",
+      }], { nowMs: 3 });
+
+      expect(listWorkingContext(db, "thread-exact-interpretation-forget")).toMatchObject([{
+        id: "wc-exact-source-forgotten",
+        text: "The exact-target interpretation remains stored.",
+        interpretationEnvelope: {
+          supportAvailability: "unavailable",
+          supportUnavailableReason: "source_forgotten",
+          applicabilityLifecycle: "needs_review",
+        },
+      }]);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("propagates forgotten observation support to the dependent interpretation", () => {
+    const db = openTestSidecar();
+    try {
+      admitTestCycle(db, {
+        cycleId: "cycle-forgotten-observation-support",
+        conversationId: "thread-observation-support-forget",
+        triggerKind: "owner_message",
+        triggerRef: "trigger-forgotten-observation-support",
+        occupantId: "doc",
+        authorityEpoch: 1,
+        nowMs: 1,
+      });
+      db.prepare(
+        `INSERT INTO observations
+           (observation_id, cycle_id, generation, derived, replay_safe, modality, payload_json,
+            provenance, data_classification, secret_omitted, created_at_ms)
+         VALUES ('obs-forgotten-support', 'cycle-forgotten-observation-support', 1, 0, 1,
+            'text', ?, 'test', 'ordinary', 0, 1)`,
+      ).run(JSON.stringify({ detail: "erase-observation marker" }));
+      applyWorkingContextDelta(db, {
+        op: "upsert",
+        item: {
+          id: "wc-observation-support-forgotten",
+          conversationId: "thread-observation-support-forget",
+          type: "owner_teaching",
+          text: "The observation-based interpretation.",
+          concernId: null,
+          sourceTurnIds: [],
+          status: "active",
+          supersedesId: null,
+          interpretationEnvelope: {
+            kind: "descriptive_belief",
+            support: [{ kind: "observation_ref", observationId: "obs-forgotten-support" }],
+            audience: { kind: "owner_private" },
+            applicability: {
+              subject: "Ashley",
+              target: "this conversation",
+              conversationId: "thread-observation-support-forget",
+            },
+            boundaryBasis: { temporal: "inferred" },
+            applicabilityInterval: { until: "unknown" },
+            conditions: { text: "", unresolved: false },
+            derivationParents: [],
+            revisionOf: null,
+            revisionEvidenceRefs: [],
+          },
+        },
+      } as never, { cycleId: "cycle-forgotten-observation-support", generation: 1, nowMs: 2 });
+
+      applyV021Forget(db, { topic: "erase-observation marker", nowMs: 3 });
+
+      expect(listWorkingContext(db, "thread-observation-support-forget")).toMatchObject([{
+        id: "wc-observation-support-forgotten",
+        text: "The observation-based interpretation.",
+        interpretationEnvelope: {
+          support: [],
+          supportAvailability: "unavailable",
+          supportUnavailableReason: "source_forgotten",
+          applicabilityLifecycle: "needs_review",
+        },
+      }]);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("redacts an interpretation's own text without changing its semantic lifecycle", () => {
+    const db = openTestSidecar();
+    try {
+      const source = addInterpretedWorkingContext(db, {
+        id: "wc-own-text-forgotten",
+        text: "erase-own marker is the interpreted wording",
+        sourceText: "separate source wording",
+        conversationId: "thread-own-interpretation-forget",
+      });
+      expect(planV021Forget(db, { topic: "erase-own marker" }).targets)
+        .toContainEqual(expect.objectContaining({ entityType: "v021_working_context", entityUuid: "wc-own-text-forgotten" }));
+
+      applyV021Forget(db, { topic: "erase-own marker", nowMs: 3 });
+
+      expect(listWorkingContext(db, "thread-own-interpretation-forget")).toMatchObject([{
+        id: "wc-own-text-forgotten",
+        text: "",
+        interpretationEnvelope: {
+          supportAvailability: "intact",
+          applicabilityLifecycle: "current",
+        },
+      }]);
+      expect(db.prepare("SELECT text, source_status FROM conversation_evidence_log WHERE row_id = ?").get(source.rowId))
+        .toMatchObject({ text: "separate source wording", source_status: "received" });
+      expect(db.prepare("SELECT applicability_lifecycle FROM working_context_items WHERE id = ?")
+        .get("wc-own-text-forgotten")).toEqual({ applicability_lifecycle: "current" });
+    } finally {
+      db.close();
+    }
+  });
+
+  it("applies exact interpretation privacy redaction without writing withdrawal", () => {
+    const db = openTestSidecar();
+    try {
+      const source = addInterpretedWorkingContext(db, {
+        id: "wc-exact-own-text-redaction",
+        text: "The retained interpretation body.",
+        sourceText: "readable source remains",
+        conversationId: "thread-exact-own-text-redaction",
+      });
+
+      applyV021ForgetTargets(db, [{
+        entityType: "v021_working_context",
+        entityUuid: "wc-exact-own-text-redaction",
+        action: "detach",
+      }], { nowMs: 3 });
+
+      expect(listWorkingContext(db, "thread-exact-own-text-redaction")).toMatchObject([{
+        id: "wc-exact-own-text-redaction",
+        text: "",
+        status: "active",
+        interpretationEnvelope: {
+          supportAvailability: "intact",
+          applicabilityLifecycle: "current",
+        },
+      }]);
+      expect(db.prepare("SELECT text, source_status FROM conversation_evidence_log WHERE row_id = ?").get(source.rowId))
+        .toMatchObject({ text: "readable source remains", source_status: "received" });
     } finally {
       db.close();
     }

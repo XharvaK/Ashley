@@ -48,7 +48,7 @@ describe("v0.2.1 Working Context", () => {
         audience_state: "unknown",
         legacy_scope: null,
       });
-      expect(db.prepare("PRAGMA user_version").get()).toMatchObject({ user_version: 29 });
+      expect(db.prepare("PRAGMA user_version").get()).toMatchObject({ user_version: 30 });
       expect(db.prepare("SELECT COUNT(*) AS count FROM sidecar_memory_assertions").get()).toMatchObject({ count: 0 });
     } finally {
       db.close();

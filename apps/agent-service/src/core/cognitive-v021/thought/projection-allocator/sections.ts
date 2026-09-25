@@ -516,29 +516,59 @@ export function buildAllocationCandidates(
       continue;
     }
     if (item.interpretationEnvelope?.kind === "directive_interpretation") {
-      const quote = item.interpretationEnvelope.support.find((ref) => ref.kind === "conversation_text_span");
-      if (!quote || quote.kind !== "conversation_text_span") {
-        throw new Error("working_context_directive_quote_missing");
+      const envelope = item.interpretationEnvelope;
+      if (envelope.applicabilityLifecycle === "withdrawn") continue;
+      if (envelope.supportAvailability === "unavailable"
+        && (!envelope.supportUnavailableReason
+          || (envelope.applicabilityLifecycle !== "current" && envelope.applicabilityLifecycle !== "needs_review"))) continue;
+      const lifecycle = envelope.applicabilityLifecycle === "current"
+        && envelope.supportAvailability !== "intact"
+        ? "needs_review"
+        : envelope.applicabilityLifecycle;
+      if (lifecycle === "current" && envelope.supportAvailability === "intact" && item.text.trim().length > 0) {
+        const quote = envelope.support.find((ref) => ref.kind === "conversation_text_span");
+        if (!quote || quote.kind !== "conversation_text_span") {
+          throw new Error("working_context_directive_quote_missing");
+        }
+        candidates.push({
+          id: `wc:${item.id}`,
+          section: "working_context_directive",
+          required: true,
+          priority: 12,
+          ref: item.id,
+          data: {
+            id: item.id,
+            kind: "directive_interpretation",
+            quote: quote.quote,
+            interpretation: item.text,
+            audience: envelope.audience,
+            applicability: envelope.applicability,
+            boundaryBasis: envelope.boundaryBasis,
+            applicabilityInterval: envelope.applicabilityInterval,
+            conditions: envelope.conditions,
+            attribution: envelope.attribution,
+          },
+        });
+      } else if (item.text.trim().length > 0) {
+        candidates.push({
+          id: `wc:${item.id}`,
+          section: "working_context_other",
+          required: false,
+          priority: 17,
+          ref: item.id,
+          data: {
+            id: item.id,
+            kind: "directive_interpretation_history",
+            interpretation: item.text,
+            status: item.status,
+            applicabilityLifecycle: lifecycle,
+            supportAvailability: envelope.supportAvailability,
+            ...(envelope.supportUnavailableReason
+              ? { supportUnavailableReason: envelope.supportUnavailableReason }
+              : {}),
+          },
+        });
       }
-      candidates.push({
-        id: `wc:${item.id}`,
-        section: "working_context_directive",
-        required: true,
-        priority: 12,
-        ref: item.id,
-        data: {
-          id: item.id,
-          kind: "directive_interpretation",
-          quote: quote.quote,
-          interpretation: item.text,
-          audience: item.interpretationEnvelope.audience,
-          applicability: item.interpretationEnvelope.applicability,
-          boundaryBasis: item.interpretationEnvelope.boundaryBasis,
-          applicabilityInterval: item.interpretationEnvelope.applicabilityInterval,
-          conditions: item.interpretationEnvelope.conditions,
-          attribution: item.interpretationEnvelope.attribution,
-        },
-      });
     } else if (item.type === "correction") {
       candidates.push({
         id: `wc:${item.id}`,

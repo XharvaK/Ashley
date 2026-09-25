@@ -3149,6 +3149,90 @@ describe("W1-P1 directive Working Context projection", () => {
       requestId: "w1-p1-directive-oversize",
     })).toThrow(RequiredOverflowError);
   });
+
+  it("projects superseded and unsupported directive interpretations only as labeled history", () => {
+    const base = {
+      id: "wc-directive-history",
+      conversationId: "conv-1",
+      type: "owner_teaching" as const,
+      text: "The earlier room boundary.",
+      concernId: null,
+      sourceTurnIds: [],
+      status: "superseded" as const,
+      supersedesId: null,
+      updatedGeneration: 8,
+      interpretationEnvelope: {
+        owningRecordId: "wc-directive-history",
+        revision: 7,
+        authoringCycleId: "cycle-7",
+        kind: "directive_interpretation" as const,
+        support: [{ kind: "conversation_text_span" as const, evidenceRowId: "evidence-7", start: 0, end: 7, quote: "not yet" }],
+        supportAvailability: "intact" as const,
+        attribution: { principalKind: "owner" as const, principalId: "owner-1" },
+        audience: { kind: "unknown" as const },
+        applicability: { subject: "Ashley", target: "this conversation", conversationId: "conv-1", concernId: null },
+        boundaryBasis: { temporal: "inferred" as const },
+        sourceTimeMs: 1,
+        interpretationTimeMs: 2,
+        applicabilityInterval: { until: "unknown" as const },
+        conditions: { text: "", unresolved: false },
+        applicabilityLifecycle: "superseded" as const,
+        derivationParents: [],
+        revisionOf: null,
+        revisionEvidenceRefs: [],
+      },
+    };
+    const stale = buildAllocationCandidates(makeThoughtInput({ workingContext: [base] }), []);
+    const staleCandidate = stale.find((candidate) => candidate.id === "wc:wc-directive-history");
+    expect(staleCandidate).toMatchObject({
+      section: "working_context_other",
+      required: false,
+      data: {
+        kind: "directive_interpretation_history",
+        interpretation: "The earlier room boundary.",
+        applicabilityLifecycle: "superseded",
+      },
+    });
+    expect(staleCandidate?.data).not.toHaveProperty("quote");
+    expect(stale.some((candidate) => candidate.section === "working_context_directive")).toBe(false);
+
+    const unsupported = {
+      ...base,
+      status: "active" as const,
+      interpretationEnvelope: {
+        ...base.interpretationEnvelope,
+        support: [],
+        supportAvailability: "unavailable" as const,
+        supportUnavailableReason: "source_forgotten" as const,
+        applicabilityLifecycle: "needs_review" as const,
+      },
+    };
+    const review = buildAllocationCandidates(makeThoughtInput({ workingContext: [unsupported] }), []);
+    const reviewCandidate = review.find((candidate) => candidate.id === "wc:wc-directive-history");
+    expect(reviewCandidate).toMatchObject({
+      section: "working_context_other",
+      required: false,
+      data: {
+        kind: "directive_interpretation_history",
+        applicabilityLifecycle: "needs_review",
+        supportAvailability: "unavailable",
+        supportUnavailableReason: "source_forgotten",
+      },
+    });
+    expect(reviewCandidate?.data).not.toHaveProperty("quote");
+
+    const unsupportedSupersededHistory = {
+      ...base,
+      interpretationEnvelope: {
+        ...base.interpretationEnvelope,
+        support: [],
+        supportAvailability: "unavailable" as const,
+        supportUnavailableReason: "source_forgotten" as const,
+      },
+    };
+    const hidden = buildAllocationCandidates(makeThoughtInput({ workingContext: [unsupportedSupersededHistory] }), []);
+    expect(hidden.some((candidate) => candidate.id === "wc:wc-directive-history")).toBe(false);
+  });
 });
 
 describe("W1-P2 legacy Working Context projection", () => {

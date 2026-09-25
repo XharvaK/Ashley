@@ -5,6 +5,7 @@ import { cancelDeliveryReservation } from "../../delivery/abort-registry.js";
 import { getDeliveryReservation } from "../../delivery/store.js";
 import { isTerminalDeliveryState } from "../../delivery/types.js";
 import { notifySidecarPostCommit } from "../retrieval/derived-store.js";
+import { markInterpretationSupportUnavailable } from "../evidence/interpretation-dependencies.js";
 
 type Row = Record<string, unknown>;
 
@@ -83,6 +84,42 @@ function safePayload(value: unknown, topic: string): unknown {
   try { return JSON.parse(redactJson(value, topic)); } catch { return { redacted: true }; }
 }
 
+function parseJson(value: unknown): unknown {
+  if (typeof value !== "string") return value;
+  try { return JSON.parse(value) as unknown; } catch { return null; }
+}
+
+function workingContextHasOwnTopic(value: unknown, topic: string): boolean {
+  const payload = parseJson(value);
+  if (hasTypedInterpretationEnvelope(payload)) {
+    return hasTopic(payload.text, topic);
+  }
+  return hasTopic(value, topic);
+}
+
+function hasTypedInterpretationEnvelope(value: unknown): value is Row & { interpretationEnvelope: Row } {
+  if (!isRow(value) || !isRow(value.interpretationEnvelope)) return false;
+  return ["directive_interpretation", "descriptive_belief", "self_conclusion", "adoption"]
+    .includes(text(value.interpretationEnvelope.kind));
+}
+
+function redactWorkingContextOwnText(db: DatabaseSync, id: string): number {
+  const row = db.prepare("SELECT payload_json FROM working_context_items WHERE id = ? LIMIT 1").get(id) as Row | undefined;
+  if (!row) return 0;
+  const payload = parseJson(row.payload_json);
+  if (hasTypedInterpretationEnvelope(payload)) {
+    const result = db.prepare("UPDATE working_context_items SET payload_json = ? WHERE id = ?")
+      .run(JSON.stringify({ ...payload, text: "" }), id);
+    return number(result.changes);
+  }
+  const result = db.prepare(
+    `UPDATE working_context_items
+        SET payload_json = ?, superseded = 1
+      WHERE id = ?`,
+  ).run(JSON.stringify({ type: "repair", text: "", concernId: null, sourceTurnIds: [], status: "abandoned", supersedesId: null }), id);
+  return number(result.changes);
+}
+
 /** Apply the sidecar half of the v021 forget matrix. Continuity remains the tombstone authority. */
 export function applyV021Forget(
   db: DatabaseSync,
@@ -96,6 +133,7 @@ export function applyV021Forget(
   const concernIds = new Set<string>();
   const redactedAssertionKeys = new Set<string>();
   const changedRowIds = new Set<string>();
+  const forgottenSupportKeys = new Set<string>();
 
   db.exec("BEGIN IMMEDIATE");
   try {
@@ -105,6 +143,7 @@ export function applyV021Forget(
       const result = db.prepare("UPDATE conversation_evidence_log SET text = NULL, source_status = 'redacted' WHERE row_id = ?").run(text(row.row_id));
       changedRows += number(result.changes);
       if (number(result.changes) > 0) changedRowIds.add(text(row.row_id));
+      forgottenSupportKeys.add(`conversation_evidence:${text(row.row_id)}`);
       addTarget(targets, "v021_conversation_evidence", text(row.row_id));
     }
 
@@ -126,14 +165,9 @@ export function applyV021Forget(
 
     const contextRows = db.prepare("SELECT id, payload_json FROM working_context_items").all();
     for (const row of contextRows) {
-      if (!isRow(row) || !hasTopic(row.payload_json, topic)) continue;
+      if (!isRow(row) || !workingContextHasOwnTopic(row.payload_json, topic)) continue;
       const id = text(row.id);
-      const result = db.prepare(
-        `UPDATE working_context_items
-            SET payload_json = ?, superseded = 1
-          WHERE id = ?`,
-      ).run(JSON.stringify({ type: "repair", text: "", concernId: null, sourceTurnIds: [], status: "abandoned", supersedesId: null }), id);
-      changedRows += number(result.changes);
+      changedRows += redactWorkingContextOwnText(db, id);
       addTarget(targets, "v021_working_context", id, "detach");
     }
 
@@ -197,9 +231,13 @@ export function applyV021Forget(
           : redactJson(row[column], topic);
         const result = db.prepare(`UPDATE ${descriptor.table} SET ${column} = ? WHERE ${descriptor.id} = ?`).run(replacement, id);
         changedRows += number(result.changes);
+        if (descriptor.target === "v021_observation") forgottenSupportKeys.add(`observation:${id}`);
+        if (descriptor.target === "v021_effect_receipt") forgottenSupportKeys.add(`receipt:${id}`);
         addTarget(targets, descriptor.target, id);
       }
     }
+
+    changedRows += markInterpretationSupportUnavailable(db, [...forgottenSupportKeys], "source_forgotten");
 
     const nominationRows = db.prepare("SELECT nomination_id, assertion_key, statement FROM durable_nominations").all();
     for (const row of nominationRows) {
@@ -352,7 +390,7 @@ export function planV021Forget(
   }
 
   for (const row of db.prepare("SELECT id, payload_json FROM working_context_items").all()) {
-    if (!isRow(row) || !hasTopic(row.payload_json, topic)) continue;
+    if (!isRow(row) || !workingContextHasOwnTopic(row.payload_json, topic)) continue;
     add("v021_working_context", text(row.id), "detach");
   }
 
@@ -532,12 +570,15 @@ function applyV021ForgetTargetsInTransaction(
     addChanges(db.prepare("UPDATE inbox_events SET payload_json = ? WHERE id = ?").run(JSON.stringify({ redacted: true }), id), changed);
   }
 
+  const forgottenSupportKeys = [
+    ...[...evidenceIds].map((id) => `conversation_evidence:${id}`),
+    ...[...targetIds(targets, "v021_observation")].map((id) => `observation:${id}`),
+    ...[...targetIds(targets, "v021_effect_receipt")].map((id) => `receipt:${id}`),
+  ];
+  changed.value += markInterpretationSupportUnavailable(db, forgottenSupportKeys, "source_forgotten");
+
   for (const id of targetIds(targets, "v021_working_context")) {
-    addChanges(db.prepare(
-      `UPDATE working_context_items
-          SET payload_json = ?, superseded = 1
-        WHERE id = ?`,
-    ).run(JSON.stringify({ type: "repair", text: "", concernId: null, sourceTurnIds: [], status: "abandoned", supersedesId: null }), id), changed);
+    changed.value += redactWorkingContextOwnText(db, id);
   }
   for (const id of targetIds(targets, "v021_desk_entry")) {
     addChanges(db.prepare(

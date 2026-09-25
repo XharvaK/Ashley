@@ -1292,3 +1292,15 @@ CREATE INDEX IF NOT EXISTS idx_effect_continuations_recovery
   ON effect_continuations (state, deadline_at_ms, started_at_ms);
 UPDATE cognitive_sidecar_meta SET schema_version = 29, projection_state = 'reconciling' WHERE id = 1;
 `;
+
+export const COGNITIVE_SIDECAR_SCHEMA_V30 = String.raw`
+CREATE TABLE IF NOT EXISTS interpretation_dependencies (
+  from_id TEXT NOT NULL,
+  to_id TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK(kind IN ('support', 'revision')),
+  PRIMARY KEY (from_id, to_id, kind)
+);
+CREATE INDEX IF NOT EXISTS idx_interpretation_dependencies_target
+  ON interpretation_dependencies (to_id, kind);
+UPDATE cognitive_sidecar_meta SET schema_version = 30, projection_state = 'reconciling' WHERE id = 1;
+`;

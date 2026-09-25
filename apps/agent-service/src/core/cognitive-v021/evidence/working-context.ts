@@ -6,6 +6,11 @@ import type {
   WorkingContextItem,
 } from "../types.js";
 import { validateAndBuildWorkingContextInterpretationEnvelope, parseStoredWorkingContextInterpretationEnvelope } from "./interpretation-envelope.js";
+import {
+  markInterpretationDependentsForReview,
+  persistInterpretationDependencies,
+  refreshWorkingContextSupportAvailability,
+} from "./interpretation-dependencies.js";
 import type { WorkingContextItem as PersistedWorkingContextItem } from "../types.js";
 
 export type WorkingContextPublication = { cycleId: CycleId; generation: Generation; nowMs?: number };
@@ -83,7 +88,9 @@ function mapItem(row: unknown, conversationId: string): WorkingContextItem | nul
     supersedesId: typeof payload.supersedesId === "string" ? payload.supersedesId : null,
     updatedGeneration: Number(row.updated_generation ?? payload.updatedGeneration ?? 0),
     audienceScope: mappedAudience,
-    ...(legacyScope ? { applicabilityLifecycle, legacyScope } : {}),
+    ...(interpretationEnvelope
+      ? { applicabilityLifecycle: interpretationEnvelope.applicabilityLifecycle }
+      : legacyScope ? { applicabilityLifecycle, legacyScope } : {}),
     sourcePrincipal: interpretationEnvelope?.attribution.principalId ?? (typeof payload.sourcePrincipal === "string" ? payload.sourcePrincipal : null),
     sourceEvidenceRef: interpretationEnvelope
       ? interpretationEnvelope.support.find((ref) => ref.kind === "conversation_text_span")?.evidenceRowId ?? null
@@ -104,6 +111,7 @@ export function listWorkingContext(
   options: { includeSuperseded?: boolean; limit?: number } = {},
 ): WorkingContextItem[] {
   const limit = Math.max(1, Math.min(1000, options.limit ?? 1000));
+  refreshWorkingContextSupportAvailability(db, conversationId);
   const filter = options.includeSuperseded ? "" : "AND superseded = 0";
   return db.prepare(
     `SELECT id, conversation_id, payload_json, superseded, updated_generation,
@@ -146,6 +154,51 @@ function put(
       : item.audienceScope ? "known" : "unknown",
     null,
   );
+  persistInterpretationDependencies(db, item.id, item.interpretationEnvelope);
+}
+
+function updateStoredWorkingContextStatus(
+  db: DatabaseSync,
+  id: string,
+  status: "superseded" | "abandoned",
+  publication: WorkingContextPublication,
+  lifecycle?: "superseded" | "withdrawn",
+): void {
+  const row = db.prepare(
+    "SELECT payload_json, applicability_lifecycle FROM working_context_items WHERE id = ? LIMIT 1",
+  ).get(id) as Row | undefined;
+  if (!row) return;
+  const payload = parse(row.payload_json);
+  if (!isRow(payload)) {
+    db.prepare(
+      "UPDATE working_context_items SET superseded = 1, updated_cycle = ?, updated_generation = ? WHERE id = ?",
+    ).run(publication.cycleId, publication.generation, id);
+    return;
+  }
+  const envelope = payload.interpretationEnvelope === undefined
+    ? undefined
+    : parseStoredWorkingContextInterpretationEnvelope(
+      payload.interpretationEnvelope,
+      row.applicability_lifecycle ?? (isRow(payload.interpretationEnvelope)
+        ? payload.interpretationEnvelope.applicabilityLifecycle
+        : null),
+    );
+  const nextPayload = {
+    ...payload,
+    status,
+    ...(envelope && lifecycle
+      ? { interpretationEnvelope: { ...envelope, applicabilityLifecycle: lifecycle } }
+      : {}),
+  };
+  const nextLifecycle: string | null = envelope && lifecycle
+    ? lifecycle
+    : typeof row.applicability_lifecycle === "string" ? row.applicability_lifecycle : null;
+  db.prepare(
+    `UPDATE working_context_items
+        SET payload_json = ?, superseded = 1, updated_cycle = ?, updated_generation = ?,
+            applicability_lifecycle = ?
+      WHERE id = ?`,
+  ).run(JSON.stringify(nextPayload), publication.cycleId, publication.generation, nextLifecycle, id);
 }
 
 function normalizeItemForPublish(
@@ -181,21 +234,35 @@ export function applyWorkingContextDelta(
   publication: WorkingContextPublication,
 ): void {
   switch (delta.op) {
-    case "upsert":
-      put(db, normalizeItemForPublish(db, delta.item, publication), publication);
+    case "upsert": {
+      const item = normalizeItemForPublish(db, delta.item, publication);
+      if (item.interpretationEnvelope && item.interpretationEnvelope.revisionOf !== null) {
+        throw new Error("interpretation_revision_requires_supersede");
+      }
+      put(db, item, publication);
       return;
+    }
     case "supersede":
     {
       const replacement = normalizeItemForPublish(db, delta.replacement, publication);
-      db.prepare(
-        "UPDATE working_context_items SET superseded = 1, updated_cycle = ?, updated_generation = ? WHERE id = ?",
-      ).run(publication.cycleId, publication.generation, delta.id);
+      const priorRow = db.prepare("SELECT payload_json FROM working_context_items WHERE id = ? LIMIT 1")
+        .get(delta.id) as Row | undefined;
+      const priorPayload = parse(priorRow?.payload_json);
+      const priorHasInterpretation = isRow(priorPayload)
+        && priorPayload.interpretationEnvelope !== undefined;
+      if (priorHasInterpretation && !replacement.interpretationEnvelope) {
+        throw new Error("interpretation_revision_envelope_required");
+      }
+      if (replacement.interpretationEnvelope
+        && replacement.interpretationEnvelope.revisionOf !== delta.id) {
+        throw new Error("interpretation_revision_target_mismatch");
+      }
+      updateStoredWorkingContextStatus(db, delta.id, "superseded", publication, "superseded");
+      markInterpretationDependentsForReview(db, delta.id, { exceptIds: [replacement.id] });
       put(db, replacement, publication);
       return;
     }
     case "abandon":
-      db.prepare(
-        "UPDATE working_context_items SET superseded = 1, updated_cycle = ?, updated_generation = ? WHERE id = ?",
-      ).run(publication.cycleId, publication.generation, delta.id);
+      updateStoredWorkingContextStatus(db, delta.id, "abandoned", publication, "withdrawn");
   }
 }

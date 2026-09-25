@@ -12,6 +12,10 @@ import {
 import { stableJson } from "../../model-fabric/hash.js";
 import type { AuthorityVersionVector } from "../types.js";
 import {
+  supportRefDependencyKey,
+  workingContextDependencyKey,
+} from "../evidence/interpretation-dependencies.js";
+import {
   COGNITIVE_SIDECAR_SCHEMA_V1,
   COGNITIVE_SIDECAR_SCHEMA_V2,
   COGNITIVE_SIDECAR_SCHEMA_V3,
@@ -40,6 +44,7 @@ import {
   COGNITIVE_SIDECAR_SCHEMA_V27,
   COGNITIVE_SIDECAR_SCHEMA_V28,
   COGNITIVE_SIDECAR_SCHEMA_V29,
+  COGNITIVE_SIDECAR_SCHEMA_V30,
 } from "./schema.js";
 import { recoverCognitiveSidecar } from "./recovery.js";
 import { cycleIdFor, occurrenceIdFor, wakeIdFor } from "../wake/identity.js";
@@ -86,6 +91,39 @@ function userVersion(existing: DatabaseSync): number {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function migrateInterpretationDependenciesToV30(existing: DatabaseSync): void {
+  const rows = existing.prepare(
+    "SELECT id, payload_json FROM working_context_items",
+  ).all() as Array<{ id?: unknown; payload_json?: unknown }>;
+  const insert = existing.prepare(
+    "INSERT OR IGNORE INTO interpretation_dependencies (from_id, to_id, kind) VALUES (?, ?, ?)",
+  );
+  for (const row of rows) {
+    if (typeof row.id !== "string" || typeof row.payload_json !== "string") continue;
+    let payload: unknown;
+    try { payload = JSON.parse(row.payload_json) as unknown; } catch { continue; }
+    if (!isRecord(payload) || !isRecord(payload.interpretationEnvelope)) continue;
+    const envelope = payload.interpretationEnvelope;
+    for (const refs of [envelope.support, envelope.revisionEvidenceRefs]) {
+      if (!Array.isArray(refs)) continue;
+      for (const ref of refs) {
+        const key = supportRefDependencyKey(ref);
+        if (key) insert.run(row.id, key, "support");
+      }
+    }
+    const parents = Array.isArray(envelope.derivationParents) ? envelope.derivationParents : [];
+    const revisionTargets = [
+      ...parents,
+      ...(typeof envelope.revisionOf === "string" ? [envelope.revisionOf] : []),
+    ];
+    for (const parentId of revisionTargets) {
+      if (typeof parentId === "string" && parentId.trim()) {
+        insert.run(row.id, workingContextDependencyKey(parentId), "revision");
+      }
+    }
+  }
 }
 
 function hasValidatedLegacyAudienceScope(payload: unknown): boolean {
@@ -712,6 +750,8 @@ export function openCognitiveSidecarDb(
       existing.exec(COGNITIVE_SIDECAR_SCHEMA_V27);
       existing.exec(COGNITIVE_SIDECAR_SCHEMA_V28);
       existing.exec(COGNITIVE_SIDECAR_SCHEMA_V29);
+      existing.exec(COGNITIVE_SIDECAR_SCHEMA_V30);
+      migrateInterpretationDependenciesToV30(existing);
       existing.exec(`PRAGMA user_version = ${COGNITIVE_SIDECAR_SCHEMA_VERSION}`);
       existing.exec("COMMIT");
     } catch (error) {
@@ -750,6 +790,10 @@ export function openCognitiveSidecarDb(
       }
       if (version < 28) existing.exec(COGNITIVE_SIDECAR_SCHEMA_V28);
       if (version < 29) existing.exec(COGNITIVE_SIDECAR_SCHEMA_V29);
+      if (version < 30) {
+        existing.exec(COGNITIVE_SIDECAR_SCHEMA_V30);
+        migrateInterpretationDependenciesToV30(existing);
+      }
       existing.exec(`PRAGMA user_version = ${COGNITIVE_SIDECAR_SCHEMA_VERSION}`);
       ensureMeta(existing);
       existing.exec("COMMIT");
