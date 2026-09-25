@@ -41,6 +41,14 @@ describe("v0.2.1 Working Context", () => {
       expect(listWorkingContext(db, "thread-1")).toEqual(expect.arrayContaining([
         expect.objectContaining({ type: "owner_teaching", text: "HY3 is an LLM" }),
       ]));
+      expect(db.prepare(
+        "SELECT applicability_lifecycle, audience_state, legacy_scope FROM working_context_items WHERE id = ?",
+      ).get("teaching-1")).toEqual({
+        applicability_lifecycle: null,
+        audience_state: "unknown",
+        legacy_scope: null,
+      });
+      expect(db.prepare("PRAGMA user_version").get()).toMatchObject({ user_version: 26 });
       expect(db.prepare("SELECT COUNT(*) AS count FROM sidecar_memory_assertions").get()).toMatchObject({ count: 0 });
     } finally {
       db.close();

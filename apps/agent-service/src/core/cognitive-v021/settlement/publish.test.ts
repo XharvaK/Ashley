@@ -10,6 +10,7 @@ import { openNuclearDb } from "../../db.js";
 import { beginAuthorityTransition, captureAuthorityCurrentness, stabilizeAuthorityBarrier } from "../authority/barrier.js";
 import { applyWorkingContextDelta } from "../evidence/working-context.js";
 import { listWorkingContext } from "../evidence/working-context.js";
+import { appendOwnerUtterance } from "../evidence/conversation-log.js";
 import { upsertMemoryAssertion } from "../memory/assertions.js";
 import { captureThoughtSourceCurrentness } from "../thought/source-currentness.js";
 import { captureThoughtSourcePackage } from "../thought/input.js";
@@ -202,6 +203,51 @@ describe("v0.2.1 semantic publication transaction", () => {
       expect(db.prepare("SELECT COUNT(*) AS count FROM working_context_items").get()).toMatchObject({ count: 0 });
       expect(db.prepare("SELECT COUNT(*) AS count FROM settlements").get()).toMatchObject({ count: 0 });
       expect(db.prepare("SELECT COUNT(*) AS count FROM speech_outbox").get()).toMatchObject({ count: 0 });
+    } finally {
+      db.close();
+    }
+  });
+
+  it("rolls back a directive item when its quoted source does not match", () => {
+    const db = openTestSidecar();
+    try {
+      admitTestCycle(db, { cycleId: "cycle-1", conversationId: "thread-1", triggerKind: "owner_message", triggerRef: "one", occupantId: "doc", authorityEpoch: 1, nowMs: 1 });
+      const source = appendOwnerUtterance(db, {
+        conversationId: "thread-1",
+        text: "not yet",
+        nowMs: 2,
+        audienceAtCapture: "owner_private",
+      });
+      const result = settlement({
+        workingContextDelta: [{
+          op: "upsert",
+          item: {
+            id: "wc-directive-rollback",
+            conversationId: "thread-1",
+            type: "owner_teaching",
+            text: "Until further notice.",
+            concernId: null,
+            sourceTurnIds: [],
+            status: "active",
+            supersedesId: null,
+            interpretationEnvelope: {
+              kind: "directive_interpretation",
+              support: [{ kind: "conversation_text_span", evidenceRowId: source.rowId, start: 0, end: 7, quote: "not yet, really" }],
+              audience: { kind: "unknown" },
+              applicability: { subject: "Ashley", target: "this conversation", conversationId: "thread-1", concernId: null },
+              boundaryBasis: { temporal: "inferred" },
+              applicabilityInterval: { until: "unknown" },
+              conditions: { text: "", unresolved: false },
+              derivationParents: [],
+              revisionOf: null,
+              revisionEvidenceRefs: [],
+            },
+          },
+        }],
+      });
+      expect(() => publishSemanticTransaction(db, result)).toThrow("support_ref_quote_mismatch");
+      expect(db.prepare("SELECT COUNT(*) AS count FROM working_context_items").get()).toMatchObject({ count: 0 });
+      expect(db.prepare("SELECT COUNT(*) AS count FROM settlements").get()).toMatchObject({ count: 0 });
     } finally {
       db.close();
     }

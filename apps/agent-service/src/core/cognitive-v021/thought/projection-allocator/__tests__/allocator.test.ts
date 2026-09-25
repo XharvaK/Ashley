@@ -264,7 +264,7 @@ describe("Whole-Thought Projection Allocator", () => {
         rawConversation: rows,
         trigger: { kind: "owner_message", ref: rows.at(-1)!.rowId },
       }),
-      semanticBudgetTokens: 10_100,
+      semanticBudgetTokens: 11_500,
       requestId: "req-small-ordinary-conversation",
     });
 
@@ -704,7 +704,7 @@ describe("Whole-Thought Projection Allocator", () => {
       // Calibrated above the legacy 9_500 default for the code-owned Thought
       // contract and compatibility vocabulary. The pressure behavior below
       // (large rows trim, tiny rows fit) is unchanged.
-      semanticBudgetTokens: 11_500,
+      semanticBudgetTokens: 12_500,
       requestId: "req-token-driven-tiny-rows",
     });
 
@@ -831,6 +831,7 @@ describe("Whole-Thought Projection Allocator", () => {
       "authorityObjections",
       "runtimeCondition",
       "rememberDirective",
+      "effectBudget",
     ]);
     expect(Object.keys(serialized).sort()).toEqual(Object.keys(visible).sort());
     expect(serialized).toEqual(visible);
@@ -1042,7 +1043,7 @@ describe("Whole-Thought Projection Allocator", () => {
 
     const allocated = allocateThoughtProjection({
       thoughtInput: frontierInput,
-      semanticBudgetTokens: 32_768,
+      semanticBudgetTokens: 33_000,
       requestId: "req-frontier-bounded",
     });
 
@@ -2241,7 +2242,8 @@ describe("E2b retrieval loss honesty (allocator)", () => {
     // ...and the all-fit side one step above shows nothing. Scan upward from
     // the loss budget for the first budget with zero omission.
     let fitBudget = lossBudget;
-    for (let budget = lossBudget + 1; budget <= 9_500; budget += 1) {
+    const upwardSearchLimit = Math.max(9_500, fitEstimate(input) + 100);
+    for (let budget = lossBudget + 1; budget <= upwardSearchLimit; budget += 1) {
       const candidate = allocateThoughtProjection({
         thoughtInput: input,
         semanticBudgetTokens: budget,
@@ -3080,5 +3082,71 @@ describe("E2c optional Working Context loss honesty (allocator)", () => {
       requestId: "req-e2c-s-lossy-again",
     });
     expect(again.hashes).toEqual(pressure.hashes);
+  });
+});
+
+describe("W1-P1 directive Working Context projection", () => {
+  it("keeps the source quote in one required atomic section and fails closed above 640 bytes", () => {
+    const directive = {
+      id: "wc-directive-large",
+      conversationId: "conv-1",
+      type: "owner_teaching" as const,
+      text: "Until further notice. ".repeat(40),
+      concernId: null,
+      sourceTurnIds: [],
+      status: "active" as const,
+      supersedesId: null,
+      updatedGeneration: 7,
+      interpretationEnvelope: {
+        owningRecordId: "wc-directive-large",
+        revision: 7,
+        authoringCycleId: "cycle-7",
+        kind: "directive_interpretation" as const,
+        support: [{ kind: "conversation_text_span" as const, evidenceRowId: "evidence-7", start: 0, end: 7, quote: "not yet" }],
+        supportAvailability: "intact" as const,
+        attribution: { principalKind: "owner" as const, principalId: "owner-1" },
+        audience: { kind: "unknown" as const },
+        applicability: { subject: "Ashley", target: "this conversation", conversationId: "conv-1", concernId: null },
+        boundaryBasis: { temporal: "inferred" as const },
+        sourceTimeMs: 1,
+        interpretationTimeMs: 2,
+        applicabilityInterval: { until: "unknown" as const },
+        conditions: { text: "", unresolved: false },
+        applicabilityLifecycle: "current" as const,
+        derivationParents: [],
+        revisionOf: null,
+        revisionEvidenceRefs: [],
+      },
+    };
+    const thoughtInput = makeThoughtInput({ workingContext: [directive] });
+    const candidates = buildAllocationCandidates(thoughtInput, []);
+    const projectedDirective = candidates.find((candidate) => candidate.id === "wc:wc-directive-large");
+    expect(projectedDirective).toMatchObject({
+      section: "working_context_directive",
+      required: true,
+      requiredness: {
+        owner: "working_context_adapter",
+        predicate: "directive_interpretation_envelope_present",
+        overflow: "fail_closed",
+      },
+      data: {
+        id: "wc-directive-large",
+        kind: "directive_interpretation",
+        quote: "not yet",
+        interpretation: directive.text,
+        boundaryBasis: { temporal: "inferred" },
+        applicabilityInterval: { until: "unknown" },
+        attribution: { principalKind: "owner" },
+      },
+    });
+    expect(candidates.some((candidate) =>
+      candidate.id === "wc:wc-directive-large" && candidate.section === "working_context_topic",
+    )).toBe(false);
+    expect(JSON.stringify(projectedDirective?.data)).not.toContain("standing");
+    expect(() => allocateThoughtProjection({
+      thoughtInput,
+      semanticBudgetTokens: 9_500,
+      requestId: "w1-p1-directive-oversize",
+    })).toThrow(RequiredOverflowError);
   });
 });

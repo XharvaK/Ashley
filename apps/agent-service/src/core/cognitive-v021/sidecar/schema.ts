@@ -1235,3 +1235,12 @@ CREATE UNIQUE INDEX idx_in_flight_effects_wake
   WHERE wake_id IS NOT NULL AND state IN ('in_flight', 'unknown');
 UPDATE cognitive_sidecar_meta SET schema_version = 25, projection_state = 'reconciling' WHERE id = 1;
 `;
+
+export const COGNITIVE_SIDECAR_SCHEMA_V26 = String.raw`
+ALTER TABLE working_context_items ADD COLUMN applicability_lifecycle TEXT
+  CHECK(applicability_lifecycle IS NULL OR applicability_lifecycle IN ('current', 'needs_review', 'superseded', 'withdrawn'));
+ALTER TABLE working_context_items ADD COLUMN audience_state TEXT NOT NULL DEFAULT 'unknown'
+  CHECK(audience_state IN ('known', 'unknown'));
+ALTER TABLE working_context_items ADD COLUMN legacy_scope TEXT;
+UPDATE cognitive_sidecar_meta SET schema_version = 26, projection_state = 'reconciling' WHERE id = 1;
+`;

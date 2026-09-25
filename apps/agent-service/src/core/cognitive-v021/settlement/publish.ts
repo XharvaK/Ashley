@@ -455,7 +455,13 @@ export function publishSemanticTransaction(
       return { published: false, replayed: false, reason: "source_currentness_stale", settlementId: null, outboxId: null };
     }
 
-    for (const delta of (settlement.workingContextDelta ?? [])) applyWorkingContextDelta(db, delta, settlement);
+    for (const delta of (settlement.workingContextDelta ?? [])) {
+      applyWorkingContextDelta(db, delta, {
+        cycleId: settlement.cycleId,
+        generation: settlement.generation,
+        nowMs,
+      });
+    }
     applyDeskDeltas(db, settlement.deskDeltas ?? [], settlement);
     for (const delta of (settlement.concernDeltas ?? [])) applyConcernDelta(db, delta, settlement);
     for (const delta of (settlement.occupancyDelta ?? [])) applyOccupancyDelta(db, delta, settlement);

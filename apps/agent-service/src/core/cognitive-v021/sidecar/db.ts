@@ -36,6 +36,7 @@ import {
   COGNITIVE_SIDECAR_SCHEMA_V23,
   COGNITIVE_SIDECAR_SCHEMA_V24,
   COGNITIVE_SIDECAR_SCHEMA_V25,
+  COGNITIVE_SIDECAR_SCHEMA_V26,
 } from "./schema.js";
 import { recoverCognitiveSidecar } from "./recovery.js";
 import { cycleIdFor, occurrenceIdFor, wakeIdFor } from "../wake/identity.js";
@@ -663,6 +664,7 @@ export function openCognitiveSidecarDb(
       migrateDetachedFailureEvidenceToV23(existing);
       migrateConcernsToV24(existing);
       migrateInFlightEffectOccupancyToV25(existing);
+      existing.exec(COGNITIVE_SIDECAR_SCHEMA_V26);
       existing.exec(`PRAGMA user_version = ${COGNITIVE_SIDECAR_SCHEMA_VERSION}`);
       existing.exec("COMMIT");
     } catch (error) {
@@ -694,6 +696,7 @@ export function openCognitiveSidecarDb(
       if (version < 25) {
         migrateInFlightEffectOccupancyToV25(existing);
       }
+      if (version < 26) existing.exec(COGNITIVE_SIDECAR_SCHEMA_V26);
       existing.exec(`PRAGMA user_version = ${COGNITIVE_SIDECAR_SCHEMA_VERSION}`);
       ensureMeta(existing);
       existing.exec("COMMIT");

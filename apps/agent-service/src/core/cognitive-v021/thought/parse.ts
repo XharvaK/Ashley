@@ -31,6 +31,7 @@ import {
   type EpistemicDimension,
   type EpistemicDimensionRepair,
 } from "./output-contract.js";
+import { parseWorkingContextInterpretationDraft } from "../evidence/interpretation-envelope.js";
 
 export type ThoughtSemanticParseFailureCode =
   | "invalid_json"
@@ -500,13 +501,14 @@ function validateInterimSpeech(value: unknown): ValidationResult {
 }
 
 function validWorkingContextItem(value: unknown, allowlist: ReadonlySet<string>): boolean {
-  const record = recordShape(value, ["identity", "type", "text", "concernRef", "sourceTurnRefs", "status", "supersedesRef"]);
+  const record = recordShape(value, ["identity", "type", "text", "concernRef", "sourceTurnRefs", "status", "supersedesRef"], ["interpretationEnvelope"]);
   const types = ["topic", "referent", "correction", "owner_teaching", "question", "commitment_temp", "repair"];
   const statuses = ["active", "superseded", "abandoned"];
   return !!record && semanticRef(record.identity, allowlist) && types.includes(record.type as string)
     && nonEmptyString(record.text) && validSemanticRefField(record.concernRef, allowlist)
     && refArray(record.sourceTurnRefs, allowlist) && statuses.includes(record.status as string)
-    && validSemanticRefField(record.supersedesRef, allowlist);
+    && validSemanticRefField(record.supersedesRef, allowlist)
+    && (!own(record, "interpretationEnvelope") || parseWorkingContextInterpretationDraft(record.interpretationEnvelope) !== null);
 }
 
 function validWorkingContextDelta(value: unknown, allowlist: ReadonlySet<string>): boolean {

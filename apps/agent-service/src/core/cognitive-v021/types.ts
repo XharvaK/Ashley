@@ -11,6 +11,10 @@ import type { SandboxV2CapabilitySpec } from "@composer-assistant/sandbox-v2";
 import type { ThoughtSourceCurrentness } from "./thought/source-currentness.js";
 import type { EffectExecutionControl } from "./effect/execution-control.js";
 import type {
+  WorkingContextInterpretationDraft,
+  WorkingContextInterpretationEnvelope,
+} from "./evidence/interpretation-envelope.js";
+import type {
   CommitmentProposal,
   CommitmentRealizationBinding,
   AvailableSocialDestination,
@@ -18,11 +22,12 @@ import type {
 } from "./social/types.js";
 
 export type { DataClassification } from "../privacy/classification.js";
+export type { SourceSupportRef } from "./evidence/interpretation-envelope.js";
 
 export const ARCHITECTURE_EPOCH = "v0.2.1" as const;
 export const IMPLEMENTATION_SPEC_VERSION = "0.2.1.r6" as const;
 export const THOUGHT_CONTRACT_VERSION = 2 as const;
-export const COGNITIVE_SIDECAR_SCHEMA_VERSION = 25 as const;
+export const COGNITIVE_SIDECAR_SCHEMA_VERSION = 26 as const;
 
 /**
  * Hard bound on cognition-facing concern discovery windows and pages. The
@@ -392,6 +397,7 @@ export type WorkingContextItem = {
   status: "active" | "superseded" | "abandoned";
   supersedesId: string | null;
   updatedGeneration: Generation;
+  interpretationEnvelope?: WorkingContextInterpretationEnvelope;
   /** Audience/protection facets are optional for legacy Owner rows. */
   audienceScope?: SocialAudience | null;
   sourcePrincipal?: string | null;
@@ -402,15 +408,19 @@ export type WorkingContextItem = {
   licenseRefs?: string[];
 };
 
+type WorkingContextItemDelta = Omit<WorkingContextItem, "updatedGeneration" | "interpretationEnvelope"> & {
+  interpretationEnvelope?: WorkingContextInterpretationDraft;
+};
+
 export type WorkingContextDelta =
   | {
       op: "upsert";
-      item: Omit<WorkingContextItem, "updatedGeneration">;
+      item: WorkingContextItemDelta;
     }
   | {
       op: "supersede";
       id: string;
-      replacement: Omit<WorkingContextItem, "updatedGeneration">;
+      replacement: WorkingContextItemDelta;
     }
   | { op: "abandon"; id: string };
 
@@ -861,6 +871,7 @@ export type WorkingContextItemSemantic = {
   sourceTurnRefs: readonly ExistingRef[];
   status: "active" | "superseded" | "abandoned";
   supersedesRef: SemanticRef | null;
+  interpretationEnvelope?: WorkingContextInterpretationDraft;
 };
 
 export type WorkingContextSemanticDelta =

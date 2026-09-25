@@ -169,10 +169,72 @@ const referentBindingSchema = strictObject({
 const correctionSchema = strictObject({
   correctedTurnRefs: stringArraySchema, fromSpan: { type: "string" }, toSpan: { type: "string" }, concernRef: existingRefSchema,
 }, ["correctedTurnRefs", "fromSpan", "toSpan"]);
+const supportRegionSchema = strictObject({
+  x: { type: "number", minimum: 0 }, y: { type: "number", minimum: 0 },
+  width: { type: "number", exclusiveMinimum: 0 }, height: { type: "number", exclusiveMinimum: 0 },
+}, ["x", "y", "width", "height"]);
+const sourceSupportRefSchema = { oneOf: [
+  strictObject({
+    kind: { const: "conversation_text_span" }, evidenceRowId: existingRefSchema,
+    start: { type: "integer", minimum: 0 }, end: { type: "integer", minimum: 1 }, quote: { type: "string", minLength: 1 },
+  }, ["kind", "evidenceRowId", "start", "end", "quote"]),
+  strictObject({
+    kind: { const: "artifact_text_span" }, artifactId: existingRefSchema, representationId: existingRefSchema,
+    start: { type: "integer", minimum: 0 }, end: { type: "integer", minimum: 1 }, quote: { type: "string", minLength: 1 },
+  }, ["kind", "artifactId", "representationId", "start", "end", "quote"]),
+  strictObject({
+    kind: { const: "document_page_region" }, artifactId: existingRefSchema, representationId: existingRefSchema,
+    page: { type: "integer", minimum: 1 }, region: supportRegionSchema,
+  }, ["kind", "artifactId", "representationId", "page"]),
+  strictObject({
+    kind: { const: "image_region" }, artifactId: existingRefSchema, representationId: existingRefSchema,
+    region: supportRegionSchema,
+  }, ["kind", "artifactId", "representationId"]),
+  strictObject({
+    kind: { const: "structured_path" }, artifactId: existingRefSchema, representationId: existingRefSchema,
+    path: { oneOf: [
+      { type: "string", pattern: "^(|/)" },
+      strictObject({ row: { type: "integer", minimum: 0 }, column: { type: "integer", minimum: 0 } }, ["row", "column"]),
+    ] },
+  }, ["kind", "artifactId", "representationId", "path"]),
+  strictObject({ kind: { const: "observation_ref" }, observationId: existingRefSchema }, ["kind", "observationId"]),
+  strictObject({ kind: { const: "receipt_ref" }, receiptId: existingRefSchema }, ["kind", "receiptId"]),
+] };
+const interpretationAudienceSchema = { oneOf: [
+  strictObject({ kind: { const: "unknown" } }, ["kind"]),
+  strictObject({ kind: { const: "owner_private" } }, ["kind"]),
+  strictObject({ kind: { const: "owner_dm" }, threadId: existingRefSchema }, ["kind", "threadId"]),
+  strictObject({ kind: { const: "dm" }, principalId: existingRefSchema }, ["kind", "principalId"]),
+  strictObject({ kind: { const: "room" }, roomId: existingRefSchema }, ["kind", "roomId"]),
+] };
+const applicabilityIntervalSchema = { oneOf: [
+  strictObject({ fromMs: { type: "integer", minimum: 0 }, untilMs: { type: "integer", minimum: 0 } }, ["fromMs", "untilMs"]),
+  strictObject({ until: { const: "unknown" } }, ["until"]),
+  strictObject({ until: { const: "standing" } }, ["until"]),
+] };
+const interpretationEnvelopeSchema = {
+  ...strictObject({
+    kind: { enum: ["directive_interpretation", "descriptive_belief", "self_conclusion", "adoption"] },
+    support: { type: "array", items: sourceSupportRefSchema },
+    audience: interpretationAudienceSchema,
+    applicability: strictObject({
+      subject: { type: "string", minLength: 1 }, target: { type: "string", minLength: 1 },
+      conversationId: existingRefSchema, concernId: { oneOf: [existingRefSchema, { type: "null" }] },
+    }, ["subject", "target", "conversationId"]),
+    boundaryBasis: { type: "object", minProperties: 1, additionalProperties: { enum: ["explicit_in_source", "inferred", "unknown"] } },
+    applicabilityInterval: applicabilityIntervalSchema,
+    conditions: strictObject({ text: { type: "string" }, unresolved: { type: "boolean" } }, ["text", "unresolved"]),
+    derivationParents: stringArraySchema,
+    revisionOf: { oneOf: [existingRefSchema, { type: "null" }] },
+    revisionEvidenceRefs: { type: "array", items: sourceSupportRefSchema },
+  }, ["kind", "support", "applicability", "boundaryBasis", "applicabilityInterval", "conditions", "derivationParents", "revisionOf", "revisionEvidenceRefs"]),
+  description: "A cognition-authored interpretation envelope. For directive_interpretation, cite an exact conversation_text_span; sourceTurnRefs alone are not evidence. Unknown audience and interval stay unknown. This envelope cannot grant authority or encode an executable ban.",
+};
 const semanticItemSchema = strictObject({
   identity: semanticRefSchema, type: { enum: ["topic", "referent", "correction", "owner_teaching", "question", "commitment_temp", "repair"] },
   text: { type: "string" }, concernRef: nullableSemanticRefSchema, sourceTurnRefs: stringArraySchema,
   status: { enum: ["active", "superseded", "abandoned"] }, supersedesRef: nullableSemanticRefSchema,
+  interpretationEnvelope: interpretationEnvelopeSchema,
 }, ["identity", "type", "text", "concernRef", "sourceTurnRefs", "status", "supersedesRef"]);
 const workingContextDeltaSchema = { oneOf: [
   strictObject({ op: { const: "upsert" }, item: semanticItemSchema }, ["op", "item"]),
@@ -568,6 +630,7 @@ export function thoughtOutputCompatibilityInstruction(): string {
     'Semantic class binding: semanticClass:"observation" requires observation_intent; semanticClass:"effect" requires effect_intent. readOnly does not convert an effect-class operation into an observation. project.inspect is read-only. Its request is route-neutral: projectId plus optional locator/question/focus/maxSteps; no direct/worker/provider/model/quota fields and no low-level primitive names. workspace.verify: effect_intent, read-only.',
     "Interim-hold law: only project.inspect observation_intent may carry interimSpeech (none or short hold). Hold may acknowledge intent/return, not findings, success, unacquired evidence, or worker start; publication requires Host admission and leaves operation_pending until settlement, valid supersession, or valid silence.",
     "A bounded inquiry pairs M3 workspace steps with recipe-only M4 workspace.verify under one objective/budget; recipes are default-deny and failed verification is Thought evidence, not an Ashley verdict. Inquiry admits neither changeset.author nor patch_export. Proposal requires an Owner-private candidate workspace, successful M4 receipt, and Thought adjudication before emitting retained patch_export adjudication:\"accept\"; it never applies, commits, pushes, deploys, or notifies, and Owner notification is a separate optional Thought-authored effect.",
+    "Use interpretationEnvelope for directive_interpretation; cite exact conversation_text_span support and keep unknown scope or interval unknown.",
     'During an autonomous idle opportunity only, capabilityReality.publicPresence may expose operationKind:"discord.public_presence" with audience:"FULLY_PUBLIC". You may choose effect_intent with request {"action":"set","text":"<exact public text>"} or {"action":"clear"}, or choose no effect_intent, which leaves the current state unchanged. The public text is deliberate self-presentation visible to anyone; it is not hidden reasoning or private material. You decide what it means. The Host may reject mechanically unsafe content but never rewrites it.',
     "CapabilityReality field semantics: conversationalRead reports only whether an additional authorized user-requested URL/page read may be performed, not whether supplied conversation content is visible; every included rawConversation entry is directly readable current context regardless of conversationalRead.",
     "Do not emit kernel identity, lifecycle, delivery, or publication fields; Ashley code binds those values.",

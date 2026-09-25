@@ -1156,6 +1156,7 @@ function materializeSemanticSettlement(
           "working_context",
           `workingContextDeltas[${index}].${delta.op === "upsert" ? "item" : "replacement"}.supersedesRef`,
         ),
+        ...(item.interpretationEnvelope === undefined ? {} : { interpretationEnvelope: item.interpretationEnvelope }),
       };
       return delta.op === "upsert"
         ? { op: "upsert", item: legacyItem }

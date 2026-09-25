@@ -47,6 +47,7 @@ export type AllocationSectionId =
   | "working_context_referent"
   | "working_context_repair"
   | "working_context_commitment"
+  | "working_context_directive"
   | "working_context_topic"
   | "working_context_other"
   | "desk_entry"
@@ -109,6 +110,8 @@ export function requirednessContractFor(
     };
   }
   switch (candidate.section) {
+    case "working_context_directive":
+      return { owner: "working_context_adapter", predicate: "directive_interpretation_envelope_present", overflow: "fail_closed" };
     case "orientation_kernel":
       return { owner: "orientation_kernel_adapter", predicate: "canonical_kernel_available", overflow: "fail_closed" };
     case "trigger_evidence":
@@ -495,7 +498,31 @@ export function buildAllocationCandidates(
   // 11-14. Type-Aware Working Context: Essential subtypes are REQUIRED
   const wcItems = input.workingContext ?? [];
   for (const item of wcItems) {
-    if (item.type === "correction") {
+    if (item.interpretationEnvelope?.kind === "directive_interpretation") {
+      const quote = item.interpretationEnvelope.support.find((ref) => ref.kind === "conversation_text_span");
+      if (!quote || quote.kind !== "conversation_text_span") {
+        throw new Error("working_context_directive_quote_missing");
+      }
+      candidates.push({
+        id: `wc:${item.id}`,
+        section: "working_context_directive",
+        required: true,
+        priority: 12,
+        ref: item.id,
+        data: {
+          id: item.id,
+          kind: "directive_interpretation",
+          quote: quote.quote,
+          interpretation: item.text,
+          audience: item.interpretationEnvelope.audience,
+          applicability: item.interpretationEnvelope.applicability,
+          boundaryBasis: item.interpretationEnvelope.boundaryBasis,
+          applicabilityInterval: item.interpretationEnvelope.applicabilityInterval,
+          conditions: item.interpretationEnvelope.conditions,
+          attribution: item.interpretationEnvelope.attribution,
+        },
+      });
+    } else if (item.type === "correction") {
       candidates.push({
         id: `wc:${item.id}`,
         section: "working_context_correction",
@@ -537,6 +564,7 @@ export function buildAllocationCandidates(
   // 15-16. Optional Working Context: Topic and Other (ordered by updatedGeneration desc)
   const optionalWc = wcItems.filter(
     (item) =>
+      item.interpretationEnvelope?.kind !== "directive_interpretation" &&
       item.type !== "correction" &&
       item.type !== "referent" &&
       item.type !== "repair" &&
