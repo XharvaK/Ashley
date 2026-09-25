@@ -346,7 +346,7 @@ export function parseStoredWorkingContextInterpretationEnvelope(
   };
 }
 
-type ResolvedSource = {
+export type ResolvedSource = {
   principalKind: InterpretationAttribution["principalKind"];
   principalId: string | null;
   sourceTimeMs: number | null;
@@ -453,6 +453,18 @@ function assertSupportRefs(
   return resolved;
 }
 
+/** Resolve typed support refs through the source fence used by Working Context. */
+export function validateSourceSupportRefs(
+  db: DatabaseSync,
+  values: readonly unknown[],
+  conversationId: string,
+): ResolvedSource[] {
+  if (!conversationId.trim()) throw new Error("support_ref_conversation_required");
+  const refs = values.map(parseSourceSupportRef);
+  if (refs.some((ref) => ref === null)) throw new Error("support_ref_invalid");
+  return assertSupportRefs(db, refs as SourceSupportRef[], conversationId);
+}
+
 function supportSourceIdentity(ref: SourceSupportRef): string {
   switch (ref.kind) {
     case "conversation_text_span": return `conversation_evidence:${ref.evidenceRowId}`;
@@ -480,8 +492,8 @@ export function validateAndBuildWorkingContextInterpretationEnvelope(input: {
   if (envelope.applicability.conversationId !== input.conversationId) {
     throw new Error("interpretation_applicability_conversation_mismatch");
   }
-  const resolved = assertSupportRefs(input.db, envelope.support, input.conversationId);
-  assertSupportRefs(input.db, envelope.revisionEvidenceRefs, input.conversationId);
+  const resolved = validateSourceSupportRefs(input.db, envelope.support, input.conversationId);
+  validateSourceSupportRefs(input.db, envelope.revisionEvidenceRefs, input.conversationId);
   if (envelope.kind === "directive_interpretation"
     && !resolved.some((source) => source.principalKind === "owner")) {
     throw new Error("support_ref_principal_invalid");

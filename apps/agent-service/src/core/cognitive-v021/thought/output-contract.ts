@@ -247,6 +247,7 @@ const deskEntrySchema = strictObject({
   body: { type: "string", minLength: 1 },
   authorKind: { enum: ["ashley", "owner", "quoted_external"] },
   sourceRefs: stringArraySchema,
+  supportRefs: { type: "array", items: sourceSupportRefSchema },
   verbatim: { type: "boolean" },
   form: { enum: ["note", "draft", "observation", "brainstorm"] },
   endorsementRef: { oneOf: [existingRefSchema, { type: "null" }] },
@@ -260,6 +261,7 @@ const deskDeltaSchema = { oneOf: [
 ] };
 const concernRecordSchema = strictObject({
   identity: semanticRefSchema, statement: { type: "string" }, sourceTurnRefs: stringArraySchema, dimensions: dimensionsSchema,
+  supportRefs: { type: "array", items: sourceSupportRefSchema },
   status: { enum: ["active", "investigating", "waiting_for_evidence", "dormant_but_revisitable", "resolved"] },
 }, ["identity", "statement", "sourceTurnRefs", "dimensions", "status"]);
 const concernDeltaSchema = { oneOf: [
@@ -281,6 +283,7 @@ const subscriptionDeltaSchema = { oneOf: [
 const nominationSchema = strictObject({
   statement: { type: "string" }, memoryKind: { enum: [...MEMORY_KINDS] }, dimensions: dimensionsSchema,
   dataClassification: { enum: ["ordinary", "sensitive", "never_public", "secret"] }, sourceRefs: stringArraySchema,
+  supportRefs: { type: "array", items: sourceSupportRefSchema },
   supersedesRef: { oneOf: [existingRefSchema, { type: "null" }] }, concernRef: nullableSemanticRefSchema,
 }, ["statement", "memoryKind", "dimensions", "dataClassification", "sourceRefs", "supersedesRef", "concernRef"]);
 const presentArray = (items: unknown): Record<string, unknown> => ({ type: "array", minItems: 1, items });

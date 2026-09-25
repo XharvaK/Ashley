@@ -31,7 +31,7 @@ import {
   type EpistemicDimension,
   type EpistemicDimensionRepair,
 } from "./output-contract.js";
-import { parseWorkingContextInterpretationDraft } from "../evidence/interpretation-envelope.js";
+import { parseSourceSupportRef, parseWorkingContextInterpretationDraft } from "../evidence/interpretation-envelope.js";
 
 export type ThoughtSemanticParseFailureCode =
   | "invalid_json"
@@ -83,6 +83,11 @@ function semanticRecord(value: unknown): SemanticRecord | null {
 
 function own(record: SemanticRecord, key: string): boolean {
   return Object.prototype.hasOwnProperty.call(record, key);
+}
+
+function optionalTypedSupportRefs(record: SemanticRecord): boolean {
+  return !own(record, "supportRefs")
+    || (Array.isArray(record.supportRefs) && record.supportRefs.every((ref) => parseSourceSupportRef(ref) !== null));
 }
 
 function failure(code: ThoughtSemanticParseFailureCode, field?: string): ValidationResult {
@@ -524,9 +529,9 @@ function validWorkingContextDelta(value: unknown, allowlist: ReadonlySet<string>
 function validDeskEntry(value: unknown, allowlist: ReadonlySet<string>): value is DeskEntrySemantic {
   const record = recordShape(value, [
     "identity", "concernRef", "body", "authorKind", "sourceRefs", "verbatim", "form", "endorsementRef", "audienceScope",
-  ]);
+  ], ["supportRefs"]);
   if (!record || !semanticRef(record.identity, allowlist) || !validSemanticRefField(record.concernRef, allowlist)
-    || !nonEmptyString(record.body) || !refArray(record.sourceRefs, allowlist)
+    || !nonEmptyString(record.body) || !refArray(record.sourceRefs, allowlist) || !optionalTypedSupportRefs(record)
     || typeof record.verbatim !== "boolean" || !validCommitmentDestination(record.audienceScope)) return false;
   const authorKind = record.authorKind;
   const form = record.form;
@@ -553,9 +558,9 @@ function validConcernDelta(value: unknown, allowlist: ReadonlySet<string>): bool
   if (!record || typeof record.op !== "string") return false;
   if (record.op === "resolve") return Object.keys(record).length === 2 && existingRef(record.target, allowlist);
   if (record.op !== "upsert" || Object.keys(record).length !== 2) return false;
-  const item = recordShape(record.record, ["identity", "statement", "sourceTurnRefs", "dimensions", "status"]);
+  const item = recordShape(record.record, ["identity", "statement", "sourceTurnRefs", "dimensions", "status"], ["supportRefs"]);
   return !!item && semanticRef(item.identity, allowlist) && nonEmptyString(item.statement)
-    && refArray(item.sourceTurnRefs, allowlist) && validEpistemicDimensions(item.dimensions)
+    && refArray(item.sourceTurnRefs, allowlist) && optionalTypedSupportRefs(item) && validEpistemicDimensions(item.dimensions)
     && ["active", "investigating", "waiting_for_evidence", "dormant_but_revisitable", "resolved"].includes(item.status as string);
 }
 
@@ -605,11 +610,11 @@ function validSubscriptionDelta(value: unknown, allowlist: ReadonlySet<string>):
 }
 
 function validNomination(value: unknown, allowlist: ReadonlySet<string>): value is ThoughtDurableNomination {
-  const record = recordShape(value, ["statement", "memoryKind", "dimensions", "dataClassification", "sourceRefs", "supersedesRef", "concernRef"]);
+  const record = recordShape(value, ["statement", "memoryKind", "dimensions", "dataClassification", "sourceRefs", "supersedesRef", "concernRef"], ["supportRefs"]);
   return !!record && nonEmptyString(record.statement) && isMemoryKind(record.memoryKind)
     && validEpistemicDimensions(record.dimensions)
     && ["ordinary", "sensitive", "never_public", "secret"].includes(record.dataClassification as string)
-    && refArray(record.sourceRefs, allowlist)
+    && refArray(record.sourceRefs, allowlist) && optionalTypedSupportRefs(record)
     && (record.supersedesRef === null || existingRef(record.supersedesRef, allowlist))
     && validSemanticRefField(record.concernRef, allowlist);
 }

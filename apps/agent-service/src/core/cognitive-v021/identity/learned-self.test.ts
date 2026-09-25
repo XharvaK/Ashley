@@ -3,6 +3,11 @@ import { openTestSidecar } from "../test-support.js";
 import { getMemoryAssertion, retractMemoryAssertion, upsertMemoryAssertion } from "../memory/assertions.js";
 import { appendMemorySupport, listMemorySupports } from "../memory/supports.js";
 import { buildLearnedSelfSlice, validateLearnedSelfEntry } from "./learned-self.js";
+import { appendOwnerUtterance } from "../evidence/conversation-log.js";
+import { applyV021Forget } from "../memory/forget.js";
+import { admitTestCycle } from "../test-support.js";
+import { buildThoughtInput } from "../thought/input.js";
+import { buildAllocationCandidates } from "../thought/projection-allocator/sections.js";
 
 const dimensions = { source: "ashley_interpretation" as const, status: "interpreted" as const, time: "current" as const, reliability: "inferred" as const };
 
@@ -152,6 +157,123 @@ describe("v0.2.1 LearnedSelf Option B", () => {
         subject: ["person:one"],
         dimensions: { status: "unverified", reliability: "fallible_observation" },
       });
+    } finally {
+      db.close();
+    }
+  });
+
+  it("keeps historical adopted evidence historical and reports typed support loss without retracting the assertion", () => {
+    const db = openTestSidecar();
+    try {
+      const conversationId = "thread:self-support-loss";
+      const source = "I chose careful explanations then.";
+      const evidence = appendOwnerUtterance(db, { conversationId, text: source, nowMs: 1 });
+      const supportRef = {
+        kind: "conversation_text_span" as const,
+        evidenceRowId: evidence.rowId,
+        start: 0,
+        end: source.length,
+        quote: source,
+      };
+      const historicalDimensions = {
+        source: "ashley_interpretation" as const,
+        status: "interpreted" as const,
+        time: "historical" as const,
+        reliability: "inferred" as const,
+      };
+      const assertionKey = "self:historical-support";
+      const nominationId = "episode:historical-support";
+      const statement = "disposition: prefers careful explanations.";
+      upsertMemoryAssertion(db, {
+        assertionKey,
+        statement,
+        memoryKind: "learned_self_evidence",
+        dimensions: historicalDimensions,
+        dataClassification: "never_public",
+        lineageParentKey: null,
+        admittedGeneration: 1,
+        live: true,
+      });
+      db.prepare(
+        `INSERT INTO durable_nominations
+           (nomination_id, cycle_id, generation, assertion_key, statement, memory_kind,
+            dimensions_json, data_classification, supersedes_assertion_key, concern_id, admitted, source_refs_json)
+         VALUES (?, ?, 1, ?, ?, 'learned_self_evidence', ?, 'never_public', NULL, NULL, 1, '[]')`,
+      ).run(nominationId, "cycle:self-support-loss", assertionKey, statement, JSON.stringify(historicalDimensions));
+      db.prepare(
+        "INSERT INTO settlements (settlement_id, cycle_id, generation, payload_json) VALUES (?, ?, 1, ?)",
+      ).run("settlement:self-support-loss", "cycle:self-support-loss", JSON.stringify({ durableNominations: [{
+        nominationId,
+        cycleId: "cycle:self-support-loss",
+        generation: 1,
+        assertionKey,
+        statement,
+        memoryKind: "learned_self_evidence",
+        dimensions: historicalDimensions,
+        dataClassification: "never_public",
+        supersedesAssertionKey: null,
+        concernId: null,
+        sourceRefs: [],
+        supportRefs: [supportRef],
+      }] }));
+      appendMemorySupport(db, {
+        supportId: "support:self-historical",
+        assertionKey,
+        source: "ashley_interpretation",
+        provenance: "native",
+        sourceArchitectureEpoch: "v0.2.1",
+        sourceRef: nominationId,
+        settlementId: "settlement:self-support-loss",
+        evidenceLineageId: evidence.lineageId,
+        observationId: null,
+        receiptId: null,
+        dimensions: historicalDimensions,
+        dataClassification: "never_public",
+        supportRef,
+        conversationId,
+      });
+
+      expect(buildLearnedSelfSlice(db).broadOrientation).toMatchObject({
+        entries: [{ statement, time: "historical", supportAvailability: "intact" }],
+      });
+
+      applyV021Forget(db, { topic: "careful explanations then", nowMs: 3 });
+
+      expect(getMemoryAssertion(db, assertionKey)).toMatchObject({ live: true, statement });
+      const slice = buildLearnedSelfSlice(db);
+      expect(slice.broadOrientation).toMatchObject({
+        entries: [{ statement, time: "historical", supportAvailability: "unavailable" }],
+      });
+      expect(slice.broadOrientation?.entries?.[0]).not.toHaveProperty("applicabilityLifecycle");
+
+      const cycle = admitTestCycle(db, {
+        cycleId: "cycle:self-projection",
+        conversationId,
+        triggerKind: "owner_message",
+        triggerRef: "trigger:self-projection",
+        occupantId: "owner",
+        nowMs: 4,
+      });
+      const input = buildThoughtInput({
+        sidecar: db,
+        cycle,
+        constitution: { constitutional: ["truth first"], stableSelf: ["careful"] },
+        capabilityReality: {
+          vision: false, attachmentText: false, conversationalRead: true, webSearch: false,
+          canOfferProjectInspection: false, canOfferWorkspace: false, canOfferVerification: false,
+          canOfferAuthorship: false, canOfferBoundedOperation: false, canOfferInquiry: false, canOfferPatchExport: false,
+          approvedProjectIds: [],
+        },
+        learnedSelfSlice: slice,
+        rawConversation: [],
+        workingContext: [],
+        occupancy: [],
+      });
+      const candidates = buildAllocationCandidates(input, []);
+      expect(candidates.some((candidate) => candidate.section === "learned_self"
+        && JSON.stringify(candidate.data).includes("historical"))).toBe(true);
+      expect(candidates.some((candidate) => candidate.section === "working_context_directive"
+        && JSON.stringify(candidate.data).includes(statement))).toBe(false);
     } finally {
       db.close();
     }

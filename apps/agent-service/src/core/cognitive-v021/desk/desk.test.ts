@@ -6,6 +6,7 @@ import { upsertMemoryAssertion } from "../memory/assertions.js";
 import type { AssertionKey, DeskEntryDraft, DeskDelta } from "../types.js";
 import type { SocialAudience } from "../social/types.js";
 import { applyDeskDeltas, listDeskEntries } from "./store.js";
+import { appendExternalUtteranceInTransaction } from "../evidence/conversation-log.js";
 import { admitTestCycle } from "../test-support.js";
 import { buildThoughtInput } from "../thought/input.js";
 import { buildAllocationCandidates } from "../thought/projection-allocator/sections.js";
@@ -190,5 +191,65 @@ describe("Owner-private personal desk", () => {
     expect(candidates).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: "desk:desk:input", section: "desk_entry", canonicalStore: "desk_entries" }),
     ]));
+  });
+
+  it("keeps a typed verbatim external quote as a quoted desk entry, not a directive", () => {
+    const db = database();
+    const conversationId = "conversation:desk-quote";
+    const source = "The outside speaker said to keep this note.";
+    const evidence = appendExternalUtteranceInTransaction(db, {
+      conversationId,
+      text: source,
+      speakerKind: "external_human",
+      speakerPrincipalId: "person:external",
+      nowMs: 1,
+    }).evidence;
+    const supportRef = {
+      kind: "conversation_text_span" as const,
+      evidenceRowId: evidence.rowId,
+      start: 0,
+      end: source.length,
+      quote: source,
+    };
+    applyDeskDeltas(db, [{
+      op: "upsert",
+      entry: {
+        ...entry({ id: "desk:external-quote", body: source, authorKind: "quoted_external", verbatim: true, endorsementRef: null }),
+        supportRefs: [supportRef],
+      },
+    }], { ...context, conversationId });
+
+    const cycle = admitTestCycle(db, {
+      cycleId: "cycle:desk-quote",
+      conversationId,
+      triggerKind: "owner_message",
+      triggerRef: "trigger:desk-quote",
+      occupantId: "owner",
+      nowMs: 2,
+    });
+    const input = buildThoughtInput({
+      sidecar: db,
+      cycle,
+      constitution: identity,
+      capabilityReality: capability,
+      learnedSelfSlice: { dispositions: [], interests: [] },
+      rawConversation: [],
+      workingContext: [],
+      occupancy: [],
+    });
+    const candidates = buildAllocationCandidates(input, []);
+
+    expect(listDeskEntries(db)).toMatchObject([{
+      id: "desk:external-quote",
+      authorKind: "quoted_external",
+      verbatim: true,
+      endorsementRef: null,
+      supportRefs: [supportRef],
+    }]);
+    expect(candidates).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "desk:desk:external-quote", section: "desk_entry" }),
+    ]));
+    expect(candidates.some((candidate) => candidate.section === "working_context_directive"
+      && JSON.stringify(candidate.data).includes(source))).toBe(false);
   });
 });

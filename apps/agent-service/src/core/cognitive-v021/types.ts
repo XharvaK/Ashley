@@ -11,6 +11,7 @@ import type { SandboxV2CapabilitySpec } from "@composer-assistant/sandbox-v2";
 import type { ThoughtSourceCurrentness } from "./thought/source-currentness.js";
 import type { EffectExecutionControl } from "./effect/execution-control.js";
 import type {
+  SourceSupportRef,
   WorkingContextInterpretationDraft,
   WorkingContextInterpretationEnvelope,
 } from "./evidence/interpretation-envelope.js";
@@ -27,7 +28,7 @@ export type { SourceSupportRef } from "./evidence/interpretation-envelope.js";
 export const ARCHITECTURE_EPOCH = "v0.2.1" as const;
 export const IMPLEMENTATION_SPEC_VERSION = "0.2.1.r6" as const;
 export const THOUGHT_CONTRACT_VERSION = 2 as const;
-export const COGNITIVE_SIDECAR_SCHEMA_VERSION = 30 as const;
+export const COGNITIVE_SIDECAR_SCHEMA_VERSION = 31 as const;
 
 /**
  * Hard bound on cognition-facing concern discovery windows and pages. The
@@ -441,6 +442,7 @@ export type DeskEntry = {
   body: string;
   authorKind: DeskAuthorKind;
   sourceRefs: string[];
+  supportRefs?: SourceSupportRef[];
   verbatim: boolean;
   form: DeskForm;
   endorsementRef: string | null;
@@ -469,6 +471,7 @@ export type ConcernRecord = {
   conversationId: ConversationId;
   statement: string;
   sourceTurnIds: string[];
+  supportRefs?: SourceSupportRef[];
   dimensions: EpistemicDimensions;
   assertionKey: AssertionKey | null;
   /**
@@ -891,6 +894,7 @@ export type DeskEntrySemantic = {
   body: string;
   authorKind: DeskAuthorKind;
   sourceRefs: readonly ExistingRef[];
+  supportRefs?: readonly SourceSupportRef[];
   verbatim: boolean;
   form: DeskForm;
   endorsementRef: ExistingRef | null;
@@ -910,6 +914,7 @@ export type ConcernSemanticDelta =
         identity: SemanticRef;
         statement: string;
         sourceTurnRefs: readonly ExistingRef[];
+        supportRefs?: readonly SourceSupportRef[];
         dimensions: EpistemicDimensions;
         status: OccupancyStatus;
       };
@@ -955,6 +960,7 @@ export type ThoughtDurableNomination = {
   dimensions: EpistemicDimensions;
   dataClassification: DataClassification;
   sourceRefs: readonly ExistingRef[];
+  supportRefs?: readonly SourceSupportRef[];
   supersedesRef: ExistingRef | null;
   concernRef: SemanticRef | null;
 };
@@ -1389,6 +1395,7 @@ export type LearnedSelfSlice = {
     dispositions: string[];
     interests: string[];
     supportRefs?: string[];
+    entries?: LearnedSelfEvidenceEntry[];
     audienceScope?: SocialAudience | null;
     protectionStatus?: "admitted" | "unresolved" | null;
   };
@@ -1400,7 +1407,13 @@ export type LearnedSelfSlice = {
     supportRefs?: string[];
     protectionStatus?: "admitted" | "unresolved" | null;
     licenseRefs?: string[];
+    entries?: LearnedSelfEvidenceEntry[];
   }>;
+};
+export type LearnedSelfEvidenceEntry = {
+  statement: string;
+  time: EpistemicDimensions["time"];
+  supportAvailability: "intact" | "unavailable" | "unknown";
 };
 export type RuntimeCondition = {
   fallback: boolean;
@@ -1634,6 +1647,7 @@ export type DurableNomination = {
   supersedesAssertionKey: AssertionKey | null;
   concernId: ConcernId | null;
   sourceRefs?: string[];
+  supportRefs?: SourceSupportRef[];
 };
 export type MemorySupportProvenance = "native" | "legacy_import";
 export type MemoryAssertion = {
@@ -1664,6 +1678,7 @@ export type MemorySupport = {
   evidenceLineageId: string | null;
   observationId: string | null;
   receiptId: string | null;
+  supportRef?: SourceSupportRef;
   dimensions: EpistemicDimensions;
   dataClassification: DataClassification;
   createdAtMs: number;

@@ -462,7 +462,7 @@ export function publishSemanticTransaction(
         nowMs,
       });
     }
-    applyDeskDeltas(db, settlement.deskDeltas ?? [], settlement);
+    applyDeskDeltas(db, settlement.deskDeltas ?? [], { ...settlement, conversationId });
     for (const delta of (settlement.concernDeltas ?? [])) applyConcernDelta(db, delta, settlement);
     for (const delta of (settlement.occupancyDelta ?? [])) applyOccupancyDelta(db, delta, settlement);
     reconcileConcernOccupancyCoherence(db, settlement);

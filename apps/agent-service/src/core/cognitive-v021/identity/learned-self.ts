@@ -1,10 +1,12 @@
 import type { DatabaseSync } from "node:sqlite";
 import { canEnterModelContext } from "../../privacy/classification.js";
-import type { LearnedSelfSlice, MemoryAssertion, MemoryKind } from "../types.js";
+import type { LearnedSelfEvidenceEntry, LearnedSelfSlice, MemoryAssertion, MemoryKind, MemorySupport } from "../types.js";
 import type { SocialAudience } from "../social/types.js";
 import { listMemoryAssertions } from "../memory/assertions.js";
 import { listMemorySupports } from "../memory/supports.js";
 import { hasLearnedSelfThoughtAdoption } from "../memory/admission.js";
+import { getConversationEvidence } from "../evidence/conversation-log.js";
+import { validateSourceSupportRefs } from "../evidence/interpretation-envelope.js";
 
 export type LearnedSelfEntry = {
   memoryKind: MemoryKind;
@@ -27,6 +29,7 @@ type MutableSelfSlice = {
   broadDispositions: string[];
   broadInterests: string[];
   broadSupportRefs: string[];
+  broadEntries: LearnedSelfEvidenceEntry[];
   supportRefs: string[];
   broadAudienceScope: SocialAudience | null;
   broadScopeAmbiguous: boolean;
@@ -38,6 +41,7 @@ type MutableSelfSlice = {
     interests: string[];
     sourceRefs: string[];
     supportRefs: string[];
+    entries: LearnedSelfEvidenceEntry[];
     protectionStatus: "admitted" | "unresolved" | null;
   }>;
 };
@@ -65,16 +69,57 @@ function addText(target: { dispositions: string[]; interests: string[] }, statem
   }
 }
 
+function conversationIdForSupport(db: DatabaseSync, support: MemorySupport): string | null {
+  if (support.supportRef?.kind === "conversation_text_span") {
+    return getConversationEvidence(db, support.supportRef.evidenceRowId)?.conversationId ?? null;
+  }
+  if (!support.settlementId) return null;
+  const row = db.prepare(
+    `SELECT c.conversation_id
+       FROM settlements s JOIN cycle_records c ON c.cycle_id = s.cycle_id
+      WHERE s.settlement_id = ? LIMIT 1`,
+  ).get(support.settlementId) as { conversation_id?: unknown } | undefined;
+  return typeof row?.conversation_id === "string" ? row.conversation_id : null;
+}
+
+function supportAvailability(
+  db: DatabaseSync,
+  assertion: MemoryAssertion,
+  supports: MemorySupport[],
+): LearnedSelfEvidenceEntry["supportAvailability"] {
+  const typed = supports.filter((support) => support.supportRef !== undefined);
+  if (typed.length === 0) return "unknown";
+  const ownerOrigin = assertion.dimensions.source === "owner_utterance"
+    || assertion.dimensions.reliability === "owner_supplied";
+  for (const support of typed) {
+    const conversationId = conversationIdForSupport(db, support);
+    if (!conversationId || !support.supportRef) return "unavailable";
+    try {
+      const [source] = validateSourceSupportRefs(db, [support.supportRef], conversationId);
+      if (ownerOrigin && source?.principalKind !== "owner") return "unavailable";
+    } catch {
+      return "unavailable";
+    }
+  }
+  return "intact";
+}
+
 function addEntry(slice: MutableSelfSlice, assertion: MemoryAssertion, db: DatabaseSync): void {
   if (!assertion.live || assertion.memoryKind !== "learned_self_evidence") return;
   if (!canEnterModelContext(assertion.dataClassification, "private")) return;
   if (!hasLearnedSelfThoughtAdoption(db, assertion.assertionKey)) return;
   const statement = assertion.statement.trim();
   if (!statement) return;
-  const supportRefs = listMemorySupports(db, assertion.assertionKey).flatMap(
+  const supports = listMemorySupports(db, assertion.assertionKey);
+  const supportRefs = supports.flatMap(
     (support) => support.sourceRef == null ? [] : [support.sourceRef],
   );
   slice.supportRefs.push(...supportRefs);
+  const projectedEvidence: LearnedSelfEvidenceEntry = {
+    statement,
+    time: assertion.dimensions.time,
+    supportAvailability: supportAvailability(db, assertion, supports),
+  };
 
   const scope = isKnownAudience(assertion.audienceScope) ? assertion.audienceScope : null;
   if (scope && (scope.kind === "owner_dm" || scope.kind === "dm" || scope.kind === "room")) {
@@ -85,9 +130,11 @@ function addEntry(slice: MutableSelfSlice, assertion: MemoryAssertion, db: Datab
       interests: [],
       sourceRefs: [],
       supportRefs: [],
+      entries: [],
       protectionStatus: null,
     };
     addText(linked, statement);
+    linked.entries.push(projectedEvidence);
     if (assertion.sourceEvidenceRef) linked.sourceRefs.push(assertion.sourceEvidenceRef);
     linked.supportRefs.push(...supportRefs);
     if (linked.protectionStatus === null && assertion.protectionStatus !== undefined) {
@@ -98,6 +145,7 @@ function addEntry(slice: MutableSelfSlice, assertion: MemoryAssertion, db: Datab
   }
 
   addText({ dispositions: slice.broadDispositions, interests: slice.broadInterests }, statement);
+  slice.broadEntries.push(projectedEvidence);
   slice.broadSupportRefs.push(...supportRefs);
   if (!scope) {
     slice.broadHasUnscopedEvidence = true;
@@ -120,6 +168,7 @@ export function buildLearnedSelfSlice(
     broadDispositions: [],
     broadInterests: [],
     broadSupportRefs: [],
+    broadEntries: [],
     supportRefs: [],
     broadAudienceScope: null,
     broadScopeAmbiguous: false,
@@ -152,6 +201,7 @@ export function buildLearnedSelfSlice(
     dispositions: [...new Set(slice.broadDispositions)],
     interests: [...new Set(slice.broadInterests)],
     ...(slice.broadSupportRefs.length > 0 ? { supportRefs: [...new Set(slice.broadSupportRefs)] } : {}),
+    entries: [...slice.broadEntries],
     audienceScope: slice.broadScopeAmbiguous || slice.broadHasUnscopedEvidence ? null : slice.broadAudienceScope,
     protectionStatus: slice.broadProtectionStatus,
   });
@@ -161,6 +211,7 @@ export function buildLearnedSelfSlice(
     interests: [...new Set(entry.interests)],
     sourceRefs: [...new Set(entry.sourceRefs)],
     ...(entry.supportRefs.length > 0 ? { supportRefs: [...new Set(entry.supportRefs)] } : {}),
+    entries: [...entry.entries],
     protectionStatus: entry.protectionStatus,
   })));
   const supportRefs = [...new Set(slice.supportRefs)];

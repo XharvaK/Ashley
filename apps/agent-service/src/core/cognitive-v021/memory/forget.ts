@@ -89,6 +89,40 @@ function parseJson(value: unknown): unknown {
   try { return JSON.parse(value) as unknown; } catch { return null; }
 }
 
+function redactTypedSupportValue(value: unknown, evidenceIds: ReadonlySet<string>): unknown {
+  if (Array.isArray(value)) return value.map((item) => redactTypedSupportValue(item, evidenceIds));
+  if (!isRow(value)) return value;
+  if (value.kind === "conversation_text_span" && evidenceIds.has(text(value.evidenceRowId))) {
+    return { ...value, quote: REDACTED_MEMORY_STATEMENT };
+  }
+  return value;
+}
+
+/** Remove duplicated quote text while retaining typed source identity for availability checks. */
+function redactTypedSupportRefsForEvidence(db: DatabaseSync, evidenceIds: ReadonlySet<string>): number {
+  if (evidenceIds.size === 0) return 0;
+  let changed = 0;
+  for (const row of db.prepare("SELECT support_id, support_ref_json FROM sidecar_memory_supports WHERE support_ref_json IS NOT NULL").all()) {
+    if (!isRow(row)) continue;
+    const previous = parseJson(row.support_ref_json);
+    const next = redactTypedSupportValue(previous, evidenceIds);
+    if (JSON.stringify(previous) === JSON.stringify(next)) continue;
+    changed += number(db.prepare("UPDATE sidecar_memory_supports SET support_ref_json = ? WHERE support_id = ?")
+      .run(JSON.stringify(next), text(row.support_id)).changes);
+  }
+  for (const [table, idColumn] of [["concerns", "concern_id"], ["desk_entries", "id"]] as const) {
+    for (const row of db.prepare(`SELECT ${idColumn}, support_refs_json FROM ${table}`).all()) {
+      if (!isRow(row)) continue;
+      const previous = parseJson(row.support_refs_json);
+      const next = redactTypedSupportValue(previous, evidenceIds);
+      if (JSON.stringify(previous) === JSON.stringify(next)) continue;
+      changed += number(db.prepare(`UPDATE ${table} SET support_refs_json = ? WHERE ${idColumn} = ?`)
+        .run(JSON.stringify(next), text(row[idColumn])).changes);
+    }
+  }
+  return changed;
+}
+
 function workingContextHasOwnTopic(value: unknown, topic: string): boolean {
   const payload = parseJson(value);
   if (hasTypedInterpretationEnvelope(payload)) {
@@ -134,6 +168,7 @@ export function applyV021Forget(
   const redactedAssertionKeys = new Set<string>();
   const changedRowIds = new Set<string>();
   const forgottenSupportKeys = new Set<string>();
+  const forgottenEvidenceIds = new Set<string>();
 
   db.exec("BEGIN IMMEDIATE");
   try {
@@ -144,6 +179,7 @@ export function applyV021Forget(
       changedRows += number(result.changes);
       if (number(result.changes) > 0) changedRowIds.add(text(row.row_id));
       forgottenSupportKeys.add(`conversation_evidence:${text(row.row_id)}`);
+      forgottenEvidenceIds.add(text(row.row_id));
       addTarget(targets, "v021_conversation_evidence", text(row.row_id));
     }
 
@@ -156,7 +192,7 @@ export function applyV021Forget(
       // content, marks the row forgotten, and never leaves a Host-written
       // `resolved` behind as if cognition had settled the concern.
       const result = db.prepare(
-        `UPDATE concerns SET statement = '', source_refs_json = '[]', assertion_key = NULL,
+        `UPDATE concerns SET statement = '', source_refs_json = '[]', support_refs_json = '[]', assertion_key = NULL,
              cognitive_status = NULL, forgotten = 1, updated_cycle = updated_cycle WHERE concern_id = ?`,
       ).run(concernId);
       changedRows += number(result.changes);
@@ -177,7 +213,7 @@ export function applyV021Forget(
       const id = text(row.id);
       const result = db.prepare(
         `UPDATE desk_entries
-            SET body = ?, source_refs_json = '[]', endorsement_ref = NULL
+            SET body = ?, source_refs_json = '[]', support_refs_json = '[]', endorsement_ref = NULL
           WHERE id = ?`,
       ).run(REDACTED_MEMORY_STATEMENT, id);
       changedRows += number(result.changes);
@@ -237,6 +273,7 @@ export function applyV021Forget(
       }
     }
 
+    changedRows += redactTypedSupportRefsForEvidence(db, forgottenEvidenceIds);
     changedRows += markInterpretationSupportUnavailable(db, [...forgottenSupportKeys], "source_forgotten");
 
     const nominationRows = db.prepare("SELECT nomination_id, assertion_key, statement FROM durable_nominations").all();
@@ -271,7 +308,7 @@ export function applyV021Forget(
       const result = db.prepare(
         `UPDATE sidecar_memory_supports
             SET source_ref = NULL, settlement_id = NULL, evidence_lineage_id = NULL,
-                observation_id = NULL, receipt_id = NULL
+                observation_id = NULL, receipt_id = NULL, support_ref_json = NULL
           WHERE assertion_key = ?`,
       ).run(key);
       changedRows += number(result.changes);
@@ -550,6 +587,7 @@ function applyV021ForgetTargetsInTransaction(
   for (const id of evidenceIds) {
     addChanges(db.prepare("UPDATE conversation_evidence_log SET text = NULL, source_status = 'redacted' WHERE row_id = ?").run(id), changed);
   }
+  changed.value += redactTypedSupportRefsForEvidence(db, evidenceIds);
 
   for (const id of targetIds(targets, "v021_thought_step")) {
     addChanges(db.prepare("UPDATE thought_steps SET payload_json = ? WHERE request_id = ?").run(JSON.stringify({ redacted: true }), id), changed);
@@ -583,13 +621,13 @@ function applyV021ForgetTargetsInTransaction(
   for (const id of targetIds(targets, "v021_desk_entry")) {
     addChanges(db.prepare(
       `UPDATE desk_entries
-          SET body = ?, source_refs_json = '[]', endorsement_ref = NULL
+          SET body = ?, source_refs_json = '[]', support_refs_json = '[]', endorsement_ref = NULL
         WHERE id = ?`,
     ).run(REDACTED_MEMORY_STATEMENT, id), changed);
   }
   for (const id of targetIds(targets, "v021_concern")) {
     addChanges(db.prepare(
-      `UPDATE concerns SET statement = '', source_refs_json = '[]', assertion_key = NULL,
+      `UPDATE concerns SET statement = '', source_refs_json = '[]', support_refs_json = '[]', assertion_key = NULL,
            cognitive_status = NULL, forgotten = 1 WHERE concern_id = ?`,
     ).run(id), changed);
   }
@@ -623,7 +661,7 @@ function applyV021ForgetTargetsInTransaction(
     addChanges(db.prepare(
       `UPDATE sidecar_memory_supports
           SET source_ref = NULL, settlement_id = NULL, evidence_lineage_id = NULL,
-              observation_id = NULL, receipt_id = NULL
+              observation_id = NULL, receipt_id = NULL, support_ref_json = NULL
         WHERE support_id = ?`,
     ).run(id), changed);
   }

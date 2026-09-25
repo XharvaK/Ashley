@@ -100,6 +100,54 @@ describe("Sparse VNext fresh authoring", () => {
     }] })).toMatchObject({ ok: false, code: "wrong_type", field: "deskDeltas" });
   });
 
+  it("accepts typed support refs on nominations, concerns, and desk entries while keeping legacy refs", () => {
+    const supportRef = {
+      kind: "conversation_text_span",
+      evidenceRowId: "turn-1",
+      start: 0,
+      end: 4,
+      quote: "then",
+    };
+    const value = {
+      ...minimal,
+      deskDeltas: [{ op: "upsert", entry: {
+        identity: { kind: "existing", ref: "desk-1" },
+        concernRef: null,
+        body: "Outside quote.",
+        authorKind: "quoted_external",
+        sourceRefs: ["turn-1"],
+        supportRefs: [supportRef],
+        verbatim: true,
+        form: "observation",
+        endorsementRef: null,
+        audienceScope: { kind: "owner_private" },
+      } }],
+      concernDeltas: [{ op: "upsert", record: {
+        identity: { kind: "local", alias: "concern-new" },
+        statement: "Track this concern.",
+        sourceTurnRefs: ["turn-1"],
+        supportRefs: [supportRef],
+        dimensions,
+        status: "active",
+      } }],
+      durableNominations: [{
+        statement: "A past fact",
+        memoryKind: "owner_world_claim",
+        dimensions,
+        dataClassification: "ordinary",
+        sourceRefs: ["turn-1"],
+        supportRefs: [supportRef],
+        supersedesRef: null,
+        concernRef: null,
+      }],
+    };
+    expect(parse(value)).toEqual({ ok: true, value });
+    expect(parse({
+      ...value,
+      durableNominations: [{ ...value.durableNominations[0], supportRefs: [{ ...supportRef, start: -1 }] }],
+    }).ok).toBe(false);
+  });
+
   it("rejects a creation alias that collides with an existing reference", () => {
     const item = {
       identity: { kind: "local", alias: "turn-1" },

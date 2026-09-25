@@ -1208,6 +1208,7 @@ function materializeSemanticSettlement(
       body: entry.body,
       authorKind: entry.authorKind,
       sourceRefs: [...entry.sourceRefs],
+      ...(entry.supportRefs ? { supportRefs: [...entry.supportRefs] } : {}),
       verbatim: entry.verbatim,
       form: entry.form,
       endorsementRef: semanticReferenceValue(
@@ -1250,6 +1251,7 @@ function materializeSemanticSettlement(
             conversationId,
             statement: delta.record.statement,
             sourceTurnIds: [...delta.record.sourceTurnRefs],
+            ...(delta.record.supportRefs ? { supportRefs: [...delta.record.supportRefs] } : {}),
             dimensions: { ...delta.record.dimensions },
             assertionKey: null,
             status: delta.record.status,
@@ -1351,6 +1353,7 @@ function materializeSemanticSettlement(
         `durableNominations[${index}].concernRef`,
       ),
       sourceRefs: [...nomination.sourceRefs],
+      ...(nomination.supportRefs ? { supportRefs: [...nomination.supportRefs] } : {}),
     }));
   return result as ThoughtSettlementDraft;
 }

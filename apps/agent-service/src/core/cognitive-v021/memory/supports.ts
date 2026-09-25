@@ -8,12 +8,16 @@ import type {
   EpistemicSource,
   MemorySupport,
   MemorySupportProvenance,
+  SourceSupportRef,
 } from "../types.js";
+import { parseSourceSupportRef, validateSourceSupportRefs } from "../evidence/interpretation-envelope.js";
 
 type DbRow = Record<string, unknown>;
 
 export type AppendMemorySupportInput = Omit<MemorySupport, "createdAtMs"> & {
   createdAtMs?: number;
+  /** Validation context only; the conversation id remains owned by the source row. */
+  conversationId?: string;
 };
 
 function isRow(value: unknown): value is DbRow {
@@ -46,6 +50,8 @@ function mapSupport(value: unknown): MemorySupport | null {
   const provenance = text(value.provenance) as MemorySupportProvenance;
   const sourceArchitectureEpoch = text(value.source_architecture_epoch);
   const dimensions = parsedJson(value.dimensions_json);
+  const supportRefValue = parsedJson(value.support_ref_json);
+  const supportRef = supportRefValue == null ? null : parseSourceSupportRef(supportRefValue);
   if (!dimensions || (provenance !== "native" && provenance !== "legacy_import")) return null;
   return {
     supportId: text(value.support_id),
@@ -58,6 +64,7 @@ function mapSupport(value: unknown): MemorySupport | null {
     evidenceLineageId: value.evidence_lineage_id == null ? null : text(value.evidence_lineage_id),
     observationId: value.observation_id == null ? null : text(value.observation_id),
     receiptId: value.receipt_id == null ? null : text(value.receipt_id),
+    ...(supportRef ? { supportRef } : {}),
     dimensions: dimensions as EpistemicDimensions,
     dataClassification: classification(value.data_classification),
     createdAtMs: number(value.created_at_ms),
@@ -70,12 +77,23 @@ export function appendMemorySupport(
 ): MemorySupport {
   if (!input.supportId.trim()) throw new Error("memory_support_id_required");
   if (!input.assertionKey.trim()) throw new Error("memory_support_assertion_key_required");
+  let supportRef: SourceSupportRef | null = null;
+  if (input.supportRef !== undefined) {
+    supportRef = parseSourceSupportRef(input.supportRef);
+    if (!supportRef) throw new Error("support_ref_invalid");
+    if (!input.conversationId) throw new Error("support_ref_conversation_required");
+    const [resolved] = validateSourceSupportRefs(db, [supportRef], input.conversationId);
+    if ((input.dimensions.source === "owner_utterance" || input.dimensions.reliability === "owner_supplied")
+      && resolved?.principalKind !== "owner") {
+      throw new Error("memory_support_owner_attribution_external");
+    }
+  }
   db.prepare(
     `INSERT OR IGNORE INTO sidecar_memory_supports
        (support_id, assertion_key, source, provenance, source_architecture_epoch,
         source_ref, settlement_id, evidence_lineage_id, observation_id, receipt_id,
-        dimensions_json, data_classification, created_at_ms)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        dimensions_json, data_classification, created_at_ms, support_ref_json)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     input.supportId,
     input.assertionKey,
@@ -90,6 +108,7 @@ export function appendMemorySupport(
     JSON.stringify(input.dimensions),
     input.dataClassification,
     input.createdAtMs ?? Date.now(),
+    supportRef ? JSON.stringify(supportRef) : null,
   );
   const row = db.prepare("SELECT * FROM sidecar_memory_supports WHERE support_id = ?").get(input.supportId);
   const result = mapSupport(row);

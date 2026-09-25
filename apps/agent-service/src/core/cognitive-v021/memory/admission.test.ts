@@ -133,6 +133,48 @@ describe("v0.2.1 fenced Memory admission", () => {
     }
   });
 
+  it("stores typed nomination support on admitted memory without replacing legacy source refs", () => {
+    const db = openTestSidecar();
+    try {
+      const ev = appendOwnerUtterance(db, {
+        conversationId: "thread-typed-admission",
+        text: "I prefer the first subject.",
+        nowMs: 1,
+      });
+      admitTestCycle(db, {
+        cycleId: "cycle-typed-admission",
+        conversationId: "thread-typed-admission",
+        generation: 1,
+        triggerKind: "owner_message",
+        triggerRef: ev.rowId,
+        occupantId: "doc",
+        nowMs: 1,
+      });
+      const supportRef = {
+        kind: "conversation_text_span" as const,
+        evidenceRowId: ev.rowId,
+        start: 0,
+        end: ev.text!.length,
+        quote: ev.text!,
+      };
+      publishNomination(db, nomination({
+        cycleId: "cycle-typed-admission",
+        sourceRefs: [ev.rowId],
+        supportRefs: [supportRef],
+      }), "settlement-typed-admission");
+
+      expect(tickAdmission(db, { nowMs: 2 }).admitted).toBe(1);
+      expect(db.prepare(
+        "SELECT source_ref, support_ref_json FROM sidecar_memory_supports WHERE support_id = 'native:nomination-1:typed:0'",
+      ).get()).toEqual({ source_ref: "nomination-1", support_ref_json: JSON.stringify(supportRef) });
+      expect(db.prepare(
+        "SELECT source_ref FROM sidecar_memory_supports WHERE support_id = 'native:nomination-1'",
+      ).get()).toEqual({ source_ref: "nomination-1" });
+    } finally {
+      db.close();
+    }
+  });
+
   it("skips an older nomination when a later published generation supersedes it", () => {
     const db = openTestSidecar();
     try {

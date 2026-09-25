@@ -8,6 +8,7 @@ import type {
   ConversationEvidenceRecord,
   MemoryAssertion,
   DurableNomination,
+  SourceSupportRef,
 } from "../types.js";
 import {
   getDurableNomination,
@@ -15,6 +16,7 @@ import {
   type DurableNominationRecord,
 } from "./nomination.js";
 import { appendMemorySupport } from "./supports.js";
+import { validateSourceSupportRefs } from "../evidence/interpretation-envelope.js";
 import { REDACTED_MEMORY_STATEMENT, upsertMemoryAssertion } from "./assertions.js";
 import { notifySidecarPostCommit } from "../retrieval/derived-store.js";
 import { hasStructuredCurrentnessEntitlement } from "../authority/check.js";
@@ -54,6 +56,17 @@ function publishedNominationMatches(
     && published.assertionKey === nomination.assertionKey
     && published.statement === nomination.statement
     && published.memoryKind === nomination.memoryKind;
+}
+
+function publishedSupportRefs(
+  settlement: { payload_json?: unknown } | null,
+  nomination: DurableNomination,
+): unknown[] {
+  const published = publishedDurableNominations(settlement)
+    .find((item) => publishedNominationMatches(item, nomination));
+  if (!published || published.supportRefs === undefined) return [];
+  if (!Array.isArray(published.supportRefs)) throw new Error("support_ref_invalid");
+  return published.supportRefs;
 }
 
 function isAshleyInterpretationForStatement(
@@ -311,9 +324,26 @@ function admitOne(
     return result;
   }
 
-  // 1. Structured provenance validation:
-  // When candidate assertion has: source === "owner_utterance" || reliability === "owner_supplied"
+  // 1. Typed support refs use the same current-source resolver as Working Context.
+  let typedSupportRefs: SourceSupportRef[] = [];
+  let resolvedTypedSupport: ReturnType<typeof validateSourceSupportRefs> = [];
+  try {
+    const values = publishedSupportRefs(settlement, nomination);
+    resolvedTypedSupport = validateSourceSupportRefs(db, values, current.conversationId);
+    typedSupportRefs = values as SourceSupportRef[];
+  } catch {
+    const result = noAssertion("admission_skipped_provenance");
+    logAdmission(db, result, nowMs);
+    return result;
+  }
   const isOwnerOrigin = nomination.dimensions.source === "owner_utterance" || nomination.dimensions.reliability === "owner_supplied";
+  if (isOwnerOrigin && resolvedTypedSupport.some((source) => source.principalKind !== "owner")) {
+    const result = noAssertion("admission_skipped_provenance");
+    logAdmission(db, result, nowMs);
+    return result;
+  }
+
+  // Legacy sourceRefs remain an independent admission input for existing readers.
   const sourceRefs = resolveNominationSourceRefs(db, nomination, settlement);
 
   if (isOwnerOrigin) {
@@ -428,6 +458,25 @@ function admitOne(
     dataClassification: effectiveClassification,
     createdAtMs: nowMs,
   });
+  for (const [index, supportRef] of typedSupportRefs.entries()) {
+    appendMemorySupport(db, {
+      supportId: `native:${nomination.nominationId}:typed:${index}`,
+      assertionKey: nomination.assertionKey,
+      source: nomination.dimensions.source,
+      provenance: "native",
+      sourceArchitectureEpoch: "v0.2.1",
+      sourceRef: nomination.nominationId,
+      settlementId: text(settlement.settlement_id),
+      evidenceLineageId: null,
+      observationId: null,
+      receiptId: null,
+      dimensions: nomination.dimensions,
+      dataClassification: effectiveClassification,
+      supportRef,
+      conversationId: current.conversationId,
+      createdAtMs: nowMs,
+    });
+  }
   if (socialAdmission) {
     for (const evidence of socialAdmission.evidence) {
       appendMemorySupport(db, {

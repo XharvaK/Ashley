@@ -1304,3 +1304,14 @@ CREATE INDEX IF NOT EXISTS idx_interpretation_dependencies_target
   ON interpretation_dependencies (to_id, kind);
 UPDATE cognitive_sidecar_meta SET schema_version = 30, projection_state = 'reconciling' WHERE id = 1;
 `;
+
+/** Add typed support refs to existing interpretation carriers without rewriting legacy refs. */
+export const COGNITIVE_SIDECAR_SCHEMA_V31 = String.raw`
+ALTER TABLE sidecar_memory_supports ADD COLUMN support_ref_json TEXT
+  CHECK(support_ref_json IS NULL OR json_valid(support_ref_json));
+ALTER TABLE concerns ADD COLUMN support_refs_json TEXT NOT NULL DEFAULT '[]'
+  CHECK(json_valid(support_refs_json) AND json_type(support_refs_json) = 'array');
+ALTER TABLE desk_entries ADD COLUMN support_refs_json TEXT NOT NULL DEFAULT '[]'
+  CHECK(json_valid(support_refs_json) AND json_type(support_refs_json) = 'array');
+UPDATE cognitive_sidecar_meta SET schema_version = 31, projection_state = 'reconciling' WHERE id = 1;
+`;

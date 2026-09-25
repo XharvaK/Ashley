@@ -10,9 +10,10 @@ import type {
   DeskLifecycle,
 } from "../types.js";
 import type { SocialAudience } from "../social/types.js";
+import { parseSourceSupportRef, validateSourceSupportRefs } from "../evidence/interpretation-envelope.js";
 
 type Row = Record<string, unknown>;
-type DeskSettlementContext = { cycleId: string; generation: number };
+type DeskSettlementContext = { cycleId: string; generation: number; conversationId?: string };
 
 function isRow(value: unknown): value is Row {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -72,7 +73,7 @@ function currentEndorsement(db: DatabaseSync, ref: string | null): string | null
     : null;
 }
 
-function validateDraft(db: DatabaseSync, input: DeskEntryDraft): DeskEntryDraft {
+function validateDraft(db: DatabaseSync, input: DeskEntryDraft, context: DeskSettlementContext): DeskEntryDraft {
   if (!input.id.trim()) error("desk_entry_id_required");
   if (!input.body.trim()) error("desk_entry_body_required");
   if (!input.concernRef || typeof input.concernRef !== "string") {
@@ -94,6 +95,15 @@ function validateDraft(db: DatabaseSync, input: DeskEntryDraft): DeskEntryDraft 
   if (input.endorsementRef !== null && typeof input.endorsementRef !== "string") {
     error("desk_entry_endorsement_invalid");
   }
+  const supportRefs = input.supportRefs ?? [];
+  if (!Array.isArray(supportRefs)) error("support_ref_invalid");
+  if (supportRefs.length > 0) {
+    if (!context.conversationId) error("support_ref_conversation_required");
+    const resolved = validateSourceSupportRefs(db, supportRefs, context.conversationId);
+    if (input.authorKind === "owner" && resolved.some((source) => source.principalKind !== "owner")) {
+      error("desk_support_owner_attribution_external");
+    }
+  }
   const normalizedAudience = ownerScopedAudience(input.audienceScope);
   const endorsementRef = currentEndorsement(db, input.endorsementRef);
   if (input.endorsementRef !== null && endorsementRef === null) error("desk_endorsement_invalid");
@@ -101,6 +111,7 @@ function validateDraft(db: DatabaseSync, input: DeskEntryDraft): DeskEntryDraft 
     ...input,
     concernRef: input.concernRef,
     sourceRefs: [...input.sourceRefs],
+    ...(supportRefs.length > 0 ? { supportRefs: supportRefs.map(parseSourceSupportRef).filter((ref) => ref !== null) } : {}),
     audienceScope: normalizedAudience,
     endorsementRef,
   };
@@ -109,6 +120,10 @@ function validateDraft(db: DatabaseSync, input: DeskEntryDraft): DeskEntryDraft 
 function rowToEntry(row: unknown): DeskEntry | null {
   if (!isRow(row)) return null;
   const sourceRefs = stringList(parseJson(row.source_refs_json));
+  const storedSupportRefs = parseJson(row.support_refs_json);
+  const supportRefs = Array.isArray(storedSupportRefs)
+    ? storedSupportRefs.map(parseSourceSupportRef).filter((ref) => ref !== null)
+    : [];
   const scope = parseAudience(row.audience_scope_json);
   const lifecycle = row.lifecycle;
   if (!sourceRefs || !scope || (lifecycle !== "active" && lifecycle !== "archived" && lifecycle !== "tombstoned")) return null;
@@ -123,6 +138,7 @@ function rowToEntry(row: unknown): DeskEntry | null {
     body: text(row.body),
     authorKind,
     sourceRefs,
+    ...(supportRefs.length > 0 ? { supportRefs } : {}),
     verbatim: row.verbatim === 1,
     form,
     endorsementRef: row.endorsement_ref == null ? null : text(row.endorsement_ref),
@@ -150,9 +166,9 @@ function insertDeskEntry(
   db.prepare(
     `INSERT INTO desk_entries
        (id, concern_ref, body, author_kind, source_refs_json, verbatim, form,
-        endorsement_ref, audience_scope_json, lifecycle, superseded_by,
+        support_refs_json, endorsement_ref, audience_scope_json, lifecycle, superseded_by,
         updated_cycle, updated_generation, created_at_ms, updated_at_ms)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', NULL, ?, ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', NULL, ?, ?, ?, ?)`,
   ).run(
     input.id,
     input.concernRef,
@@ -161,6 +177,7 @@ function insertDeskEntry(
     JSON.stringify(input.sourceRefs),
     input.verbatim ? 1 : 0,
     input.form,
+    JSON.stringify(input.supportRefs ?? []),
     endorsementRef,
     JSON.stringify(input.audienceScope),
     context.cycleId,
@@ -174,7 +191,8 @@ function attributionChanged(existing: DeskEntry, replacement: DeskEntryDraft): b
   return existing.body !== replacement.body ||
     existing.authorKind !== replacement.authorKind ||
     existing.verbatim !== replacement.verbatim ||
-    JSON.stringify(existing.sourceRefs) !== JSON.stringify(replacement.sourceRefs);
+    JSON.stringify(existing.sourceRefs) !== JSON.stringify(replacement.sourceRefs) ||
+    JSON.stringify(existing.supportRefs ?? []) !== JSON.stringify(replacement.supportRefs ?? []);
 }
 
 function applyOneDeskDelta(
@@ -184,7 +202,7 @@ function applyOneDeskDelta(
   nowMs: number,
 ): void {
   if (delta.op === "upsert") {
-    const input = validateDraft(db, delta.entry);
+    const input = validateDraft(db, delta.entry, context);
     const existing = rowToEntry(db.prepare("SELECT * FROM desk_entries WHERE id = ?").get(input.id));
     if (!existing) {
       insertDeskEntry(db, input, context, nowMs, input.endorsementRef);
@@ -194,7 +212,7 @@ function applyOneDeskDelta(
     const endorsementRef = attributionChanged(existing, input) ? null : input.endorsementRef;
     db.prepare(
       `UPDATE desk_entries
-          SET concern_ref = ?, body = ?, author_kind = ?, source_refs_json = ?,
+          SET concern_ref = ?, body = ?, author_kind = ?, source_refs_json = ?, support_refs_json = ?,
               verbatim = ?, form = ?, endorsement_ref = ?, audience_scope_json = ?,
               updated_cycle = ?, updated_generation = ?, updated_at_ms = ?
         WHERE id = ? AND lifecycle = 'active'`,
@@ -203,6 +221,7 @@ function applyOneDeskDelta(
       input.body,
       input.authorKind,
       JSON.stringify(input.sourceRefs),
+      JSON.stringify(input.supportRefs ?? []),
       input.verbatim ? 1 : 0,
       input.form,
       endorsementRef,
@@ -220,7 +239,7 @@ function applyOneDeskDelta(
   if (!existing || existing.lifecycle !== "active") error("desk_entry_not_active");
 
   if (delta.op === "supersede") {
-    const replacement = validateDraft(db, delta.replacement);
+    const replacement = validateDraft(db, delta.replacement, context);
     if (replacement.id === targetId || db.prepare("SELECT 1 FROM desk_entries WHERE id = ?").get(replacement.id)) {
       error("desk_entry_replacement_exists");
     }

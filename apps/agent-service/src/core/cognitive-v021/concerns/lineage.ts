@@ -8,6 +8,7 @@ import type {
   Generation,
   QuarantineKind,
 } from "../types.js";
+import { parseSourceSupportRef, validateSourceSupportRefs } from "../evidence/interpretation-envelope.js";
 
 export type ConcernPublication = { cycleId: CycleId; generation: Generation };
 type Row = Record<string, unknown>;
@@ -59,13 +60,18 @@ export type ConcernAuthorityFacts = Readonly<{
 function mapConcern(row: unknown): ConcernRecord | null {
   if (!isRow(row)) return null;
   const sourceTurnIds = json(row.source_refs_json, []);
+  const supportRefs = json(row.support_refs_json, []);
   const dimensions = json(row.dimensions_json, null);
   if (!Array.isArray(sourceTurnIds) || !isRow(dimensions)) return null;
+  const typedSupportRefs = Array.isArray(supportRefs)
+    ? supportRefs.map(parseSourceSupportRef).filter((ref) => ref !== null)
+    : [];
   return {
     concernId: text(row.concern_id),
     conversationId: text(row.conversation_id),
     statement: text(row.statement),
     sourceTurnIds: sourceTurnIds.filter((id): id is string => typeof id === "string"),
+    ...(typedSupportRefs.length > 0 ? { supportRefs: typedSupportRefs } : {}),
     dimensions: dimensions as ConcernRecord["dimensions"],
     assertionKey: row.assertion_key == null ? null : text(row.assertion_key),
     status: cognitiveStatusOf(row.cognitive_status),
@@ -150,13 +156,22 @@ export function applyConcernDelta(
     return;
   }
   const record = delta.record;
+  const typedSupportRefs = record.supportRefs ?? [];
+  if (!Array.isArray(typedSupportRefs)) throw new Error("support_ref_invalid");
+  if (typedSupportRefs.length > 0) {
+    const resolved = validateSourceSupportRefs(db, typedSupportRefs, record.conversationId);
+    if ((record.dimensions.source === "owner_utterance" || record.dimensions.reliability === "owner_supplied")
+      && resolved.some((source) => source.principalKind !== "owner")) {
+      throw new Error("support_ref_owner_attribution_external");
+    }
+  }
   db.prepare(
     `INSERT INTO concerns
-       (concern_id, conversation_id, statement, source_refs_json, dimensions_json,
+       (concern_id, conversation_id, statement, source_refs_json, support_refs_json, dimensions_json,
         assertion_key, cognitive_status, quarantine_kind, forgotten, snapshot_hash, updated_cycle)
-     VALUES (?, ?, ?, ?, ?, ?, ?, NULL, 0, ?, ?)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, 0, ?, ?)
      ON CONFLICT(concern_id) DO UPDATE SET conversation_id=excluded.conversation_id,
-       statement=excluded.statement, source_refs_json=excluded.source_refs_json,
+       statement=excluded.statement, source_refs_json=excluded.source_refs_json, support_refs_json=excluded.support_refs_json,
        dimensions_json=excluded.dimensions_json, assertion_key=excluded.assertion_key,
        cognitive_status=excluded.cognitive_status, snapshot_hash=excluded.snapshot_hash,
        updated_cycle=excluded.updated_cycle
@@ -166,6 +181,7 @@ export function applyConcernDelta(
     record.conversationId,
     record.statement,
     JSON.stringify(record.sourceTurnIds),
+    JSON.stringify(typedSupportRefs),
     JSON.stringify(record.dimensions),
     record.assertionKey,
     record.status,
