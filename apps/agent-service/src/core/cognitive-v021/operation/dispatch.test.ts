@@ -302,6 +302,7 @@ describe("detached worker dispatch", () => {
         sidecar,
         detached.operation.operationId,
         async () => ({ ok: false, errorCode: "worker_failed" }),
+        { nowMs: 2_000 },
       );
       expect(result).toMatchObject({ ok: true, operation: { state: "failed", errorCode: "worker_failed" } });
     } finally {
@@ -394,7 +395,7 @@ describe("detached worker dispatch", () => {
         calls += 1;
         throw new Error("transport exploded mid-flight");
       };
-      const result = await dispatchDetachedOperation(sidecar, opId, throwing);
+       const result = await dispatchDetachedOperation(sidecar, opId, throwing, { nowMs: 2_000 });
       expect(result).toMatchObject({
         ok: true,
         operation: { state: "outcome_unknown", errorCode: "worker_dispatch_failed" },
@@ -503,6 +504,7 @@ describe("interim delivery independence", () => {
         sidecar,
         detached.operation.operationId,
         successWorker,
+        { nowMs: 2_000 },
       );
       expect(dispatched).toMatchObject({ ok: true, operation: { state: "succeeded" } });
     } finally {
@@ -541,6 +543,7 @@ describe("interim delivery independence", () => {
         sidecar,
         detached.operation.operationId,
         successWorker,
+        { nowMs: 2_000 },
       );
       expect(dispatched).toMatchObject({ ok: true, operation: { state: "succeeded" } });
     } finally {

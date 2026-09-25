@@ -6,6 +6,7 @@ import type {
   DeskEntry,
   WorkingContextItem,
 } from "../../types.js";
+import { MAX_EFFECT_ROUNDS } from "../../types.js";
 import { AppError } from "../../../../errors.js";
 import {
   computeDispatchMessagesHash,
@@ -634,6 +635,12 @@ export function allocateThoughtProjection(
         compression: compression || input.runtimeCondition.compression,
       },
       rememberDirective: input.rememberDirective,
+      effectBudget: input.effectBudget ?? {
+        maxEffectRounds: MAX_EFFECT_ROUNDS,
+        usedEffectRounds: 0,
+        remainingEffectRounds: MAX_EFFECT_ROUNDS,
+      },
+      ...(input.settlementOnly === undefined ? {} : { settlementOnly: input.settlementOnly }),
       ...(hasConversationSelection
         ? {
             conversationSelection: {

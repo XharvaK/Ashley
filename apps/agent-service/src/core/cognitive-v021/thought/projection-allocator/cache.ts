@@ -13,6 +13,7 @@ export type SemanticPassKeyInput = {
   composeLogIds: string[];
   rememberDirectivePresent: boolean;
   sourceCurrentnessKey?: string;
+  settlementOnly?: boolean;
 };
 
 function sha256(text: string): string {
@@ -42,6 +43,7 @@ export function semanticPassKey(input: SemanticPassKeyInput): string {
     sortedLogIds,
     input.rememberDirectivePresent ? "1" : "0",
     input.sourceCurrentnessKey ?? "none",
+    input.settlementOnly ? "settlement-only" : "ordinary",
   ].join(":");
 }
 

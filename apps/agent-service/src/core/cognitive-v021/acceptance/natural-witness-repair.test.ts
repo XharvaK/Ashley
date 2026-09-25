@@ -31,6 +31,7 @@ import {
   serviceUnansweredOwnerRecovery,
 } from "../retry/owner-recovery.js";
 import { startDurableAttempt } from "../retry/ledger.js";
+import { LONG_OPERATION_HORIZON_MS } from "../../sandbox/worker/contracts.js";
 import {
   executeModeBWorker,
   terminateProcessWithEscalation,
@@ -985,15 +986,15 @@ describe("Natural Witness Repair — 2026-09-18 Incident Verifications", () => {
   });
 
 
-  describe("Repair E: One-Hour Worker Deadline Hierarchy", () => {
+  describe("Repair E: Long Worker Deadline Hierarchy", () => {
     it("E1: Deadlines and reserve constants are correctly configured", () => {
-      expect(DETACHED_WORKER_MAX_WALL_CLOCK_MS).toBe(3_600_000); // 1 hour
+       expect(DETACHED_WORKER_MAX_WALL_CLOCK_MS).toBe(DETACHED_OPERATION_DEFAULT_DEADLINE_MS);
       expect(WORKER_FINALIZATION_RESERVE_MS).toBe(30_000); // 30 seconds
       expect(OPENCODE_MODEL_TURN_MAX_MS).toBe(300_000); // 5 minutes
-      expect(DETACHED_OPERATION_DEFAULT_DEADLINE_MS).toBe(3_600_000); // 1 hour
+       expect(DETACHED_OPERATION_DEFAULT_DEADLINE_MS).toBe(LONG_OPERATION_HORIZON_MS);
     });
 
-    it("E2: dispatchDetachedOperation uses DETACHED_OPERATION_DEFAULT_DEADLINE_MS (1 hour)", async () => {
+    it("E2: dispatchDetachedOperation uses the fixed operation deadline", async () => {
       const sidecar = openTestSidecar();
       try {
         const conversationId = "thread-e2";
@@ -1033,8 +1034,7 @@ describe("Natural Witness Repair — 2026-09-18 Incident Verifications", () => {
           { nowMs: 1_000 },
         );
 
-        // 1_000 ms + 3_600_000 ms = 3_601_000 ms
-        expect(dispatchedDeadline).toBe(3_601_000);
+         expect(dispatchedDeadline).toBe(1_000 + DETACHED_OPERATION_DEFAULT_DEADLINE_MS);
       } finally {
         sidecar.close();
       }
@@ -2193,7 +2193,7 @@ describe("Natural Witness Repair — 2026-09-18 Incident Verifications", () => {
   });
 
   describe("Repair P6: Complete Deadline Qualification", () => {
-    it("P6-1: 45m queue wait then start -> fresh 1h execution allowance", async () => {
+     it("P6-1: 45m queue wait preserves the original execution deadline", async () => {
       const sidecar = openTestSidecar();
       try {
         const conversationId = "thread-p6-1";
@@ -2236,8 +2236,8 @@ describe("Natural Witness Repair — 2026-09-18 Incident Verifications", () => {
           request: { projectId: "project-ashley" },
           purpose: "investigate",
           evidenceNeed: "code",
-          operationDeadlineAtMs: startExecutionTime + DETACHED_OPERATION_DEFAULT_DEADLINE_MS,
-          nowMs: startExecutionTime,
+           operationDeadlineAtMs: 1_000 + DETACHED_OPERATION_DEFAULT_DEADLINE_MS,
+           nowMs: startExecutionTime,
         });
         expect(admitted.ok).toBe(true);
         if (!admitted.ok) return;
@@ -2253,8 +2253,7 @@ describe("Natural Witness Repair — 2026-09-18 Incident Verifications", () => {
           { nowMs: startExecutionTime },
         );
 
-        // Execution allowance is startExecutionTime + 3_600_000 (fresh 1h, not reduced by 45m wait)
-        expect(dispatchedDeadline).toBe(startExecutionTime + 3_600_000);
+         expect(dispatchedDeadline).toBe(1_000 + DETACHED_OPERATION_DEFAULT_DEADLINE_MS);
       } finally {
         sidecar.close();
       }
@@ -2304,7 +2303,7 @@ describe("Natural Witness Repair — 2026-09-18 Incident Verifications", () => {
           { nowMs: capacityResolvedTime },
         );
 
-        expect(effectiveDeadline).toBe(capacityResolvedTime + DETACHED_OPERATION_DEFAULT_DEADLINE_MS);
+         expect(effectiveDeadline).toBe(1_000 + DETACHED_OPERATION_DEFAULT_DEADLINE_MS);
       } finally {
         sidecar.close();
       }
@@ -2595,9 +2594,9 @@ describe("Natural Witness Repair — 2026-09-18 Incident Verifications", () => {
       expect(result.license.error).toBe("deadline_exhausted");
     });
 
-    it("P6-8: Outer 1h bound is absolute", () => {
-      expect(DETACHED_WORKER_MAX_WALL_CLOCK_MS).toBe(3_600_000);
-      expect(DETACHED_OPERATION_DEFAULT_DEADLINE_MS).toBe(3_600_000);
-    });
+     it("P6-8: Outer 6h bound is absolute", () => {
+       expect(DETACHED_WORKER_MAX_WALL_CLOCK_MS).toBe(DETACHED_OPERATION_DEFAULT_DEADLINE_MS);
+       expect(DETACHED_OPERATION_DEFAULT_DEADLINE_MS).toBe(LONG_OPERATION_HORIZON_MS);
+     });
   });
 });

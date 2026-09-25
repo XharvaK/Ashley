@@ -1547,6 +1547,12 @@ export type ThoughtInput = {
   authorityObjections: AuthorityCode[];
   runtimeCondition: RuntimeCondition;
   rememberDirective: RememberDirective | null;
+  effectBudget?: Readonly<{
+    maxEffectRounds: number;
+    usedEffectRounds: number;
+    remainingEffectRounds: number;
+  }>;
+  settlementOnly?: boolean;
 };
 export type ThoughtCompleteOptions = CognitiveDispatchOptions & {
   attentionDb: DatabaseSync;

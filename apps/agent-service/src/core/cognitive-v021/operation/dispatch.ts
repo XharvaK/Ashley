@@ -56,7 +56,6 @@ export {
 /** @deprecated Use WORKER_MODEL_TURN_MAX_MS. Kept for historical test/evidence readers. */
 export const OPENCODE_MODEL_TURN_MAX_MS = WORKER_MODEL_TURN_MAX_MS;
 
-/** Own bounded wall-clock for a detached operation: outside any Thought budget. (1 hour default) */
 export const DETACHED_OPERATION_DEFAULT_DEADLINE_MS = DETACHED_WORKER_MAX_WALL_CLOCK_MS;
 
 export type EnqueueWorkerUndertakingIntentInput = EnqueueWorkerUndertakingInput & {
@@ -364,10 +363,21 @@ export async function dispatchDetachedOperation(
     const started = markDetachedOperationStarted(sidecar, operationId, {
       startProofRef: `worker-dispatch:${operationId}:${nowMs}`,
       workerBinding: { kind: "project.investigate", dispatchedAtMs: nowMs },
-      executionDeadlineAtMs: nowMs + DETACHED_OPERATION_DEFAULT_DEADLINE_MS,
+      executionDeadlineAtMs: operation.operationDeadlineAtMs,
       nowMs,
     });
-    if (!started.ok) return { ok: false, reason: started.reason, operation };
+    if (!started.ok) {
+      if (started.reason === "operation_deadline_exhausted") {
+        const terminal = setDetachedOperationTerminal(sidecar, operationId, {
+          terminalState: "failed",
+          errorCode: "operation_deadline_expired",
+          nowMs,
+        });
+        if (!terminal.ok) return { ok: false, reason: terminal.reason, operation };
+        return { ok: true, operation: await finishTerminal(terminal.operation) };
+      }
+      return { ok: false, reason: started.reason, operation };
+    }
     try { await options.onStarted?.(started.operation); } catch { /* started truth already stands */ }
 
     let result: DetachedWorkerResult;

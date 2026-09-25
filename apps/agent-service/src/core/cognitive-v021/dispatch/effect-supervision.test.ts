@@ -3,6 +3,7 @@ import { claimConversationCognition } from "../cycle/cognition-claim.js";
 import { admitTestCycle, openTestSidecar } from "../test-support.js";
 import { startDurableAttempt } from "../retry/ledger.js";
 import { superviseEffectExecution } from "./effect-supervision.js";
+import { LONG_OPERATION_HORIZON_MS } from "../../sandbox/worker/contracts.js";
 
 const BASE = 1_800_000_000_000;
 
@@ -201,6 +202,38 @@ describe("long effect ownership supervision", () => {
       await expect(supervised).rejects.toMatchObject({ name: "EffectOwnershipLostError" });
       expect(controller.signal.aborted).toBe(true);
       expect(execute).not.toHaveBeenCalled();
+    } finally {
+      fixture.db.close();
+    }
+  });
+
+  it("keeps the six-hour absolute horizon through renewal and rejects work after it", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(BASE);
+    const fixture = setup();
+    try {
+      const controller = new AbortController();
+      const deadlineAtMs = BASE + LONG_OPERATION_HORIZON_MS;
+      const supervised = superviseEffectExecution({
+        db: fixture.db,
+        ownership: fixture.ownership,
+        controller,
+        deadlineAtMs,
+        nowMs: () => Date.now(),
+        isCurrent: () => true,
+        isAuthorized: () => true,
+        execute: () => new Promise<string>(() => undefined),
+      });
+      let settled = false;
+      void supervised.catch(() => { settled = true; });
+
+      await vi.advanceTimersByTimeAsync(61 * 60_000);
+      expect(controller.signal.aborted).toBe(false);
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(LONG_OPERATION_HORIZON_MS - 61 * 60_000);
+      expect(controller.signal.aborted).toBe(true);
+      await vi.advanceTimersByTimeAsync(5_000);
+      await expect(supervised).rejects.toMatchObject({ name: "EffectOwnershipLostError" });
     } finally {
       fixture.db.close();
     }

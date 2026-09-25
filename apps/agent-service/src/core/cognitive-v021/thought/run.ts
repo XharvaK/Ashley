@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { isAuthorizedOwnerId } from "../../../owner-auth.js";
+import { LONG_OPERATION_HORIZON_MS } from "../../sandbox/worker/contracts.js";
 import { resolveCanonicalOwnerPrincipal } from "../owner-principal.js";
 import {
   completeChat,
@@ -2818,6 +2819,7 @@ export async function runCognitiveCycle(
   try {
     for (;;) {
     counters = getThoughtAttemptCounters(sidecar, cycle.cycleId, cycle.generation);
+    const settlementOnly = counters.effectRounds >= MAX_EFFECT_ROUNDS;
     structuralRetriesForPass = persistedMalformedRetries(sidecar, cycle.cycleId, cycle.generation, pass);
     if (deps.renewConversationCognition && !deps.renewConversationCognition()) {
       // The conversation cognition holder was lost (expiry + takeover by a
@@ -2870,6 +2872,7 @@ export async function runCognitiveCycle(
       ...(continuityRecovery ? { continuityRecovery } : {}),
       constitution: deps.constitution,
       capabilityReality: cycleCapabilityReality,
+      ...(settlementOnly ? { settlementOnly: true } : {}),
       ...(capacityWait ? { capacityWait } : {}),
       ...(publicPresence === undefined ? {} : { publicPresence }),
       observations: observationsForThought,
@@ -2901,6 +2904,7 @@ export async function runCognitiveCycle(
       composeLogIds: rawConversationIds,
       rememberDirectivePresent: Boolean(directive),
       sourceCurrentnessKey: hashThoughtSourceCurrentness(sourceCurrentness),
+      settlementOnly,
     });
 
     let allocated: AllocatedThoughtProjection;
@@ -3139,6 +3143,16 @@ export async function runCognitiveCycle(
           // ignore
         }
       }
+      if (settlementOnly) {
+        return emitFailure(
+          "settlement_only_required",
+          undefined,
+          makeThoughtTerminal("budget_exhausted", {
+            codes: ["settlement_only_required"],
+            stage: "effect_rounds_finalization",
+          }),
+        );
+      }
       if (retryScheduled) {
         structuralRetriesForPass += 1;
         incrementThoughtAttemptCounter(sidecar, cycle.cycleId, cycle.generation, "structuralRetries");
@@ -3235,6 +3249,17 @@ export async function runCognitiveCycle(
 
     incrementThoughtAttemptCounter(sidecar, cycle.cycleId, cycle.generation, "acceptedThoughtPasses");
     counters = getThoughtAttemptCounters(sidecar, cycle.cycleId, cycle.generation);
+
+    if (settlementOnly && invocation.output.kind !== "settlement") {
+      return emitFailure(
+        "settlement_only_required",
+        undefined,
+        makeThoughtTerminal("budget_exhausted", {
+          codes: ["settlement_only_required"],
+          stage: "effect_rounds_finalization",
+        }),
+      );
+    }
 
     // External social Thought has no instrumental authority. Capability
     // reality is descriptive input, so enforce the boundary before either
@@ -3522,6 +3547,7 @@ export async function runCognitiveCycle(
       }
       incrementThoughtAttemptCounter(sidecar, cycle.cycleId, cycle.generation, "effectRounds");
       updateCycleState(sidecar, cycle.cycleId, "awaiting_operation", deps.nowMs());
+      const effectDeadlineAtMs = deps.nowMs() + LONG_OPERATION_HORIZON_MS;
       const proposal = {
         ...invocation.output.effectProposal,
         originEventId: event.id,
@@ -3540,7 +3566,7 @@ export async function runCognitiveCycle(
       const executeEffect = deps.superviseEffectExecution
         ? (effectProposal: EffectProposal) => deps.superviseEffectExecution!({
             proposal: effectProposal,
-            deadlineAtMs: thoughtDeadlineAtMs,
+            deadlineAtMs: effectDeadlineAtMs,
             isCurrent: () => currentLifecycleIs(
               sidecar,
               cycle,

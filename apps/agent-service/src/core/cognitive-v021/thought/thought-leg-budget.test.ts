@@ -314,6 +314,127 @@ describe("Thought-leg budget ownership", () => {
     attentionDb.close();
   });
 
+  it("projects effect budget and permits one settlement-only pass after four effects", async () => {
+    const sidecar = openTestSidecar();
+    const attentionDb = openTestSidecar();
+    const { event } = admit(sidecar, "thread-effect-finalization", "change the policy");
+    const projections: Array<Record<string, unknown>> = [];
+    let calls = 0;
+    const completeChat: KernelDeps["completeChat"] = async (messages) => {
+      calls += 1;
+      const content = messages.find((message) => message.role === "user" && typeof message.content === "string")?.content;
+      const input = JSON.parse(String(content)) as Record<string, unknown>;
+      projections.push(input);
+      if (calls <= MAX_EFFECT_ROUNDS) {
+        return {
+          text: JSON.stringify({
+            kind: "effect_intent",
+            operationKind: "candidate.develop",
+            request: { projectId: "project-ashley", workspaceId: "workspace-candidate", focus: `pass-${calls}` },
+            purpose: "make the requested policy change",
+            expectedOutcome: "the requested change exists",
+            existingRefs: ["owner-thread-effect-finalization"],
+          }),
+          model: "fake",
+          modelAlias: "thought",
+          resolvedModelId: null,
+        };
+      }
+      const inFlight = input.inFlight as Array<{ effectRef?: string }>;
+      return {
+        text: JSON.stringify(makeSemanticSettlement({
+          commitments: {
+            ...makeSemanticSettlement().commitments,
+            operational: inFlight.flatMap((item) => item.effectRef
+              ? [{ effectRef: item.effectRef, claimedState: "succeeded" as const }]
+              : []),
+          },
+          speech: { mode: "none" },
+        })),
+        model: "fake",
+        modelAlias: "thought",
+        resolvedModelId: null,
+      };
+    };
+    const executeEffect = vi.fn(async (proposal: { effectId: string; idempotencyKey: string }) => ({
+      receiptId: `receipt-${proposal.effectId}`,
+      effectId: proposal.effectId,
+      idempotencyKey: proposal.idempotencyKey,
+      outcome: "succeeded" as const,
+      claims: { state: "succeeded", profile: "command_code_mode_b" },
+      atMs: 10,
+      dataClassification: "never_public" as const,
+      secretOmitted: true,
+    }));
+    const result = await runCognitiveCycle(sidecar, attentionDb, event, deps(
+      attentionDb,
+      completeChat,
+      vi.fn(async () => observed()),
+      { executeEffect },
+    ));
+
+    expect(result.published).toBe(true);
+    expect(calls).toBe(MAX_EFFECT_ROUNDS + 1);
+    expect(executeEffect).toHaveBeenCalledTimes(MAX_EFFECT_ROUNDS);
+    expect(projections.map((input) => input.effectBudget)).toEqual([
+      { maxEffectRounds: 4, usedEffectRounds: 0, remainingEffectRounds: 4 },
+      { maxEffectRounds: 4, usedEffectRounds: 1, remainingEffectRounds: 3 },
+      { maxEffectRounds: 4, usedEffectRounds: 2, remainingEffectRounds: 2 },
+      { maxEffectRounds: 4, usedEffectRounds: 3, remainingEffectRounds: 1 },
+      { maxEffectRounds: 4, usedEffectRounds: 4, remainingEffectRounds: 0 },
+    ]);
+    expect(projections.at(-1)?.settlementOnly).toBe(true);
+    expect((projections.at(-1)?.inFlight as unknown[]).length).toBe(MAX_EFFECT_ROUNDS);
+    sidecar.close();
+    attentionDb.close();
+  });
+
+  it("rejects a fifth effect intent during settlement-only finalization", async () => {
+    const sidecar = openTestSidecar();
+    const attentionDb = openTestSidecar();
+    const { event } = admit(sidecar, "thread-effect-fifth-rejected", "change the policy");
+    let calls = 0;
+    const completeChat: KernelDeps["completeChat"] = async () => {
+      calls += 1;
+      return {
+        text: JSON.stringify({
+          kind: "effect_intent",
+          operationKind: "candidate.develop",
+          request: { projectId: "project-ashley", workspaceId: "workspace-candidate", focus: `pass-${calls}` },
+          purpose: "make another change",
+          expectedOutcome: "another change",
+          existingRefs: ["owner-thread-effect-fifth-rejected"],
+        }),
+        model: "fake",
+        modelAlias: "thought",
+        resolvedModelId: null,
+      };
+    };
+    const executeEffect = vi.fn(async (proposal: { effectId: string; idempotencyKey: string }) => ({
+      receiptId: `receipt-${proposal.effectId}`,
+      effectId: proposal.effectId,
+      idempotencyKey: proposal.idempotencyKey,
+      outcome: "succeeded" as const,
+      claims: { state: "succeeded", profile: "command_code_mode_b" },
+      atMs: 10,
+      dataClassification: "never_public" as const,
+      secretOmitted: true,
+    }));
+    const result = await runCognitiveCycle(sidecar, attentionDb, event, deps(
+      attentionDb,
+      completeChat,
+      vi.fn(async () => observed()),
+      { executeEffect },
+    ));
+
+    expect(result.published).toBe(false);
+    expect(result.ownerObligationResolution?.attemptOutcome).toBe("failed");
+    expect(calls).toBe(MAX_EFFECT_ROUNDS + 1);
+    expect(executeEffect).toHaveBeenCalledTimes(MAX_EFFECT_ROUNDS);
+    sidecar.close();
+    attentionDb.close();
+  });
+
   it("does not turn a long valid operation into thought_deadline", async () => {
     const sidecar = openTestSidecar();
     const attentionDb = openTestSidecar();

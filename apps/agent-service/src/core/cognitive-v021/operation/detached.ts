@@ -340,6 +340,15 @@ export function markDetachedOperationStarted(
   if (current.state !== "admitted" && current.state !== "waiting_capacity") {
     return { ok: false, reason: "detached_operation_transition_invalid" };
   }
+  if (current.operationDeadlineAtMs <= nowMs) {
+    return { ok: false, reason: "operation_deadline_exhausted" };
+  }
+  if (
+    input.executionDeadlineAtMs !== undefined
+    && input.executionDeadlineAtMs !== current.operationDeadlineAtMs
+  ) {
+    return { ok: false, reason: "invalid_start" };
+  }
   let workerBindingJson: string | null = null;
   if (input.workerBinding !== undefined && input.workerBinding !== null) {
     try {
@@ -610,14 +619,6 @@ export function supersedeDetachedOperation(
   return { ok: true, operation: updated, created: false };
 }
 
-/**
- * Startup/reconciliation classification: expired ambiguous work becomes
- * OUTCOME_UNKNOWN when no stronger evidence exists — except Owner-endorsed
- * cancel requests on work that provably never started, which become
- * CANCELLED (a requested stop plus proof of no execution is terminal
- * cancellation, not ambiguity). Terminal rows are never touched, and
- * nothing is rerun.
- */
 export function reconcileDetachedOperations(
   sidecar: DatabaseSync,
   nowMs = Date.now(),

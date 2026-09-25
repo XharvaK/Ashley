@@ -10,6 +10,7 @@ import type {
 } from "../v2-execution.js";
 import {
   DETACHED_WORKER_MAX_WALL_CLOCK_MS,
+  LONG_OPERATION_HORIZON_MS,
   MODE_B_DEVELOP,
   MODE_B_INVESTIGATE,
   WORKER_FINALIZATION_RESERVE_MS,
@@ -1036,6 +1037,7 @@ export async function executeCommandCodeWorker(input: CommandCodeWorkerInput): P
 
 export {
   DETACHED_WORKER_MAX_WALL_CLOCK_MS,
+  LONG_OPERATION_HORIZON_MS,
   MODE_B_DEVELOP,
   MODE_B_INVESTIGATE,
   WORKER_FINALIZATION_RESERVE_MS,

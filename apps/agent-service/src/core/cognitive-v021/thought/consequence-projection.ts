@@ -1,4 +1,4 @@
-import { isVerifiedVerificationClaimEffect } from "../../sandbox/engineering-types.js";
+import { isVerifiedVerificationClaimEffect, isVerifiedWorkspaceClaimEffect } from "../../sandbox/engineering-types.js";
 import { mintEffectRef } from "../effect/effect-ref.js";
 import type { InFlightRecord } from "../types.js";
 import type { SocialAudience } from "../social/types.js";
@@ -37,6 +37,15 @@ export type ProjectedInFlightRecord = Readonly<{
     completedAtMs: number;
   }>;
   materialAvailability?: ConsequenceAvailability;
+  developEvidence?: Readonly<{
+    changedPath: string;
+    operation: string;
+    beforeSha256?: string;
+    afterSha256?: string;
+    bytesWritten?: number;
+  }>;
+  developEvidenceAvailability?: ConsequenceAvailability;
+  verificationStatus?: "not_verified";
 }>;
 
 const TARGET_FIELDS = [
@@ -81,6 +90,51 @@ function materialIsRestricted(item: InFlightRecord, audience: SocialAudience): b
   return audience.kind !== "owner_private" && receipt.dataClassification === "never_public";
 }
 
+function boundedText(value: unknown, maxLength: number): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const text = value.trim();
+  if (!text || [...text].length > maxLength) return undefined;
+  return text;
+}
+
+function boundedDigest(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const text = value.trim();
+  if (!text || text.length > 128) return undefined;
+  return text;
+}
+
+function developEvidenceFromClaims(claims: Record<string, unknown> | undefined): {
+  changedPath: string;
+  operation: string;
+  beforeSha256?: string;
+  afterSha256?: string;
+  bytesWritten?: number;
+} | null {
+  const raw = record(claims?.workspaceClaimEffect);
+  if (!raw) return null;
+  if (!isVerifiedWorkspaceClaimEffect(raw)) return null;
+  const changedPath = boundedText(raw.logicalRelativePath, 256);
+  const operation = boundedText(raw.operation, 64);
+  if (!changedPath || !operation) return null;
+  if (!operation.startsWith("workspace.")) return null;
+  const evidence: {
+    changedPath: string;
+    operation: string;
+    beforeSha256?: string;
+    afterSha256?: string;
+    bytesWritten?: number;
+  } = { changedPath, operation };
+  const before = boundedDigest(raw.beforeSha256);
+  const after = boundedDigest(raw.afterSha256);
+  if (before) evidence.beforeSha256 = before;
+  if (after) evidence.afterSha256 = after;
+  if (typeof raw.bytesWritten === "number" && Number.isFinite(raw.bytesWritten) && raw.bytesWritten >= 0) {
+    evidence.bytesWritten = raw.bytesWritten;
+  }
+  return evidence;
+}
+
 /**
  * Project one retained effect consequence. Durable IDs and request bodies stay
  * host-side. Only the current cycle/generation ref and bounded licensed facts
@@ -118,6 +172,15 @@ export function projectInFlightConsequence(
       completedAtMs: number;
     };
     materialAvailability?: ConsequenceAvailability;
+    developEvidence?: {
+      changedPath: string;
+      operation: string;
+      beforeSha256?: string;
+      afterSha256?: string;
+      bytesWritten?: number;
+    };
+    developEvidenceAvailability?: ConsequenceAvailability;
+    verificationStatus?: "not_verified";
   } = {
     effectRef: mintEffectRef(cycleId, generation, item.effectId),
     status: item.status,
@@ -176,6 +239,15 @@ export function projectInFlightConsequence(
     projected.materialAvailability = "NOT_PROJECTED";
   } else if (claims && hasRedactedMarker(claims)) {
     projected.materialAvailability = "RESTRICTED";
+  }
+  if (item.operationKind === "candidate.develop" && receipt.outcome === "succeeded") {
+    const evidence = developEvidenceFromClaims(claims);
+    if (evidence) {
+      projected.developEvidence = evidence;
+      projected.verificationStatus = "not_verified";
+    } else {
+      projected.developEvidenceAvailability = "NOT_PRODUCED";
+    }
   }
   return projected;
 }

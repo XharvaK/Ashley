@@ -82,6 +82,46 @@ describe("Thought consequence projection", () => {
     expect(projected).not.toHaveProperty("executor");
   });
 
+  it("projects bounded develop path and digest evidence without verification or worker traces", () => {
+    const projected = projectInFlightConsequence(effect({
+      operationKind: "candidate.develop",
+      receipt: receipt({
+        state: "succeeded",
+        profile: "command_code_mode_b",
+        workspaceClaimEffect: {
+          verified: true,
+          projectId: "project-ashley",
+          workspaceId: "workspace-candidate",
+          operation: "workspace.write_file",
+          logicalRelativePath: "src/ledger.ts",
+          sourceSnapshotId: "snapshot-develop",
+          beforeSha256: "a".repeat(64),
+          afterSha256: "b".repeat(64),
+          bytesWritten: 42,
+          completedAtMs: 1_740_000_000_123,
+        },
+        steps: [{ operation: "workspace.write_file", observation: "full worker trace" }],
+      }),
+    }), "cycle-develop", 2);
+
+    expect(projected).toMatchObject({
+      operationKind: "candidate.develop",
+      receipt: { outcome: "succeeded" },
+      developEvidence: {
+        changedPath: "src/ledger.ts",
+        operation: "workspace.write_file",
+        beforeSha256: "a".repeat(64),
+        afterSha256: "b".repeat(64),
+        bytesWritten: 42,
+      },
+      verificationStatus: "not_verified",
+    });
+    expect(projected).not.toHaveProperty("material");
+    expect(projected).not.toHaveProperty("licensedProfile");
+    expect(projected).not.toHaveProperty("steps");
+    expect(projected).not.toHaveProperty("summary");
+  });
+
   it("preserves receipt truth separately from licensed candidate verification", () => {
     const projected = projectInFlightConsequence(effect({
       receipt: receipt({ state: "succeeded", profile: "candidate_verification", verificationClaimEffect: verificationClaim }),

@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import {
   buildOperationalEffectNamespace,
 } from "../effect/effect-ref.js";
+import { MAX_EFFECT_ROUNDS } from "../types.js";
 import type {
   AssertionKey,
   AuthorityCode,
@@ -140,6 +141,12 @@ export type ProjectedThoughtInput = {
   rememberDirective: RememberDirective | null;
   orientationKernel?: IdentityOrientationKernel;
   domainPointers?: DomainPointersSection;
+  effectBudget: Readonly<{
+    maxEffectRounds: number;
+    usedEffectRounds: number;
+    remainingEffectRounds: number;
+  }>;
+  settlementOnly?: boolean;
 };
 
 export type ThoughtModelProjection = {
@@ -441,6 +448,12 @@ export function projectThoughtInput(
     rememberDirective: fullInput.rememberDirective,
     ...(c2Input.orientationKernel === undefined ? {} : { orientationKernel: c2Input.orientationKernel }),
     ...(c2Input.domainPointers === undefined ? {} : { domainPointers: c2Input.domainPointers }),
+    effectBudget: fullInput.effectBudget ?? {
+      maxEffectRounds: MAX_EFFECT_ROUNDS,
+      usedEffectRounds: 0,
+      remainingEffectRounds: MAX_EFFECT_ROUNDS,
+    },
+    ...(fullInput.settlementOnly === undefined ? {} : { settlementOnly: fullInput.settlementOnly }),
   };
 
   if (fullInput.concernSnapshots !== undefined) {

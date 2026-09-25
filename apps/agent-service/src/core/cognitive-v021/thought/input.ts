@@ -2,6 +2,7 @@ import type { DatabaseSync } from "node:sqlite";
 import {
   DEFAULT_LAST_N_TURNS,
   DEFAULT_OCCUPANCY_COMPACT_K,
+  MAX_EFFECT_ROUNDS,
   type CapabilityReality,
   type CapabilityRealityReasonCode,
   type CommitmentDueProjection,
@@ -65,6 +66,7 @@ import {
   enrichOccupancyForThought,
 } from "./occupied-concerns.js";
 import { isDeskEntryAudienceEligible, listDeskEntries } from "../desk/store.js";
+import { getThoughtAttemptCounters } from "./counters.js";
 
 export type BuildThoughtInputOptions = {
   sidecar: DatabaseSync;
@@ -105,6 +107,7 @@ export type BuildThoughtInputOptions = {
   publicPresence?: PublicPresenceContext;
   /** Host factual context for the one semantic capacity-wait turn. */
   capacityWait?: ThoughtInput["capacityWait"];
+  settlementOnly?: boolean;
   /** One coherent source package for the current semantic pass. */
   sourceCapture?: ThoughtSourceCapture;
   /** Audience for this lifecycle. Legacy Owner callers default to Owner-private. */
@@ -427,6 +430,40 @@ export function filterCapabilityReality(
       audience: { ...audience },
       reasons,
     },
+  };
+}
+
+function settlementOnlyCapabilityReality(capability: CapabilityReality): CapabilityReality {
+  const operationCapabilities = capability.operationCapabilities?.map((item) => ({
+    ...item,
+    available: false,
+    authorizedProjectIds: [],
+  }));
+  const semanticObservations = capability.semanticObservations?.map((item) => ({
+    ...item,
+    available: false,
+  }));
+  const reachability = capability.reachability
+    ? {
+        ...capability.reachability,
+        reasons: Object.fromEntries(
+          Object.keys(capability.reachability.reasons).map((key) => [key, "unavailable" as const]),
+        ),
+      }
+    : undefined;
+  return {
+    ...capability,
+    canOfferProjectInspection: false,
+    canOfferWorkspace: false,
+    canOfferVerification: false,
+    canOfferAuthorship: false,
+    canOfferBoundedOperation: false,
+    canOfferInquiry: false,
+    canOfferPatchExport: false,
+    canOfferIterativeEngineering: false,
+    ...(operationCapabilities === undefined ? {} : { operationCapabilities }),
+    ...(semanticObservations === undefined ? {} : { semanticObservations }),
+    ...(reachability === undefined ? {} : { reachability }),
   };
 }
 
@@ -917,12 +954,15 @@ export function buildThoughtInput(options: BuildThoughtInputOptions): ThoughtInp
     licenses,
     options.authenticatedOwner === true,
   );
+  const effectiveCapabilityReality = options.settlementOnly === true
+    ? settlementOnlyCapabilityReality(capabilityReality)
+    : capabilityReality;
   const identity = constitution as IdentitySlice & Partial<IdentityOrientationSource>;
   const orientationKernel = options.orientationKernel && audience.kind === "owner_private"
     ? options.orientationKernel
     : buildOrientationKernel({
     constitution: identity,
-    capabilityReality,
+    capabilityReality: effectiveCapabilityReality,
     staticOperatingContract: options.staticOperatingContract,
     stableSelfBound: options.stableSelfBound,
     learnedSelf: learnedSelfSlice,
@@ -1028,8 +1068,9 @@ export function buildThoughtInput(options: BuildThoughtInputOptions): ThoughtInp
       stableSelf: [...constitution.stableSelf],
     },
     learnedSelfSlice,
-    capabilityReality,
+    capabilityReality: effectiveCapabilityReality,
     ...(options.publicPresence === undefined ? {} : { publicPresence: options.publicPresence }),
+    ...(options.settlementOnly === undefined ? {} : { settlementOnly: options.settlementOnly }),
     ...(options.capacityWait === undefined ? {} : { capacityWait: { ...options.capacityWait } }),
     ...(options.availableDestinations === undefined ? {} : {
       availableDestinations: options.availableDestinations.map((item) => ({
@@ -1047,6 +1088,16 @@ export function buildThoughtInput(options: BuildThoughtInputOptions): ThoughtInp
     orientationKernel,
     domainPointers,
     c3Experiences,
+    effectBudget: (() => {
+      const counters = getThoughtAttemptCounters(options.sidecar, options.cycle.cycleId, options.cycle.generation);
+      const used = Math.max(0, counters.effectRounds);
+      const remaining = Math.max(0, MAX_EFFECT_ROUNDS - used);
+      return Object.freeze({
+        maxEffectRounds: MAX_EFFECT_ROUNDS,
+        usedEffectRounds: used,
+        remainingEffectRounds: remaining,
+      });
+    })(),
   };
 
   Object.defineProperty(thoughtInput, "sourceCurrentness", {
