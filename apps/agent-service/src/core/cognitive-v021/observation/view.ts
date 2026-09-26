@@ -5,6 +5,7 @@ import type { SocialAudience } from "../social/types.js";
 export type ObservationView = Readonly<{
   parentArtifactId?: string;
   representationId?: string;
+  derivation?: string;
   requestedSelector?: JsonValue;
   returnedSelector?: JsonValue;
   completeness?: "complete" | "partial" | "unknown";
@@ -59,7 +60,7 @@ export function canonicalObservationView(value: unknown): ObservationView | null
   if (value == null) return null;
   if (!isRecord(value)) throw new ObservationViewError("observation_view_invalid");
   const allowed = new Set([
-    "parentArtifactId", "representationId", "requestedSelector", "returnedSelector",
+    "parentArtifactId", "representationId", "derivation", "requestedSelector", "returnedSelector",
     "completeness", "omission", "continuation", "errors", "contentHashBasis", "inputTrust",
   ]);
   if (Object.keys(value).some((key) => !allowed.has(key))) {
@@ -67,7 +68,7 @@ export function canonicalObservationView(value: unknown): ObservationView | null
   }
 
   const view: Record<string, unknown> = {};
-  for (const key of ["parentArtifactId", "representationId", "contentHashBasis", "inputTrust"] as const) {
+  for (const key of ["parentArtifactId", "representationId", "derivation", "contentHashBasis", "inputTrust"] as const) {
     const field = value[key];
     if (field === undefined) continue;
     if (typeof field !== "string" || field.trim() === "") {

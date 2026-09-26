@@ -724,11 +724,11 @@ describe("Thought semantic output contract", () => {
     // facet fields, and instructions;
     // parser identity remains the v2 semantic parser.
     expect(THOUGHT_SEMANTIC_SCHEMA_FINGERPRINT).toBe(
-      "sha256:4a458fa20e9cf778f57509b814f011bbd5d5f586f9bb4634ffc1c19c5f47f5fa",
+      "sha256:ea1b057db34d0a29f7f98715dc6a4594d3cf8da3ce6bf3f66b5616945aa0efc5",
     );
     const zeroOp = constrainThoughtOutputSchema(buildOperationalEffectNamespaceFromRefs([]));
     expect(zeroOp.wireSchemaFingerprint).toBe(
-      "sha256:f026df62f8a3174918e059a409880ae648b69a36b706f50aae5285240214756b",
+      "sha256:05ac7286459e96f9100ae9ecb2d9a7ba19e35ce1cf64e4115676af64cd8fd946",
     );
     expect(zeroOp.namespaceConstraintFingerprint).toBe(
       "sha256:d277b3804b25361994107886d1f33f779a7501298b01fe483ebe7c795b6e19c6",

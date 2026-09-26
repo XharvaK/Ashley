@@ -1,3 +1,5 @@
+import { isValidWebSearchRequest } from "../../perception/search-provider.js";
+
 export const TYPED_INSPECTION_OPERATION_KINDS = [
   "capability.inspect",
   "evidence.inspect",
@@ -6,11 +8,13 @@ export const TYPED_INSPECTION_OPERATION_KINDS = [
 ] as const;
 
 export const EVIDENCE_OPERATION_KINDS = ["evidence.read", "evidence.refresh"] as const;
+export const WEB_SEARCH_OPERATION_KINDS = ["web.search"] as const;
 
 export const EVIDENCE_READ_MAX_CHARS = 32_768;
 export const EVIDENCE_READ_MAX_LINES = 4_096;
 
 export type EvidenceOperationKind = (typeof EVIDENCE_OPERATION_KINDS)[number];
+export type WebSearchOperationKind = (typeof WEB_SEARCH_OPERATION_KINDS)[number];
 
 export type EvidenceTextSelector =
   | { kind: "text_window"; offsetChars: number; limitChars: number }
@@ -57,6 +61,10 @@ export function isTypedInspectionOperationKind(value: string): value is TypedIns
 
 export function isEvidenceOperationKind(value: string): value is EvidenceOperationKind {
   return (EVIDENCE_OPERATION_KINDS as readonly string[]).includes(value);
+}
+
+export function isWebSearchOperationKind(value: string): value is WebSearchOperationKind {
+  return (WEB_SEARCH_OPERATION_KINDS as readonly string[]).includes(value);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -148,6 +156,13 @@ export function isValidEvidenceOperationRequest(
     && typeof value.representationId === "string"
     && value.representationId.trim().length > 0
     && validSourceUrl(value.sourceUrl);
+}
+
+export function isValidWebSearchOperationRequest(
+  operationKind: string,
+  value: unknown,
+): value is Record<string, unknown> {
+  return isWebSearchOperationKind(operationKind) && isValidWebSearchRequest(value);
 }
 
 export function isValidTypedInspectionRequest(

@@ -2,6 +2,7 @@ import type { DatabaseSync } from "node:sqlite";
 import { WORKSPACE_WORKER_REQUEST_SCHEMA_ID } from "@composer-assistant/sandbox-v2";
 import { sha256 } from "../../model-fabric/hash.js";
 import { currentReleaseId } from "../../rollout/capabilities.js";
+import type { WebSearchProvider } from "../../perception/search-provider.js";
 import { THOUGHT_OUTPUT_SCHEMA_ID } from "../thought/contract-identity.js";
 import { getCapabilityReality } from "../thought/capability-reality.js";
 import { observationViewFromStorage } from "../observation/view.js";
@@ -115,11 +116,13 @@ function namedCapability(
   req: ObservationRequest,
   nuclear: DatabaseSync,
   nowMs: () => number,
+  webSearchProvider?: Pick<WebSearchProvider, "available">,
 ): Observation {
   const request = req.request as { operationKind: string };
   const reality = getCapabilityReality(nuclear, {
     audience: req.audience as SocialAudience,
     nowMs: nowMs(),
+    webSearchProvider,
   });
   const name = request.operationKind;
   const operation = reality.operationCapabilities?.find((item) => item.operationKind === name);
@@ -386,12 +389,13 @@ export function executeTypedInspection(input: {
   sidecar?: DatabaseSync;
   ownerId?: string;
   nowMs: () => number;
+  webSearchProvider?: Pick<WebSearchProvider, "available">;
 }): Observation | null {
   const { req } = input;
   if (!isValidTypedInspectionRequest(req.kind, req.request)) return null;
   const scope = requireScope(req, input.sidecar, input.ownerId);
   if (req.kind === "capability.inspect") {
-    return namedCapability(req, input.nuclear, input.nowMs);
+    return namedCapability(req, input.nuclear, input.nowMs, input.webSearchProvider);
   }
   if (!input.sidecar) throw new CapabilityUnavailableError("inspect_unavailable");
   if (req.kind === "evidence.inspect") {

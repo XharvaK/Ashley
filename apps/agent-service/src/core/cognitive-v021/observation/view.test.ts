@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   assertArtifactCursorBinding,
+  canonicalObservationView,
   projectFileArtifactIdentity,
   type ArtifactCursor,
 } from "./view.js";
@@ -41,5 +42,15 @@ describe("W1-P4 artifact identity and observation view", () => {
     expect(() => assertArtifactCursorBinding(cursor, binding)).not.toThrow();
     expect(() => assertArtifactCursorBinding({ ...cursor, artifactHash: "b".repeat(64) }, binding))
       .toThrow("artifact_cursor_artifact_hash_mismatch");
+  });
+
+  it("retains a non-empty derivation for derived result views", () => {
+    expect(canonicalObservationView({
+      parentArtifactId: "artifact:result-set",
+      representationId: "representation:result-set",
+      derivation: "search_snippet",
+    })).toMatchObject({ derivation: "search_snippet" });
+    expect(() => canonicalObservationView({ derivation: " " }))
+      .toThrow("observation_view_invalid");
   });
 });

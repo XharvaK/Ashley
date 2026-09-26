@@ -54,6 +54,41 @@ describe("v0.2.1 CapabilityReality live-surface contract", () => {
     }
   });
 
+  it("reports web search only for an injected available provider under the active release gate", () => {
+    const db = activeDb();
+    try {
+      expect(getCapabilityReality(db, {
+        registry: registry(),
+        masterMode: "apply",
+        lifecycleEnabled: true,
+        substrateAvailable: true,
+      }).webSearch).toBe(false);
+      expect(getCapabilityReality(db, {
+        registry: registry(),
+        masterMode: "apply",
+        lifecycleEnabled: true,
+        substrateAvailable: true,
+        webSearchProvider: { available: true },
+      }).webSearch).toBe(true);
+      expect(getCapabilityReality(db, {
+        registry: registry(),
+        masterMode: "apply",
+        lifecycleEnabled: true,
+        substrateAvailable: true,
+        webSearchProvider: { available: false },
+      }).webSearch).toBe(false);
+      expect(getCapabilityReality(db, {
+        registry: registry(),
+        masterMode: "observe",
+        lifecycleEnabled: true,
+        substrateAvailable: true,
+        webSearchProvider: { available: true },
+      }).webSearch).toBe(false);
+    } finally {
+      db.close();
+    }
+  });
+
   it("advertises accepted Sandbox V2 faculties only when capability and substrate gates pass", () => {
     const db = activeDb();
     try {

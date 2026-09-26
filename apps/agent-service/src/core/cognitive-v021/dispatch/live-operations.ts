@@ -67,6 +67,12 @@ import { inspectConcernCurrentness } from "../thought/source-currentness.js";
 import { projectFileArtifactIdentity } from "../observation/view.js";
 import { executeTypedInspection } from "./typed-inspections.js";
 import { executeEvidenceOperation, type EvidenceRefreshFetcher } from "./evidence-operations.js";
+import { executeWebSearchOperation } from "./search-operations.js";
+import {
+  defaultWebSearchProvider,
+  WEB_SEARCH_OPERATION_KIND,
+  type WebSearchProvider,
+} from "../../perception/search-provider.js";
 import {
   CapabilityUnavailableError,
   isEvidenceOperationKind,
@@ -127,6 +133,7 @@ type LiveSandboxOverrides = Partial<SandboxV2Environment> & {
 type LiveOperationAdapters = {
   executeProjectInspectionV2: typeof executeProjectInspectionV2;
   refreshEvidence?: EvidenceRefreshFetcher;
+  webSearchProvider?: WebSearchProvider;
   executeWorkspaceExperimentV2: typeof executeWorkspaceExperimentV2;
   executeCandidateVerificationV2: typeof executeCandidateVerificationV2;
   executeCandidateAuthorshipV2: typeof executeCandidateAuthorshipV2;
@@ -979,6 +986,7 @@ export function createV021LiveOperationExecutors(
 ): V021LiveOperationExecutors {
   const nowMs = options.nowMs ?? (() => Date.now());
   const registry = options.registry ?? options.envOverrides?.registry ?? loadOperatorProjectReadRegistry();
+  const webSearchProvider = options.adapters?.webSearchProvider ?? defaultWebSearchProvider;
   const adapters: LiveOperationAdapters = {
     executeProjectInspectionV2,
     executeWorkspaceExperimentV2,
@@ -1182,6 +1190,17 @@ export function createV021LiveOperationExecutors(
     },
 
     async executeObservation(req): Promise<Observation> {
+      if (req.kind === WEB_SEARCH_OPERATION_KIND) {
+        try {
+          return await executeWebSearchOperation({
+            req,
+            provider: webSearchProvider,
+          });
+        } catch (error) {
+          if (error instanceof CapabilityUnavailableError) throw error;
+          throw new CapabilityUnavailableError("web_search_unavailable");
+        }
+      }
       if (isEvidenceOperationKind(req.kind)) {
         try {
           return await executeEvidenceOperation({
@@ -1205,6 +1224,7 @@ export function createV021LiveOperationExecutors(
             sidecar: options.sidecar,
             ownerId: options.ownerId,
             nowMs,
+            webSearchProvider,
           });
           if (inspected) return inspected;
           throw new CapabilityUnavailableError("inspect_request_invalid");

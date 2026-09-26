@@ -28,8 +28,10 @@ import { validateModeBRequest } from "../../sandbox/opencode/mode-b-request.js";
 import {
   isEvidenceOperationKind,
   isValidEvidenceOperationRequest,
+  isValidWebSearchOperationRequest,
   isTypedInspectionOperationKind,
   isValidTypedInspectionRequest,
+  isWebSearchOperationKind,
 } from "./typed-inspection.js";
 import {
   EPISTEMIC_DIMENSIONS,
@@ -927,6 +929,12 @@ function parseOperationSemantic(
   if (isEvidenceOperationKind(record.operationKind)) {
     if (kind !== "observation_intent") return semanticFailure("wrong_type", "operationKind");
     if (!isValidEvidenceOperationRequest(record.operationKind, record.request)) {
+      return semanticFailure("wrong_type", "request");
+    }
+  }
+  if (isWebSearchOperationKind(record.operationKind)) {
+    if (kind !== "observation_intent") return semanticFailure("wrong_type", "operationKind");
+    if (!isValidWebSearchOperationRequest(record.operationKind, record.request)) {
       return semanticFailure("wrong_type", "request");
     }
   }

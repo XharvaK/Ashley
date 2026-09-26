@@ -18,6 +18,7 @@ import {
   commandCodeWorkerReadiness,
   type CommandCodeWorkerReadinessReason,
 } from "../../sandbox/worker/command-code-worker.js";
+import type { WebSearchProvider } from "../../perception/search-provider.js";
 import { currentReleaseId, type CapabilityName } from "../../rollout/capabilities.js";
 import type {
   CapabilityReality,
@@ -53,6 +54,7 @@ export type CapabilityRealityOptions = {
   commandCodePinnedVersion?: string;
   commandCodeBubblewrapPath?: string;
   commandCodeNodeExecutable?: string;
+  webSearchProvider?: Pick<WebSearchProvider, "available">;
   nowMs?: number;
 };
 
@@ -357,7 +359,7 @@ export function getCapabilityReality(
       perceptionCapabilityCanInfluence(db, "attachment_text", masterMode),
     conversationalRead: V021_LIVE_PERCEPTION_CAPABILITIES.has("conversational_read") &&
       perceptionCapabilityCanInfluence(db, "conversational_read", masterMode),
-    webSearch: V021_LIVE_PERCEPTION_CAPABILITIES.has("web_search") &&
+    webSearch: options.webSearchProvider?.available === true &&
       perceptionCapabilityCanInfluence(db, "web_search", masterMode),
   };
   const workspaceAvailable = V021_LIVE_OPERATION_CAPABILITIES.has("project_experimentation") &&

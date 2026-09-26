@@ -68,8 +68,19 @@ export {
   fetchConversationalReadPage,
 } from "./conversational-read.js";
 export {
+  buildPublicWebSearchQuery,
   defaultWebSearchProvider,
+  isValidWebSearchAudience,
+  isValidWebSearchRequest,
+  publicWebSearchEgressPolicy,
+  WEB_SEARCH_MAX_QUERY_CHARS,
+  WEB_SEARCH_MAX_RESULTS,
+  WEB_SEARCH_OPERATION_KIND,
   type WebSearchProvider,
+  type WebSearchEgressPolicy,
+  type WebSearchRequest,
+  type WebSearchResult,
+  type WebSearchResultSet,
 } from "./search-provider.js";
 export {
   listPerceptionForgetTargets,
