@@ -99,9 +99,12 @@ export type ProjectReadFileObservation = {
   operation: "project.read_file";
   path: string;
   verified: boolean;
-  truncated: false;
+  truncated: boolean;
   executedAtMs: number;
-  contentUtf8: string;
+  contentUtf8?: string;
+  encoding?: "utf8" | "binary_manifest";
+  extent?: { startByte: number; endByteExclusive: number; totalBytes: number };
+  completeness?: "complete" | "partial";
   bytes: number;
   sha256: string;
 };

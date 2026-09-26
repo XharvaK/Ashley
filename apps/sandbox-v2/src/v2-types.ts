@@ -286,10 +286,12 @@ export type SandboxV2OperationResult =
       kind: "project.read_file";
       path: string;
       bytes: number;
-      contentBase64: string;
+      contentBase64?: string;
+      encoding?: "utf8" | "binary_manifest";
+      extent?: { startByte: number; endByteExclusive: number; totalBytes: number };
+      completeness?: "complete" | "partial";
       sha256: string;
-      /** Partial reads are never allowed: oversized files fail closed. */
-      truncated: false;
+      truncated: boolean;
     }
   | {
       kind: "project.list_directory";
@@ -670,18 +672,36 @@ export function isProjectReadFileResult(
   value: unknown,
 ): value is Extract<SandboxV2OperationResult, { kind: "project.read_file" }> {
   if (!isRecord(value)) return false;
-  return (
-    value.kind === "project.read_file" &&
-    typeof value.path === "string" &&
-    value.path.length > 0 &&
-    isFiniteNumber(value.bytes) &&
-    value.bytes >= 0 &&
-    typeof value.contentBase64 === "string" &&
-    value.contentBase64.length > 0 &&
-    typeof value.sha256 === "string" &&
-    value.sha256.length === 64 &&
-    value.truncated === false
-  );
+  if (
+    value.kind !== "project.read_file" ||
+    typeof value.path !== "string" ||
+    value.path.length === 0 ||
+    !isFiniteNumber(value.bytes) ||
+    value.bytes < 0 ||
+    typeof value.sha256 !== "string" ||
+    !/^[a-f0-9]{64}$/.test(value.sha256) ||
+    typeof value.truncated !== "boolean"
+  ) return false;
+  if (value.truncated === false) {
+    return typeof value.contentBase64 === "string" && value.contentBase64.length > 0
+      && (value.encoding === undefined || value.encoding === "utf8")
+      && (value.completeness === undefined || value.completeness === "complete");
+  }
+  if (value.completeness !== "partial" || (value.encoding !== "utf8" && value.encoding !== "binary_manifest")) {
+    return false;
+  }
+  if (value.encoding === "binary_manifest") {
+    return value.contentBase64 === undefined && value.extent === undefined;
+  }
+  if (typeof value.contentBase64 !== "string" || value.contentBase64.length === 0) return false;
+  const extent = value.extent;
+  if (!isRecord(extent)) return false;
+  return extent.startByte === 0
+    && isFiniteNumber(extent.endByteExclusive)
+    && extent.endByteExclusive > 0
+    && isFiniteNumber(extent.totalBytes)
+    && extent.endByteExclusive <= extent.totalBytes
+    && extent.totalBytes === value.bytes;
 }
 
 export function isProjectListDirectoryResult(

@@ -317,7 +317,12 @@ export function readArtifactTextPage(
   validatePage(offsetChars, limitChars);
   const row = rowForArtifact(db, entityUuid, ownerId);
   const bytes = readArtifactBytes(db, entityUuid, ownerId);
-  const text = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+  let text: string;
+  try {
+    text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    throw new Error("artifact_not_utf8");
+  }
   return {
     artifactRef: entityUuid,
     text: text.slice(offsetChars, offsetChars + limitChars),

@@ -26,6 +26,8 @@ import type {
 import { isMemoryKind } from "../memory/kinds.js";
 import { validateModeBRequest } from "../../sandbox/opencode/mode-b-request.js";
 import {
+  isEvidenceOperationKind,
+  isValidEvidenceOperationRequest,
   isTypedInspectionOperationKind,
   isValidTypedInspectionRequest,
 } from "./typed-inspection.js";
@@ -916,6 +918,12 @@ function parseOperationSemantic(
   if (isTypedInspectionOperationKind(record.operationKind)) {
     if (kind !== "observation_intent") return semanticFailure("wrong_type", "operationKind");
     if (!isValidTypedInspectionRequest(record.operationKind, record.request)) {
+      return semanticFailure("wrong_type", "request");
+    }
+  }
+  if (isEvidenceOperationKind(record.operationKind)) {
+    if (kind !== "observation_intent") return semanticFailure("wrong_type", "operationKind");
+    if (!isValidEvidenceOperationRequest(record.operationKind, record.request)) {
       return semanticFailure("wrong_type", "request");
     }
   }

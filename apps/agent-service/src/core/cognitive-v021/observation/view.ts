@@ -144,11 +144,15 @@ export function projectFileArtifactIdentity(input: {
     rawByteHash: input.rawByteHash,
     capturedAtMs: input.capturedAtMs,
   })}`;
-  const representationId = `representation:v1:${sha256({
-    parentArtifactId,
-    kind: "utf8_text",
-  })}`;
-  return { parentArtifactId, representationId };
+  return { parentArtifactId, representationId: textArtifactRepresentationId(parentArtifactId) };
+}
+
+/** Stable text representation identity for a retained artifact capture. */
+export function textArtifactRepresentationId(parentArtifactId: string): string {
+  if (typeof parentArtifactId !== "string" || parentArtifactId.trim() === "") {
+    throw new ObservationViewError("artifact_representation_identity_invalid");
+  }
+  return `representation:v1:${sha256({ parentArtifactId, kind: "utf8_text" })}`;
 }
 
 export function assertArtifactCursorBinding(

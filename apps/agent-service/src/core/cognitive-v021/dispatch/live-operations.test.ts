@@ -8,6 +8,7 @@ import type {
 } from "../../sandbox/v2-execution.js";
 import type { ExecutePatchExportV2Result } from "../../sandbox/patch-export-execution.js";
 import type { Observation, EffectProposal } from "../types.js";
+import type { ProjectReadFileObservation } from "../../types.js";
 import { putInFlight } from "../effect/in-flight.js";
 import { admitTestCycle, openTestSidecar } from "../test-support.js";
 import { readPublicPresenceState } from "../public-presence.js";
@@ -19,7 +20,7 @@ import {
 } from "../../sandbox/worker/command-code-worker.js";
 import { createV021LiveOperationExecutors } from "./live-operations.js";
 
-function projectObservation(): NonNullable<ExecuteProjectInspectionV2Result["observation"]> {
+function projectObservation(): ProjectReadFileObservation {
   return {
     projectId: "project-ashley",
     operation: "project.read_file",
@@ -108,6 +109,66 @@ describe("v0.2.1 live Sandbox V2 operation construction", () => {
       errors: [],
       contentHashBasis: "raw_bytes",
     });
+    nuclear.close();
+  });
+
+  it("keeps an oversized text project view partial and does not invent a binary text view", async () => {
+    const nuclear = new DatabaseSync(":memory:");
+    const partial = vi.fn(async (input: unknown): Promise<ExecuteProjectInspectionV2Result> => ({
+      license: { state: "succeeded", profile: "project_investigation" },
+      observation: {
+        ...projectObservation(),
+        path: "large.txt",
+        bytes: 70_000,
+        truncated: true,
+        contentUtf8: "first window",
+      },
+      dispatchAttempted: true,
+    }));
+    const textExecutor = createV021LiveOperationExecutors({
+      nuclear,
+      adapters: { executeProjectInspectionV2: partial },
+    });
+    const textObservation = await textExecutor.executeObservation({
+      requestId: "observation-partial-text",
+      cycleId: "cycle-1",
+      generation: 1,
+      kind: "project.read_file",
+      request: { projectId: "project-ashley", path: "large.txt" },
+      replaySafe: true,
+    });
+    expect(textObservation.view).toMatchObject({
+      completeness: "partial",
+      omission: { reason: "source_truncated" },
+      returnedSelector: { kind: "text_window" },
+    });
+    expect(textObservation.view?.completeness).not.toBe("complete");
+
+    const binaryExecutor = createV021LiveOperationExecutors({
+      nuclear,
+      adapters: {
+        executeProjectInspectionV2: async () => ({
+          license: { state: "succeeded", profile: "project_investigation" },
+          observation: {
+            ...projectObservation(),
+            path: "binary.dat",
+            bytes: 70_000,
+            truncated: true,
+            contentUtf8: undefined,
+          },
+          dispatchAttempted: true,
+        }),
+      },
+    });
+    const binaryObservation = await binaryExecutor.executeObservation({
+      requestId: "observation-partial-binary",
+      cycleId: "cycle-1",
+      generation: 1,
+      kind: "project.read_file",
+      request: { projectId: "project-ashley", path: "binary.dat" },
+      replaySafe: true,
+    });
+    expect(binaryObservation.view).toBeUndefined();
     nuclear.close();
   });
 

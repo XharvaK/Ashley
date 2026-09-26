@@ -47,6 +47,7 @@ import {
   isChangesetAuthorResult,
   scanAuthorshipText,
   type SandboxV2Environment,
+  type SandboxV2OperationResult,
   type SandboxV2Request,
   type SandboxV2Result,
   type InquiryWorkspaceContext,
@@ -624,10 +625,10 @@ async function runProjectInspectionV2(
     if (res.outcome === "succeeded") {
       let observation: ProjectInspectionObservation;
       if (res.result.kind === "project.read_file") {
+        const projectResult = res.result as Extract<SandboxV2OperationResult, { kind: "project.read_file" }>;
         if (
-          typeof res.result.contentBase64 !== "string" ||
-          typeof res.result.bytes !== "number" ||
-          typeof res.result.sha256 !== "string"
+          typeof projectResult.bytes !== "number" ||
+          typeof projectResult.sha256 !== "string"
         ) {
           return finish(
             {
@@ -640,21 +641,78 @@ async function runProjectInspectionV2(
             null,
           );
         }
-        const contentUtf8 = Buffer.from(
-          res.result.contentBase64,
-          "base64",
-        ).toString("utf8");
-        observation = {
-          projectId: request.projectId,
-          operation: "project.read_file",
-          path: res.result.path,
-          verified: true,
-          truncated: false,
-          executedAtMs: res.executedAtMs,
-          contentUtf8,
-          bytes: res.result.bytes,
-          sha256: res.result.sha256,
-        };
+        if (projectResult.truncated === false) {
+          if (typeof projectResult.contentBase64 !== "string") {
+            return finish(
+              {
+                state: "failed",
+                taskId: `v2-insp-${res.executedAtMs}`,
+                profile: "project_investigation",
+                error: "invalid_result",
+                ...(messageEntityUuid ? { sourceMessageEntityUuid: messageEntityUuid } : {}),
+              },
+              null,
+            );
+          }
+          observation = {
+            projectId: request.projectId,
+            operation: "project.read_file",
+            path: projectResult.path,
+            verified: true,
+            truncated: false,
+            executedAtMs: res.executedAtMs,
+            contentUtf8: Buffer.from(projectResult.contentBase64, "base64").toString("utf8"),
+            ...(projectResult.encoding === undefined ? {} : { encoding: projectResult.encoding }),
+            ...(projectResult.completeness === undefined ? {} : { completeness: projectResult.completeness }),
+            bytes: projectResult.bytes,
+            sha256: projectResult.sha256,
+          };
+        } else if (projectResult.encoding === "utf8"
+          && projectResult.completeness === "partial"
+          && typeof projectResult.contentBase64 === "string"
+          && projectResult.extent !== undefined) {
+          observation = {
+            projectId: request.projectId,
+            operation: "project.read_file",
+            path: projectResult.path,
+            verified: true,
+            truncated: true,
+            executedAtMs: res.executedAtMs,
+            contentUtf8: Buffer.from(projectResult.contentBase64, "base64").toString("utf8"),
+            encoding: "utf8",
+            extent: projectResult.extent,
+            completeness: "partial",
+            bytes: projectResult.bytes,
+            sha256: projectResult.sha256,
+          };
+        } else if (projectResult.encoding === "binary_manifest"
+          && projectResult.completeness === "partial"
+          && projectResult.contentBase64 === undefined
+          && projectResult.extent === undefined) {
+          observation = {
+            projectId: request.projectId,
+            operation: "project.read_file",
+            path: projectResult.path,
+            verified: true,
+            truncated: true,
+            executedAtMs: res.executedAtMs,
+            encoding: "binary_manifest",
+            completeness: "partial",
+            bytes: projectResult.bytes,
+            sha256: projectResult.sha256,
+          };
+        } else {
+          return finish(
+            {
+              state: "failed",
+              taskId: `v2-insp-${res.executedAtMs}`,
+              profile: "project_investigation",
+              error: "invalid_result",
+              ...(messageEntityUuid ? { sourceMessageEntityUuid: messageEntityUuid } : {}),
+            },
+            null,
+          );
+        }
       } else if (res.result.kind === "project.list_directory") {
         if (!Array.isArray(res.result.entries) || typeof res.result.truncated !== "boolean") {
           return finish(

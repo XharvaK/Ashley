@@ -135,7 +135,7 @@ describe("capability registry", () => {
 });
 
 describe("operation result guards (fail-closed)", () => {
-  it("accepts a complete read_file result and rejects partial ones", () => {
+  it("accepts complete and truthful partial read_file results", () => {
     const valid = {
       kind: "project.read_file",
       path: "a.ts",
@@ -146,7 +146,23 @@ describe("operation result guards (fail-closed)", () => {
     };
     expect(isProjectReadFileResult(valid)).toBe(true);
     expect(isSandboxV2OperationResult(valid, "project.read_file")).toBe(true);
-    expect(isProjectReadFileResult({ ...valid, truncated: true })).toBe(false);
+    expect(isProjectReadFileResult({
+      ...valid,
+      bytes: 70_000,
+      truncated: true,
+      encoding: "utf8",
+      completeness: "partial",
+      extent: { startByte: 0, endByteExclusive: 5, totalBytes: 70_000 },
+    })).toBe(true);
+    expect(isProjectReadFileResult({
+      kind: "project.read_file",
+      path: "a.bin",
+      bytes: 70_000,
+      sha256: "f".repeat(64),
+      truncated: true,
+      encoding: "binary_manifest",
+      completeness: "partial",
+    })).toBe(true);
     expect(isProjectReadFileResult({ ...valid, contentBase64: "" })).toBe(false);
     expect(isProjectReadFileResult({ ...valid, bytes: -1 })).toBe(false);
     expect(isProjectReadFileResult({ ...valid, sha256: "short" })).toBe(false);

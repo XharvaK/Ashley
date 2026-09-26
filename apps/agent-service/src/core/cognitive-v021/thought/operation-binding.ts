@@ -11,6 +11,8 @@ import type {
 import type { ConcernInspectDependency } from "./source-currentness.js";
 import { isConcernDiscoverRequest } from "./concern-inspect.js";
 import {
+  isEvidenceOperationKind,
+  isValidEvidenceOperationRequest,
   isTypedInspectionOperationKind,
   isValidTypedInspectionRequest,
 } from "./typed-inspection.js";
@@ -40,6 +42,10 @@ export function bindObservationIntent(input: ObservationBindingInput): BoundObse
   if (isTypedInspectionOperationKind(input.intent.operationKind)
     && !isValidTypedInspectionRequest(input.intent.operationKind, input.intent.request)) {
     throw new Error("typed_inspection_request_invalid");
+  }
+  if (isEvidenceOperationKind(input.intent.operationKind)
+    && !isValidEvidenceOperationRequest(input.intent.operationKind, input.intent.request)) {
+    throw new Error("evidence_operation_request_invalid");
   }
   if (input.intent.operationKind.startsWith("project.") && input.intent.operationKind !== "project.inspect") {
     throw new Error("operation_not_registered");

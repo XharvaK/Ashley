@@ -279,7 +279,7 @@ describe("GLM-5.3 Flash Thought provider migration witnesses", () => {
     expect(THOUGHT_OUTPUT_CONTRACT_ID).toBe("ashley.thought.semantic.v2");
     expect(THOUGHT_OUTPUT_SCHEMA_ID).toBe("ashley.thought.semantic.v2.schema");
     expect(THOUGHT_OUTPUT_SCHEMA_FINGERPRINT).toBe(
-      "sha256:1d126e5e5cd8492854c24a04940dae8e1c9421aad15f91e8745b41881c01b549",
+      "sha256:007e9167a4c864b601928e3a0fac69c8fb11a1df20f20d696f39e461d14de5ba",
     );
     expect(THOUGHT_SEMANTIC_PARSER_ID).toBe("ashley.thought.semantic-parser.v1");
     expect(parseThoughtSemanticOutput(

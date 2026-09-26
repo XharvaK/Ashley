@@ -13,11 +13,12 @@
  */
 
 import { EventEmitter } from "node:events";
+import { TextDecoder } from "node:util";
 import { describe, expect, it } from "vitest";
 import { SANDBOX_V2_INSPECTION_RUNNER_SOURCE } from "./runner.js";
 
 type FakeEntry =
-  | { type: "file"; content: string }
+  | { type: "file"; content: string | Uint8Array }
   | { type: "dir" }
   | { type: "symlink"; target: string };
 
@@ -52,7 +53,9 @@ function makeFs(fsState: FakeFsState) {
       isSymbolicLink: () => isSymlink,
       isDirectory: () => isDir,
       isFile: () => isFile,
-      size: entry.type === "file" ? Buffer.byteLength(entry.content, "utf8") : 0,
+      size: entry.type === "file"
+        ? typeof entry.content === "string" ? Buffer.byteLength(entry.content, "utf8") : entry.content.byteLength
+        : 0,
     };
   };
   return {
@@ -72,7 +75,9 @@ function makeFs(fsState: FakeFsState) {
     readFileSync(p: string, encoding?: string) {
       const entry = mustGet(p);
       if (entry.type !== "file") failClosed("EISDIR");
-      return encoding === "utf8" ? entry.content : Buffer.from(entry.content, "utf8");
+      return encoding === "utf8"
+        ? typeof entry.content === "string" ? entry.content : Buffer.from(entry.content).toString("utf8")
+        : typeof entry.content === "string" ? Buffer.from(entry.content, "utf8") : Buffer.from(entry.content);
     },
     readdirSync(p: string, options?: { withFileTypes?: boolean }) {
       const entry = mustGet(p);
@@ -216,6 +221,7 @@ async function runRunnerInVm(options: HarnessOptions): Promise<HarnessOutput> {
       throw new Error("module-not-found:" + name);
     },
     process: fakeProcess,
+    TextDecoder,
   };
 
   try {
@@ -318,7 +324,7 @@ describe("embedded runner (VM harness)", () => {
     }
   });
 
-  it("refuses a file larger than the read ceiling (no partial reads)", async () => {
+  it("returns a truthful partial UTF-8 window for a file larger than the read ceiling", async () => {
     const files: Record<string, FakeEntry> = {
       ...BASE_FILES,
       "/project/big.txt": { type: "file", content: "x".repeat(70_000) },
@@ -329,8 +335,40 @@ describe("embedded runner (VM harness)", () => {
       loopbackOk: false,
       failedExternalPorts: [80],
     });
-    expect(out.exitCode).toBe(1);
-    expect(JSON.parse(out.stdout).code).toBe("file_too_large");
+    expect(out.exitCode).toBe(0);
+    const parsed = JSON.parse(out.stdout);
+    expect(parsed.result).toMatchObject({
+      kind: "project.read_file",
+      bytes: 70_000,
+      truncated: true,
+      encoding: "utf8",
+      completeness: "partial",
+      extent: { startByte: 0, totalBytes: 70_000 },
+    });
+    expect(parsed.result.contentBase64.length).toBeGreaterThan(0);
+  });
+
+  it("returns only a manifest for an oversized non-UTF-8 file", async () => {
+    const files: Record<string, FakeEntry> = {
+      ...BASE_FILES,
+      "/project/binary.dat": { type: "file", content: new Uint8Array([0xff, 0xfe, ...new Uint8Array(70_000)]) },
+    };
+    const out = await runRunnerInVm({
+      request: baseRequest({ path: "binary.dat" }),
+      files,
+      loopbackOk: false,
+      failedExternalPorts: [80],
+    });
+    expect(out.exitCode).toBe(0);
+    const parsed = JSON.parse(out.stdout);
+    expect(parsed.result).toMatchObject({
+      kind: "project.read_file",
+      bytes: 70_002,
+      truncated: true,
+      encoding: "binary_manifest",
+      completeness: "partial",
+    });
+    expect(parsed.result.contentBase64).toBeUndefined();
   });
 
   it("lists a directory deterministically with typed entries", async () => {

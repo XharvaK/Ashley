@@ -1,6 +1,7 @@
 import type { DatabaseSync } from "node:sqlite";
 import { getConversationEvidence } from "./conversation-log.js";
 import { resolveReceiptRef } from "../effect/in-flight.js";
+import { observationViewFromStorage } from "../observation/view.js";
 
 export type SourceSupportRegion = Readonly<{
   x: number;
@@ -426,6 +427,74 @@ function assertObservationVisibleToConversation(
   };
 }
 
+function assertArtifactTextSpan(
+  db: DatabaseSync,
+  ref: Extract<SourceSupportRef, { kind: "artifact_text_span" }>,
+  conversationId: string,
+): ResolvedSource {
+  const row = db.prepare(
+    `SELECT o.payload_json, o.parent_artifact_id, o.representation_id,
+            o.view_metadata_json, o.created_at_ms, o.data_classification,
+            o.secret_omitted, c.conversation_id
+       FROM observations o
+       JOIN cycle_records c ON c.cycle_id = o.cycle_id AND c.generation = o.generation
+      WHERE o.parent_artifact_id = ?
+        AND o.representation_id = ?
+        AND c.conversation_id = ?
+        AND o.secret_omitted = 0
+        AND lower(o.data_classification) NOT IN ('secret', 'forgotten')
+      ORDER BY o.created_at_ms DESC, o.observation_id DESC
+      LIMIT 1`,
+  ).get(ref.artifactId, ref.representationId, conversationId) as RecordValue | undefined;
+  if (!row || typeof row.payload_json !== "string") throw new Error("support_ref_unresolvable");
+  let payload: unknown;
+  let view;
+  try {
+    payload = JSON.parse(row.payload_json);
+    view = observationViewFromStorage(
+      row.parent_artifact_id,
+      row.representation_id,
+      row.view_metadata_json,
+    );
+  } catch {
+    throw new Error("support_ref_unresolvable");
+  }
+  if (!view || view.parentArtifactId !== ref.artifactId
+    || view.representationId !== ref.representationId
+    || !isRecord(payload)
+    || typeof payload.contentUtf8 !== "string"
+    || (view.completeness !== "complete" && view.completeness !== "partial")) {
+    throw new Error("support_ref_unresolvable");
+  }
+  const returnedSelector = view.returnedSelector;
+  let baseOffset = 0;
+  let availableChars = payload.contentUtf8.length;
+  if (isRecord(returnedSelector) && returnedSelector.kind === "text_window") {
+    if (typeof returnedSelector.offsetChars !== "number"
+      || !Number.isSafeInteger(returnedSelector.offsetChars)
+      || returnedSelector.offsetChars < 0
+      || typeof returnedSelector.limitChars !== "number"
+      || !Number.isSafeInteger(returnedSelector.limitChars)
+      || returnedSelector.limitChars < 1
+      || payload.contentUtf8.length > returnedSelector.limitChars) {
+      throw new Error("support_ref_unresolvable");
+    }
+    baseOffset = returnedSelector.offsetChars;
+    availableChars = baseOffset + payload.contentUtf8.length;
+  } else if (!isRecord(returnedSelector) || returnedSelector.kind !== "whole_file") {
+    throw new Error("support_ref_unresolvable");
+  }
+  if (ref.start < baseOffset || ref.end > availableChars
+    || payload.contentUtf8.slice(ref.start - baseOffset, ref.end - baseOffset) !== ref.quote) {
+    throw new Error("support_ref_unresolvable");
+  }
+  return {
+    principalKind: "observation",
+    principalId: null,
+    sourceTimeMs: finiteInteger(row.created_at_ms) ? row.created_at_ms : null,
+  };
+}
+
 function assertSupportRefs(
   db: DatabaseSync,
   refs: readonly SourceSupportRef[],
@@ -439,6 +508,9 @@ function assertSupportRefs(
         break;
       case "observation_ref":
         resolved.push(assertObservationVisibleToConversation(db, ref.observationId, conversationId));
+        break;
+      case "artifact_text_span":
+        resolved.push(assertArtifactTextSpan(db, ref, conversationId));
         break;
       case "receipt_ref": {
         const receipt = resolveReceiptRef(db, ref.receiptId, conversationId);

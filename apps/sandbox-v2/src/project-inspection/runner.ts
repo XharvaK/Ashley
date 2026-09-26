@@ -159,19 +159,61 @@ function readFileOp(rel) {
   }
   if (st.isSymbolicLink()) { fail("symlink_forbidden"); }
   if (!st.isFile()) { fail("not_a_file"); }
-  if (st.size > READ_MAX_BYTES) { fail("file_too_large"); }
   var buf;
   try {
     buf = fs.readFileSync(resolved.abs);
   } catch (e) {
     fail("read_failed");
   }
+  var afterSha256 = crypto.createHash("sha256").update(buf).digest("hex");
+  if (buf.length > READ_MAX_BYTES) {
+    var contentUtf8;
+    try {
+      contentUtf8 = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(buf);
+    } catch (e) {
+      return {
+        kind: "project.read_file",
+        path: rel,
+        bytes: buf.length,
+        sha256: afterSha256,
+        truncated: true,
+        encoding: "binary_manifest",
+        completeness: "partial"
+      };
+    }
+    var windowEnd = READ_MAX_BYTES;
+    while (windowEnd > 0) {
+      try {
+        new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(buf.subarray(0, windowEnd));
+        break;
+      } catch (e) {
+        windowEnd -= 1;
+      }
+    }
+    if (windowEnd <= 0) { fail("partial_utf8_window_unavailable"); }
+    return {
+      kind: "project.read_file",
+      path: rel,
+      bytes: buf.length,
+      contentBase64: buf.subarray(0, windowEnd).toString("base64"),
+      sha256: afterSha256,
+      truncated: true,
+      encoding: "utf8",
+      extent: { startByte: 0, endByteExclusive: windowEnd, totalBytes: buf.length },
+      completeness: "partial"
+    };
+  }
+  try {
+    new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(buf);
+  } catch (e) {
+    fail("not_utf8");
+  }
   return {
     kind: "project.read_file",
     path: rel,
     bytes: buf.length,
     contentBase64: buf.toString("base64"),
-    sha256: crypto.createHash("sha256").update(buf).digest("hex"),
+    sha256: afterSha256,
     truncated: false
   };
 }

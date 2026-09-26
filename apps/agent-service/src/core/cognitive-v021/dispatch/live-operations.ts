@@ -66,8 +66,10 @@ import { cognitiveStatusOf, getConcern, quarantineKindOf } from "../concerns/lin
 import { inspectConcernCurrentness } from "../thought/source-currentness.js";
 import { projectFileArtifactIdentity } from "../observation/view.js";
 import { executeTypedInspection } from "./typed-inspections.js";
+import { executeEvidenceOperation, type EvidenceRefreshFetcher } from "./evidence-operations.js";
 import {
   CapabilityUnavailableError,
+  isEvidenceOperationKind,
   isTypedInspectionOperationKind,
   safeReasonCode,
 } from "../thought/typed-inspection.js";
@@ -124,6 +126,7 @@ type LiveSandboxOverrides = Partial<SandboxV2Environment> & {
 
 type LiveOperationAdapters = {
   executeProjectInspectionV2: typeof executeProjectInspectionV2;
+  refreshEvidence?: EvidenceRefreshFetcher;
   executeWorkspaceExperimentV2: typeof executeWorkspaceExperimentV2;
   executeCandidateVerificationV2: typeof executeCandidateVerificationV2;
   executeCandidateAuthorshipV2: typeof executeCandidateAuthorshipV2;
@@ -1179,6 +1182,21 @@ export function createV021LiveOperationExecutors(
     },
 
     async executeObservation(req): Promise<Observation> {
+      if (isEvidenceOperationKind(req.kind)) {
+        try {
+          return await executeEvidenceOperation({
+            req,
+            nuclear: options.nuclear,
+            sidecar: options.sidecar,
+            ownerId: options.ownerId,
+            nowMs,
+            refresh: options.adapters?.refreshEvidence,
+          });
+        } catch (error) {
+          if (error instanceof CapabilityUnavailableError) throw error;
+          throw new CapabilityUnavailableError("evidence_unavailable");
+        }
+      }
       if (isTypedInspectionOperationKind(req.kind)) {
         try {
           const inspected = executeTypedInspection({
@@ -1249,7 +1267,10 @@ export function createV021LiveOperationExecutors(
       const fileObservation = result.observation.operation === "project.read_file"
         ? result.observation
         : null;
-      const view = fileObservation === null ? undefined : {
+      const returnedSelector: import("../types.js").JsonValue = fileObservation?.truncated
+        ? { kind: "text_window", offsetChars: 0, limitChars: fileObservation.contentUtf8?.length ?? 0 }
+        : { kind: "whole_file" };
+      const view = fileObservation === null || typeof fileObservation.contentUtf8 !== "string" ? undefined : {
         ...projectFileArtifactIdentity({
           projectId: fileObservation.projectId,
           path: fileObservation.path,
@@ -1257,9 +1278,9 @@ export function createV021LiveOperationExecutors(
           capturedAtMs: fileObservation.executedAtMs,
         }),
         requestedSelector: { kind: "whole_file" } as const,
-        returnedSelector: { kind: "whole_file" } as const,
+        returnedSelector,
         completeness: fileObservation.truncated ? "partial" as const : "complete" as const,
-        omission: fileObservation.truncated ? { reason: "truncated" } as const : null,
+        omission: fileObservation.truncated ? { reason: "source_truncated" } as const : null,
         continuation: null,
         errors: [],
         contentHashBasis: "raw_bytes",

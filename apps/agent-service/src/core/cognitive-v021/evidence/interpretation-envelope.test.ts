@@ -9,6 +9,8 @@ import { admitTestCycle, openTestSidecar } from "../test-support.js";
 import type { WorkingContextDelta } from "../types.js";
 import { parseThoughtSemanticOutput } from "../thought/parse.js";
 import { putInFlight, recordEffectReceipt } from "../effect/in-flight.js";
+import { persistOrVerifyObservation } from "../observation/persistence.js";
+import { projectFileArtifactIdentity } from "../observation/view.js";
 
 function directive(id: string, support: unknown[], overrides: Record<string, unknown> = {}) {
   return {
@@ -297,7 +299,6 @@ describe("Working Context interpretation envelope", () => {
   });
 
   it.each([
-    { kind: "artifact_text_span", artifactId: "a1", representationId: "r1", start: 0, end: 1, quote: "x" },
     { kind: "document_page_region", artifactId: "a1", representationId: "r1", page: 1 },
     { kind: "image_region", artifactId: "a1", representationId: "r1" },
     { kind: "structured_path", artifactId: "a1", representationId: "r1", path: "/x" },
@@ -313,6 +314,85 @@ describe("Working Context interpretation envelope", () => {
         ]),
       }, { cycleId: "cycle-publish", generation: 1, nowMs: 20 })).toThrow("support_ref_kind_unimplemented");
       expect(listWorkingContext(db, "thread-envelope")).toEqual([]);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("resolves an artifact_text_span against a retained text representation and checks the exact quote", () => {
+    const db = openTestSidecar();
+    try {
+      admitTestCycle(db, {
+        cycleId: "cycle-artifact-text",
+        conversationId: "thread-envelope",
+        triggerKind: "owner_message",
+        triggerRef: "trigger-artifact-text",
+        occupantId: "doc",
+        authorityEpoch: 1,
+        nowMs: 10,
+      });
+      const identity = projectFileArtifactIdentity({
+        projectId: "project-ashley",
+        path: "README.md",
+        rawByteHash: "a".repeat(64),
+        capturedAtMs: 11,
+      });
+      const ownerSource = addOwnerSource(db, "owner basis");
+      persistOrVerifyObservation(db, {
+        observationId: "observation-artifact-text",
+        cycleId: "cycle-artifact-text",
+        generation: 1,
+        derived: false,
+        replaySafe: true,
+        modality: "tool",
+        payload: {
+          projectId: "project-ashley",
+          operation: "project.read_file",
+          path: "README.md",
+          verified: true,
+          truncated: false,
+          executedAtMs: 11,
+          contentUtf8: "alpha beta",
+          bytes: 10,
+          sha256: "a".repeat(64),
+        },
+        provenance: "sandbox-v2:project-inspection",
+        dataClassification: "never_public",
+        secretOmitted: false,
+        view: {
+          ...identity,
+          requestedSelector: { kind: "whole_file" },
+          returnedSelector: { kind: "whole_file" },
+          completeness: "complete",
+          omission: null,
+          continuation: null,
+          errors: [],
+          contentHashBasis: "raw_bytes",
+        },
+      }, 11);
+
+      const support = {
+        kind: "artifact_text_span",
+        artifactId: identity.parentArtifactId,
+        representationId: identity.representationId,
+        start: 0,
+        end: 5,
+        quote: "alpha",
+      };
+      expect(() => applyWorkingContextDelta(db, {
+        op: "upsert",
+        item: directive("wc-artifact-text", [
+          { kind: "conversation_text_span", evidenceRowId: ownerSource.rowId, start: 0, end: 11, quote: "owner basis" },
+          support,
+        ]),
+      }, { cycleId: "cycle-publish", generation: 1, nowMs: 20 })).not.toThrow();
+      expect(() => applyWorkingContextDelta(db, {
+        op: "upsert",
+        item: directive("wc-artifact-text-mismatch", [
+          { kind: "conversation_text_span", evidenceRowId: ownerSource.rowId, start: 0, end: 11, quote: "owner basis" },
+          { ...support, quote: "wrong" },
+        ]),
+      }, { cycleId: "cycle-publish", generation: 1, nowMs: 20 })).toThrow("support_ref_unresolvable");
     } finally {
       db.close();
     }
