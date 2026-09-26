@@ -83,6 +83,20 @@ export {
   type WebSearchResultSet,
 } from "./search-provider.js";
 export {
+  buildPublicWebFetchRequest,
+  CuriosityWebFetchProvider,
+  defaultWebFetchProvider,
+  isValidWebFetchAudience,
+  isValidWebFetchRequest,
+  UnavailableWebFetchProvider,
+  WEB_FETCH_ACCEPT,
+  WEB_FETCH_MAX_URL_CHARS,
+  WEB_FETCH_OPERATION_KIND,
+  type CuriosityWebFetchProviderOptions,
+  type WebFetchProvider,
+  type WebFetchRequest,
+} from "./web-fetch-provider.js";
+export {
   listPerceptionForgetTargets,
   redactPerceptionTargets,
   redactPerceptionByOwnerTopic,

@@ -3,6 +3,7 @@ import {
   assertArtifactCursorBinding,
   canonicalObservationView,
   projectFileArtifactIdentity,
+  webPageArtifactIdentity,
   type ArtifactCursor,
 } from "./view.js";
 
@@ -23,6 +24,27 @@ describe("W1-P4 artifact identity and observation view", () => {
     expect(first.parentArtifactId).toMatch(/^artifact:v1:[0-9a-f]{64}$/);
     expect(first.representationId).toMatch(/^representation:v1:[0-9a-f]{64}$/);
     expect(otherSource.parentArtifactId).not.toBe(first.parentArtifactId);
+  });
+
+  it("versions a public page by cleaned content and capture time", () => {
+    const first = webPageArtifactIdentity({
+      requestedUrl: "https://public.test/page",
+      contentHash: "a".repeat(64),
+      capturedAtMs: 42,
+    });
+    const same = webPageArtifactIdentity({
+      requestedUrl: "https://public.test/page",
+      contentHash: "a".repeat(64),
+      capturedAtMs: 42,
+    });
+    const next = webPageArtifactIdentity({
+      requestedUrl: "https://public.test/page",
+      contentHash: "b".repeat(64),
+      capturedAtMs: 43,
+    });
+
+    expect(same).toEqual(first);
+    expect(next.parentArtifactId).not.toBe(first.parentArtifactId);
   });
 
   it("rejects a cursor when the bound artifact hash has changed", () => {

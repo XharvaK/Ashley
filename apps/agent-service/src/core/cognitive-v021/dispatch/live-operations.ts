@@ -68,11 +68,17 @@ import { projectFileArtifactIdentity } from "../observation/view.js";
 import { executeTypedInspection } from "./typed-inspections.js";
 import { executeEvidenceOperation, type EvidenceRefreshFetcher } from "./evidence-operations.js";
 import { executeWebSearchOperation } from "./search-operations.js";
+import { executeWebFetchOperation } from "./web-fetch-operations.js";
 import {
   defaultWebSearchProvider,
   WEB_SEARCH_OPERATION_KIND,
   type WebSearchProvider,
 } from "../../perception/search-provider.js";
+import {
+  defaultWebFetchProvider,
+  WEB_FETCH_OPERATION_KIND,
+  type WebFetchProvider,
+} from "../../perception/web-fetch-provider.js";
 import {
   CapabilityUnavailableError,
   isEvidenceOperationKind,
@@ -134,6 +140,7 @@ type LiveOperationAdapters = {
   executeProjectInspectionV2: typeof executeProjectInspectionV2;
   refreshEvidence?: EvidenceRefreshFetcher;
   webSearchProvider?: WebSearchProvider;
+  webFetchProvider?: WebFetchProvider;
   executeWorkspaceExperimentV2: typeof executeWorkspaceExperimentV2;
   executeCandidateVerificationV2: typeof executeCandidateVerificationV2;
   executeCandidateAuthorshipV2: typeof executeCandidateAuthorshipV2;
@@ -987,6 +994,7 @@ export function createV021LiveOperationExecutors(
   const nowMs = options.nowMs ?? (() => Date.now());
   const registry = options.registry ?? options.envOverrides?.registry ?? loadOperatorProjectReadRegistry();
   const webSearchProvider = options.adapters?.webSearchProvider ?? defaultWebSearchProvider;
+  const webFetchProvider = options.adapters?.webFetchProvider ?? defaultWebFetchProvider;
   const adapters: LiveOperationAdapters = {
     executeProjectInspectionV2,
     executeWorkspaceExperimentV2,
@@ -1201,6 +1209,18 @@ export function createV021LiveOperationExecutors(
           throw new CapabilityUnavailableError("web_search_unavailable");
         }
       }
+      if (req.kind === WEB_FETCH_OPERATION_KIND) {
+        try {
+          return await executeWebFetchOperation({
+            req,
+            provider: webFetchProvider,
+            nowMs,
+          });
+        } catch (error) {
+          if (error instanceof CapabilityUnavailableError) throw error;
+          throw new CapabilityUnavailableError("web_fetch_unavailable");
+        }
+      }
       if (isEvidenceOperationKind(req.kind)) {
         try {
           return await executeEvidenceOperation({
@@ -1210,6 +1230,7 @@ export function createV021LiveOperationExecutors(
             ownerId: options.ownerId,
             nowMs,
             refresh: options.adapters?.refreshEvidence,
+            webFetch: webFetchProvider,
           });
         } catch (error) {
           if (error instanceof CapabilityUnavailableError) throw error;

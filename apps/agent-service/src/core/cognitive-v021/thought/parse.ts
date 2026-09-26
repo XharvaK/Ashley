@@ -28,9 +28,11 @@ import { validateModeBRequest } from "../../sandbox/opencode/mode-b-request.js";
 import {
   isEvidenceOperationKind,
   isValidEvidenceOperationRequest,
+  isValidWebFetchOperationRequest,
   isValidWebSearchOperationRequest,
   isTypedInspectionOperationKind,
   isValidTypedInspectionRequest,
+  isWebFetchOperationKind,
   isWebSearchOperationKind,
 } from "./typed-inspection.js";
 import {
@@ -935,6 +937,12 @@ function parseOperationSemantic(
   if (isWebSearchOperationKind(record.operationKind)) {
     if (kind !== "observation_intent") return semanticFailure("wrong_type", "operationKind");
     if (!isValidWebSearchOperationRequest(record.operationKind, record.request)) {
+      return semanticFailure("wrong_type", "request");
+    }
+  }
+  if (isWebFetchOperationKind(record.operationKind)) {
+    if (kind !== "observation_intent") return semanticFailure("wrong_type", "operationKind");
+    if (!isValidWebFetchOperationRequest(record.operationKind, record.request)) {
       return semanticFailure("wrong_type", "request");
     }
   }

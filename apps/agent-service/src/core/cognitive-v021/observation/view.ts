@@ -148,6 +148,23 @@ export function projectFileArtifactIdentity(input: {
   return { parentArtifactId, representationId: textArtifactRepresentationId(parentArtifactId) };
 }
 
+export function webPageArtifactIdentity(input: {
+  requestedUrl: string;
+  contentHash: string;
+  capturedAtMs: number;
+}): Pick<ObservationView, "parentArtifactId" | "representationId"> {
+  if (!input.requestedUrl.trim() || !/^[a-f0-9]{64}$/.test(input.contentHash)
+    || !Number.isSafeInteger(input.capturedAtMs) || input.capturedAtMs < 0) {
+    throw new ObservationViewError("web_page_artifact_identity_invalid");
+  }
+  const parentArtifactId = `artifact:v1:${sha256({
+    sourceLocator: { kind: "web_page", requestedUrl: input.requestedUrl.trim() },
+    contentHash: input.contentHash,
+    capturedAtMs: input.capturedAtMs,
+  })}`;
+  return { parentArtifactId, representationId: textArtifactRepresentationId(parentArtifactId) };
+}
+
 /** Stable text representation identity for a retained artifact capture. */
 export function textArtifactRepresentationId(parentArtifactId: string): string {
   if (typeof parentArtifactId !== "string" || parentArtifactId.trim() === "") {

@@ -721,14 +721,14 @@ describe("Thought semantic output contract", () => {
 
   it("keeps protected semantic, wire, and capability fingerprints exact", () => {
     // Rotation earned by typed inspect/evidence operation vocabulary, objective
-    // facet fields, and instructions;
+    // web.fetch vocabulary and instructions;
     // parser identity remains the v2 semantic parser.
     expect(THOUGHT_SEMANTIC_SCHEMA_FINGERPRINT).toBe(
-      "sha256:ea1b057db34d0a29f7f98715dc6a4594d3cf8da3ce6bf3f66b5616945aa0efc5",
+      "sha256:34e41e10195b3bb4f50f01ab0933de4821a22e15f3d2ca6d11c12793bfeb74cc",
     );
     const zeroOp = constrainThoughtOutputSchema(buildOperationalEffectNamespaceFromRefs([]));
     expect(zeroOp.wireSchemaFingerprint).toBe(
-      "sha256:05ac7286459e96f9100ae9ecb2d9a7ba19e35ce1cf64e4115676af64cd8fd946",
+      "sha256:d92723ca30290a45269a1972d6931c90c7e8ecd5d27682cb5c854875f03d0aea",
     );
     expect(zeroOp.namespaceConstraintFingerprint).toBe(
       "sha256:d277b3804b25361994107886d1f33f779a7501298b01fe483ebe7c795b6e19c6",

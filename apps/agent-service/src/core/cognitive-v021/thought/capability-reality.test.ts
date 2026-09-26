@@ -89,6 +89,34 @@ describe("v0.2.1 CapabilityReality live-surface contract", () => {
     }
   });
 
+  it("reports the owner-message page fetch only for an injected available provider", () => {
+    const db = activeDb();
+    try {
+      expect(getCapabilityReality(db, {
+        registry: registry(),
+        masterMode: "apply",
+        lifecycleEnabled: true,
+        substrateAvailable: true,
+      }).conversationalRead).toBe(false);
+      expect(getCapabilityReality(db, {
+        registry: registry(),
+        masterMode: "apply",
+        lifecycleEnabled: true,
+        substrateAvailable: true,
+        webFetchProvider: { available: true },
+      }).conversationalRead).toBe(true);
+      expect(getCapabilityReality(db, {
+        registry: registry(),
+        masterMode: "observe",
+        lifecycleEnabled: true,
+        substrateAvailable: true,
+        webFetchProvider: { available: true },
+      }).conversationalRead).toBe(false);
+    } finally {
+      db.close();
+    }
+  });
+
   it("advertises accepted Sandbox V2 faculties only when capability and substrate gates pass", () => {
     const db = activeDb();
     try {

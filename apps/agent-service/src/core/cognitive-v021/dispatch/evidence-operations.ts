@@ -15,6 +15,8 @@ import {
   type ArtifactCursor,
   type ObservationView,
 } from "../observation/view.js";
+import { executeWebPageRefresh } from "./web-fetch-operations.js";
+import type { WebFetchProvider } from "../../perception/web-fetch-provider.js";
 import type { JsonValue, Observation, ObservationRequest } from "../types.js";
 import type { SocialAudience } from "../social/types.js";
 import {
@@ -34,7 +36,8 @@ type RetainedText = {
   text: string;
   complete: boolean;
   inputTrust: "untrusted_evidence" | null;
-  source: "artifact" | "project";
+  sourceUrl: string | null;
+  source: "artifact" | "project" | "page";
 };
 
 type EvidenceRefreshResult = {
@@ -57,6 +60,7 @@ type EvidenceOperationInput = {
   ownerId?: string;
   nowMs: () => number;
   refresh?: EvidenceRefreshFetcher;
+  webFetch?: WebFetchProvider;
 };
 
 function isRecord(value: unknown): value is Row {
@@ -152,7 +156,7 @@ function textMime(value: unknown): boolean {
     || mime === "application/javascript";
 }
 
-function projectTextCapture(
+function sidecarTextCapture(
   sidecar: DatabaseSync,
   artifactId: string,
   representationId: string,
@@ -160,7 +164,8 @@ function projectTextCapture(
 ): RetainedText | null {
   const row = sidecar.prepare(
     `SELECT o.payload_json, o.parent_artifact_id, o.representation_id,
-            o.view_metadata_json, o.data_classification, o.secret_omitted
+            o.view_metadata_json, o.data_classification, o.secret_omitted,
+            o.modality, o.provenance
        FROM observations o
        JOIN cycle_records c ON c.cycle_id = o.cycle_id AND c.generation = o.generation
       WHERE o.parent_artifact_id = ?
@@ -168,6 +173,8 @@ function projectTextCapture(
         AND c.occupant_id = ?
         AND o.secret_omitted = 0
         AND lower(o.data_classification) NOT IN ('secret', 'forgotten')
+        AND ((o.modality = 'tool' AND o.provenance = 'sandbox-v2:project-inspection')
+          OR (o.modality = 'page' AND o.provenance = 'perception:web-fetch'))
       ORDER BY o.created_at_ms DESC, o.observation_id DESC
       LIMIT 1`,
   ).get(artifactId, representationId, ownerId) as Row | undefined;
@@ -193,14 +200,20 @@ function projectTextCapture(
     || !/^[a-f0-9]{64}$/.test(payload.sha256)) {
     throw new CapabilityUnavailableError("representation_unavailable");
   }
+  const source = row.modality === "page" ? "page" : "project";
+  if (source === "page" && (typeof payload.requestedUrl !== "string" || payload.requestedUrl.trim().length === 0)) {
+    throw new CapabilityUnavailableError("representation_unavailable");
+  }
+  const sourceUrl = source === "page" ? String(payload.requestedUrl) : null;
   return {
     artifactId,
     representationId,
     contentHash: payload.sha256,
     text: payload.contentUtf8,
     complete: payload.truncated !== true && view.completeness !== "partial",
-    inputTrust: null,
-    source: "project",
+    inputTrust: source === "page" ? "untrusted_evidence" : null,
+    sourceUrl,
+    source,
   };
 }
 
@@ -233,6 +246,7 @@ function artifactTextCapture(
     text: "",
     complete: true,
     inputTrust: "untrusted_evidence",
+    sourceUrl: null,
     source: "artifact",
   };
 }
@@ -373,7 +387,7 @@ async function executeRead(input: EvidenceOperationInput, request: EvidenceReadR
   const audience = audienceOf(input.req);
   let source: RetainedText | null = null;
   if (input.sidecar) {
-    source = projectTextCapture(input.sidecar, request.artifactId, request.representationId, ownerId);
+    source = sidecarTextCapture(input.sidecar, request.artifactId, request.representationId, ownerId);
   }
   if (!source) {
     try {
@@ -439,7 +453,11 @@ async function executeRead(input: EvidenceOperationInput, request: EvidenceReadR
     nextCursor: page.nextCursor,
     inputTrust: source.inputTrust,
     accessLimits: ["owner_audience_bound", "typed_selector", "retained_version_only"],
-  }, source.source === "artifact" ? "perception:artifact-read" : "sandbox-v2:project-evidence-read", {
+  }, source.source === "artifact"
+    ? "perception:artifact-read"
+    : source.source === "page"
+      ? "perception:web-page-read"
+      : "sandbox-v2:project-evidence-read", {
     parentArtifactId: source.artifactId,
     representationId: source.representationId,
     requestedSelector: request.selector,
@@ -448,7 +466,11 @@ async function executeRead(input: EvidenceOperationInput, request: EvidenceReadR
     omission: source.complete ? null : { reason: "source_truncated" },
     continuation: page.nextCursor,
     errors: [],
-    contentHashBasis: source.source === "artifact" ? "retained_bytes" : "raw_bytes",
+    contentHashBasis: source.source === "artifact"
+      ? "retained_bytes"
+      : source.source === "page"
+        ? "cleaned_utf8"
+        : "raw_bytes",
     ...(source.inputTrust === null ? {} : { inputTrust: source.inputTrust }),
   });
 }
@@ -472,6 +494,24 @@ async function executeRefresh(input: EvidenceOperationInput, request: EvidenceRe
   const ownerId = requiredText(input.ownerId);
   if (!ownerId) throw new CapabilityUnavailableError("inspect_scope_unavailable");
   const audience = audienceOf(input.req);
+  const pageSource = input.sidecar
+    ? sidecarTextCapture(input.sidecar, request.artifactId, request.representationId, ownerId)
+    : null;
+  if (pageSource?.source === "page") {
+    if (!pageSource.sourceUrl || urlFingerprint(request.sourceUrl) !== urlFingerprint(pageSource.sourceUrl)) {
+      throw new CapabilityUnavailableError("refresh_source_mismatch");
+    }
+    if (!input.webFetch) throw new CapabilityUnavailableError("web_fetch_unavailable");
+    return executeWebPageRefresh({
+      req: input.req,
+      provider: input.webFetch,
+      sourceUrl: pageSource.sourceUrl,
+      artifactId: request.artifactId,
+      representationId: request.representationId,
+      previousContentHash: pageSource.contentHash,
+      nowMs: input.nowMs,
+    });
+  }
   let row: Row;
   try {
     row = currentArtifactRow(input.nuclear, request.artifactId, ownerId);
