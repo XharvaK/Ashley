@@ -11,6 +11,8 @@ import { parseThoughtSemanticOutput } from "../thought/parse.js";
 import { putInFlight, recordEffectReceipt } from "../effect/in-flight.js";
 import { persistOrVerifyObservation } from "../observation/persistence.js";
 import { projectFileArtifactIdentity } from "../observation/view.js";
+import { textArtifactRepresentationId } from "../observation/view.js";
+import { validateSourceSupportRefs } from "./interpretation-envelope.js";
 
 function directive(id: string, support: unknown[], overrides: Record<string, unknown> = {}) {
   return {
@@ -302,7 +304,7 @@ describe("Working Context interpretation envelope", () => {
     { kind: "document_page_region", artifactId: "a1", representationId: "r1", page: 1 },
     { kind: "image_region", artifactId: "a1", representationId: "r1" },
     { kind: "structured_path", artifactId: "a1", representationId: "r1", path: "/x" },
-  ])("fails closed for the unimplemented $kind support reference", (support) => {
+  ])("fails closed for an unresolved $kind support reference", (support) => {
     const db = openTestSidecar();
     try {
       const source = addOwnerSource(db);
@@ -312,8 +314,115 @@ describe("Working Context interpretation envelope", () => {
           { kind: "conversation_text_span", evidenceRowId: source.rowId, start: 0, end: 7, quote: "not yet" },
           support,
         ]),
-      }, { cycleId: "cycle-publish", generation: 1, nowMs: 20 })).toThrow("support_ref_kind_unimplemented");
+      }, { cycleId: "cycle-publish", generation: 1, nowMs: 20 })).toThrow(
+        support.kind === "structured_path" ? "support_ref_unresolved" : "support_ref_kind_unimplemented",
+      );
       expect(listWorkingContext(db, "thread-envelope")).toEqual([]);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("resolves JSON and CSV structured support paths against retained observations", () => {
+    const db = openTestSidecar();
+    try {
+      admitTestCycle(db, {
+        cycleId: "cycle-structured-support",
+        conversationId: "thread-envelope",
+        triggerKind: "owner_message",
+        triggerRef: "trigger-structured-support",
+        occupantId: "doc",
+        authorityEpoch: 1,
+        nowMs: 10,
+      });
+      const jsonArtifactId = "artifact:attachment-json";
+      const jsonRepresentationId = textArtifactRepresentationId(jsonArtifactId);
+      persistOrVerifyObservation(db, {
+        observationId: "observation-structured-json",
+        cycleId: "cycle-structured-support",
+        generation: 1,
+        derived: false,
+        replaySafe: true,
+        modality: "text",
+        payload: {
+          format: "json",
+          artifactId: jsonArtifactId,
+          representationId: jsonRepresentationId,
+          contentHash: "a".repeat(64),
+          value: { profile: { name: "Ashley" } },
+        },
+        provenance: "perception:attachment",
+        dataClassification: "never_public",
+        secretOmitted: false,
+        view: {
+          parentArtifactId: jsonArtifactId,
+          representationId: jsonRepresentationId,
+          derivation: "attachment_ingest",
+          requestedSelector: { kind: "json_path", path: "", maxItems: 64, maxChars: 8_000 },
+          returnedSelector: { kind: "json_path", path: "", maxItems: 64, maxChars: 8_000 },
+          completeness: "complete",
+          errors: [],
+          inputTrust: "untrusted_evidence",
+        },
+      }, 11);
+
+      const csvArtifactId = "artifact:attachment-csv";
+      const csvRepresentationId = textArtifactRepresentationId(csvArtifactId);
+      persistOrVerifyObservation(db, {
+        observationId: "observation-structured-csv",
+        cycleId: "cycle-structured-support",
+        generation: 1,
+        derived: false,
+        replaySafe: true,
+        modality: "text",
+        payload: {
+          format: "csv",
+          artifactId: csvArtifactId,
+          representationId: csvRepresentationId,
+          contentHash: "b".repeat(64),
+          rows: [["name", "count"], ["Ashley", "2"]],
+        },
+        provenance: "perception:attachment",
+        dataClassification: "never_public",
+        secretOmitted: false,
+        view: {
+          parentArtifactId: csvArtifactId,
+          representationId: csvRepresentationId,
+          derivation: "attachment_ingest",
+          requestedSelector: { kind: "csv_range", startRow: 0, endRow: 2, startColumn: 0, endColumn: 2 },
+          returnedSelector: { kind: "csv_range", startRow: 0, endRow: 2, startColumn: 0, endColumn: 2 },
+          completeness: "complete",
+          errors: [],
+          inputTrust: "untrusted_evidence",
+        },
+      }, 12);
+
+      expect(validateSourceSupportRefs(db, [{
+        kind: "structured_path",
+        artifactId: jsonArtifactId,
+        representationId: jsonRepresentationId,
+        path: "/profile/name",
+      }], "thread-envelope")).toEqual([{
+        principalKind: "observation",
+        principalId: null,
+        sourceTimeMs: 11,
+      }]);
+      expect(validateSourceSupportRefs(db, [{
+        kind: "structured_path",
+        artifactId: csvArtifactId,
+        representationId: csvRepresentationId,
+        path: { row: 1, column: 1 },
+      }], "thread-envelope")).toEqual([{
+        principalKind: "observation",
+        principalId: null,
+        sourceTimeMs: 12,
+      }]);
+      expect(() => validateSourceSupportRefs(db, [{
+        kind: "structured_path",
+        artifactId: jsonArtifactId,
+        representationId: jsonRepresentationId,
+        path: "/profile/missing",
+      }], "thread-envelope")).toThrow("support_ref_unresolved");
     } finally {
       db.close();
     }

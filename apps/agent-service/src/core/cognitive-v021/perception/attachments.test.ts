@@ -1,0 +1,245 @@
+import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
+import { mkdtempSync } from "node:fs";
+import { DatabaseSync } from "node:sqlite";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, it, vi } from "vitest";
+import { openNuclearDb } from "../../db.js";
+import { MAX_AGGREGATE_ATTACHMENT_BYTES, MAX_SINGLE_ATTACHMENT_BYTES } from "../../perception/types.js";
+import { readArtifactBytes } from "../../perception/artifact-store.js";
+import { resolveAttachmentObservations } from "./attachments.js";
+import { isValidEvidenceOperationRequest } from "../thought/typed-inspection.js";
+
+const ownerId = "owner-attachment-test";
+
+function attachment(name: string, mime: string, id = name, size?: number) {
+  return {
+    discordAttachmentId: id,
+    declaredMime: mime,
+    fileName: name,
+    ...(size === undefined ? {} : { declaredByteSize: size }),
+    sourceUrl: `https://cdn.example.test/${name}`,
+  };
+}
+
+function fetchResult(bytes: string | Uint8Array, mime: string, finalUrl = "https://cdn.example.test/final"): {
+  bytes: Uint8Array;
+  mime: string;
+  finalUrl: string;
+  contentHash: string;
+} {
+  const body = typeof bytes === "string" ? new TextEncoder().encode(bytes) : bytes;
+  return {
+    bytes: body,
+    mime,
+    finalUrl,
+    contentHash: createHash("sha256").update(body).digest("hex"),
+  };
+}
+
+describe("owner attachment observation intake", () => {
+  let artifactDir = "";
+  let previousArtifactDir: string | undefined;
+
+  beforeEach(() => {
+    artifactDir = mkdtempSync(join(tmpdir(), "ashley-attachment-observation-"));
+    previousArtifactDir = process.env.ASHLEY_ARTIFACT_BYTE_STORE_DIR;
+    process.env.ASHLEY_ARTIFACT_BYTE_STORE_DIR = artifactDir;
+  });
+
+  afterEach(() => {
+    if (previousArtifactDir === undefined) delete process.env.ASHLEY_ARTIFACT_BYTE_STORE_DIR;
+    else process.env.ASHLEY_ARTIFACT_BYTE_STORE_DIR = previousArtifactDir;
+  });
+
+  it("turns an owner text attachment into a retained untrusted observation", async () => {
+    const nuclear = openNuclearDb(new DatabaseSync(":memory:"));
+    const fetchAttachment = vi.fn(async () => fetchResult("owner supplied notes", "text/plain"));
+
+    const observations = await resolveAttachmentObservations({
+      nuclear,
+      ownerId,
+      cycleId: "cycle-attachment-text",
+      generation: 1,
+      sourceMessageEntityUuid: "evidence-owner-1",
+      deliveryReservationEntityUuid: "owner-event-1",
+      attachmentTextEnabled: true,
+      attachments: [attachment("notes.txt", "text/plain")],
+      fetchAttachment,
+    });
+
+    assert.equal(observations.length, 1);
+    assert.equal(fetchAttachment.mock.calls.length, 1);
+    const observation = observations[0]!;
+    assert.equal(observation.modality, "text");
+    assert.equal(observation.provenance, "perception:attachment");
+    assert.equal(observation.view?.inputTrust, "untrusted_evidence");
+    assert.equal(observation.view?.completeness, "complete");
+    assert.equal((observation.payload as { contentUtf8: string }).contentUtf8, "owner supplied notes");
+    assert.equal(observation.view?.parentArtifactId, (observation.payload as { artifactId: string }).artifactId);
+
+    const artifactId = (observation.payload as { artifactId: string }).artifactId;
+    assert.deepEqual(readArtifactBytes(nuclear, artifactId, ownerId), new TextEncoder().encode("owner supplied notes"));
+    const row = nuclear.prepare(
+      "SELECT status, preserved, source_message_entity_uuid, delivery_reservation_entity_uuid FROM perception_artifacts WHERE entity_uuid = ?",
+    ).get(artifactId) as Record<string, unknown>;
+    assert.equal(row.status, "fetched");
+    assert.equal(row.preserved, 1);
+    assert.equal(row.source_message_entity_uuid, "evidence-owner-1");
+    assert.equal(row.delivery_reservation_entity_uuid, "owner-event-1");
+    nuclear.close();
+  });
+
+  it("projects JSON and CSV with bounded structured selectors", async () => {
+    const nuclear = openNuclearDb(new DatabaseSync(":memory:"));
+    const fetchAttachment = vi.fn(async ({ url }: { url: string }) =>
+      url.endsWith(".json")
+        ? fetchResult('{"profile":{"name":"Ashley","count":2}}', "application/json")
+        : fetchResult("name,count\nAshley,2\nAlex,1\n", "text/csv"));
+
+    const observations = await resolveAttachmentObservations({
+      nuclear,
+      ownerId,
+      cycleId: "cycle-attachment-structured",
+      generation: 2,
+      sourceMessageEntityUuid: "evidence-owner-2",
+      deliveryReservationEntityUuid: "owner-event-2",
+      attachmentTextEnabled: true,
+      attachments: [
+        attachment("data.json", "application/json"),
+        attachment("data.csv", "text/csv"),
+      ],
+      fetchAttachment,
+    });
+
+    assert.equal(observations.length, 2);
+    const json = observations.find((item) => (item.payload as { format?: string }).format === "json")!;
+    assert.deepEqual(json.view?.requestedSelector, {
+      kind: "json_path",
+      path: "",
+      maxItems: 64,
+      maxChars: 8_000,
+    });
+    assert.equal((json.payload as { value: { profile: { name: string } } }).value.profile.name, "Ashley");
+
+    const csv = observations.find((item) => (item.payload as { format?: string }).format === "csv")!;
+    assert.deepEqual(csv.view?.requestedSelector, {
+      kind: "csv_range",
+      startRow: 0,
+      endRow: 3,
+      startColumn: 0,
+      endColumn: 2,
+    });
+    assert.deepEqual((csv.payload as { rows: string[][] }).rows[1], ["Ashley", "2"]);
+    nuclear.close();
+  });
+
+  it("emits explicit unsupported, unreadable, and capability errors", async () => {
+    const nuclear = openNuclearDb(new DatabaseSync(":memory:"));
+    const fetchAttachment = vi.fn(async () => {
+      throw new Error("network_down");
+    });
+
+    const unsupported = await resolveAttachmentObservations({
+      nuclear,
+      ownerId,
+      cycleId: "cycle-attachment-errors",
+      generation: 1,
+      sourceMessageEntityUuid: "evidence-owner-3",
+      deliveryReservationEntityUuid: "owner-event-3",
+      attachmentTextEnabled: true,
+      attachments: [attachment("notes.pdf", "application/pdf")],
+      fetchAttachment,
+    });
+    assert.equal((unsupported[0]!.payload as { error: { code: string; mediaType: string } }).error.code, "unsupported_media");
+    assert.equal((unsupported[0]!.payload as { error: { mediaType: string } }).error.mediaType, "application/pdf");
+    assert.equal(fetchAttachment.mock.calls.length, 0);
+
+    const unreadable = await resolveAttachmentObservations({
+      nuclear,
+      ownerId,
+      cycleId: "cycle-attachment-unreadable",
+      generation: 1,
+      sourceMessageEntityUuid: "evidence-owner-4",
+      deliveryReservationEntityUuid: "owner-event-4",
+      attachmentTextEnabled: true,
+      attachments: [attachment("notes.txt", "text/plain")],
+      fetchAttachment,
+    });
+    assert.equal((unreadable[0]!.payload as { error: { code: string } }).error.code, "attachment_unreadable");
+
+    const unavailable = await resolveAttachmentObservations({
+      nuclear,
+      ownerId,
+      cycleId: "cycle-attachment-disabled",
+      generation: 1,
+      sourceMessageEntityUuid: "evidence-owner-5",
+      deliveryReservationEntityUuid: "owner-event-5",
+      attachmentTextEnabled: false,
+      attachments: [attachment("notes.txt", "text/plain")],
+      fetchAttachment,
+    });
+    assert.equal((unavailable[0]!.payload as { error: { code: string } }).error.code, "capability_not_in_live_set");
+    nuclear.close();
+  });
+
+  it("rejects size limits without fetching", async () => {
+    const nuclear = openNuclearDb(new DatabaseSync(":memory:"));
+    const fetchAttachment = vi.fn(async () => fetchResult("should not fetch", "text/plain"));
+    const observations = await resolveAttachmentObservations({
+      nuclear,
+      ownerId,
+      cycleId: "cycle-attachment-limits",
+      generation: 1,
+      sourceMessageEntityUuid: "evidence-owner-6",
+      deliveryReservationEntityUuid: "owner-event-6",
+      attachmentTextEnabled: true,
+      attachments: [
+        attachment("large.txt", "text/plain", "large", MAX_SINGLE_ATTACHMENT_BYTES + 1),
+        attachment("a.txt", "text/plain", "a", MAX_AGGREGATE_ATTACHMENT_BYTES),
+        attachment("b.txt", "text/plain", "b", 1),
+      ],
+      fetchAttachment,
+    });
+    assert.equal(observations.length, 3);
+    assert.equal(fetchAttachment.mock.calls.length, 0);
+    assert.ok(observations.every((item) => (item.payload as { error?: unknown }).error));
+    nuclear.close();
+  });
+
+  it("accepts structured evidence selectors and rejects unbounded selectors", () => {
+    assert.equal(isValidEvidenceOperationRequest("evidence.read", {
+      artifactId: "artifact-1",
+      representationId: "representation-1",
+      selector: { kind: "json_path", path: "/profile", maxItems: 32, maxChars: 1_000 },
+    }), true);
+    assert.equal(isValidEvidenceOperationRequest("evidence.read", {
+      artifactId: "artifact-1",
+      representationId: "representation-1",
+      selector: { kind: "csv_range", startRow: 0, endRow: 10, startColumn: 0, endColumn: 4 },
+    }), true);
+    assert.equal(isValidEvidenceOperationRequest("evidence.read", {
+      artifactId: "artifact-1",
+      representationId: "representation-1",
+      selector: { kind: "json_path", path: "/profile", maxItems: 0, maxChars: 1_000 },
+    }), false);
+  });
+
+  it("turns malformed attachment refs into an explicit observation error", async () => {
+    const nuclear = openNuclearDb(new DatabaseSync(":memory:"));
+    const observations = await resolveAttachmentObservations({
+      nuclear,
+      ownerId,
+      cycleId: "cycle-attachment-invalid",
+      generation: 1,
+      sourceMessageEntityUuid: "evidence-owner-7",
+      deliveryReservationEntityUuid: "owner-event-7",
+      attachmentTextEnabled: true,
+      attachments: [{ fileName: "missing-url.txt" }],
+      fetchAttachment: vi.fn(),
+    });
+    assert.equal((observations[0]!.payload as { error: { code: string } }).error.code, "attachment_ref_invalid");
+    nuclear.close();
+  });
+});

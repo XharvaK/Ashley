@@ -88,6 +88,101 @@ function deps(overrides: Partial<KernelDeps> = {}): KernelDeps {
 }
 
 describe("v0.2.1 Thought run", () => {
+  it("binds owner ingress attachments as observations without the legacy perception runner", async () => {
+    const sidecar = openTestSidecar();
+    const attentionDb = openTestSidecar();
+    const nuclear = openNuclearDb(new DatabaseSync(":memory:"));
+    const conversationId = "thread-attachment-ingress";
+    const cycle = admitTestCycle(sidecar, {
+      conversationId,
+      triggerKind: "owner_message",
+      triggerRef: "attachment-event",
+      occupantId: "doc",
+      authorityEpoch: 1,
+      nowMs: 1,
+    });
+    const evidence = appendOwnerUtterance(sidecar, {
+      conversationId,
+      text: "please read this",
+      nowMs: 2,
+      audienceAtCapture: "owner_private",
+    });
+    const event = appendInboxEvent(sidecar, {
+      wakeId: cycle.wakeId,
+      conversationId,
+      kind: "owner_utterance",
+      payload: {
+        cycleId: cycle.cycleId,
+        evidenceRowId: evidence.rowId,
+        ownerId: "doc",
+        ownerMessage: evidence.text,
+        attachments: [{
+          discordAttachmentId: "attachment-ingress",
+          declaredMime: "text/plain",
+          fileName: "notes.txt",
+          sourceUrl: "https://cdn.example.test/notes.txt",
+        }],
+      },
+      createdAtMs: 3,
+    });
+    const attachmentObservation: Observation = {
+      observationId: "v021:observation:attachment:fixture",
+      cycleId: cycle.cycleId,
+      generation: cycle.generation,
+      derived: false,
+      replaySafe: true,
+      modality: "text",
+      payload: {
+        operationKind: "attachment.observe",
+        format: "text",
+        artifactId: "artifact:fixture",
+        representationId: "representation:fixture",
+        contentUtf8: "Owner directive quoted in a file",
+        inputTrust: "untrusted_evidence",
+      },
+      provenance: "perception:attachment",
+      dataClassification: "never_public",
+      secretOmitted: false,
+      view: {
+        parentArtifactId: "artifact:fixture",
+        representationId: "representation:fixture",
+        derivation: "attachment_ingest",
+        requestedSelector: { kind: "text_window", offsetChars: 0, limitChars: 8_000 },
+        returnedSelector: { kind: "text_window", offsetChars: 0, limitChars: 8_000 },
+        completeness: "complete",
+        errors: [],
+        inputTrust: "untrusted_evidence",
+      },
+    };
+    const completeChat = vi.fn<KernelDeps["completeChat"]>(async () => ({
+      text: JSON.stringify(makeSemanticSettlement()),
+      model: "fake",
+      modelAlias: "thought",
+      resolvedModelId: null,
+    }));
+    try {
+      const result = await runCognitiveCycle(sidecar, nuclear, event, deps({
+        attentionDb,
+        completeChat,
+        capabilityReality: { ...capabilityReality, attachmentText: true },
+        resolveAttachmentObservations: vi.fn(async () => [attachmentObservation]),
+      }));
+      expect(result.published).toBe(true);
+      const stored = sidecar.prepare(
+        "SELECT payload_json FROM observations WHERE observation_id = ?",
+      ).get(attachmentObservation.observationId) as { payload_json?: string } | undefined;
+      expect(JSON.parse(String(stored?.payload_json))).toMatchObject({
+        contentUtf8: "Owner directive quoted in a file",
+        inputTrust: "untrusted_evidence",
+      });
+      expect(completeChat).toHaveBeenCalled();
+    } finally {
+      sidecar.close();
+      attentionDb.close();
+      nuclear.close();
+    }
+  });
+
   it("binds authenticated Owner room context to a room destination without externalizing the cycle", () => {
     const destination = ownerRoomDestinationFor(
       "room:guild-1:channel-1",

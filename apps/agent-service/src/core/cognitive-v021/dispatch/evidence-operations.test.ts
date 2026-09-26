@@ -70,6 +70,37 @@ function createRetainedArtifact(db: DatabaseSync, bytes: Uint8Array): string {
   return created.entityUuid;
 }
 
+function createRetainedStructuredArtifact(
+  db: DatabaseSync,
+  fileName: string,
+  mime: string,
+  text: string,
+): string {
+  const bytes = new TextEncoder().encode(text);
+  const [created] = createPendingArtifacts(db, {
+    ownerId: OWNER_ID,
+    attachments: [{
+      discordAttachmentId: `attachment-${fileName}`,
+      sourceUrl: `https://cdn.example.test/${fileName}`,
+      fileName,
+      declaredMime: mime,
+      declaredByteSize: bytes.byteLength,
+    }],
+    sourceMessageEntityUuid: `message-${fileName}`,
+    deliveryReservationEntityUuid: `reservation-${fileName}`,
+    aggregateTurnBytes: bytes.byteLength,
+  });
+  if (!created) throw new Error("test_structured_artifact_missing");
+  const contentHash = createHash("sha256").update(bytes).digest("hex");
+  transitionArtifactStatus(db, created.entityUuid, OWNER_ID, "fetched", {
+    mimeDetected: mime,
+    contentHash,
+    byteSize: bytes.byteLength,
+  });
+  storeArtifactBytes(db, OWNER_ID, created.entityUuid, bytes, mime);
+  return created.entityUuid;
+}
+
 function semantic(operationKind: string, value: Record<string, unknown>) {
   return {
     kind: "observation_intent",
@@ -208,6 +239,60 @@ describe("CAM-W3-P1 evidence operations", () => {
       representationId: "representation-1",
       sourceUrl: "https://cdn.example.test/evidence.txt",
     }), new Set())).toMatchObject({ ok: true });
+  });
+
+  it("reads bounded JSON paths and CSV ranges from one retained parse", async () => {
+    const nuclear = openNuclearDb(new DatabaseSync(":memory:"));
+    const jsonArtifactId = createRetainedStructuredArtifact(
+      nuclear,
+      "profile.json",
+      "application/json",
+      '{"profile":{"name":"Ashley","count":2}}',
+    );
+    const jsonRepresentationId = textArtifactRepresentationId(jsonArtifactId);
+    const jsonSelector = { kind: "json_path", path: "/profile/name", maxItems: 4, maxChars: 100 } as const;
+    const json = await executeEvidenceOperation({
+      req: request("evidence.read", {
+        artifactId: jsonArtifactId,
+        representationId: jsonRepresentationId,
+        selector: jsonSelector,
+      }),
+      nuclear,
+      ownerId: OWNER_ID,
+      nowMs: () => 100,
+    });
+    expect(json.payload).toMatchObject({ format: "json", value: "Ashley", selector: jsonSelector });
+    expect(json.view).toMatchObject({
+      derivation: "artifact_read",
+      requestedSelector: jsonSelector,
+      returnedSelector: jsonSelector,
+      inputTrust: "untrusted_evidence",
+    });
+
+    const csvArtifactId = createRetainedStructuredArtifact(
+      nuclear,
+      "people.csv",
+      "text/csv",
+      "name,count\nAshley,2\nAlex,1\n",
+    );
+    const csvRepresentationId = textArtifactRepresentationId(csvArtifactId);
+    const csvSelector = { kind: "csv_range", startRow: 1, endRow: 3, startColumn: 0, endColumn: 2 } as const;
+    const csv = await executeEvidenceOperation({
+      req: request("evidence.read", {
+        artifactId: csvArtifactId,
+        representationId: csvRepresentationId,
+        selector: csvSelector,
+      }),
+      nuclear,
+      ownerId: OWNER_ID,
+      nowMs: () => 101,
+    });
+    expect(csv.payload).toMatchObject({
+      format: "csv",
+      rows: [["Ashley", "2"], ["Alex", "1"]],
+      selector: csvSelector,
+    });
+    nuclear.close();
   });
 
   it("records an unchanged refresh and preserves the old artifact across a changed refresh", async () => {

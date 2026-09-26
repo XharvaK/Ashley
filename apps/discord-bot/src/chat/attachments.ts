@@ -30,8 +30,8 @@ export type ExternalEnvelopeTransport = {
 export const MAX_IMAGES = 4;
 
 const IMAGE_TYPES = /^image\/(png|jpeg|jpg|webp|gif|avif)$/i;
-export const TEXT_MIME = /^(?:text\/(?:plain|markdown|x-markdown)|application\/(?:x-)?markdown)$/i;
-const PASSIVE_TEXT_EXTS = new Set([".txt", ".md", ".markdown"]);
+export const TEXT_MIME = /^(?:text\/(?:plain|markdown|x-markdown|csv)|application\/(?:x-)?(?:markdown|json|csv))$/i;
+const PASSIVE_TEXT_EXTS = new Set([".txt", ".md", ".markdown", ".json", ".csv"]);
 const NEVER_PROMOTE_EXTS = new Set([
   ".exe", ".dll", ".bat", ".cmd", ".ps1", ".sh", ".js", ".mjs", ".jar", ".msi",
   ".com", ".scr", ".vbs", ".wsf", ".zip", ".rar", ".7z", ".tar", ".gz",

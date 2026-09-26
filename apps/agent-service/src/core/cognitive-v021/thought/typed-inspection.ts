@@ -17,6 +17,7 @@ export const WEB_FETCH_OPERATION_KINDS = [WEB_FETCH_OPERATION_KIND] as const;
 
 export const EVIDENCE_READ_MAX_CHARS = 32_768;
 export const EVIDENCE_READ_MAX_LINES = 4_096;
+export const EVIDENCE_READ_MAX_ITEMS = 64;
 
 export type EvidenceOperationKind = (typeof EVIDENCE_OPERATION_KINDS)[number];
 export type WebSearchOperationKind = (typeof WEB_SEARCH_OPERATION_KINDS)[number];
@@ -24,7 +25,9 @@ export type WebFetchOperationKind = (typeof WEB_FETCH_OPERATION_KINDS)[number];
 
 export type EvidenceTextSelector =
   | { kind: "text_window"; offsetChars: number; limitChars: number }
-  | { kind: "text_lines"; startLine: number; endLine: number };
+  | { kind: "text_lines"; startLine: number; endLine: number }
+  | { kind: "json_path"; path: string; maxItems: number; maxChars: number }
+  | { kind: "csv_range"; startRow: number; endRow: number; startColumn: number; endColumn: number };
 
 export type EvidenceReadRequest = {
   artifactId: string;
@@ -116,6 +119,36 @@ function validEvidenceSelector(value: unknown): value is EvidenceTextSelector {
       && Number.isSafeInteger(value.endLine)
       && value.endLine > value.startLine
       && value.endLine - value.startLine <= EVIDENCE_READ_MAX_LINES;
+  }
+  if (value.kind === "json_path") {
+    return onlyKeys(value, ["kind", "path", "maxItems", "maxChars"])
+      && typeof value.path === "string"
+      && (value.path === "" || value.path.startsWith("/"))
+      && typeof value.maxItems === "number"
+      && Number.isSafeInteger(value.maxItems)
+      && value.maxItems >= 1
+      && value.maxItems <= EVIDENCE_READ_MAX_ITEMS
+      && typeof value.maxChars === "number"
+      && Number.isSafeInteger(value.maxChars)
+      && value.maxChars >= 1
+      && value.maxChars <= EVIDENCE_READ_MAX_CHARS;
+  }
+  if (value.kind === "csv_range") {
+    return onlyKeys(value, ["kind", "startRow", "endRow", "startColumn", "endColumn"])
+      && typeof value.startRow === "number"
+      && Number.isSafeInteger(value.startRow)
+      && value.startRow >= 0
+      && typeof value.endRow === "number"
+      && Number.isSafeInteger(value.endRow)
+      && value.endRow > value.startRow
+      && value.endRow - value.startRow <= EVIDENCE_READ_MAX_LINES
+      && typeof value.startColumn === "number"
+      && Number.isSafeInteger(value.startColumn)
+      && value.startColumn >= 0
+      && typeof value.endColumn === "number"
+      && Number.isSafeInteger(value.endColumn)
+      && value.endColumn > value.startColumn
+      && value.endColumn - value.startColumn <= EVIDENCE_READ_MAX_ITEMS;
   }
   return false;
 }

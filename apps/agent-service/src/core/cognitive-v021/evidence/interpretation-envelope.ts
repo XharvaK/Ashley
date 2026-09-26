@@ -1,7 +1,8 @@
 import type { DatabaseSync } from "node:sqlite";
 import { getConversationEvidence } from "./conversation-log.js";
 import { resolveReceiptRef } from "../effect/in-flight.js";
-import { observationViewFromStorage } from "../observation/view.js";
+import { resolveAttachmentJsonPath } from "../perception/attachments.js";
+import { observationViewFromStorage, textArtifactRepresentationId } from "../observation/view.js";
 
 export type SourceSupportRegion = Readonly<{
   x: number;
@@ -495,6 +496,78 @@ function assertArtifactTextSpan(
   };
 }
 
+function assertStructuredPath(
+  db: DatabaseSync,
+  ref: Extract<SourceSupportRef, { kind: "structured_path" }>,
+  conversationId: string,
+): ResolvedSource {
+  if (ref.representationId !== textArtifactRepresentationId(ref.artifactId)) {
+    throw new Error("support_ref_unresolved");
+  }
+  const row = db.prepare(
+    `SELECT o.payload_json, o.parent_artifact_id, o.representation_id,
+            o.view_metadata_json, o.created_at_ms, o.data_classification,
+            o.secret_omitted, c.conversation_id
+       FROM observations o
+       JOIN cycle_records c ON c.cycle_id = o.cycle_id AND c.generation = o.generation
+      WHERE o.parent_artifact_id = ?
+        AND o.representation_id = ?
+        AND c.conversation_id = ?
+        AND o.secret_omitted = 0
+        AND lower(o.data_classification) NOT IN ('secret', 'forgotten')
+      ORDER BY o.created_at_ms DESC, o.observation_id DESC
+      LIMIT 1`,
+  ).get(ref.artifactId, ref.representationId, conversationId) as RecordValue | undefined;
+  if (!row || typeof row.payload_json !== "string") {
+    throw new Error("support_ref_unresolved");
+  }
+  let payload: unknown;
+  let view;
+  try {
+    payload = JSON.parse(row.payload_json);
+    view = observationViewFromStorage(
+      row.parent_artifact_id,
+      row.representation_id,
+      row.view_metadata_json,
+    );
+  } catch {
+    throw new Error("support_ref_unresolved");
+  }
+  if (!view || view.parentArtifactId !== ref.artifactId
+    || view.representationId !== ref.representationId
+    || !isRecord(payload)
+    || (payload.format !== "json" && payload.format !== "csv")
+    || typeof payload.contentHash !== "string") {
+    throw new Error("support_ref_unresolved");
+  }
+  try {
+    if (payload.format === "json") {
+      if (typeof ref.path !== "string") throw new Error("support_ref_unresolved");
+      resolveAttachmentJsonPath(payload.value, ref.path);
+    } else {
+      if (typeof ref.path !== "object" || ref.path === null || Array.isArray(ref.path)) {
+        throw new Error("support_ref_unresolved");
+      }
+      if (!Array.isArray(payload.rows)
+        || !payload.rows.every((candidate) => Array.isArray(candidate))) {
+        throw new Error("support_ref_unresolved");
+      }
+      const rows = payload.rows as unknown[][];
+      const path = ref.path as { row: number; column: number };
+      if (path.row >= rows.length || path.column >= (rows[path.row]?.length ?? 0)) {
+        throw new Error("support_ref_unresolved");
+      }
+    }
+  } catch {
+    throw new Error("support_ref_unresolved");
+  }
+  return {
+    principalKind: "observation",
+    principalId: null,
+    sourceTimeMs: finiteInteger(row.created_at_ms) ? row.created_at_ms : null,
+  };
+}
+
 function assertSupportRefs(
   db: DatabaseSync,
   refs: readonly SourceSupportRef[],
@@ -511,6 +584,9 @@ function assertSupportRefs(
         break;
       case "artifact_text_span":
         resolved.push(assertArtifactTextSpan(db, ref, conversationId));
+        break;
+      case "structured_path":
+        resolved.push(assertStructuredPath(db, ref, conversationId));
         break;
       case "receipt_ref": {
         const receipt = resolveReceiptRef(db, ref.receiptId, conversationId);

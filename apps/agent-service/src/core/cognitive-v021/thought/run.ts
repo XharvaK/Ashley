@@ -97,6 +97,7 @@ import {
 } from "../effect/effect-ref.js";
 import { registerActiveThought } from "../cycle/active.js";
 import { adaptPerception } from "../perception/adapter.js";
+import { resolveAttachmentObservations } from "../perception/attachments.js";
 import { buildThoughtInput, captureThoughtSourcePackage } from "./input.js";
 import { parseThoughtSemanticOutput, THOUGHT_SEMANTIC_PARSER_ID } from "./parse.js";
 import {
@@ -2865,6 +2866,24 @@ export async function runCognitiveCycle(
     : triggerEvidence?.text ?? listConversationEvidence(sidecar, cycle.conversationId, { limit: 1 }).at(-1)?.text ?? "";
   const perceive = async (): Promise<Observation[]> => {
     if (boundObservations) return boundObservations;
+    const resolveAttachments = deps.resolveAttachmentObservations ?? resolveAttachmentObservations;
+    const attachmentObservations = event.kind === "owner_utterance"
+      && Array.isArray(payload.attachments) && payload.attachments.length > 0
+      ? await resolveAttachments({
+          nuclear,
+          ownerId: typeof payload.ownerId === "string" && payload.ownerId.trim()
+            ? payload.ownerId.trim()
+            : cycle.occupantId,
+          cycleId: cycle.cycleId,
+          generation: cycle.generation,
+          sourceMessageEntityUuid: typeof payload.evidenceRowId === "string" && payload.evidenceRowId.trim()
+            ? payload.evidenceRowId.trim()
+            : event.id,
+          deliveryReservationEntityUuid: event.id,
+          attachments: payload.attachments,
+          attachmentTextEnabled: deps.capabilityReality.attachmentText,
+        })
+      : [];
     try {
       const perceived = await adaptPerception({
         cycleId: cycle.cycleId,
@@ -2872,9 +2891,9 @@ export async function runCognitiveCycle(
         ownerMessage,
         runPerception: deps.runPerception,
       });
-      return [...suppliedObservations(payload, cycle), ...perceived];
+      return [...suppliedObservations(payload, cycle), ...attachmentObservations, ...perceived];
     } catch {
-      return suppliedObservations(payload, cycle);
+      return [...suppliedObservations(payload, cycle), ...attachmentObservations];
     }
   };
   let observationsForThought = await perceive();

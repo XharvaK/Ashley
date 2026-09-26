@@ -193,6 +193,44 @@ describe("describeIntake", () => {
     assert.equal(intake.hasIngestibleTextAttachment, true);
   });
 
+  it("promotes JSON and CSV as passive structured text", () => {
+    const intake = describeIntake(fakeMessage({
+      attachments: [
+        {
+          id: "data-json",
+          url: "https://cdn.example/data.json",
+          contentType: "application/json",
+          name: "data.json",
+        },
+        {
+          id: "data-csv",
+          url: "https://cdn.example/data.csv",
+          contentType: "text/csv; charset=utf-8",
+          name: "data.csv",
+        },
+      ],
+    }));
+
+    assert.equal(intake.attachments.length, 2);
+    assert.equal(intake.hasIngestibleTextAttachment, true);
+    assert.match(intake.text, /attached text file/);
+  });
+
+  it("does not promote structured extensions with an incompatible media type", () => {
+    const intake = describeIntake(fakeMessage({
+      attachments: [{
+        id: "data-json",
+        url: "https://cdn.example/data.json",
+        contentType: "application/pdf",
+        name: "data.json",
+      }],
+    }));
+
+    assert.deepEqual(intake.attachments, []);
+    assert.equal(intake.hasIngestibleTextAttachment, false);
+    assert.match(intake.text, /cannot open/);
+  });
+
   it("rejects passive extensions with incompatible MIME", () => {
     const intake = describeIntake(fakeMessage({
       attachments: [{

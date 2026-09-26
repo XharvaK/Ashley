@@ -1981,6 +1981,10 @@ export type KernelDeps = {
     generation: Generation;
     ownerMessage: string;
   }) => Promise<Observation[]>;
+  /** Test-only resolver seam; production uses the Host attachment resolver. */
+  resolveAttachmentObservations?: (
+    input: import("./perception/attachments.js").AttachmentObservationInput,
+  ) => Promise<Observation[]>;
   executeObservation: (req: ObservationRequest) => Promise<Observation>;
   /** Direct V2 is a Host route, never a Thought-selected capability. */
   canOfferDirectProjectInspection?: () => boolean;

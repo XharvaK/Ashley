@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { fetchAttachmentBytes } from "../../perception/fetch.js";
+import { parseAttachmentCsv, resolveAttachmentJsonPath } from "../perception/attachments.js";
 import { createPendingArtifacts, transitionArtifactStatus, urlFingerprint } from "../../perception/ingest.js";
 import {
   readArtifactBytes,
@@ -38,6 +39,7 @@ type RetainedText = {
   inputTrust: "untrusted_evidence" | null;
   sourceUrl: string | null;
   source: "artifact" | "project" | "page";
+  format: "text" | "json" | "csv";
 };
 
 type EvidenceRefreshResult = {
@@ -152,6 +154,9 @@ function textMime(value: unknown): boolean {
   const mime = typeof value === "string" ? value.split(";", 1)[0]!.trim().toLowerCase() : "";
   return mime.startsWith("text/")
     || mime === "application/json"
+    || mime === "text/json"
+    || mime === "text/csv"
+    || mime === "application/csv"
     || mime === "application/xml"
     || mime === "application/javascript";
 }
@@ -214,6 +219,7 @@ function sidecarTextCapture(
     inputTrust: source === "page" ? "untrusted_evidence" : null,
     sourceUrl,
     source,
+    format: "text",
   };
 }
 
@@ -239,6 +245,7 @@ function artifactTextCapture(
   if (representationId !== expectedRepresentation) {
     throw new CapabilityUnavailableError("representation_unavailable");
   }
+  const mime = String(row.mime_detected ?? row.mime_declared ?? "").split(";", 1)[0]!.trim().toLowerCase();
   return {
     artifactId,
     representationId,
@@ -248,6 +255,11 @@ function artifactTextCapture(
     inputTrust: "untrusted_evidence",
     sourceUrl: null,
     source: "artifact",
+    format: mime === "application/json" || mime === "text/json"
+      ? "json"
+      : mime === "text/csv" || mime === "application/csv"
+        ? "csv"
+        : "text",
   };
 }
 
@@ -307,6 +319,10 @@ function textPage(
         continuation: { offsetChars: end },
       } : null,
     };
+  }
+
+  if (selector.kind !== "text_lines") {
+    throw new CapabilityUnavailableError("representation_unavailable");
   }
 
   const lines = source.text.split("\n");
@@ -372,6 +388,9 @@ function readPerceptionPage(
       mapReadError(error);
     }
   }
+  if (selector.kind !== "text_lines") {
+    throw new CapabilityUnavailableError("representation_unavailable");
+  }
   try {
     const bytes = readArtifactBytes(db, source.artifactId, ownerId);
     const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
@@ -379,6 +398,129 @@ function readPerceptionPage(
   } catch (error) {
     mapReadError(error);
   }
+}
+
+function structuredItemCount(value: unknown): number {
+  if (Array.isArray(value)) return value.length;
+  if (typeof value === "object" && value !== null) return Object.keys(value).length;
+  return 1;
+}
+
+function executeStructuredRead(
+  input: EvidenceOperationInput,
+  source: RetainedText,
+  request: EvidenceReadRequest,
+  audience: SocialAudience,
+): Observation {
+  if (source.source !== "artifact") {
+    throw new CapabilityUnavailableError("representation_unavailable");
+  }
+  const selector = request.selector;
+  if (selector.kind === "json_path" && source.format !== "json") {
+    throw new CapabilityUnavailableError("representation_unavailable");
+  }
+  if (selector.kind === "csv_range" && source.format !== "csv") {
+    throw new CapabilityUnavailableError("representation_unavailable");
+  }
+  let text: string;
+  try {
+    text = new TextDecoder("utf-8", { fatal: true }).decode(
+      readArtifactBytes(input.nuclear, source.artifactId, String(input.ownerId)),
+    );
+  } catch (error) {
+    mapReadError(error);
+  }
+  if (selector.kind === "json_path") {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(text);
+      const selected = resolveAttachmentJsonPath(parsed, selector.path);
+      if (structuredItemCount(selected) > selector.maxItems
+        || JSON.stringify(selected).length > selector.maxChars) {
+        throw new CapabilityUnavailableError("structured_extent_limit");
+      }
+      const returnedSelector = {
+        kind: "json_path",
+        path: selector.path,
+        maxItems: selector.maxItems,
+        maxChars: selector.maxChars,
+      } as const;
+      return observation(input.req, {
+        artifactId: source.artifactId,
+        representationId: source.representationId,
+        artifactHash: source.contentHash,
+        audience,
+        format: "json",
+        selector,
+        returnedSelector,
+        value: selected,
+        inputTrust: "untrusted_evidence",
+      }, "perception:artifact-read", {
+        parentArtifactId: source.artifactId,
+        representationId: source.representationId,
+        derivation: "artifact_read",
+        requestedSelector: selector,
+        returnedSelector,
+        completeness: "complete",
+        omission: null,
+        continuation: null,
+        errors: [],
+        contentHashBasis: "retained_bytes",
+        inputTrust: "untrusted_evidence",
+      });
+    } catch (error) {
+      if (error instanceof CapabilityUnavailableError) throw error;
+      throw new CapabilityUnavailableError("structured_path_unresolved");
+    }
+  }
+
+  if (selector.kind !== "csv_range") {
+    throw new CapabilityUnavailableError("representation_unavailable");
+  }
+
+  let rows: string[][];
+  try {
+    rows = parseAttachmentCsv(text);
+  } catch {
+    throw new CapabilityUnavailableError("structured_parse_failed");
+  }
+  if (selector.startRow < 0 || selector.endRow > rows.length
+    || selector.startColumn < 0
+    || rows.some((row) => selector.endColumn > row.length)) {
+    throw new CapabilityUnavailableError("structured_range_unresolved");
+  }
+  const selectedRows = rows.slice(selector.startRow, selector.endRow).map((row) =>
+    row.slice(selector.startColumn, selector.endColumn));
+  const returnedSelector = {
+    kind: "csv_range",
+    startRow: selector.startRow,
+    endRow: selector.endRow,
+    startColumn: selector.startColumn,
+    endColumn: selector.endColumn,
+  } as const;
+  return observation(input.req, {
+    artifactId: source.artifactId,
+    representationId: source.representationId,
+    artifactHash: source.contentHash,
+    audience,
+    format: "csv",
+    selector,
+    returnedSelector,
+    rows: selectedRows,
+    inputTrust: "untrusted_evidence",
+  }, "perception:artifact-read", {
+    parentArtifactId: source.artifactId,
+    representationId: source.representationId,
+    derivation: "artifact_read",
+    requestedSelector: selector,
+    returnedSelector,
+    completeness: "complete",
+    omission: null,
+    continuation: null,
+    errors: [],
+    contentHashBasis: "retained_bytes",
+    inputTrust: "untrusted_evidence",
+  });
 }
 
 async function executeRead(input: EvidenceOperationInput, request: EvidenceReadRequest): Promise<Observation> {
@@ -398,6 +540,10 @@ async function executeRead(input: EvidenceOperationInput, request: EvidenceReadR
     }
   }
   if (!source) throw new CapabilityUnavailableError("artifact_unavailable");
+
+  if (request.selector.kind === "json_path" || request.selector.kind === "csv_range") {
+    return executeStructuredRead(input, source, request, audience);
+  }
 
   const cursor = bindCursor(request.cursor, source, request.selector, audience);
   let page: ReturnType<typeof textPage>;
