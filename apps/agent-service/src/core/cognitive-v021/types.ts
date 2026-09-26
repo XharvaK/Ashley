@@ -1086,6 +1086,8 @@ export type ObservationRequest = {
   kind: string;
   request: unknown;
   replaySafe: true;
+  /** Host-bound audience used for executor-side inspection scoping. */
+  audience?: SocialAudience;
   authorityCurrentness?: AuthorityCurrentnessBinding;
   concernInspectionBinding?: ConcernInspectionBinding;
 };
@@ -1434,6 +1436,7 @@ export const CAPABILITY_REALITY_REASON_CODES = [
   "evidence_not_acquired",
   "capacity_unproven",
   "worker_capacity_exhausted",
+  "capability_not_in_live_set",
 ] as const;
 
 export type CapabilityRealityReasonCode = (typeof CAPABILITY_REALITY_REASON_CODES)[number];
@@ -1463,6 +1466,23 @@ export type OccupantCalibration = {
   notes: string[];
 };
 
+export type CapabilityReleaseRow = Readonly<{
+  capability: string;
+  releaseId: string;
+  state: string;
+  updatedAt: string;
+  contractId: string | null;
+  buildIdentity: string | null;
+  modelEpoch: number;
+}>;
+
+export type CapabilityRealityAsOf = Readonly<{
+  capturedAtMs: number;
+  releaseId: string | null;
+  status: "present" | "no_row" | "audience_redacted";
+  releaseRows: readonly CapabilityReleaseRow[];
+}>;
+
 export type CapabilityReality = {
   vision: boolean;
   attachmentText: boolean;
@@ -1488,10 +1508,12 @@ export type CapabilityReality = {
   publicPresence?: PublicPresenceCapability;
   /** Reason-coded reachability facts for the audience used to build this reality. */
   reachability?: CapabilityReachability;
+  /** Read-only release rows captured for this invocation. */
+  asOf?: CapabilityRealityAsOf;
 };
 
 export type ThoughtSemanticObservation = Readonly<{
-  operationKind: "concern.inspect";
+  operationKind: string;
   semanticClass: "observation";
   readOnly: true;
   available: boolean;
@@ -1556,6 +1578,13 @@ export type ThoughtContinuityRecovery = Readonly<{
   reason: "unanswered_owner_obligation_recovery";
 }>;
 
+export type ThoughtWakeCause = Readonly<{
+  sourceKind: string;
+  triggerRef: string;
+  purpose: string | null;
+  purposeStatus: "stored" | "absent";
+}>;
+
 export type ThoughtInput = {
   /** Host-only disclosure context. Builders attach this non-enumerably. */
   audience?: SocialAudience;
@@ -1594,6 +1623,12 @@ export type ThoughtInput = {
   constitution: IdentitySlice;
   learnedSelfSlice: LearnedSelfSlice;
   capabilityReality: CapabilityReality;
+  /** Actual persisted wake causes; purpose is present only when stored. */
+  wakeCauses?: readonly ThoughtWakeCause[];
+  /** No durable previous-invocation token exists in this wave. */
+  previousInvocationDelta?: string;
+  /** Deadline for the current Thought leg, refreshed before each invocation. */
+  thoughtLegDeadlineAtMs?: number;
   /** Present only for an autonomous idle-opportunity Thought. */
   publicPresence?: PublicPresenceContext;
   /** Host factual context for the single Ashley-authored capacity-wait turn. */
@@ -1965,6 +2000,12 @@ export type KernelDeps = {
   origin?: OutboxOrigin;
   constitution: IdentitySlice;
   capabilityReality: CapabilityReality;
+  /** Refreshes volatile capability and release facts before each Thought call. */
+  refreshCapabilityReality?: (input: {
+    audience: SocialAudience;
+    licenses: readonly string[];
+    nowMs: number;
+  }) => CapabilityReality;
   derivedStore?: import("./retrieval/derived-store.js").DerivedStore;
   observabilityDb?: DatabaseSync;
 };

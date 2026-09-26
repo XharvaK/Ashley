@@ -252,7 +252,7 @@ describe("v0.2.1 CapabilityReality live-surface contract", () => {
         canOfferProjectInspection: "capability_exists",
         canOfferWorkspace: "capability_exists",
         canOfferPatchExport: "capability_exists",
-        vision: "evidence_not_acquired",
+        vision: "capability_not_in_live_set",
         canOfferBoundedOperation: "unavailable",
       });
 
@@ -274,12 +274,18 @@ describe("v0.2.1 CapabilityReality live-surface contract", () => {
       expect(room.operationCapabilities?.every((operation) =>
         operation.authorizedProjectIds.length === 0 && operation.available === false,
       )).toBe(true);
-      expect(owner.semanticObservations).toEqual([{
-        operationKind: "concern.inspect",
+      expect(owner.semanticObservations).toEqual([
+        "concern.inspect",
+        "capability.inspect",
+        "evidence.inspect",
+        "temporal.inspect",
+        "work.inspect",
+      ].map((operationKind) => ({
+        operationKind,
         semanticClass: "observation",
         readOnly: true,
         available: true,
-      }]);
+      })));
       expect(room.semanticObservations?.every((entry) => entry.available === false)).toBe(true);
       expect(room.reachability?.reasons).toMatchObject({ "concern.inspect": "another_audience_only" });
       expect(JSON.stringify(owner.semanticObservations)).not.toMatch(/family|requiresProject|authorizedProjectIds|operatorBound/);

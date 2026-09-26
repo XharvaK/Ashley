@@ -10,6 +10,10 @@ import type {
 } from "../types.js";
 import type { ConcernInspectDependency } from "./source-currentness.js";
 import { isConcernDiscoverRequest } from "./concern-inspect.js";
+import {
+  isTypedInspectionOperationKind,
+  isValidTypedInspectionRequest,
+} from "./typed-inspection.js";
 
 const OPERATION_DEADLINE_CAP_MS = 120_000;
 
@@ -20,6 +24,7 @@ type ObservationBindingInput = {
   parentDeadlineAtMs: number;
   nowMs: number;
   authorityCurrentness?: AuthorityCurrentnessBinding;
+  audience?: ObservationRequest["audience"];
   concernInspectionBinding?: ConcernInspectionBinding;
   concernInspectExpectation?: ConcernInspectDependency;
 };
@@ -32,6 +37,10 @@ export type BoundObservationRequest = ObservationRequest & {
 };
 
 export function bindObservationIntent(input: ObservationBindingInput): BoundObservationRequest {
+  if (isTypedInspectionOperationKind(input.intent.operationKind)
+    && !isValidTypedInspectionRequest(input.intent.operationKind, input.intent.request)) {
+    throw new Error("typed_inspection_request_invalid");
+  }
   if (input.intent.operationKind.startsWith("project.") && input.intent.operationKind !== "project.inspect") {
     throw new Error("operation_not_registered");
   }
@@ -67,6 +76,7 @@ export function bindObservationIntent(input: ObservationBindingInput): BoundObse
     deadlineAtMs,
     operationKind: input.intent.operationKind,
     intent: input.intent,
+    audience: input.audience,
     authorityCurrentness: input.authorityCurrentness,
     ...(concernInspectionBinding === undefined ? {} : { concernInspectionBinding }),
   };

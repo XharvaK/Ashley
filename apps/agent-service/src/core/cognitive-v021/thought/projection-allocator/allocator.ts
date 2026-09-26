@@ -626,6 +626,9 @@ export function allocateThoughtProjection(
       generation: input.generation,
       trigger: input.trigger,
       ...(input.commitmentDue === undefined ? {} : { commitmentDue: input.commitmentDue }),
+      ...(input.wakeCauses === undefined ? {} : { wakeCauses: [...input.wakeCauses] }),
+      ...(input.previousInvocationDelta === undefined ? {} : { previousInvocationDelta: input.previousInvocationDelta }),
+      ...(input.thoughtLegDeadlineAtMs === undefined ? {} : { thoughtLegDeadlineAtMs: input.thoughtLegDeadlineAtMs }),
       observations: includeObservations ? boundedRequiredSectionData.observations : [],
       inFlight: projectedInFlight,
       allowedOperationalEffectRefs: [...operationalNamespace.allowedOperationalEffectRefs],
@@ -667,6 +670,15 @@ export function allocateThoughtProjection(
           }
         : {}),
     };
+
+    if (input.audience !== undefined) {
+      Object.defineProperty(projected, "audience", {
+        value: input.audience,
+        enumerable: false,
+        writable: false,
+        configurable: false,
+      });
+    }
 
     if (input.concernSnapshots !== undefined) {
       Object.defineProperty(projected, "concernSnapshots", {
@@ -862,7 +874,7 @@ export function allocateThoughtProjection(
   });
   // E2b+E2c disclosure-scoped caller-envelope gate: applies ONLY when a
   // loss disclosure is present on the FINAL wire. The fixed global byte gate
-  // below is equivalent to the DEFAULT 32768 envelope alone; caller envelopes
+  // below is the 262144-token logical byte envelope; caller envelopes
   // may be smaller, so disclosed finals must satisfy the ACTUAL caller
   // envelope or fail closed. NOT a generic final budget gate — complete
   // (undisclosed) finals take no new check. The section names which loss
@@ -965,6 +977,9 @@ export function allocateThoughtProjection(
     "cycleId",
     "generation",
     "trigger",
+    "wakeCauses",
+    "previousInvocationDelta",
+    "thoughtLegDeadlineAtMs",
     "rawConversation",
     "deskEntries",
     "observations",

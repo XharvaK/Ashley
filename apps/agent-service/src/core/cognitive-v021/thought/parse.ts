@@ -26,6 +26,10 @@ import type {
 import { isMemoryKind } from "../memory/kinds.js";
 import { validateModeBRequest } from "../../sandbox/opencode/mode-b-request.js";
 import {
+  isTypedInspectionOperationKind,
+  isValidTypedInspectionRequest,
+} from "./typed-inspection.js";
+import {
   EPISTEMIC_DIMENSIONS,
   REGISTERED_OPERATION_KINDS,
   type EpistemicDimension,
@@ -907,6 +911,12 @@ function parseOperationSemantic(
       if (!existingRef(shape.concernRef, inspectAllowlist ?? new Set())) {
         return semanticFailure("reference_not_allowlisted", "request.concernRef");
       }
+    }
+  }
+  if (isTypedInspectionOperationKind(record.operationKind)) {
+    if (kind !== "observation_intent") return semanticFailure("wrong_type", "operationKind");
+    if (!isValidTypedInspectionRequest(record.operationKind, record.request)) {
+      return semanticFailure("wrong_type", "request");
     }
   }
   if (record.operationKind === "candidate.develop") {

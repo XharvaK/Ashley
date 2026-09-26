@@ -92,6 +92,8 @@ export type ProjectedRetrievalResult = {
 };
 
 export type ProjectedThoughtInput = {
+  /** Host-only disclosure scope, never serialized to Thought. */
+  audience?: ThoughtInput["audience"];
   cycleId: CycleId;
   generation: Generation;
   occupantId: OccupantId;
@@ -129,6 +131,9 @@ export type ProjectedThoughtInput = {
   learnedSelfSlice: LearnedSelfSlice;
   /** Legacy in-process compatibility; C2 wire capability is orientationKernel. */
   capabilityReality: CapabilityReality;
+  wakeCauses?: ThoughtInput["wakeCauses"];
+  previousInvocationDelta?: string;
+  thoughtLegDeadlineAtMs?: number;
   /** Current public state is model-visible only during autonomous cognition. */
   publicPresence?: PublicPresenceContext;
   availableDestinations?: readonly AvailableSocialDestination[];
@@ -446,6 +451,9 @@ export function projectThoughtInput(
     constitution: fullInput.constitution,
     learnedSelfSlice: fullInput.learnedSelfSlice,
     capabilityReality: fullInput.capabilityReality,
+    ...(fullInput.wakeCauses === undefined ? {} : { wakeCauses: [...fullInput.wakeCauses] }),
+    ...(fullInput.previousInvocationDelta === undefined ? {} : { previousInvocationDelta: fullInput.previousInvocationDelta }),
+    ...(fullInput.thoughtLegDeadlineAtMs === undefined ? {} : { thoughtLegDeadlineAtMs: fullInput.thoughtLegDeadlineAtMs }),
     ...(fullInput.publicPresence === undefined ? {} : { publicPresence: fullInput.publicPresence }),
     ...(fullInput.availableDestinations === undefined ? {} : {
       availableDestinations: [...fullInput.availableDestinations],
@@ -478,6 +486,15 @@ export function projectThoughtInput(
     },
     ...(fullInput.settlementOnly === undefined ? {} : { settlementOnly: fullInput.settlementOnly }),
   };
+
+  if (fullInput.audience !== undefined) {
+    Object.defineProperty(projected, "audience", {
+      value: fullInput.audience,
+      enumerable: false,
+      writable: false,
+      configurable: false,
+    });
+  }
 
   if (fullInput.concernSnapshots !== undefined) {
     Object.defineProperty(projected, "concernSnapshots", {

@@ -1680,9 +1680,13 @@ describe("E2a recency loss honesty (allocator)", () => {
   });
 
   it("keeps budget omissions and the recency count separate under envelope pressure (J+K)", () => {
+    // Caller-local 32768 stress ceiling. It is not the 262144 product envelope.
+    // repeat(150) includes retrieval and optional Working Context, then the
+    // joint loss disclosure measures 32958. repeat(149) still omits recent
+    // rows and finishes at 32751, 17 tokens under the same ceiling.
     const rows = makeConversationRows(
       12,
-      (index) => `synthetic e2a pressure row ${index} `.repeat(150),
+      (index) => `synthetic e2a pressure row ${index} `.repeat(149),
     );
     const input = withSyntheticC2(makeThoughtInput({
       rawConversation: rows,

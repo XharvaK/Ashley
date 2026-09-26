@@ -124,6 +124,9 @@ export type BuildThoughtInputOptions = {
   authenticatedOwner?: boolean;
   /** Current permitted destination facts. Thought may choose; Host does not fan out. */
   availableDestinations?: readonly AvailableSocialDestination[];
+  wakeCauses?: ThoughtInput["wakeCauses"];
+  previousInvocationDelta?: string;
+  thoughtLegDeadlineAtMs?: number;
   /** Fire-time commitment meaning and three-state evidence completeness. */
   commitmentDue?: CommitmentDueProjection;
   /** Active disclosure-license entity UUIDs already resolved by the Host. */
@@ -331,6 +334,12 @@ export function filterCapabilityReality(
       ...item,
       available: false,
     }));
+    projected.asOf = {
+      capturedAtMs: capability.asOf?.capturedAtMs ?? Date.now(),
+      releaseId: null,
+      status: "audience_redacted",
+      releaseRows: [],
+    };
     const reasons = { ...(projected.reachability?.reasons ?? {}) };
     for (const item of capability.semanticObservations ?? []) {
       reasons[item.operationKind] = item.available
@@ -383,6 +392,12 @@ export function filterCapabilityReality(
       ...item,
       available: false,
     })),
+    asOf: {
+      capturedAtMs: capability.asOf?.capturedAtMs ?? Date.now(),
+      releaseId: null,
+      status: "audience_redacted" as const,
+      releaseRows: [],
+    },
     publicPresence: undefined,
   };
   const reasons: Record<string, CapabilityRealityReasonCode> = {
@@ -1112,6 +1127,9 @@ export function buildThoughtInput(options: BuildThoughtInputOptions): ThoughtInp
     },
     learnedSelfSlice,
     capabilityReality: effectiveCapabilityReality,
+    ...(options.wakeCauses === undefined ? {} : { wakeCauses: options.wakeCauses.map((item) => ({ ...item })) }),
+    ...(options.previousInvocationDelta === undefined ? {} : { previousInvocationDelta: options.previousInvocationDelta }),
+    ...(options.thoughtLegDeadlineAtMs === undefined ? {} : { thoughtLegDeadlineAtMs: options.thoughtLegDeadlineAtMs }),
     ...(options.publicPresence === undefined ? {} : { publicPresence: options.publicPresence }),
     ...(options.effectContinuation === undefined ? {} : {
       effectContinuation: {

@@ -186,7 +186,10 @@ describe("v0.2.1 live Sandbox V2 operation construction", () => {
       kind: "project.read_file",
       request: { projectId: "project-ashley", path: "README.md" },
       replaySafe: true,
-    })).rejects.toThrow("observation_unavailable");
+    })).rejects.toMatchObject({
+      code: "CAPABILITY_UNAVAILABLE",
+      reasonCode: "sandbox_unavailable",
+    });
     const receipt = await executors.executeEffect(effectProposal());
     expect(receipt).toMatchObject({ outcome: "outcome_unknown", claims: { state: "none", error: "sandbox_unavailable" } });
     nuclear.close();

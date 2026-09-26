@@ -18,9 +18,10 @@ import {
   commandCodeWorkerReadiness,
   type CommandCodeWorkerReadinessReason,
 } from "../../sandbox/worker/command-code-worker.js";
-import type { CapabilityName } from "../../rollout/capabilities.js";
+import { currentReleaseId, type CapabilityName } from "../../rollout/capabilities.js";
 import type {
   CapabilityReality,
+  CapabilityRealityAsOf,
   CapabilityRealityReasonCode,
   ThoughtOperationCapability,
   ThoughtSemanticObservation,
@@ -52,6 +53,7 @@ export type CapabilityRealityOptions = {
   commandCodePinnedVersion?: string;
   commandCodeBubblewrapPath?: string;
   commandCodeNodeExecutable?: string;
+  nowMs?: number;
 };
 
 const DEVELOP_WORKER_REASON_CODES: Record<CommandCodeWorkerReadinessReason, string> = {
@@ -68,6 +70,7 @@ function reasonForCapability(input: {
   externalAudience: boolean;
   ownerOnly?: boolean;
   perception?: boolean;
+  capabilityLive?: boolean;
   substrateWithoutAuthority: boolean;
   audienceAllowed: (name: string) => boolean;
 }): CapabilityRealityReasonCode {
@@ -76,7 +79,9 @@ function reasonForCapability(input: {
   if (input.externalAudience && input.rawValue && !input.audienceAllowed(input.name)) {
     return "needs_owner_approval";
   }
-  if (input.perception && !input.rawValue) return "evidence_not_acquired";
+  if (input.perception && !input.rawValue) {
+    return input.capabilityLive === false ? "capability_not_in_live_set" : "evidence_not_acquired";
+  }
   if (!input.rawValue && input.substrateWithoutAuthority) return "substrate_without_authority";
   return "unavailable";
 }
@@ -287,6 +292,41 @@ function thoughtOperationCapabilities(input: {
 }
 
 /** Read capability facts for Thought. This deliberately bypasses Expression text composition. */
+function capabilityReleaseAsOf(
+  db: DatabaseSync,
+  audience: SocialAudience,
+  capturedAtMs: number,
+): CapabilityRealityAsOf {
+  if (audience.kind !== "owner_private") {
+    return {
+      capturedAtMs,
+      releaseId: null,
+      status: "audience_redacted",
+      releaseRows: [],
+    };
+  }
+  const releaseId = currentReleaseId();
+  const rows = db.prepare(
+    "SELECT capability, release_id, state, updated_at, contract_id, build_identity, model_epoch " +
+    "FROM capability_releases WHERE release_id = ? ORDER BY capability ASC",
+  ).all(releaseId) as Array<Record<string, unknown>>;
+  const releaseRows = rows.map((row) => ({
+    capability: String(row.capability),
+    releaseId: String(row.release_id),
+    state: String(row.state),
+    updatedAt: String(row.updated_at),
+    contractId: typeof row.contract_id === "string" ? row.contract_id : null,
+    buildIdentity: typeof row.build_identity === "string" ? row.build_identity : null,
+    modelEpoch: Number(row.model_epoch ?? 0),
+  }));
+  return {
+    capturedAtMs,
+    releaseId,
+    status: releaseRows.length > 0 ? "present" : "no_row",
+    releaseRows,
+  };
+}
+
 export function getCapabilityReality(
   db: DatabaseSync,
   options: CapabilityRealityOptions = {},
@@ -372,13 +412,17 @@ export function getCapabilityReality(
     },
   });
   const semanticObservations: readonly ThoughtSemanticObservation[] = Object.freeze([
-    Object.freeze({
-      operationKind: "concern.inspect" as const,
-      semanticClass: "observation" as const,
-      readOnly: true as const,
-      available: !externalAudience,
-    }),
-  ]);
+    "concern.inspect",
+    "capability.inspect",
+    "evidence.inspect",
+    "temporal.inspect",
+    "work.inspect",
+  ].map((operationKind) => Object.freeze({
+    operationKind,
+    semanticClass: "observation" as const,
+    readOnly: true as const,
+    available: !externalAudience,
+  })));
   const facts = {
     vision: audienceCapabilityAllowed("vision") && perceptionFacts.vision,
     attachmentText: audienceCapabilityAllowed("attachment_text") && perceptionFacts.attachmentText,
@@ -394,6 +438,12 @@ export function getCapabilityReality(
     canOfferIterativeEngineering: !externalAudience && iterativeEngineeringAvailable,
   };
   const reachabilityReasons: Record<string, CapabilityRealityReasonCode> = {};
+  const perceptionCapabilityNames = {
+    vision: "vision",
+    attachmentText: "attachment_text",
+    conversationalRead: "conversational_read",
+    webSearch: "web_search",
+  } as const;
   for (const name of ["vision", "attachmentText", "conversationalRead", "webSearch"] as const) {
     reachabilityReasons[name] = reasonForCapability({
       value: facts[name],
@@ -401,6 +451,7 @@ export function getCapabilityReality(
       name,
       externalAudience,
       perception: true,
+      capabilityLive: V021_LIVE_PERCEPTION_CAPABILITIES.has(perceptionCapabilityNames[name]),
       substrateWithoutAuthority,
       audienceAllowed: audienceCapabilityAllowed,
     });
@@ -458,15 +509,29 @@ export function getCapabilityReality(
       audienceAllowed: audienceCapabilityAllowed,
     });
   }
-  reachabilityReasons["concern.inspect"] = reasonForCapability({
-    value: !externalAudience,
-    rawValue: true,
-    name: "concern.inspect",
-    externalAudience,
-    ownerOnly: true,
-    substrateWithoutAuthority,
-    audienceAllowed: audienceCapabilityAllowed,
-  });
+  for (const item of semanticObservations) {
+    if (item.operationKind === "concern.inspect") {
+      reachabilityReasons[item.operationKind] = reasonForCapability({
+        value: !externalAudience,
+        rawValue: true,
+        name: item.operationKind,
+        externalAudience,
+        ownerOnly: true,
+        substrateWithoutAuthority,
+        audienceAllowed: audienceCapabilityAllowed,
+      });
+      continue;
+    }
+    reachabilityReasons[item.operationKind] = reasonForCapability({
+      value: item.available,
+      rawValue: true,
+      name: item.operationKind,
+      externalAudience,
+      ownerOnly: true,
+      substrateWithoutAuthority,
+      audienceAllowed: audienceCapabilityAllowed,
+    });
+  }
   const reality: CapabilityReality = {
     ...facts,
     approvedProjectIds: externalAudience ? [] : listApprovedReadProjectIds(registry),
@@ -476,6 +541,7 @@ export function getCapabilityReality(
       audience: { ...audience },
       reasons: reachabilityReasons,
     },
+    asOf: capabilityReleaseAsOf(db, audience, options.nowMs ?? Date.now()),
   };
   return reality;
 }

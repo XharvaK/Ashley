@@ -113,6 +113,7 @@ import {
   type ThoughtReferenceTargetMap,
 } from "./reference-allowlist.js";
 import { bindEffectIntent, bindObservationIntent } from "./operation-binding.js";
+import { CapabilityUnavailableError } from "./typed-inspection.js";
 import { routeProjectInspectionRequest } from "../operation/project-inspection-route.js";
 import {
   thoughtOutputStructuredRequest,
@@ -1728,6 +1729,7 @@ export async function runThoughtModel(
               parentDeadlineAtMs: options.deadlineAtMs,
               nowMs: options.nowMs ?? Date.now(),
               authorityCurrentness,
+              audience: input.audience,
               ...(inspectExpectation === undefined ? {} : { concernInspectExpectation: inspectExpectation }),
             });
             return {
@@ -1744,6 +1746,7 @@ export async function runThoughtModel(
                 kind: bound.kind,
                  request: bound.request,
                  replaySafe: true as const,
+                 audience: bound.audience,
                  authorityCurrentness: bound.authorityCurrentness,
                 ...(bound.concernInspectionBinding === undefined
                   ? {}
@@ -2630,10 +2633,6 @@ export async function runCognitiveCycle(
     configuredOwnerId: payload.ownerId,
     reconciling: wake.state === "reconciling",
   });
-  const cycleCapabilityReality = withPublicPresenceCapability(
-    deps.capabilityReality,
-    publicPresenceEnabled,
-  );
   const publicPresence = publicPresenceEnabled
     ? readPublicPresenceContext(sidecar, deps.nowMs())
     : undefined;
@@ -2957,6 +2956,16 @@ export async function runCognitiveCycle(
       thoughtAudience,
       ownerId: typeof payload.ownerId === "string" ? payload.ownerId : cycle.occupantId,
     });
+    inFlight = listInFlightForThoughtCycle(sidecar, cycle.cycleId);
+    const invocationLicenses = externalBinding?.licenseRefs ?? [];
+    const invocationCapabilityReality = withPublicPresenceCapability(
+      deps.refreshCapabilityReality?.({
+        audience: effectiveThoughtAudience,
+        licenses: invocationLicenses,
+        nowMs: deps.nowMs(),
+      }) ?? deps.capabilityReality,
+      publicPresenceEnabled,
+    );
     const thoughtInputOptions = {
       sidecar,
       cycle,
@@ -2965,7 +2974,15 @@ export async function runCognitiveCycle(
       triggerEvidence,
       ...(continuityRecovery ? { continuityRecovery } : {}),
       constitution: deps.constitution,
-      capabilityReality: cycleCapabilityReality,
+      capabilityReality: invocationCapabilityReality,
+      wakeCauses: [{
+        sourceKind: wake.sourceKind,
+        triggerRef: cycle.triggerRef || event.id,
+        purpose: null,
+        purposeStatus: "absent" as const,
+      }],
+      previousInvocationDelta: "unknown",
+      thoughtLegDeadlineAtMs: thoughtDeadlineAtMs,
       ...(settlementOnly ? { settlementOnly: true } : {}),
       ...(effectContinuationInput ? { effectContinuation: effectContinuationInput } : {}),
       ...(capacityWait ? { capacityWait } : {}),
@@ -2981,7 +2998,7 @@ export async function runCognitiveCycle(
       ...(ownerRoomDestination ? { authenticatedOwner: true } : {}),
       ...(crossSurfaceScope ? { crossSurfaceConversationIds: crossSurfaceScope } : {}),
       ...(availableDestinations === undefined ? {} : { availableDestinations }),
-      ...(externalBinding ? { licenses: [...externalBinding.licenseRefs] } : {}),
+      licenses: [...invocationLicenses],
       ...(dueCommitment ? { commitmentDue: dueCommitment } : {}),
       ...(discoveredAuthorableConcernIds.size > 0
         ? { concernAuthorableTargetAppend: [...discoveredAuthorableConcernIds] }
@@ -3603,7 +3620,17 @@ export async function runCognitiveCycle(
             }
           }
         }
-      } catch {
+      } catch (error) {
+        if (error instanceof CapabilityUnavailableError) {
+          return emitFailure(
+            error.code,
+            undefined,
+            makeThoughtTerminal("operation_dispatch", {
+              codes: [error.code, error.reasonCode],
+              stage: "observation_dispatch",
+            }),
+          );
+        }
         return emitFailure(
           "observation_unavailable",
           undefined,

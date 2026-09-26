@@ -65,6 +65,12 @@ import type { SocialAudience } from "../social/types.js";
 import { cognitiveStatusOf, getConcern, quarantineKindOf } from "../concerns/lineage.js";
 import { inspectConcernCurrentness } from "../thought/source-currentness.js";
 import { projectFileArtifactIdentity } from "../observation/view.js";
+import { executeTypedInspection } from "./typed-inspections.js";
+import {
+  CapabilityUnavailableError,
+  isTypedInspectionOperationKind,
+  safeReasonCode,
+} from "../thought/typed-inspection.js";
 import {
   concernDiscoverCursorOf,
   concernDiscoverLimitOf,
@@ -1173,6 +1179,22 @@ export function createV021LiveOperationExecutors(
     },
 
     async executeObservation(req): Promise<Observation> {
+      if (isTypedInspectionOperationKind(req.kind)) {
+        try {
+          const inspected = executeTypedInspection({
+            req,
+            nuclear: options.nuclear,
+            sidecar: options.sidecar,
+            ownerId: options.ownerId,
+            nowMs,
+          });
+          if (inspected) return inspected;
+          throw new CapabilityUnavailableError("inspect_request_invalid");
+        } catch (error) {
+          if (error instanceof CapabilityUnavailableError) throw error;
+          throw new CapabilityUnavailableError("inspect_unavailable");
+        }
+      }
       if (req.kind === CONCERN_INSPECTION_INTENT) {
         return executeConcernInspection(req, options.sidecar);
       }
@@ -1213,12 +1235,17 @@ export function createV021LiveOperationExecutors(
       } catch {
         throw new Error("observation_unavailable");
       }
+      if (result.license.state !== "succeeded") {
+        const failureCode = typeof result.license.error === "string"
+          ? safeReasonCode(result.license.error)
+          : "project_inspection_failed";
+        throw new CapabilityUnavailableError(failureCode);
+      }
       if (
-        result.license.state !== "succeeded" ||
         result.observation === null ||
         result.observation.projectId !== request.projectId ||
         result.observation.operation !== request.operation
-      ) throw new Error("observation_unavailable");
+      ) throw new CapabilityUnavailableError("project_inspection_result_invalid");
       const fileObservation = result.observation.operation === "project.read_file"
         ? result.observation
         : null;

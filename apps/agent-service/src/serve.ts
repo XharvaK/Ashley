@@ -283,6 +283,11 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
       enqueueWorkerUndertaking: (input) => enqueueWorkerUndertakingIntent(sidecar, input),
       constitution: readIdentitySlice(nuclear, ownerId),
       capabilityReality,
+      refreshCapabilityReality: ({ audience, licenses, nowMs }) => getCapabilityReality(nuclear, {
+        audience,
+        licenses,
+        nowMs,
+      }),
       derivedStore,
       observabilityDb,
     };

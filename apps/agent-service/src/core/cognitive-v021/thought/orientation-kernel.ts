@@ -172,6 +172,80 @@ function capabilityReachabilityOrFail(value: unknown): CapabilityReality["reacha
   };
 }
 
+function capabilitySemanticObservationsOrFail(value: unknown): CapabilityReality["semanticObservations"] {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value)) return requiredMissing("capabilityReality");
+  return value.map((item) => {
+    if (typeof item !== "object" || item === null || Array.isArray(item)) {
+      return requiredMissing("capabilityReality");
+    }
+    const row = item as Record<string, unknown>;
+    if (
+      typeof row.operationKind !== "string"
+      || row.semanticClass !== "observation"
+      || row.readOnly !== true
+      || typeof row.available !== "boolean"
+    ) {
+      return requiredMissing("capabilityReality");
+    }
+    return {
+      operationKind: row.operationKind,
+      semanticClass: "observation" as const,
+      readOnly: true as const,
+      available: row.available,
+    };
+  });
+}
+
+function capabilityAsOfOrFail(value: unknown): CapabilityReality["asOf"] {
+  if (value === undefined) return undefined;
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return requiredMissing("capabilityReality");
+  }
+  const candidate = value as Record<string, unknown>;
+  if (
+    !Number.isSafeInteger(candidate.capturedAtMs)
+    || (candidate.capturedAtMs as number) < 0
+    || !(candidate.releaseId === null || typeof candidate.releaseId === "string")
+    || !["present", "no_row", "audience_redacted"].includes(String(candidate.status))
+    || !Array.isArray(candidate.releaseRows)
+  ) {
+    return requiredMissing("capabilityReality");
+  }
+  const releaseRows = candidate.releaseRows.map((value) => {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+      return requiredMissing("capabilityReality");
+    }
+    const row = value as Record<string, unknown>;
+    if (
+      typeof row.capability !== "string"
+      || typeof row.releaseId !== "string"
+      || typeof row.state !== "string"
+      || typeof row.updatedAt !== "string"
+      || !(row.contractId === null || typeof row.contractId === "string")
+      || !(row.buildIdentity === null || typeof row.buildIdentity === "string")
+      || !Number.isSafeInteger(row.modelEpoch)
+    ) {
+      return requiredMissing("capabilityReality");
+    }
+    return {
+      capability: row.capability,
+      releaseId: row.releaseId,
+      state: row.state,
+      updatedAt: row.updatedAt,
+      contractId: row.contractId,
+      buildIdentity: row.buildIdentity,
+      modelEpoch: row.modelEpoch as number,
+    };
+  });
+  return {
+    capturedAtMs: candidate.capturedAtMs as number,
+    releaseId: candidate.releaseId as string | null,
+    status: candidate.status as NonNullable<CapabilityReality["asOf"]>["status"],
+    releaseRows,
+  };
+}
+
 function capabilityRealityOrFail(value: unknown): CapabilityReality {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     return requiredMissing("capabilityReality");
@@ -188,6 +262,8 @@ function capabilityRealityOrFail(value: unknown): CapabilityReality {
   }
   const publicPresence = publicPresenceCapabilityOrFail(candidate.publicPresence);
   const reachability = capabilityReachabilityOrFail(candidate.reachability);
+  const semanticObservations = capabilitySemanticObservationsOrFail(candidate.semanticObservations);
+  const asOf = capabilityAsOfOrFail(candidate.asOf);
   return {
     vision: candidate.vision as boolean,
     attachmentText: candidate.attachmentText as boolean,
@@ -204,8 +280,10 @@ function capabilityRealityOrFail(value: unknown): CapabilityReality {
     ...(candidate.operationCapabilities === undefined
       ? {}
       : { operationCapabilities: [...(candidate.operationCapabilities as NonNullable<CapabilityReality["operationCapabilities"]>)] }),
+    ...(semanticObservations === undefined ? {} : { semanticObservations }),
     ...(publicPresence === undefined ? {} : { publicPresence }),
     ...(reachability === undefined ? {} : { reachability }),
+    ...(asOf === undefined ? {} : { asOf }),
   };
 }
 
