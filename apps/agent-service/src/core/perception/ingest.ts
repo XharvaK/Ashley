@@ -33,10 +33,6 @@ export function urlFingerprint(url: string): string {
   return createHash("sha256").update(url.trim()).digest("hex");
 }
 
-function isPdfMime(mime: string): boolean {
-  return mime.trim().toLowerCase() === "application/pdf";
-}
-
 export function buildInlineDataUri(bytes: Uint8Array, mime: string): string {
   const normalized = mime.split(";")[0]?.trim().toLowerCase() || "application/octet-stream";
   return `data:${normalized};base64,${Buffer.from(bytes).toString("base64")}`;
@@ -71,35 +67,6 @@ export function createPendingArtifacts(
     const declaredMime = attachment.declaredMime.trim().slice(0, 200);
     const fileName = attachment.fileName.trim().slice(0, MAX_FILENAME_LENGTH);
     if (!sourceUrl || !attachment.discordAttachmentId) continue;
-    if (isPdfMime(declaredMime)) {
-      const result = insert.run(
-        params.ownerId,
-        entityUuid,
-        classification,
-        attachment.discordAttachmentId,
-        params.sourceMessageEntityUuid,
-        params.deliveryReservationEntityUuid,
-        urlFingerprint(sourceUrl),
-        declaredMime,
-        attachment.declaredByteSize ?? 0,
-        params.aggregateTurnBytes,
-        retention,
-        now,
-        now,
-      );
-      transitionArtifactStatus(db, entityUuid, params.ownerId, "unsupported", {
-        errorCode: "pdf_not_supported",
-      });
-      created.push({
-        id: Number(result.lastInsertRowid),
-        entityUuid,
-        discordAttachmentId: attachment.discordAttachmentId,
-        declaredMime,
-        fileName,
-        sourceUrl,
-      });
-      continue;
-    }
     const result = insert.run(
       params.ownerId,
       entityUuid,

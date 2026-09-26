@@ -10,8 +10,12 @@ import type { WorkingContextDelta } from "../types.js";
 import { parseThoughtSemanticOutput } from "../thought/parse.js";
 import { putInFlight, recordEffectReceipt } from "../effect/in-flight.js";
 import { persistOrVerifyObservation } from "../observation/persistence.js";
-import { projectFileArtifactIdentity } from "../observation/view.js";
-import { textArtifactRepresentationId } from "../observation/view.js";
+import {
+  pdfPageImageRepresentationId,
+  pdfPageTextRepresentationId,
+  projectFileArtifactIdentity,
+  textArtifactRepresentationId,
+} from "../observation/view.js";
 import { validateSourceSupportRefs } from "./interpretation-envelope.js";
 
 function directive(id: string, support: unknown[], overrides: Record<string, unknown> = {}) {
@@ -315,7 +319,9 @@ describe("Working Context interpretation envelope", () => {
           support,
         ]),
       }, { cycleId: "cycle-publish", generation: 1, nowMs: 20 })).toThrow(
-        support.kind === "structured_path" ? "support_ref_unresolved" : "support_ref_kind_unimplemented",
+        support.kind === "structured_path" || support.kind === "document_page_region"
+          ? "support_ref_unresolved"
+          : "support_ref_kind_unimplemented",
       );
       expect(listWorkingContext(db, "thread-envelope")).toEqual([]);
     } finally {
@@ -422,6 +428,94 @@ describe("Working Context interpretation envelope", () => {
         artifactId: jsonArtifactId,
         representationId: jsonRepresentationId,
         path: "/profile/missing",
+      }], "thread-envelope")).toThrow("support_ref_unresolved");
+    } finally {
+      db.close();
+    }
+  });
+
+  it("resolves a PDF page support reference and bounds an optional region", () => {
+    const db = openTestSidecar();
+    try {
+      admitTestCycle(db, {
+        cycleId: "cycle-pdf-support",
+        conversationId: "thread-envelope",
+        triggerKind: "owner_message",
+        triggerRef: "trigger-pdf-support",
+        occupantId: "doc",
+        authorityEpoch: 1,
+        nowMs: 10,
+      });
+      const artifactId = "artifact:attachment-pdf";
+      const representationId = pdfPageTextRepresentationId(artifactId, 1);
+      const contentHash = "c".repeat(64);
+      persistOrVerifyObservation(db, {
+        observationId: "observation-pdf-page",
+        cycleId: "cycle-pdf-support",
+        generation: 1,
+        derived: false,
+        replaySafe: true,
+        modality: "page",
+        payload: {
+          format: "pdf_page",
+          artifactId,
+          representationId,
+          contentHash,
+          page: 1,
+          pageCount: 2,
+          pageWidth: 612,
+          pageHeight: 792,
+          extraction: "text",
+          contentUtf8: "page one",
+          pageImageRef: {
+            artifactId,
+            representationId: pdfPageImageRepresentationId(artifactId, 1),
+            page: 1,
+            source: "retained_pdf_page",
+            access: "deferred_visual",
+          },
+          ocr: { status: "unavailable" },
+        },
+        provenance: "perception:pdf",
+        dataClassification: "never_public",
+        secretOmitted: false,
+        view: {
+          parentArtifactId: artifactId,
+          representationId,
+          derivation: "pdf_text_extract",
+          requestedSelector: { kind: "document_page", page: 1 },
+          returnedSelector: { kind: "document_page", page: 1 },
+          completeness: "complete",
+          omission: null,
+          continuation: { page: 2 },
+          errors: [],
+          contentHashBasis: "raw_bytes",
+          inputTrust: "untrusted_evidence",
+        },
+      }, 13);
+
+      const base = {
+        artifactId,
+        representationId,
+        page: 1,
+      } as const;
+      expect(validateSourceSupportRefs(db, [{ kind: "document_page_region", ...base }], "thread-envelope"))
+        .toEqual([{ principalKind: "observation", principalId: null, sourceTimeMs: 13 }]);
+      expect(validateSourceSupportRefs(db, [{
+        kind: "document_page_region",
+        ...base,
+        region: { x: 10, y: 20, width: 100, height: 200 },
+      }], "thread-envelope")).toEqual([{ principalKind: "observation", principalId: null, sourceTimeMs: 13 }]);
+      expect(() => validateSourceSupportRefs(db, [{
+        kind: "document_page_region",
+        ...base,
+        region: { x: 600, y: 20, width: 20, height: 20 },
+      }], "thread-envelope")).toThrow("support_ref_unresolved");
+      expect(() => validateSourceSupportRefs(db, [{
+        kind: "document_page_region",
+        artifactId,
+        representationId: "representation:wrong-page",
+        page: 1,
       }], "thread-envelope")).toThrow("support_ref_unresolved");
     } finally {
       db.close();

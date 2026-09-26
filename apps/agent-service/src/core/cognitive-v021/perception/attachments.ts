@@ -20,8 +20,9 @@ import {
   textArtifactRepresentationId,
   type ObservationView,
 } from "../observation/view.js";
+import { parsePdfDocument, pdfPageSelector, type PdfPage } from "./pdf.js";
 
-type AttachmentFormat = "text" | "json" | "csv";
+type AttachmentFormat = "text" | "json" | "csv" | "pdf";
 
 export type AttachmentFetcher = (input: {
   url: string;
@@ -74,6 +75,8 @@ function formatForExtension(fileName: string): AttachmentFormat | null {
       return "json";
     case ".csv":
       return "csv";
+    case ".pdf":
+      return "pdf";
     default:
       return null;
   }
@@ -82,6 +85,7 @@ function formatForExtension(fileName: string): AttachmentFormat | null {
 function mimeCompatible(format: AttachmentFormat, mime: string): boolean {
   const normalized = normalizedMime(mime);
   if (normalized === OCTET_MIME) return true;
+  if (format === "pdf") return normalized === "application/pdf";
   if (format === "json") return JSON_MIME_TYPES.has(normalized) || normalized === "text/plain";
   if (format === "csv") return CSV_MIME_TYPES.has(normalized) || normalized === "text/plain";
   return TEXT_MIME_TYPES.has(normalized);
@@ -494,40 +498,130 @@ function successObservation(
   ));
 }
 
+function pdfPageObservation(
+  input: AttachmentObservationInput,
+  attachment: AttachmentIntakeRef,
+  artifactId: string,
+  page: PdfPage,
+  pageCount: number,
+  contentHash: string,
+  byteSize: number,
+): Observation {
+  const base = basePayload(attachment, artifactId);
+  const selector = pdfPageSelector(page.page);
+  return {
+    observationId: `${observationId(input.cycleId, input.generation, attachment.discordAttachmentId)}:page:${page.page}`,
+    cycleId: input.cycleId,
+    generation: input.generation,
+    derived: false,
+    replaySafe: true,
+    modality: "page",
+    payload: {
+      ...base,
+      format: "pdf_page",
+      representationId: page.textRepresentationId,
+      contentHash,
+      byteSize,
+      page: page.page,
+      pageCount,
+      pageWidth: page.width,
+      pageHeight: page.height,
+      extraction: page.extraction,
+      ...(page.text.length > 0 ? { contentUtf8: page.text } : {}),
+      featuresNotExtracted: page.featuresNotExtracted,
+      pageImageRef: {
+        artifactId,
+        representationId: page.imageRepresentationId,
+        page: page.page,
+        source: "retained_pdf_page",
+        access: "deferred_visual",
+      },
+      ocr: { status: "unavailable" },
+      inputTrust: "untrusted_evidence",
+    },
+    provenance: "perception:pdf",
+    dataClassification: "never_public",
+    secretOmitted: false,
+    view: {
+      parentArtifactId: artifactId,
+      representationId: page.textRepresentationId,
+      derivation: "pdf_text_extract",
+      requestedSelector: selector,
+      returnedSelector: selector,
+      completeness: "complete",
+      omission: null,
+      continuation: page.page < pageCount ? { page: page.page + 1 } : null,
+      errors: page.extraction === "empty" ? [{ code: "extraction_empty" }] : [],
+      contentHashBasis: "raw_bytes",
+      inputTrust: "untrusted_evidence",
+    },
+  };
+}
+
+function pdfObservations(
+  input: AttachmentObservationInput,
+  attachment: AttachmentIntakeRef,
+  artifactId: string,
+  bytes: Uint8Array,
+): Observation[] {
+  const contentHash = sha256(bytes);
+  try {
+    const document = parsePdfDocument(bytes, artifactId);
+    return document.pages.map((page) => pdfPageObservation(
+      input,
+      attachment,
+      artifactId,
+      page,
+      document.pageCount,
+      contentHash,
+      bytes.byteLength,
+    ));
+  } catch (error) {
+    const code = error instanceof Error && error.message === "document_encrypted"
+      ? "document_encrypted"
+      : "document_unreadable";
+    transitionArtifactStatus(input.nuclear, artifactId, input.ownerId, "failed", {
+      errorCode: code,
+    });
+    return [errorObservation(input, attachment, artifactId, code, { mediaType: "application/pdf" })];
+  }
+}
+
 async function resolveOne(
   input: AttachmentObservationInput,
   attachment: AttachmentIntakeRef,
   aggregateDeclaredBytes: number,
   fetchedBytes: { value: number },
   fetcher: AttachmentFetcher,
-): Promise<Observation> {
+): Promise<Observation[]> {
   const artifact = ensureArtifact(input.nuclear, input, attachment, aggregateDeclaredBytes);
-  const declaredFormat = formatForExtension(attachment.fileName);
+  const declaredFormat = formatForExtension(attachment.fileName)
+    ?? (normalizedMime(attachment.declaredMime) === "application/pdf" ? "pdf" : null);
   const artifactId = artifact.entityUuid;
   if (!declaredFormat || !mimeCompatible(declaredFormat, attachment.declaredMime)) {
     const mediaType = normalizedMime(attachment.declaredMime);
     transitionArtifactStatus(input.nuclear, artifactId, input.ownerId, "unsupported", {
       errorCode: `unsupported_media:${mediaType}`,
     });
-    return errorObservation(input, attachment, artifactId, "unsupported_media", { mediaType });
+    return [errorObservation(input, attachment, artifactId, "unsupported_media", { mediaType })];
   }
   if (attachment.declaredByteSize !== undefined && attachment.declaredByteSize > MAX_SINGLE_ATTACHMENT_BYTES) {
     transitionArtifactStatus(input.nuclear, artifactId, input.ownerId, "failed", { errorCode: "attachment_size_limit" });
-    return errorObservation(input, attachment, artifactId, "attachment_size_limit", {
+    return [errorObservation(input, attachment, artifactId, "attachment_size_limit", {
       maxBytes: MAX_SINGLE_ATTACHMENT_BYTES,
-    });
+    })];
   }
   if (aggregateDeclaredBytes > MAX_AGGREGATE_ATTACHMENT_BYTES) {
     transitionArtifactStatus(input.nuclear, artifactId, input.ownerId, "failed", { errorCode: "attachment_aggregate_limit" });
-    return errorObservation(input, attachment, artifactId, "attachment_aggregate_limit", {
+    return [errorObservation(input, attachment, artifactId, "attachment_aggregate_limit", {
       maxBytes: MAX_AGGREGATE_ATTACHMENT_BYTES,
-    });
+    })];
   }
   if (!input.attachmentTextEnabled) {
     transitionArtifactStatus(input.nuclear, artifactId, input.ownerId, "failed", {
       errorCode: "capability_not_in_live_set",
     });
-    return errorObservation(input, attachment, artifactId, "capability_not_in_live_set");
+    return [errorObservation(input, attachment, artifactId, "capability_not_in_live_set")];
   }
 
   transitionArtifactStatus(input.nuclear, artifactId, input.ownerId, "fetching");
@@ -542,7 +636,7 @@ async function resolveOne(
     transitionArtifactStatus(input.nuclear, artifactId, input.ownerId, "failed", {
       errorCode: "attachment_unreadable",
     });
-    return errorObservation(input, attachment, artifactId, "attachment_unreadable");
+    return [errorObservation(input, attachment, artifactId, "attachment_unreadable")];
   }
   const actualHash = sha256(fetched.bytes);
   if (fetched.bytes.byteLength > MAX_SINGLE_ATTACHMENT_BYTES) {
@@ -552,9 +646,9 @@ async function resolveOne(
       contentHash: actualHash,
       byteSize: fetched.bytes.byteLength,
     });
-    return errorObservation(input, attachment, artifactId, "attachment_size_limit", {
+    return [errorObservation(input, attachment, artifactId, "attachment_size_limit", {
       maxBytes: MAX_SINGLE_ATTACHMENT_BYTES,
-    });
+    })];
   }
   if (fetchedBytes.value + fetched.bytes.byteLength > MAX_AGGREGATE_ATTACHMENT_BYTES) {
     transitionArtifactStatus(input.nuclear, artifactId, input.ownerId, "failed", {
@@ -563,9 +657,9 @@ async function resolveOne(
       contentHash: actualHash,
       byteSize: fetched.bytes.byteLength,
     });
-    return errorObservation(input, attachment, artifactId, "attachment_aggregate_limit", {
+    return [errorObservation(input, attachment, artifactId, "attachment_aggregate_limit", {
       maxBytes: MAX_AGGREGATE_ATTACHMENT_BYTES,
-    });
+    })];
   }
   fetchedBytes.value += fetched.bytes.byteLength;
   const detectedMime = normalizedMime(fetched.mime);
@@ -576,7 +670,7 @@ async function resolveOne(
       contentHash: actualHash,
       byteSize: fetched.bytes.byteLength,
     });
-    return errorObservation(input, attachment, artifactId, "unsupported_media", { mediaType: detectedMime });
+    return [errorObservation(input, attachment, artifactId, "unsupported_media", { mediaType: detectedMime })];
   }
 
   const provenance = attachmentProvenance(input, attachment);
@@ -593,15 +687,19 @@ async function resolveOne(
     transitionArtifactStatus(input.nuclear, artifactId, input.ownerId, "failed", {
       errorCode: "attachment_unreadable",
     });
-    return errorObservation(input, attachment, artifactId, "attachment_unreadable");
+    return [errorObservation(input, attachment, artifactId, "attachment_unreadable")];
+  }
+
+  if (declaredFormat === "pdf") {
+    return pdfObservations(input, attachment, artifactId, fetched.bytes);
   }
 
   try {
-    return successObservation(input, attachment, artifactId, declaredFormat, fetched.bytes, detectedMime);
+    return [successObservation(input, attachment, artifactId, declaredFormat, fetched.bytes, detectedMime)];
   } catch {
-    return errorObservation(input, attachment, artifactId, "attachment_parse_failed", {
+    return [errorObservation(input, attachment, artifactId, "attachment_parse_failed", {
       mediaType: detectedMime,
-    });
+    })];
   }
 }
 
@@ -622,9 +720,11 @@ export async function resolveAttachmentObservations(
   const fetchedBytes = { value: 0 };
   const observations: Observation[] = [];
   for (const [index, attachment] of bounded.entries()) {
-    observations.push(attachment
-      ? await resolveOne(input, attachment, declaredAggregateBytes, fetchedBytes, fetcher)
-      : invalidReferenceObservation(input, index));
+    if (attachment) {
+      observations.push(...await resolveOne(input, attachment, declaredAggregateBytes, fetchedBytes, fetcher));
+    } else {
+      observations.push(invalidReferenceObservation(input, index));
+    }
   }
   for (const [index, attachment] of normalized.slice(MAX_ATTACHMENTS_PER_TURN).entries()) {
     if (!attachment) {

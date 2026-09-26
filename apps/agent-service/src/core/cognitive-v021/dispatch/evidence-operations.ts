@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { fetchAttachmentBytes } from "../../perception/fetch.js";
 import { parseAttachmentCsv, resolveAttachmentJsonPath } from "../perception/attachments.js";
+import { parsePdfDocument, PdfDocumentError } from "../perception/pdf.js";
 import { createPendingArtifacts, transitionArtifactStatus, urlFingerprint } from "../../perception/ingest.js";
 import {
   readArtifactBytes,
@@ -39,7 +40,7 @@ type RetainedText = {
   inputTrust: "untrusted_evidence" | null;
   sourceUrl: string | null;
   source: "artifact" | "project" | "page";
-  format: "text" | "json" | "csv";
+  format: "text" | "json" | "csv" | "pdf";
 };
 
 type EvidenceRefreshResult = {
@@ -94,6 +95,7 @@ function observation(
   payload: Record<string, unknown>,
   provenance: string,
   view?: ObservationView,
+  modality: Observation["modality"] = "text",
 ): Observation {
   return {
     observationId: `v021:observation:${req.requestId}`,
@@ -101,7 +103,7 @@ function observation(
     generation: req.generation,
     derived: false,
     replaySafe: true,
-    modality: "text",
+    modality,
     payload,
     provenance,
     dataClassification: "never_public",
@@ -157,6 +159,7 @@ function textMime(value: unknown): boolean {
     || mime === "text/json"
     || mime === "text/csv"
     || mime === "application/csv"
+    || mime === "application/pdf"
     || mime === "application/xml"
     || mime === "application/javascript";
 }
@@ -259,6 +262,8 @@ function artifactTextCapture(
       ? "json"
       : mime === "text/csv" || mime === "application/csv"
         ? "csv"
+        : mime === "application/pdf"
+          ? "pdf"
         : "text",
   };
 }
@@ -523,6 +528,115 @@ function executeStructuredRead(
   });
 }
 
+function continuationPdfPage(cursor: ArtifactCursor | undefined): number | null {
+  if (!cursor) return null;
+  if (!isRecord(cursor.continuation)
+    || typeof cursor.continuation.page !== "number"
+    || !Number.isSafeInteger(cursor.continuation.page)
+    || cursor.continuation.page < 1) {
+    throw new CapabilityUnavailableError("cursor_invalid");
+  }
+  return cursor.continuation.page;
+}
+
+function executePdfPageRead(
+  input: EvidenceOperationInput,
+  source: RetainedText,
+  request: EvidenceReadRequest & { selector: Extract<EvidenceTextSelector, { kind: "document_page" }> },
+  audience: SocialAudience,
+  ownerId: string,
+  cursor?: ArtifactCursor,
+): Observation {
+  if (source.source !== "artifact" || source.format !== "pdf") {
+    throw new CapabilityUnavailableError("representation_unavailable");
+  }
+
+  let document;
+  try {
+    document = parsePdfDocument(readArtifactBytes(input.nuclear, source.artifactId, ownerId), source.artifactId);
+  } catch (error) {
+    if (error instanceof PdfDocumentError) {
+      throw new CapabilityUnavailableError(error.code);
+    }
+    mapReadError(error);
+  }
+
+  const pageNumber = continuationPdfPage(cursor) ?? request.selector.page;
+  const page = document.pages[pageNumber - 1];
+  if (!page) throw new CapabilityUnavailableError("document_page_unresolved");
+  const region = request.selector.region;
+  if (region !== undefined
+    && (region.x + region.width > page.width || region.y + region.height > page.height)) {
+    throw new CapabilityUnavailableError("document_region_unresolved");
+  }
+
+  const returnedSelector = {
+    kind: "document_page",
+    page: page.page,
+    ...(region === undefined ? {} : { region }),
+  } as const;
+  const regionRequested = region !== undefined;
+  const errors = [
+    ...(page.extraction === "empty" ? [{ code: "extraction_empty" }] : []),
+    ...(regionRequested ? [{ code: "region_not_extracted" }] : []),
+  ];
+  const nextCursor: ArtifactCursor | null = page.page < document.pageCount ? {
+    schema: "ashley.artifact_cursor.v1",
+    artifactId: source.artifactId,
+    artifactHash: source.contentHash,
+    representationId: source.representationId,
+    selector: request.selector,
+    audience,
+    continuation: { page: page.page + 1 },
+  } : null;
+  const pageImageRef = {
+    artifactId: source.artifactId,
+    representationId: page.imageRepresentationId,
+    page: page.page,
+    source: "retained_pdf_page",
+    access: "deferred_visual",
+    ...(region === undefined ? {} : { region }),
+  };
+  const completeness = regionRequested ? "unknown" : "complete";
+  const omission = regionRequested ? { reason: "region_text_mapping_unavailable" } : null;
+  const payload: Record<string, unknown> = {
+    artifactId: source.artifactId,
+    representationId: page.textRepresentationId,
+    sourceRepresentationId: source.representationId,
+    artifactHash: source.contentHash,
+    audience,
+    format: "pdf_page",
+    selector: request.selector,
+    returnedSelector,
+    page: page.page,
+    pageCount: document.pageCount,
+    pageWidth: page.width,
+    pageHeight: page.height,
+    extraction: page.extraction,
+    featuresNotExtracted: page.featuresNotExtracted,
+    pageImageRef,
+    ocr: { status: "unavailable" },
+    inputTrust: "untrusted_evidence",
+    nextCursor,
+    completeness,
+    omission,
+    ...(regionRequested ? {} : page.text.length > 0 ? { contentUtf8: page.text } : {}),
+  };
+  return observation(input.req, payload, "perception:pdf-read", {
+    parentArtifactId: source.artifactId,
+    representationId: page.textRepresentationId,
+    derivation: "pdf_text_extract",
+    requestedSelector: request.selector,
+    returnedSelector,
+    completeness,
+    omission,
+    continuation: nextCursor,
+    errors,
+    contentHashBasis: "raw_bytes",
+    inputTrust: "untrusted_evidence",
+  }, "page");
+}
+
 async function executeRead(input: EvidenceOperationInput, request: EvidenceReadRequest): Promise<Observation> {
   const ownerId = requiredText(input.ownerId);
   if (!ownerId) throw new CapabilityUnavailableError("inspect_scope_unavailable");
@@ -546,6 +660,18 @@ async function executeRead(input: EvidenceOperationInput, request: EvidenceReadR
   }
 
   const cursor = bindCursor(request.cursor, source, request.selector, audience);
+  if (request.selector.kind === "document_page") {
+    return executePdfPageRead(
+      input,
+      source,
+      request as EvidenceReadRequest & {
+        selector: Extract<EvidenceTextSelector, { kind: "document_page" }>;
+      },
+      audience,
+      ownerId,
+      cursor,
+    );
+  }
   let page: ReturnType<typeof textPage>;
   if (source.source === "artifact" && request.selector.kind === "text_window") {
     const offsetChars = continuationOffset(cursor) ?? request.selector.offsetChars;

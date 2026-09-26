@@ -149,11 +149,11 @@ describe("owner attachment observation intake", () => {
       sourceMessageEntityUuid: "evidence-owner-3",
       deliveryReservationEntityUuid: "owner-event-3",
       attachmentTextEnabled: true,
-      attachments: [attachment("notes.pdf", "application/pdf")],
+      attachments: [attachment("notes.exe", "application/octet-stream")],
       fetchAttachment,
     });
     assert.equal((unsupported[0]!.payload as { error: { code: string; mediaType: string } }).error.code, "unsupported_media");
-    assert.equal((unsupported[0]!.payload as { error: { mediaType: string } }).error.mediaType, "application/pdf");
+    assert.equal((unsupported[0]!.payload as { error: { mediaType: string } }).error.mediaType, "application/octet-stream");
     assert.equal(fetchAttachment.mock.calls.length, 0);
 
     const unreadable = await resolveAttachmentObservations({

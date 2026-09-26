@@ -27,7 +27,12 @@ export type EvidenceTextSelector =
   | { kind: "text_window"; offsetChars: number; limitChars: number }
   | { kind: "text_lines"; startLine: number; endLine: number }
   | { kind: "json_path"; path: string; maxItems: number; maxChars: number }
-  | { kind: "csv_range"; startRow: number; endRow: number; startColumn: number; endColumn: number };
+  | { kind: "csv_range"; startRow: number; endRow: number; startColumn: number; endColumn: number }
+  | {
+      kind: "document_page";
+      page: number;
+      region?: { x: number; y: number; width: number; height: number };
+    };
 
 export type EvidenceReadRequest = {
   artifactId: string;
@@ -149,6 +154,20 @@ function validEvidenceSelector(value: unknown): value is EvidenceTextSelector {
       && Number.isSafeInteger(value.endColumn)
       && value.endColumn > value.startColumn
       && value.endColumn - value.startColumn <= EVIDENCE_READ_MAX_ITEMS;
+  }
+  if (value.kind === "document_page") {
+    if (!onlyKeys(value, ["kind", "page", "region"])
+      || typeof value.page !== "number"
+      || !Number.isSafeInteger(value.page)
+      || value.page < 1
+      || value.page > EVIDENCE_READ_MAX_LINES) return false;
+    if (value.region === undefined) return true;
+    const region = value.region;
+    if (!isRecord(region) || !onlyKeys(region, ["x", "y", "width", "height"])) return false;
+    const coordinates = [region.x, region.y, region.width, region.height];
+    if (!coordinates.every((part) => typeof part === "number" && Number.isFinite(part))) return false;
+    const [x, y, width, height] = coordinates as number[];
+    return x >= 0 && y >= 0 && width > 0 && height > 0;
   }
   return false;
 }

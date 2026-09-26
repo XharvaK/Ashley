@@ -173,6 +173,24 @@ export function textArtifactRepresentationId(parentArtifactId: string): string {
   return `representation:v1:${sha256({ parentArtifactId, kind: "utf8_text" })}`;
 }
 
+/** Stable page-text identity for one retained PDF artifact version. */
+export function pdfPageTextRepresentationId(parentArtifactId: string, page: number): string {
+  if (typeof parentArtifactId !== "string" || parentArtifactId.trim() === ""
+    || !Number.isSafeInteger(page) || page < 1) {
+    throw new ObservationViewError("pdf_page_representation_identity_invalid");
+  }
+  return `representation:v1:${sha256({ parentArtifactId, kind: "pdf_page_text", page })}`;
+}
+
+/** Stable address for the page-image source handed to the visual path. */
+export function pdfPageImageRepresentationId(parentArtifactId: string, page: number): string {
+  if (typeof parentArtifactId !== "string" || parentArtifactId.trim() === ""
+    || !Number.isSafeInteger(page) || page < 1) {
+    throw new ObservationViewError("pdf_page_image_representation_identity_invalid");
+  }
+  return `representation:v1:${sha256({ parentArtifactId, kind: "pdf_page_image", page })}`;
+}
+
 export function assertArtifactCursorBinding(
   cursor: unknown,
   expected: ArtifactCursorBinding,

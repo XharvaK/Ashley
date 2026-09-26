@@ -101,6 +101,50 @@ function createRetainedStructuredArtifact(
   return created.entityUuid;
 }
 
+function pdfFixture(pages: Array<string | null>): Uint8Array {
+  const objects: string[] = [
+    "1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj",
+    `2 0 obj << /Type /Pages /Kids [${pages.map((_, index) => `${3 + index * 2} 0 R`).join(" ")}] /Count ${pages.length} >> endobj`,
+  ];
+  pages.forEach((text, index) => {
+    const pageId = 3 + index * 2;
+    const contentId = pageId + 1;
+    const content = text === null ? "q Q" : `BT /F1 12 Tf (${text}) Tj ET`;
+    objects.push(
+      `${pageId} 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792]${text === null ? "" : ` /Contents ${contentId} 0 R`} >> endobj`,
+    );
+    if (text !== null) {
+      objects.push(`${contentId} 0 obj << /Length ${Buffer.byteLength(content, "latin1")} >> stream\n${content}\nendstream endobj`);
+    }
+  });
+  return new TextEncoder().encode(`%PDF-1.4\n${objects.join("\n")}\n%%EOF\n`);
+}
+
+function createRetainedPdfArtifact(db: DatabaseSync, bytes: Uint8Array): string {
+  const [created] = createPendingArtifacts(db, {
+    ownerId: OWNER_ID,
+    attachments: [{
+      discordAttachmentId: "attachment-pdf",
+      sourceUrl: "https://cdn.example.test/evidence.pdf",
+      fileName: "evidence.pdf",
+      declaredMime: "application/pdf",
+      declaredByteSize: bytes.byteLength,
+    }],
+    sourceMessageEntityUuid: "message-pdf",
+    deliveryReservationEntityUuid: "reservation-pdf",
+    aggregateTurnBytes: bytes.byteLength,
+  });
+  if (!created) throw new Error("test_pdf_artifact_missing");
+  const contentHash = createHash("sha256").update(bytes).digest("hex");
+  transitionArtifactStatus(db, created.entityUuid, OWNER_ID, "fetched", {
+    mimeDetected: "application/pdf",
+    contentHash,
+    byteSize: bytes.byteLength,
+  });
+  storeArtifactBytes(db, OWNER_ID, created.entityUuid, bytes, "application/pdf");
+  return created.entityUuid;
+}
+
 function semantic(operationKind: string, value: Record<string, unknown>) {
   return {
     kind: "observation_intent",
@@ -292,6 +336,102 @@ describe("CAM-W3-P1 evidence operations", () => {
       rows: [["Ashley", "2"], ["Alex", "1"]],
       selector: csvSelector,
     });
+    nuclear.close();
+  });
+
+  it("reads PDF pages by page identity, continues to the next page, and fails closed on a replaced version", async () => {
+    const nuclear = openNuclearDb(new DatabaseSync(":memory:"));
+    const bytes = pdfFixture(["page one", "page two"]);
+    const artifactId = createRetainedPdfArtifact(nuclear, bytes);
+    const representationId = textArtifactRepresentationId(artifactId);
+    const selector = { kind: "document_page", page: 1 } as const;
+    const first = await executeEvidenceOperation({
+      req: request("evidence.read", { artifactId, representationId, selector }),
+      nuclear,
+      ownerId: OWNER_ID,
+      nowMs: () => 100,
+    });
+    expect(first.modality).toBe("page");
+    expect(first.payload).toMatchObject({
+      artifactId,
+      format: "pdf_page",
+      page: 1,
+      pageCount: 2,
+      contentUtf8: "page one",
+      ocr: { status: "unavailable" },
+      pageImageRef: { page: 1, access: "deferred_visual" },
+      nextCursor: { continuation: { page: 2 } },
+    });
+    expect(first.view).toMatchObject({
+      parentArtifactId: artifactId,
+      requestedSelector: selector,
+      returnedSelector: { kind: "document_page", page: 1 },
+      continuation: { continuation: { page: 2 } },
+      contentHashBasis: "raw_bytes",
+    });
+
+    const cursor = (first.payload as { nextCursor: unknown }).nextCursor;
+    const second = await executeEvidenceOperation({
+      req: request("evidence.read", { artifactId, representationId, selector, cursor }),
+      nuclear,
+      ownerId: OWNER_ID,
+      nowMs: () => 101,
+    });
+    expect(second.payload).toMatchObject({ page: 2, contentUtf8: "page two", nextCursor: null });
+    expect(second.view).toMatchObject({ returnedSelector: { kind: "document_page", page: 2 } });
+
+    const region = await executeEvidenceOperation({
+      req: request("evidence.read", {
+        artifactId,
+        representationId,
+        selector: { kind: "document_page", page: 1, region: { x: 10, y: 20, width: 100, height: 200 } },
+      }),
+      nuclear,
+      ownerId: OWNER_ID,
+      nowMs: () => 102,
+    });
+    expect(region.payload).toMatchObject({
+      page: 1,
+      completeness: "unknown",
+      omission: { reason: "region_text_mapping_unavailable" },
+      pageImageRef: { region: { x: 10, y: 20, width: 100, height: 200 } },
+    });
+    expect((region.payload as { contentUtf8?: string }).contentUtf8).toBeUndefined();
+    expect(region.view).toMatchObject({ errors: [{ code: "region_not_extracted" }] });
+
+    nuclear.prepare("UPDATE perception_artifacts SET content_hash = ? WHERE entity_uuid = ?")
+      .run("b".repeat(64), artifactId);
+    await expect(executeEvidenceOperation({
+      req: request("evidence.read", { artifactId, representationId, selector, cursor }),
+      nuclear,
+      ownerId: OWNER_ID,
+      nowMs: () => 103,
+    })).rejects.toMatchObject({ reasonCode: "artifact_version_mismatch" });
+    nuclear.close();
+  });
+
+  it("keeps a scanned PDF page image-addressable when page text is empty", async () => {
+    const nuclear = openNuclearDb(new DatabaseSync(":memory:"));
+    const bytes = pdfFixture([null]);
+    const artifactId = createRetainedPdfArtifact(nuclear, bytes);
+    const result = await executeEvidenceOperation({
+      req: request("evidence.read", {
+        artifactId,
+        representationId: textArtifactRepresentationId(artifactId),
+        selector: { kind: "document_page", page: 1 },
+      }),
+      nuclear,
+      ownerId: OWNER_ID,
+      nowMs: () => 100,
+    });
+    expect(result.payload).toMatchObject({
+      format: "pdf_page",
+      extraction: "empty",
+      pageImageRef: { page: 1, access: "deferred_visual" },
+      ocr: { status: "unavailable" },
+    });
+    expect((result.payload as { contentUtf8?: string }).contentUtf8).toBeUndefined();
+    expect(result.view).toMatchObject({ errors: [{ code: "extraction_empty" }] });
     nuclear.close();
   });
 
