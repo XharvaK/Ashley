@@ -306,10 +306,11 @@ describe("P1 occupied-concern projection", () => {
 
   it("keeps the Thought output semantic schema identity pinned", () => {
     expect(THOUGHT_OUTPUT_SCHEMA_FINGERPRINT).toBe(THOUGHT_SEMANTIC_SCHEMA_FINGERPRINT);
-    // Rotation includes the typed inspect/evidence operation vocabulary and instructions;
+    // Rotation includes the typed inspect/evidence operation vocabulary,
+    // objective facet fields, and instructions;
     // parser identity is unchanged.
     expect(THOUGHT_OUTPUT_SCHEMA_FINGERPRINT).toBe(
-      "sha256:007e9167a4c864b601928e3a0fac69c8fb11a1df20f20d696f39e461d14de5ba",
+      "sha256:4a458fa20e9cf778f57509b814f011bbd5d5f586f9bb4634ffc1c19c5f47f5fa",
     );
   });
 });

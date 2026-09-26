@@ -1002,9 +1002,11 @@ function materializeSemanticSettlement(
       conversationId,
       statement: delta.record.statement,
       sourceTurnIds: [...delta.record.sourceTurnRefs],
+      ...(delta.record.supportRefs ? { supportRefs: [...delta.record.supportRefs] } : {}),
       dimensions: { ...delta.record.dimensions },
       assertionKey: null,
       status: delta.record.status,
+      ...(delta.record.objective ? { objective: delta.record.objective } : {}),
     }));
   }
 
@@ -1257,6 +1259,7 @@ function materializeSemanticSettlement(
             dimensions: { ...delta.record.dimensions },
             assertionKey: null,
             status: delta.record.status,
+            ...(delta.record.objective ? { objective: delta.record.objective } : {}),
           },
         });
   if (semantic.occupancyDeltas) result.occupancyDelta = semantic.occupancyDeltas.map((delta, index) => ({

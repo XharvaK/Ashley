@@ -1328,3 +1328,10 @@ CREATE INDEX IF NOT EXISTS idx_observations_representation
   ON observations(representation_id) WHERE representation_id IS NOT NULL;
 UPDATE cognitive_sidecar_meta SET schema_version = 32, projection_state = 'reconciling' WHERE id = 1;
 `;
+
+/** Add the nullable cognition-authored concern objective facet. */
+export const COGNITIVE_SIDECAR_SCHEMA_V33 = String.raw`
+ALTER TABLE concerns ADD COLUMN objective_json TEXT
+  CHECK(objective_json IS NULL OR json_valid(objective_json));
+UPDATE cognitive_sidecar_meta SET schema_version = 33, projection_state = 'reconciling' WHERE id = 1;
+`;

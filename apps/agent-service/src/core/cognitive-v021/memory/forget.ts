@@ -111,13 +111,23 @@ function redactTypedSupportRefsForEvidence(db: DatabaseSync, evidenceIds: Readon
       .run(JSON.stringify(next), text(row.support_id)).changes);
   }
   for (const [table, idColumn] of [["concerns", "concern_id"], ["desk_entries", "id"]] as const) {
-    for (const row of db.prepare(`SELECT ${idColumn}, support_refs_json FROM ${table}`).all()) {
+    const columns = table === "concerns" ? ", objective_json" : "";
+    for (const row of db.prepare(`SELECT ${idColumn}, support_refs_json${columns} FROM ${table}`).all()) {
       if (!isRow(row)) continue;
       const previous = parseJson(row.support_refs_json);
       const next = redactTypedSupportValue(previous, evidenceIds);
-      if (JSON.stringify(previous) === JSON.stringify(next)) continue;
-      changed += number(db.prepare(`UPDATE ${table} SET support_refs_json = ? WHERE ${idColumn} = ?`)
-        .run(JSON.stringify(next), text(row[idColumn])).changes);
+      const previousObjective = table === "concerns" ? parseJson(row.objective_json) : null;
+      const nextObjective = table === "concerns" ? redactTypedSupportValue(previousObjective, evidenceIds) : null;
+      if (JSON.stringify(previous) === JSON.stringify(next)
+        && JSON.stringify(previousObjective) === JSON.stringify(nextObjective)) continue;
+      if (table === "concerns") {
+        changed += number(db.prepare(
+          `UPDATE concerns SET support_refs_json = ?, objective_json = ? WHERE ${idColumn} = ?`,
+        ).run(JSON.stringify(next), nextObjective == null ? null : JSON.stringify(nextObjective), text(row[idColumn])).changes);
+      } else {
+        changed += number(db.prepare(`UPDATE ${table} SET support_refs_json = ? WHERE ${idColumn} = ?`)
+          .run(JSON.stringify(next), text(row[idColumn])).changes);
+      }
     }
   }
   return changed;
@@ -192,7 +202,7 @@ export function applyV021Forget(
       // content, marks the row forgotten, and never leaves a Host-written
       // `resolved` behind as if cognition had settled the concern.
       const result = db.prepare(
-        `UPDATE concerns SET statement = '', source_refs_json = '[]', support_refs_json = '[]', assertion_key = NULL,
+        `UPDATE concerns SET statement = '', source_refs_json = '[]', support_refs_json = '[]', objective_json = NULL, assertion_key = NULL,
              cognitive_status = NULL, forgotten = 1, updated_cycle = updated_cycle WHERE concern_id = ?`,
       ).run(concernId);
       changedRows += number(result.changes);
@@ -627,7 +637,7 @@ function applyV021ForgetTargetsInTransaction(
   }
   for (const id of targetIds(targets, "v021_concern")) {
     addChanges(db.prepare(
-      `UPDATE concerns SET statement = '', source_refs_json = '[]', support_refs_json = '[]', assertion_key = NULL,
+      `UPDATE concerns SET statement = '', source_refs_json = '[]', support_refs_json = '[]', objective_json = NULL, assertion_key = NULL,
            cognitive_status = NULL, forgotten = 1 WHERE concern_id = ?`,
     ).run(id), changed);
   }

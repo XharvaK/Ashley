@@ -29,7 +29,7 @@ export type { SourceSupportRef } from "./evidence/interpretation-envelope.js";
 export const ARCHITECTURE_EPOCH = "v0.2.1" as const;
 export const IMPLEMENTATION_SPEC_VERSION = "0.2.1.r6" as const;
 export const THOUGHT_CONTRACT_VERSION = 2 as const;
-export const COGNITIVE_SIDECAR_SCHEMA_VERSION = 32 as const;
+export const COGNITIVE_SIDECAR_SCHEMA_VERSION = 33 as const;
 
 /**
  * Hard bound on cognition-facing concern discovery windows and pages. The
@@ -467,11 +467,42 @@ export type DeskDelta =
   | { op: "archive"; id: string }
   | { op: "tombstone"; id: string };
 
+export type ConcernObjectiveDisposition =
+  | "active"
+  | "waiting"
+  | "satisfied"
+  | "abandoned"
+  | "needs_review";
+
+export type ConcernObjectiveTarget = Readonly<Record<string, string>>;
+
+/**
+ * Cognition-authored desired outcome or unresolved question attached to a
+ * concern. This is a bounded meaning facet, not an executable workflow.
+ * `disposition` is the objective state; `ConcernRecord.status` remains the
+ * separate cognition-authored attention state for the concern.
+ */
+export type ConcernObjectiveFacet = {
+  intendedOutcome?: string;
+  unresolvedQuestion?: string;
+  adoptionRevision?: number;
+  /** Optional compatibility carrier; persisted beside the concern as typed support. */
+  supportRefs?: readonly SourceSupportRef[];
+  delegationRef?: string | null;
+  audience?: SocialAudience | null;
+  target?: ConcernObjectiveTarget | null;
+  continuationConsiderations?: string;
+  stoppingConsiderations?: string;
+  disposition?: ConcernObjectiveDisposition;
+  relatedRefs?: readonly string[];
+};
+
 export type ConcernRecord = {
   concernId: ConcernId;
   conversationId: ConversationId;
   statement: string;
   sourceTurnIds: string[];
+  /** Typed support for the concern and its optional objective facet. */
   supportRefs?: SourceSupportRef[];
   dimensions: EpistemicDimensions;
   assertionKey: AssertionKey | null;
@@ -482,6 +513,7 @@ export type ConcernRecord = {
    */
   status: CognitiveStatus | null;
   snapshotHash: string;
+  objective?: ConcernObjectiveFacet;
   audienceScope?: SocialAudience | null;
   protectionStatus?: "admitted" | "unresolved" | null;
 };
@@ -530,6 +562,8 @@ export type OccupiedConcernProjection = Readonly<{
   priority: number;
   /** Existing epistemic context needed for a later Thought inquiry review. */
   dimensions: Readonly<Pick<EpistemicDimensions, "status" | "reliability">>;
+  /** Present only when the grounded concern carries a bounded objective facet. */
+  objective?: ConcernObjectiveFacet;
   provenance: "cognitive_sidecar.concerns";
 }>;
 
@@ -920,6 +954,7 @@ export type ConcernSemanticDelta =
         supportRefs?: readonly SourceSupportRef[];
         dimensions: EpistemicDimensions;
         status: OccupancyStatus;
+        objective?: ConcernObjectiveFacet;
       };
     }
   | { op: "resolve"; target: ExistingRef };

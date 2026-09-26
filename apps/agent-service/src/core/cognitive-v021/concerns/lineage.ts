@@ -9,6 +9,7 @@ import type {
   QuarantineKind,
 } from "../types.js";
 import { parseSourceSupportRef, validateSourceSupportRefs } from "../evidence/interpretation-envelope.js";
+import { assertConcernObjectiveFacet, parseConcernObjectiveFacet } from "./objective.js";
 
 export type ConcernPublication = { cycleId: CycleId; generation: Generation };
 type Row = Record<string, unknown>;
@@ -62,6 +63,7 @@ function mapConcern(row: unknown): ConcernRecord | null {
   const sourceTurnIds = json(row.source_refs_json, []);
   const supportRefs = json(row.support_refs_json, []);
   const dimensions = json(row.dimensions_json, null);
+  const objective = parseConcernObjectiveFacet(json(row.objective_json, null));
   if (!Array.isArray(sourceTurnIds) || !isRow(dimensions)) return null;
   const typedSupportRefs = Array.isArray(supportRefs)
     ? supportRefs.map(parseSourceSupportRef).filter((ref) => ref !== null)
@@ -76,6 +78,7 @@ function mapConcern(row: unknown): ConcernRecord | null {
     assertionKey: row.assertion_key == null ? null : text(row.assertion_key),
     status: cognitiveStatusOf(row.cognitive_status),
     snapshotHash: text(row.snapshot_hash),
+    ...(objective === null ? {} : { objective }),
   };
 }
 
@@ -156,10 +159,17 @@ export function applyConcernDelta(
     return;
   }
   const record = delta.record;
-  const typedSupportRefs = record.supportRefs ?? [];
-  if (!Array.isArray(typedSupportRefs)) throw new Error("support_ref_invalid");
-  if (typedSupportRefs.length > 0) {
-    const resolved = validateSourceSupportRefs(db, typedSupportRefs, record.conversationId);
+  assertConcernObjectiveFacet(record.objective);
+  const objectiveSupportRefs = record.objective?.supportRefs ?? [];
+  const typedSupportRefs = record.supportRefs && record.supportRefs.length > 0
+    ? record.supportRefs
+    : objectiveSupportRefs;
+  const supportRefsForValidation = [...(record.supportRefs ?? []), ...objectiveSupportRefs];
+  if (!Array.isArray(typedSupportRefs) || !Array.isArray(supportRefsForValidation)) {
+    throw new Error("support_ref_invalid");
+  }
+  if (supportRefsForValidation.length > 0) {
+    const resolved = validateSourceSupportRefs(db, supportRefsForValidation, record.conversationId);
     if ((record.dimensions.source === "owner_utterance" || record.dimensions.reliability === "owner_supplied")
       && resolved.some((source) => source.principalKind !== "owner")) {
       throw new Error("support_ref_owner_attribution_external");
@@ -168,13 +178,13 @@ export function applyConcernDelta(
   db.prepare(
     `INSERT INTO concerns
        (concern_id, conversation_id, statement, source_refs_json, support_refs_json, dimensions_json,
-        assertion_key, cognitive_status, quarantine_kind, forgotten, snapshot_hash, updated_cycle)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, 0, ?, ?)
+        assertion_key, cognitive_status, quarantine_kind, forgotten, snapshot_hash, updated_cycle, objective_json)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, 0, ?, ?, ?)
      ON CONFLICT(concern_id) DO UPDATE SET conversation_id=excluded.conversation_id,
        statement=excluded.statement, source_refs_json=excluded.source_refs_json, support_refs_json=excluded.support_refs_json,
        dimensions_json=excluded.dimensions_json, assertion_key=excluded.assertion_key,
        cognitive_status=excluded.cognitive_status, snapshot_hash=excluded.snapshot_hash,
-       updated_cycle=excluded.updated_cycle
+       updated_cycle=excluded.updated_cycle, objective_json=excluded.objective_json
        WHERE concerns.forgotten = 0`,
   ).run(
     record.concernId,
@@ -187,5 +197,6 @@ export function applyConcernDelta(
     record.status,
     concernSnapshotHash(record),
     publication.cycleId,
+    record.objective == null ? null : JSON.stringify(record.objective),
   );
 }

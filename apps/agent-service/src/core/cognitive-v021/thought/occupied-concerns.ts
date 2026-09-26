@@ -109,12 +109,18 @@ export function buildOccupiedConcernProjection(
   }
   candidates.sort((left, right) => compareOccupancy(left.row, right.row));
   return Object.freeze(candidates.map(({ row, concern, dimensions }) => {
+    const objective = concern.objective === undefined
+      ? undefined
+      : concern.objective.supportRefs !== undefined || concern.supportRefs === undefined
+        ? concern.objective
+        : { ...concern.objective, supportRefs: concern.supportRefs };
     return Object.freeze({
       concernId: row.concernId,
       statement: concern.statement,
       status: row.status,
       priority: row.priority,
       dimensions,
+      ...(objective === undefined ? {} : { objective }),
       provenance: OCCUPIED_CONCERN_PROVENANCE,
     });
   }));

@@ -265,9 +265,23 @@ const deskDeltaSchema = { oneOf: [
   strictObject({ op: { const: "archive" }, target: existingRefSchema }, ["op", "target"]),
   strictObject({ op: { const: "tombstone" }, target: existingRefSchema }, ["op", "target"]),
 ] };
+const concernObjectiveSchema = strictObject({
+  intendedOutcome: { type: "string", minLength: 1 },
+  unresolvedQuestion: { type: "string", minLength: 1 },
+  adoptionRevision: { type: "integer", minimum: 0 },
+  supportRefs: { type: "array", items: sourceSupportRefSchema },
+  delegationRef: { oneOf: [existingRefSchema, { type: "null" }] },
+  audience: { oneOf: [commitmentDestinationSchema, { type: "null" }] },
+  target: { oneOf: [{ type: "object", additionalProperties: { type: "string" } }, { type: "null" }] },
+  continuationConsiderations: { type: "string", minLength: 1 },
+  stoppingConsiderations: { type: "string", minLength: 1 },
+  disposition: { enum: ["active", "waiting", "satisfied", "abandoned", "needs_review"] },
+  relatedRefs: stringArraySchema,
+}, []);
 const concernRecordSchema = strictObject({
   identity: semanticRefSchema, statement: { type: "string" }, sourceTurnRefs: stringArraySchema, dimensions: dimensionsSchema,
   supportRefs: { type: "array", items: sourceSupportRefSchema },
+  objective: concernObjectiveSchema,
   status: { enum: ["active", "investigating", "waiting_for_evidence", "dormant_but_revisitable", "resolved"] },
 }, ["identity", "statement", "sourceTurnRefs", "dimensions", "status"]);
 const concernDeltaSchema = { oneOf: [

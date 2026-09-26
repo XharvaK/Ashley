@@ -38,6 +38,7 @@ import {
   type EpistemicDimensionRepair,
 } from "./output-contract.js";
 import { parseSourceSupportRef, parseWorkingContextInterpretationDraft } from "../evidence/interpretation-envelope.js";
+import { isConcernObjectiveFacet } from "../concerns/objective.js";
 
 export type ThoughtSemanticParseFailureCode =
   | "invalid_json"
@@ -564,9 +565,11 @@ function validConcernDelta(value: unknown, allowlist: ReadonlySet<string>): bool
   if (!record || typeof record.op !== "string") return false;
   if (record.op === "resolve") return Object.keys(record).length === 2 && existingRef(record.target, allowlist);
   if (record.op !== "upsert" || Object.keys(record).length !== 2) return false;
-  const item = recordShape(record.record, ["identity", "statement", "sourceTurnRefs", "dimensions", "status"], ["supportRefs"]);
+  const item = recordShape(record.record, ["identity", "statement", "sourceTurnRefs", "dimensions", "status"], ["supportRefs", "objective"]);
   return !!item && semanticRef(item.identity, allowlist) && nonEmptyString(item.statement)
-    && refArray(item.sourceTurnRefs, allowlist) && optionalTypedSupportRefs(item) && validEpistemicDimensions(item.dimensions)
+    && refArray(item.sourceTurnRefs, allowlist) && optionalTypedSupportRefs(item)
+    && (!own(item, "objective") || isConcernObjectiveFacet(item.objective))
+    && validEpistemicDimensions(item.dimensions)
     && ["active", "investigating", "waiting_for_evidence", "dormant_but_revisitable", "resolved"].includes(item.status as string);
 }
 
