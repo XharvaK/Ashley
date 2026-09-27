@@ -1,10 +1,14 @@
 import { DatabaseSync } from "node:sqlite";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { env } from "../../env.js";
 import { openNuclearDb } from "../db.js";
+import { resetAdapterCache } from "../../mistral-client.js";
+import { withOfflineAppGateDisabled } from "../qualification/offline-test-helpers.js";
+import * as commandCodeAdapterModule from "../model-routing/adapters/command-code-adapter.js";
 import {
   beginAuthorityTransition,
   stabilizeAuthorityBarrier,
@@ -25,6 +29,32 @@ import {
 } from "./initiative.js";
 
 const OWNER_ID = "doc";
+const originalCommandCodeKey = env.commandCodeApiKey;
+
+afterEach(() => {
+  env.commandCodeApiKey = originalCommandCodeKey;
+  resetAdapterCache();
+  vi.restoreAllMocks();
+});
+
+function stubReflectionDispatch(text: string) {
+  env.commandCodeApiKey = "test-command-code-key";
+  const dispatch = vi.fn(async (args: { modelId: string }) => ({
+    text,
+    providerModel: args.modelId,
+    providerRequestId: "reflection-consumer-1",
+    providerHttpStatus: 200,
+    providerRequestHash: "sha256:request",
+    providerResponseHash: `sha256:${createHash("sha256").update(text, "utf8").digest("hex")}`,
+    usage: { promptTokens: 2, completionTokens: 1 },
+    finishReason: "stop",
+  }));
+  vi.spyOn(commandCodeAdapterModule, "createCommandCodeAdapter").mockReturnValue({
+    provider: "command_code",
+    dispatch,
+  } as never);
+  return dispatch;
+}
 
 function activateReading(db: DatabaseSync): void {
   const now = new Date().toISOString();
@@ -419,6 +449,80 @@ describe("Reflection OCI adjudication", () => {
       });
     } finally {
       vi.useRealTimers();
+      db.close();
+    }
+  });
+
+  it("claims a pending review through the real Reflection adjudicator and keeps it open", async () => {
+    const db = openNuclearDb(new DatabaseSync(":memory:"));
+    activateReading(db);
+    const item = seedReviewItem(db, "real-adjudicator");
+    const dispatch = stubReflectionDispatch('{"action":"KEEP"}');
+    try {
+      const result = await withOfflineAppGateDisabled(() =>
+        processPendingOpenCognitiveReviewsAsync(db, OWNER_ID),
+      );
+      expect(result).toEqual({ processed: 1, skipped: 0 });
+      expect(dispatch).toHaveBeenCalledTimes(1);
+      expect(dispatch.mock.calls[0]?.[0]).toMatchObject({
+        modelId: "meta/muse-spark-1.3-contributor",
+        fabricReasoning: { kind: "command_code_reasoning_effort", value: "xhigh" },
+      });
+      expect(getOpenCognitiveItem(db, OWNER_ID, item.entityUuid)).toMatchObject({
+        status: "OPEN",
+        attention: {
+          reviewRequestedAt: null,
+          lastOutcomeCode: "reflection_keep_open",
+        },
+      });
+    } finally {
+      db.close();
+    }
+  });
+
+  it("keeps a malformed Reflection adjudication from changing review state", async () => {
+    const db = openNuclearDb(new DatabaseSync(":memory:"));
+    activateReading(db);
+    const item = seedReviewItem(db, "malformed-adjudicator");
+    const before = getOpenCognitiveItem(db, OWNER_ID, item.entityUuid);
+    stubReflectionDispatch("not json");
+    try {
+      const result = await withOfflineAppGateDisabled(() =>
+        processPendingOpenCognitiveReviewsAsync(db, OWNER_ID),
+      );
+      expect(result).toEqual({ processed: 0, skipped: 1 });
+      const after = getOpenCognitiveItem(db, OWNER_ID, item.entityUuid);
+      expect(after?.status).toBe("OPEN");
+      expect(after?.attention).toMatchObject({
+        reviewLastDisposition: "adjudicator_unprocessable",
+      });
+      expect(after?.semanticSummary).toBe(before?.semanticSummary);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("bounds a failed Reflection adjudication without closing the item", async () => {
+    const db = openNuclearDb(new DatabaseSync(":memory:"));
+    activateReading(db);
+    const item = seedReviewItem(db, "failed-adjudicator");
+    env.commandCodeApiKey = "test-command-code-key";
+    vi.spyOn(commandCodeAdapterModule, "createCommandCodeAdapter").mockReturnValue({
+      provider: "command_code",
+      dispatch: vi.fn(async () => {
+        throw new Error("reflection_provider_rejected");
+      }),
+    } as never);
+    try {
+      const result = await withOfflineAppGateDisabled(() =>
+        processPendingOpenCognitiveReviewsAsync(db, OWNER_ID),
+      );
+      expect(result).toEqual({ processed: 0, skipped: 1 });
+      expect(getOpenCognitiveItem(db, OWNER_ID, item.entityUuid)).toMatchObject({
+        status: "OPEN",
+        attention: { reviewLastDisposition: "adjudicator_failure" },
+      });
+    } finally {
       db.close();
     }
   });
