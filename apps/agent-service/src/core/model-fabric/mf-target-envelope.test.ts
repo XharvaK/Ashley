@@ -91,8 +91,13 @@ describe("TARGET portfolio + token envelope reconciliation", () => {
   it("keeps the target envelope separate from the owner-approved CURRENT deadline", () => {
     const observation = current.rows.find((row) => row.policyRowId === "mfr_thought_observation_compat_v1")!;
     expect(observation.maxOutputTokens).toBe(450);
-    // P2 unrelated-8192 guard: non-Thought CURRENT rows are byte-identical.
-    expect(current.rows.find((row) => row.policyRowId === "mfr_reflection_initiative_compat_v1")!.maxOutputTokens).toBe(300);
+    // P2 unrelated-ceiling guard: the non-Thought CURRENT rows below are
+    // unchanged. reflection_initiative is the one deliberate exception: the v6
+    // migration moved it to Muse Spark 1.3 at xhigh but left the v5-era 300
+    // token ceiling, which is smaller than the reasoning control needs before
+    // the action object is emitted. Measured against the real provider, 300
+    // truncates with no text and 1024 completes, so the row now declares 16384.
+    expect(current.rows.find((row) => row.policyRowId === "mfr_reflection_initiative_compat_v1")!.maxOutputTokens).toBe(16384);
     expect(current.rows.find((row) => row.policyRowId === "mfr_exchange_cognition_compat_v1")!.maxOutputTokens).toBe(1100);
     expect(current.rows.find((row) => row.policyRowId === "mfr_curiosity_consolidation_compat_v1")!.maxOutputTokens).toBe(900);
     expect(current.rows.find((row) => row.policyRowId === "mfr_maintenance_compat_v1")!.maxOutputTokens).toBe(2048);

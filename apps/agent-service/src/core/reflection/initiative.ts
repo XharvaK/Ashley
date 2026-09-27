@@ -1,5 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 import { completeChat } from "../../mistral-client.js";
+import { reflectionInitiativeOutputStructuredRequest } from "../cognitive-v021/thought/reflection-output-contract.js";
 import type {
   Decision,
   EvidenceRef,
@@ -248,7 +249,13 @@ async function modelReflectionAdjudicator(
       purpose: "thought_observation",
       logicalRole: "reflection_initiative",
       lane: "exchange_cognition",
-      maxTokens: 300,
+      responseFormat: "json_schema",
+      structuredOutput: reflectionInitiativeOutputStructuredRequest(),
+      // Caller ceilings may narrow policy but never widen it. The adjudication
+      // needs room for the xhigh reasoning control before the action object is
+      // emitted, so the caller requests the policy ceiling and lets the
+      // Model Fabric row own the actual value.
+      maxTokens: 16384,
       temperature: 0,
       ownerId: item.ownerId,
       attentionDb: db,

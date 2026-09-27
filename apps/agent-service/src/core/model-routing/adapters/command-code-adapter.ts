@@ -3,9 +3,12 @@ import { env } from "../../../env.js";
 import { AppError } from "../../../errors.js";
 import { thoughtOutputDeepSeekJsonObjectInstruction } from "../../cognitive-v021/thought/output-contract.js";
 import {
+  REFLECTION_INITIATIVE_OUTPUT_CONTRACT_ID,
+  REFLECTION_INITIATIVE_OUTPUT_SCHEMA_ID,
   THOUGHT_OUTPUT_CONTRACT_ID,
   THOUGHT_OUTPUT_SCHEMA_ID,
 } from "../../cognitive-v021/thought/contract-identity.js";
+import { reflectionInitiativeJsonObjectInstruction } from "../../cognitive-v021/thought/reflection-output-contract.js";
 import { COMMAND_CODE_POLICY } from "../../command-code/policy.js";
 import {
   attachCommandCodeBoundaryEvidence,
@@ -22,6 +25,7 @@ import type {
   TrustedReasoningControl,
 } from "../types.js";
 import { attachProviderHttpStatusBoundary } from "../types.js";
+import type { StructuredOutputRequest } from "../../model-fabric/types.js";
 
 export const COMMAND_CODE_MUSE_MODEL = COMMAND_CODE_POLICY.modelId;
 export const COMMAND_CODE_CHAT_COMPLETIONS_URL =
@@ -77,9 +81,15 @@ function finishReason(value: unknown): string | null {
     : "other";
 }
 
-function mapMessages(messages: ChatMessage[]): Array<Record<string, unknown>> {
+function mapMessages(
+  messages: ChatMessage[],
+  contract: CommandCodeContract,
+): Array<Record<string, unknown>> {
+  const systemInstruction = contract === "thought"
+    ? thoughtOutputDeepSeekJsonObjectInstruction()
+    : reflectionInitiativeJsonObjectInstruction();
   return [
-    { role: "system", content: thoughtOutputDeepSeekJsonObjectInstruction() },
+    { role: "system", content: systemInstruction },
     ...messages.map((message) => ({
       role: message.role,
       content: message.imageUrls?.length
@@ -112,6 +122,38 @@ function reasoningEffortFor(
   return options.reasoningEffort as typeof COMMAND_CODE_POLICY.effort | undefined;
 }
 
+/**
+ * Command Code serves exactly two recognized, code-owned output contracts.
+ *
+ * They are distinct contracts for distinct owners and are never conflated:
+ *
+ * - the Thought semantic contract, used by the direct Thought seam;
+ * - the Reflection/Initiative adjudication contract, used by the bounded
+ *   reflection adjudicator.
+ *
+ * There is deliberately no generic "accept any schema" path. An unrecognized
+ * contract, a contract whose schema id does not match its contract id, or a
+ * substituted contract is refused before any transport.
+ */
+type CommandCodeContract = "thought" | "reflection_initiative";
+
+function contractFor(structured: StructuredOutputRequest | undefined): CommandCodeContract | null {
+  if (!structured) return null;
+  if (
+    structured.contractId === THOUGHT_OUTPUT_CONTRACT_ID &&
+    structured.schemaId === THOUGHT_OUTPUT_SCHEMA_ID
+  ) {
+    return "thought";
+  }
+  if (
+    structured.contractId === REFLECTION_INITIATIVE_OUTPUT_CONTRACT_ID &&
+    structured.schemaId === REFLECTION_INITIATIVE_OUTPUT_SCHEMA_ID
+  ) {
+    return "reflection_initiative";
+  }
+  return null;
+}
+
 function buildRequestBody(args: ProviderDispatchArgs): Record<string, unknown> {
   if (args.modelId !== COMMAND_CODE_POLICY.modelId) {
     throw new AppError("capability_mismatch", "command_code_model_not_qualified", 400);
@@ -119,14 +161,11 @@ function buildRequestBody(args: ProviderDispatchArgs): Record<string, unknown> {
   if (reasoningEffortFor(args.options, args.fabricReasoning) !== COMMAND_CODE_POLICY.effort) {
     throw new AppError("capability_mismatch", "command_code_policy_effort_required", 400);
   }
-  const structured = args.options.structuredOutput;
-  if (
-    structured?.contractId !== THOUGHT_OUTPUT_CONTRACT_ID ||
-    structured.schemaId !== THOUGHT_OUTPUT_SCHEMA_ID
-  ) {
+  const contract = contractFor(args.options.structuredOutput);
+  if (contract === null) {
     throw new AppError("capability_mismatch", "command_code_thought_contract_required", 400);
   }
-  if (args.options.tools?.length) {
+  if (contract === "thought" && args.options.tools?.length) {
     throw new AppError("capability_mismatch", "command_code_thought_tools_unsupported", 400);
   }
   const maxTokens = args.options.maxTokens ?? MAX_OUTPUT_TOKENS;
@@ -135,7 +174,7 @@ function buildRequestBody(args: ProviderDispatchArgs): Record<string, unknown> {
   }
   return {
     model: COMMAND_CODE_POLICY.modelId,
-    messages: mapMessages(args.messages),
+    messages: mapMessages(args.messages, contract),
     max_tokens: maxTokens,
     reasoning_effort: COMMAND_CODE_POLICY.effort,
     response_format: { type: "json_object" },

@@ -10,11 +10,42 @@ import type {
 import { sha256 } from "./hash.js";
 import { capabilityProfileFor } from "./profiles.js";
 import {
+  REFLECTION_INITIATIVE_OUTPUT_CONTRACT_ID,
+  REFLECTION_INITIATIVE_OUTPUT_SCHEMA_ID,
   THOUGHT_OUTPUT_CONTRACT_ID,
   THOUGHT_OUTPUT_SCHEMA_ID,
 } from "../cognitive-v021/thought/contract-identity.js";
 
-export { THOUGHT_OUTPUT_CONTRACT_ID, THOUGHT_OUTPUT_SCHEMA_ID };
+export {
+  THOUGHT_OUTPUT_CONTRACT_ID,
+  THOUGHT_OUTPUT_SCHEMA_ID,
+  REFLECTION_INITIATIVE_OUTPUT_CONTRACT_ID,
+  REFLECTION_INITIATIVE_OUTPUT_SCHEMA_ID,
+};
+
+/**
+ * The generic dispatch path accepts exactly the code-owned output contracts
+ * that have a real provider execution contract behind them, and only for the
+ * policy row that owns them. There is deliberately no generic "accept any
+ * schema" path, and contracts are never substitutable for one another.
+ *
+ * Reflection/Initiative is its own contract with its own owner. The Thought
+ * semantic contract cannot stand in for it, and the reflection contract cannot
+ * stand in for a Thought turn.
+ */
+function isRecognizedStructuredOutputContract(
+  request: StructuredOutputRequest,
+  logicalRole: string,
+): boolean {
+  const isThought =
+    request.contractId === THOUGHT_OUTPUT_CONTRACT_ID &&
+    request.schemaId === THOUGHT_OUTPUT_SCHEMA_ID;
+  const isReflection =
+    request.contractId === REFLECTION_INITIATIVE_OUTPUT_CONTRACT_ID &&
+    request.schemaId === REFLECTION_INITIATIVE_OUTPUT_SCHEMA_ID;
+  if (logicalRole === "reflection_initiative") return isReflection;
+  return isThought;
+}
 
 export type ResolvedDispatchContract = Readonly<{
   maxTokens: number;
@@ -197,8 +228,10 @@ export function resolveDispatchContract(input: {
     if (
       input.responseFormat !== "json_schema" ||
       input.policy.policyRow.structuredOutput !== "json_schema" ||
-      input.structuredOutput.contractId !== THOUGHT_OUTPUT_CONTRACT_ID ||
-      input.structuredOutput.schemaId !== THOUGHT_OUTPUT_SCHEMA_ID ||
+      !isRecognizedStructuredOutputContract(
+        input.structuredOutput,
+        input.policy.policyRow.logicalRole,
+      ) ||
       !input.structuredOutput.schema ||
       typeof input.structuredOutput.schema !== "object" ||
       Array.isArray(input.structuredOutput.schema) ||
