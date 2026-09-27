@@ -109,6 +109,164 @@ describe("v0.2.1 LearnedSelf Option B", () => {
     }
   });
 
+  it("keeps participant attribution and support audience-bound without promoting it to Owner self", () => {
+    const db = openTestSidecar();
+    try {
+      const roomId = "room:participant-guild:participant-channel";
+      const assertionKey = "social:participant:orientation";
+      const statement = "disposition: participant prefers concise updates.";
+      const socialDimensions = {
+        source: "ashley_interpretation" as const,
+        status: "interpreted" as const,
+        time: "historical" as const,
+        reliability: "inferred" as const,
+      };
+      const nomination = {
+        nominationId: "nomination:participant:orientation",
+        cycleId: "cycle:participant:orientation",
+        generation: 1,
+        assertionKey,
+        statement,
+        memoryKind: "learned_self_evidence" as const,
+        dimensions: socialDimensions,
+        dataClassification: "never_public" as const,
+        supersedesAssertionKey: null,
+        concernId: null,
+        sourceRefs: [],
+      };
+      admitTestCycle(db, {
+        cycleId: nomination.cycleId,
+        conversationId: roomId,
+        triggerKind: "external_message",
+        triggerRef: "participant-orientation",
+        occupantId: "doc",
+        nowMs: 1,
+      });
+      upsertMemoryAssertion(db, {
+        assertionKey,
+        statement,
+        memoryKind: nomination.memoryKind,
+        dimensions: socialDimensions,
+        dataClassification: nomination.dataClassification,
+        lineageParentKey: null,
+        admittedGeneration: 1,
+        live: true,
+        sourcePrincipal: "participant-1",
+        audienceScope: { kind: "room", roomId },
+        sourceEvidenceRef: "evidence:participant:orientation",
+        protectionBasisRefs: ["evidence:participant:orientation"],
+        protectionStatus: "admitted",
+        licenseRefs: [],
+      });
+      appendMemorySupport(db, {
+        supportId: "support:participant:orientation",
+        assertionKey,
+        source: "perception",
+        provenance: "native",
+        sourceArchitectureEpoch: "v0.2.1",
+        sourceRef: "evidence:participant:orientation",
+        settlementId: null,
+        evidenceLineageId: null,
+        observationId: null,
+        receiptId: null,
+        dimensions: socialDimensions,
+        dataClassification: "never_public",
+        createdAtMs: 1,
+      });
+      db.prepare(
+        `INSERT INTO durable_nominations
+           (nomination_id, cycle_id, generation, assertion_key, statement, memory_kind,
+            dimensions_json, data_classification, supersedes_assertion_key, concern_id, admitted, source_refs_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`,
+      ).run(
+        nomination.nominationId,
+        nomination.cycleId,
+        nomination.generation,
+        nomination.assertionKey,
+        nomination.statement,
+        nomination.memoryKind,
+        JSON.stringify(nomination.dimensions),
+        nomination.dataClassification,
+        nomination.supersedesAssertionKey,
+        nomination.concernId,
+        JSON.stringify(nomination.sourceRefs),
+      );
+      db.prepare(
+        "INSERT INTO settlements (settlement_id, cycle_id, generation, payload_json) VALUES (?, ?, ?, ?)",
+      ).run(
+        "settlement:participant:orientation",
+        nomination.cycleId,
+        nomination.generation,
+        JSON.stringify({ durableNominations: [nomination] }),
+      );
+
+      const slice = buildLearnedSelfSlice(db);
+      expect(slice.dispositions).toEqual([]);
+      expect(slice.personLinked).toMatchObject([{
+        audience: { kind: "room", roomId },
+        sourcePrincipal: "participant-1",
+        dispositions: ["participant prefers concise updates."],
+        supportRefs: ["evidence:participant:orientation"],
+      }]);
+
+      const ownerCycle = admitTestCycle(db, {
+        cycleId: "cycle:participant-owner-view",
+        conversationId: "owner-private-conversation",
+        triggerKind: "owner_message",
+        triggerRef: "owner-view",
+        occupantId: "doc",
+        nowMs: 2,
+      });
+      const commonInput = {
+        sidecar: db,
+        constitution: { constitutional: ["truth first"], stableSelf: ["careful"] },
+        capabilityReality: {
+          vision: false,
+          attachmentText: false,
+          conversationalRead: false,
+          webSearch: false,
+          canOfferProjectInspection: false,
+          canOfferWorkspace: false,
+          canOfferVerification: false,
+          canOfferAuthorship: false,
+          canOfferBoundedOperation: false,
+          canOfferInquiry: false,
+          canOfferPatchExport: false,
+          approvedProjectIds: [],
+        },
+        learnedSelfSlice: slice,
+        rawConversation: [],
+        workingContext: [],
+        occupancy: [],
+      };
+      const ownerInput = buildThoughtInput({ ...commonInput, cycle: ownerCycle });
+      expect(ownerInput.learnedSelfSlice.dispositions).toEqual([]);
+      expect(ownerInput.learnedSelfSlice).not.toHaveProperty("personLinked");
+
+      const participantCycle = admitTestCycle(db, {
+        cycleId: "cycle:participant-room-view",
+        conversationId: roomId,
+        triggerKind: "external_message",
+        triggerRef: "participant-view",
+        occupantId: "doc",
+        nowMs: 3,
+      });
+      const participantInput = buildThoughtInput({
+        ...commonInput,
+        cycle: participantCycle,
+        audience: { kind: "room", roomId },
+      });
+      expect(participantInput.learnedSelfSlice.dispositions).toEqual(["participant prefers concise updates."]);
+      expect(participantInput.learnedSelfSlice.personLinked).toMatchObject([{
+        sourcePrincipal: "participant-1",
+        audience: { kind: "room", roomId },
+        supportRefs: ["evidence:participant:orientation"],
+      }]);
+    } finally {
+      db.close();
+    }
+  });
+
   it("keeps a bounded interpersonal interpretation revisable and attributable", () => {
     const db = openTestSidecar();
     try {

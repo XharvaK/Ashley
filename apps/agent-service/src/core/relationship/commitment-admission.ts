@@ -13,6 +13,10 @@ import type {
   HostCommitmentProposal,
   SocialAudience,
 } from "../cognitive-v021/social/types.js";
+import {
+  recheckSocialOperationDelegation,
+  type SocialOperationClass,
+} from "./social-authority.js";
 
 export type { CommitmentProposal, CommitmentRealizationBinding, HostCommitmentProposal } from "../cognitive-v021/social/types.js";
 
@@ -40,7 +44,16 @@ export type CommitmentAdmissionOptions = {
   blockedBackoffMs?: number;
   /** Test seam; production resolves this from PROACTIVE_CHECK_INTERVAL_MIN. */
   schedulerIntervalMs?: number;
+  /** Host-bound operation authority required at wake, never model authority. */
+  delegationBindings?: Readonly<Record<number, CommitmentDelegationBinding>>;
 };
+
+export type CommitmentDelegationBinding = Readonly<{
+  principalId: string;
+  conversationId: string;
+  operationClass: SocialOperationClass;
+  delegationRef: string;
+}>;
 
 export type CommitmentLateBehavior = "deliver_late" | "reconsider" | "expire";
 
@@ -63,6 +76,7 @@ export type CommitmentOpportunity = {
   leaseToken: string | null;
   leaseExpiresAtMs: number | null;
   recoveryStatus?: CommitmentRecoveryStatus;
+  delegation?: CommitmentDelegationBinding;
 };
 
 const DEFAULT_MAX_PER_BENEFICIARY = 3;
@@ -471,9 +485,14 @@ function insertOpportunity(
   ownerId: string,
   result: Extract<FeasibilityVerdict, { admitted: true }>,
   nowMs: number,
+  delegation?: CommitmentDelegationBinding,
 ): void {
   const destination = stableJson(proposal.destination);
-  const evidence = stableJson({ proposal, admissionRevision: result.admissionRevision });
+  const evidence = stableJson({
+    proposal,
+    admissionRevision: result.admissionRevision,
+    ...(delegation === undefined ? {} : { delegation }),
+  });
   const nowIso = new Date(nowMs).toISOString();
   db.prepare(
     `INSERT OR IGNORE INTO ashley_self_commitments
@@ -553,7 +572,14 @@ function settleOne(
   const result = feasibility(nuclearDb, proposal, options);
   const nowMs = now(options.nowMs);
   if (result.admitted) {
-    insertOpportunity(nuclearDb, proposal, options.ownerId?.trim() || "owner", result, nowMs);
+    insertOpportunity(
+      nuclearDb,
+      proposal,
+      options.ownerId?.trim() || "owner",
+      result,
+      nowMs,
+      options.delegationBindings?.[proposal.ordinal],
+    );
   }
   const settlement: CommitmentSettlement = result.admitted
     ? { settled: true, proposalId: proposal.proposalId, idempotentReplay: false, ...result }
@@ -686,6 +712,20 @@ function opportunityFromRow(row: RecordValue, nowMs = Date.now()): CommitmentOpp
   const recoveryStatus = evidence?.recoveryStatus === COMMITMENT_PROVISIONAL_ORPHAN
     ? COMMITMENT_PROVISIONAL_ORPHAN
     : undefined;
+  const rawDelegation = record(evidence?.delegation);
+  const delegation = rawDelegation
+    && text(rawDelegation.principalId)
+    && text(rawDelegation.conversationId)
+    && text(rawDelegation.delegationRef)
+    && typeof rawDelegation.operationClass === "string"
+    && ["public_search", "public_fetch", "supplied_attachment", "bounded_followup"].includes(rawDelegation.operationClass)
+    ? {
+        principalId: rawDelegation.principalId,
+        conversationId: rawDelegation.conversationId,
+        operationClass: rawDelegation.operationClass as SocialOperationClass,
+        delegationRef: rawDelegation.delegationRef,
+      }
+    : undefined;
   return {
     commitmentId: String(row.entity_uuid ?? ""),
     ownerId: String(row.owner_id ?? ""),
@@ -705,6 +745,7 @@ function opportunityFromRow(row: RecordValue, nowMs = Date.now()): CommitmentOpp
     leaseToken: row.lease_token == null ? null : String(row.lease_token),
     leaseExpiresAtMs: row.lease_expires_at_ms == null ? null : Number(row.lease_expires_at_ms),
     ...(recoveryStatus ? { recoveryStatus } : {}),
+    ...(delegation ? { delegation } : {}),
   };
 }
 
@@ -974,15 +1015,29 @@ export function recheckCommitmentOpportunity(
     return { kind: "missed", opportunity: { ...opportunity, state: "missed_overdue" }, reason: "missed_overdue" };
   }
   const failure = currentOpportunityAuthority(nuclearDb, opportunity, nowMs);
-  if (!failure) return { kind: "fulfill", opportunity };
+  const delegationFailure = !failure && opportunity.delegation
+    ? (() => {
+        const result = recheckSocialOperationDelegation(nuclearDb, {
+          ownerId: opportunity.ownerId,
+          principalId: opportunity.delegation!.principalId,
+          conversationId: opportunity.delegation!.conversationId,
+          operationClass: opportunity.delegation!.operationClass,
+          delegationRef: opportunity.delegation!.delegationRef,
+          nowMs,
+        });
+        return result.ok ? null : `social_delegation_${result.reason}`;
+      })()
+    : null;
+  const wakeFailure = failure ?? delegationFailure;
+  if (!wakeFailure) return { kind: "fulfill", opportunity };
   const nextFireAtMs = nowMs + (input.blockedBackoffMs ?? DEFAULT_BLOCKED_BACKOFF_MS);
   nuclearDb.prepare(
     `UPDATE ashley_self_commitments SET commitment_state = 'deferred_blocked', fire_at_ms = ?,
        due_at = ?, lease_token = NULL, lease_expires_at_ms = NULL, updated_at = ?
       WHERE entity_uuid = ? AND commitment_state IN ('attempted','admitted','communicated','deferred_blocked')`,
   ).run(nextFireAtMs, new Date(nextFireAtMs).toISOString(), new Date(nowMs).toISOString(), input.commitmentId);
-  markClaimOutcome(nuclearDb, input.commitmentId, "released", failure);
-  return { kind: "defer", opportunity: { ...opportunity, state: "deferred_blocked", fireAtMs: nextFireAtMs }, nextFireAtMs, reason: failure };
+  markClaimOutcome(nuclearDb, input.commitmentId, "released", wakeFailure);
+  return { kind: "defer", opportunity: { ...opportunity, state: "deferred_blocked", fireAtMs: nextFireAtMs }, nextFireAtMs, reason: wakeFailure };
 }
 
 /**

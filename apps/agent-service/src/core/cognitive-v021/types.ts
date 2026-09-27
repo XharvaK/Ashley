@@ -1447,6 +1447,8 @@ export type LearnedSelfSlice = {
   };
   personLinked?: Array<{
     audience: SocialAudience;
+    /** The attributed participant source; never promoted to Owner identity. */
+    sourcePrincipal?: string | null;
     dispositions: string[];
     interests: string[];
     sourceRefs: string[];

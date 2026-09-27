@@ -528,7 +528,30 @@ function filterLearnedSelf(
   audience: SocialAudience,
   licenses: readonly string[],
 ): LearnedSelfSlice {
-  if (audience.kind === "owner_private") return slice;
+  if (audience.kind === "owner_private") {
+    // Participant-linked memory is retained in the sidecar but is not an
+    // Owner-private learned-self fact. Preserve only the broad projection.
+    const broad = slice.broadOrientation;
+    if (!broad) {
+      return {
+        dispositions: [...slice.dispositions],
+        interests: [...slice.interests],
+        ...(slice.supportRefs === undefined ? {} : { supportRefs: [...slice.supportRefs] }),
+      };
+    }
+    const ownerSlice: LearnedSelfSlice = {
+      dispositions: [...broad.dispositions],
+      interests: [...broad.interests],
+      ...(broad.supportRefs === undefined ? {} : { supportRefs: [...broad.supportRefs] }),
+    };
+    Object.defineProperty(ownerSlice, "broadOrientation", {
+      value: broad,
+      enumerable: false,
+      writable: false,
+      configurable: false,
+    });
+    return ownerSlice;
+  }
   const broad = slice.broadOrientation;
   const broadAllowed = broad && structuredValueEligible(broad, audience, licenses)
     ? broad

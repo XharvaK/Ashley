@@ -19,7 +19,12 @@ import {
   type CommitmentProposal,
   isCommitmentsEnabled,
 } from "./commitment-admission.js";
-import { grantPerson, revokePerson } from "./social-authority.js";
+import {
+  grantPerson,
+  grantSocialOperationDelegation,
+  revokePerson,
+  revokeSocialOperationDelegation,
+} from "./social-authority.js";
 
 const ownerId = "owner-1";
 const nowMs = Date.parse("2026-09-15T12:00:00.000Z");
@@ -303,6 +308,59 @@ describe("commitment admission and fidelity", () => {
       expect(recoverCommitmentOpportunities(db, { ownerId, nowMs: nowMs + 5 * 60_000 + 1 })).toMatchObject({ requeued: 2, missed: 0 });
       db.prepare("UPDATE relationship_motivation_claims SET lease_until = '1970-01-01T00:00:00.000Z' WHERE relationship_entity_uuid = 'cmt:claim:0'").run();
       expect(claimCommitmentOpportunity(db, { ownerId, commitmentId: "cmt:claim:0", nowMs: nowMs + 5 * 60_000 + 2 })).not.toBeNull();
+    } finally {
+      db.close();
+    }
+  });
+
+  it("rechecks the exact operation delegation at a participant wake", () => {
+    const db = dbFixture();
+    try {
+      const permit = grantPerson(db, {
+        ownerId,
+        principalId: "person-3",
+        scope: "dm_only",
+        sourceSpan: { source: "test" },
+        nowMs,
+      });
+      const delegation = grantSocialOperationDelegation(db, {
+        ownerId,
+        principalId: "person-3",
+        conversationId: "conversation-3",
+        operationClass: "public_fetch",
+        sourceSpan: { source: "owner_control" },
+        nowMs,
+      });
+      persistCommitmentProposals(db, "delegated-wake", [proposal({
+        beneficiary: "person-3",
+        destination: { kind: "dm", principalId: "person-3" },
+        temporal: { kind: "open" },
+      })]);
+      settlePersistedCommitmentProposals(db, "delegated-wake", {
+        ownerId,
+        nowMs,
+        enabled: true,
+        delegationBindings: {
+          0: {
+            principalId: "person-3",
+            conversationId: "conversation-3",
+            operationClass: "public_fetch",
+            delegationRef: delegation.entityUuid,
+          },
+        },
+      });
+      expect(claimCommitmentOpportunity(db, { ownerId, commitmentId: "cmt:delegated-wake:0", nowMs })).not.toBeNull();
+      revokeSocialOperationDelegation(db, { entityUuid: delegation.entityUuid, expectedVersion: 1, nowMs: nowMs + 1 });
+      const blocked = recheckCommitmentOpportunity(db, {
+        ownerId,
+        commitmentId: "cmt:delegated-wake:0",
+        nowMs: nowMs + 2,
+        blockedBackoffMs: 30_000,
+      });
+      expect(blocked).toMatchObject({ kind: "defer", reason: "social_delegation_delegation_revoked" });
+      expect(db.prepare("SELECT commitment_state FROM ashley_self_commitments WHERE entity_uuid = ?").get("cmt:delegated-wake:0"))
+        .toEqual({ commitment_state: "deferred_blocked" });
+      revokePerson(db, { entityUuid: permit.entityUuid, nowMs: nowMs + 3 });
     } finally {
       db.close();
     }

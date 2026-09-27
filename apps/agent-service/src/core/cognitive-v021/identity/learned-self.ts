@@ -37,6 +37,7 @@ type MutableSelfSlice = {
   broadProtectionStatus: "admitted" | "unresolved" | null;
   linked: Map<string, {
     audience: SocialAudience;
+    sourcePrincipal: string | null;
     dispositions: string[];
     interests: string[];
     sourceRefs: string[];
@@ -123,9 +124,13 @@ function addEntry(slice: MutableSelfSlice, assertion: MemoryAssertion, db: Datab
 
   const scope = isKnownAudience(assertion.audienceScope) ? assertion.audienceScope : null;
   if (scope && (scope.kind === "owner_dm" || scope.kind === "dm" || scope.kind === "room")) {
-    const key = audienceKey(scope);
+    // A room can contain more than one participant. Keep each attributed
+    // source separate so a participant statement cannot lose its speaker.
+    const sourcePrincipal = assertion.sourcePrincipal ?? null;
+    const key = `${audienceKey(scope)}:${sourcePrincipal ?? ""}`;
     const linked = slice.linked.get(key) ?? {
       audience: scope,
+      sourcePrincipal,
       dispositions: [],
       interests: [],
       sourceRefs: [],
@@ -183,19 +188,13 @@ export function buildLearnedSelfSlice(
   });
   for (const assertion of assertions) addEntry(slice, assertion, db);
 
-  // Keep the legacy enumerable shape stable for Owner-path snapshots. The
-  // audience-separated projection is available to the P12 filter as
+  // Keep participant-linked memory out of the Owner-facing aggregate. The
+  // audience-separated projection remains available to the input filter as
   // non-enumerable in-process metadata and becomes enumerable only when an
-  // external Thought input is assembled.
+  // external Thought input is assembled for the matching audience.
   const result: LearnedSelfSlice = {
-    dispositions: [...new Set([
-      ...slice.broadDispositions,
-      ...[...slice.linked.values()].flatMap((entry) => entry.dispositions),
-    ])],
-    interests: [...new Set([
-      ...slice.broadInterests,
-      ...[...slice.linked.values()].flatMap((entry) => entry.interests),
-    ])],
+    dispositions: [...new Set(slice.broadDispositions)],
+    interests: [...new Set(slice.broadInterests)],
   };
   const broadOrientation = Object.freeze({
     dispositions: [...new Set(slice.broadDispositions)],
@@ -207,6 +206,7 @@ export function buildLearnedSelfSlice(
   });
   const personLinked = Object.freeze([...slice.linked.values()].map((entry) => Object.freeze({
     audience: entry.audience,
+    sourcePrincipal: entry.sourcePrincipal,
     dispositions: [...new Set(entry.dispositions)],
     interests: [...new Set(entry.interests)],
     sourceRefs: [...new Set(entry.sourceRefs)],
