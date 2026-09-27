@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { createHash } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { env } from "../../env.js";
 import { openNuclearDb } from "../db.js";
@@ -7,6 +8,9 @@ import { withOfflineAppGateDisabled } from "../qualification/offline-test-helper
 import * as nimAdapterModule from "../model-routing/adapters/nim-adapter.js";
 import * as mistralAdapterModule from "../model-routing/adapters/mistral-adapter.js";
 import * as cloudflareAdapterModule from "../model-routing/adapters/cloudflare-adapter.js";
+import * as commandCodeAdapterModule from "../model-routing/adapters/command-code-adapter.js";
+import { commandCodeRequestWireAdditionalBytes } from "../model-routing/adapters/command-code-adapter.js";
+import type { ProviderCompletion, ProviderDispatchArgs } from "../model-routing/types.js";
 import { routingStatus } from "../model-routing/status.js";
 import { thoughtOutputStructuredRequest } from "../cognitive-v021/thought/output-contract.js";
 import {
@@ -26,12 +30,57 @@ const originalNimKey = env.nimApiKey;
 const originalMistralKey = env.mistralApiKey;
 const originalCloudflareToken = env.cloudflareApiToken;
 const originalCloudflareAccount = env.cloudflareAccountId;
+const originalCommandCodeKey = env.commandCodeApiKey;
+const THOUGHT_MODEL = "meta/muse-spark-1.3-contributor";
+const THOUGHT_EFFORT = "xhigh";
+
+function responseHash(text: string): `sha256:${string}` {
+  return `sha256:${createHash("sha256").update(text, "utf8").digest("hex")}`;
+}
+
+function thoughtContext(invocationId: string) {
+  return {
+    invocationId,
+    cycleId: `cycle:${invocationId}`,
+    generation: 1,
+    semanticPass: 1,
+    structuralAttemptOrdinal: 0,
+    authorityEpoch: 1,
+    authorityVersionVector: { nuclear: 1 },
+    triggerRef: `trigger:${invocationId}`,
+    semanticProjectionHash: "sha256:semantic",
+    dispatchMessagesHash: "sha256:messages",
+    allowlistFingerprint: "sha256:allowlist",
+    absoluteDeadlineAtMs: Date.now() + 30_000,
+  };
+}
+
+function mockCommandCodeDispatch(
+  text = "{}",
+): ReturnType<typeof vi.fn> {
+  const dispatch = vi.fn(async (args: ProviderDispatchArgs): Promise<ProviderCompletion> => ({
+    text,
+    providerModel: args.modelId,
+    providerRequestId: "cc-mf-m2",
+    providerHttpStatus: 200,
+    providerRequestHash: "sha256:request",
+    providerResponseHash: responseHash(text),
+    usage: { promptTokens: 1, completionTokens: 1 },
+    finishReason: "stop",
+  }));
+  vi.spyOn(commandCodeAdapterModule, "createCommandCodeAdapter").mockReturnValue({
+    provider: "command_code",
+    dispatch,
+  } as never);
+  return dispatch;
+}
 
 afterEach(() => {
   env.nimApiKey = originalNimKey;
   env.mistralApiKey = originalMistralKey;
   env.cloudflareApiToken = originalCloudflareToken;
   env.cloudflareAccountId = originalCloudflareAccount;
+  env.commandCodeApiKey = originalCommandCodeKey;
   resetAdapterCache();
   resetCurrentPortfolioForTests();
   vi.restoreAllMocks();
@@ -131,99 +180,112 @@ describe("MF-M2 CURRENT portfolio", () => {
   });
 
   it("uses the CURRENT resolver in completeChat and records the snapshot identity", async () => {
-    env.cloudflareApiToken = "test-cloudflare-token";
-    env.cloudflareAccountId = "test-account";
-    vi.spyOn(cloudflareAdapterModule, "createCloudflareAdapter").mockReturnValue({
-      provider: "cloudflare",
-      dispatch: vi.fn().mockResolvedValue({
-        text: "{\"kind\":\"speak\"}",
-        providerModel: "@cf/zai-org/glm-5.3-flash",
-        usage: { promptTokens: 1, completionTokens: 1 },
-        finishReason: "stop",
-      }),
-    });
+    env.commandCodeApiKey = "test-command-code-key";
+    const dispatch = mockCommandCodeDispatch("{\"kind\":\"speak\"}");
     const database = openNuclearDb(new DatabaseSync(":memory:"));
+    const policy = resolveCurrentPolicy({
+      logicalRole: "thought",
+      purpose: "thought",
+      lane: "interactive",
+    });
     const result = await withOfflineAppGateDisabled(() => completeChat([{ role: "user", content: "think" }], {
       attentionDb: database,
       purpose: "thought",
+      route: "thought",
       lane: "interactive",
-      responseFormat: "json_object",
-    }));
-    expect(result.modelFabric?.resolvedRoute).toMatchObject({
-      registryVersion: currentPortfolio().registryVersion,
-      policyRowId: "mfr_thought_interactive_compat_v1",
-      occupantId: "mfo_cloudflare_glm_5_3_flash_native_max",
-      provider: "cloudflare",
-      configuredModelId: "@cf/zai-org/glm-5.3-flash",
+      directCommandCodeThought: true,
+      structuredOutput: thoughtOutputStructuredRequest(),
+      thoughtInvocationContext: thoughtContext("mf-m2-snapshot"),
+    } as never));
+    expect(policy).toMatchObject({
+      portfolioRevisionId: "mfp_current_compatibility_v6",
+      policyRow: { policyRowId: "mfr_thought_interactive_compat_v1" },
+      occupant: {
+        occupantId: "mfo_command_code_muse_spark_1_3_contributor_xhigh",
+        provider: "command_code",
+        configuredModelId: THOUGHT_MODEL,
+      },
+    });
+    expect(policy.registryVersion).toBe(currentPortfolio().registryVersion);
+    expect(result.modelFabric).toBeUndefined();
+    expect(result.commandCodeEvidence).toMatchObject({
+      backend: "command_code_api",
+      requestedModelId: THOUGHT_MODEL,
+      providerModel: THOUGHT_MODEL,
+      reasoningEffort: THOUGHT_EFFORT,
+      providerAttempts: 1,
+      alternateProviderAttempts: 0,
+    });
+    expect(dispatch).toHaveBeenCalledTimes(1);
+    const row = database.prepare(
+      `SELECT provider_id, model_alias, quota_bucket, outcome
+         FROM attention_requests ORDER BY id DESC LIMIT 1`,
+    ).get() as Record<string, unknown>;
+    expect(row).toMatchObject({
+      provider_id: "command_code",
+      model_alias: THOUGHT_MODEL,
+      quota_bucket: `command_code:${THOUGHT_MODEL}`,
+      outcome: "completed",
     });
     database.close();
   });
 
   it("uses the CURRENT Thought policy ceiling when the caller omits maxTokens", async () => {
-    env.cloudflareApiToken = "test-cloudflare-token";
-    env.cloudflareAccountId = "test-account";
-    const dispatch = vi.fn().mockResolvedValue({
-      text: "{}",
-      providerModel: "@cf/zai-org/glm-5.3-flash",
-      usage: { promptTokens: 1, completionTokens: 1 },
-      finishReason: "stop",
-    });
-    vi.spyOn(cloudflareAdapterModule, "createCloudflareAdapter").mockReturnValue({
-      provider: "cloudflare",
-      dispatch,
-    });
+    env.commandCodeApiKey = "test-command-code-key";
+    const dispatch = mockCommandCodeDispatch();
     const database = openNuclearDb(new DatabaseSync(":memory:"));
     await withOfflineAppGateDisabled(() => completeChat([{ role: "user", content: "think" }], {
       attentionDb: database,
       purpose: "thought",
+      route: "thought",
       lane: "interactive",
-      responseFormat: "json_object",
-    }));
+      directCommandCodeThought: true,
+      structuredOutput: thoughtOutputStructuredRequest(),
+      thoughtInvocationContext: thoughtContext("mf-m2-ceiling"),
+    } as never));
     expect(dispatch).toHaveBeenCalledWith(expect.objectContaining({
-      options: expect.objectContaining({ maxTokens: 65536 }),
+      modelId: THOUGHT_MODEL,
+      options: expect.objectContaining({ maxTokens: 65536, reasoningEffort: THOUGHT_EFFORT }),
     }));
     database.close();
   });
 
   it("uses the resolved Thought ceiling for structured-output admission and provider dispatch", async () => {
-    env.cloudflareApiToken = "test-cloudflare-token";
-    env.cloudflareAccountId = "test-account";
-    const dispatch = vi.fn().mockResolvedValue({
-      text: "{}",
-      providerModel: "@cf/zai-org/glm-5.3-flash",
-      usage: { promptTokens: 1, completionTokens: 1 },
-      finishReason: "stop",
-    });
-    vi.spyOn(cloudflareAdapterModule, "createCloudflareAdapter").mockReturnValue({
-      provider: "cloudflare",
-      dispatch,
-    });
+    env.commandCodeApiKey = "test-command-code-key";
+    const dispatch = mockCommandCodeDispatch();
     const database = openNuclearDb(new DatabaseSync(":memory:"));
     const structuredOutput = thoughtOutputStructuredRequest();
-    const schemaFingerprint = (structuredOutput as unknown as { schemaFingerprint?: string }).schemaFingerprint;
+    const schemaFingerprint = structuredOutput.schemaFingerprint;
     const result = await withOfflineAppGateDisabled(() => completeChat([{ role: "user", content: "think" }], {
       attentionDb: database,
       purpose: "thought",
+      route: "thought",
       lane: "interactive",
+      directCommandCodeThought: true,
       responseFormat: "json_schema",
       structuredOutput,
-    }));
+      thoughtInvocationContext: thoughtContext("mf-m2-structured"),
+    } as never));
     expect(dispatch).toHaveBeenCalledWith(expect.objectContaining({
       options: expect.objectContaining({
         maxTokens: 65536,
-        responseFormat: "json_object",
+        responseFormat: "json_schema",
         structuredOutput,
       }),
-      fabricStructuredOutput: expect.objectContaining({
-        kind: "json_object_compatibility",
-        contractId: THOUGHT_OUTPUT_CONTRACT_ID,
-        schemaId: THOUGHT_OUTPUT_SCHEMA_ID,
-        schemaFingerprint,
-      }),
     }));
+    const dispatched = dispatch.mock.calls[0]?.[0] as ProviderDispatchArgs;
+    expect(commandCodeRequestWireAdditionalBytes(dispatched)).toBeGreaterThan(0);
     expect(schemaFingerprint).toMatch(/^sha256:[0-9a-f]{64}$/);
-    expect(result.modelFabric?.receipt.attempts[0]).toMatchObject({
-      structuredOutputSchemaFingerprint: schemaFingerprint,
+    expect(result.modelFabric).toBeUndefined();
+    expect(result.commandCodeEvidence).toMatchObject({
+      requestedModelId: THOUGHT_MODEL,
+      reasoningEffort: THOUGHT_EFFORT,
+    });
+    expect(result.capturedAttemptIdentity).toMatchObject({
+      provider: "command_code",
+      semanticSchemaFingerprint: schemaFingerprint,
+      schemaEnforcementMode: "json_object_compatibility",
+      actualWireBindingId: `${THOUGHT_OUTPUT_CONTRACT_ID}:${THOUGHT_OUTPUT_SCHEMA_ID}`,
     });
     expect(database.prepare(
       "SELECT estimated_output_tokens AS estimatedOutputTokens FROM attention_requests ORDER BY id DESC LIMIT 1",
@@ -307,14 +369,14 @@ describe("MF-M2 CURRENT portfolio", () => {
     const database = openNuclearDb(new DatabaseSync(":memory:"));
     const thought = routingStatus(database).find((route) => route.route === "thought");
     expect(thought?.fabric).toMatchObject({
-      portfolioRevisionId: "mfp_current_compatibility_v5",
+      portfolioRevisionId: "mfp_current_compatibility_v6",
       registryVersion: currentPortfolio().registryVersion,
     });
     expect(thought?.fabric.policyRows).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           policyRowId: "mfr_thought_interactive_compat_v1",
-          occupantId: "mfo_cloudflare_glm_5_3_flash_native_max",
+          occupantId: "mfo_command_code_muse_spark_1_3_contributor_xhigh",
           admissionBasis: expect.objectContaining({ kind: "existing_compatibility" }),
           activeActivationRefId: "compatibility_default",
           health: expect.objectContaining({

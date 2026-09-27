@@ -197,8 +197,8 @@ export type ThoughtQualificationNegativeWitness = ThoughtQualificationCaseResult
 export type ThoughtRouteQualification = Readonly<{
   schema: "ashley.thought.route_qualification.v1";
   candidate: {
-    provider: "cloudflare";
-    model: "@cf/deepseek-ai/deepseek-v4-flash-0731";
+    provider: "command_code";
+    model: "meta/muse-spark-1.3-contributor";
     occupantId: string;
   };
   capabilityFingerprint: string;

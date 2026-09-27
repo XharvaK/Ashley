@@ -1,4 +1,5 @@
 import { describe, expect, it, vi, afterEach } from "vitest";
+import { createHash } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { env } from "./env.js";
 import { AppError } from "./errors.js";
@@ -15,7 +16,8 @@ import { admitWake } from "./core/cognitive-v021/wake/ledger.js";
 import { reconcilePolicyClock } from "./core/cognitive-v021/private-budget/policy-time-ledger.js";
 import { reservePrivateThought } from "./core/cognitive-v021/private-budget/ledger.js";
 import * as nimAdapterModule from "./core/model-routing/adapters/nim-adapter.js";
-import * as cloudflareAdapterModule from "./core/model-routing/adapters/cloudflare-adapter.js";
+import * as commandCodeAdapterModule from "./core/model-routing/adapters/command-code-adapter.js";
+import { commandCodeThoughtEvidenceFromError } from "./core/command-code/evidence.js";
 import * as mistralAdapterModule from "./core/model-routing/adapters/mistral-adapter.js";
 import { thoughtOutputStructuredRequest } from "./core/cognitive-v021/thought/output-contract.js";
 import type {
@@ -27,7 +29,6 @@ import {
   attachProviderBoundaryTransport,
   providerBoundaryTransportFromError,
 } from "./core/model-routing/types.js";
-import { metadataFromError } from "./core/model-fabric/receipts.js";
 
 const originalApiKey = env.mistralApiKey;
 const originalSecondaryApiKey = env.mistralApiKeySecondary;
@@ -37,6 +38,76 @@ const originalCloudflareToken = env.cloudflareApiToken;
 const originalCloudflareAccount = env.cloudflareAccountId;
 const originalMistralRps = env.mistralRequestsPerSecond;
 const originalMistralTpm = env.mistralTokensPerMinute;
+const originalCommandCodeKey = env.commandCodeApiKey;
+const THOUGHT_MODEL = "meta/muse-spark-1.3-contributor";
+
+function hashedResponse(text: string): `sha256:${string}` {
+  return `sha256:${createHash("sha256").update(text, "utf8").digest("hex")}`;
+}
+
+function thoughtContext(invocationId: string, structuralAttemptOrdinal = 0) {
+  return {
+    invocationId,
+    cycleId: `cycle:${invocationId}`,
+    generation: 1,
+    semanticPass: 1,
+    structuralAttemptOrdinal,
+    authorityEpoch: 1,
+    authorityVersionVector: { authorityEpoch: 1 },
+    triggerRef: `trigger:${invocationId}`,
+    semanticProjectionHash: "sha256:test",
+    dispatchMessagesHash: "sha256:test",
+    allowlistFingerprint: "sha256:test",
+    absoluteDeadlineAtMs: Date.now() + 30_000,
+  };
+}
+
+function commandCodeCompletion(
+  text: string,
+  extra: Partial<ProviderCompletion> = {},
+): ProviderCompletion {
+  return {
+    text,
+    providerModel: THOUGHT_MODEL,
+    providerRequestId: "cc-request",
+    providerHttpStatus: 200,
+    providerRequestHash: "sha256:request",
+    providerResponseHash: hashedResponse(text),
+    usage: { promptTokens: 2, completionTokens: 1, totalTokens: 3 },
+    finishReason: "stop",
+    ...extra,
+  };
+}
+
+function mockCommandCodeDispatch(
+  implementation: (args: ProviderDispatchArgs) => Promise<ProviderCompletion>,
+) {
+  env.commandCodeApiKey = "test-command-code-key";
+  const dispatch = vi.fn(implementation);
+  vi.spyOn(commandCodeAdapterModule, "createCommandCodeAdapter").mockReturnValue({
+    provider: "command_code",
+    dispatch,
+  } as never);
+  return dispatch;
+}
+
+function directThoughtOptions(
+  attentionDb: DatabaseSync,
+  extra: Record<string, unknown> = {},
+) {
+  return {
+    attentionDb,
+    purpose: "thought" as const,
+    logicalRole: "thought" as const,
+    route: "thought" as const,
+    responseFormat: "json_schema" as const,
+    structuredOutput: thoughtOutputStructuredRequest(),
+    directCommandCodeThought: true,
+    deadlineAtMs: Date.now() + 30_000,
+    thoughtInvocationContext: thoughtContext("direct-thought"),
+    ...extra,
+  };
+}
 
 afterEach(() => {
   env.mistralApiKey = originalApiKey;
@@ -45,6 +116,7 @@ afterEach(() => {
   env.nimApiKey = originalNimKey;
   env.cloudflareApiToken = originalCloudflareToken;
   env.cloudflareAccountId = originalCloudflareAccount;
+  env.commandCodeApiKey = originalCommandCodeKey;
   env.mistralRequestsPerSecond = originalMistralRps;
   env.mistralTokensPerMinute = originalMistralTpm;
   resetAdapterCache();
@@ -187,55 +259,38 @@ describe("mapMistralError", () => {
     db.close();
   });
 
-  it("dispatches the current Thought route once through Cloudflare without NIM fallback", async () => {
-    env.cloudflareApiToken = "test-cloudflare-token";
-    env.cloudflareAccountId = "test-cloudflare-account";
+  it("dispatches the current Thought route once through Command Code without NIM fallback", async () => {
     env.nimApiKey = "";
     const db = openNuclearDb(new DatabaseSync(":memory:"));
-    const dispatch = vi.fn(async (args: ProviderDispatchArgs): Promise<ProviderCompletion> => ({
-      text: "{}",
+    const dispatch = mockCommandCodeDispatch(async (args) => commandCodeCompletion("{}", {
       providerModel: args.modelId,
-      providerRequestId: "cloudflare-request-1",
-      usage: { promptTokens: 2, completionTokens: 1, totalTokens: 3, neuronUsage: 17 },
-      finishReason: "stop",
+      providerRequestId: "command-code-request-1",
     }));
-    const createCloudflare = vi.spyOn(cloudflareAdapterModule, "createCloudflareAdapter").mockReturnValue({
-      provider: "cloudflare",
-      dispatch,
-    });
     const createNim = vi.spyOn(nimAdapterModule, "createNimAdapter");
     try {
       const result = await withOfflineAppGateDisabled(() => completeChat(
         [{ role: "user", content: "synthetic current Thought" }],
-        {
-          attentionDb: db,
-          purpose: "thought",
-          logicalRole: "thought",
-          route: "thought",
-          responseFormat: "json_schema",
-          structuredOutput: thoughtOutputStructuredRequest(),
-          reasoningEffort: "high",
-          deadlineAtMs: Date.now() + 30_000,
-        },
+        directThoughtOptions(db),
       ));
-      expect(createCloudflare).toHaveBeenCalledTimes(1);
       expect(createNim).not.toHaveBeenCalled();
       expect(dispatch).toHaveBeenCalledTimes(1);
       expect(dispatch.mock.calls[0]?.[0]).toMatchObject({
-        modelId: "@cf/deepseek-ai/deepseek-v4-flash-0731",
-        fabricReasoning: { kind: "reasoning_effort", value: "high" },
-        fabricStructuredOutput: {
-          kind: "json_object_compatibility",
-        },
+        modelId: THOUGHT_MODEL,
+        options: { reasoningEffort: "xhigh" },
       });
+      expect(result.modelFabric).toBeUndefined();
       expect(result).toMatchObject({
-        providerModel: "@cf/deepseek-ai/deepseek-v4-flash-0731",
-        providerRequestId: "cloudflare-request-1",
-        modelFabric: {
-          receipt: { fallbackClass: "none", attempts: [{ provider: "cloudflare" }] },
-          providerBoundaryControls: {
-            maxTokens: 16_384,
-          },
+        providerModel: THOUGHT_MODEL,
+        providerRequestId: "command-code-request-1",
+        commandCodeEvidence: {
+          backend: "command_code_api",
+          requestedModelId: THOUGHT_MODEL,
+          reasoningEffort: "xhigh",
+          providerAttempts: 1,
+          alternateProviderAttempts: 0,
+        },
+        providerBoundaryControls: {
+          maxTokens: 65_536,
         },
       });
     } finally {
@@ -244,98 +299,53 @@ describe("mapMistralError", () => {
   });
 
   it("preserves adapter-observed affinity transport on Thought success", async () => {
-    env.cloudflareApiToken = "test-cloudflare-token";
-    env.cloudflareAccountId = "test-cloudflare-account";
     env.nimApiKey = "";
     const db = openNuclearDb(new DatabaseSync(":memory:"));
-    const dispatch = vi.fn(async (): Promise<ProviderCompletion> => ({
-      text: "{}",
-      providerModel: "@cf/deepseek-ai/deepseek-v4-flash-0731",
-      providerRequestId: "cloudflare-request-2",
-      usage: { promptTokens: 2, completionTokens: 1 },
-      finishReason: "stop",
-      providerBoundaryTransport: {
-        sessionAffinityApplied: true,
-        affinityPolicy: "cloudflare_thought_route_affinity_v1",
-      },
+    const transport = {
+      sessionAffinityApplied: true,
+      affinityPolicy: "cloudflare_thought_route_affinity_v1" as const,
+    };
+    mockCommandCodeDispatch(async () => commandCodeCompletion("{}", {
+      providerRequestId: "command-code-request-2",
+      providerBoundaryTransport: transport,
     }));
-    vi.spyOn(cloudflareAdapterModule, "createCloudflareAdapter").mockReturnValue({
-      provider: "cloudflare",
-      dispatch,
-    });
     try {
       const result = await withOfflineAppGateDisabled(() => completeChat(
         [{ role: "user", content: "synthetic current Thought" }],
-        {
-          attentionDb: db,
-          purpose: "thought",
-          logicalRole: "thought",
-          route: "thought",
-          responseFormat: "json_schema",
-          structuredOutput: thoughtOutputStructuredRequest(),
-          reasoningEffort: "high",
-          deadlineAtMs: Date.now() + 30_000,
-        },
+        directThoughtOptions(db, { thoughtInvocationContext: thoughtContext("affinity-success") }),
       ));
-      expect(result.providerBoundaryTransport).toEqual({
-        sessionAffinityApplied: true,
-        affinityPolicy: "cloudflare_thought_route_affinity_v1",
-      });
-      expect(result.modelFabric?.providerBoundaryTransport).toEqual({
-        sessionAffinityApplied: true,
-        affinityPolicy: "cloudflare_thought_route_affinity_v1",
-      });
+      expect(result.providerBoundaryTransport).toEqual(transport);
+      expect(result.modelFabric).toBeUndefined();
     } finally {
       db.close();
     }
   });
 
   it("preserves adapter-observed affinity transport on Thought failure without reclassification", async () => {
-    env.cloudflareApiToken = "test-cloudflare-token";
-    env.cloudflareAccountId = "test-cloudflare-account";
     env.nimApiKey = "";
     const db = openNuclearDb(new DatabaseSync(":memory:"));
-    const failure = new AppError("provider_unavailable", "Cloudflare Workers AI unavailable", 503);
-    attachProviderHttpStatusBoundary(failure, 503);
-    attachProviderBoundaryTransport(failure, {
+    const transport = {
       sessionAffinityApplied: true,
-      affinityPolicy: "cloudflare_thought_route_affinity_v1",
-    });
-    const dispatch = vi.fn(async (): Promise<ProviderCompletion> => {
+      affinityPolicy: "cloudflare_thought_route_affinity_v1" as const,
+    };
+    const failure = new AppError("provider_unavailable", "Command Code Provider unavailable", 503);
+    attachProviderHttpStatusBoundary(failure, 503);
+    attachProviderBoundaryTransport(failure, transport);
+    mockCommandCodeDispatch(async () => {
       throw failure;
-    });
-    vi.spyOn(cloudflareAdapterModule, "createCloudflareAdapter").mockReturnValue({
-      provider: "cloudflare",
-      dispatch,
     });
     try {
       let error: unknown;
       try {
         await withOfflineAppGateDisabled(() => completeChat(
           [{ role: "user", content: "synthetic current Thought" }],
-          {
-            attentionDb: db,
-            purpose: "thought",
-            logicalRole: "thought",
-            route: "thought",
-            responseFormat: "json_schema",
-            structuredOutput: thoughtOutputStructuredRequest(),
-            reasoningEffort: "high",
-            deadlineAtMs: Date.now() + 30_000,
-          },
+          directThoughtOptions(db, { thoughtInvocationContext: thoughtContext("affinity-failure") }),
         ));
       } catch (caught) {
         error = caught;
       }
       expect(error).toMatchObject({ code: "provider_unavailable" });
-      expect(providerBoundaryTransportFromError(error)).toEqual({
-        sessionAffinityApplied: true,
-        affinityPolicy: "cloudflare_thought_route_affinity_v1",
-      });
-      expect(metadataFromError(error)?.providerBoundaryTransport).toEqual({
-        sessionAffinityApplied: true,
-        affinityPolicy: "cloudflare_thought_route_affinity_v1",
-      });
+      expect(providerBoundaryTransportFromError(error)).toEqual(transport);
     } finally {
       db.close();
     }
@@ -366,32 +376,18 @@ describe("mapMistralError", () => {
       wallClockNowMs: nowMs,
     });
     if (reserved.kind !== "reserved") throw new Error("w7_test_reservation_missing");
-    const dispatch = vi.fn().mockResolvedValue({
-      text: "{}",
-      providerModel: "@cf/deepseek-ai/deepseek-v4-flash-0731",
-      usage: { promptTokens: 2, completionTokens: 1 },
-      finishReason: "stop",
-    });
-    vi.spyOn(cloudflareAdapterModule, "createCloudflareAdapter").mockReturnValue({ provider: "cloudflare", dispatch });
-    vi.spyOn(mistralAdapterModule, "createMistralAdapter").mockReturnValue({
-      provider: "mistral",
-      dispatch,
-    });
+    const dispatch = mockCommandCodeDispatch(async () => commandCodeCompletion("{}"));
 
     try {
-      const result = await withOfflineAppGateDisabled(() => completeChat([{ role: "user", content: "private thought" }], {
-        attentionDb,
-        purpose: "thought",
-        route: "thought",
-        logicalRole: "thought",
-        reasoningEffort: "low",
+      const result = await withOfflineAppGateDisabled(() => completeChat([{ role: "user", content: "private thought" }], directThoughtOptions(attentionDb, {
         deadlineAtMs: Date.now() + 6_000,
+        thoughtInvocationContext: thoughtContext("w7-client"),
         privateBudgetBinding: { sidecar, reservationId: reserved.reservation.reservationId },
-      }));
+      })));
       const row = sidecar.prepare("SELECT state, dispatch_truth, invocation_id, attempt_id FROM private_budget_reservations WHERE reservation_id = ?").get(reserved.reservation.reservationId) as Record<string, unknown>;
       const capturedAttempt = result.capturedAttemptIdentity;
-      expect(capturedAttempt && "modelFabricInvocationId" in capturedAttempt ? capturedAttempt.modelFabricInvocationId : undefined).toBe(row.invocation_id);
-      expect(capturedAttempt && "modelFabricAttemptId" in capturedAttempt ? capturedAttempt.modelFabricAttemptId : undefined).toBe(row.attempt_id);
+      expect(capturedAttempt && "providerInvocationId" in capturedAttempt ? capturedAttempt.providerInvocationId : undefined).toBe(row.invocation_id);
+      expect(capturedAttempt && "providerAttemptId" in capturedAttempt ? capturedAttempt.providerAttemptId : undefined).toBe(row.attempt_id);
       expect(row).toMatchObject({ state: "committed", dispatch_truth: "responded" });
       expect(dispatch).toHaveBeenCalledTimes(1);
     } finally {
@@ -426,77 +422,40 @@ describe("mapMistralError", () => {
     });
     if (reserved.kind !== "reserved") throw new Error("test_reservation_missing");
 
-    // Attempt 1: completes normally
-    const dispatch1 = vi.fn().mockResolvedValue({
-      text: "{}",
-      providerModel: "@cf/deepseek-ai/deepseek-v4-flash-0731",
-      usage: { promptTokens: 2, completionTokens: 1 },
-      finishReason: "stop",
-    });
-    vi.spyOn(cloudflareAdapterModule, "createCloudflareAdapter").mockReturnValue({ provider: "cloudflare", dispatch: dispatch1 });
-    vi.spyOn(mistralAdapterModule, "createMistralAdapter").mockReturnValue({ provider: "mistral", dispatch: dispatch1 });
+    const dispatch1 = mockCommandCodeDispatch(async () => commandCodeCompletion("{}"));
 
     try {
-      await withOfflineAppGateDisabled(() => completeChat([{ role: "user", content: "attempt 1" }], {
-        attentionDb,
-        purpose: "thought",
-        route: "thought",
-        logicalRole: "thought",
-        reasoningEffort: "low",
+      await withOfflineAppGateDisabled(() => completeChat([{ role: "user", content: "attempt 1" }], directThoughtOptions(attentionDb, {
         deadlineAtMs: Date.now() + 6_000,
+        thoughtInvocationContext: thoughtContext("child-req-1"),
         privateBudgetBinding: {
           sidecar,
           reservationId: reserved.reservation.reservationId,
           wakeId: wake.wake.wakeId,
           conversationId: "conversation:child-req",
         },
-      }));
+      })));
 
-      // Parent attempt 1 is committed and responded
       const parentRow = sidecar.prepare("SELECT state, dispatch_truth FROM private_budget_reservations WHERE reservation_id = ?").get(reserved.reservation.reservationId) as Record<string, unknown>;
       expect(parentRow).toMatchObject({ state: "committed", dispatch_truth: "responded" });
 
-      // Attempt 2: structural repair child attempt with providerRequestId supplied
       resetAdapterCache();
       const expectedProviderRequestId = "provider-req-child-xyz-987";
-      const dispatch2 = vi.fn().mockResolvedValue({
-        text: "{}",
-        providerModel: "@cf/deepseek-ai/deepseek-v4-flash-0731",
+      const dispatch2 = mockCommandCodeDispatch(async () => commandCodeCompletion("{}", {
         providerRequestId: expectedProviderRequestId,
-        usage: { promptTokens: 2, completionTokens: 1 },
-        finishReason: "stop",
-      });
-      vi.spyOn(cloudflareAdapterModule, "createCloudflareAdapter").mockReturnValue({ provider: "cloudflare", dispatch: dispatch2 });
-      vi.spyOn(mistralAdapterModule, "createMistralAdapter").mockReturnValue({ provider: "mistral", dispatch: dispatch2 });
+      }));
 
-      await withOfflineAppGateDisabled(() => completeChat([{ role: "user", content: "attempt 2 repair" }], {
-        attentionDb,
-        purpose: "thought",
-        route: "thought",
-        logicalRole: "thought",
-        reasoningEffort: "low",
+      await withOfflineAppGateDisabled(() => completeChat([{ role: "user", content: "attempt 2 repair" }], directThoughtOptions(attentionDb, {
         deadlineAtMs: Date.now() + 6_000,
-        thoughtInvocationContext: {
-          invocationId: "inv-child-2",
-          cycleId: "cycle:child-req",
-          generation: 1,
-          semanticPass: 1,
-          structuralAttemptOrdinal: 1,
-          authorityEpoch: 1,
-          authorityVersionVector: { authorityEpoch: 1 },
-          triggerRef: "trigger:child-req",
-          semanticProjectionHash: "sha256:test",
-          dispatchMessagesHash: "sha256:test",
-          allowlistFingerprint: "sha256:test",
-          absoluteDeadlineAtMs: Date.now() + 6_000,
-        },
+        thoughtInvocationContext: thoughtContext("inv-child-2", 1),
         privateBudgetBinding: {
           sidecar,
           reservationId: reserved.reservation.reservationId,
           wakeId: wake.wake.wakeId,
           conversationId: "conversation:child-req",
         },
-      }));
+      })));
+      expect(dispatch2).toHaveBeenCalledTimes(1);
 
       // Child binding row exists in private_budget_attempt_bindings with provider_request_id persisted!
       const childRow = sidecar.prepare("SELECT reservation_id, ordinal, reason, dispatch_truth, provider_request_id FROM private_budget_attempt_bindings WHERE reservation_id = ? AND ordinal = 2").get(reserved.reservation.reservationId) as Record<string, unknown>;
@@ -513,7 +472,7 @@ describe("mapMistralError", () => {
     }
   });
 
-  it("fails closed with private_budget_child_reason_unavailable when a second call lacks thoughtInvocationContext", async () => {
+  it("fails closed before a child bind when a second call lacks thoughtInvocationContext", async () => {
     env.mistralApiKey = "test-mistral-key";
     env.cloudflareApiToken = "test-cloudflare-token";
     env.cloudflareAccountId = "test-cloudflare-account";
@@ -539,45 +498,25 @@ describe("mapMistralError", () => {
     });
     if (reserved.kind !== "reserved") throw new Error("test_reservation_missing");
 
-    const dispatch1 = vi.fn().mockResolvedValue({
-      text: "{}",
-      providerModel: "@cf/deepseek-ai/deepseek-v4-flash-0731",
-      usage: { promptTokens: 2, completionTokens: 1 },
-      finishReason: "stop",
-    });
-    vi.spyOn(cloudflareAdapterModule, "createCloudflareAdapter").mockReturnValue({ provider: "cloudflare", dispatch: dispatch1 });
-    vi.spyOn(mistralAdapterModule, "createMistralAdapter").mockReturnValue({ provider: "mistral", dispatch: dispatch1 });
+    mockCommandCodeDispatch(async () => commandCodeCompletion("{}"));
 
     try {
-      await withOfflineAppGateDisabled(() => completeChat([{ role: "user", content: "attempt 1" }], {
-        attentionDb,
-        purpose: "thought",
-        route: "thought",
-        logicalRole: "thought",
-        reasoningEffort: "low",
+      await withOfflineAppGateDisabled(() => completeChat([{ role: "user", content: "attempt 1" }], directThoughtOptions(attentionDb, {
         deadlineAtMs: Date.now() + 6_000,
+        thoughtInvocationContext: thoughtContext("fail-closed-1"),
         privateBudgetBinding: {
           sidecar,
           reservationId: reserved.reservation.reservationId,
           wakeId: wake.wake.wakeId,
           conversationId: "conversation:fail-closed",
         },
-      }));
+      })));
 
-      // Parent attempt 1 is committed and responded
       const parentRow = sidecar.prepare("SELECT state, dispatch_truth FROM private_budget_reservations WHERE reservation_id = ?").get(reserved.reservation.reservationId) as Record<string, unknown>;
       expect(parentRow).toMatchObject({ state: "committed", dispatch_truth: "responded" });
 
-      // Generic second completeChat call without thoughtInvocationContext MUST fail closed
       resetAdapterCache();
-      const dispatch2 = vi.fn().mockResolvedValue({
-        text: "{}",
-        providerModel: "@cf/deepseek-ai/deepseek-v4-flash-0731",
-        usage: { promptTokens: 2, completionTokens: 1 },
-        finishReason: "stop",
-      });
-      vi.spyOn(cloudflareAdapterModule, "createCloudflareAdapter").mockReturnValue({ provider: "cloudflare", dispatch: dispatch2 });
-      vi.spyOn(mistralAdapterModule, "createMistralAdapter").mockReturnValue({ provider: "mistral", dispatch: dispatch2 });
+      const dispatch2 = mockCommandCodeDispatch(async () => commandCodeCompletion("{}"));
 
       await expect(
         withOfflineAppGateDisabled(() => completeChat([{ role: "user", content: "attempt 2 generic" }], {
@@ -585,17 +524,18 @@ describe("mapMistralError", () => {
           purpose: "thought",
           route: "thought",
           logicalRole: "thought",
-          reasoningEffort: "low",
+          directCommandCodeThought: true,
+          structuredOutput: thoughtOutputStructuredRequest(),
           deadlineAtMs: Date.now() + 6_000,
-          // NO thoughtInvocationContext!
           privateBudgetBinding: {
             sidecar,
             reservationId: reserved.reservation.reservationId,
             wakeId: wake.wake.wakeId,
             conversationId: "conversation:fail-closed",
           },
-        }))
-      ).rejects.toThrow("private_budget_child_reason_unavailable");
+        })),
+      ).rejects.toThrow("direct_command_code_thought_context_required");
+      expect(dispatch2).not.toHaveBeenCalled();
 
       // No child attempt was bound
       const childCount = (sidecar.prepare("SELECT COUNT(*) AS count FROM private_budget_attempt_bindings WHERE reservation_id = ?").get(reserved.reservation.reservationId) as { count: number }).count;
@@ -894,39 +834,11 @@ describe("Mistral credential failover", () => {
 });
 
 describe("Thought deadline TimeoutError truth", () => {
-  function thoughtOptions(attentionDb: DatabaseSync, deadlineAtMs: number) {
-    return {
-      attentionDb,
-      purpose: "thought" as const,
-      logicalRole: "thought" as const,
-      route: "thought" as const,
-      responseFormat: "json_schema" as const,
-      structuredOutput: thoughtOutputStructuredRequest(),
-      reasoningEffort: "high" as const,
-      deadlineAtMs,
-    };
-  }
-
-  function mockCloudflareDispatch(
-    implementation: (args: ProviderDispatchArgs) => Promise<ProviderCompletion>,
-  ) {
-    const dispatch = vi.fn(implementation);
-    vi.spyOn(cloudflareAdapterModule, "createCloudflareAdapter").mockReturnValue({
-      provider: "cloudflare",
-      dispatch,
-    });
-    return dispatch;
-  }
-
   it("maps a deadline-generated TimeoutError to timeout, never provider_unavailable", async () => {
-    env.cloudflareApiToken = "test-cloudflare-token";
-    env.cloudflareAccountId = "test-cloudflare-account";
     env.nimApiKey = "";
     const db = openNuclearDb(new DatabaseSync(":memory:"));
     const controller = new AbortController();
-    const dispatch = mockCloudflareDispatch(async () => {
-      // Mirror Undici: the outer deadline chain fires with a TimeoutError
-      // reason, then the in-flight fetch rejects with TimeoutError.
+    const dispatch = mockCommandCodeDispatch(async () => {
       const reason = new Error("The operation was aborted due to timeout");
       reason.name = "TimeoutError";
       controller.abort(reason);
@@ -937,12 +849,18 @@ describe("Thought deadline TimeoutError truth", () => {
     try {
       const error = await withOfflineAppGateDisabled(() => completeChat(
         [{ role: "user", content: "synthetic deadline thought" }],
-        { ...thoughtOptions(db, Date.now() + 30_000), signal: controller.signal },
+        directThoughtOptions(db, {
+          deadlineAtMs: Date.now() + 30_000,
+          signal: controller.signal,
+          thoughtInvocationContext: thoughtContext("deadline-timeout"),
+        }),
       )).catch((value: unknown) => value);
       expect(error).toBeInstanceOf(AppError);
       expect(error).toMatchObject({ code: "timeout", httpStatus: 408 });
-      expect((error as { modelFabric?: { receipt?: { fallbackClass?: string } } }).modelFabric?.receipt?.fallbackClass)
-        .toBe("none");
+      expect(commandCodeThoughtEvidenceFromError(error)).toMatchObject({
+        providerAttempts: 1,
+        alternateProviderAttempts: 0,
+      });
       expect(dispatch).toHaveBeenCalledTimes(1);
     } finally {
       db.close();
@@ -950,19 +868,20 @@ describe("Thought deadline TimeoutError truth", () => {
   });
 
   it("keeps external AbortError cancellation behavior unchanged", async () => {
-    env.cloudflareApiToken = "test-cloudflare-token";
-    env.cloudflareAccountId = "test-cloudflare-account";
     env.nimApiKey = "";
     const db = openNuclearDb(new DatabaseSync(":memory:"));
     const abort = new Error("aborted by caller");
     abort.name = "AbortError";
-    const dispatch = mockCloudflareDispatch(async () => {
+    const dispatch = mockCommandCodeDispatch(async () => {
       throw abort;
     });
     try {
       const error = await withOfflineAppGateDisabled(() => completeChat(
         [{ role: "user", content: "synthetic cancelled thought" }],
-        thoughtOptions(db, Date.now() + 30_000),
+        directThoughtOptions(db, {
+          deadlineAtMs: Date.now() + 30_000,
+          thoughtInvocationContext: thoughtContext("deadline-abort"),
+        }),
       )).catch((value: unknown) => value);
       expect(error).toBe(abort);
       expect(dispatch).toHaveBeenCalledTimes(1);
@@ -972,17 +891,18 @@ describe("Thought deadline TimeoutError truth", () => {
   });
 
   it("keeps fetch-failed network classification while the deadline remains", async () => {
-    env.cloudflareApiToken = "test-cloudflare-token";
-    env.cloudflareAccountId = "test-cloudflare-account";
     env.nimApiKey = "";
     const db = openNuclearDb(new DatabaseSync(":memory:"));
-    const dispatch = mockCloudflareDispatch(async () => {
+    const dispatch = mockCommandCodeDispatch(async () => {
       throw new TypeError("fetch failed");
     });
     try {
       const error = await withOfflineAppGateDisabled(() => completeChat(
         [{ role: "user", content: "synthetic network failure thought" }],
-        thoughtOptions(db, Date.now() + 30_000),
+        directThoughtOptions(db, {
+          deadlineAtMs: Date.now() + 30_000,
+          thoughtInvocationContext: thoughtContext("deadline-network"),
+        }),
       )).catch((value: unknown) => value);
       expect(error).toMatchObject({ code: "provider_unavailable" });
       expect(dispatch).toHaveBeenCalledTimes(1);

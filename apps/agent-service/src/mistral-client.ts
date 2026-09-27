@@ -61,6 +61,7 @@ import {
   type ProviderBoundaryTiming,
   type ProviderBoundaryTransport,
   PROVIDER_BOUNDARY_TRANSPORT_ABSENT,
+  attachProviderBoundaryTransport,
   providerBoundaryTransportFromError,
   providerHttpStatusFromBoundary,
 } from "./core/model-routing/types.js";
@@ -460,6 +461,7 @@ async function completeDirectCommandCodeThought(
   responseDiagnostics?: ProviderResponseDiagnostics;
   providerBoundaryControls?: ProviderBoundaryControls;
   providerBoundaryTiming?: ProviderBoundaryTiming;
+  providerBoundaryTransport?: ProviderBoundaryTransport;
   attentionRequestId: number;
   acceptedDispatchIdentity: AcceptedDispatchIdentity;
   capturedAttemptIdentity: CapturedThoughtAttemptIdentity;
@@ -589,6 +591,7 @@ async function completeDirectCommandCodeThought(
       wireEvidence?: WireDispatchEvidence;
       providerBoundaryControls?: ProviderBoundaryControls;
       providerBoundaryTiming?: ProviderBoundaryTiming;
+      providerBoundaryTransport?: ProviderBoundaryTransport;
     }>(options.attentionDb, {
       messages,
       purpose: "thought",
@@ -725,6 +728,7 @@ async function completeDirectCommandCodeThought(
               wireEvidence: result.wireEvidence,
               providerBoundaryControls: controls,
               providerBoundaryTiming,
+              providerBoundaryTransport: result.providerBoundaryTransport,
             },
           };
         } catch (error) {
@@ -750,6 +754,8 @@ async function completeDirectCommandCodeThought(
             }
             attachProviderBoundaryFact(timeoutError, "providerBoundaryControls", controls);
             if (providerBoundaryTiming) attachProviderBoundaryFact(timeoutError, "providerBoundaryTiming", providerBoundaryTiming);
+            const timeoutTransport = providerBoundaryTransportFromError(error);
+            if (timeoutTransport) attachProviderBoundaryTransport(timeoutError, timeoutTransport);
             throw timeoutError;
           }
           const mappedError = mapCommandCodeError(error);
@@ -762,6 +768,8 @@ async function completeDirectCommandCodeThought(
               attachProviderBoundaryFact(mappedError, "providerBoundaryControls", controls);
               if (providerBoundaryTiming) attachProviderBoundaryFact(mappedError, "providerBoundaryTiming", providerBoundaryTiming);
             }
+            const mappedTransport = providerBoundaryTransportFromError(error);
+            if (mappedTransport) attachProviderBoundaryTransport(mappedError, mappedTransport);
           }
           throw mappedError;
         }
@@ -822,6 +830,7 @@ async function completeDirectCommandCodeThought(
       responseDiagnostics: inner.responseDiagnostics,
       providerBoundaryControls: controls,
       providerBoundaryTiming: inner.providerBoundaryTiming,
+      providerBoundaryTransport: inner.providerBoundaryTransport,
       attentionRequestId: attentive.requestId,
       acceptedDispatchIdentity: attentive.acceptedDispatchIdentity,
       capturedAttemptIdentity,

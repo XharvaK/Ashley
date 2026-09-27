@@ -94,11 +94,11 @@ function createScriptedModel(script: readonly string[]) {
     registryVersion: "revision-test",
     policyRowId: "revision-test",
     occupantId: "revision-test-occupant",
-    provider: "cloudflare",
-    model: "@cf/deepseek-ai/deepseek-v4-flash-0731",
+    provider: "command_code",
+    model: "meta/muse-spark-1.3-contributor",
     logicalBindingId: "revision-test",
     schemaFingerprint: "revision-test",
-    wireBindingId: "compat_thought_cloudflare_deepseek_v4_flash_json_object_v1",
+    wireBindingId: "compat_thought_command_code_muse_spark_1_3_contributor_json_object_v1",
     wireMode: "json_object_compatibility",
     wireFormat: "json_object",
     buildIdentity: "revision-test-build",
@@ -131,18 +131,16 @@ async function runSingleSettlementSample(script: readonly string[]) {
   const now = 1_700_000_000_000;
   const checkoutIdentity = qualificationCheckoutIdentity();
   const savedRelease = env.ashleyReleaseId;
-  const savedCloudflareToken = env.cloudflareApiToken;
-  const savedCloudflareAccount = env.cloudflareAccountId;
+  const savedCommandCodeKey = env.commandCodeApiKey;
   env.ashleyReleaseId = checkoutIdentity;
-  env.cloudflareApiToken = "revision-test-token";
-  env.cloudflareAccountId = "revision-test-account";
+  env.commandCodeApiKey = "revision-test-command-code-key";
   const runId = `w2-test-authority-revision-${randomUUID()}`;
   const outputDir = join(tmpdir(), `w2-revision-${randomUUID()}`);
   try {
     const result = await runThoughtCapabilityQualification({
       environment: "isolated_live",
-      provider: "cloudflare",
-      model: "@cf/deepseek-ai/deepseek-v4-flash-0731",
+      provider: "command_code",
+      model: "meta/muse-spark-1.3-contributor",
       candidateSha: checkoutIdentity,
       allowlistedReferences: ["turn-1"],
       noFallback: true,
@@ -159,8 +157,7 @@ async function runSingleSettlementSample(script: readonly string[]) {
     return { result, model, sleepCalls, runId };
   } finally {
     env.ashleyReleaseId = savedRelease;
-    env.cloudflareApiToken = savedCloudflareToken;
-    env.cloudflareAccountId = savedCloudflareAccount;
+    env.commandCodeApiKey = savedCommandCodeKey;
     rmSync(outputDir, { recursive: true, force: true });
   }
 }

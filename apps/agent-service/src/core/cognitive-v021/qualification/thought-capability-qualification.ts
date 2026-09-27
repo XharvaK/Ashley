@@ -184,9 +184,10 @@ type SchemaMode = ThoughtCapabilityComponents["schemaEnforcementMode"];
 type Digest = ThoughtQualificationCaseResult["rawContentDigest"];
 
 const CANDIDATE = {
-  provider: "cloudflare" as const,
-  model: "@cf/deepseek-ai/deepseek-v4-flash-0731" as const,
+  provider: "command_code" as const,
+  model: "meta/muse-spark-1.3-contributor" as const,
 };
+const CANDIDATE_ADAPTER_ID = "ashley.adapter.command_code.v1";
 const ROUTE_ID = "thought";
 const MAX_THOUGHT_OUTPUT_TOKENS = 16_384;
 const MAX_STRUCTURAL_ATTEMPTS = 1 + 2;
@@ -294,8 +295,8 @@ type CandidatePreflight = Readonly<{
   registryVersion: string;
   policyRowId: string;
   occupantId: string;
-  provider: "cloudflare";
-  model: "@cf/deepseek-ai/deepseek-v4-flash-0731";
+  provider: "command_code";
+  model: "meta/muse-spark-1.3-contributor";
   logicalBindingId: string;
   schemaFingerprint: string;
   wireBindingId: string;
@@ -1607,7 +1608,7 @@ function preflightCandidate(buildIdentity = currentBuildIdentity()): CandidatePr
     occupantId: policy.occupant.occupantId,
     wireBindingId: binding.bindingId,
     wireMode,
-    adapterId: "ashley.adapter.cloudflare.v1",
+    adapterId: CANDIDATE_ADAPTER_ID,
     wireFormat,
   });
   return {
@@ -1624,7 +1625,7 @@ function preflightCandidate(buildIdentity = currentBuildIdentity()): CandidatePr
     wireFormat,
     buildIdentity,
     capability,
-    credentialPresent: Boolean(env.cloudflareApiToken && env.cloudflareAccountId),
+    credentialPresent: Boolean(env.commandCodeApiKey),
   };
 }
 
@@ -1736,7 +1737,7 @@ export function fixtureCompletion(
     resourcePolicyFingerprint: thoughtResourcePolicyIdentity().fingerprint,
   };
   const wireEvidence: WireDispatchEvidence = {
-    adapterId: "ashley.adapter.cloudflare.v1",
+    adapterId: CANDIDATE_ADAPTER_ID,
     wireFormat: preflight.wireFormat,
     sanitizedBodyDigest: ("sha256:" + sha256Text("qualification-wire:" + invocationId)) as WireDispatchEvidence["sanitizedBodyDigest"],
     emittedEnforcementMode: preflight.wireMode,
@@ -2655,7 +2656,7 @@ function writeQualificationResult(
   cases: readonly ThoughtQualificationCaseResult[],
 ): string {
   const wireEvidence: WireDispatchEvidence = {
-    adapterId: "ashley.adapter.cloudflare.v1",
+    adapterId: CANDIDATE_ADAPTER_ID,
     wireFormat: preflight.wireFormat,
     sanitizedBodyDigest: ("sha256:" + sha256Text("qualification-artifact:" + preflight.capability.fingerprint)) as WireDispatchEvidence["sanitizedBodyDigest"],
     emittedEnforcementMode: preflight.wireMode,
@@ -2891,7 +2892,7 @@ async function runFixtureQualification(
       negativeWitness(withIds(authorityRevision, settlementSequence), "authority revision changed before settlement acceptance"),
       negativeWitness(parserRejected, "provider-accepted structural value rejected by the W0 semantic parser"),
       negativeWitness(withIds(semanticUnsupported, settlementSequence), "schema-valid output with unsupported or fabricated semantic claim"),
-      negativeWitness(fallback, "a non-Cloudflare provider cannot answer the Cloudflare qualification candidate"),
+      negativeWitness(fallback, "a provider other than the CURRENT Thought occupant cannot answer the qualification candidate"),
     ];
     const verdict = cases.every((item) => item.verdict === "PASS")
       ? "PASS"

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it, vi } from "vitest";
 import { openCognitiveSidecarDb } from "../sidecar/db.js";
@@ -28,8 +29,7 @@ import { env } from "../../../env.js";
 import { openNuclearDb } from "../../../core/db.js";
 import { completeChat, resetAdapterCache } from "../../../mistral-client.js";
 import { withOfflineAppGateDisabled } from "../../../core/qualification/offline-test-helpers.js";
-import * as cloudflareAdapterModule from "../../../core/model-routing/adapters/cloudflare-adapter.js";
-import * as mistralAdapterModule from "../../../core/model-routing/adapters/mistral-adapter.js";
+import * as commandCodeAdapterModule from "../../../core/model-routing/adapters/command-code-adapter.js";
 import { reconcilePolicyClock } from "./policy-time-ledger.js";
 import { runCognitiveCycle } from "../thought/run.js";
 import { appendInboxEvent } from "../cycle/inbox.js";
@@ -38,6 +38,20 @@ import { admitTestCycle, makeSemanticSettlement } from "../test-support.js";
 import type { CapabilityReality, IdentitySlice, KernelDeps, Observation } from "../types.js";
 
 const BASE = 2_000_000;
+const THOUGHT_MODEL = "meta/muse-spark-1.3-contributor";
+
+function witnessedCompletion(text: string, usage: { promptTokens: number; completionTokens: number }) {
+  return {
+    text,
+    providerModel: THOUGHT_MODEL,
+    providerRequestId: "cc-witness",
+    providerHttpStatus: 200,
+    providerRequestHash: "sha256:request",
+    providerResponseHash: `sha256:${createHash("sha256").update(text, "utf8").digest("hex")}`,
+    usage,
+    finishReason: "stop",
+  };
+}
 const CONVERSATION = "conversation:repair";
 const POLICY = "private-v1";
 
@@ -683,9 +697,7 @@ describe("F1 append-only repair-attempt authorization", () => {
     };
 
     it("Witness A: STRUCTURAL REPAIR TRUTH via runCognitiveCycle", async () => {
-      env.mistralApiKey = "test-mistral-key";
-      env.cloudflareApiToken = "test-cloudflare-token";
-      env.cloudflareAccountId = "test-cloudflare-account";
+      env.commandCodeApiKey = "test-command-code-key";
       resetAdapterCache();
 
       const sidecar = db();
@@ -737,25 +749,15 @@ describe("F1 append-only repair-attempt authorization", () => {
       const dispatch = vi.fn(async () => {
         callCount++;
         if (callCount === 1) {
-          // Pass 1: returns malformed structural output
-          return {
-            text: "malformed output {not valid json}",
-            providerModel: "@cf/deepseek-ai/deepseek-v4-flash-0731",
-            usage: { promptTokens: 10, completionTokens: 5 },
-            finishReason: "stop",
-          };
+          return witnessedCompletion("malformed output {not valid json}", { promptTokens: 10, completionTokens: 5 });
         }
-        // Pass 2: valid structural retry settlement
-        return {
-          text: JSON.stringify(validSettlement),
-          providerModel: "@cf/deepseek-ai/deepseek-v4-flash-0731",
-          usage: { promptTokens: 15, completionTokens: 10 },
-          finishReason: "stop",
-        };
+        return witnessedCompletion(JSON.stringify(validSettlement), { promptTokens: 15, completionTokens: 10 });
       });
 
-      vi.spyOn(cloudflareAdapterModule, "createCloudflareAdapter").mockReturnValue({ provider: "cloudflare", dispatch });
-      vi.spyOn(mistralAdapterModule, "createMistralAdapter").mockReturnValue({ provider: "mistral", dispatch });
+      vi.spyOn(commandCodeAdapterModule, "createCommandCodeAdapter").mockReturnValue({
+        provider: "command_code",
+        dispatch,
+      } as never);
 
       const deps: KernelDeps = {
         nowMs: () => Date.now(),
@@ -820,9 +822,7 @@ describe("F1 append-only repair-attempt authorization", () => {
     });
 
     it("Witness B: ORDINARY CYCLE CONTINUATION TRUTH via runCognitiveCycle", async () => {
-      env.mistralApiKey = "test-mistral-key";
-      env.cloudflareApiToken = "test-cloudflare-token";
-      env.cloudflareAccountId = "test-cloudflare-account";
+      env.commandCodeApiKey = "test-command-code-key";
       resetAdapterCache();
 
       const sidecar = db();
@@ -874,35 +874,25 @@ describe("F1 append-only repair-attempt authorization", () => {
       const dispatch = vi.fn(async () => {
         callCount++;
         if (callCount === 1) {
-          // Pass 1: returns valid observation_intent
-          return {
-            text: JSON.stringify({
-              kind: "observation_intent",
-              operationKind: "project.inspect",
-              request: {
-                projectId: "project-ashley",
-                locator: { kind: "file", path: "README.md" },
-              },
-              purpose: "inspect",
-              evidenceNeed: "contents",
-              existingRefs: ["trigger:witness-b"],
-            }),
-            providerModel: "@cf/deepseek-ai/deepseek-v4-flash-0731",
-            usage: { promptTokens: 10, completionTokens: 5 },
-            finishReason: "stop",
-          };
+          return witnessedCompletion(JSON.stringify({
+            kind: "observation_intent",
+            operationKind: "project.inspect",
+            request: {
+              projectId: "project-ashley",
+              locator: { kind: "file", path: "README.md" },
+            },
+            purpose: "inspect",
+            evidenceNeed: "contents",
+            existingRefs: ["trigger:witness-b"],
+          }), { promptTokens: 10, completionTokens: 5 });
         }
-        // Pass 2: valid settlement after observation
-        return {
-          text: JSON.stringify(validSettlement),
-          providerModel: "@cf/deepseek-ai/deepseek-v4-flash-0731",
-          usage: { promptTokens: 15, completionTokens: 10 },
-          finishReason: "stop",
-        };
+        return witnessedCompletion(JSON.stringify(validSettlement), { promptTokens: 15, completionTokens: 10 });
       });
 
-      vi.spyOn(cloudflareAdapterModule, "createCloudflareAdapter").mockReturnValue({ provider: "cloudflare", dispatch });
-      vi.spyOn(mistralAdapterModule, "createMistralAdapter").mockReturnValue({ provider: "mistral", dispatch });
+      vi.spyOn(commandCodeAdapterModule, "createCommandCodeAdapter").mockReturnValue({
+        provider: "command_code",
+        dispatch,
+      } as never);
 
       const observed: Observation = {
         observationId: "observation-witness-b",

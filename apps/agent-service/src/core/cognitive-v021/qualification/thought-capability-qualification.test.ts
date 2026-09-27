@@ -47,8 +47,8 @@ const capturedEffectIntent = {
 
 const baseGate: QualificationGateEvidence = {
   transport: "success",
-  provider: "cloudflare",
-  model: "@cf/deepseek-ai/deepseek-v4-flash-0731",
+  provider: "command_code",
+  model: "meta/muse-spark-1.3-contributor",
   kernelBinding: "PASS",
   fencing: "PASS",
   authorityReachability: "PASS",
@@ -59,7 +59,7 @@ const baseGate: QualificationGateEvidence = {
   attempts: 1,
   maxOutputTokens: 16384,
   wireMode: "json_object_compatibility",
-  wireBindingId: "compat_thought_cloudflare_deepseek_v4_flash_json_object_v1",
+  wireBindingId: "compat_thought_command_code_muse_spark_1_3_contributor_json_object_v1",
   providerDeclaredEnforcement: "unavailable",
   capabilityFingerprint: "sha256:" + "a".repeat(64),
   responseDiagnostics: {
@@ -81,8 +81,8 @@ describe("successor Thought qualification", () => {
   it("passes every declared semantic branch through the real W0 fixture path", async () => {
     const result = await runThoughtCapabilityQualification({
       environment: "fixture",
-      provider: "cloudflare",
-      model: "@cf/deepseek-ai/deepseek-v4-flash-0731",
+      provider: "command_code",
+      model: "meta/muse-spark-1.3-contributor",
       allowlistedReferences: ["turn-1"],
       runId: "w2-test-fixture",
     });
@@ -162,8 +162,8 @@ describe("successor Thought qualification", () => {
     try {
       const result = await runThoughtCapabilityQualification({
         environment: "fixture",
-        provider: "cloudflare",
-        model: "@cf/deepseek-ai/deepseek-v4-flash-0731",
+        provider: "command_code",
+        model: "meta/muse-spark-1.3-contributor",
         allowlistedReferences: ["turn-1"],
         runId: "w2-test-no-network",
       });
@@ -676,8 +676,8 @@ describe("successor Thought qualification", () => {
     try {
       const result = await runThoughtCapabilityQualification({
         environment: "isolated_live",
-        provider: "cloudflare",
-        model: "@cf/deepseek-ai/deepseek-v4-flash-0731",
+        provider: "command_code",
+        model: "meta/muse-spark-1.3-contributor",
         candidateSha: checkoutIdentity,
         allowlistedReferences: [],
         noFallback: true,
@@ -733,9 +733,9 @@ function createPacingHarness() {
   };
   const fakeCompletion = {
     text: validAbstain,
-        model: "@cf/deepseek-ai/deepseek-v4-flash-0731",
-        modelAlias: "@cf/deepseek-ai/deepseek-v4-flash-0731",
-        resolvedModelId: "@cf/deepseek-ai/deepseek-v4-flash-0731",
+        model: "meta/muse-spark-1.3-contributor",
+        modelAlias: "meta/muse-spark-1.3-contributor",
+        resolvedModelId: "meta/muse-spark-1.3-contributor",
     usage: { promptTokens: 128, completionTokens: 64 },
     finishReason: "stop",
     responseDiagnostics: null,
@@ -762,17 +762,15 @@ async function runIsolatedLiveForPacing(input: {
   const harness = input.harness ?? createPacingHarness();
   const checkoutIdentity = qualificationCheckoutIdentity();
   const savedRelease = env.ashleyReleaseId;
-  const savedCloudflareToken = env.cloudflareApiToken;
-  const savedCloudflareAccount = env.cloudflareAccountId;
+  const savedCommandCodeKey = env.commandCodeApiKey;
   env.ashleyReleaseId = checkoutIdentity;
-  env.cloudflareApiToken = "pacing-test-token";
-  env.cloudflareAccountId = "pacing-test-account";
+  env.commandCodeApiKey = "pacing-test-command-code-key";
   const outputDir = join(tmpdir(), `w2-pacing-${randomUUID()}`);
   try {
     const result = await runThoughtCapabilityQualification({
       environment: "isolated_live",
-      provider: "cloudflare",
-      model: "@cf/deepseek-ai/deepseek-v4-flash-0731",
+      provider: "command_code",
+      model: "meta/muse-spark-1.3-contributor",
       candidateSha: checkoutIdentity,
       allowlistedReferences: ["turn-1"],
       noFallback: true,
@@ -788,8 +786,7 @@ async function runIsolatedLiveForPacing(input: {
     return { result, harness };
   } finally {
     env.ashleyReleaseId = savedRelease;
-    env.cloudflareApiToken = savedCloudflareToken;
-    env.cloudflareAccountId = savedCloudflareAccount;
+    env.commandCodeApiKey = savedCommandCodeKey;
     rmSync(outputDir, { recursive: true, force: true });
   }
 }
@@ -817,8 +814,8 @@ describe("w2 campaign pacing repair", () => {
     let completeChatCalls = 0;
     const result = await runThoughtCapabilityQualification({
       environment: "isolated_live",
-      provider: "cloudflare",
-      model: "@cf/deepseek-ai/deepseek-v4-flash-0731",
+      provider: "command_code",
+      model: "meta/muse-spark-1.3-contributor",
       allowlistedReferences: [],
       noFallback: true,
       interLiveCaseDelayMs: -1,
@@ -926,8 +923,8 @@ describe("w2 campaign pacing repair", () => {
     const harness = createPacingHarness();
     const result = await runThoughtCapabilityQualification({
       environment: "fixture",
-      provider: "cloudflare",
-      model: "@cf/deepseek-ai/deepseek-v4-flash-0731",
+      provider: "command_code",
+      model: "meta/muse-spark-1.3-contributor",
       allowlistedReferences: ["turn-1"],
       runId: "w2-test-pacing-fixture",
       interLiveCaseDelayMs: 65000,

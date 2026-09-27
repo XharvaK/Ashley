@@ -1,18 +1,19 @@
 import { vi } from "vitest";
+import { createHash } from "node:crypto";
 
-const cloudflareState = vi.hoisted(() => ({
+const commandCodeState = vi.hoisted(() => ({
   dispatch: vi.fn(),
 }));
 
-vi.mock("../../model-routing/adapters/cloudflare-adapter.js", async (importOriginal) => {
+vi.mock("../../model-routing/adapters/command-code-adapter.js", async (importOriginal) => {
   const actual = await importOriginal<
-    typeof import("../../model-routing/adapters/cloudflare-adapter.js")
+    typeof import("../../model-routing/adapters/command-code-adapter.js")
   >();
   return {
     ...actual,
-    createCloudflareAdapter: () => ({
-      provider: "cloudflare" as const,
-      dispatch: cloudflareState.dispatch,
+    createCommandCodeAdapter: () => ({
+      provider: "command_code" as const,
+      dispatch: commandCodeState.dispatch,
     }),
   };
 });
@@ -28,10 +29,7 @@ import {
   runAttentiveDispatch,
 } from "../../attention/index.js";
 import { estimateRequestTokens } from "../../attention/estimate.js";
-import {
-  buildCloudflareRequestBody,
-  cloudflareRequestWireAdditionalBytes,
-} from "../../model-routing/adapters/cloudflare-adapter.js";
+import { commandCodeRequestWireAdditionalBytes } from "../../model-routing/adapters/command-code-adapter.js";
 import { resolveCurrentPolicy } from "../../model-fabric/portfolio.js";
 import { quotaContractFor } from "../../model-routing/router.js";
 import type { ChatMessage } from "../../model-routing/types.js";
@@ -73,13 +71,25 @@ const capabilityReality: CapabilityReality = {
   approvedProjectIds: [],
 };
 
-const CLOUDFLARE_MODEL = "@cf/deepseek-ai/deepseek-v4-flash-0731";
-const CLOUDFLARE_BUCKET = `cloudflare:${CLOUDFLARE_MODEL}`;
+const THOUGHT_MODEL = "meta/muse-spark-1.3-contributor";
+const THOUGHT_BUCKET = `command_code:${THOUGHT_MODEL}`;
 const SEEDED_CURRENT_TPM_USAGE = 445_000;
 const TPM_LIMIT = 524_288;
 const EXPECTED_RETRY_OUTPUT = STRUCTURAL_RETRY_MAX_OUTPUT_TOKENS;
-const savedCloudflareToken = env.cloudflareApiToken;
-const savedCloudflareAccount = env.cloudflareAccountId;
+const savedCommandCodeKey = env.commandCodeApiKey;
+
+function commandCodeText(text: string, usage: { promptTokens: number; completionTokens: number }) {
+  return {
+    text,
+    providerModel: THOUGHT_MODEL,
+    providerRequestId: "cc-retry",
+    providerHttpStatus: 200,
+    providerRequestHash: "sha256:request",
+    providerResponseHash: `sha256:${createHash("sha256").update(text, "utf8").digest("hex")}`,
+    usage,
+    finishReason: "stop",
+  };
+}
 
 function deps(attentionDb: DatabaseSync): KernelDeps {
   return {
@@ -149,10 +159,9 @@ function helloInput(): { sidecar: DatabaseSync; input: ThoughtInput } {
 const savedOfflineEnv = process.env.ASHLEY_PHASE0_OFFLINE;
 
 afterEach(() => {
-  cloudflareState.dispatch.mockReset();
+  commandCodeState.dispatch.mockReset();
   resetAdapterCache();
-  env.cloudflareApiToken = savedCloudflareToken;
-  env.cloudflareAccountId = savedCloudflareAccount;
+  env.commandCodeApiKey = savedCommandCodeKey;
   if (savedOfflineEnv === undefined) {
     delete process.env.ASHLEY_PHASE0_OFFLINE;
   } else {
@@ -163,8 +172,7 @@ afterEach(() => {
 describe("v0.2.1 structural Thought retry admission", () => {
   it("keeps the primary at 65_536 and admits a corrective retry at 65_536 under real rolling TPM accounting", async () => {
     delete process.env.ASHLEY_PHASE0_OFFLINE;
-    env.cloudflareApiToken = "test-cloudflare-token";
-    env.cloudflareAccountId = "test-account";
+    env.commandCodeApiKey = "test-command-code-key";
     resetAdapterCache();
     const { sidecar, input } = helloInput();
     const primaryDb = openNuclearDb(new DatabaseSync(":memory:"));
@@ -175,7 +183,7 @@ describe("v0.2.1 structural Thought retry admission", () => {
     }> = [];
     let captureAdmission: Record<string, unknown> | null = null;
 
-    cloudflareState.dispatch.mockImplementation(async (args: {
+    commandCodeState.dispatch.mockImplementation(async (args: {
       messages: ChatMessage[];
       options: { maxTokens?: number; responseFormat?: string };
     }) => {
@@ -188,21 +196,17 @@ describe("v0.2.1 structural Thought retry admission", () => {
              FROM attention_requests
             WHERE quota_bucket = ?
             ORDER BY id DESC LIMIT 1`,
-        ).get(CLOUDFLARE_BUCKET) as Record<string, unknown>;
+        ).get(THOUGHT_BUCKET) as Record<string, unknown>;
       }
-      const parsed = JSON.parse(args.messages[1]?.content ?? "{}") as ThoughtInput;
-      const response = captured.length === 1
-        ? {
-            text: "not json",
-            providerModel: CLOUDFLARE_MODEL,
-            usage: { promptTokens: 4_772, completionTokens: 55 },
-          }
-        : {
-            text: JSON.stringify(makeSemanticSettlement()),
-            providerModel: CLOUDFLARE_MODEL,
-            usage: { promptTokens: 1, completionTokens: 1 },
-          };
-      return response;
+      const text = captured.length === 1
+        ? "not json"
+        : JSON.stringify(makeSemanticSettlement());
+      return commandCodeText(
+        text,
+        captured.length === 1
+          ? { promptTokens: 4_772, completionTokens: 55 }
+          : { promptTokens: 1, completionTokens: 1 },
+      );
     });
 
     const currentPolicy = resolveCurrentPolicy({
@@ -212,7 +216,7 @@ describe("v0.2.1 structural Thought retry admission", () => {
       routeId: "thought",
     });
     expect(currentPolicy.policyRow.maxOutputTokens).toBe(65_536);
-    expect(quotaContractFor(CLOUDFLARE_BUCKET).tpm).toBe(TPM_LIMIT);
+    expect(quotaContractFor(THOUGHT_BUCKET).tpm).toBe(TPM_LIMIT);
 
     const primary = await runThoughtModel(input, deps(primaryDb), {
       deadlineAtMs: Date.now() + ORDINARY_THOUGHT_BUDGET_MS,
@@ -224,7 +228,7 @@ describe("v0.2.1 structural Thought retry admission", () => {
          FROM attention_requests
         WHERE quota_bucket = ?
         ORDER BY id DESC LIMIT 1`,
-     ).get(CLOUDFLARE_BUCKET) as Record<string, unknown>;
+     ).get(THOUGHT_BUCKET) as Record<string, unknown>;
     const currentPrimaryEstimatedInput = Number(primaryRow.estimated_input_tokens);
     expect(Number(primaryRow.estimated_output_tokens)).toBe(65_536);
     expect(Number(primaryRow.actual_input_tokens)).toBe(4_772);
@@ -234,19 +238,19 @@ describe("v0.2.1 structural Thought retry admission", () => {
       messages: [{ role: "user", content: "seeded primary" }],
       purpose: "thought",
       lane: "urgent_grounded",
-       providerId: "cloudflare",
-       quotaBucket: CLOUDFLARE_BUCKET,
-       modelAlias: CLOUDFLARE_MODEL,
+       providerId: "command_code",
+       quotaBucket: THOUGHT_BUCKET,
+       modelAlias: THOUGHT_MODEL,
        maxTokens: 440_000,
       deadlineAtMs: Date.now() + ORDINARY_THOUGHT_BUDGET_MS,
       ownerId: "doc",
       dispatch: async () => ({
-         providerModel: CLOUDFLARE_MODEL,
+         providerModel: THOUGHT_MODEL,
         usage: { promptTokens: 5_000, completionTokens: 440_000 },
         result: { text: "seeded" },
       }),
     });
-     expect(currentTpmUsage(retryDb, realClock, CLOUDFLARE_BUCKET)).toBe(SEEDED_CURRENT_TPM_USAGE);
+     expect(currentTpmUsage(retryDb, realClock, THOUGHT_BUCKET)).toBe(SEEDED_CURRENT_TPM_USAGE);
 
     captureAdmission = {};
     const retry = await runThoughtModel(input, deps(retryDb), {
@@ -258,7 +262,7 @@ describe("v0.2.1 structural Thought retry admission", () => {
     expect(captured).toHaveLength(2);
     expect(captured[0]?.options.maxTokens).toBe(65_536);
     expect(captured[1]?.options.maxTokens).toBe(EXPECTED_RETRY_OUTPUT);
-    expect(captured[1]?.options.responseFormat).toBe("json_object");
+    expect(captured[1]?.options.responseFormat).toBe("json_schema");
     expect(captured[1]?.messages[1]?.content).toBe(captured[0]?.messages[1]?.content);
     expect(captured[1]?.messages[0]?.content).toContain("invalid_json");
     expect(captured[1]?.messages[0]?.content).toContain("schemaId=ashley.thought.semantic.v2.schema");
@@ -275,22 +279,19 @@ describe("v0.2.1 structural Thought retry admission", () => {
       input.inFlight.map((item) => item.effectId),
     );
     const structuredOutput = thoughtOutputStructuredRequest(operationalNamespace);
-    const retryBody = buildCloudflareRequestBody(
-      captured[1]!.messages,
-      { maxTokens: EXPECTED_RETRY_OUTPUT, responseFormat: "json_schema", temperature: 1.0 },
-      CLOUDFLARE_MODEL,
-      { kind: "reasoning_effort", value: "high" },
-      {
-        kind: "json_object_compatibility",
-        contractId: structuredOutput.contractId,
-        schemaId: structuredOutput.schemaId,
-        schemaFingerprint: structuredOutput.schemaFingerprint,
-        bindingId: "compat_thought_cloudflare_deepseek_v4_flash_json_object_v1",
-      },
-    );
     const estimatedRetry = estimateRequestTokens(captured[1]!.messages, {
       maxTokens: EXPECTED_RETRY_OUTPUT,
-      wireAdditionalBytes: cloudflareRequestWireAdditionalBytes({ body: retryBody }),
+      wireAdditionalBytes: commandCodeRequestWireAdditionalBytes({
+        messages: captured[1]!.messages,
+        modelId: THOUGHT_MODEL,
+        options: {
+          maxTokens: EXPECTED_RETRY_OUTPUT,
+          responseFormat: "json_schema",
+          temperature: 1,
+          structuredOutput,
+          reasoningEffort: "xhigh",
+        },
+      }),
     });
     const dispatchStartedAt = Date.parse(String(captureAdmission?.dispatch_started_at));
     const retryDeadline = Date.parse(String(captureAdmission?.deadline_at));
@@ -316,9 +317,9 @@ describe("v0.2.1 structural Thought retry admission", () => {
       `TPM_LIMIT=${TPM_LIMIT}`,
       `HEADROOM=${headroom}`,
       "RETRY_ADMISSION=PASS",
-       `CLOUDFLARE_THOUGHT_TPM=${quotaContractFor(CLOUDFLARE_BUCKET).tpm}`,
+       `COMMAND_CODE_THOUGHT_TPM=${quotaContractFor(THOUGHT_BUCKET).tpm}`,
        `PRIMARY_65536_TOTAL=${currentPrimaryEstimatedInput + 65_536}`,
-       `CLOUDFLARE_SINGLE_REQUEST_ADMISSIBLE=${currentPrimaryEstimatedInput + 65_536 <= quotaContractFor(CLOUDFLARE_BUCKET).tpm ? "yes" : "no"}`,
+       `COMMAND_CODE_SINGLE_REQUEST_ADMISSIBLE=${currentPrimaryEstimatedInput + 65_536 <= quotaContractFor(THOUGHT_BUCKET).tpm ? "yes" : "no"}`,
     ].join("\n"));
 
     sidecar.close();
