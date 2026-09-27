@@ -78,7 +78,7 @@ describe("v0.2.1 Memory support lineage", () => {
         dataClassification: "never_public",
         supportRef: { kind: "artifact_text_span", artifactId: "artifact:later", representationId: "text:later", start: 0, end: 5, quote: "later" },
         conversationId,
-      })).toThrow("support_ref_kind_unimplemented");
+      })).toThrow("support_ref_unresolvable");
 
       const external = appendExternalUtteranceInTransaction(db, {
         conversationId,

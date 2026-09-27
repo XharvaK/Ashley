@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { COGNITIVE_SIDECAR_SCHEMA_VERSION } from "../types.js";
 import { openTestSidecar } from "../test-support.js";
 import { applyWorkingContextDelta, listWorkingContext } from "./working-context.js";
 
@@ -48,7 +49,9 @@ describe("v0.2.1 Working Context", () => {
         audience_state: "unknown",
         legacy_scope: null,
       });
-      expect(db.prepare("PRAGMA user_version").get()).toMatchObject({ user_version: 33 });
+      expect(db.prepare("PRAGMA user_version").get()).toMatchObject({
+        user_version: COGNITIVE_SIDECAR_SCHEMA_VERSION,
+      });
       expect(db.prepare("SELECT COUNT(*) AS count FROM sidecar_memory_assertions").get()).toMatchObject({ count: 0 });
     } finally {
       db.close();

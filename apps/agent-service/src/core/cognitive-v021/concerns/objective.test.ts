@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ConcernRecord, MindOccupancy, SourceSupportRef } from "../types.js";
+import { COGNITIVE_SIDECAR_SCHEMA_VERSION, type ConcernRecord, type MindOccupancy, type SourceSupportRef } from "../types.js";
 import { appendOwnerUtterance } from "../evidence/conversation-log.js";
 import { makeSemanticSettlement, openTestSidecar, setTestSidecarVersion } from "../test-support.js";
 import { openCognitiveSidecarDb } from "../sidecar/db.js";
@@ -222,7 +222,9 @@ describe("concern objective facet", () => {
       openCognitiveSidecarDb(db, { dataPlane: { kind: "isolated" } });
       expect((db.prepare("PRAGMA table_info(concerns)").all() as Array<{ name: string }>)
         .some((column) => column.name === "objective_json")).toBe(true);
-      expect(db.prepare("PRAGMA user_version").get()).toMatchObject({ user_version: 33 });
+      expect(db.prepare("PRAGMA user_version").get()).toMatchObject({
+        user_version: COGNITIVE_SIDECAR_SCHEMA_VERSION,
+      });
     } finally {
       db.close();
     }
