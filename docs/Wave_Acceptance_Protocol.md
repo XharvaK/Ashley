@@ -159,6 +159,72 @@ selection only. This section owns the semantics.
 
 ---
 
+## Coherent Autonomy readiness gates
+
+This section records the readiness vocabulary for the coherent-autonomy
+programme. It extends the ladders above; it does not replace them and it does
+not shorten them. No stage below implies a later stage.
+
+```text
+IMPLEMENTED != ACTIVATED != PHI-READY
+```
+
+| Gate | Meaning | Who advances |
+|------|---------|--------------|
+| **Implementation contract complete** | All 25 Phase-A packets landed. Search, page fetch, vision, PDF, and attachments may be proven only with test doubles or with an honest unavailable provider. Social delegation may be proven with temporary rows and no production grant. | Doc accepts the Phase-A closure report |
+| **Faculty activated** | Doc completed Phase C for that faculty: snapshot, deploy of an accepted candidate, migration, and the existing release, env switch, or Owner grant. | Doc authorizes explicitly |
+| **Phi-ready** | Phase D real end-to-end witnesses and the Phase E ordinary-use interval have been run by Doc. | Doc authorizes explicitly |
+
+A faculty that exists only as a test double is **not** a real capability. An
+unavailable search provider is an acceptable Phase-A implementation result and
+an unacceptable Phi result. The same split applies to page fetch, attachments,
+PDF, images, and screenshots. Rendered-page view is the SHOULD exception: an
+honest `unavailable` bit does not by itself block Phi. Ordinary social
+participation is MUST and is not that exception. Phase D's real external
+participant witness uses a real grant and is required before an invitation.
+
+### Evidence labels
+
+These three labels are not interchangeable and MUST NOT be collapsed:
+
+| Label | Establishes |
+|-------|-------------|
+| `CONTRACT TEST` | A named assertion holds against constructed fixtures |
+| `CONTROLLED WITNESS` | A mechanical property holds under a constructed precondition. It does not claim Ashley chose the precondition, and it is not lived competence |
+| `OPEN BEHAVIORAL EVIDENCE` | Open episodes assess objective understanding, evidence use, revision, refusal, and stopping. They do not prescribe operation sequences |
+
+No new frozen aggregate autonomy score is defined here. A prior campaign total
+is not the definition of autonomy readiness.
+
+### Open-episode review checklist
+
+Review themes, not a pass/fail script: a temporary instruction after it leaves
+recent context; a correction without deleting history; an unfamiliar
+investigation; a long artifact; conflicting sources; a failed action;
+verification disagreement; a restart with purpose; a cancelled wake;
+participant evidence; malicious external instructions; a capability change;
+and a valid refusal.
+
+A valid refusal can pass. An unsupported refusal can fail. A behavioral failure
+is a review finding. It is NOT automatic authority for a Host patch, and the
+Host MUST NOT gain a rule that selects the "right" strategy when an episode
+fails.
+
+### Ordinary-use interval
+
+The seven-day ordinary-use window is a Doc-run review interval that follows
+integration, including a restart. It is not extended until a perfect streak
+appears. If one invariant fails, repair that invariant and take a bounded
+replacement witness. If a required path was never exercised, take a targeted
+witness. Model comparison is SHOULD, is deferred, and waits until the same
+tasks can run without the infrastructure confounds recorded in the source
+review memo.
+
+Running a live behavioral session, a model comparison, or a Phi invitation is
+Doc-reserved. None is authorized by reaching any gate above.
+
+---
+
 ## Sequencing rules
 
 | Allowed before predecessor implementation acceptance | Blocked before predecessor implementation acceptance |
