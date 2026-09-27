@@ -127,7 +127,13 @@ function namedCapability(
   const name = request.operationKind;
   const operation = reality.operationCapabilities?.find((item) => item.operationKind === name);
   const semantic = reality.semanticObservations?.find((item) => item.operationKind === name);
-  if (!operation && !semantic) throw new CapabilityUnavailableError("operation_not_available");
+  // W3-P7 is capability discovery only. A renderer is not present in this
+  // candidate, so the inspection surface reports the bounded affordance as
+  // unavailable without advertising a new executable operation.
+  const renderedViewUnavailable = name === "rendered_view";
+  if (!operation && !semantic && !renderedViewUnavailable) {
+    throw new CapabilityUnavailableError("operation_not_available");
+  }
   const schemaId = name === "candidate.develop"
     ? WORKSPACE_WORKER_REQUEST_SCHEMA_ID
     : THOUGHT_OUTPUT_SCHEMA_ID;
@@ -137,7 +143,8 @@ function namedCapability(
         authorityConditions: [...operation.authorityConditions],
         hardLimits: [...operation.hardLimits],
       }
-    : {
+    : semantic
+      ? {
         operationKind: semantic?.operationKind,
         semanticClass: semantic?.semanticClass,
         readOnly: true,
@@ -150,6 +157,21 @@ function namedCapability(
           "Read-only metadata inspection.",
           "No content bytes or write authority are returned.",
           "No social-operation delegation record is available.",
+        ],
+        authorizedProjectIds: [],
+      }
+      : {
+        operationKind: "rendered_view",
+        semanticClass: "observation" as const,
+        readOnly: true as const,
+        available: false,
+        authorityConditions: [
+          "Owner-private audience is required.",
+          "The current cycle must belong to the configured Owner.",
+        ],
+        hardLimits: [
+          "Read-only capability metadata only; no screenshot is captured.",
+          "No browser, desktop driver, click, form-fill, or navigation authority is available.",
         ],
         authorizedProjectIds: [],
       };
@@ -166,6 +188,7 @@ function namedCapability(
     authorityConditions: capability.authorityConditions,
     targets: capability.authorizedProjectIds,
     limits: capability.hardLimits,
+    ...(renderedViewUnavailable ? { rendered_view: "unavailable" } : {}),
     releaseAsOf: reality.asOf ?? {
       capturedAtMs: nowMs(),
       releaseId: currentReleaseId(),

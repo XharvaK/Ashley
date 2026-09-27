@@ -95,6 +95,42 @@ describe("typed inspect operations", () => {
     }
   });
 
+  it("reports rendered page view as unavailable without adding a browser renderer", async () => {
+    const sidecar = openTestSidecar();
+    const nuclear = openNuclearDb(new DatabaseSync(":memory:"));
+    const ownerId = "owner-inspect";
+    admitTestCycle(sidecar, {
+      cycleId: "cycle-inspect-owner",
+      conversationId: "thread-inspect-owner",
+      triggerKind: "owner_message",
+      triggerRef: "owner-inspect",
+      occupantId: ownerId,
+      authorityEpoch: 1,
+      nowMs: 1,
+    });
+    try {
+      const executor = createV021LiveOperationExecutors({ nuclear, sidecar, ownerId });
+      const observation = await executor.executeObservation(request("capability.inspect", {
+        operationKind: "rendered_view",
+      }));
+      expect(observation.payload).toMatchObject({
+        operationKind: "rendered_view",
+        availability: false,
+        reasonCode: "unavailable",
+        rendered_view: "unavailable",
+        capability: {
+          operationKind: "rendered_view",
+          semanticClass: "observation",
+          readOnly: true,
+          available: false,
+        },
+      });
+    } finally {
+      sidecar.close();
+      nuclear.close();
+    }
+  });
+
   it("keeps capability project ids empty for an external audience and rejects external inspection", async () => {
     const sidecar = openTestSidecar();
     const nuclear = openNuclearDb(new DatabaseSync(":memory:"));
