@@ -32,6 +32,7 @@ import {
   getPrivateReservationForWake,
 } from "../private-budget/ledger.js";
 import { getDeferredFrontier } from "../frontier/ledger.js";
+import { getFutureTrigger } from "../initiative/future-triggers.js";
 import { externalDmPrincipal, isExternalDmCognitionEnabled } from "../social/dm-activation.js";
 
 export type LiveCognitiveTurnInput = {
@@ -219,6 +220,15 @@ export async function runLiveCognitiveTurn(
   const cycle = getCycle(input.sidecar, cycleId);
   if (!cycle || cycle.wakeId !== wake.wakeId) throw new Error("wake_cycle_conflict");
   if (wake.state === "terminal" || wake.state === "reconciling") throw new Error("wake_not_dispatchable");
+  if (cycle.triggerKind === "future_trigger_due") {
+    const triggerId = typeof payload.triggerId === "string" && payload.triggerId.trim()
+      ? payload.triggerId.trim()
+      : cycle.triggerRef;
+    const trigger = getFutureTrigger(input.sidecar, triggerId);
+    if (!trigger || trigger.status === "cancelled" || trigger.status === "suppressed_stale" || wake.cancellationId !== null) {
+      throw new Error("future_trigger_not_dispatchable");
+    }
+  }
 
   const externalCycle = cycle.triggerKind === "external_message" || input.event.kind === "external_utterance";
   if (externalCycle) {

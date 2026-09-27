@@ -43,6 +43,7 @@ import {
   type EffectReceipt,
   type ThoughtExecutionDispatchTruth,
   type ThoughtExecutionProvenance,
+  type ThoughtWakeCause,
   type PublicationRejectionReason,
   type OwnerObligationAttemptOutcome,
   type OwnerObligationResolution,
@@ -84,6 +85,11 @@ import {
 } from "../../relationship/commitment-admission.js";
 import { captureOwnerDispatchCoverage, proveExactOwnerSupersession } from "../cycle/owner-coverage.js";
 import { getConversationEvidence, listConversationEvidence } from "../evidence/conversation-log.js";
+import {
+  futureTriggerWakeContext,
+  normalizeFutureTriggerEvidenceRefs,
+  normalizeFutureTriggerTimingPolicy,
+} from "../initiative/future-triggers.js";
 import { listInFlightForThoughtCycle } from "../effect/in-flight.js";
 import { dispatchEffect } from "../effect/proposal.js";
 import {
@@ -1303,6 +1309,9 @@ function materializeSemanticSettlement(
               `futureTriggerDeltas[${index}].concernRef`,
             );
           }
+          const payload = { purpose: delta.purpose, ...delta.payload };
+          const rawEvidenceRefs = (payload as Record<string, unknown>).evidenceRefs;
+          const rawTimingPolicy = (payload as Record<string, unknown>).timingPolicyId;
           return {
             op: "create" as const,
             trigger: {
@@ -1311,7 +1320,13 @@ function materializeSemanticSettlement(
               concernId,
               snapshotHash,
               dueAtMs: delta.dueAtMs,
-              payload: { purpose: delta.purpose, ...delta.payload },
+              ...(normalizeFutureTriggerEvidenceRefs(rawEvidenceRefs).length > 0
+                ? { evidenceRefs: normalizeFutureTriggerEvidenceRefs(rawEvidenceRefs) }
+                : {}),
+              ...(normalizeFutureTriggerTimingPolicy(rawTimingPolicy) !== null
+                ? { timingPolicyId: normalizeFutureTriggerTimingPolicy(rawTimingPolicy) }
+                : {}),
+              payload,
             },
           };
         })());
@@ -1993,6 +2008,41 @@ function payloadRecord(event: InboxEvent): Record<string, unknown> {
   return typeof event.payload === "object" && event.payload !== null && !Array.isArray(event.payload)
     ? event.payload as Record<string, unknown>
     : {};
+}
+
+/** Build the semantic cause record without composing a new future-trigger purpose. */
+export function buildThoughtWakeCauses(
+  sidecar: DatabaseSync,
+  event: InboxEvent,
+  wake: { sourceKind: string },
+  cycle: { triggerRef: string },
+  triggerKind: CycleTriggerKind,
+): ThoughtWakeCause[] {
+  const payload = payloadRecord(event);
+  if (triggerKind === "future_trigger_due" || wake.sourceKind === "future_trigger") {
+    const triggerId = typeof payload.triggerId === "string" && payload.triggerId.trim()
+      ? payload.triggerId.trim()
+      : cycle.triggerRef;
+    const futureCause = futureTriggerWakeContext(sidecar, triggerId);
+    if (futureCause) return [futureCause];
+  }
+  if (triggerKind === "commitment_due") {
+    const triggerRef = typeof payload.commitmentId === "string" && payload.commitmentId.trim()
+      ? payload.commitmentId.trim()
+      : cycle.triggerRef || event.id;
+    return [{
+      sourceKind: "commitment",
+      triggerRef,
+      purpose: null,
+      purposeStatus: "absent",
+    }];
+  }
+  return [{
+    sourceKind: wake.sourceKind,
+    triggerRef: cycle.triggerRef || event.id,
+    purpose: null,
+    purposeStatus: "absent",
+  }];
 }
 
 function rememberDirective(payload: Record<string, unknown>): RememberDirective | null {
@@ -2999,12 +3049,7 @@ export async function runCognitiveCycle(
       ...(continuityRecovery ? { continuityRecovery } : {}),
       constitution: deps.constitution,
       capabilityReality: invocationCapabilityReality,
-      wakeCauses: [{
-        sourceKind: wake.sourceKind,
-        triggerRef: cycle.triggerRef || event.id,
-        purpose: null,
-        purposeStatus: "absent" as const,
-      }],
+      wakeCauses: buildThoughtWakeCauses(sidecar, event, wake, cycle, originProfile.triggerKind),
       previousInvocationDelta: "unknown",
       thoughtLegDeadlineAtMs: thoughtDeadlineAtMs,
       ...(settlementOnly ? { settlementOnly: true } : {}),

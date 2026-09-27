@@ -1,8 +1,20 @@
 import { describe, expect, it } from "vitest";
 import { openTestSidecar } from "../test-support.js";
-import { fireDueTriggers, listFutureTriggers, matureFutureTriggerToWake, scheduleFutureTrigger } from "./future-triggers.js";
+import {
+  cancelFutureTrigger,
+  fireDueTriggers,
+  futureTriggerWakeContext,
+  getFutureTrigger,
+  listFutureTriggers,
+  matureFutureTriggerToWake,
+  scheduleFutureTrigger,
+} from "./future-triggers.js";
 
-function seedConcern(db: ReturnType<typeof openTestSidecar>, status: "active" | "resolved" = "active", snapshotHash = "snapshot-1"): void {
+function seedConcern(
+  db: ReturnType<typeof openTestSidecar>,
+  status: "active" | "resolved" | "dormant_but_revisitable" = "active",
+  snapshotHash = "snapshot-1",
+): void {
   db.prepare(
     `INSERT INTO concerns
        (concern_id, conversation_id, statement, source_refs_json, dimensions_json,
@@ -34,14 +46,105 @@ describe("v0.2.1 FutureTrigger fence", () => {
     }
   });
 
-  it("suppresses a due trigger when the concern snapshot hash changed", async () => {
+  it("admits one bounded reconsideration wake when the concern snapshot hash changed", async () => {
     const db = openTestSidecar();
     try {
       seedConcern(db, "active", "snapshot-new");
       scheduleFutureTrigger(db, { triggerId: "future-hash", conversationId: "thread-trigger", concernId: "concern-1", snapshotHash: "snapshot-old", dueAtMs: 10 });
       const result = await fireDueTriggers(db, { nowMs: 10 });
-      expect(result.suppressedStale).toHaveLength(1);
+      expect(result.suppressedStale).toHaveLength(0);
+      expect(result.fired).toHaveLength(1);
       expect(result.thoughtModelAttempts).toBe(0);
+      expect(getFutureTrigger(db, "future-hash")).toMatchObject({ status: "needs_review" });
+      const wake = db.prepare("SELECT wake_id FROM future_triggers WHERE trigger_id = 'future-hash'").get() as { wake_id: string };
+      expect(db.prepare("SELECT state, terminal_reason FROM wakes WHERE wake_id = ?").get(wake.wake_id)).toMatchObject({ state: "pending", terminal_reason: null });
+      expect(futureTriggerWakeContext(db, "future-hash")).toMatchObject({
+        sourceKind: "future_trigger",
+        triggerRef: "future-hash",
+        bindingState: "broken",
+        bindingReason: "snapshot_mismatch",
+        concernRevision: "snapshot-new",
+      });
+      const replay = await fireDueTriggers(db, { nowMs: 11 });
+      expect(replay.fired).toHaveLength(0);
+      expect((db.prepare("SELECT COUNT(*) AS count FROM wakes").get() as { count: number }).count).toBe(1);
+      expect((db.prepare("SELECT COUNT(*) AS count FROM inbox_events WHERE id = 'future-trigger:future-hash'").get() as { count: number }).count).toBe(1);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("preserves the authored purpose and bounded trigger metadata for Thought", () => {
+    const db = openTestSidecar();
+    try {
+      seedConcern(db);
+      scheduleFutureTrigger(db, {
+        triggerId: "future-purpose",
+        conversationId: "thread-trigger",
+        concernId: "concern-1",
+        snapshotHash: "snapshot-1",
+        dueAtMs: 42,
+        evidenceRefs: ["evidence:one"],
+        timingPolicyId: "owner-window-v1",
+        payload: { purpose: "revisit the bounded concern", statement: "must not enter the inbox" },
+      });
+      expect(futureTriggerWakeContext(db, "future-purpose")).toMatchObject({
+        sourceKind: "future_trigger",
+        triggerRef: "future-purpose",
+        purpose: "revisit the bounded concern",
+        purposeStatus: "stored",
+        triggerPurpose: "revisit the bounded concern",
+        dueAtMs: 42,
+        concernId: "concern-1",
+        concernRevision: "snapshot-1",
+        evidenceRefs: ["evidence:one"],
+        timingPolicyId: "owner-window-v1",
+        cancellationState: "not_cancelled",
+        bindingState: "intact",
+      });
+    } finally {
+      db.close();
+    }
+  });
+
+  it("fires an explicit trigger for a dormant-but-revisitable concern", async () => {
+    const db = openTestSidecar();
+    try {
+      seedConcern(db, "dormant_but_revisitable");
+      scheduleFutureTrigger(db, { triggerId: "future-dormant", conversationId: "thread-trigger", concernId: "concern-1", snapshotHash: "snapshot-1", dueAtMs: 10 });
+      const result = await fireDueTriggers(db, { nowMs: 10 });
+      expect(result.fired.map((trigger) => trigger.triggerId)).toEqual(["future-dormant"]);
+      expect(result.suppressedStale).toHaveLength(0);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("keeps quarantined occupancy on the suppression path", async () => {
+    const db = openTestSidecar();
+    try {
+      seedConcern(db);
+      db.prepare("UPDATE concerns SET quarantine_kind = 'legacy_unavailable_source' WHERE concern_id = 'concern-1'").run();
+      scheduleFutureTrigger(db, { triggerId: "future-quarantine", conversationId: "thread-trigger", concernId: "concern-1", snapshotHash: "snapshot-1", dueAtMs: 10 });
+      const result = await fireDueTriggers(db, { nowMs: 10 });
+      expect(result.suppressedStale.map((trigger) => trigger.triggerId)).toEqual(["future-quarantine"]);
+      expect(result.fired).toHaveLength(0);
+      expect(getFutureTrigger(db, "future-quarantine")).toMatchObject({ status: "suppressed_stale" });
+    } finally {
+      db.close();
+    }
+  });
+
+  it("cancels an admitted but not-yet-running wake", () => {
+    const db = openTestSidecar();
+    try {
+      seedConcern(db);
+      scheduleFutureTrigger(db, { triggerId: "future-cancel", conversationId: "thread-trigger", concernId: "concern-1", snapshotHash: "snapshot-1", dueAtMs: 10 });
+      const admitted = matureFutureTriggerToWake(db, "future-cancel", { nowMs: 10 });
+      expect(admitted?.kind).toBe("created");
+      expect(cancelFutureTrigger(db, "future-cancel", 11)).toBe(true);
+      expect(getFutureTrigger(db, "future-cancel")).toMatchObject({ status: "cancelled" });
+      expect(db.prepare("SELECT state, terminal_reason FROM wakes WHERE wake_id = ?").get(admitted!.wake.wakeId)).toMatchObject({ state: "terminal", terminal_reason: "cancelled" });
     } finally {
       db.close();
     }

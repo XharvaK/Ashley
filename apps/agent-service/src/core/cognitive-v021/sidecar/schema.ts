@@ -1335,3 +1335,11 @@ ALTER TABLE concerns ADD COLUMN objective_json TEXT
   CHECK(objective_json IS NULL OR json_valid(objective_json));
 UPDATE cognitive_sidecar_meta SET schema_version = 33, projection_state = 'reconciling' WHERE id = 1;
 `;
+
+/** Add bounded provenance and timing policy fields to future triggers. */
+export const COGNITIVE_SIDECAR_SCHEMA_V34 = String.raw`
+ALTER TABLE future_triggers ADD COLUMN evidence_refs_json TEXT NOT NULL DEFAULT '[]'
+  CHECK(json_valid(evidence_refs_json) AND json_type(evidence_refs_json) = 'array');
+ALTER TABLE future_triggers ADD COLUMN timing_policy TEXT;
+UPDATE cognitive_sidecar_meta SET schema_version = 34, projection_state = 'reconciling' WHERE id = 1;
+`;

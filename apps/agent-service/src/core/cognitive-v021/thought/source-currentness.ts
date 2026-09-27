@@ -385,7 +385,7 @@ function currentFutureTriggerCurrentness(
   const scheduledIds = db.prepare(
     `SELECT trigger_id
        FROM future_triggers
-      WHERE conversation_id = ? AND status = 'scheduled'
+      WHERE conversation_id = ? AND status IN ('scheduled', 'needs_review')
       ORDER BY due_at_ms ASC, trigger_id ASC`,
   ).all(conversationId)
     .flatMap((value) => {

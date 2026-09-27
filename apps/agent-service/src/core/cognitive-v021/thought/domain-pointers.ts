@@ -386,7 +386,7 @@ function buildFutureTriggers(db: DatabaseSync, conversationId: string): { pointe
      ORDER BY due_at_ms ASC, trigger_id ASC
   `, conversationId);
   const sourceRows = mapRows(source, "trigger_id", "status", "due_at_ms");
-  const eligibleRows = sourceRows.filter((row) => row.status === "scheduled");
+  const eligibleRows = sourceRows.filter((row) => row.status === "scheduled" || row.status === "needs_review");
   return makeDomain(
     "future_triggers",
     "cognitive-v021.db:future_triggers",

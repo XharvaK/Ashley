@@ -32,8 +32,10 @@ import {
   materializeEffectsCompleted,
   observeThoughtCycleInput,
   ownerRoomDestinationFor,
+  buildThoughtWakeCauses,
   runCognitiveCycle,
 } from "./run.js";
+import { scheduleFutureTrigger } from "../initiative/future-triggers.js";
 
 const constitution: IdentitySlice = { constitutional: ["truth first"], stableSelf: ["curious"] };
 const capabilityReality: CapabilityReality = {
@@ -88,6 +90,71 @@ function deps(overrides: Partial<KernelDeps> = {}): KernelDeps {
 }
 
 describe("v0.2.1 Thought run", () => {
+  it("projects the stored future-trigger purpose and binding into Thought wake causes", () => {
+    const sidecar = openTestSidecar();
+    try {
+      const conversationId = "thread-run-purpose";
+      const cycle = admitTestCycle(sidecar, {
+        conversationId,
+        triggerKind: "future_trigger_due",
+        triggerRef: "future-run-purpose",
+        occupantId: "doc",
+        authorityEpoch: 1,
+        nowMs: 10,
+      });
+      sidecar.prepare(
+        `INSERT INTO concerns
+           (concern_id, conversation_id, statement, source_refs_json, dimensions_json,
+            assertion_key, cognitive_status, snapshot_hash, updated_cycle)
+         VALUES ('concern-run-purpose', ?, 'bounded concern', '[]', '{}', NULL, 'active', 'snapshot-run-purpose', NULL)`,
+      ).run(conversationId);
+      sidecar.prepare(
+        `INSERT INTO mind_occupancy
+           (conversation_id, concern_id, status, priority, updated_cycle, updated_generation)
+         VALUES (?, 'concern-run-purpose', 'active', 10, 'cycle-seed', 1)`,
+      ).run(conversationId);
+      scheduleFutureTrigger(sidecar, {
+        triggerId: "future-run-purpose",
+        conversationId,
+        concernId: "concern-run-purpose",
+        snapshotHash: "snapshot-run-purpose",
+        dueAtMs: 10,
+        evidenceRefs: ["evidence:run"],
+        timingPolicyId: "timing:run",
+        payload: { purpose: "revisit the bounded concern" },
+      });
+      const event = appendInboxEvent(sidecar, {
+        id: "future-trigger:future-run-purpose",
+        wakeId: cycle.wakeId,
+        conversationId,
+        kind: "future_trigger_due",
+        payload: { triggerId: "future-run-purpose", concernId: "concern-run-purpose", snapshotHash: "snapshot-run-purpose" },
+        createdAtMs: 10,
+      });
+      expect(buildThoughtWakeCauses(
+        sidecar,
+        event,
+        { sourceKind: "future_trigger" },
+        { triggerRef: cycle.triggerRef },
+        "future_trigger_due",
+      )[0]).toMatchObject({
+        sourceKind: "future_trigger",
+        triggerRef: "future-run-purpose",
+        purpose: "revisit the bounded concern",
+        triggerPurpose: "revisit the bounded concern",
+        dueAtMs: 10,
+        concernId: "concern-run-purpose",
+        concernRevision: "snapshot-run-purpose",
+        evidenceRefs: ["evidence:run"],
+        timingPolicyId: "timing:run",
+        cancellationState: "not_cancelled",
+        bindingState: "intact",
+      });
+    } finally {
+      sidecar.close();
+    }
+  });
+
   it("binds owner ingress attachments as observations without the legacy perception runner", async () => {
     const sidecar = openTestSidecar();
     const attentionDb = openTestSidecar();

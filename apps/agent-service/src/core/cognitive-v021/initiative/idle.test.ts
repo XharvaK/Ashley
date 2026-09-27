@@ -188,6 +188,58 @@ describe("v0.2.1 idle executive", () => {
     }
   });
 
+  it("keeps a same-tick future trigger and commitment as separate wake causes", async () => {
+    const sidecar = openTestSidecar();
+    const nuclear = openNuclearDb(new DatabaseSync(":memory:"));
+    try {
+      const nowMs = 2_000;
+      const conversationId = "thread-both-causes";
+      seedActiveOccupancy(sidecar, conversationId);
+      establishEpoch(sidecar, nowMs);
+      scheduleFutureTrigger(sidecar, {
+        triggerId: "future-and-commitment",
+        conversationId,
+        concernId: "concern-idle",
+        snapshotHash: "snapshot-idle",
+        dueAtMs: nowMs,
+      });
+      persistCommitmentProposals(nuclear, "both-causes", [commitmentProposal()]);
+      settlePersistedCommitmentProposals(nuclear, "both-causes", { ownerId: "owner-1", nowMs, enabled: true });
+      const commitment = listDueCommitmentOpportunities(nuclear, "owner-1", nowMs)[0];
+      expect(commitment).toBeDefined();
+
+      const seen: Array<{ kind: string; ref: string }> = [];
+      const result = await tickIdleOpportunity(sidecar, {
+        conversationId,
+        occupantId: "owner-1",
+        nowMs,
+        commitmentDb: nuclear,
+        commitmentOwnerId: "owner-1",
+        commitment,
+        runThought: async (input) => {
+          seen.push({ kind: input.trigger.kind, ref: input.trigger.ref });
+          return { published: false, outboxId: null, thoughtModelAttempts: 1, speechMode: "none" as const };
+        },
+      });
+
+      expect(result.thoughtCalls).toBe(2);
+      expect(seen).toEqual(expect.arrayContaining([
+        { kind: "future_trigger_due", ref: "future-and-commitment" },
+        { kind: "commitment_due", ref: "cmt:both-causes:0" },
+      ]));
+      const wakes = sidecar.prepare(
+        "SELECT source_kind, trigger_ref FROM wakes WHERE conversation_id = ?",
+      ).all(conversationId);
+      expect(wakes).toEqual(expect.arrayContaining([
+        expect.objectContaining({ source_kind: "future_trigger", trigger_ref: "future-and-commitment" }),
+        expect.objectContaining({ source_kind: "idle", trigger_ref: "cmt:both-causes:0" }),
+      ]));
+    } finally {
+      nuclear.close();
+      sidecar.close();
+    }
+  });
+
   it("stops private Thought calls at the hourly executive budget", async () => {
     const db = openTestSidecar();
     try {

@@ -43,7 +43,13 @@ import {
   applyObservationSubscriptionDelta,
   assertSubscriptionCapacity,
 } from "../observation/subscriptions.js";
-import { sanitizeFutureTriggerPayload } from "../initiative/future-triggers.js";
+import {
+  cancelFutureTriggerInTransaction,
+  markFutureTriggerNeedsReview,
+  normalizeFutureTriggerEvidenceRefs,
+  normalizeFutureTriggerTimingPolicy,
+  sanitizeFutureTriggerPayload,
+} from "../initiative/future-triggers.js";
 import { beginConsequenceInTransaction, getWakeForCycle, getWake } from "../wake/ledger.js";
 import { isAuthorizedOwnerId } from "../../../owner-auth.js";
 import { getRaEffectiveConfig, type RaEnvironment } from "../../relationship/ra-effective-config.js";
@@ -191,9 +197,9 @@ function publicationFence(
     });
 }
 
-function applyFutureTriggerDelta(db: DatabaseSync, delta: FutureTriggerDelta): void {
+function applyFutureTriggerDelta(db: DatabaseSync, delta: FutureTriggerDelta, nowMs: number): void {
   if (delta.op === "cancel") {
-    db.prepare("UPDATE future_triggers SET status = 'cancelled' WHERE trigger_id = ?").run(delta.triggerId);
+    cancelFutureTriggerInTransaction(db, delta.triggerId, nowMs);
     return;
   }
   const trigger = delta.trigger;
@@ -203,14 +209,56 @@ function applyFutureTriggerDelta(db: DatabaseSync, delta: FutureTriggerDelta): v
   const existing = db.prepare(
     "SELECT status FROM future_triggers WHERE trigger_id = ? LIMIT 1",
   ).get(trigger.triggerId) as { status?: unknown } | undefined;
-  if (existing && existing.status !== "scheduled") throw new Error("future_trigger_terminal");
+  if (existing && existing.status !== "scheduled" && existing.status !== "needs_review") throw new Error("future_trigger_terminal");
   db.prepare(
     `INSERT INTO future_triggers
-       (trigger_id, conversation_id, concern_id, due_at_ms, snapshot_hash, status, payload_json)
-     VALUES (?, ?, ?, ?, ?, 'scheduled', ?)
+       (trigger_id, conversation_id, concern_id, due_at_ms, snapshot_hash, status, payload_json, evidence_refs_json, timing_policy)
+     VALUES (?, ?, ?, ?, ?, 'scheduled', ?, ?, ?)
      ON CONFLICT(trigger_id) DO UPDATE SET due_at_ms=excluded.due_at_ms,
-       snapshot_hash=excluded.snapshot_hash, status='scheduled', payload_json=excluded.payload_json`,
-  ).run(trigger.triggerId, trigger.conversationId, trigger.concernId, trigger.dueAtMs, trigger.snapshotHash, json(sanitizeFutureTriggerPayload(trigger.payload ?? {})));
+       snapshot_hash=excluded.snapshot_hash, status='scheduled', payload_json=excluded.payload_json,
+       evidence_refs_json=excluded.evidence_refs_json, timing_policy=excluded.timing_policy`,
+  ).run(
+    trigger.triggerId,
+    trigger.conversationId,
+    trigger.concernId,
+    trigger.dueAtMs,
+    trigger.snapshotHash,
+    json(sanitizeFutureTriggerPayload(trigger.payload ?? {})),
+    json(normalizeFutureTriggerEvidenceRefs(trigger.evidenceRefs)),
+    normalizeFutureTriggerTimingPolicy(trigger.timingPolicyId),
+  );
+}
+
+function markUnreaffirmedFutureTriggers(
+  db: DatabaseSync,
+  settlement: PublishedCognitiveSettlement,
+  nowMs: number,
+): void {
+  const changedConcernIds = new Set<string>();
+  for (const delta of (settlement.concernDeltas ?? [])) {
+    if (delta.op === "upsert" && delta.record.status !== "resolved") changedConcernIds.add(delta.record.concernId);
+  }
+  if (changedConcernIds.size === 0) return;
+  const reaffirmed = new Set(
+    (settlement.futureTriggers ?? [])
+      .filter((delta): delta is Extract<FutureTriggerDelta, { op: "create" }> => delta.op === "create")
+      .map((delta) => delta.trigger.triggerId),
+  );
+  for (const concernId of changedConcernIds) {
+    const concern = getConcern(db, concernId);
+    const facts = getConcernAuthorityFacts(db, concernId);
+    if (!concern || !facts || facts.forgotten || facts.quarantineKind !== null || concern.status === "resolved") continue;
+    const rows = db.prepare(
+      `SELECT trigger_id, snapshot_hash
+         FROM future_triggers
+        WHERE conversation_id = ? AND concern_id = ? AND status IN ('scheduled', 'fired')`,
+    ).all(concern.conversationId, concernId) as Array<{ trigger_id?: unknown; snapshot_hash?: unknown }>;
+    for (const row of rows) {
+      if (typeof row.trigger_id !== "string" || reaffirmed.has(row.trigger_id)) continue;
+      if (row.snapshot_hash === concern.snapshotHash) continue;
+      markFutureTriggerNeedsReview(db, row.trigger_id, nowMs);
+    }
+  }
 }
 
 function applySubscriptionDelta(db: DatabaseSync, delta: SubscriptionDelta): void {
@@ -467,7 +515,8 @@ export function publishSemanticTransaction(
     for (const delta of (settlement.occupancyDelta ?? [])) applyOccupancyDelta(db, delta, settlement);
     reconcileConcernOccupancyCoherence(db, settlement);
     if (settlement.subscriptions) assertSubscriptionCapacity(db, conversationId, settlement.subscriptions);
-    for (const delta of (settlement.futureTriggers ?? [])) applyFutureTriggerDelta(db, delta);
+    for (const delta of (settlement.futureTriggers ?? [])) applyFutureTriggerDelta(db, delta, nowMs);
+    markUnreaffirmedFutureTriggers(db, settlement, nowMs);
     for (const delta of (settlement.subscriptions ?? [])) applySubscriptionDelta(db, delta);
     for (const nomination of (settlement.durableNominations ?? [])) applyNomination(db, nomination);
 

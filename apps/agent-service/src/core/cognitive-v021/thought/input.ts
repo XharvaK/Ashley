@@ -877,7 +877,7 @@ export function captureThoughtSourcePackage(
   try {
     futureRows = options.sidecar.prepare(
       `SELECT concern_id FROM future_triggers
-        WHERE conversation_id = ? AND status IN ('scheduled', 'suppressed_stale')
+        WHERE conversation_id = ? AND status IN ('scheduled', 'needs_review', 'suppressed_stale')
         ORDER BY due_at_ms ASC, trigger_id ASC`,
     ).all(options.cycle.conversationId) as Array<Record<string, unknown>>;
   } catch {

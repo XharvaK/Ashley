@@ -12,6 +12,7 @@ import {
 } from "./live.js";
 import type { CapabilityReality, IdentitySlice, KernelDeps, Observation, InboxEvent } from "../types.js";
 import { getWake } from "../wake/ledger.js";
+import { cancelFutureTrigger, matureFutureTriggerToWake, scheduleFutureTrigger } from "../initiative/future-triggers.js";
 import {
   insertDeferredFrontierRecord,
   claimDueDeferredFrontier,
@@ -89,6 +90,45 @@ function event(sidecar: ReturnType<typeof openTestSidecar>) {
 }
 
 describe("v0.2.1 live dispatcher", () => {
+  it("does not dispatch a future-trigger Thought after admission-time cancellation", async () => {
+    const sidecar = openTestSidecar();
+    const nuclear = openTestSidecar();
+    const attentionDb = openTestSidecar();
+    try {
+      sidecar.prepare(
+        `INSERT INTO concerns
+           (concern_id, conversation_id, statement, source_refs_json, dimensions_json,
+            assertion_key, cognitive_status, snapshot_hash, updated_cycle)
+         VALUES ('concern-live-cancel', 'thread-live-cancel', 'cancel me', '[]', '{}', NULL, 'active', 'snapshot-live-cancel', NULL)`,
+      ).run();
+      sidecar.prepare(
+        `INSERT INTO mind_occupancy
+           (conversation_id, concern_id, status, priority, updated_cycle, updated_generation)
+         VALUES ('thread-live-cancel', 'concern-live-cancel', 'active', 10, 'seed', 1)`,
+      ).run();
+      scheduleFutureTrigger(sidecar, {
+        triggerId: "future-live-cancel",
+        conversationId: "thread-live-cancel",
+        concernId: "concern-live-cancel",
+        snapshotHash: "snapshot-live-cancel",
+        dueAtMs: 10,
+      });
+      const admitted = matureFutureTriggerToWake(sidecar, "future-live-cancel", { nowMs: 10 });
+      if (!admitted?.event) throw new Error("future_cancel_event_missing");
+      expect(cancelFutureTrigger(sidecar, "future-live-cancel", 11)).toBe(true);
+      await expect(runLiveCognitiveTurn({
+        sidecar,
+        nuclear,
+        event: admitted.event,
+        deps: deps({ attentionDb }),
+      })).rejects.toThrow("wake_not_dispatchable");
+    } finally {
+      attentionDb.close();
+      nuclear.close();
+      sidecar.close();
+    }
+  });
+
   it("maps one admitted event through Thought and the projector seam", async () => {
     const sidecar = openTestSidecar();
     const nuclear = openTestSidecar();

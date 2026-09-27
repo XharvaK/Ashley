@@ -301,6 +301,39 @@ function emptyResult(
   };
 }
 
+function mergeConcurrentCauseResults(
+  conversationId: string,
+  first: IdleTickResult,
+  second: IdleTickResult,
+  firedTriggers: FutureTrigger[],
+  suppressedTriggers: FutureTrigger[],
+): IdleTickResult {
+  const thoughtExecutionProvenance = mergeExecutionProvenance(
+    first.thoughtExecutionProvenance ?? null,
+    second.thoughtExecutionProvenance,
+  );
+  const reason = first.reason !== "empty_house" ? first.reason : second.reason;
+  return {
+    conversationId,
+    eligible: first.eligible || second.eligible,
+    reason,
+    thoughtModelAttempts: first.thoughtModelAttempts + second.thoughtModelAttempts,
+    acceptedSettlements: first.acceptedSettlements + second.acceptedSettlements,
+    thoughtCalls: first.thoughtCalls + second.thoughtCalls,
+    cycleId: first.cycleId ?? second.cycleId,
+    observations: [...first.observations, ...second.observations],
+    firedTriggers: firedTriggers.filter((trigger) => trigger.conversationId === conversationId),
+    suppressedTriggers: suppressedTriggers.filter((trigger) => trigger.conversationId === conversationId),
+    dormant: first.dormant || second.dormant,
+    idleEligible: first.idleEligible === true || second.idleEligible === true,
+    semanticAbsenceClaim: first.semanticAbsenceClaim === "no" || second.semanticAbsenceClaim === "no" ? "no" : "yes",
+    ...(thoughtExecutionProvenance ? { thoughtExecutionProvenance } : {}),
+    ...(first.initiativePreference ?? second.initiativePreference
+      ? { initiativePreference: first.initiativePreference ?? second.initiativePreference }
+      : {}),
+  };
+}
+
 function recordBudgetExhaustionEvidence(
   db: DatabaseSync,
   input: {
@@ -530,6 +563,31 @@ async function tickConversation(
   const thought = runner(options);
   const commitment = options.commitment;
   const staleSuppressed = suppressedTriggers.some((trigger) => trigger.conversationId === conversationId);
+
+  // A due authored trigger and an Owner commitment are independent causes.
+  // They receive separate wakes so one cause cannot be hidden by the other's
+  // trigger kind or payload.
+  if (commitment && dueTriggers.length > 0) {
+    const triggerResult = await tickConversation(
+      db,
+      conversationId,
+      { ...options, commitment: undefined },
+      firedTriggers,
+      suppressedTriggers,
+      items,
+      dueEvents,
+    );
+    const commitmentResult = await tickConversation(
+      db,
+      conversationId,
+      options,
+      [],
+      suppressedTriggers,
+      items,
+      [],
+    );
+    return mergeConcurrentCauseResults(conversationId, triggerResult, commitmentResult, firedTriggers, suppressedTriggers);
+  }
 
   // P1 periodic delegation: a pre-resolved bound/admitted occurrence runs on
   // its frozen binding (no re-selection, no re-acquisition, no re-admission,

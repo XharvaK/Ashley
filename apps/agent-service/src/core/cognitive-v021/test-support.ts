@@ -15,6 +15,13 @@ export function openTestSidecar(): DatabaseSync {
 /** Rewind an in-memory current sidecar to a structurally valid historical fixture version. */
 export function setTestSidecarVersion(db: DatabaseSync, version: number): void {
   if (!Number.isSafeInteger(version) || version < 0) throw new Error("test_sidecar_version_invalid");
+  if (version < 34) {
+    const columns = new Set((db.prepare("PRAGMA table_info(future_triggers)").all() as Array<{ name?: unknown }>)
+      .map((row) => typeof row.name === "string" ? row.name : ""));
+    for (const column of ["timing_policy", "evidence_refs_json"]) {
+      if (columns.has(column)) db.exec(`ALTER TABLE future_triggers DROP COLUMN ${column}`);
+    }
+  }
   if (version < 33) {
     const columns = new Set((db.prepare("PRAGMA table_info(concerns)").all() as Array<{ name?: unknown }>)
       .map((row) => typeof row.name === "string" ? row.name : ""));

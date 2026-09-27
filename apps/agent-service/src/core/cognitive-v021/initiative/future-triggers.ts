@@ -2,12 +2,16 @@ import { appendInboxEventInTransaction, getInboxEvent } from "../cycle/inbox.js"
 import { getConcern, getConcernAuthorityFacts } from "../concerns/lineage.js";
 import { listOccupancy } from "../concerns/occupancy.js";
 import type { DatabaseSync } from "node:sqlite";
-import type { FutureTrigger, InboxEvent, WakeRecord } from "../types.js";
+import type { FutureTrigger, InboxEvent, ThoughtWakeCause, WakeRecord } from "../types.js";
 import { occurrenceIdFor } from "../wake/identity.js";
 import { admitWakeInTransaction, finishWakeInTransaction, getWake, recordWakeCancellationInTransaction } from "../wake/ledger.js";
 import { getActiveDeferredFrontier } from "../frontier/ledger.js";
 
 type Row = Record<string, unknown>;
+
+const MAX_EVIDENCE_REFS = 32;
+const MAX_EVIDENCE_REF_LENGTH = 256;
+const MAX_TIMING_POLICY_LENGTH = 128;
 
 export type ScheduleFutureTriggerInput = Omit<FutureTrigger, "status"> & {
   status?: FutureTrigger["status"];
@@ -49,10 +53,35 @@ function parsePayload(value: unknown): Record<string, unknown> {
   }
 }
 
+function parseEvidenceRefs(value: unknown): string[] {
+  if (typeof value !== "string") return [];
+  try {
+    const parsed = JSON.parse(value);
+    return normalizeFutureTriggerEvidenceRefs(parsed);
+  } catch {
+    return [];
+  }
+}
+
+export function normalizeFutureTriggerEvidenceRefs(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((item): item is string => typeof item === "string")
+    .map((item) => item.trim().slice(0, MAX_EVIDENCE_REF_LENGTH))
+    .filter((item) => item.length > 0)
+    .slice(0, MAX_EVIDENCE_REFS);
+}
+
+export function normalizeFutureTriggerTimingPolicy(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().slice(0, MAX_TIMING_POLICY_LENGTH);
+  return normalized.length > 0 ? normalized : null;
+}
+
 function mapTrigger(value: unknown): FutureTrigger | null {
   if (!isRow(value)) return null;
   const status = value.status;
-  if (status !== "scheduled" && status !== "fired" && status !== "cancelled" && status !== "suppressed_stale") return null;
+  if (status !== "scheduled" && status !== "fired" && status !== "cancelled" && status !== "suppressed_stale" && status !== "needs_review") return null;
   if (typeof value.trigger_id !== "string" || typeof value.conversation_id !== "string" || typeof value.concern_id !== "string") return null;
   return {
     triggerId: value.trigger_id,
@@ -62,6 +91,8 @@ function mapTrigger(value: unknown): FutureTrigger | null {
     dueAtMs: number(value.due_at_ms),
     status,
     wakeId: value.wake_id == null ? null : text(value.wake_id),
+    evidenceRefs: parseEvidenceRefs(value.evidence_refs_json),
+    timingPolicyId: normalizeFutureTriggerTimingPolicy(value.timing_policy),
     payload: parsePayload(value.payload_json),
   };
 }
@@ -103,12 +134,13 @@ export function scheduleFutureTrigger(db: DatabaseSync, input: ScheduleFutureTri
   }
   db.prepare(
     `INSERT INTO future_triggers
-       (trigger_id, conversation_id, concern_id, due_at_ms, snapshot_hash, status, payload_json)
-     VALUES (?, ?, ?, ?, ?, ?, ?)
+       (trigger_id, conversation_id, concern_id, due_at_ms, snapshot_hash, status, payload_json, evidence_refs_json, timing_policy)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(trigger_id) DO UPDATE SET conversation_id=excluded.conversation_id,
        concern_id=excluded.concern_id, due_at_ms=excluded.due_at_ms,
        snapshot_hash=excluded.snapshot_hash, status=excluded.status,
-        payload_json=excluded.payload_json`,
+        payload_json=excluded.payload_json, evidence_refs_json=excluded.evidence_refs_json,
+        timing_policy=excluded.timing_policy`,
   ).run(
     input.triggerId,
     input.conversationId,
@@ -117,6 +149,8 @@ export function scheduleFutureTrigger(db: DatabaseSync, input: ScheduleFutureTri
     input.snapshotHash,
     input.status === "cancelled" ? "cancelled" : "scheduled",
     JSON.stringify(referencePayload(input.payload ?? {})),
+    JSON.stringify(normalizeFutureTriggerEvidenceRefs(input.evidenceRefs)),
+    normalizeFutureTriggerTimingPolicy(input.timingPolicyId),
   );
   const result = getFutureTrigger(db, input.triggerId);
   if (!result) throw new Error("future_trigger_schedule_lost");
@@ -134,7 +168,7 @@ export function listFutureTriggers(db: DatabaseSync, conversationId?: string, op
     clauses.push("conversation_id = ?");
     args.push(conversationId);
   }
-  if (!options.includeTerminal) clauses.push("status IN ('scheduled', 'fired', 'suppressed_stale')");
+  if (!options.includeTerminal) clauses.push("status IN ('scheduled', 'fired', 'needs_review', 'suppressed_stale')");
   args.push(Math.max(1, Math.min(10_000, options.limit ?? 1000)));
   return db.prepare(
     `SELECT * FROM future_triggers ${clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : ""}
@@ -144,31 +178,65 @@ export function listFutureTriggers(db: DatabaseSync, conversationId?: string, op
     .filter((trigger): trigger is FutureTrigger => trigger !== null);
 }
 
-export function cancelFutureTrigger(db: DatabaseSync, triggerId: string): boolean {
-  db.exec("BEGIN IMMEDIATE");
-  try {
-    const trigger = getFutureTrigger(db, triggerId);
-    if (!trigger || trigger.status !== "scheduled") {
-      db.exec("COMMIT");
-      return false;
-    }
-    const result = db.prepare("UPDATE future_triggers SET status = 'cancelled' WHERE trigger_id = ? AND status = 'scheduled'").run(triggerId);
-    if (number(result.changes) !== 1) throw new Error("future_trigger_cancel_lost");
-    if (trigger.wakeId) {
-      const wake = getWake(db, trigger.wakeId);
-      if (wake && wake.state !== "terminal") {
-        recordWakeCancellationInTransaction(db, { wakeId: trigger.wakeId, nowMs: Date.now() });
-        if (wake.state !== "consequence_pending" && wake.state !== "reconciling") {
-          try { finishWakeInTransaction(db, trigger.wakeId, wake.leaseToken, "cancelled", Date.now()); } catch { /* preserve reconciliation for an owned lease */ }
-        }
+export function cancelFutureTriggerInTransaction(db: DatabaseSync, triggerId: string, nowMs: number): boolean {
+  const trigger = getFutureTrigger(db, triggerId);
+  if (!trigger || trigger.status === "cancelled" || trigger.status === "suppressed_stale") return false;
+  if (trigger.status === "fired" && !trigger.wakeId) return false;
+  const result = db.prepare(
+    "UPDATE future_triggers SET status = 'cancelled' WHERE trigger_id = ? AND status IN ('scheduled', 'needs_review', 'fired')",
+  ).run(triggerId);
+  if (number(result.changes) !== 1) return false;
+  if (trigger.wakeId) {
+    const wake = getWake(db, trigger.wakeId);
+    if (wake && wake.state !== "terminal") {
+      recordWakeCancellationInTransaction(db, { wakeId: trigger.wakeId, nowMs });
+      if (wake.state !== "consequence_pending" && wake.state !== "reconciling") {
+        try { finishWakeInTransaction(db, trigger.wakeId, wake.leaseToken, "cancelled", nowMs); } catch { /* preserve reconciliation for an owned lease */ }
       }
     }
+  }
+  return true;
+}
+
+export function cancelFutureTrigger(db: DatabaseSync, triggerId: string, nowMs = Date.now()): boolean {
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    const cancelled = cancelFutureTriggerInTransaction(db, triggerId, nowMs);
     db.exec("COMMIT");
-    return true;
+    return cancelled;
   } catch (error) {
     try { db.exec("ROLLBACK"); } catch { /* preserve the original error */ }
     throw error;
   }
+}
+
+export function futureTriggerWakeContext(db: DatabaseSync, triggerId: string): ThoughtWakeCause | null {
+  const trigger = getFutureTrigger(db, triggerId);
+  if (!trigger) return null;
+  const concern = getConcern(db, trigger.concernId);
+  const purpose = typeof trigger.payload?.purpose === "string" && trigger.payload.purpose.trim()
+    ? trigger.payload.purpose
+    : null;
+  const bindingReason = !concern
+    ? "missing_current_concern"
+    : trigger.status === "needs_review" || concern.snapshotHash !== trigger.snapshotHash
+      ? "snapshot_mismatch"
+      : null;
+  return {
+    sourceKind: "future_trigger",
+    triggerRef: trigger.triggerId,
+    purpose,
+    purposeStatus: purpose === null ? "absent" : "stored",
+    triggerPurpose: purpose,
+    dueAtMs: trigger.dueAtMs,
+    concernId: trigger.concernId,
+    concernRevision: concern?.snapshotHash ?? null,
+    evidenceRefs: [...(trigger.evidenceRefs ?? [])],
+    timingPolicyId: trigger.timingPolicyId ?? null,
+    cancellationState: trigger.status === "cancelled" ? "cancelled" : "not_cancelled",
+    bindingState: bindingReason === null ? "intact" : "broken",
+    bindingReason,
+  };
 }
 
 /**
@@ -186,16 +254,15 @@ function staleReason(db: DatabaseSync, trigger: FutureTrigger): string | null {
   if (!occupancy) return "missing_current_occupancy";
   if (concern.snapshotHash !== trigger.snapshotHash) return "snapshot_mismatch";
   if (concern.status === "resolved" || occupancy.status === "resolved") return "resolved_occupancy";
-  if (concern.status === "dormant_but_revisitable" || occupancy.status === "dormant_but_revisitable") return "dormant_occupancy";
-  if (occupancy.status !== "active" && occupancy.status !== "investigating" && occupancy.status !== "waiting_for_evidence") return "non_grounded_occupancy";
+  if (occupancy.status !== "active" && occupancy.status !== "investigating" && occupancy.status !== "waiting_for_evidence" && occupancy.status !== "dormant_but_revisitable") return "non_grounded_occupancy";
   return null;
 }
 
 function recordStale(db: DatabaseSync, trigger: FutureTrigger, reason: string, nowMs: number): void {
   const occupancy = listOccupancy(db, trigger.conversationId).find((item) => item.concernId === trigger.concernId);
-  db.prepare("UPDATE future_triggers SET status = 'suppressed_stale' WHERE trigger_id = ? AND status = 'scheduled'").run(trigger.triggerId);
+  db.prepare("UPDATE future_triggers SET status = 'suppressed_stale' WHERE trigger_id = ? AND status IN ('scheduled', 'needs_review')").run(trigger.triggerId);
   db.prepare(
-    `INSERT INTO causal_ledger (cycle_id, generation, payload_json, thought_unavailable)
+    `INSERT OR IGNORE INTO causal_ledger (cycle_id, generation, payload_json, thought_unavailable)
      VALUES (?, ?, ?, 0)`,
   ).run(
     `future-trigger:${trigger.triggerId}`,
@@ -204,12 +271,42 @@ function recordStale(db: DatabaseSync, trigger: FutureTrigger, reason: string, n
   );
 }
 
+function recordNeedsReview(db: DatabaseSync, trigger: FutureTrigger, nowMs: number): void {
+  const occupancy = listOccupancy(db, trigger.conversationId).find((item) => item.concernId === trigger.concernId);
+  db.prepare(
+    `INSERT OR IGNORE INTO causal_ledger (cycle_id, generation, payload_json, thought_unavailable)
+     VALUES (?, ?, ?, 0)`,
+  ).run(
+    `future-trigger:${trigger.triggerId}`,
+    occupancy?.updatedGeneration ?? 0,
+    JSON.stringify({
+      triggerKind: "future_trigger_due",
+      triggerId: trigger.triggerId,
+      concernId: trigger.concernId,
+      result: "needs_review",
+      reason: "snapshot_mismatch",
+      atMs: nowMs,
+    }),
+  );
+}
+
+export function markFutureTriggerNeedsReview(db: DatabaseSync, triggerId: string, nowMs: number): boolean {
+  const trigger = getFutureTrigger(db, triggerId);
+  if (!trigger || (trigger.status !== "scheduled" && trigger.status !== "fired")) return false;
+  const result = db.prepare(
+    "UPDATE future_triggers SET status = 'needs_review' WHERE trigger_id = ? AND status IN ('scheduled', 'fired')",
+  ).run(triggerId);
+  if (number(result.changes) !== 1) return false;
+  recordNeedsReview(db, trigger, nowMs);
+  return true;
+}
+
 export async function fireDueTriggers(
   db: DatabaseSync,
   options: FutureTriggerFireOptions = {},
 ): Promise<FutureTriggerFireResult> {
   const nowMs = options.nowMs ?? Date.now();
-  const clauses = ["status = 'scheduled'", "due_at_ms <= ?"];
+  const clauses = ["status IN ('scheduled', 'needs_review')", "due_at_ms <= ?"];
   const args: Array<string | number> = [nowMs];
   if (options.conversationId) {
     clauses.push("conversation_id = ?");
@@ -223,12 +320,13 @@ export async function fireDueTriggers(
   const events: InboxEvent[] = [];
 
   for (const candidate of candidates) {
+    const hadEvent = getInboxEvent(db, `future-trigger:${candidate.triggerId}`) !== null;
     const result = matureFutureTriggerToWake(db, candidate.triggerId, { nowMs });
     if (!result) continue;
     if (result.kind === "stale") {
       const trigger = getFutureTrigger(db, candidate.triggerId);
       if (trigger) suppressedStale.push(trigger);
-    } else if (result.wake && result.event) {
+    } else if (!hadEvent && result.wake && result.event) {
       const trigger = getFutureTrigger(db, candidate.triggerId);
       if (trigger) fired.push(trigger);
       events.push(result.event);
@@ -246,7 +344,7 @@ export async function fireDueTriggers(
 }
 
 export type FutureTriggerMaturityResult = {
-  kind: "created" | "existing" | "stale" | "cancelled";
+  kind: "created" | "existing" | "needs_review" | "stale" | "cancelled";
   wake: WakeRecord;
   event: InboxEvent | null;
 };
@@ -261,7 +359,7 @@ export function matureFutureTriggerToWake(
   db.exec("BEGIN IMMEDIATE");
   try {
     const current = getFutureTrigger(db, triggerId);
-    if (!current || current.status === "cancelled" || (current.status === "scheduled" && current.dueAtMs > nowMs)) {
+    if (!current || current.status === "cancelled" || ((current.status === "scheduled" || current.status === "needs_review") && current.dueAtMs > nowMs)) {
       db.exec("COMMIT");
       return null;
     }
@@ -291,9 +389,23 @@ export function matureFutureTriggerToWake(
       db.exec("COMMIT");
       return { kind: "existing", wake, event: existingEvent };
     }
-    const reason = current.status === "scheduled" ? staleReason(db, current) : null;
+    const reason = current.status === "scheduled" || current.status === "needs_review" ? staleReason(db, current) : null;
+    if (reason === "snapshot_mismatch") {
+      db.prepare("UPDATE future_triggers SET status = 'needs_review', wake_id = ? WHERE trigger_id = ? AND status IN ('scheduled', 'needs_review')").run(wake.wakeId, current.triggerId);
+      if (current.status === "scheduled") recordNeedsReview(db, current, nowMs);
+      const event = existingEvent ?? appendInboxEventInTransaction(db, {
+        id: `future-trigger:${current.triggerId}`,
+        wakeId: wake.wakeId,
+        conversationId: current.conversationId,
+        kind: "future_trigger_due",
+        payload: { triggerId: current.triggerId, concernId: current.concernId, snapshotHash: current.snapshotHash },
+        createdAtMs: nowMs,
+      }, `future-trigger:${current.triggerId}`);
+      db.exec("COMMIT");
+      return { kind: "needs_review", wake, event };
+    }
     if (reason) {
-      db.prepare("UPDATE future_triggers SET status = 'suppressed_stale', wake_id = ? WHERE trigger_id = ? AND status = 'scheduled'").run(wake.wakeId, current.triggerId);
+      db.prepare("UPDATE future_triggers SET status = 'suppressed_stale', wake_id = ? WHERE trigger_id = ? AND status IN ('scheduled', 'needs_review')").run(wake.wakeId, current.triggerId);
       recordStale(db, current, reason, nowMs);
       if (wake.state !== "terminal") finishWakeInTransaction(db, wake.wakeId, null, "no_action", nowMs);
       const terminal = getWake(db, wake.wakeId);
@@ -302,7 +414,7 @@ export function matureFutureTriggerToWake(
       return { kind: "stale", wake: terminal, event: null };
     }
     db.prepare(
-      "UPDATE future_triggers SET status = 'fired', wake_id = ? WHERE trigger_id = ? AND status IN ('scheduled', 'fired')",
+      "UPDATE future_triggers SET status = 'fired', wake_id = ? WHERE trigger_id = ? AND status IN ('scheduled', 'fired', 'needs_review')",
     ).run(wake.wakeId, current.triggerId);
     const event = existingEvent ?? appendInboxEventInTransaction(db, {
       id: `future-trigger:${current.triggerId}`,

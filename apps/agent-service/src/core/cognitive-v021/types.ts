@@ -29,7 +29,7 @@ export type { SourceSupportRef } from "./evidence/interpretation-envelope.js";
 export const ARCHITECTURE_EPOCH = "v0.2.1" as const;
 export const IMPLEMENTATION_SPEC_VERSION = "0.2.1.r6" as const;
 export const THOUGHT_CONTRACT_VERSION = 2 as const;
-export const COGNITIVE_SIDECAR_SCHEMA_VERSION = 33 as const;
+export const COGNITIVE_SIDECAR_SCHEMA_VERSION = 34 as const;
 
 /**
  * Hard bound on cognition-facing concern discovery windows and pages. The
@@ -581,8 +581,10 @@ export type FutureTrigger = {
   concernId: ConcernId;
   snapshotHash: string;
   dueAtMs: number;
-  status: "scheduled" | "fired" | "cancelled" | "suppressed_stale";
+  status: "scheduled" | "fired" | "cancelled" | "suppressed_stale" | "needs_review";
   wakeId?: string | null;
+  evidenceRefs?: readonly string[];
+  timingPolicyId?: string | null;
   payload?: Record<string, unknown>;
 };
 export type FutureTriggerDelta =
@@ -1619,6 +1621,15 @@ export type ThoughtWakeCause = Readonly<{
   triggerRef: string;
   purpose: string | null;
   purposeStatus: "stored" | "absent";
+  triggerPurpose?: string | null;
+  dueAtMs?: number;
+  concernId?: string;
+  concernRevision?: string | null;
+  evidenceRefs?: readonly string[];
+  timingPolicyId?: string | null;
+  cancellationState?: "not_cancelled" | "cancelled";
+  bindingState?: "intact" | "broken";
+  bindingReason?: string | null;
 }>;
 
 export type ThoughtInput = {

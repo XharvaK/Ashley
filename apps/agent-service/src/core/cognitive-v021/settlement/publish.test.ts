@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { updateCycleState } from "../cycle/inbox.js";
 import { admitTestCycle, openTestSidecar } from "../test-support.js";
 import { publishSemanticTransaction } from "./publish.js";
-import { applyConcernDelta } from "../concerns/lineage.js";
+import { applyConcernDelta, concernSnapshotHash } from "../concerns/lineage.js";
 import { SETTLEMENT_SCHEMA_VERSION } from "../types.js";
 import type { PublishedCognitiveSettlement } from "../types.js";
 import { openNuclearDb } from "../../db.js";
@@ -15,6 +15,7 @@ import { upsertMemoryAssertion } from "../memory/assertions.js";
 import { captureThoughtSourceCurrentness } from "../thought/source-currentness.js";
 import { captureThoughtSourcePackage } from "../thought/input.js";
 import { createObservationSubscription } from "../observation/subscriptions.js";
+import { scheduleFutureTrigger } from "../initiative/future-triggers.js";
 import { insertOutboxPending } from "../speech/outbox.js";
 import { emitInfrastructureNotice, updateSystemNoticeStatus } from "../speech/infrastructure-notice.js";
 import {
@@ -296,6 +297,107 @@ describe("v0.2.1 semantic publication transaction", () => {
       expect(db.prepare("SELECT COUNT(*) AS count FROM settlements").get()).toMatchObject({ count: 0 });
       expect(db.prepare("SELECT COUNT(*) AS count FROM working_context_items").get()).toMatchObject({ count: 0 });
       expect(db.prepare("SELECT state FROM cycle_records WHERE cycle_id = 'cycle-trigger-fence'").get()).toMatchObject({ state: "admitted" });
+    } finally {
+      db.close();
+    }
+  });
+
+  it("moves an unreaffirmed trigger to needs_review when its concern is edited", () => {
+    const db = openTestSidecar();
+    try {
+      const conversationId = "thread-trigger-review";
+      admitTestCycle(db, { cycleId: "cycle-trigger-review", conversationId, triggerKind: "owner_message", triggerRef: "one", occupantId: "doc", authorityEpoch: 1, nowMs: 1 });
+      const initial = {
+        concernId: "concern-trigger-review",
+        conversationId,
+        statement: "The original concern.",
+        sourceTurnIds: [],
+        dimensions: { source: "owner_utterance" as const, status: "asserted" as const, time: "historical" as const, reliability: "owner_supplied" as const },
+        assertionKey: null,
+        status: "active" as const,
+      };
+      applyConcernDelta(db, { op: "upsert", record: initial }, { cycleId: "seed-trigger-review", generation: 1 });
+      db.prepare(
+        `INSERT INTO mind_occupancy
+           (conversation_id, concern_id, status, priority, updated_cycle, updated_generation)
+         VALUES (?, ?, 'active', 10, 'seed-trigger-review', 1)`,
+      ).run(conversationId, initial.concernId);
+      const oldSnapshot = (db.prepare("SELECT snapshot_hash FROM concerns WHERE concern_id = ?").get(initial.concernId) as { snapshot_hash: string }).snapshot_hash;
+      scheduleFutureTrigger(db, {
+        triggerId: "trigger-needs-review",
+        conversationId,
+        concernId: initial.concernId,
+        snapshotHash: oldSnapshot,
+        dueAtMs: 10_000,
+        payload: { purpose: "revisit the original concern" },
+      });
+      const edited = { ...initial, statement: "The edited concern." };
+      const result = publishSemanticTransaction(db, settlement({
+        cycleId: "cycle-trigger-review",
+        triggerRef: conversationId,
+        workingContextDelta: [],
+        concernDeltas: [{ op: "upsert", record: edited }],
+        futureTriggers: [],
+      }));
+      expect(result).toMatchObject({ published: true });
+      expect(db.prepare("SELECT status FROM future_triggers WHERE trigger_id = 'trigger-needs-review'").get()).toMatchObject({ status: "needs_review" });
+    } finally {
+      db.close();
+    }
+  });
+
+  it("lets the same settlement reaffirm a trigger against the edited concern snapshot", () => {
+    const db = openTestSidecar();
+    try {
+      const conversationId = "thread-trigger-reaffirm";
+      admitTestCycle(db, { cycleId: "cycle-trigger-reaffirm", conversationId, triggerKind: "owner_message", triggerRef: "one", occupantId: "doc", authorityEpoch: 1, nowMs: 1 });
+      const initial = {
+        concernId: "concern-trigger-reaffirm",
+        conversationId,
+        statement: "The original concern.",
+        sourceTurnIds: [],
+        dimensions: { source: "owner_utterance" as const, status: "asserted" as const, time: "historical" as const, reliability: "owner_supplied" as const },
+        assertionKey: null,
+        status: "active" as const,
+      };
+      applyConcernDelta(db, { op: "upsert", record: initial }, { cycleId: "seed-trigger-reaffirm", generation: 1 });
+      db.prepare(
+        `INSERT INTO mind_occupancy
+           (conversation_id, concern_id, status, priority, updated_cycle, updated_generation)
+         VALUES (?, ?, 'active', 10, 'seed-trigger-reaffirm', 1)`,
+      ).run(conversationId, initial.concernId);
+      const oldSnapshot = (db.prepare("SELECT snapshot_hash FROM concerns WHERE concern_id = ?").get(initial.concernId) as { snapshot_hash: string }).snapshot_hash;
+      scheduleFutureTrigger(db, {
+        triggerId: "trigger-reaffirm",
+        conversationId,
+        concernId: initial.concernId,
+        snapshotHash: oldSnapshot,
+        dueAtMs: 10_000,
+      });
+      const edited = { ...initial, statement: "The edited concern." };
+      const editedSnapshot = concernSnapshotHash(edited);
+      const result = publishSemanticTransaction(db, settlement({
+        cycleId: "cycle-trigger-reaffirm",
+        triggerRef: conversationId,
+        workingContextDelta: [],
+        concernDeltas: [{ op: "upsert", record: edited }],
+        futureTriggers: [{
+          op: "create",
+          trigger: {
+            triggerId: "trigger-reaffirm",
+            conversationId,
+            concernId: initial.concernId,
+            snapshotHash: editedSnapshot,
+            dueAtMs: 20_000,
+            evidenceRefs: ["evidence:reaffirm"],
+            timingPolicyId: "owner-window-v2",
+            payload: { purpose: "revisit the edited concern" },
+          },
+        }],
+      }));
+      expect(result).toMatchObject({ published: true });
+      expect(db.prepare("SELECT status, snapshot_hash, due_at_ms, timing_policy FROM future_triggers WHERE trigger_id = 'trigger-reaffirm'").get())
+        .toMatchObject({ status: "scheduled", snapshot_hash: editedSnapshot, due_at_ms: 20_000, timing_policy: "owner-window-v2" });
     } finally {
       db.close();
     }
