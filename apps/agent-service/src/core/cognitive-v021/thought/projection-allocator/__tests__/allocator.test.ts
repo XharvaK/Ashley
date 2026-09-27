@@ -1681,9 +1681,9 @@ describe("E2a recency loss honesty (allocator)", () => {
 
   it("keeps budget omissions and the recency count separate under envelope pressure (J+K)", () => {
     // Caller-local 32768 stress ceiling. It is not the 262144 product envelope.
-    // repeat(150) includes retrieval and optional Working Context, then the
-    // joint loss disclosure measures 32958. repeat(149) still omits recent
-    // rows and finishes at 32751, 17 tokens under the same ceiling.
+    // repeat(149) still omits recent rows. After the W3/W4 vocabulary landed,
+    // the disclosed final measured 32977; compressing duplicated compatibility
+    // guidance brings that same fixture to 32671.
     const rows = makeConversationRows(
       12,
       (index) => `synthetic e2a pressure row ${index} `.repeat(149),
@@ -2104,7 +2104,7 @@ describe("E2b retrieval loss honesty (allocator)", () => {
 
   it("makes identical packing decisions with and without survivable retrieval (packing equivalence)", () => {
     const input = retrievalInput(6, 12);
-    const { allocated } = scanBudget(
+    const { allocated, budget } = scanBudget(
       input, fitEstimate(input), 25,
       (candidate) => (candidate.projected.retrieval.allocatorOmittedCount ?? 0) > 0,
       "packing-lossy",
@@ -2124,7 +2124,7 @@ describe("E2b retrieval loss honesty (allocator)", () => {
     });
     const controlAllocated = allocateThoughtProjection({
       thoughtInput: control,
-      semanticBudgetTokens: 9_500,
+      semanticBudgetTokens: budget,
       requestId: "req-e2b-packing-control",
     });
 

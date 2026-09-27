@@ -519,7 +519,8 @@ describe("cognitive v0.2.1 sidecar database", () => {
   it("rejects newer sidecar content and rolls back a failed v2 upgrade", () => {
     const newer = new DatabaseSync(":memory:");
     try {
-      newer.exec("PRAGMA user_version = 34");
+      const newerVersion = COGNITIVE_SIDECAR_SCHEMA_VERSION + 1;
+      newer.exec(`PRAGMA user_version = ${newerVersion}`);
       let failure: unknown;
       try {
         openCognitiveSidecarDb(newer, { dataPlane: { kind: "isolated" } });
@@ -528,7 +529,9 @@ describe("cognitive v0.2.1 sidecar database", () => {
       }
       expect(failure).toMatchObject({ code: "unsupported_cognitive_sidecar_schema" });
       expect(failure).toBeInstanceOf(Error);
-      expect((failure as Error).message).toBe("unsupported_cognitive_sidecar_schema:34>33");
+      expect((failure as Error).message).toBe(
+        `unsupported_cognitive_sidecar_schema:${newerVersion}>${COGNITIVE_SIDECAR_SCHEMA_VERSION}`,
+      );
     } finally {
       newer.close();
     }
