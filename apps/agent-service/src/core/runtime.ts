@@ -2,7 +2,8 @@ import type { DatabaseSync } from "node:sqlite";
 import type { ProjectInspectionObservation } from "./types.js";
 import { env } from "../env.js";
 import type { DataPlaneContext } from "./data-plane.js";
-import { connectNuclearDb } from "./db.js";
+import { connectNuclearDb, NUCLEAR_SUPPORTED_VERSION } from "./db.js";
+import { currentBuildIdentity } from "./rollout/capabilities.js";
 import {
   composeTurnContext,
   type TurnContext,
@@ -314,8 +315,8 @@ export class AshleyCore {
         const lineageId = getAuthoritativeLineageId(this.continuity);
         this.sessionId = startRuntimeSession(this.continuity, {
           lineageId,
-          buildIdentity: null,
-          nuclearSchemaVersion: 15,
+          buildIdentity: currentBuildIdentity(),
+          nuclearSchemaVersion: NUCLEAR_SUPPORTED_VERSION,
         });
         replayPendingTombstones(this.continuity, this.db);
       } catch {

@@ -17,6 +17,7 @@ import {
 } from "./core/cognitive-v021/cycle/reconcile.js";
 import { reconcileStrandedOutcomeUnknownAtStartup } from "./core/cognitive-v021/retry/startup-outcome-recovery.js";
 import { serviceUnansweredOwnerRecovery } from "./core/cognitive-v021/retry/owner-recovery.js";
+import { processPendingOpenCognitiveReviewsAsync } from "./core/reflection/initiative.js";
 import { repairMissingC3Experiences } from "./core/cognitive-v021/failure/c3-recovery.js";
 import { startFrontierCoordinator, type FrontierCoordinatorHandle } from "./core/cognitive-v021/frontier/index.js";
 import {
@@ -485,6 +486,9 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
             console.warn("[cognitive-v021] commitment maintenance deferred", error);
           }
         }
+        void processPendingOpenCognitiveReviewsAsync(nuclear).catch((error) => {
+          console.warn("[cognitive-v021] reflection review maintenance deferred", error);
+        });
         try {
           const deliveryRecovery = reconcileProjectedDeliverySweep(sidecar, nuclear, { limit: 50 });
           if (deliveryRecovery.conflicts > 0) {

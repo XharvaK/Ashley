@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { NUCLEAR_SUPPORTED_VERSION, openNuclearDb } from "./db.js";
 import { AshleyCore } from "./runtime.js";
 import { openContinuityDb } from "./continuity/db.js";
+import { currentBuildIdentity } from "./rollout/capabilities.js";
 
 describe("wave10c health contract", () => {
   it("keeps detailed diagnostics owner-surface metadata-only", () => {
@@ -37,6 +38,14 @@ describe("wave10c health contract", () => {
     )).toBe(true);
     expect(JSON.stringify(health)).not.toContain("nuclear.db");
     expect(JSON.stringify(health)).not.toContain("continuity.db");
+    expect(continuity.prepare(
+      `SELECT build_identity, nuclear_schema_version
+         FROM runtime_sessions
+        WHERE clean_shutdown_at IS NULL`,
+    ).get()).toEqual({
+      build_identity: currentBuildIdentity(),
+      nuclear_schema_version: NUCLEAR_SUPPORTED_VERSION,
+    });
 
     nuclear.close();
     continuity.close();
