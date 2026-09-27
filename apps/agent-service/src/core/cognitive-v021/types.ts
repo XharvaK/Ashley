@@ -2008,7 +2008,7 @@ export type KernelDeps = {
   resolveAttachmentObservations?: (
     input: import("./perception/attachments.js").AttachmentObservationInput,
   ) => Promise<Observation[]>;
-  /** Test-only visual transport seam. Production keeps image vision unavailable. */
+  /** Production-capable bounded visual transport; availability remains provider and gate bound. */
   visionTransport?: import("./perception/attachments.js").VisionTransport;
   executeObservation: (req: ObservationRequest) => Promise<Observation>;
   /** Direct V2 is a Host route, never a Thought-selected capability. */

@@ -45,7 +45,7 @@ describe("v0.2.1 CapabilityReality live-surface contract", () => {
         canOfferBoundedOperation: false,
         canOfferPatchExport: true,
         vision: false,
-        attachmentText: false,
+        attachmentText: true,
         conversationalRead: false,
         webSearch: false,
       });
@@ -84,6 +84,41 @@ describe("v0.2.1 CapabilityReality live-surface contract", () => {
         substrateAvailable: true,
         webSearchProvider: { available: true },
       }).webSearch).toBe(false);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("reports mediated vision only for an injected available transport under the active release gate", () => {
+    const db = activeDb();
+    try {
+      const base = {
+        registry: registry(),
+        masterMode: "apply" as const,
+        lifecycleEnabled: true,
+        substrateAvailable: true,
+      };
+      expect(getCapabilityReality(db, base).vision).toBe(false);
+      expect(getCapabilityReality(db, {
+        ...base,
+        visionTransport: { kind: "mediated_visual" as const, available: true },
+      }).vision).toBe("mediated");
+      expect(getCapabilityReality(db, {
+        ...base,
+        visionTransport: { kind: "mediated_visual" as const, available: false },
+      }).vision).toBe(false);
+      expect(getCapabilityReality(db, {
+        ...base,
+        masterMode: "observe" as const,
+        visionTransport: { kind: "mediated_visual" as const, available: true },
+      }).vision).toBe(false);
+      const participant = getCapabilityReality(db, {
+        ...base,
+        audience: { kind: "room", roomId: "room:guild-1:channel-1" },
+        visionTransport: { kind: "mediated_visual" as const, available: true },
+      });
+      expect(participant.vision).toBe(false);
+      expect(participant.reachability?.reasons.vision).toBe("needs_owner_approval");
     } finally {
       db.close();
     }
@@ -315,7 +350,7 @@ describe("v0.2.1 CapabilityReality live-surface contract", () => {
         canOfferProjectInspection: "capability_exists",
         canOfferWorkspace: "capability_exists",
         canOfferPatchExport: "capability_exists",
-        vision: "capability_not_in_live_set",
+        vision: "evidence_not_acquired",
         canOfferBoundedOperation: "unavailable",
       });
 

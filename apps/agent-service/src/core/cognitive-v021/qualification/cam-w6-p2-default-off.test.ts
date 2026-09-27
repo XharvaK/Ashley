@@ -44,21 +44,21 @@ function reality(overrides: CapabilityRealityOptions = {}) {
 
 let currentDb: DatabaseSync;
 
-describe("CAM-W6-P2 gate 1: implementation contract complete is not faculty activated", () => {
-  it("keeps the default capability live set empty for web, vision, and attachments under maximum production authority", () => {
+describe("CAM-W6-P2 gate 1: activation uses existing faculty seams", () => {
+  it("keeps unsupported vision and web search dark while exposing existing attachment handling", () => {
     currentDb = maximallyAuthorisedDb();
     try {
       const facts = reality();
 
       expect(facts.vision).toBe(false);
-      expect(facts.attachmentText).toBe(false);
+      expect(facts.attachmentText).toBe(true);
       expect(facts.conversationalRead).toBe(false);
       expect(facts.webSearch).toBe(false);
 
       expect(facts.reachability?.reasons).toMatchObject({
-        vision: "capability_not_in_live_set",
-        attachmentText: "capability_not_in_live_set",
-        conversationalRead: "capability_not_in_live_set",
+        vision: "evidence_not_acquired",
+        attachmentText: "capability_exists",
+        conversationalRead: "evidence_not_acquired",
         webSearch: "capability_not_in_live_set",
       });
     } finally {
@@ -110,9 +110,9 @@ describe("CAM-W6-P2 gate 1: implementation contract complete is not faculty acti
       expect(room.conversationalRead).toBe(false);
       expect(room.webSearch).toBe(false);
       expect(room.reachability?.reasons).toMatchObject({
-        vision: "capability_not_in_live_set",
-        attachmentText: "capability_not_in_live_set",
-        conversationalRead: "capability_not_in_live_set",
+        vision: "evidence_not_acquired",
+        attachmentText: "needs_owner_approval",
+        conversationalRead: "evidence_not_acquired",
         webSearch: "capability_not_in_live_set",
       });
     } finally {

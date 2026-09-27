@@ -44,11 +44,11 @@ export type AttachmentObservationInput = {
   sourceMessageEntityUuid: string;
   deliveryReservationEntityUuid: string;
   attachments: readonly unknown[];
-  /** Test-only activation until the live capability release in §13. */
+  /** Host capability reality gates this input; tests may inject the gate. */
   attachmentTextEnabled: boolean;
   /** `true` is direct visual access; `mediated` is a disclosed helper derivation. */
   visionAccess?: boolean | "mediated";
-  /** Test double only. No live provider or helper is invoked by this packet. */
+  /** Host-owned visual transport. Tests may inject a bounded double. */
   imageTransport?: VisionTransport;
   fetchAttachment?: AttachmentFetcher;
   nowMs?: number;

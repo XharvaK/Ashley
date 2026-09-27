@@ -35,21 +35,27 @@ function serveSourceCall(): string {
   return SERVE_SOURCE.slice(start, end);
 }
 
-describe("R-4 shipping startup composition is default-off for perception", () => {
-  it("supplies the live operation executors without any provider adapter", () => {
+describe("R-4 shipping startup composition activates only existing perception seams", () => {
+  it("supplies the live operation executors with the existing page-fetch adapter", () => {
     const call = serveSourceCall();
     expect(call).toContain("nuclear");
     expect(call).toContain("ownerId");
     expect(call).toContain("sidecar");
-    expect(call).not.toMatch(/\badapters\b/);
+    expect(call).toContain("adapters");
+    expect(call).toContain("webFetchProvider");
     expect(call).not.toMatch(/webSearchProvider\s*:/);
-    expect(call).not.toMatch(/webFetchProvider\s*:/);
   });
 
-  it("never constructs a provider instance in the shipping serve module", () => {
+  it("constructs only the existing direct page-fetch provider", () => {
     expect(SERVE_SOURCE).not.toMatch(/\bnew\s+UnavailableWeb(Search|Fetch)Provider\b/);
-    expect(SERVE_SOURCE).not.toMatch(/\bnew\s+\w*Web(Search|Fetch)Provider\b/);
-    expect(SERVE_SOURCE).not.toMatch(/\bdefaultWeb(Search|Fetch)Provider\b/);
+    expect(SERVE_SOURCE).toMatch(/\bnew\s+CuriosityWebFetchProvider\b/);
+    expect(SERVE_SOURCE).not.toMatch(/\bnew\s+\w*WebSearchProvider\b/);
+  });
+
+  it("constructs the bounded Command Code vision transport without adding a search provider", () => {
+    expect(SERVE_SOURCE).toContain("createCommandCodeVisionTransport");
+    expect(SERVE_SOURCE).toContain("visionTransport");
+    expect(SERVE_SOURCE).not.toMatch(/webSearchProvider\s*:/);
   });
 
   it("keeps the legacy perception turn stubbed out of the shipping path", () => {
@@ -83,7 +89,7 @@ describe("R-4 shipping startup composition is default-off for perception", () =>
     }
   });
 
-  it("refuses a public page fetch through the shipping executor composition", async () => {
+  it("keeps public page fetch injectable for a bounded provider witness", async () => {
     const nuclear = maximallyAuthorisedDb();
     const sidecar = openTestSidecar();
     try {
@@ -91,6 +97,19 @@ describe("R-4 shipping startup composition is default-off for perception", () =>
         nuclear,
         ownerId: "default",
         sidecar,
+        adapters: {
+          webFetchProvider: {
+            available: true,
+            fetch: async () => ({
+              body: new TextEncoder().encode("<html><body>bounded public page</body></html>"),
+              finalUrl: "https://example.test/page",
+              contentType: "text/html",
+              redirectDepth: 0,
+              subrequests: 0,
+              truncated: false,
+            }),
+          },
+        },
       });
       const request: ObservationRequest = {
         requestId: "startup-fetch",
@@ -101,9 +120,8 @@ describe("R-4 shipping startup composition is default-off for perception", () =>
         replaySafe: true,
         audience: OWNER_AUDIENCE,
       };
-      await expect(executors.executeObservation(request)).rejects.toThrow(
-        /web_fetch_unavailable/,
-      );
+      const observation = await executors.executeObservation(request);
+      expect(observation.provenance).toBe("perception:web-fetch");
     } finally {
       sidecar.close();
       nuclear.close();
@@ -126,9 +144,9 @@ describe("R-4 shipping startup composition is default-off for perception", () =>
         expect(refreshed.conversationalRead).toBe(false);
         expect(refreshed.webSearch).toBe(false);
         expect(refreshed.reachability?.reasons).toMatchObject({
-          vision: "capability_not_in_live_set",
-          attachmentText: "capability_not_in_live_set",
-          conversationalRead: "capability_not_in_live_set",
+          vision: "evidence_not_acquired",
+          attachmentText: "evidence_not_acquired",
+          conversationalRead: "evidence_not_acquired",
           webSearch: "capability_not_in_live_set",
         });
       }

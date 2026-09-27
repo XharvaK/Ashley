@@ -7,7 +7,9 @@ import { loadAuthorityPacks } from "./core/cognitive-v021/authority/packs.js";
 import { getCapabilityReality } from "./core/cognitive-v021/thought/capability-reality.js";
 import { readIdentitySlice } from "./core/cognitive-v021/identity/constitution.js";
 import { runPerceptionBeforeThought } from "./core/cognitive-v021/perception/adapter.js";
+import { createCommandCodeVisionTransport } from "./core/cognitive-v021/perception/command-code-vision.js";
 import { sweepExpiredArtifacts } from "./core/perception/artifact-store.js";
+import { CuriosityWebFetchProvider } from "./core/perception/web-fetch-provider.js";
 import { createOutboxProjector, reconcileProjectedDeliverySweep } from "./core/cognitive-v021/delivery/outbox-projector.js";
 import { reconcileOrphanedSendingDeliveries, reconcileUnfulfilledFailedSpeechReservations } from "./core/cognitive-v021/delivery/pending.js";
 import { startInboxConsumer, type InboxConsumerHandle, type InboxConsumerHandler } from "./core/cognitive-v021/cycle/inbox-consumer.js";
@@ -179,11 +181,18 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
     const nuclear = manager.core.getDatabase();
     const ownerId = env.memoryOwnerId || env.discordOwnerId || "default";
     seedTrustedRoomsFromOwnerEnvironment(nuclear, { ownerId });
-    const capabilityReality = getCapabilityReality(nuclear);
+    const webFetchProvider = env.curiosityEnabled
+      ? new CuriosityWebFetchProvider()
+      : undefined;
+    const visionTransport = env.commandCodeApiKey
+      ? createCommandCodeVisionTransport()
+      : undefined;
+    const capabilityReality = getCapabilityReality(nuclear, { webFetchProvider, visionTransport });
     const liveOperationExecutors = createV021LiveOperationExecutors({
       nuclear,
       ownerId,
       sidecar,
+      adapters: { webFetchProvider },
     });
     const projector = createOutboxProjector(sidecar, nuclear, {
       gate: (deliveryIntent) => {
@@ -274,7 +283,7 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
         receiptDb: sidecar,
       }),
       loadAuthorityPacks: () => loadAuthorityPacks(sidecar, {
-        capability: getCapabilityReality(nuclear),
+        capability: getCapabilityReality(nuclear, { webFetchProvider, visionTransport }),
         authorityDb: nuclear,
         receiptLimit: 256,
       }),
@@ -284,10 +293,13 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
       enqueueWorkerUndertaking: (input) => enqueueWorkerUndertakingIntent(sidecar, input),
       constitution: readIdentitySlice(nuclear, ownerId),
       capabilityReality,
+      visionTransport,
       refreshCapabilityReality: ({ audience, licenses, nowMs }) => getCapabilityReality(nuclear, {
         audience,
         licenses,
         nowMs,
+        webFetchProvider,
+        visionTransport,
       }),
       derivedStore,
       observabilityDb,

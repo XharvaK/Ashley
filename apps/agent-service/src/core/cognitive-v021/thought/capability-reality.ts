@@ -20,6 +20,7 @@ import {
 } from "../../sandbox/worker/command-code-worker.js";
 import type { WebSearchProvider } from "../../perception/search-provider.js";
 import type { WebFetchProvider } from "../../perception/web-fetch-provider.js";
+import type { CommandCodeVisionTransport } from "../perception/command-code-vision.js";
 import { currentReleaseId, type CapabilityName } from "../../rollout/capabilities.js";
 import type {
   CapabilityReality,
@@ -39,8 +40,12 @@ const V021_LIVE_OPERATION_CAPABILITIES: ReadonlySet<CapabilityName> = new Set([
   "patch_export",
 ]);
 
-/** The production v0.2.1 perception provider is not bound in this candidate. */
-const V021_LIVE_PERCEPTION_CAPABILITIES: ReadonlySet<CapabilityName> = new Set();
+/** Production-capable attachment, mediated vision, and bounded page-fetch adapters. */
+const V021_LIVE_PERCEPTION_CAPABILITIES: ReadonlySet<CapabilityName> = new Set([
+  "vision",
+  "attachment_text",
+  "conversational_read",
+]);
 
 export type CapabilityRealityOptions = {
   registry?: V2ProjectReadRegistry;
@@ -57,7 +62,8 @@ export type CapabilityRealityOptions = {
   commandCodeNodeExecutable?: string;
   webSearchProvider?: Pick<WebSearchProvider, "available">;
   webFetchProvider?: Pick<WebFetchProvider, "available">;
-  /** Test-double-only visual state. Production leaves the live set empty. */
+  visionTransport?: Pick<CommandCodeVisionTransport, "kind" | "available">;
+  /** Test override for qualification fixtures. Production passes visionTransport. */
   visionMode?: "direct" | "mediated";
   nowMs?: number;
 };
@@ -362,7 +368,11 @@ export function getCapabilityReality(
       ? "mediated" as const
       : options.visionMode === "direct"
         ? true
-        : V021_LIVE_PERCEPTION_CAPABILITIES.has("vision") && perceptionCapabilityCanInfluence(db, "vision", masterMode),
+        : V021_LIVE_PERCEPTION_CAPABILITIES.has("vision")
+          && options.visionTransport?.available === true
+          && perceptionCapabilityCanInfluence(db, "vision", masterMode)
+          ? options.visionTransport.kind === "mediated_visual" ? "mediated" as const : true
+          : false,
     attachmentText: V021_LIVE_PERCEPTION_CAPABILITIES.has("attachment_text") &&
       perceptionCapabilityCanInfluence(db, "attachment_text", masterMode),
     conversationalRead: options.webFetchProvider?.available === true &&

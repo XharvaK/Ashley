@@ -9,6 +9,11 @@ import {
   THOUGHT_OUTPUT_SCHEMA_ID,
 } from "../../cognitive-v021/thought/contract-identity.js";
 import { reflectionInitiativeJsonObjectInstruction } from "../../cognitive-v021/thought/reflection-output-contract.js";
+import {
+  VISION_MEDIA_OUTPUT_CONTRACT_ID,
+  VISION_MEDIA_OUTPUT_SCHEMA_ID,
+  visionMediaJsonObjectInstruction,
+} from "../../cognitive-v021/perception/vision-output-contract.js";
 import { COMMAND_CODE_POLICY } from "../../command-code/policy.js";
 import {
   attachCommandCodeBoundaryEvidence,
@@ -87,7 +92,9 @@ function mapMessages(
 ): Array<Record<string, unknown>> {
   const systemInstruction = contract === "thought"
     ? thoughtOutputDeepSeekJsonObjectInstruction()
-    : reflectionInitiativeJsonObjectInstruction();
+    : contract === "reflection_initiative"
+      ? reflectionInitiativeJsonObjectInstruction()
+      : visionMediaJsonObjectInstruction();
   return [
     { role: "system", content: systemInstruction },
     ...messages.map((message) => ({
@@ -123,19 +130,20 @@ function reasoningEffortFor(
 }
 
 /**
- * Command Code serves exactly two recognized, code-owned output contracts.
+ * Command Code serves exactly three recognized, code-owned output contracts.
  *
  * They are distinct contracts for distinct owners and are never conflated:
  *
  * - the Thought semantic contract, used by the direct Thought seam;
  * - the Reflection/Initiative adjudication contract, used by the bounded
- *   reflection adjudicator.
+ *   reflection adjudicator;
+ * - the mediated visual evidence contract, used by the Host attachment path.
  *
  * There is deliberately no generic "accept any schema" path. An unrecognized
  * contract, a contract whose schema id does not match its contract id, or a
  * substituted contract is refused before any transport.
  */
-type CommandCodeContract = "thought" | "reflection_initiative";
+type CommandCodeContract = "thought" | "reflection_initiative" | "vision_media";
 
 function contractFor(structured: StructuredOutputRequest | undefined): CommandCodeContract | null {
   if (!structured) return null;
@@ -151,7 +159,21 @@ function contractFor(structured: StructuredOutputRequest | undefined): CommandCo
   ) {
     return "reflection_initiative";
   }
+  if (
+    structured.contractId === VISION_MEDIA_OUTPUT_CONTRACT_ID &&
+    structured.schemaId === VISION_MEDIA_OUTPUT_SCHEMA_ID
+  ) {
+    return "vision_media";
+  }
   return null;
+}
+
+function bindingIdFor(contract: CommandCodeContract): string {
+  if (contract === "thought") return `${THOUGHT_OUTPUT_CONTRACT_ID}:${THOUGHT_OUTPUT_SCHEMA_ID}`;
+  if (contract === "reflection_initiative") {
+    return `${REFLECTION_INITIATIVE_OUTPUT_CONTRACT_ID}:${REFLECTION_INITIATIVE_OUTPUT_SCHEMA_ID}`;
+  }
+  return `${VISION_MEDIA_OUTPUT_CONTRACT_ID}:${VISION_MEDIA_OUTPUT_SCHEMA_ID}`;
 }
 
 function buildRequestBody(args: ProviderDispatchArgs): Record<string, unknown> {
@@ -167,6 +189,9 @@ function buildRequestBody(args: ProviderDispatchArgs): Record<string, unknown> {
   }
   if (contract === "thought" && args.options.tools?.length) {
     throw new AppError("capability_mismatch", "command_code_thought_tools_unsupported", 400);
+  }
+  if (contract === "vision_media" && args.options.tools?.length) {
+    throw new AppError("capability_mismatch", "command_code_vision_tools_unsupported", 400);
   }
   const maxTokens = args.options.maxTokens ?? MAX_OUTPUT_TOKENS;
   if (!Number.isSafeInteger(maxTokens) || maxTokens < 1 || maxTokens > MAX_OUTPUT_TOKENS) {
@@ -302,7 +327,7 @@ export function createCommandCodeAdapter(
           sanitizedBodyDigest: providerRequestHash,
           emittedEnforcementMode: "json_object_compatibility",
           providerDeclaredEnforcement: "unavailable",
-          bindingId: `${THOUGHT_OUTPUT_CONTRACT_ID}:${THOUGHT_OUTPUT_SCHEMA_ID}`,
+          bindingId: bindingIdFor(contractFor(args.options.structuredOutput)!),
         } as const;
         const usage = toUsage(result.usage);
         const finish = finishReason(firstChoice?.finish_reason);

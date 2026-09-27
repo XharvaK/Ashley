@@ -4,7 +4,9 @@ import { DatabaseSync } from "node:sqlite";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { env } from "../../../env.js";
 import { openNuclearDb } from "../../db.js";
+import { COMMAND_CODE_POLICY } from "../../command-code/policy.js";
 import { imageArtifactRepresentationId } from "../observation/view.js";
 import { getCapabilityReality } from "../thought/capability-reality.js";
 import { buildOrientationKernel } from "../thought/orientation-kernel.js";
@@ -17,6 +19,7 @@ import { isValidEvidenceOperationRequest } from "../thought/typed-inspection.js"
 import { persistOrVerifyObservation } from "../observation/persistence.js";
 import { admitTestCycle, openTestSidecar } from "../test-support.js";
 import { resolveAttachmentObservations } from "./attachments.js";
+import { createCommandCodeVisionTransport } from "./command-code-vision.js";
 
 const OWNER_ID = "owner-image-test";
 let previousArtifactDir: string | undefined;
@@ -194,6 +197,57 @@ describe("CAM-W3-P6 visual access", () => {
     });
     expect(kernel.capabilityReality.vision).toBe("mediated");
     nuclear.close();
+  });
+
+  it("uses the production Command Code transport through the attachment resolver", async () => {
+    const originalCommandCodeKey = env.commandCodeApiKey;
+    env.commandCodeApiKey = "test-command-code-key";
+    let request: Record<string, unknown> | undefined;
+    const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(String(input)).toBe("https://api.commandcode.ai/provider/v1/chat/completions");
+      request = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      return {
+        ok: true,
+        status: 200,
+        headers: new Headers({ "x-request-id": "attachment-vision-1" }),
+        json: async () => ({
+          model: COMMAND_CODE_POLICY.modelId,
+          choices: [{
+            message: { content: JSON.stringify({ description: "a mediated screenshot" }) },
+            finish_reason: "stop",
+          }],
+        }),
+      } as Response;
+    });
+    try {
+      const { nuclear, observations } = await resolveImage({
+        bytes: png(),
+        mime: "image/png",
+        fileName: "production-path.png",
+        visionAccess: "mediated",
+        imageTransport: createCommandCodeVisionTransport(fetcher),
+        sourceClass: "supplied_screenshot",
+      });
+      try {
+        const observation = observations[0]!;
+        expect(fetcher).toHaveBeenCalledOnce();
+        expect(observation).toMatchObject({ derived: true, modality: "image" });
+        expect(observation.payload).toMatchObject({
+          description: "a mediated screenshot",
+          helperModelId: COMMAND_CODE_POLICY.modelId,
+        });
+        expect(Object.prototype.hasOwnProperty.call(observation.payload, "imageDataUri")).toBe(false);
+        expect(request).toMatchObject({
+          model: COMMAND_CODE_POLICY.modelId,
+          reasoning_effort: "xhigh",
+          response_format: { type: "json_object" },
+        });
+      } finally {
+        nuclear.close();
+      }
+    } finally {
+      env.commandCodeApiKey = originalCommandCodeKey;
+    }
   });
 
   it("rejects coordinate reads when dimensions are unavailable and rejects image reads for another audience", async () => {
