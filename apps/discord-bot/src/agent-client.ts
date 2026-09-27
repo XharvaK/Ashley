@@ -809,3 +809,62 @@ export async function getNuclearStatus() {
     relationshipState?: { state: string };
   }>(`/nuclear/status?owner_id=${encodeURIComponent(config.ownerId)}`);
 }
+
+export type SocialOperationClass =
+  | "public_search"
+  | "public_fetch"
+  | "supplied_attachment"
+  | "bounded_followup";
+
+export type SocialOperationDelegation = {
+  entityUuid: string;
+  ownerId: string;
+  principalId: string;
+  conversationId: string;
+  operationClass: SocialOperationClass;
+  grantedAt: string;
+  expiresAt: string | null;
+  revokedAt: string | null;
+  version: number;
+  sourceSpan: unknown;
+};
+
+export async function grantSocialOperationDelegations(input: {
+  principalId: string;
+  conversationId: string;
+  operationClasses: SocialOperationClass[];
+  expiresAt?: string | null;
+}) {
+  return agentFetch<{ ok: boolean; delegations: SocialOperationDelegation[] }>(
+    "/nuclear/social-operation-delegations",
+    {
+      method: "POST",
+      body: JSON.stringify({ userId: config.ownerId, ...input }),
+    },
+  );
+}
+
+export async function listSocialOperationDelegations(input: {
+  principalId?: string;
+  conversationId?: string;
+}) {
+  const query = new URLSearchParams({ owner_id: config.ownerId });
+  if (input.principalId) query.set("principal_id", input.principalId);
+  if (input.conversationId) query.set("conversation_id", input.conversationId);
+  return agentFetch<{ delegations: SocialOperationDelegation[] }>(
+    `/nuclear/social-operation-delegations?${query.toString()}`,
+  );
+}
+
+export async function revokeSocialOperationDelegation(input: {
+  entityUuid: string;
+  expectedVersion?: number;
+}) {
+  return agentFetch<{ ok: boolean; delegation: SocialOperationDelegation }>(
+    "/nuclear/social-operation-delegations/revoke",
+    {
+      method: "POST",
+      body: JSON.stringify({ userId: config.ownerId, ...input }),
+    },
+  );
+}

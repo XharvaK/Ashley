@@ -11,6 +11,7 @@ import { projectInFlightConsequence } from "../thought/consequence-projection.js
 import { listConcerns } from "../concerns/lineage.js";
 import { listFutureTriggers } from "../initiative/future-triggers.js";
 import { listObservationSubscriptions } from "../observation/subscriptions.js";
+import { projectSocialOperationDelegations } from "../../relationship/social-authority.js";
 import type { Observation, ObservationRequest } from "../types.js";
 import type { SocialAudience } from "../social/types.js";
 import {
@@ -179,6 +180,10 @@ function namedCapability(
   const reasonCode = availability
     ? null
     : reality.reachability?.reasons[name] ?? "unavailable";
+  const socialOperationDelegation = projectSocialOperationDelegations(nuclear, {
+    audience: req.audience as SocialAudience | undefined,
+    nowMs: nowMs(),
+  });
   return observation(req, "capability.inspect", {
     operationKind: name,
     schemaId,
@@ -195,7 +200,7 @@ function namedCapability(
       status: "no_row",
       releaseRows: [],
     },
-    socialOperationDelegation: "unavailable_no_record",
+    socialOperationDelegation,
   });
 }
 

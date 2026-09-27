@@ -40,6 +40,10 @@ describe("route surface registry", () => {
       "POST /nuclear/capabilities/memory-evidence/cutover",
       "POST /initiative/periodic/debug/enable",
       "GET /initiative/periodic/diagnostics",
+      "POST /nuclear/social-operation-delegations",
+      "GET /nuclear/social-operation-delegations",
+      "GET /nuclear/social-operation-delegations/:entityUuid",
+      "POST /nuclear/social-operation-delegations/revoke",
     ]));
     expect(keys.some((key) => key.includes("memory-evidence/witness"))).toBe(false);
   });
@@ -67,6 +71,71 @@ describe("route surface registry", () => {
 
   it("keeps the live server registration aligned with the registry", () => {
     expect(() => createServer({} as AgentManager)).not.toThrow();
+  });
+
+  it("keeps social operation delegation control owner-only and exact-id", async () => {
+    const ownerId = "delegation-route-owner";
+    env.discordOwnerId = ownerId;
+    const nuclear = openNuclearDb(new DatabaseSync(":memory:"));
+    const manager = {
+      core: { getDatabase: () => nuclear },
+    } as unknown as AgentManager;
+    const { server, url } = await startTestServer(createServer(manager));
+    try {
+      const denied = await fetch(`${url}/nuclear/social-operation-delegations`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          principalId: "person-1",
+          conversationId: "conversation-1",
+          operationClasses: ["public_search"],
+        }),
+      });
+      expect(denied.status).toBe(403);
+
+      const granted = await fetch(`${url}/nuclear/social-operation-delegations`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          userId: ownerId,
+          principalId: "person-1",
+          conversationId: "conversation-1",
+          operationClasses: ["public_search", "public_fetch"],
+        }),
+      });
+      expect(granted.status).toBe(200);
+      const grantBody = await granted.json() as { delegations: Array<{ entityUuid: string; version: number }> };
+      expect(grantBody.delegations).toHaveLength(2);
+      expect(grantBody.delegations.every((item) => item.version === 1)).toBe(true);
+
+      const listed = await fetch(`${url}/nuclear/social-operation-delegations?owner_id=${ownerId}`);
+      expect(listed.status).toBe(200);
+      expect((await listed.json()).delegations).toHaveLength(2);
+
+      const entityUuid = grantBody.delegations[0]!.entityUuid;
+      const inspected = await fetch(`${url}/nuclear/social-operation-delegations/${entityUuid}?owner_id=${ownerId}`);
+      expect(inspected.status).toBe(200);
+      expect((await inspected.json()).delegation.entityUuid).toBe(entityUuid);
+
+      const revoked = await fetch(`${url}/nuclear/social-operation-delegations/revoke`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ userId: ownerId, entityUuid, expectedVersion: 1 }),
+      });
+      expect(revoked.status).toBe(200);
+      expect((await revoked.json()).delegation).toMatchObject({ entityUuid, version: 2 });
+
+      const idempotent = await fetch(`${url}/nuclear/social-operation-delegations/revoke`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ userId: ownerId, entityUuid, expectedVersion: 1 }),
+      });
+      expect(idempotent.status).toBe(200);
+      expect((await idempotent.json()).delegation).toMatchObject({ entityUuid, version: 2 });
+    } finally {
+      await stopTestServer(server);
+      nuclear.close();
+    }
   });
 
   it("keeps consequential routes unavailable while health is not ready", async () => {

@@ -10,6 +10,7 @@ import * as identity from "../commands/identity.js";
 import * as commitments from "../commands/commitments.js";
 import * as continuity from "../commands/continuity.js";
 import * as status from "../commands/status.js";
+import * as delegation from "../commands/delegation.js";
 
 export async function handleSlash(
   interaction: ChatInputCommandInteraction,
@@ -30,6 +31,7 @@ export async function handleSlash(
     interaction.commandName === "commitments" ||
     interaction.commandName === "continuity" ||
     interaction.commandName === "status" ||
+    interaction.commandName === "delegation" ||
     (interaction.commandName === "proactive" &&
       interaction.options.getString("action") === "status");
   if (!interaction.deferred && !interaction.replied) {
@@ -64,6 +66,9 @@ export async function handleSlash(
         break;
       case "status":
         await status.execute(interaction);
+        break;
+      case "delegation":
+        await delegation.execute(interaction);
         break;
     }
   } catch (err) {

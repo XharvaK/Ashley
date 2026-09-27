@@ -96,8 +96,14 @@ import type { InteractionContractEvidenceRef } from "./core/relationship/interac
 import {
   classifyEligibility,
   configuredBotDmPrincipal,
+  grantSocialOperationDelegation,
+  inspectSocialOperationDelegation,
+  listSocialOperationDelegations,
   readEligibilityBundle,
+  revokeSocialOperationDelegation,
+  type SocialOperationClass,
 } from "./core/relationship/social-authority.js";
+import { SOCIAL_OPERATION_DELEGATION_CLASSES } from "./core/relationship/migration-53.js";
 import { isRoomSeedActive } from "./core/relationship/room-seeding.js";
 import { getRaEffectiveConfig } from "./core/relationship/ra-effective-config.js";
 import {
@@ -553,6 +559,119 @@ export function createServer(
       const limit = Math.min(25, Number(req.query.limit ?? 25) || 25);
       const offset = Math.max(0, Number(req.query.offset ?? 0) || 0);
       res.json(manager.core.relationshipSummary(ownerId, limit, offset));
+    } catch (err) {
+      const { status, body } = toErrorResponse(err);
+      res.status(status).json(body);
+    }
+  });
+
+  app.post("/nuclear/social-operation-delegations", (req, res) => {
+    try {
+      const body = c1Body(req);
+      const ownerId = requireOwner(typeof body.userId === "string" ? body.userId : undefined);
+      const principalId = c1RequiredString(body, "principalId", 300);
+      const conversationId = c1RequiredString(body, "conversationId", 300);
+      const operationClasses = (() => {
+        const value = body.operationClasses;
+        if (!Array.isArray(value) || value.length === 0) {
+          throw new AppError("message_required", "operationClasses must be a non-empty array", 400);
+        }
+        const unique = [...new Set(value.map((item) => {
+          if (typeof item !== "string" || !SOCIAL_OPERATION_DELEGATION_CLASSES.includes(item as SocialOperationClass)) {
+            throw new AppError("message_required", "operationClasses has an invalid value", 400);
+          }
+          return item as SocialOperationClass;
+        }))];
+        return unique;
+      })();
+      let expiresAt: string | null = null;
+      if (body.expiresAt !== undefined && body.expiresAt !== null) {
+        expiresAt = c1RequiredString(body, "expiresAt", 100);
+        if (!Number.isFinite(Date.parse(expiresAt))) {
+          throw new AppError("message_required", "expiresAt must be an ISO timestamp", 400);
+        }
+      }
+      const delegations = operationClasses.map((operationClass) => grantSocialOperationDelegation(
+        manager.core.getDatabase(),
+        {
+          ownerId,
+          principalId,
+          conversationId,
+          operationClass,
+          expiresAt,
+          sourceSpan: {
+            kind: "owner_control",
+            route: "/nuclear/social-operation-delegations",
+            ownerId,
+          },
+          nowMs: Date.now(),
+        },
+      ));
+      res.json({ ok: true, delegations });
+    } catch (err) {
+      const { status, body } = toErrorResponse(err);
+      res.status(status).json(body);
+    }
+  });
+
+  app.get("/nuclear/social-operation-delegations", (req, res) => {
+    try {
+      const ownerId = requireOwner(String(req.query.owner_id ?? "") || undefined);
+      const principalId = typeof req.query.principal_id === "string" ? req.query.principal_id : undefined;
+      const conversationId = typeof req.query.conversation_id === "string" ? req.query.conversation_id : undefined;
+      const operationClass = req.query.operation_class === undefined
+        ? undefined
+        : c5Enum<SocialOperationClass>(
+            { operationClass: req.query.operation_class },
+            "operationClass",
+            SOCIAL_OPERATION_DELEGATION_CLASSES,
+          );
+      res.json({
+        delegations: listSocialOperationDelegations(manager.core.getDatabase(), {
+          ownerId,
+          principalId,
+          conversationId,
+          operationClass,
+        }),
+      });
+    } catch (err) {
+      const { status, body } = toErrorResponse(err);
+      res.status(status).json(body);
+    }
+  });
+
+  app.get("/nuclear/social-operation-delegations/:entityUuid", (req, res) => {
+    try {
+      requireOwner(String(req.query.owner_id ?? "") || undefined);
+      const delegation = inspectSocialOperationDelegation(
+        manager.core.getDatabase(),
+        c1RequiredString({ entityUuid: req.params.entityUuid }, "entityUuid", 300),
+      );
+      if (!delegation) throw new AppError("not_found", "Social operation delegation not found", 404);
+      res.json({ delegation });
+    } catch (err) {
+      const { status, body } = toErrorResponse(err);
+      res.status(status).json(body);
+    }
+  });
+
+  app.post("/nuclear/social-operation-delegations/revoke", (req, res) => {
+    try {
+      const body = c1Body(req);
+      const ownerId = requireOwner(typeof body.userId === "string" ? body.userId : undefined);
+      const expectedVersion = c1OptionalInteger(body, "expectedVersion");
+      if (expectedVersion !== undefined && expectedVersion < 1) {
+        throw new AppError("message_required", "expectedVersion must be positive", 400);
+      }
+      const delegation = revokeSocialOperationDelegation(
+        manager.core.getDatabase(),
+        {
+          entityUuid: c1RequiredString(body, "entityUuid", 300),
+          expectedVersion,
+          nowMs: Date.now(),
+        },
+      );
+      res.json({ ok: true, ownerId, delegation });
     } catch (err) {
       const { status, body } = toErrorResponse(err);
       res.status(status).json(body);

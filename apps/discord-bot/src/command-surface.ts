@@ -11,7 +11,7 @@ const parsed = JSON.parse(readFileSync(file, "utf8")) as CommandSurfaceFile;
 if (
   parsed.version !== 1 ||
   !Array.isArray(parsed.commands) ||
-  parsed.commands.length !== 9 ||
+  parsed.commands.length !== 10 ||
   parsed.commands.some((command) => typeof command !== "string" || !command.trim()) ||
   new Set(parsed.commands).size !== parsed.commands.length
 ) {
@@ -28,6 +28,7 @@ export const commandSurface = Object.freeze({
   commitments: parsed.commands[6],
   continuity: parsed.commands[7],
   status: parsed.commands[8],
+  delegation: parsed.commands[9],
 });
 
 export const commandNames = Object.freeze([...parsed.commands]);

@@ -87,7 +87,7 @@ describe("typed inspect operations", () => {
         operationKind: "candidate.develop",
         schemaId: "ashley.workspace_worker_request.v1",
         capability: candidate,
-        socialOperationDelegation: "unavailable_no_record",
+        socialOperationDelegation: { status: "no_active_delegation", active: [] },
       });
     } finally {
       sidecar.close();

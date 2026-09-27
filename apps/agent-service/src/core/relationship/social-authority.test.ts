@@ -16,11 +16,35 @@ import {
   revokeLicense,
   revokePerson,
   setAshleyBoundary,
+  socialOperationClassForOperation,
   upsertTrustedRoom,
 } from "./social-authority.js";
+import * as socialAuthorityModule from "./social-authority.js";
 
 const ownerId = "owner-1";
 const nowMs = Date.parse("2026-09-15T12:00:00.000Z");
+
+const delegationApi = socialAuthorityModule as unknown as {
+  grantSocialOperationDelegation: (db: DatabaseSync, input: Record<string, unknown>) => {
+    entityUuid: string;
+    principalId: string;
+    conversationId: string;
+    operationClass: string;
+    version: number;
+    revokedAt: string | null;
+  };
+  listSocialOperationDelegations: (db: DatabaseSync, input: Record<string, unknown>) => unknown[];
+  recheckSocialOperationDelegation: (db: DatabaseSync, input: Record<string, unknown>) => {
+    ok: boolean;
+    reason?: string;
+    delegation?: { entityUuid: string; version: number };
+  };
+  revokeSocialOperationDelegation: (db: DatabaseSync, input: Record<string, unknown>) => {
+    version: number;
+    revokedAt: string | null;
+  };
+  projectSocialOperationDelegations: (db: DatabaseSync, input: Record<string, unknown>) => unknown;
+};
 
 function dbFixture(): DatabaseSync {
   return openNuclearDb(new DatabaseSync(":memory:"));
@@ -31,6 +55,156 @@ function revision(db: DatabaseSync): number {
 }
 
 describe("social authority accessors", () => {
+  it("keeps social operation delegation host-owned, exact-bound, versioned, and idempotently revocable", () => {
+    const db = dbFixture();
+    try {
+      const initial = revision(db);
+      const delegation = delegationApi.grantSocialOperationDelegation(db, {
+        ownerId,
+        principalId: "person-1",
+        conversationId: "conversation-1",
+        operationClass: "public_search",
+        sourceSpan: { source: "owner_control" },
+        nowMs,
+      });
+      expect(delegation.version).toBe(1);
+      expect(revision(db)).toBe(initial + 1);
+      expect(delegationApi.grantSocialOperationDelegation(db, {
+        ownerId,
+        principalId: "person-1",
+        conversationId: "conversation-1",
+        operationClass: "public_search",
+        sourceSpan: { source: "owner_control", duplicate: true },
+        nowMs,
+      }).entityUuid).toBe(delegation.entityUuid);
+      expect(revision(db)).toBe(initial + 1);
+
+      expect(delegationApi.recheckSocialOperationDelegation(db, {
+        principalId: "person-1",
+        conversationId: "conversation-1",
+        operationClass: "public_search",
+        delegationRef: delegation.entityUuid,
+        nowMs,
+      })).toMatchObject({ ok: true, delegation: { entityUuid: delegation.entityUuid, version: 1 } });
+      expect(delegationApi.recheckSocialOperationDelegation(db, {
+        principalId: "person-1",
+        conversationId: "conversation-2",
+        operationClass: "public_search",
+        delegationRef: delegation.entityUuid,
+        nowMs,
+      })).toMatchObject({ ok: false, reason: "conversation_mismatch" });
+
+      const revoked = delegationApi.revokeSocialOperationDelegation(db, {
+        entityUuid: delegation.entityUuid,
+        expectedVersion: 1,
+        nowMs,
+      });
+      expect(revoked.version).toBe(2);
+      const afterRevoke = revision(db);
+      expect(delegationApi.revokeSocialOperationDelegation(db, {
+        entityUuid: delegation.entityUuid,
+        expectedVersion: 1,
+        nowMs,
+      }).version).toBe(2);
+      expect(revision(db)).toBe(afterRevoke);
+      expect(delegationApi.recheckSocialOperationDelegation(db, {
+        principalId: "person-1",
+        conversationId: "conversation-1",
+        operationClass: "public_search",
+        delegationRef: delegation.entityUuid,
+        nowMs,
+      })).toMatchObject({ ok: false, reason: "delegation_revoked" });
+    } finally {
+      db.close();
+    }
+  });
+
+  it("projects only mechanical delegation facts and never presents a recommendation", () => {
+    const db = dbFixture();
+    try {
+      expect(delegationApi.projectSocialOperationDelegations(db, {
+        principalId: "person-unknown",
+        conversationId: "conversation-unknown",
+        nowMs,
+      })).toEqual({ status: "no_active_delegation", active: [] });
+      const delegation = delegationApi.grantSocialOperationDelegation(db, {
+        ownerId,
+        principalId: "person-2",
+        conversationId: "conversation-2",
+        operationClass: "bounded_followup",
+        sourceSpan: { source: "owner_control" },
+        expiresAt: new Date(nowMs + 1_000).toISOString(),
+        nowMs,
+      });
+      expect(delegationApi.listSocialOperationDelegations(db, {
+        principalId: "person-2",
+        conversationId: "conversation-2",
+        nowMs,
+      })).toHaveLength(1);
+      expect(delegationApi.projectSocialOperationDelegations(db, {
+        principalId: "person-2",
+        conversationId: "conversation-2",
+        nowMs,
+      })).toMatchObject({
+        status: "active",
+        active: [{ entityUuid: delegation.entityUuid, version: 1, operationClass: "bounded_followup" }],
+      });
+    } finally {
+      db.close();
+    }
+  });
+
+  it("keeps the W5 class map bounded and fails closed on participant, conversation, expiry, and operation mismatches", () => {
+    const db = dbFixture();
+    try {
+      expect(socialOperationClassForOperation("web.search")).toBe("public_search");
+      expect(socialOperationClassForOperation("web.fetch")).toBe("public_fetch");
+      expect(socialOperationClassForOperation("evidence.read", "page")).toBe("public_fetch");
+      expect(socialOperationClassForOperation("evidence.read", "attachment")).toBe("supplied_attachment");
+      expect(socialOperationClassForOperation("project.inspect")).toBeNull();
+      expect(socialOperationClassForOperation("candidate.develop")).toBeNull();
+
+      expect(delegationApi.recheckSocialOperationDelegation(db, {
+        principalId: "person-search",
+        conversationId: "conversation-search",
+        operationClass: "public_search",
+        nowMs,
+      })).toMatchObject({ ok: false, reason: "no_active_delegation" });
+      const delegation = delegationApi.grantSocialOperationDelegation(db, {
+        ownerId,
+        principalId: "person-search",
+        conversationId: "conversation-search",
+        operationClass: "public_search",
+        sourceSpan: { source: "owner_control" },
+        expiresAt: new Date(nowMs + 1_000).toISOString(),
+        nowMs,
+      });
+      expect(delegationApi.recheckSocialOperationDelegation(db, {
+        principalId: "wrong-person",
+        conversationId: "conversation-search",
+        operationClass: "public_search",
+        delegationRef: delegation.entityUuid,
+        nowMs,
+      })).toMatchObject({ ok: false, reason: "principal_mismatch" });
+      expect(delegationApi.recheckSocialOperationDelegation(db, {
+        principalId: "person-search",
+        conversationId: "other-conversation",
+        operationClass: "public_search",
+        delegationRef: delegation.entityUuid,
+        nowMs,
+      })).toMatchObject({ ok: false, reason: "conversation_mismatch" });
+      expect(delegationApi.recheckSocialOperationDelegation(db, {
+        principalId: "person-search",
+        conversationId: "conversation-search",
+        operationClass: "public_search",
+        delegationRef: delegation.entityUuid,
+        nowMs: nowMs + 1_000,
+      })).toMatchObject({ ok: false, reason: "delegation_expired" });
+    } finally {
+      db.close();
+    }
+  });
+
   it("advances M1R exactly once for effective mutations and zero for no-ops", () => {
     const db = dbFixture();
     try {

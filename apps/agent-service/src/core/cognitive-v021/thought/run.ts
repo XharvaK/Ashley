@@ -92,6 +92,7 @@ import {
 } from "../initiative/future-triggers.js";
 import { listInFlightForThoughtCycle } from "../effect/in-flight.js";
 import { dispatchEffect } from "../effect/proposal.js";
+import type { EffectExecutionControl } from "../effect/execution-control.js";
 import {
   effectContinuationFromCompletion,
   finishEffectContinuation,
@@ -111,6 +112,7 @@ import {
   concernInspectRefsForInput,
   type ConcernInspectAuthority,
 } from "./concern-inspect.js";
+import { getConcern } from "../concerns/lineage.js";
 import {
   buildReferenceAllowlist,
   hasReferenceTarget,
@@ -228,7 +230,13 @@ import {
   roomIdentity,
   type OwnerRoomDestination,
 } from "../social/room-activation.js";
-import { listAvailableSocialDestinations, listOwnerTrustedRoomConversationIds } from "../../relationship/social-authority.js";
+import {
+  listAvailableSocialDestinations,
+  listOwnerTrustedRoomConversationIds,
+  recheckSocialOperationDelegation,
+  socialEvidenceSourceForConversation,
+  socialOperationClassForOperation,
+} from "../../relationship/social-authority.js";
 import { defaultQuotaBucket } from "../../attention/ledger.js";
 import {
   ResourceFuse,
@@ -2294,6 +2302,34 @@ function externalDestinationFor(
   };
 }
 
+function recordRequest(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+/** A delegation reference is Host-derived from a same-conversation concern. */
+function delegationRefForRequest(
+  sidecar: DatabaseSync,
+  request: unknown,
+  conversationId: string,
+): string | null {
+  const record = recordRequest(request);
+  const concernRef = typeof record?.concernRef === "string" ? record.concernRef.trim() : "";
+  if (!concernRef) return null;
+  const concern = getConcern(sidecar, concernRef);
+  if (!concern || concern.conversationId !== conversationId) return null;
+  const ref = concern.objective?.delegationRef;
+  return typeof ref === "string" && ref.trim() ? ref.trim() : null;
+}
+
+function withDelegationRef<T extends { delegationRef?: string | null }>(
+  value: T,
+  delegationRef: string | null,
+): T {
+  return delegationRef === null ? value : { ...value, delegationRef };
+}
+
 /** Build the room target for authenticated Owner speech without making it external. */
 export function ownerRoomDestinationFor(
   conversationId: string,
@@ -2755,6 +2791,70 @@ export async function runCognitiveCycle(
     && triggerEvidence.speakerPrincipalId.trim()
     ? triggerEvidence.speakerPrincipalId.trim()
     : null;
+  const externalParticipantId = externalDestination?.kind === "external_dm"
+    ? externalDestination.principalId
+    : typeof triggerEvidence?.speakerPrincipalId === "string"
+      && (triggerEvidence.speakerKind === "external_human" || triggerEvidence.speakerKind === "external_bot")
+      ? triggerEvidence.speakerPrincipalId.trim()
+      : null;
+  const externalOwnerId = typeof payload.ownerId === "string" && payload.ownerId.trim()
+    ? payload.ownerId.trim()
+    : cycle.occupantId?.trim() || undefined;
+  const delegatedClassFor = (
+    operationKind: string,
+    request: unknown,
+  ) => {
+    const record = recordRequest(request);
+    if (operationKind !== "evidence.read") {
+      return socialOperationClassForOperation(operationKind);
+    }
+    const artifactId = typeof record?.artifactId === "string" ? record.artifactId.trim() : "";
+    const representationId = typeof record?.representationId === "string" ? record.representationId.trim() : "";
+    if (!artifactId || !representationId) return null;
+    const source = socialEvidenceSourceForConversation(nuclear, sidecar, {
+      artifactId,
+      representationId,
+      conversationId: cycle.conversationId,
+    });
+    return socialOperationClassForOperation(operationKind, source ?? undefined);
+  };
+  const enforceExternalDelegation = (
+    operationKind: string,
+    request: unknown,
+    delegationRef: string | null,
+  ): void => {
+    if (!externalCycle) return;
+    const operationClass = delegatedClassFor(operationKind, request);
+    if (!externalParticipantId || !operationClass) {
+      throw new CapabilityUnavailableError("social_operation_delegation_required");
+    }
+    const result = recheckSocialOperationDelegation(nuclear, {
+      ownerId: externalOwnerId,
+      principalId: externalParticipantId,
+      conversationId: cycle.conversationId,
+      operationClass,
+      delegationRef,
+      nowMs: deps.nowMs(),
+    });
+    if (!result.ok) {
+      throw new CapabilityUnavailableError(`social_delegation_${result.reason}`);
+    }
+  };
+  const executeDelegatedObservation = async (request: import("../types.js").ObservationRequest): Promise<Observation> => {
+    const delegationRef = delegationRefForRequest(sidecar, request.request, cycle.conversationId);
+    const bound = withDelegationRef(request, delegationRef);
+    enforceExternalDelegation(bound.kind, bound.request, bound.delegationRef ?? null);
+    return deps.executeObservation(bound);
+  };
+  const executeDelegatedEffect = async (
+    proposal: EffectProposal,
+    control?: EffectExecutionControl,
+  ): Promise<EffectReceipt> => {
+    const delegationRef = delegationRefForRequest(sidecar, proposal.request, cycle.conversationId);
+    const bound = withDelegationRef(proposal, delegationRef);
+    enforceExternalDelegation(bound.kind, bound.request, bound.delegationRef ?? null);
+    return deps.executeEffect(bound, control);
+  };
   const socialResourcePrecheck = botParticipantId
     ? SOCIAL_RESOURCE_FUSE.admit({
         conversationKey: cycle.conversationId,
@@ -3454,23 +3554,6 @@ export async function runCognitiveCycle(
       );
     }
 
-    // External social Thought has no instrumental authority. Capability
-    // reality is descriptive input, so enforce the boundary before either
-    // generic operation executor can be reached.
-    if (
-      externalCycle
-      && (invocation.output.kind === "observation_request" || invocation.output.kind === "effect_proposal")
-    ) {
-      return emitFailure(
-        "external_operation_disabled",
-        undefined,
-        makeThoughtTerminal("authority", {
-          codes: ["CAPABILITY_UNAVAILABLE"],
-          stage: "external_operation",
-        }),
-      );
-    }
-
     if (invocation.output.kind === "observation_request") {
       if (effectContinuationCompletion?.remainingEffectRounds === 0) {
         const request = invocation.output.observationRequest;
@@ -3666,7 +3749,7 @@ export async function runCognitiveCycle(
       incrementThoughtAttemptCounter(sidecar, cycle.cycleId, cycle.generation, "observationRounds");
       updateCycleState(sidecar, cycle.cycleId, "awaiting_operation", deps.nowMs());
       try {
-        const observed = await deps.executeObservation(invocation.output.observationRequest);
+        const observed = await executeDelegatedObservation(invocation.output.observationRequest);
         const normalized: Observation = {
           ...observed,
           cycleId: cycle.cycleId,
@@ -3789,6 +3872,15 @@ export async function runCognitiveCycle(
         ...invocation.output.effectProposal,
         originEventId: event.id,
         originAttemptId: event.durableAttemptId ?? null,
+        ...(delegationRefForRequest(sidecar, invocation.output.effectProposal.request, cycle.conversationId) === null
+          ? {}
+          : {
+              delegationRef: delegationRefForRequest(
+                sidecar,
+                invocation.output.effectProposal.request,
+                cycle.conversationId,
+              ),
+            }),
       };
       const detachedDevelop = proposal.kind === "candidate.develop"
         && typeof deps.acceptEffectContinuation === "function"
@@ -3824,10 +3916,10 @@ export async function runCognitiveCycle(
                 authorityDb: authorityDbForPacks(deps, packs),
               }).ok;
             },
-            execute: (control) => deps.executeEffect(effectProposal, control),
+            execute: (control) => executeDelegatedEffect(effectProposal, control),
             ...(continuationLease ? { continuationLease } : {}),
           })
-        : deps.executeEffect;
+        : executeDelegatedEffect;
       const dispatch = await dispatchEffect(
         sidecar,
         proposal,

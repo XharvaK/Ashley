@@ -1,9 +1,13 @@
 import type { DatabaseSync } from "node:sqlite";
 import {
   type CycleRecord,
+  type EffectProposal,
+  type EffectReceipt,
   type InboxEvent,
   type KernelDeps,
   type KernelRunResult,
+  type Observation,
+  type ObservationRequest,
   type OutboxDeliveryProjector,
   type PrivateBudgetReservation,
   type WakeRecord,
@@ -34,6 +38,13 @@ import {
 import { getDeferredFrontier } from "../frontier/ledger.js";
 import { getFutureTrigger } from "../initiative/future-triggers.js";
 import { externalDmPrincipal, isExternalDmCognitionEnabled } from "../social/dm-activation.js";
+import { getConversationEvidence } from "../evidence/conversation-log.js";
+import {
+  recheckSocialOperationDelegation,
+  socialEvidenceSourceForConversation,
+  socialOperationClassForOperation,
+} from "../../relationship/social-authority.js";
+import { CapabilityUnavailableError } from "../thought/typed-inspection.js";
 
 export type LiveCognitiveTurnInput = {
   sidecar: DatabaseSync;
@@ -231,13 +242,25 @@ export async function runLiveCognitiveTurn(
   }
 
   const externalCycle = cycle.triggerKind === "external_message" || input.event.kind === "external_utterance";
+  const destination = payload.externalDestination;
+  const destinationRecord = typeof destination === "object" && destination !== null && !Array.isArray(destination)
+    ? destination as Record<string, unknown>
+    : null;
+  const triggerEvidence = typeof payload.evidenceRowId === "string"
+    ? getConversationEvidence(input.sidecar, payload.evidenceRowId)
+    : null;
   if (externalCycle) {
     if (!isExternalDmCognitionEnabled()) throw new Error("external_cognition_disabled");
-    const destination = payload.externalDestination;
-    const principal = typeof destination === "object" && destination !== null && !Array.isArray(destination)
-      ? (destination as Record<string, unknown>).principalId
-      : null;
-    if (typeof principal !== "string" || principal !== externalDmPrincipal()) {
+    if (destinationRecord?.kind === "external_dm") {
+      if (typeof destinationRecord.principalId !== "string" || destinationRecord.principalId !== externalDmPrincipal()) {
+        throw new Error("external_principal_mismatch");
+      }
+    } else if (destinationRecord?.kind === "room") {
+      if (typeof triggerEvidence?.speakerPrincipalId !== "string"
+        || (triggerEvidence.speakerKind !== "external_human" && triggerEvidence.speakerKind !== "external_bot")) {
+        throw new Error("external_principal_mismatch");
+      }
+    } else {
       throw new Error("external_principal_mismatch");
     }
   }
@@ -362,12 +385,67 @@ export async function runLiveCognitiveTurn(
           }
         }
       : undefined;
+    const projectedDeps = withProjector(input.deps, projector);
+    const externalParticipantId = externalCycle
+      ? destinationRecord?.kind === "external_dm"
+        ? typeof destinationRecord.principalId === "string" ? destinationRecord.principalId : null
+        : typeof triggerEvidence?.speakerPrincipalId === "string" ? triggerEvidence.speakerPrincipalId : null
+      : null;
+    const externalOwnerId = typeof payload.ownerId === "string" && payload.ownerId.trim()
+      ? payload.ownerId.trim()
+      : cycle.occupantId?.trim() || undefined;
+    const gateExternalOperation = (
+      operationKind: string,
+      request: unknown,
+      delegationRef: string | null | undefined,
+    ): void => {
+      if (!externalCycle) return;
+      const record = typeof request === "object" && request !== null && !Array.isArray(request)
+        ? request as Record<string, unknown>
+        : null;
+      let source: "page" | "attachment" | undefined;
+      if (operationKind === "evidence.read"
+        && typeof record?.artifactId === "string"
+        && typeof record.representationId === "string") {
+        source = socialEvidenceSourceForConversation(input.nuclear, input.sidecar, {
+          artifactId: record.artifactId,
+          representationId: record.representationId,
+          conversationId: cycle.conversationId,
+        }) ?? undefined;
+      }
+      const operationClass = socialOperationClassForOperation(operationKind, source);
+      if (!externalParticipantId || !operationClass) {
+        throw new CapabilityUnavailableError("social_operation_delegation_required");
+      }
+      const result = recheckSocialOperationDelegation(input.nuclear, {
+        ownerId: externalOwnerId,
+        principalId: externalParticipantId,
+        conversationId: cycle.conversationId,
+        operationClass,
+        delegationRef,
+        nowMs: Date.now(),
+      });
+      if (!result.ok) throw new CapabilityUnavailableError(`social_delegation_${result.reason}`);
+    };
+    const gatedDeps: KernelDeps = externalCycle
+      ? {
+          ...projectedDeps,
+          executeObservation: async (request: ObservationRequest): Promise<Observation> => {
+            gateExternalOperation(request.kind, request.request, request.delegationRef);
+            return projectedDeps.executeObservation(request);
+          },
+          executeEffect: async (proposal: EffectProposal, control): Promise<EffectReceipt> => {
+            gateExternalOperation(proposal.kind, proposal.request, proposal.delegationRef);
+            return projectedDeps.executeEffect(proposal, control);
+          },
+        }
+      : projectedDeps;
     return await runCognitiveCycle(
       input.sidecar,
       input.nuclear,
       input.event,
       {
-        ...withProjector(input.deps, projector),
+        ...gatedDeps,
         ...(cognitionClaim
           ? {
               renewConversationCognition: () => renewConversationCognition(input.sidecar, {

@@ -125,5 +125,48 @@ export function buildCommandDefinitions(): RESTPostAPIChatInputApplicationComman
       .setName(commandSurface.status)
       .setDescription("Show delivery, attention, and capability health")
       .toJSON(),
+    new SlashCommandBuilder()
+      .setName(commandSurface.delegation)
+      .setDescription("Manage bounded social operation delegations")
+      .addSubcommand((subcommand) => subcommand
+        .setName("grant")
+        .setDescription("Grant bounded public operation classes in one conversation")
+        .addStringOption((o) => o
+          .setName("principal")
+          .setDescription("Exact participant principal")
+          .setRequired(true))
+        .addStringOption((o) => o
+          .setName("conversation")
+          .setDescription("Exact conversation identifier")
+          .setRequired(true))
+        .addStringOption((o) => o
+          .setName("classes")
+          .setDescription("Comma-separated public_search, public_fetch, supplied_attachment, bounded_followup")
+          .setRequired(true))
+        .addStringOption((o) => o
+          .setName("expires-at")
+          .setDescription("Optional ISO expiry")
+          .setRequired(false)))
+      .addSubcommand((subcommand) => subcommand
+        .setName("list")
+        .setDescription("List current delegation records")
+        .addStringOption((o) => o
+          .setName("principal")
+          .setDescription("Optional exact participant principal"))
+        .addStringOption((o) => o
+          .setName("conversation")
+          .setDescription("Optional exact conversation identifier")))
+      .addSubcommand((subcommand) => subcommand
+        .setName("revoke")
+        .setDescription("Revoke one exact delegation record")
+        .addStringOption((o) => o
+          .setName("id")
+          .setDescription("Exact delegation entity UUID")
+          .setRequired(true))
+        .addIntegerOption((o) => o
+          .setName("version")
+          .setDescription("Expected current version")
+          .setMinValue(1)))
+      .toJSON(),
   ];
 }

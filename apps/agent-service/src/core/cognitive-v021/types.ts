@@ -1125,6 +1125,8 @@ export type ObservationRequest = {
   replaySafe: true;
   /** Host-bound audience used for executor-side inspection scoping. */
   audience?: SocialAudience;
+  /** Host-derived exact social delegation reference; never model-authored. */
+  delegationRef?: string | null;
   authorityCurrentness?: AuthorityCurrentnessBinding;
   concernInspectionBinding?: ConcernInspectionBinding;
 };
@@ -1147,6 +1149,8 @@ export type EffectProposal = {
   purpose?: string;
   /** Host-bound disclosure scope; never read from the model-authored request. */
   audienceScope?: SocialAudience | null;
+  /** Host-derived exact social delegation reference; never model-authored. */
+  delegationRef?: string | null;
   authorityEpoch: AuthorityEpoch;
   authorityCurrentness?: AuthorityCurrentnessBinding;
   originEventId?: string;

@@ -9,6 +9,7 @@
     "identity",
     "commitments",
     "continuity",
-    "status"
+    "status",
+    "delegation"
   ]
 }

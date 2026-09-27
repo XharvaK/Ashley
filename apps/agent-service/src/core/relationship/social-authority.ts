@@ -9,12 +9,78 @@ import type { AvailableSocialDestination } from "../cognitive-v021/social/types.
 import { resolveActiveThread } from "../memory/threads.js";
 import { isAuthorizedOwnerId } from "../../owner-auth.js";
 import { getRaEffectiveConfig, type RaEnvironment } from "./ra-effective-config.js";
+import {
+  SOCIAL_OPERATION_DELEGATION_CLASSES,
+  type SocialOperationDelegationClass,
+} from "./migration-53.js";
 
 export type SocialPermitScope = "person_wide" | "dm_only" | "room_only";
 export type TrustedRoomMode = "trusted_social" | "observe_only" | "disengaged";
 export type TrustedRoomProvenance = "seeded_from_owner_config" | "owner_grant_nl" | "explicit_config";
 export type RecipientRestrictionKind = "no_dm" | "no_initiation" | "room_only" | "do_not_contact";
 export type AshleyBoundaryScope = "no_initiation" | "no_dm" | "no_direct" | "no_contact";
+export type SocialOperationClass = SocialOperationDelegationClass;
+
+export type SocialDelegationEvidenceSource = "page" | "attachment";
+
+/** The only external operation-to-delegation mapping admitted by CAM-W5-P1. */
+export function socialOperationClassForOperation(
+  operationKind: string,
+  evidenceSource?: SocialDelegationEvidenceSource,
+): SocialOperationClass | null {
+  if (operationKind === "web.search") return "public_search";
+  if (operationKind === "web.fetch") return "public_fetch";
+  if (operationKind === "evidence.read") {
+    return evidenceSource === "page"
+      ? "public_fetch"
+      : evidenceSource === "attachment"
+        ? "supplied_attachment"
+        : null;
+  }
+  if (operationKind === "future_trigger" || operationKind === "future_trigger.create") {
+    return "bounded_followup";
+  }
+  return null;
+}
+
+/** Resolve evidence ownership and conversation binding before a social read. */
+export function socialEvidenceSourceForConversation(
+  nuclear: DatabaseSync,
+  sidecar: DatabaseSync | undefined,
+  input: {
+    artifactId: string;
+    representationId: string;
+    conversationId: string;
+  },
+): SocialDelegationEvidenceSource | null {
+  if (!sidecar) return null;
+  try {
+    const page = sidecar.prepare(
+      `SELECT 1
+         FROM observations o
+         JOIN cycle_records c ON c.cycle_id = o.cycle_id AND c.generation = o.generation
+        WHERE o.parent_artifact_id = ?
+          AND o.representation_id = ?
+          AND o.modality = 'page'
+          AND o.provenance = 'perception:web-fetch'
+          AND c.conversation_id = ?
+        LIMIT 1`,
+    ).get(input.artifactId, input.representationId, input.conversationId);
+    if (page) return "page";
+    const attachment = nuclear.prepare(
+      `SELECT 1
+         FROM perception_artifacts a
+         JOIN conversation_evidence_log e ON e.row_id = a.source_message_entity_uuid
+        WHERE a.entity_uuid = ?
+          AND a.discord_attachment_id IS NOT NULL
+          AND e.conversation_id = ?
+        LIMIT 1`,
+    ).get(input.artifactId, input.conversationId);
+    return attachment ? "attachment" : null;
+  } catch {
+    return null;
+  }
+}
 
 export type SocialPermit = {
   entityUuid: string;
@@ -28,6 +94,34 @@ export type SocialPermit = {
   version: number;
   revokedAt: string | null;
 };
+
+export type SocialOperationDelegation = {
+  entityUuid: string;
+  ownerId: string;
+  principalId: string;
+  conversationId: string;
+  operationClass: SocialOperationClass;
+  grantedAt: string;
+  expiresAt: string | null;
+  revokedAt: string | null;
+  version: number;
+  sourceSpan: unknown;
+};
+
+export type SocialOperationDelegationRecheck =
+  | { ok: true; delegation: SocialOperationDelegation }
+  | {
+      ok: false;
+      reason:
+        | "no_active_delegation"
+        | "delegation_missing"
+        | "principal_mismatch"
+        | "conversation_mismatch"
+        | "operation_class_mismatch"
+        | "delegation_revoked"
+        | "delegation_expired";
+      delegation?: SocialOperationDelegation;
+    };
 
 export type OwnerProhibition = {
   entityUuid: string;
@@ -171,6 +265,28 @@ function permit(row: Row): SocialPermit {
     proposalRef: nullableText(row.proposal_ref),
     version: integer(row.version),
     revokedAt: nullableText(row.revoked_at),
+  };
+}
+
+function socialOperationClass(value: unknown): SocialOperationClass {
+  if (typeof value !== "string" || !SOCIAL_OPERATION_DELEGATION_CLASSES.includes(value as SocialOperationClass)) {
+    throw new Error("social_operation_class_invalid");
+  }
+  return value as SocialOperationClass;
+}
+
+function socialOperationDelegation(row: Row): SocialOperationDelegation {
+  return {
+    entityUuid: String(row.entity_uuid ?? ""),
+    ownerId: String(row.owner_id ?? ""),
+    principalId: String(row.principal_id ?? ""),
+    conversationId: String(row.conversation_id ?? ""),
+    operationClass: socialOperationClass(row.operation_class),
+    grantedAt: String(row.granted_at ?? ""),
+    expiresAt: nullableText(row.expires_at),
+    revokedAt: nullableText(row.revoked_at),
+    version: integer(row.version),
+    sourceSpan: row.source_span_json == null ? null : JSON.parse(String(row.source_span_json)),
   };
 }
 
@@ -351,6 +467,259 @@ export function revokePerson(
     });
     return permit(rowByEntity(db, "social_permits", entityUuid)!);
   });
+}
+
+function delegationExpired(delegation: SocialOperationDelegation, nowMs: number): boolean {
+  if (delegation.expiresAt == null) return false;
+  const expiresAtMs = Date.parse(delegation.expiresAt);
+  return !Number.isFinite(expiresAtMs) || expiresAtMs <= nowMs;
+}
+
+function activeSocialOperationDelegation(
+  db: DatabaseSync,
+  principalId: string,
+  conversationId: string,
+  operationClass: SocialOperationClass,
+): Row | undefined {
+  return asRow(db.prepare(
+    `SELECT * FROM social_operation_delegations
+      WHERE principal_id = ? AND conversation_id = ? AND operation_class = ?
+        AND revoked_at IS NULL
+      LIMIT 1`,
+  ).get(principalId, conversationId, operationClass));
+}
+
+export function grantSocialOperationDelegation(
+  db: DatabaseSync,
+  input: {
+    ownerId: string;
+    principalId: string;
+    conversationId: string;
+    operationClass: SocialOperationClass;
+    sourceSpan: unknown;
+    expiresAt?: string | null;
+    grantedAt?: string;
+    entityUuid?: string;
+    nowMs?: number;
+  },
+): SocialOperationDelegation {
+  const ownerId = required(input.ownerId, "social_owner_required");
+  const principalId = required(input.principalId, "social_principal_required");
+  const conversationId = required(input.conversationId, "social_conversation_required");
+  const operationClass = socialOperationClass(input.operationClass);
+  const expiresAt = input.expiresAt == null
+    ? null
+    : required(input.expiresAt, "social_delegation_expiry_invalid");
+  return withImmediateTransaction(db, () => {
+    const existing = activeSocialOperationDelegation(
+      db,
+      principalId,
+      conversationId,
+      operationClass,
+    );
+    if (existing) return socialOperationDelegation(existing);
+    const entityUuid = required(input.entityUuid ?? assignNewEntityUuid(), "social_entity_required");
+    const sourceSpanJson = json(input.sourceSpan, "social_source_span_invalid");
+    advanceRelationalHardPolicyRevisionInTransaction(db, {
+      reasonCode: "social_operation_delegation_grant",
+      changeId: entityUuid,
+      nowMs: timeMs(input.nowMs),
+      mutate: () => ({
+        changes: Number(db.prepare(
+          `INSERT INTO social_operation_delegations
+             (entity_uuid, owner_id, principal_id, conversation_id, operation_class,
+              granted_at, expires_at, revoked_at, version, source_span_json)
+           VALUES (?, ?, ?, ?, ?, ?, ?, NULL, 1, ?)`,
+        ).run(
+          entityUuid,
+          ownerId,
+          principalId,
+          conversationId,
+          operationClass,
+          input.grantedAt ?? isoTime(input.nowMs),
+          expiresAt,
+          sourceSpanJson,
+        ).changes),
+        value: undefined,
+      }),
+    });
+    return socialOperationDelegation(rowByEntity(
+      db,
+      "social_operation_delegations",
+      entityUuid,
+    )!);
+  });
+}
+
+export function listSocialOperationDelegations(
+  db: DatabaseSync,
+  input: {
+    ownerId?: string;
+    principalId?: string;
+    conversationId?: string;
+    operationClass?: SocialOperationClass;
+    activeOnly?: boolean;
+    nowMs?: number;
+  } = {},
+): SocialOperationDelegation[] {
+  const clauses: string[] = [];
+  const params: string[] = [];
+  if (input.ownerId != null) {
+    clauses.push("owner_id = ?");
+    params.push(required(input.ownerId, "social_owner_required"));
+  }
+  if (input.principalId != null) {
+    clauses.push("principal_id = ?");
+    params.push(required(input.principalId, "social_principal_required"));
+  }
+  if (input.conversationId != null) {
+    clauses.push("conversation_id = ?");
+    params.push(required(input.conversationId, "social_conversation_required"));
+  }
+  if (input.operationClass != null) {
+    clauses.push("operation_class = ?");
+    params.push(socialOperationClass(input.operationClass));
+  }
+  const rows = db.prepare(
+    `SELECT * FROM social_operation_delegations
+      ${clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : ""}
+      ORDER BY granted_at ASC, entity_uuid ASC`,
+  ).all(...params) as Row[];
+  const now = timeMs(input.nowMs);
+  return rows
+    .map(socialOperationDelegation)
+    .filter((delegation) => input.activeOnly !== true
+      || (delegation.revokedAt == null && !delegationExpired(delegation, now)));
+}
+
+export function inspectSocialOperationDelegation(
+  db: DatabaseSync,
+  entityUuid: string,
+): SocialOperationDelegation | null {
+  const row = rowByEntity(
+    db,
+    "social_operation_delegations",
+    required(entityUuid, "social_entity_required"),
+  );
+  return row ? socialOperationDelegation(row) : null;
+}
+
+export function revokeSocialOperationDelegation(
+  db: DatabaseSync,
+  input: { entityUuid: string; expectedVersion?: number; revokedAt?: string; nowMs?: number },
+): SocialOperationDelegation {
+  const entityUuid = required(input.entityUuid, "social_entity_required");
+  return withImmediateTransaction(db, () => {
+    const current = rowByEntity(db, "social_operation_delegations", entityUuid);
+    if (!current) throw new Error("social_delegation_missing");
+    if (current.revoked_at != null) return socialOperationDelegation(current);
+    const version = expectedVersion(current, input.expectedVersion);
+    advanceRelationalHardPolicyRevisionInTransaction(db, {
+      reasonCode: "social_operation_delegation_revoke",
+      changeId: entityUuid,
+      nowMs: timeMs(input.nowMs),
+      mutate: () => ({
+        changes: Number(db.prepare(
+          `UPDATE social_operation_delegations
+              SET revoked_at = ?, version = version + 1
+            WHERE entity_uuid = ? AND version = ? AND revoked_at IS NULL`,
+        ).run(
+          input.revokedAt ?? isoTime(input.nowMs),
+          entityUuid,
+          version,
+        ).changes),
+        value: undefined,
+      }),
+    });
+    return socialOperationDelegation(rowByEntity(
+      db,
+      "social_operation_delegations",
+      entityUuid,
+    )!);
+  });
+}
+
+export function recheckSocialOperationDelegation(
+  db: DatabaseSync,
+  input: {
+    ownerId?: string;
+    principalId: string;
+    conversationId: string;
+    operationClass: SocialOperationClass;
+    delegationRef?: string | null;
+    nowMs?: number;
+  },
+): SocialOperationDelegationRecheck {
+  const principalId = required(input.principalId, "social_principal_required");
+  const conversationId = required(input.conversationId, "social_conversation_required");
+  const operationClass = socialOperationClass(input.operationClass);
+  const now = timeMs(input.nowMs);
+  const row = input.delegationRef == null
+    ? activeSocialOperationDelegation(db, principalId, conversationId, operationClass)
+    : rowByEntity(db, "social_operation_delegations", required(input.delegationRef, "social_entity_required"));
+  if (!row) {
+    return { ok: false, reason: input.delegationRef == null ? "no_active_delegation" : "delegation_missing" };
+  }
+  const delegation = socialOperationDelegation(row);
+  if (input.ownerId !== undefined && delegation.ownerId !== required(input.ownerId, "social_owner_required")) {
+    return { ok: false, reason: "delegation_missing" };
+  }
+  if (delegation.principalId !== principalId) {
+    return { ok: false, reason: "principal_mismatch", delegation };
+  }
+  if (delegation.conversationId !== conversationId) {
+    return { ok: false, reason: "conversation_mismatch", delegation };
+  }
+  if (delegation.operationClass !== operationClass) {
+    return { ok: false, reason: "operation_class_mismatch", delegation };
+  }
+  if (delegation.revokedAt != null) {
+    return { ok: false, reason: "delegation_revoked", delegation };
+  }
+  if (delegationExpired(delegation, now)) {
+    return { ok: false, reason: "delegation_expired", delegation };
+  }
+  return { ok: true, delegation };
+}
+
+export function projectSocialOperationDelegations(
+  db: DatabaseSync,
+  input: {
+    principalId?: string;
+    conversationId?: string;
+    audience?: import("../cognitive-v021/social/types.js").SocialAudience;
+    nowMs?: number;
+  } = {},
+): {
+  status: "no_active_delegation" | "active";
+  active: Array<{
+    entityUuid: string;
+    version: number;
+    operationClass: SocialOperationClass;
+    principalId: string;
+    conversationId: string;
+    expiresAt: string | null;
+  }>;
+} {
+  if (input.audience?.kind === "owner_private" || input.audience?.kind === "owner_dm") {
+    return { status: "no_active_delegation", active: [] };
+  }
+  const active = listSocialOperationDelegations(db, {
+    principalId: input.principalId,
+    conversationId: input.conversationId,
+    activeOnly: true,
+    nowMs: input.nowMs,
+  }).map((delegation) => ({
+    entityUuid: delegation.entityUuid,
+    version: delegation.version,
+    operationClass: delegation.operationClass,
+    principalId: delegation.principalId,
+    conversationId: delegation.conversationId,
+    expiresAt: delegation.expiresAt,
+  }));
+  return active.length > 0
+    ? { status: "active", active }
+    : { status: "no_active_delegation", active: [] };
 }
 
 export function prohibitPerson(
