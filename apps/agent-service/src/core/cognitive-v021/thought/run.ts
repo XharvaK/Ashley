@@ -50,6 +50,7 @@ import {
   type ConversationalCommitment,
   type ThoughtContinuityRecovery,
   type ConversationEvidenceRecord,
+  type CapabilityReality,
 } from "../types.js";
 import {
   createThoughtStructuralFeedback,
@@ -3022,14 +3023,25 @@ export async function runCognitiveCycle(
     });
   };
 
+  const invocationLicenses = externalBinding?.licenseRefs ?? [];
+  const currentCapabilityReality = (): CapabilityReality => withPublicPresenceCapability(
+    deps.refreshCapabilityReality?.({
+      audience: effectiveThoughtAudience,
+      licenses: invocationLicenses,
+      nowMs: deps.nowMs(),
+    }) ?? deps.capabilityReality,
+    publicPresenceEnabled,
+  );
   let ownerMessage = typeof payload.ownerMessage === "string"
     ? payload.ownerMessage
     : triggerEvidence?.text ?? listConversationEvidence(sidecar, cycle.conversationId, { limit: 1 }).at(-1)?.text ?? "";
   const perceive = async (): Promise<Observation[]> => {
     if (boundObservations) return boundObservations;
     const resolveAttachments = deps.resolveAttachmentObservations ?? resolveAttachmentObservations;
-    const attachmentObservations = event.kind === "owner_utterance"
-      && Array.isArray(payload.attachments) && payload.attachments.length > 0
+    const declaredAttachments = Array.isArray(payload.attachments) ? payload.attachments : [];
+    const hasAttachments = event.kind === "owner_utterance" && declaredAttachments.length > 0;
+    const attachmentCapabilityReality = hasAttachments ? currentCapabilityReality() : null;
+    const attachmentObservations = hasAttachments && attachmentCapabilityReality
       ? await resolveAttachments({
           nuclear,
           ownerId: typeof payload.ownerId === "string" && payload.ownerId.trim()
@@ -3041,9 +3053,9 @@ export async function runCognitiveCycle(
             ? payload.evidenceRowId.trim()
             : event.id,
           deliveryReservationEntityUuid: event.id,
-          attachments: payload.attachments,
-          attachmentTextEnabled: deps.capabilityReality.attachmentText,
-          visionAccess: deps.capabilityReality.vision,
+          attachments: declaredAttachments,
+          attachmentTextEnabled: attachmentCapabilityReality.attachmentText,
+          visionAccess: attachmentCapabilityReality.vision,
           imageTransport: deps.visionTransport,
         })
       : [];
@@ -3142,15 +3154,7 @@ export async function runCognitiveCycle(
       ownerId: typeof payload.ownerId === "string" ? payload.ownerId : cycle.occupantId,
     });
     inFlight = listInFlightForThoughtCycle(sidecar, cycle.cycleId);
-    const invocationLicenses = externalBinding?.licenseRefs ?? [];
-    const invocationCapabilityReality = withPublicPresenceCapability(
-      deps.refreshCapabilityReality?.({
-        audience: effectiveThoughtAudience,
-        licenses: invocationLicenses,
-        nowMs: deps.nowMs(),
-      }) ?? deps.capabilityReality,
-      publicPresenceEnabled,
-    );
+    const invocationCapabilityReality = currentCapabilityReality();
     const thoughtInputOptions = {
       sidecar,
       cycle,

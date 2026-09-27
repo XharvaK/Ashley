@@ -157,3 +157,257 @@ describe("per-invocation capability orientation refresh", () => {
     }
   });
 });
+
+function realityWith(overrides: Partial<CapabilityReality>): CapabilityReality {
+  return { ...initialReality, ...overrides };
+}
+
+type AttachmentGateInput = Parameters<NonNullable<KernelDeps["resolveAttachmentObservations"]>>[0];
+
+function attachmentOwnerCycle(
+  sidecar: ReturnType<typeof openTestSidecar>,
+  conversationId: string,
+  suffix: string,
+  nowMs: number,
+) {
+  const cycle = admitTestCycle(sidecar, {
+    conversationId,
+    triggerKind: "owner_message",
+    triggerRef: `owner-currentness-${suffix}`,
+    occupantId: "owner-currentness",
+    authorityEpoch: 1,
+    nowMs,
+  });
+  const evidence = appendOwnerUtterance(sidecar, {
+    conversationId,
+    text: "read the attached note",
+    discordMessageIds: [`currentness-${suffix}-message`],
+    nowMs,
+    speakerPrincipalId: "owner-currentness",
+    speakerKind: "owner",
+    audienceAtCapture: "owner_private",
+  });
+  const event = appendInboxEvent(sidecar, {
+    wakeId: cycle.wakeId,
+    conversationId,
+    kind: "owner_utterance",
+    payload: {
+      cycleId: cycle.cycleId,
+      evidenceRowId: evidence.rowId,
+      ownerId: "owner-currentness",
+      ownerMessage: evidence.text,
+      attachments: [{
+        discordAttachmentId: `currentness-${suffix}-attachment`,
+        declaredMime: "text/plain",
+        fileName: "note.txt",
+        sourceUrl: "https://cdn.example.test/note.txt",
+      }],
+    },
+    createdAtMs: nowMs,
+  });
+  return { cycle, event, evidence };
+}
+
+describe("R-1 capability currentness: one mechanical truth for the kernel and the attachment gate", () => {
+  it("gives the attachment-resolution gate the refreshed per-invocation reality, not the process-start reality", async () => {
+    const sidecar = openTestSidecar();
+    const attentionDb = openTestSidecar();
+    const nuclear = openNuclearDb(new DatabaseSync(":memory:"));
+    const conversationId = "thread-r1-gate-refreshed";
+    const { event } = attachmentOwnerCycle(sidecar, conversationId, "gate", 2);
+    const staleProcessStart = realityWith({ attachmentText: false, vision: false });
+    const gateInputs: AttachmentGateInput[] = [];
+    const resolveAttachmentObservations = vi.fn(async (input: AttachmentGateInput) => {
+      gateInputs.push(input);
+      return [];
+    });
+    const refreshCapabilityReality = vi.fn(() => realityWith({ attachmentText: true, vision: true }));
+    const completeChat = vi.fn<KernelDeps["completeChat"]>(async () => ({
+      text: JSON.stringify(makeSemanticSettlement()),
+      model: "fake",
+      modelAlias: "thought",
+      resolvedModelId: null,
+    }));
+    const kernelDependencies = {
+      ...deps({ attentionDb, completeChat, resolveAttachmentObservations }),
+      capabilityReality: staleProcessStart,
+      refreshCapabilityReality,
+    } as KernelDeps;
+
+    try {
+      const result = await runCognitiveCycle(sidecar, nuclear, event, kernelDependencies);
+      expect(result.published).toBe(true);
+      expect(resolveAttachmentObservations).toHaveBeenCalledTimes(1);
+      expect(gateInputs[0]?.attachmentTextEnabled).toBe(true);
+      expect(Boolean(gateInputs[0]?.visionAccess)).toBe(true);
+      expect(refreshCapabilityReality).toHaveBeenCalled();
+    } finally {
+      sidecar.close();
+      attentionDb.close();
+      nuclear.close();
+    }
+  });
+
+  it("lets the process-start reality win only when the host supplies no refresh seam", async () => {
+    const sidecar = openTestSidecar();
+    const attentionDb = openTestSidecar();
+    const nuclear = openNuclearDb(new DatabaseSync(":memory:"));
+    const conversationId = "thread-r1-gate-fallback";
+    const { event } = attachmentOwnerCycle(sidecar, conversationId, "fallback", 2);
+    const gateInputs: AttachmentGateInput[] = [];
+    const resolveAttachmentObservations = vi.fn(async (input: AttachmentGateInput) => {
+      gateInputs.push(input);
+      return [];
+    });
+    const completeChat = vi.fn<KernelDeps["completeChat"]>(async () => ({
+      text: JSON.stringify(makeSemanticSettlement()),
+      model: "fake",
+      modelAlias: "thought",
+      resolvedModelId: null,
+    }));
+    const kernelDependencies = {
+      ...deps({ attentionDb, completeChat, resolveAttachmentObservations }),
+      capabilityReality: realityWith({ attachmentText: false, vision: false }),
+      refreshCapabilityReality: undefined,
+    } as KernelDeps;
+
+    try {
+      const result = await runCognitiveCycle(sidecar, nuclear, event, kernelDependencies);
+      expect(result.published).toBe(true);
+      expect(gateInputs[0]?.attachmentTextEnabled).toBe(false);
+      expect(Boolean(gateInputs[0]?.visionAccess)).toBe(false);
+    } finally {
+      sidecar.close();
+      attentionDb.close();
+      nuclear.close();
+    }
+  });
+
+  it("shows invocation B the changed capability truth at both the kernel and the attachment gate", async () => {
+    const sidecar = openTestSidecar();
+    const attentionDb = openTestSidecar();
+    const nuclear = openNuclearDb(new DatabaseSync(":memory:"));
+    const staleProcessStart = realityWith({ attachmentText: false, vision: false });
+    let live = false;
+    const gateInputs: AttachmentGateInput[] = [];
+    const resolveAttachmentObservations = vi.fn(async (input: AttachmentGateInput) => {
+      gateInputs.push(input);
+      return [];
+    });
+    const refreshCapabilityReality = vi.fn(() => realityWith({
+      attachmentText: live,
+      vision: live,
+      conversationalRead: live,
+      webSearch: live,
+    }));
+    const completeChat = vi.fn<KernelDeps["completeChat"]>(async () => ({
+      text: JSON.stringify(makeSemanticSettlement()),
+      model: "fake",
+      modelAlias: "thought",
+      resolvedModelId: null,
+    }));
+    const kernelDependencies = {
+      ...deps({ attentionDb, completeChat, resolveAttachmentObservations }),
+      capabilityReality: staleProcessStart,
+      refreshCapabilityReality,
+    } as KernelDeps;
+
+    try {
+      const invocationA = attachmentOwnerCycle(sidecar, "thread-r1-ab", "invocation-a", 2);
+      const resultA = await runCognitiveCycle(sidecar, nuclear, invocationA.event, kernelDependencies);
+      expect(resultA.published).toBe(true);
+      expect(gateInputs[0]?.attachmentTextEnabled).toBe(false);
+      expect(Boolean(gateInputs[0]?.visionAccess)).toBe(false);
+
+      live = true;
+
+      const invocationB = attachmentOwnerCycle(sidecar, "thread-r1-ab", "invocation-b", 3);
+      const resultB = await runCognitiveCycle(sidecar, nuclear, invocationB.event, kernelDependencies);
+      expect(resultB.published).toBe(true);
+      expect(gateInputs[1]?.attachmentTextEnabled).toBe(true);
+      expect(Boolean(gateInputs[1]?.visionAccess)).toBe(true);
+
+      expect(staleProcessStart.attachmentText).toBe(false);
+      expect(staleProcessStart.vision).toBe(false);
+    } finally {
+      sidecar.close();
+      attentionDb.close();
+      nuclear.close();
+    }
+  });
+
+  it("keeps dispatch-time authority revalidation independent of capability currentness", async () => {
+    const sidecar = openTestSidecar();
+    const attentionDb = openTestSidecar();
+    const nuclear = openNuclearDb(new DatabaseSync(":memory:"));
+    const conversationId = "thread-r1-authority-independent";
+    const cycle = admitTestCycle(sidecar, {
+      conversationId,
+      triggerKind: "owner_message",
+      triggerRef: "owner-r1-authority",
+      occupantId: "owner-currentness",
+      authorityEpoch: 1,
+      nowMs: 1,
+    });
+    const evidence = appendOwnerUtterance(sidecar, {
+      conversationId,
+      text: "inspect the current project",
+      discordMessageIds: ["r1-authority-message"],
+      nowMs: 2,
+      speakerPrincipalId: "owner-currentness",
+      speakerKind: "owner",
+      audienceAtCapture: "owner_private",
+    });
+    const event = appendInboxEvent(sidecar, {
+      wakeId: cycle.wakeId,
+      conversationId,
+      kind: "owner_message",
+      payload: {
+        cycleId: cycle.cycleId,
+        evidenceRowId: evidence.rowId,
+        ownerId: "owner-currentness",
+        ownerMessage: evidence.text,
+      },
+      createdAtMs: 2,
+    });
+    const completeChat = vi.fn<KernelDeps["completeChat"]>(async () => ({
+      text: JSON.stringify({
+        kind: "observation_intent",
+        operationKind: "project.inspect",
+        request: { projectId: "project-ashley", locator: { kind: "file", path: "README.md" } },
+        purpose: "inspect the current project",
+        evidenceNeed: "the current project file",
+        existingRefs: [evidence.rowId],
+      }),
+      model: "fake",
+      modelAlias: "thought",
+      resolvedModelId: null,
+    }));
+    const executeObservation = vi.fn();
+    const checkAuthority = vi.fn(() => ({ ok: false, codes: ["capability_not_released"] as never[] }));
+    const kernelDependencies = {
+      ...deps({
+        attentionDb,
+        completeChat,
+        executeObservation,
+        checkAuthority: checkAuthority as unknown as KernelDeps["checkAuthority"],
+      }),
+      // Capability currentness says the operation is available.
+      capabilityReality: realityWith({ canOfferProjectInspection: true }),
+      refreshCapabilityReality: () => realityWith({
+        canOfferProjectInspection: true,
+        canOfferVerification: true,
+      }),
+    } as KernelDeps;
+
+    try {
+      await runCognitiveCycle(sidecar, nuclear, event, kernelDependencies);
+      expect(checkAuthority).toHaveBeenCalled();
+      expect(executeObservation).not.toHaveBeenCalled();
+    } finally {
+      sidecar.close();
+      attentionDb.close();
+      nuclear.close();
+    }
+  });
+});
