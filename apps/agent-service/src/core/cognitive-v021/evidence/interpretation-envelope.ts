@@ -3,6 +3,7 @@ import { getConversationEvidence } from "./conversation-log.js";
 import { resolveReceiptRef } from "../effect/in-flight.js";
 import { resolveAttachmentJsonPath } from "../perception/attachments.js";
 import {
+  imageArtifactRepresentationId,
   observationViewFromStorage,
   pdfPageImageRepresentationId,
   pdfPageTextRepresentationId,
@@ -646,6 +647,72 @@ function assertDocumentPageRegion(
   };
 }
 
+function assertImageRegion(
+  db: DatabaseSync,
+  ref: Extract<SourceSupportRef, { kind: "image_region" }>,
+  conversationId: string,
+): ResolvedSource {
+  if (ref.representationId !== imageArtifactRepresentationId(ref.artifactId)) {
+    throw new Error("support_ref_unresolved");
+  }
+  const row = db.prepare(
+    `SELECT o.payload_json, o.parent_artifact_id, o.representation_id,
+            o.view_metadata_json, o.created_at_ms
+       FROM observations o
+       JOIN cycle_records c ON c.cycle_id = o.cycle_id AND c.generation = o.generation
+      WHERE o.parent_artifact_id = ?
+        AND o.representation_id = ?
+        AND c.conversation_id = ?
+        AND o.secret_omitted = 0
+        AND lower(o.data_classification) NOT IN ('secret', 'forgotten')
+        AND o.modality = 'image'
+      ORDER BY o.created_at_ms DESC, o.observation_id DESC
+      LIMIT 1`,
+  ).get(ref.artifactId, ref.representationId, conversationId) as RecordValue | undefined;
+  if (!row || typeof row.payload_json !== "string") throw new Error("support_ref_unresolved");
+
+  let payload: unknown;
+  let view;
+  try {
+    payload = JSON.parse(row.payload_json);
+    view = observationViewFromStorage(
+      row.parent_artifact_id,
+      row.representation_id,
+      row.view_metadata_json,
+    );
+  } catch {
+    throw new Error("support_ref_unresolved");
+  }
+  if (!view || view.parentArtifactId !== ref.artifactId
+    || view.representationId !== ref.representationId
+    || !isRecord(payload)
+    || payload.format !== "image"
+    || payload.artifactId !== ref.artifactId
+    || payload.representationId !== ref.representationId
+    || typeof payload.contentHash !== "string"
+    || !/^[a-f0-9]{64}$/.test(payload.contentHash)
+    || typeof payload.pixelWidth !== "number"
+    || !Number.isFinite(payload.pixelWidth)
+    || payload.pixelWidth <= 0
+    || typeof payload.pixelHeight !== "number"
+    || !Number.isFinite(payload.pixelHeight)
+    || payload.pixelHeight <= 0
+    || payload.exif !== "not_stripped") {
+    throw new Error("support_ref_unresolved");
+  }
+  const region = ref.region;
+  if (region !== undefined
+    && (region.x + region.width > payload.pixelWidth
+      || region.y + region.height > payload.pixelHeight)) {
+    throw new Error("support_ref_unresolved");
+  }
+  return {
+    principalKind: "observation",
+    principalId: null,
+    sourceTimeMs: finiteInteger(row.created_at_ms) ? row.created_at_ms : null,
+  };
+}
+
 function assertSupportRefs(
   db: DatabaseSync,
   refs: readonly SourceSupportRef[],
@@ -668,6 +735,9 @@ function assertSupportRefs(
         break;
       case "document_page_region":
         resolved.push(assertDocumentPageRegion(db, ref, conversationId));
+        break;
+      case "image_region":
+        resolved.push(assertImageRegion(db, ref, conversationId));
         break;
       case "receipt_ref": {
         const receipt = resolveReceiptRef(db, ref.receiptId, conversationId);

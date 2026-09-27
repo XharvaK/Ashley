@@ -318,11 +318,7 @@ describe("Working Context interpretation envelope", () => {
           { kind: "conversation_text_span", evidenceRowId: source.rowId, start: 0, end: 7, quote: "not yet" },
           support,
         ]),
-      }, { cycleId: "cycle-publish", generation: 1, nowMs: 20 })).toThrow(
-        support.kind === "structured_path" || support.kind === "document_page_region"
-          ? "support_ref_unresolved"
-          : "support_ref_kind_unimplemented",
-      );
+      }, { cycleId: "cycle-publish", generation: 1, nowMs: 20 })).toThrow("support_ref_unresolved");
       expect(listWorkingContext(db, "thread-envelope")).toEqual([]);
     } finally {
       db.close();

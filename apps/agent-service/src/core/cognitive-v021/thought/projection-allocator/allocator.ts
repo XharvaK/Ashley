@@ -131,14 +131,36 @@ export function thoughtMessagesForProjection(
   if (recencyOmission > 0) systemContent += ` ${RECENCY_OMISSION_GUIDANCE}`;
   if (retrievalOmission > 0) systemContent += ` ${ALLOCATOR_OMISSION_GUIDANCE}`;
   if (optionalWcOmission > 0) systemContent += ` ${WC_OPTIONAL_OMISSION_GUIDANCE}`;
+  const imageUrls = directVisualImageUrls(projected);
   return [
     {
       role: "system",
       content: systemContent,
     },
-    { role: "user", content: JSON.stringify(modelVisibleThoughtProjection(projected)) },
+    {
+      role: "user",
+      content: JSON.stringify(modelVisibleThoughtProjection(projected)),
+      ...(imageUrls.length > 0 ? { imageUrls } : {}),
+    },
     ...(memo.correctionData ? [{ role: "user" as const, content: memo.correctionData }] : []),
   ];
+}
+
+/** Extract Host-only direct visual parts without exposing bytes in the JSON projection. */
+export function directVisualImageUrls(projected: ProjectedThoughtInput): string[] {
+  if (projected.audience !== undefined && projected.audience.kind !== "owner_private") return [];
+  const urls: string[] = [];
+  for (const observation of projected.observations) {
+    if (observation.modality !== "image" || observation.view?.access !== "direct_visual") continue;
+    const payload = observation.payload;
+    if (typeof payload !== "object" || payload === null || Array.isArray(payload)) continue;
+    const imageDataUri = (payload as Record<string, unknown>).imageDataUri;
+    if (typeof imageDataUri !== "string"
+      || !/^data:image\/(?:png|jpeg|jpg|webp|gif|avif);base64,[A-Za-z0-9+/=]+$/.test(imageDataUri)) continue;
+    urls.push(imageDataUri);
+    if (urls.length >= 4) break;
+  }
+  return urls;
 }
 
 export type ThoughtProjectionMessageMemo = Readonly<{

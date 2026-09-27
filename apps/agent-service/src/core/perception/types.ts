@@ -27,12 +27,17 @@ export type ModelRepresentation =
 
 export type ModelAudience = "thought" | "expression";
 
+export type AttachmentSourceClass = "supplied_image" | "supplied_screenshot";
+
 export type EvidenceProvenanceFacet = {
   sourceIdentity: string;
   evidenceIdentity: string;
   capturedAt: string;
   citationRefs: string[];
   completeness: "complete" | "truncated_at_limit" | "incomplete";
+  /** Image EXIF is retained as received until a local parser exists. */
+  exif?: "not_stripped";
+  sourceClass?: AttachmentSourceClass;
 };
 
 export type ModelPartRecord = {
@@ -48,6 +53,7 @@ export type AttachmentIntakeRef = {
   fileName: string;
   declaredByteSize?: number;
   sourceUrl: string;
+  sourceClass?: AttachmentSourceClass;
 };
 
 export type PerceptionLicenses = {

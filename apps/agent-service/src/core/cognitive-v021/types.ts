@@ -1519,7 +1519,8 @@ export type CapabilityRealityAsOf = Readonly<{
 }>;
 
 export type CapabilityReality = {
-  vision: boolean;
+  /** `mediated` means Thought receives a disclosed helper derivation, not an image part. */
+  vision: boolean | "mediated";
   attachmentText: boolean;
   /** Additional authorized user-requested URL/page reads; does not gate already projected rawConversation. */
   conversationalRead: boolean;
@@ -1985,6 +1986,8 @@ export type KernelDeps = {
   resolveAttachmentObservations?: (
     input: import("./perception/attachments.js").AttachmentObservationInput,
   ) => Promise<Observation[]>;
+  /** Test-only visual transport seam. Production keeps image vision unavailable. */
+  visionTransport?: import("./perception/attachments.js").VisionTransport;
   executeObservation: (req: ObservationRequest) => Promise<Observation>;
   /** Direct V2 is a Host route, never a Thought-selected capability. */
   canOfferDirectProjectInspection?: () => boolean;

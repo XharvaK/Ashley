@@ -63,7 +63,8 @@ export type RenderedOutput = {
 };
 
 function renderCapabilityReality(reality: CapabilityReality): string {
-  const availability = (value: boolean): string => value ? "available" : "unavailable";
+  const availability = (value: boolean | "mediated"): string =>
+    value === "mediated" ? "mediated" : value ? "available" : "unavailable";
   return [
     "CapabilityReality (mechanical availability; not desire):",
     `- vision: ${availability(reality.vision)}`,

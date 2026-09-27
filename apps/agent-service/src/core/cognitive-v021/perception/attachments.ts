@@ -5,11 +5,13 @@ import {
   MAX_ATTACHMENTS_PER_TURN,
   MAX_MODEL_EXCERPT_CHARS,
   MAX_SINGLE_ATTACHMENT_BYTES,
+  type AttachmentSourceClass,
   type AttachmentIntakeRef,
 } from "../../perception/types.js";
 import { fetchAttachmentBytes, type FetchAttachmentResult } from "../../perception/fetch.js";
 import {
   createPendingArtifacts,
+  buildInlineDataUri,
   transitionArtifactStatus,
 } from "../../perception/ingest.js";
 import {
@@ -17,12 +19,16 @@ import {
 } from "../../perception/artifact-store.js";
 import type { JsonValue, Observation } from "../types.js";
 import {
+  imageArtifactRepresentationId,
   textArtifactRepresentationId,
   type ObservationView,
 } from "../observation/view.js";
+import { readImageDimensions, type ImageDimensions, type VisionTransport } from "./images.js";
 import { parsePdfDocument, pdfPageSelector, type PdfPage } from "./pdf.js";
 
-type AttachmentFormat = "text" | "json" | "csv" | "pdf";
+export type { VisionTransport } from "./images.js";
+
+type AttachmentFormat = "text" | "json" | "csv" | "pdf" | "image";
 
 export type AttachmentFetcher = (input: {
   url: string;
@@ -40,6 +46,10 @@ export type AttachmentObservationInput = {
   attachments: readonly unknown[];
   /** Test-only activation until the live capability release in §13. */
   attachmentTextEnabled: boolean;
+  /** `true` is direct visual access; `mediated` is a disclosed helper derivation. */
+  visionAccess?: boolean | "mediated";
+  /** Test double only. No live provider or helper is invoked by this packet. */
+  imageTransport?: VisionTransport;
   fetchAttachment?: AttachmentFetcher;
   nowMs?: number;
 };
@@ -53,6 +63,7 @@ const TEXT_MIME_TYPES = new Set([
 ]);
 const JSON_MIME_TYPES = new Set(["application/json", "text/json"]);
 const CSV_MIME_TYPES = new Set(["text/csv", "application/csv"]);
+const IMAGE_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/jpg", "image/webp", "image/gif", "image/avif"]);
 const OCTET_MIME = "application/octet-stream";
 
 function normalizedMime(value: string): string {
@@ -77,6 +88,13 @@ function formatForExtension(fileName: string): AttachmentFormat | null {
       return "csv";
     case ".pdf":
       return "pdf";
+    case ".png":
+    case ".jpeg":
+    case ".jpg":
+    case ".webp":
+    case ".gif":
+    case ".avif":
+      return "image";
     default:
       return null;
   }
@@ -88,6 +106,7 @@ function mimeCompatible(format: AttachmentFormat, mime: string): boolean {
   if (format === "pdf") return normalized === "application/pdf";
   if (format === "json") return JSON_MIME_TYPES.has(normalized) || normalized === "text/plain";
   if (format === "csv") return CSV_MIME_TYPES.has(normalized) || normalized === "text/plain";
+  if (format === "image") return IMAGE_MIME_TYPES.has(normalized);
   return TEXT_MIME_TYPES.has(normalized);
 }
 
@@ -100,12 +119,18 @@ function normalizeAttachment(value: unknown): AttachmentIntakeRef | null {
     || typeof item.sourceUrl !== "string" || !item.sourceUrl.trim()) return null;
   if (item.declaredByteSize !== undefined
     && (!Number.isSafeInteger(item.declaredByteSize) || Number(item.declaredByteSize) < 0)) return null;
+  const sourceClass = item.sourceClass === "supplied_screenshot"
+    ? "supplied_screenshot" as const
+    : item.sourceClass === "supplied_image"
+      ? "supplied_image" as const
+      : undefined;
   return {
     discordAttachmentId: item.discordAttachmentId.trim(),
     declaredMime: normalizedMime(item.declaredMime),
     fileName: item.fileName.trim().slice(0, 200),
     ...(item.declaredByteSize === undefined ? {} : { declaredByteSize: Number(item.declaredByteSize) }),
     sourceUrl: item.sourceUrl.trim().slice(0, 2_048),
+    ...(sourceClass === undefined ? {} : { sourceClass }),
   };
 }
 
@@ -498,6 +523,86 @@ function successObservation(
   ));
 }
 
+async function imageObservation(
+  input: AttachmentObservationInput,
+  attachment: AttachmentIntakeRef,
+  artifactId: string,
+  bytes: Uint8Array,
+  mime: string,
+  transport: VisionTransport,
+): Promise<Observation> {
+  const contentHash = sha256(bytes);
+  const dimensions = readImageDimensions(bytes, mime);
+  const representationId = imageArtifactRepresentationId(artifactId);
+  const sourceClass: AttachmentSourceClass = attachment.sourceClass ?? "supplied_image";
+  const selector = { kind: "image" } as const;
+  const payload: Record<string, unknown> = {
+    ...basePayload(attachment, artifactId),
+    detectedMime: mime,
+    format: "image",
+    representationId,
+    contentHash,
+    byteSize: bytes.byteLength,
+    sourceClass,
+    exif: "not_stripped",
+    ...(dimensions === null
+      ? { pixelDimensions: { status: "unavailable" } }
+      : { pixelWidth: dimensions.width, pixelHeight: dimensions.height, pixelDimensions: dimensions }),
+  };
+
+  if (transport.kind === "direct_visual") {
+    // Host-only wire material. It is deliberately non-enumerable so a durable
+    // observation never stores a second copy of the image beside the artifact.
+    Object.defineProperty(payload, "imageDataUri", {
+      value: buildInlineDataUri(bytes, mime),
+      enumerable: false,
+      writable: false,
+      configurable: false,
+    });
+  } else {
+    const description = (await transport.describeImage({
+      bytes: new Uint8Array(bytes),
+      mime,
+      fileName: attachment.fileName,
+      sourceClass,
+      dimensions,
+    })).trim().slice(0, MAX_MODEL_EXCERPT_CHARS);
+    if (!description) throw new Error("image_description_empty");
+    payload.description = description;
+    payload.helperModelId = transport.helperModelId;
+  }
+
+  const access = transport.kind;
+  return {
+    observationId: observationId(input.cycleId, input.generation, attachment.discordAttachmentId),
+    cycleId: input.cycleId,
+    generation: input.generation,
+    derived: transport.kind === "mediated_visual",
+    replaySafe: true,
+    modality: "image",
+    payload,
+    provenance: "perception:image",
+    dataClassification: "never_public",
+    secretOmitted: false,
+    view: {
+      parentArtifactId: artifactId,
+      representationId,
+      derivation: transport.kind === "direct_visual"
+        ? "retained_image"
+        : "mediated_visual_description",
+      access,
+      requestedSelector: selector,
+      returnedSelector: selector,
+      completeness: "complete",
+      omission: null,
+      continuation: null,
+      errors: [],
+      contentHashBasis: `raw_bytes:${contentHash}`,
+      inputTrust: "untrusted_evidence",
+    },
+  };
+}
+
 function pdfPageObservation(
   input: AttachmentObservationInput,
   attachment: AttachmentIntakeRef,
@@ -596,7 +701,11 @@ async function resolveOne(
 ): Promise<Observation[]> {
   const artifact = ensureArtifact(input.nuclear, input, attachment, aggregateDeclaredBytes);
   const declaredFormat = formatForExtension(attachment.fileName)
-    ?? (normalizedMime(attachment.declaredMime) === "application/pdf" ? "pdf" : null);
+    ?? (normalizedMime(attachment.declaredMime) === "application/pdf"
+      ? "pdf"
+      : IMAGE_MIME_TYPES.has(normalizedMime(attachment.declaredMime))
+        ? "image"
+        : null);
   const artifactId = artifact.entityUuid;
   if (!declaredFormat || !mimeCompatible(declaredFormat, attachment.declaredMime)) {
     const mediaType = normalizedMime(attachment.declaredMime);
@@ -617,7 +726,14 @@ async function resolveOne(
       maxBytes: MAX_AGGREGATE_ATTACHMENT_BYTES,
     })];
   }
-  if (!input.attachmentTextEnabled) {
+  const imageTransport = declaredFormat === "image" ? input.imageTransport : undefined;
+  const imageAccessAllowed = declaredFormat === "image"
+    && input.visionAccess !== false
+    && input.visionAccess !== undefined
+    && imageTransport !== undefined
+    && ((input.visionAccess === true && imageTransport.kind === "direct_visual")
+      || (input.visionAccess === "mediated" && imageTransport.kind === "mediated_visual"));
+  if ((declaredFormat === "image" && !imageAccessAllowed) || (declaredFormat !== "image" && !input.attachmentTextEnabled)) {
     transitionArtifactStatus(input.nuclear, artifactId, input.ownerId, "failed", {
       errorCode: "capability_not_in_live_set",
     });
@@ -673,7 +789,15 @@ async function resolveOne(
     return [errorObservation(input, attachment, artifactId, "unsupported_media", { mediaType: detectedMime })];
   }
 
-  const provenance = attachmentProvenance(input, attachment);
+  const provenance = {
+    ...attachmentProvenance(input, attachment),
+    ...(declaredFormat === "image"
+      ? {
+          exif: "not_stripped" as const,
+          sourceClass: attachment.sourceClass ?? "supplied_image" as const,
+        }
+      : {}),
+  };
   transitionArtifactStatus(input.nuclear, artifactId, input.ownerId, "fetched", {
     mimeDetected: detectedMime,
     finalUrlFingerprint: sha256(new TextEncoder().encode(fetched.finalUrl)),
@@ -692,6 +816,34 @@ async function resolveOne(
 
   if (declaredFormat === "pdf") {
     return pdfObservations(input, attachment, artifactId, fetched.bytes);
+  }
+
+  if (declaredFormat === "image") {
+    try {
+      const observation = await imageObservation(
+        input,
+        attachment,
+        artifactId,
+        fetched.bytes,
+        detectedMime,
+        imageTransport!,
+      );
+      transitionArtifactStatus(input.nuclear, artifactId, input.ownerId, "included", {
+        modelRepresentation: imageTransport!.kind === "direct_visual"
+          ? "inline_base64"
+          : "inline_text_excerpt",
+      });
+      return [observation];
+    } catch (error) {
+      transitionArtifactStatus(input.nuclear, artifactId, input.ownerId, "failed", {
+        errorCode: error instanceof Error && error.message === "image_description_empty"
+          ? "image_description_empty"
+          : "image_mediation_failed",
+      });
+      return [errorObservation(input, attachment, artifactId, error instanceof Error
+        ? error.message
+        : "image_mediation_failed", { mediaType: detectedMime })];
+    }
   }
 
   try {

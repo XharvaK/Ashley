@@ -14,6 +14,7 @@ export type ObservationView = Readonly<{
   errors?: readonly JsonValue[];
   contentHashBasis?: string;
   inputTrust?: string;
+  access?: "direct_visual" | "mediated_visual";
 }>;
 
 export type ArtifactCursor = Readonly<{
@@ -61,7 +62,7 @@ export function canonicalObservationView(value: unknown): ObservationView | null
   if (!isRecord(value)) throw new ObservationViewError("observation_view_invalid");
   const allowed = new Set([
     "parentArtifactId", "representationId", "derivation", "requestedSelector", "returnedSelector",
-    "completeness", "omission", "continuation", "errors", "contentHashBasis", "inputTrust",
+    "completeness", "omission", "continuation", "errors", "contentHashBasis", "inputTrust", "access",
   ]);
   if (Object.keys(value).some((key) => !allowed.has(key))) {
     throw new ObservationViewError("observation_view_invalid");
@@ -75,6 +76,12 @@ export function canonicalObservationView(value: unknown): ObservationView | null
       throw new ObservationViewError("observation_view_invalid");
     }
     view[key] = field;
+  }
+  if (value.access !== undefined) {
+    if (value.access !== "direct_visual" && value.access !== "mediated_visual") {
+      throw new ObservationViewError("observation_view_invalid");
+    }
+    view.access = value.access;
   }
   if (value.completeness !== undefined) {
     if (value.completeness !== "complete" && value.completeness !== "partial" && value.completeness !== "unknown") {
@@ -189,6 +196,14 @@ export function pdfPageImageRepresentationId(parentArtifactId: string, page: num
     throw new ObservationViewError("pdf_page_image_representation_identity_invalid");
   }
   return `representation:v1:${sha256({ parentArtifactId, kind: "pdf_page_image", page })}`;
+}
+
+/** Stable representation identity for the original retained image bytes. */
+export function imageArtifactRepresentationId(parentArtifactId: string): string {
+  if (typeof parentArtifactId !== "string" || parentArtifactId.trim() === "") {
+    throw new ObservationViewError("image_representation_identity_invalid");
+  }
+  return `representation:v1:${sha256({ parentArtifactId, kind: "image_bytes" })}`;
 }
 
 export function assertArtifactCursorBinding(

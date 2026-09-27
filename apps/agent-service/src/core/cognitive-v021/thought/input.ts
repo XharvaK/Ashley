@@ -369,7 +369,7 @@ export function filterCapabilityReality(
   };
   const filtered = {
     ...capability,
-    vision: capability.vision && capabilityAllowed("vision"),
+    vision: capabilityAllowed("vision") ? capability.vision : false,
     attachmentText: capability.attachmentText && capabilityAllowed("attachment_text"),
     conversationalRead: capability.conversationalRead && capabilityAllowed("conversational_read"),
     webSearch: capability.webSearch && capabilityAllowed("web_search"),
@@ -401,7 +401,7 @@ export function filterCapabilityReality(
     publicPresence: undefined,
   };
   const reasons: Record<string, CapabilityRealityReasonCode> = {
-    vision: reasonFor("vision", filtered.vision, capability.vision, { licenseName: "vision", perception: true }),
+    vision: reasonFor("vision", filtered.vision !== false, capability.vision !== false, { licenseName: "vision", perception: true }),
     attachmentText: reasonFor("attachmentText", filtered.attachmentText, capability.attachmentText, {
       licenseName: "attachment_text",
       perception: true,

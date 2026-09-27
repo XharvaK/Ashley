@@ -292,10 +292,12 @@ export function modelVisibleObservation(observation: Observation): Observation {
       && !Array.isArray(step)
       && Object.prototype.hasOwnProperty.call(step, "observation")
       && exactJsonValueEqual((step as Record<string, unknown>).observation, lastObservation));
-  if (!removeSelectedModel && !removeDuplicateLastObservation) return observation;
+  const removeImageDataUri = Object.prototype.hasOwnProperty.call(objectPayload, "imageDataUri");
+  if (!removeSelectedModel && !removeDuplicateLastObservation && !removeImageDataUri) return observation;
   const projectedPayload = { ...objectPayload };
   if (removeSelectedModel) delete projectedPayload.selectedModelId;
   if (removeDuplicateLastObservation) delete projectedPayload.lastObservation;
+  if (removeImageDataUri) delete projectedPayload.imageDataUri;
   return { ...observation, payload: projectedPayload };
 }
 

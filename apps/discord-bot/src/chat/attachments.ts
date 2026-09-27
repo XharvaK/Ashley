@@ -17,6 +17,7 @@ export type ExternalEnvelopeTransport = {
     fileName: string;
     declaredByteSize?: number;
     sourceUrl: string;
+    sourceClass?: "supplied_image" | "supplied_screenshot";
   }>;
   provenance: { source: "discord"; receivedAtMs: number };
 };
@@ -43,6 +44,7 @@ export type AttachmentRef = {
   fileName: string;
   declaredByteSize?: number;
   sourceUrl: string;
+  sourceClass?: "supplied_image" | "supplied_screenshot";
 };
 
 export type Intake = {
@@ -190,12 +192,16 @@ export function describeIntake(message: Message): Intake {
       imageCount += 1;
     }
     if (isImage && acceptedImageCount < MAX_IMAGES) {
+      const sourceClass = /^(?:screenshot|screen[ _-]?shot)(?:[ _.-]|$)/i.test(fileName)
+        ? "supplied_screenshot" as const
+        : "supplied_image" as const;
       attachments.push({
         discordAttachmentId: attachment.id,
         declaredMime: mime || "image/png",
         fileName: (attachment.name ?? "image").slice(0, 200),
         declaredByteSize: attachment.size ?? undefined,
         sourceUrl: attachment.url,
+        sourceClass,
       });
       acceptedImageCount += 1;
       notes.push(

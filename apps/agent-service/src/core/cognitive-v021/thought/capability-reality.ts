@@ -57,6 +57,8 @@ export type CapabilityRealityOptions = {
   commandCodeNodeExecutable?: string;
   webSearchProvider?: Pick<WebSearchProvider, "available">;
   webFetchProvider?: Pick<WebFetchProvider, "available">;
+  /** Test-double-only visual state. Production leaves the live set empty. */
+  visionMode?: "direct" | "mediated";
   nowMs?: number;
 };
 
@@ -356,7 +358,11 @@ export function getCapabilityReality(
     || options.lifecycleEnabled === false
     || options.substrateAvailable === false;
   const perceptionFacts = {
-    vision: V021_LIVE_PERCEPTION_CAPABILITIES.has("vision") && perceptionCapabilityCanInfluence(db, "vision", masterMode),
+    vision: options.visionMode === "mediated"
+      ? "mediated" as const
+      : options.visionMode === "direct"
+        ? true
+        : V021_LIVE_PERCEPTION_CAPABILITIES.has("vision") && perceptionCapabilityCanInfluence(db, "vision", masterMode),
     attachmentText: V021_LIVE_PERCEPTION_CAPABILITIES.has("attachment_text") &&
       perceptionCapabilityCanInfluence(db, "attachment_text", masterMode),
     conversationalRead: options.webFetchProvider?.available === true &&
@@ -428,7 +434,7 @@ export function getCapabilityReality(
     available: !externalAudience,
   })));
   const facts = {
-    vision: audienceCapabilityAllowed("vision") && perceptionFacts.vision,
+    vision: audienceCapabilityAllowed("vision") ? perceptionFacts.vision : false,
     attachmentText: audienceCapabilityAllowed("attachment_text") && perceptionFacts.attachmentText,
     conversationalRead: audienceCapabilityAllowed("conversational_read") && perceptionFacts.conversationalRead,
     webSearch: audienceCapabilityAllowed("web_search") && perceptionFacts.webSearch,
@@ -450,8 +456,8 @@ export function getCapabilityReality(
   } as const;
   for (const name of ["vision", "attachmentText", "conversationalRead", "webSearch"] as const) {
     reachabilityReasons[name] = reasonForCapability({
-      value: facts[name],
-      rawValue: perceptionFacts[name],
+      value: facts[name] !== false,
+      rawValue: perceptionFacts[name] !== false,
       name,
       externalAudience,
       perception: true,

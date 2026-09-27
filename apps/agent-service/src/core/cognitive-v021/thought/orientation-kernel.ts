@@ -251,7 +251,9 @@ function capabilityRealityOrFail(value: unknown): CapabilityReality {
     return requiredMissing("capabilityReality");
   }
   const candidate = value as Record<string, unknown>;
-  if (CAPABILITY_BOOLEAN_FIELDS.some((field) => typeof candidate[field] !== "boolean")) {
+  if (CAPABILITY_BOOLEAN_FIELDS.some((field) => field === "vision"
+    ? (typeof candidate[field] !== "boolean" && candidate[field] !== "mediated")
+    : typeof candidate[field] !== "boolean")) {
     return requiredMissing("capabilityReality");
   }
   if (!Array.isArray(candidate.approvedProjectIds) || candidate.approvedProjectIds.some((id) => typeof id !== "string")) {
@@ -265,7 +267,7 @@ function capabilityRealityOrFail(value: unknown): CapabilityReality {
   const semanticObservations = capabilitySemanticObservationsOrFail(candidate.semanticObservations);
   const asOf = capabilityAsOfOrFail(candidate.asOf);
   return {
-    vision: candidate.vision as boolean,
+    vision: candidate.vision as boolean | "mediated",
     attachmentText: candidate.attachmentText as boolean,
     conversationalRead: candidate.conversationalRead as boolean,
     webSearch: candidate.webSearch as boolean,

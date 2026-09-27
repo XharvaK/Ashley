@@ -2882,6 +2882,8 @@ export async function runCognitiveCycle(
           deliveryReservationEntityUuid: event.id,
           attachments: payload.attachments,
           attachmentTextEnabled: deps.capabilityReality.attachmentText,
+          visionAccess: deps.capabilityReality.vision,
+          imageTransport: deps.visionTransport,
         })
       : [];
     try {

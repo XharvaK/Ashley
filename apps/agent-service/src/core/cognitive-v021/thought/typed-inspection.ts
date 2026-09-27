@@ -32,6 +32,10 @@ export type EvidenceTextSelector =
       kind: "document_page";
       page: number;
       region?: { x: number; y: number; width: number; height: number };
+    }
+  | {
+      kind: "image";
+      region?: { x: number; y: number; width: number; height: number };
     };
 
 export type EvidenceReadRequest = {
@@ -161,6 +165,16 @@ function validEvidenceSelector(value: unknown): value is EvidenceTextSelector {
       || !Number.isSafeInteger(value.page)
       || value.page < 1
       || value.page > EVIDENCE_READ_MAX_LINES) return false;
+    if (value.region === undefined) return true;
+    const region = value.region;
+    if (!isRecord(region) || !onlyKeys(region, ["x", "y", "width", "height"])) return false;
+    const coordinates = [region.x, region.y, region.width, region.height];
+    if (!coordinates.every((part) => typeof part === "number" && Number.isFinite(part))) return false;
+    const [x, y, width, height] = coordinates as number[];
+    return x >= 0 && y >= 0 && width > 0 && height > 0;
+  }
+  if (value.kind === "image") {
+    if (!onlyKeys(value, ["kind", "region"])) return false;
     if (value.region === undefined) return true;
     const region = value.region;
     if (!isRecord(region) || !onlyKeys(region, ["x", "y", "width", "height"])) return false;

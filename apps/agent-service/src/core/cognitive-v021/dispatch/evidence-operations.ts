@@ -9,9 +9,10 @@ import {
   readArtifactTextPage,
   storeArtifactBytes,
 } from "../../perception/artifact-store.js";
-import type { EvidenceProvenanceFacet } from "../../perception/types.js";
+import type { AttachmentSourceClass, EvidenceProvenanceFacet } from "../../perception/types.js";
 import {
   assertArtifactCursorBinding,
+  imageArtifactRepresentationId,
   observationViewFromStorage,
   textArtifactRepresentationId,
   type ArtifactCursor,
@@ -19,6 +20,7 @@ import {
 } from "../observation/view.js";
 import { executeWebPageRefresh } from "./web-fetch-operations.js";
 import type { WebFetchProvider } from "../../perception/web-fetch-provider.js";
+import { readImageDimensions } from "../perception/images.js";
 import type { JsonValue, Observation, ObservationRequest } from "../types.js";
 import type { SocialAudience } from "../social/types.js";
 import {
@@ -41,6 +43,16 @@ type RetainedText = {
   sourceUrl: string | null;
   source: "artifact" | "project" | "page";
   format: "text" | "json" | "csv" | "pdf";
+};
+
+type RetainedImage = {
+  artifactId: string;
+  representationId: string;
+  contentHash: string;
+  mime: string;
+  width: number | null;
+  height: number | null;
+  sourceClass: AttachmentSourceClass;
 };
 
 type EvidenceRefreshResult = {
@@ -143,7 +155,7 @@ function currentArtifactRow(
   const row = db.prepare(
     `SELECT entity_uuid, owner_id, status, content_hash, mime_declared, mime_detected,
             preserved, url_fingerprint, discord_attachment_id,
-            source_message_entity_uuid, delivery_reservation_entity_uuid
+            source_message_entity_uuid, delivery_reservation_entity_uuid, provenance_json
        FROM perception_artifacts
       WHERE entity_uuid = ?`,
   ).get(artifactId) as Row | undefined;
@@ -162,6 +174,11 @@ function textMime(value: unknown): boolean {
     || mime === "application/pdf"
     || mime === "application/xml"
     || mime === "application/javascript";
+}
+
+function imageMime(value: unknown): boolean {
+  const mime = typeof value === "string" ? value.split(";", 1)[0]!.trim().toLowerCase() : "";
+  return ["image/png", "image/jpeg", "image/jpg", "image/webp", "image/gif", "image/avif"].includes(mime);
 }
 
 function sidecarTextCapture(
@@ -265,6 +282,38 @@ function artifactTextCapture(
         : mime === "application/pdf"
           ? "pdf"
         : "text",
+  };
+}
+
+function artifactImageCapture(
+  db: DatabaseSync,
+  artifactId: string,
+  representationId: string,
+  ownerId: string,
+): RetainedImage {
+  const row = currentArtifactRow(db, artifactId, ownerId);
+  const mime = String(row.mime_detected ?? row.mime_declared ?? "").split(";", 1)[0]!.trim().toLowerCase();
+  if (!imageMime(mime) || representationId !== imageArtifactRepresentationId(artifactId)) {
+    throw new CapabilityUnavailableError("representation_unavailable");
+  }
+  const bytes = readArtifactBytes(db, artifactId, ownerId);
+  const dimensions = readImageDimensions(bytes, mime);
+  let sourceClass: AttachmentSourceClass = "supplied_image";
+  try {
+    const provenance = JSON.parse(String(row.provenance_json ?? "{}")) as Row;
+    const facet = isRecord(provenance.provenance) ? provenance.provenance : null;
+    if (facet?.sourceClass === "supplied_screenshot") sourceClass = "supplied_screenshot";
+  } catch {
+    // Missing provenance does not authorize a stronger source-class claim.
+  }
+  return {
+    artifactId,
+    representationId,
+    contentHash: retainedArtifactHash(row),
+    mime,
+    width: dimensions?.width ?? null,
+    height: dimensions?.height ?? null,
+    sourceClass,
   };
 }
 
@@ -637,10 +686,102 @@ function executePdfPageRead(
   }, "page");
 }
 
+function executeImageRead(
+  input: EvidenceOperationInput,
+  source: RetainedImage,
+  request: EvidenceReadRequest & { selector: Extract<EvidenceTextSelector, { kind: "image" }> },
+  audience: SocialAudience,
+): Observation {
+  // Image evidence is owner-private. A mediated description is not a license
+  // to disclose the retained source to another audience.
+  if (audience.kind !== "owner_private") {
+    throw new CapabilityUnavailableError("artifact_unavailable");
+  }
+  if (request.cursor !== undefined) {
+    try {
+      assertArtifactCursorBinding(request.cursor, {
+        artifactId: source.artifactId,
+        artifactHash: source.contentHash,
+        representationId: source.representationId,
+        selector: request.selector,
+        audience,
+      });
+    } catch (error) {
+      mapReadError(error);
+    }
+  }
+  const region = request.selector.region;
+  if (region !== undefined && (source.width === null || source.height === null)) {
+    throw new CapabilityUnavailableError("image_dimensions_unavailable");
+  }
+  if (region !== undefined
+    && (region.x + region.width > source.width!
+      || region.y + region.height > source.height!)) {
+    throw new CapabilityUnavailableError("image_region_unresolved");
+  }
+  const returnedSelector = {
+    kind: "image",
+    ...(region === undefined ? {} : { region }),
+  } as const;
+  return observation(input.req, {
+    artifactId: source.artifactId,
+    representationId: source.representationId,
+    artifactHash: source.contentHash,
+    audience,
+    format: "image",
+    selector: request.selector,
+    returnedSelector,
+    mime: source.mime,
+    ...(source.width === null || source.height === null
+      ? { pixelDimensions: { status: "unavailable" } }
+      : { pixelWidth: source.width, pixelHeight: source.height }),
+    sourceClass: source.sourceClass,
+    exif: "not_stripped",
+    imageRef: {
+      artifactId: source.artifactId,
+      representationId: source.representationId,
+      source: "retained_image",
+      access: "retained_image",
+      exif: "not_stripped",
+    },
+    completeness: "complete",
+    omission: null,
+    nextCursor: null,
+    inputTrust: "untrusted_evidence",
+  }, "perception:image-read", {
+    parentArtifactId: source.artifactId,
+    representationId: source.representationId,
+    derivation: "image_read",
+    requestedSelector: request.selector,
+    returnedSelector,
+    completeness: "complete",
+    omission: null,
+    continuation: null,
+    errors: [],
+    contentHashBasis: "retained_bytes",
+    inputTrust: "untrusted_evidence",
+  }, "image");
+}
+
 async function executeRead(input: EvidenceOperationInput, request: EvidenceReadRequest): Promise<Observation> {
   const ownerId = requiredText(input.ownerId);
   if (!ownerId) throw new CapabilityUnavailableError("inspect_scope_unavailable");
   const audience = audienceOf(input.req);
+  if (request.selector.kind === "image") {
+    if (audience.kind !== "owner_private") {
+      throw new CapabilityUnavailableError("artifact_unavailable");
+    }
+    let source: RetainedImage;
+    try {
+      source = artifactImageCapture(input.nuclear, request.artifactId, request.representationId, ownerId);
+    } catch (error) {
+      if (error instanceof CapabilityUnavailableError) throw error;
+      mapReadError(error);
+    }
+    return executeImageRead(input, source!, request as EvidenceReadRequest & {
+      selector: Extract<EvidenceTextSelector, { kind: "image" }>;
+    }, audience);
+  }
   let source: RetainedText | null = null;
   if (input.sidecar) {
     source = sidecarTextCapture(input.sidecar, request.artifactId, request.representationId, ownerId);
