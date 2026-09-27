@@ -59,7 +59,7 @@ describe("MF-M2 CURRENT portfolio", () => {
     );
   });
 
-  it("keeps both CURRENT Thought occupants on Cloudflare native-default max reasoning", () => {
+  it("keeps both CURRENT Thought occupants on the Command Code Muse xhigh control", () => {
     const interactive = resolveCurrentPolicy({
       logicalRole: "thought",
       purpose: "thought",
@@ -73,9 +73,9 @@ describe("MF-M2 CURRENT portfolio", () => {
 
     expect(interactive.policyRow.reasoningPolicy).toBe("max_supported");
     expect(interactive.occupant.reasoningPolicy).toBe("max_supported");
-    expect(interactive.occupant.effectiveReasoning).toBe("max");
+    expect(interactive.occupant.effectiveReasoning).toBe("xhigh");
     expect(durable.policyRow.occupancyKey).toBe("durable_proactive");
-    expect(durable.occupant.effectiveReasoning).toBe("max");
+    expect(durable.occupant.effectiveReasoning).toBe("xhigh");
     expect(interactive.registryVersion).toBe(currentPortfolio().registryVersion);
   });
 
@@ -118,8 +118,8 @@ describe("MF-M2 CURRENT portfolio", () => {
   it("projects route enablement and quota contracts from CURRENT rather than models.json", () => {
     const records = routeRecordsFromCurrentPortfolio();
     expect(records.find((record) => record.route === "thought")).toMatchObject({
-      provider: "cloudflare",
-      configuredModelId: "@cf/zai-org/glm-5.3-flash",
+      provider: "command_code",
+      configuredModelId: "meta/muse-spark-1.3-contributor",
       enabled: true,
       quotaContract: {
         tpm: 524288,

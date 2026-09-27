@@ -23,6 +23,11 @@ const ORIGINAL_GROQ_KEY = env.groqApiKey;
 const ORIGINAL_NIM_KEY = env.nimApiKey;
 const ORIGINAL_CLOUDFLARE_TOKEN = env.cloudflareApiToken;
 const ORIGINAL_CLOUDFLARE_ACCOUNT = env.cloudflareAccountId;
+const ORIGINAL_COMMAND_CODE_KEY = env.commandCodeApiKey;
+
+const THOUGHT_PROVIDER = "command_code";
+const THOUGHT_MODEL = "meta/muse-spark-1.3-contributor";
+const THOUGHT_BUCKET = `${THOUGHT_PROVIDER}:${THOUGHT_MODEL}`;
 
 afterEach(() => {
   env.mistralApiKey = ORIGINAL_MISTRAL_KEY;
@@ -30,6 +35,7 @@ afterEach(() => {
   env.nimApiKey = ORIGINAL_NIM_KEY;
   env.cloudflareApiToken = ORIGINAL_CLOUDFLARE_TOKEN;
   env.cloudflareAccountId = ORIGINAL_CLOUDFLARE_ACCOUNT;
+  env.commandCodeApiKey = ORIGINAL_COMMAND_CODE_KEY;
 });
 
 function freshDb(): DatabaseSync {
@@ -50,11 +56,11 @@ describe("route-to-provider mapping", () => {
     expect(b.configuredModelId).toBe("qwen/qwen3.8-27b");
   });
 
-  it("thought routes to the Cloudflare GLM-5.3 Flash primary", () => {
+  it("thought routes to the Command Code Muse Spark 1.3 Contributor primary", () => {
     const b = resolveRoute("thought");
     expect(b.route).toBe("thought");
-    expect(b.provider).toBe("cloudflare");
-    expect(b.configuredModelId).toBe("@cf/zai-org/glm-5.3-flash");
+    expect(b.provider).toBe(THOUGHT_PROVIDER);
+    expect(b.configuredModelId).toBe(THOUGHT_MODEL);
   });
 
   it.each([
@@ -69,12 +75,12 @@ describe("route-to-provider mapping", () => {
   });
 
   it.each(["thought_observation", "reflection_initiative"])(
-    "Thought-owned purpose %s routes to Cloudflare GLM rather than utility Lightning",
+    "Thought-owned purpose %s routes to the Command Code Muse occupant rather than utility Lightning",
     (purpose) => {
       const b = resolveRoute(purpose);
       expect(b.route).toBe("thought");
-      expect(b.provider).toBe("cloudflare");
-      expect(b.configuredModelId).toBe("@cf/zai-org/glm-5.3-flash");
+      expect(b.provider).toBe(THOUGHT_PROVIDER);
+      expect(b.configuredModelId).toBe(THOUGHT_MODEL);
     },
   );
 
@@ -176,12 +182,13 @@ describe("provider-aware missing key gating", () => {
     db.close();
   });
 
-  it("Thought route fails before reservation when Cloudflare credentials are absent", async () => {
+  it("Thought route fails closed before reservation when the Command Code effort contract is unmet", async () => {
     env.mistralApiKey = "";
     env.groqApiKey = "";
     env.nimApiKey = "";
     env.cloudflareApiToken = "";
     env.cloudflareAccountId = "";
+    env.commandCodeApiKey = "";
     const db = freshDb();
     await expect(
       withOfflineAppGateDisabled(() => completeChat(
@@ -194,7 +201,10 @@ describe("provider-aware missing key gating", () => {
           attentionDb: db,
         },
       )),
-    ).rejects.toMatchObject({ code: "agent_not_ready" });
+    ).rejects.toMatchObject({
+      code: "capability_mismatch",
+      message: "command_code_policy_effort_required",
+    });
     expect(rowCount(db, "attention_requests")).toBe(0);
     db.close();
   });
@@ -244,13 +254,14 @@ describe("shared NIM Lightning quota bucket at the dispatch layer", () => {
     db.close();
   });
 
-  describe("Wave 2: Cloudflare Thought failure isolates the Expression lane", () => {
+  describe("Wave 2: Command Code Thought failure isolates the Expression lane", () => {
     it("Thought failure leaves Expression independently dispatchable in its own bucket", async () => {
       env.mistralApiKey = "";
       env.groqApiKey = "test";
       env.nimApiKey = "test";
       env.cloudflareApiToken = "test-cloudflare-token";
       env.cloudflareAccountId = "test-account";
+      env.commandCodeApiKey = "test-command-code-key";
       const db = freshDb();
       const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
         ok: false,
@@ -269,13 +280,16 @@ describe("shared NIM Lightning quota bucket at the dispatch layer", () => {
             attentionDb: db,
           },
         )),
-      ).rejects.toMatchObject({ code: "provider_unavailable" });
+      ).rejects.toMatchObject({
+        code: "capability_mismatch",
+        message: "command_code_policy_effort_required",
+      });
       fetchSpy.mockRestore();
       const thoughtCompletedRows = Number(
         (
           db.prepare(
-            `SELECT COUNT(*) AS c FROM attention_requests WHERE quota_bucket = 'cloudflare:@cf/zai-org/glm-5.3-flash' AND outcome = 'completed'`,
-          ).get() as { c: number }
+            `SELECT COUNT(*) AS c FROM attention_requests WHERE quota_bucket = ? AND outcome = 'completed'`,
+          ).get(THOUGHT_BUCKET) as { c: number }
         ).c,
       );
       expect(thoughtCompletedRows).toBe(0);
