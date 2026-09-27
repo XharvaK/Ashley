@@ -164,6 +164,10 @@ const commitmentProposalSchema = strictObject({
   beneficiary: { oneOf: [{ const: "owner" }, { type: "string", minLength: 1 }] },
   destination: commitmentDestinationSchema,
   temporal: commitmentTemporalSchema,
+  timezoneId: { type: "string", minLength: 1 },
+  requiredPrecisionMs: { type: "integer", minimum: 1 },
+  lateBehavior: { enum: ["deliver_late", "reconsider", "expire"] },
+  latestUsefulAtMs: { oneOf: [{ type: "integer", minimum: 0 }, { type: "null" }] },
   realizationClause: { type: "string", minLength: 1 },
   thoughtCycle: strictObject({
     cycleId: { type: "string", minLength: 1 },

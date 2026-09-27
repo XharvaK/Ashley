@@ -38,7 +38,11 @@ export type CommitmentAdmissionOptions = {
   maxGlobal?: number;
   overdueGraceMs?: number;
   blockedBackoffMs?: number;
+  /** Test seam; production resolves this from PROACTIVE_CHECK_INTERVAL_MIN. */
+  schedulerIntervalMs?: number;
 };
+
+export type CommitmentLateBehavior = "deliver_late" | "reconsider" | "expire";
 
 export type CommitmentOpportunity = {
   commitmentId: string;
@@ -47,6 +51,11 @@ export type CommitmentOpportunity = {
   beneficiary: string;
   destination: SocialAudience;
   temporal: CommitmentProposal["temporal"];
+  timezoneId: string;
+  requiredPrecisionMs: number;
+  lateBehavior: CommitmentLateBehavior;
+  latestUsefulAtMs: number | null;
+  latenessMs?: number;
   realizationClause: string;
   fireAtMs: number | null;
   state: string;
@@ -60,6 +69,10 @@ const DEFAULT_MAX_PER_BENEFICIARY = 3;
 const DEFAULT_MAX_GLOBAL = 12;
 const DEFAULT_OVERDUE_GRACE_MS = 5 * 60_000;
 const DEFAULT_BLOCKED_BACKOFF_MS = 15 * 60_000;
+export const DEFAULT_COMMITMENT_SCHEDULER_INTERVAL_MS = 60 * 60_000;
+export const DEFAULT_COMMITMENT_TIMEZONE_ID = "UTC";
+export const DEFAULT_COMMITMENT_LATE_BEHAVIOR: CommitmentLateBehavior = "reconsider";
+const COMMITMENT_LATE_BEHAVIORS: readonly CommitmentLateBehavior[] = ["deliver_late", "reconsider", "expire"];
 const COMMITMENT_STATES = ["admitted", "communicated", "attempted", "deferred_blocked"] as const;
 
 type RecordValue = Record<string, unknown>;
@@ -81,6 +94,12 @@ function integer(value: unknown): value is number {
 
 function exactKeys(value: RecordValue, keys: readonly string[]): boolean {
   return Object.keys(value).length === keys.length && Object.keys(value).every((key) => keys.includes(key));
+}
+
+function onlyKeys(value: RecordValue, required: readonly string[], optional: readonly string[] = []): boolean {
+  const allowed = new Set([...required, ...optional]);
+  return required.every((key) => Object.prototype.hasOwnProperty.call(value, key))
+    && Object.keys(value).every((key) => allowed.has(key));
 }
 
 function validDestination(value: unknown): value is SocialAudience {
@@ -114,17 +133,64 @@ function validThoughtCycle(value: unknown): value is { cycleId: string; attemptI
     && text(row.attemptId);
 }
 
+function validTimezoneId(value: unknown): value is string {
+  if (!text(value) || value.length > 128) return false;
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: value }).format(0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function validLateBehavior(value: unknown): value is CommitmentLateBehavior {
+  return typeof value === "string" && COMMITMENT_LATE_BEHAVIORS.includes(value as CommitmentLateBehavior);
+}
+
+export function configuredCommitmentSchedulerIntervalMs(
+  env: Record<string, string | undefined> = process.env,
+): number {
+  const configured = Number(env.PROACTIVE_CHECK_INTERVAL_MIN);
+  const minutes = Number.isFinite(configured)
+    ? Math.min(1440, Math.max(1, configured))
+    : DEFAULT_COMMITMENT_SCHEDULER_INTERVAL_MS / 60_000;
+  return Math.round(minutes * 60_000);
+}
+
+function normalizedTiming(proposal: CommitmentProposal, schedulerIntervalMs = DEFAULT_COMMITMENT_SCHEDULER_INTERVAL_MS): Pick<CommitmentProposal, "timezoneId" | "requiredPrecisionMs" | "lateBehavior" | "latestUsefulAtMs"> {
+  return {
+    timezoneId: proposal.timezoneId?.trim() || DEFAULT_COMMITMENT_TIMEZONE_ID,
+    requiredPrecisionMs: proposal.requiredPrecisionMs ?? schedulerIntervalMs,
+    lateBehavior: proposal.lateBehavior ?? DEFAULT_COMMITMENT_LATE_BEHAVIOR,
+    ...(proposal.latestUsefulAtMs === undefined ? {} : { latestUsefulAtMs: proposal.latestUsefulAtMs }),
+  };
+}
+
+export function normalizeCommitmentProposal(
+  proposal: CommitmentProposal,
+  schedulerIntervalMs = DEFAULT_COMMITMENT_SCHEDULER_INTERVAL_MS,
+): CommitmentProposal {
+  return {
+    ...proposal,
+    ...normalizedTiming(proposal, schedulerIntervalMs),
+  };
+}
+
 export function validateCommitmentProposal(value: unknown): value is CommitmentProposal {
   const row = record(value);
   return !!row
-    && exactKeys(row, ["ordinal", "action", "beneficiary", "destination", "temporal", "realizationClause", "thoughtCycle"])
+    && onlyKeys(row, ["ordinal", "action", "beneficiary", "destination", "temporal", "realizationClause", "thoughtCycle"], ["timezoneId", "requiredPrecisionMs", "lateBehavior", "latestUsefulAtMs"])
     && integer(row.ordinal) && row.ordinal >= 0 && row.ordinal <= 7
     && text(row.action)
     && (row.beneficiary === "owner" || text(row.beneficiary))
     && validDestination(row.destination)
     && validTemporal(row.temporal)
     && text(row.realizationClause)
-    && validThoughtCycle(row.thoughtCycle);
+    && validThoughtCycle(row.thoughtCycle)
+    && (row.timezoneId === undefined || validTimezoneId(row.timezoneId))
+    && (row.requiredPrecisionMs === undefined || (integer(row.requiredPrecisionMs) && row.requiredPrecisionMs > 0))
+    && (row.lateBehavior === undefined || validLateBehavior(row.lateBehavior))
+    && (row.latestUsefulAtMs === undefined || row.latestUsefulAtMs === null || (integer(row.latestUsefulAtMs) && row.latestUsefulAtMs >= 0));
 }
 
 export function validateCommitmentProposals(value: readonly unknown[]): CommitmentProposal[] {
@@ -137,6 +203,7 @@ export function validateCommitmentProposals(value: readonly unknown[]): Commitme
     if (!validateCommitmentProposal(proposal)) throw new Error("commitment_proposal_shape_invalid");
     if (ordinals.has(proposal.ordinal)) throw new Error("commitment_proposal_ordinal_duplicate");
     ordinals.add(proposal.ordinal);
+    const normalized = normalizeCommitmentProposal(proposal);
     proposals.push({
       ordinal: proposal.ordinal,
       action: proposal.action.trim(),
@@ -145,6 +212,10 @@ export function validateCommitmentProposals(value: readonly unknown[]): Commitme
       temporal: proposal.temporal,
       realizationClause: proposal.realizationClause,
       thoughtCycle: { ...proposal.thoughtCycle },
+      timezoneId: normalized.timezoneId,
+      requiredPrecisionMs: normalized.requiredPrecisionMs,
+      lateBehavior: normalized.lateBehavior,
+      ...(normalized.latestUsefulAtMs === undefined ? {} : { latestUsefulAtMs: normalized.latestUsefulAtMs }),
     });
   }
   return proposals;
@@ -174,7 +245,7 @@ function proposalFromRow(row: RecordValue): HostCommitmentProposal {
   const sourceRef = String(row.source_ref ?? "");
   const proposalId = String(row.proposal_id ?? "");
   if (!sourceRef || !proposalId) throw new Error("commitment_proposal_identity_invalid");
-  const proposal = value as CommitmentProposal;
+  const proposal = normalizeCommitmentProposal(proposalValue as CommitmentProposal);
   if (proposalId !== `cmt:${sourceRef}:${proposal.ordinal}`) throw new Error("commitment_proposal_identity_invalid");
   return { ...proposal, proposalId, sourceRef };
 }
@@ -334,6 +405,30 @@ function fireTime(proposal: CommitmentProposal, nowMs: number): { fireAtMs?: num
   return { fireAtMs: Math.max(nowMs, proposal.temporal.windowStartMs) };
 }
 
+function timingFailure(
+  proposal: CommitmentProposal,
+  nowMs: number,
+  schedulerIntervalMs: number,
+): string | null {
+  const timing = normalizedTiming(proposal, schedulerIntervalMs);
+  if (!validTimezoneId(timing.timezoneId)) return "timezone_invalid";
+  if (!integer(timing.requiredPrecisionMs) || timing.requiredPrecisionMs <= 0) return "precision_invalid";
+  if (timing.requiredPrecisionMs < schedulerIntervalMs) return "precision_unsupported";
+  if (proposal.temporal.kind === "bounded"
+    && proposal.temporal.windowEndMs - proposal.temporal.windowStartMs < schedulerIntervalMs) {
+    return "precision_unsupported";
+  }
+  if (timing.lateBehavior === "expire"
+    && (timing.latestUsefulAtMs == null || !integer(timing.latestUsefulAtMs))) {
+    return "latest_useful_time_required";
+  }
+  if (timing.latestUsefulAtMs != null && timing.latestUsefulAtMs < nowMs
+    && timing.lateBehavior === "expire") {
+    return "latest_useful_time_expired";
+  }
+  return null;
+}
+
 function feasibility(
   db: DatabaseSync,
   proposal: HostCommitmentProposal,
@@ -346,6 +441,12 @@ function feasibility(
   if (proposal.beneficiary !== "owner" && proposal.destination.kind === "owner_private") {
     return { admitted: false, reason: "beneficiary_destination_mismatch" };
   }
+  const precisionFailure = timingFailure(
+    proposal,
+    nowMs,
+    options.schedulerIntervalMs ?? configuredCommitmentSchedulerIntervalMs(),
+  );
+  if (precisionFailure) return { admitted: false, reason: precisionFailure };
   const timing = fireTime(proposal, nowMs);
   if (timing.reason) return { admitted: false, reason: timing.reason };
   const authorityFailure = authorityAllows(db, ownerId, proposal, timing.fireAtMs, nowMs);
@@ -380,8 +481,9 @@ function insertOpportunity(
         source_entity_type, source_entity_uuid, evidence_json, text_hash,
         created_at, updated_at, provenance, party_subject_scope,
         beneficiary_principal, destination_json, fire_at_ms, lease_token,
-        lease_expires_at_ms, attempt_count, commitment_state)
-     VALUES (?, ?, 'ordinary', ?, 'motivated', ?, 'thought_commitment', ?, ?, ?, ?, ?, 'live', ?, ?, ?, ?, NULL, NULL, 0, 'admitted')`,
+        lease_expires_at_ms, attempt_count, commitment_state,
+        timing_timezone_id, required_precision_ms, late_behavior, latest_useful_at_ms)
+     VALUES (?, ?, 'ordinary', ?, 'motivated', ?, 'thought_commitment', ?, ?, ?, ?, ?, 'live', ?, ?, ?, ?, NULL, NULL, 0, 'admitted', ?, ?, ?, ?)`,
   ).run(
     ownerId,
     result.commitmentId,
@@ -396,6 +498,10 @@ function insertOpportunity(
     proposal.beneficiary === "owner" ? ownerId : proposal.beneficiary,
     destination,
     result.fireAtMs ?? null,
+    proposal.timezoneId ?? DEFAULT_COMMITMENT_TIMEZONE_ID,
+    proposal.requiredPrecisionMs ?? DEFAULT_COMMITMENT_SCHEDULER_INTERVAL_MS,
+    proposal.lateBehavior ?? DEFAULT_COMMITMENT_LATE_BEHAVIOR,
+    proposal.latestUsefulAtMs ?? null,
   );
 }
 
@@ -561,10 +667,22 @@ export function commitmentBindingsForSettlement(
   });
 }
 
-function opportunityFromRow(row: RecordValue): CommitmentOpportunity | null {
+function proposalLatenessMs(proposal: CommitmentProposal, nowMs: number): number {
+  const dueAtMs = proposal.temporal.kind === "exact"
+    ? proposal.temporal.atMs
+    : proposal.temporal.kind === "bounded"
+      ? proposal.temporal.windowEndMs
+      : null;
+  return dueAtMs == null ? 0 : Math.max(0, nowMs - dueAtMs);
+}
+
+function opportunityFromRow(row: RecordValue, nowMs = Date.now()): CommitmentOpportunity | null {
   const evidence = record(parseJson(row.evidence_json));
-  const proposal = record(evidence?.proposal);
-  if (!proposal || !text(proposal.action) || !text(proposal.beneficiary) || !validDestination(proposal.destination) || !validTemporal(proposal.temporal) || !text(proposal.realizationClause)) return null;
+  const storedProposal = record(evidence?.proposal);
+  if (!storedProposal) return null;
+  const { proposalId: _proposalId, sourceRef: _sourceRef, ...proposalValue } = storedProposal;
+  if (!validateCommitmentProposal(proposalValue)) return null;
+  const proposal = normalizeCommitmentProposal(proposalValue);
   const recoveryStatus = evidence?.recoveryStatus === COMMITMENT_PROVISIONAL_ORPHAN
     ? COMMITMENT_PROVISIONAL_ORPHAN
     : undefined;
@@ -575,6 +693,11 @@ function opportunityFromRow(row: RecordValue): CommitmentOpportunity | null {
     beneficiary: proposal.beneficiary,
     destination: proposal.destination,
     temporal: proposal.temporal,
+    timezoneId: proposal.timezoneId ?? DEFAULT_COMMITMENT_TIMEZONE_ID,
+    requiredPrecisionMs: proposal.requiredPrecisionMs ?? DEFAULT_COMMITMENT_SCHEDULER_INTERVAL_MS,
+    lateBehavior: proposal.lateBehavior ?? DEFAULT_COMMITMENT_LATE_BEHAVIOR,
+    latestUsefulAtMs: proposal.latestUsefulAtMs ?? (row.latest_useful_at_ms == null ? null : Number(row.latest_useful_at_ms)),
+    latenessMs: proposalLatenessMs(proposal, nowMs),
     realizationClause: proposal.realizationClause,
     fireAtMs: row.fire_at_ms == null ? null : Number(row.fire_at_ms),
     state: String(row.commitment_state ?? ""),
@@ -609,7 +732,7 @@ export function listDueCommitmentOpportunities(
         AND (commitment_state <> 'attempted' OR lease_expires_at_ms IS NULL OR lease_expires_at_ms <= ?)
       ORDER BY COALESCE(fire_at_ms, 0), id LIMIT ?`,
   ).all(ownerId, ...COMMITMENT_STATES, nowMs, nowMs, Math.max(1, Math.min(100, limit))) as RecordValue[];
-  return rows.map(opportunityFromRow).filter((item): item is CommitmentOpportunity => item !== null);
+  return rows.map((row) => opportunityFromRow(row, nowMs)).filter((item): item is CommitmentOpportunity => item !== null);
 }
 
 export function recoverCommitmentOpportunities(
@@ -619,7 +742,8 @@ export function recoverCommitmentOpportunities(
   const nowMs = now(options.nowMs);
   const grace = options.overdueGraceMs ?? DEFAULT_OVERDUE_GRACE_MS;
   const rows = nuclearDb.prepare(
-    `SELECT entity_uuid, fire_at_ms, lease_expires_at_ms, attempt_count, commitment_state
+    `SELECT entity_uuid, fire_at_ms, lease_expires_at_ms, attempt_count, commitment_state,
+            late_behavior, latest_useful_at_ms, evidence_json
       FROM ashley_self_commitments
       WHERE owner_id = ? AND commitment_state IN ('admitted','communicated','attempted','deferred_blocked')`,
   ).all(options.ownerId) as Array<RecordValue>;
@@ -663,7 +787,43 @@ export function recoverCommitmentOpportunities(
       continue;
     }
     if (state === "attempted" && leaseExpiresAtMs != null && leaseExpiresAtMs > nowMs) continue;
-    if (row.fire_at_ms != null && Number(row.fire_at_ms) + grace < nowMs) {
+    const lateBehavior = String(row.late_behavior ?? "");
+    const knownLateBehavior = COMMITMENT_LATE_BEHAVIORS.includes(lateBehavior as CommitmentLateBehavior);
+    const latestUsefulAtMs = row.latest_useful_at_ms == null ? null : Number(row.latest_useful_at_ms);
+    if (lateBehavior === "expire" && latestUsefulAtMs != null && latestUsefulAtMs < nowMs) {
+      const evidence = record(parseJson(row.evidence_json)) ?? {};
+      const result = nuclearDb.prepare(
+        `UPDATE ashley_self_commitments SET commitment_state = 'expired', status = 'released',
+           evidence_json = ?, lease_token = NULL, lease_expires_at_ms = NULL, updated_at = ?
+          WHERE owner_id = ? AND entity_uuid = ?
+            AND commitment_state IN ('admitted','communicated','attempted','deferred_blocked')`,
+      ).run(
+        stableJson({ ...evidence, expiry: { atMs: nowMs, latestUsefulAtMs, reason: "latest_useful_at_passed" } }),
+        new Date(nowMs).toISOString(),
+        options.ownerId,
+        id,
+      );
+      if (Number(result.changes) === 1) markClaimOutcome(nuclearDb, id, "released", "expired");
+      continue;
+    }
+    const isLate = row.fire_at_ms != null && Number(row.fire_at_ms) < nowMs;
+    if (isLate && knownLateBehavior) {
+      if (state === "attempted" && Number(row.attempt_count ?? 0) < 3) {
+        const evidence = record(parseJson(row.evidence_json)) ?? {};
+        nuclearDb.prepare(
+          "UPDATE ashley_self_commitments SET commitment_state = 'admitted', evidence_json = ?, lease_token = NULL, lease_expires_at_ms = NULL, updated_at = ? WHERE owner_id = ? AND entity_uuid = ? AND commitment_state = 'attempted' AND (lease_expires_at_ms IS NULL OR lease_expires_at_ms <= ?)",
+        ).run(
+          stableJson({ ...evidence, recoveryStatus: COMMITMENT_PROVISIONAL_ORPHAN, latenessMs: Math.max(0, nowMs - Number(row.fire_at_ms)) }),
+          new Date(nowMs).toISOString(),
+          options.ownerId,
+          id,
+          nowMs,
+        );
+      }
+      requeued += 1;
+    } else if (!knownLateBehavior && row.fire_at_ms != null && Number(row.fire_at_ms) + grace < nowMs) {
+      // This branch is retained only for pre-v52 rows that are being read
+      // through a compatibility fixture. v52 migration assigns reconsider.
       const result = nuclearDb.prepare(
         `UPDATE ashley_self_commitments SET commitment_state = 'missed_overdue', status = 'released',
            lease_token = NULL, lease_expires_at_ms = NULL, updated_at = ?
@@ -690,7 +850,7 @@ export function recoverCommitmentOpportunities(
             AND (lease_expires_at_ms IS NULL OR lease_expires_at_ms <= ?)`,
       ).run(new Date(nowMs).toISOString(), id, nowMs);
       requeued += Number(result.changes);
-    } else if (state === "attempted") {
+    } else if (state === "attempted" && !knownLateBehavior) {
       const result = nuclearDb.prepare(
         `UPDATE ashley_self_commitments SET commitment_state = 'missed_overdue', status = 'released',
            lease_token = NULL, lease_expires_at_ms = NULL, updated_at = ?
@@ -759,6 +919,10 @@ function currentOpportunityAuthority(
     beneficiary: opportunity.beneficiary === opportunity.ownerId ? "owner" : opportunity.beneficiary,
     destination: opportunity.destination,
     temporal: opportunity.temporal,
+    timezoneId: opportunity.timezoneId,
+    requiredPrecisionMs: opportunity.requiredPrecisionMs,
+    lateBehavior: opportunity.lateBehavior,
+    ...(opportunity.latestUsefulAtMs == null ? {} : { latestUsefulAtMs: opportunity.latestUsefulAtMs }),
     realizationClause: opportunity.realizationClause,
     thoughtCycle: { cycleId: "recheck", attemptId: "recheck" },
   };
@@ -768,6 +932,7 @@ function currentOpportunityAuthority(
 export type CommitmentWakeVerdict =
   | { kind: "fulfill"; opportunity: CommitmentOpportunity }
   | { kind: "defer"; opportunity: CommitmentOpportunity; nextFireAtMs: number; reason: string }
+  | { kind: "expired"; opportunity: CommitmentOpportunity; reason: string }
   | { kind: "missed"; opportunity: CommitmentOpportunity; reason: string }
   | { kind: "not_found" };
 
@@ -779,9 +944,28 @@ export function recheckCommitmentOpportunity(
   const row = nuclearDb.prepare(
     "SELECT * FROM ashley_self_commitments WHERE owner_id = ? AND entity_uuid = ?",
   ).get(input.ownerId, input.commitmentId) as RecordValue | undefined;
-  const opportunity = row ? opportunityFromRow(row) : null;
+  const opportunity = row ? opportunityFromRow(row, nowMs) : null;
   if (!opportunity) return { kind: "not_found" };
-  if (opportunity.fireAtMs != null && opportunity.fireAtMs + (input.overdueGraceMs ?? DEFAULT_OVERDUE_GRACE_MS) < nowMs) {
+  if (opportunity.lateBehavior === "expire"
+    && opportunity.latestUsefulAtMs != null
+    && opportunity.latestUsefulAtMs < nowMs) {
+    nuclearDb.prepare(
+      `UPDATE ashley_self_commitments SET commitment_state = 'expired', status = 'released',
+         evidence_json = json_set(COALESCE(evidence_json, '{}'), '$.expiry', json(?)),
+         lease_token = NULL, lease_expires_at_ms = NULL, updated_at = ?
+        WHERE owner_id = ? AND entity_uuid = ?
+          AND commitment_state IN ('attempted','admitted','communicated','deferred_blocked')`,
+    ).run(
+      stableJson({ atMs: nowMs, latestUsefulAtMs: opportunity.latestUsefulAtMs, reason: "latest_useful_at_passed" }),
+      new Date(nowMs).toISOString(),
+      input.ownerId,
+      input.commitmentId,
+    );
+    markClaimOutcome(nuclearDb, input.commitmentId, "released", "expired");
+    return { kind: "expired", opportunity: { ...opportunity, state: "expired" }, reason: "latest_useful_at_passed" };
+  }
+  const knownLateBehavior = COMMITMENT_LATE_BEHAVIORS.includes(opportunity.lateBehavior);
+  if (!knownLateBehavior && opportunity.fireAtMs != null && opportunity.fireAtMs + (input.overdueGraceMs ?? DEFAULT_OVERDUE_GRACE_MS) < nowMs) {
     nuclearDb.prepare(
       `UPDATE ashley_self_commitments SET commitment_state = 'missed_overdue', status = 'released',
          lease_token = NULL, lease_expires_at_ms = NULL, updated_at = ? WHERE entity_uuid = ?`,
@@ -799,6 +983,88 @@ export function recheckCommitmentOpportunity(
   ).run(nextFireAtMs, new Date(nextFireAtMs).toISOString(), new Date(nowMs).toISOString(), input.commitmentId);
   markClaimOutcome(nuclearDb, input.commitmentId, "released", failure);
   return { kind: "defer", opportunity: { ...opportunity, state: "deferred_blocked", fireAtMs: nextFireAtMs }, nextFireAtMs, reason: failure };
+}
+
+/**
+ * Amend only the timing contract of an active commitment. This is shared by
+ * the Owner temporal route and any future Thought settlement command; it does
+ * not accept a new action, destination, beneficiary, or source authority.
+ */
+export function reviseCommitmentTiming(
+  nuclearDb: DatabaseSync,
+  input: {
+    ownerId: string;
+    commitmentId: string;
+    dueAtMs?: number;
+    windowStartMs?: number;
+    windowEndMs?: number;
+    lateBehavior?: CommitmentLateBehavior;
+    latestUsefulAtMs?: number | null;
+    nowMs?: number;
+    schedulerIntervalMs?: number;
+  },
+): boolean {
+  const nowMs = now(input.nowMs);
+  const row = nuclearDb.prepare(
+    "SELECT * FROM ashley_self_commitments WHERE owner_id = ? AND entity_uuid = ?",
+  ).get(input.ownerId, input.commitmentId) as RecordValue | undefined;
+  if (!row) return false;
+  const evidence = record(parseJson(row.evidence_json)) ?? {};
+  const stored = record(evidence.proposal);
+  if (!stored) return false;
+  const { proposalId: _proposalId, sourceRef: _sourceRef, ...proposalValue } = stored;
+  if (!validateCommitmentProposal(proposalValue)) return false;
+  const current = normalizeCommitmentProposal(proposalValue);
+  const hasDue = input.dueAtMs !== undefined;
+  const hasWindow = input.windowStartMs !== undefined || input.windowEndMs !== undefined;
+  if (hasDue && hasWindow) return false;
+  if (hasWindow && (input.windowStartMs === undefined || input.windowEndMs === undefined)) return false;
+  const temporal = hasDue
+    ? { kind: "exact" as const, atMs: input.dueAtMs! }
+    : hasWindow
+      ? { kind: "bounded" as const, windowStartMs: input.windowStartMs!, windowEndMs: input.windowEndMs! }
+      : current.temporal;
+  const next: CommitmentProposal = normalizeCommitmentProposal({
+    ...current,
+    temporal,
+    ...(input.lateBehavior === undefined ? {} : { lateBehavior: input.lateBehavior }),
+    ...(input.latestUsefulAtMs === undefined ? {} : { latestUsefulAtMs: input.latestUsefulAtMs }),
+  }, input.schedulerIntervalMs ?? configuredCommitmentSchedulerIntervalMs());
+  const precisionFailure = timingFailure(
+    next,
+    nowMs,
+    input.schedulerIntervalMs ?? configuredCommitmentSchedulerIntervalMs(),
+  );
+  if (precisionFailure) return false;
+  const timing = fireTime(next, nowMs);
+  if (timing.reason) return false;
+  const authorityFailure = authorityAllows(nuclearDb, input.ownerId, next, timing.fireAtMs, nowMs);
+  if (authorityFailure) return false;
+  const proposalId = String(row.proposal_id ?? input.commitmentId);
+  const sourceRef = String(row.source_ref ?? "");
+  const storedProposal = { ...next, proposalId, sourceRef };
+  const result = nuclearDb.prepare(
+    `UPDATE ashley_self_commitments
+        SET due_at = ?, fire_at_ms = ?, evidence_json = ?,
+            timing_timezone_id = ?, required_precision_ms = ?, late_behavior = ?, latest_useful_at_ms = ?,
+            commitment_state = 'admitted', lease_token = NULL, lease_expires_at_ms = NULL, updated_at = ?
+      WHERE owner_id = ? AND entity_uuid = ?
+        AND commitment_state IN ('admitted','communicated','attempted','deferred_blocked')`,
+  ).run(
+    timing.fireAtMs == null ? null : new Date(timing.fireAtMs).toISOString(),
+    timing.fireAtMs ?? null,
+    stableJson({ ...evidence, proposal: storedProposal, timingRevisionAtMs: nowMs }),
+    next.timezoneId ?? DEFAULT_COMMITMENT_TIMEZONE_ID,
+    next.requiredPrecisionMs ?? DEFAULT_COMMITMENT_SCHEDULER_INTERVAL_MS,
+    next.lateBehavior ?? DEFAULT_COMMITMENT_LATE_BEHAVIOR,
+    next.latestUsefulAtMs ?? null,
+    new Date(nowMs).toISOString(),
+    input.ownerId,
+    input.commitmentId,
+  );
+  if (Number(result.changes) !== 1) return false;
+  markClaimOutcome(nuclearDb, input.commitmentId, "released", "timing_revised");
+  return true;
 }
 
 export function reviseCommitment(

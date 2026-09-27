@@ -10,7 +10,10 @@ import {
   listObservationSubscriptions,
 } from "../observation/subscriptions.js";
 import { DEFAULT_MAX_SUBSCRIPTIONS, type FutureTrigger, type ObservationSubscription } from "../types.js";
-import { relinquishCommitment } from "../../relationship/commitment-admission.js";
+import {
+  relinquishCommitment,
+  reviseCommitmentTiming,
+} from "../../relationship/commitment-admission.js";
 import { parseStoredWorkingContextInterpretationEnvelope } from "../evidence/interpretation-envelope.js";
 
 type Row = Record<string, unknown>;
@@ -24,6 +27,11 @@ export type TemporalControlInput = {
   id?: string;
   limit?: number;
   dueAtMs?: number;
+  windowStartMs?: number;
+  windowEndMs?: number;
+  lateBehavior?: "deliver_late" | "reconsider" | "expire";
+  latestUsefulAtMs?: number | null;
+  hasLatestUsefulAtMs?: boolean;
   purpose?: string | null;
   hasDueAtMs?: boolean;
   hasPurpose?: boolean;
@@ -154,6 +162,10 @@ function projectCommitment(row: Row): TemporalRecord {
     cancellationState: commitmentCancellationState(row),
     legacyStatus: text(row.status),
     commitmentState: text(row.commitment_state),
+    timezoneId: text(row.timing_timezone_id) || "UTC",
+    requiredPrecisionMs: nullableNumber(row.required_precision_ms) ?? 3_600_000,
+    lateBehavior: text(row.late_behavior) || "reconsider",
+    latestUsefulAtMs: nullableNumber(row.latest_useful_at_ms),
     leaseExpiresAtMs: nullableNumber(row.lease_expires_at_ms),
     attemptCount: nullableNumber(row.attempt_count) ?? 0,
   };
@@ -311,6 +323,41 @@ function amendSubscription(
     changed: next.expiresAtMs !== current.expiresAtMs,
     acknowledgement: next.expiresAtMs !== current.expiresAtMs ? "amended" : "unchanged",
     record: projectSubscription(next),
+  };
+}
+
+function amendCommitment(
+  nuclearDb: DatabaseSync,
+  ownerId: string,
+  id: string,
+  input: TemporalControlInput,
+  nowMs: number,
+): TemporalResult | null {
+  const current = getCommitmentRow(nuclearDb, ownerId, id);
+  if (!current) return null;
+  const state = text(current.commitment_state);
+  if (!["admitted", "communicated", "attempted", "deferred_blocked"].includes(state)) {
+    return { operation: "amend", kind: "commitment", id, status: state, changed: false, acknowledgement: "not_amendable" };
+  }
+  const changed = reviseCommitmentTiming(nuclearDb, {
+    ownerId,
+    commitmentId: id,
+    dueAtMs: input.hasDueAtMs ? input.dueAtMs : undefined,
+    windowStartMs: input.windowStartMs,
+    windowEndMs: input.windowEndMs,
+    lateBehavior: input.lateBehavior,
+    ...(input.hasLatestUsefulAtMs ? { latestUsefulAtMs: input.latestUsefulAtMs ?? null } : {}),
+    nowMs,
+  });
+  const next = getCommitmentRow(nuclearDb, ownerId, id);
+  return {
+    operation: "amend",
+    kind: "commitment",
+    id,
+    status: next ? text(next.commitment_state) : state,
+    changed,
+    acknowledgement: changed ? "amended" : "unsupported_fields",
+    record: next ? projectCommitment(next) : undefined,
   };
 }
 
@@ -482,6 +529,7 @@ export function executeTemporalControl(
   if (input.operation === "amend") {
     if (input.kind === "future_trigger") return amendFutureTrigger(sidecar, input.id, input);
     if (input.kind === "subscription") return amendSubscription(sidecar, input.id, input);
+    if (input.kind === "commitment") return amendCommitment(nuclearDb, ownerId, input.id, input, input.nowMs ?? Date.now());
     return { operation: "amend", kind: input.kind, id: input.id, acknowledgement: "unsupported_fields", changed: false };
   }
   if (input.kind !== "directive") return { operation: "withdraw", kind: input.kind, id: input.id, acknowledgement: "unsupported", changed: false };

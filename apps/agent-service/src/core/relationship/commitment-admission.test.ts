@@ -12,6 +12,7 @@ import {
   recoverPendingCommitmentProposals,
   recoverCommitmentOpportunities,
   recheckCommitmentOpportunity,
+  listDueCommitmentOpportunities,
   reviseCommitment,
   settlePersistedCommitmentProposals,
   COMMITMENT_PROVISIONAL_ORPHAN,
@@ -286,20 +287,67 @@ describe("commitment admission and fidelity", () => {
     }
   });
 
-  it("marks overdue opportunities missed and prevents double fire after a claim", () => {
+  it("keeps overdue opportunities for reconsideration and prevents double fire after a claim", () => {
     const db = dbFixture();
     try {
       persistCommitmentProposals(db, "overdue", [proposal({ temporal: { kind: "exact", atMs: nowMs + 1 } })]);
       settlePersistedCommitmentProposals(db, "overdue", { ownerId, nowMs, enabled: true });
-      expect(recoverCommitmentOpportunities(db, { ownerId, nowMs: nowMs + 10_000, overdueGraceMs: 0 })).toMatchObject({ missed: 1 });
+      expect(recoverCommitmentOpportunities(db, { ownerId, nowMs: nowMs + 10_000, overdueGraceMs: 0 })).toMatchObject({ requeued: 1, missed: 0 });
+      expect(db.prepare("SELECT commitment_state, status FROM ashley_self_commitments WHERE entity_uuid = ?").get("cmt:overdue:0"))
+        .toEqual({ commitment_state: "admitted", status: "motivated" });
 
       persistCommitmentProposals(db, "claim", [proposal({ temporal: { kind: "open" } })]);
       settlePersistedCommitmentProposals(db, "claim", { ownerId, nowMs, enabled: true });
       expect(claimCommitmentOpportunity(db, { ownerId, commitmentId: "cmt:claim:0", nowMs })).not.toBeNull();
       expect(claimCommitmentOpportunity(db, { ownerId, commitmentId: "cmt:claim:0", nowMs: nowMs + 1 })).toBeNull();
-      expect(recoverCommitmentOpportunities(db, { ownerId, nowMs: nowMs + 5 * 60_000 + 1 })).toMatchObject({ requeued: 1 });
+      expect(recoverCommitmentOpportunities(db, { ownerId, nowMs: nowMs + 5 * 60_000 + 1 })).toMatchObject({ requeued: 2, missed: 0 });
       db.prepare("UPDATE relationship_motivation_claims SET lease_until = '1970-01-01T00:00:00.000Z' WHERE relationship_entity_uuid = 'cmt:claim:0'").run();
       expect(claimCommitmentOpportunity(db, { ownerId, commitmentId: "cmt:claim:0", nowMs: nowMs + 5 * 60_000 + 2 })).not.toBeNull();
+    } finally {
+      db.close();
+    }
+  });
+
+  it("rejects precision finer than the configured idle interval before admission", () => {
+    const db = dbFixture();
+    try {
+      persistCommitmentProposals(db, "precision-too-fine", [proposal({
+        requiredPrecisionMs: 60_000,
+        temporal: { kind: "exact", atMs: nowMs + 60 * 60_000 },
+      })]);
+      const result = settlePersistedCommitmentProposals(db, "precision-too-fine", {
+        ownerId,
+        nowMs,
+        enabled: true,
+        schedulerIntervalMs: 60 * 60_000,
+      });
+      expect(result).toMatchObject([{ settled: true, admitted: false, reason: "precision_unsupported" }]);
+      expect(db.prepare("SELECT COUNT(*) AS count FROM ashley_self_commitments").get()).toEqual({ count: 0 });
+      expect(db.prepare("SELECT result_json FROM commitment_settlements WHERE proposal_id = ?").get("cmt:precision-too-fine:0"))
+        .toMatchObject({ result_json: expect.stringContaining("precision_unsupported") });
+    } finally {
+      db.close();
+    }
+  });
+
+  it("keeps a past-due reconsideration row durable across restart recovery", () => {
+    const db = dbFixture();
+    try {
+      persistCommitmentProposals(db, "restart-late", [proposal({
+        temporal: { kind: "exact", atMs: nowMs + 1 },
+        lateBehavior: "reconsider",
+      })]);
+      settlePersistedCommitmentProposals(db, "restart-late", { ownerId, nowMs, enabled: true });
+      const lateNow = nowMs + 60 * 60_000;
+      expect(recoverCommitmentOpportunities(db, { ownerId, nowMs: lateNow })).toMatchObject({ requeued: 1, missed: 0 });
+      const opportunity = listDueCommitmentOpportunities(db, ownerId, lateNow)[0];
+      expect(opportunity).toMatchObject({
+        commitmentId: "cmt:restart-late:0",
+        lateBehavior: "reconsider",
+        latenessMs: expect.any(Number),
+      });
+      expect(db.prepare("SELECT commitment_state, status, late_behavior FROM ashley_self_commitments WHERE entity_uuid = ?").get("cmt:restart-late:0"))
+        .toEqual({ commitment_state: "admitted", status: "motivated", late_behavior: "reconsider" });
     } finally {
       db.close();
     }

@@ -231,8 +231,9 @@ function validateCommitments(
     const ordinals = new Set<number>();
     for (const item of value.commitmentProposals) {
       if (!isRecord(item)) return failure("malformed", "COMMITMENT_PROPOSAL_INVALID");
-      const allowed = ["ordinal", "action", "beneficiary", "destination", "temporal", "realizationClause", "thoughtCycle"];
-      if (Object.keys(item).some((key) => !allowed.includes(key)) || !hasAll(item, allowed)) {
+      const required = ["ordinal", "action", "beneficiary", "destination", "temporal", "realizationClause", "thoughtCycle"];
+      const allowed = [...required, "timezoneId", "requiredPrecisionMs", "lateBehavior", "latestUsefulAtMs"];
+      if (Object.keys(item).some((key) => !allowed.includes(key)) || !hasAll(item, required)) {
         return failure("malformed", "COMMITMENT_PROPOSAL_INVALID");
       }
       if (typeof item.ordinal !== "number" || !Number.isInteger(item.ordinal) || item.ordinal < 0 || item.ordinal > 7
@@ -242,7 +243,12 @@ function validateCommitments(
         || !isCommitmentDestination(item.destination)
         || !isCommitmentTemporal(item.temporal)
         || !isString(item.realizationClause) || item.realizationClause.trim().length === 0
-        || !isCommitmentThoughtCycle(item.thoughtCycle)) {
+        || !isCommitmentThoughtCycle(item.thoughtCycle)
+        || (item.timezoneId !== undefined && (!isString(item.timezoneId) || item.timezoneId.trim().length === 0))
+        || (item.requiredPrecisionMs !== undefined && (typeof item.requiredPrecisionMs !== "number" || !Number.isInteger(item.requiredPrecisionMs) || item.requiredPrecisionMs <= 0))
+        || (item.lateBehavior !== undefined && !["deliver_late", "reconsider", "expire"].includes(String(item.lateBehavior)))
+        || (item.latestUsefulAtMs !== undefined && item.latestUsefulAtMs !== null
+          && (typeof item.latestUsefulAtMs !== "number" || !Number.isInteger(item.latestUsefulAtMs) || item.latestUsefulAtMs < 0))) {
         return failure("malformed", "COMMITMENT_PROPOSAL_INVALID");
       }
       ordinals.add(item.ordinal);

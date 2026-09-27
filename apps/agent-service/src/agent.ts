@@ -236,6 +236,11 @@ export class AgentManager {
             observations: input.observations,
             dueTriggers: input.dueTriggers.map((trigger) => trigger.triggerId),
             ...(input.commitmentId ? { commitmentId: input.commitmentId } : {}),
+            ...(input.commitmentLatenessMs === undefined ? {} : { commitmentLatenessMs: input.commitmentLatenessMs }),
+            ...(input.commitmentLateBehavior ? { commitmentLateBehavior: input.commitmentLateBehavior } : {}),
+            ...(input.commitmentLatestUsefulAtMs === undefined ? {} : { commitmentLatestUsefulAtMs: input.commitmentLatestUsefulAtMs }),
+            ...(input.commitmentRequiredPrecisionMs === undefined ? {} : { commitmentRequiredPrecisionMs: input.commitmentRequiredPrecisionMs }),
+            ...(input.commitmentTimezoneId ? { commitmentTimezoneId: input.commitmentTimezoneId } : {}),
           },
           createdAtMs: Date.now(),
         });

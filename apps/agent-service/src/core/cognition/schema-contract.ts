@@ -54,6 +54,10 @@ import {
   requireNoNuclearV51Content,
   validateNuclearV51Schema,
 } from "../cognitive-v021/migration-51.js";
+import {
+  requireNoNuclearV52Content,
+  validateNuclearV52Schema,
+} from "../relationship/migration-52.js";
 
 type TableInfoRow = {
   name?: string;
@@ -1180,7 +1184,7 @@ function requireNoV49Content(db: DatabaseSync, version: number): void {
 
 export function validateNuclearSchemaContent(
   db: DatabaseSync,
-  version: 22 | 23 | 24 | 25 | 26 | 27 | 28 | 29 | 30 | 31 | 32 | 33 | 34 | 35 | 36 | 37 | 38 | 39 | 40 | 41 | 42 | 43 | 44 | 45 | 46 | 47 | 48 | 49 | 50 | 51,
+  version: 22 | 23 | 24 | 25 | 26 | 27 | 28 | 29 | 30 | 31 | 32 | 33 | 34 | 35 | 36 | 37 | 38 | 39 | 40 | 41 | 42 | 43 | 44 | 45 | 46 | 47 | 48 | 49 | 50 | 51 | 52,
   options: { rejectNewerContent?: boolean } = {},
 ): void {
   if (version === 22) {
@@ -1420,6 +1424,12 @@ export function validateNuclearSchemaContent(
   }
   if (version === 50) return;
   validateNuclearV51Schema(db, version);
+  if (version === 51 && options.rejectNewerContent === true) {
+    requireNoNuclearV52Content(db, version);
+    return;
+  }
+  if (version === 51) return;
+  validateNuclearV52Schema(db, version);
 }
 
 function addColumnIfMissing(

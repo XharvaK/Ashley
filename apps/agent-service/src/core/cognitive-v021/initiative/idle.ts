@@ -72,6 +72,11 @@ export type IdleThoughtContext = {
   commitmentId?: string;
   realizationClause?: string;
   evidenceCompleteness?: CommitmentEvidenceCompleteness;
+  commitmentLatenessMs?: number;
+  commitmentLateBehavior?: "deliver_late" | "reconsider" | "expire";
+  commitmentLatestUsefulAtMs?: number | null;
+  commitmentRequiredPrecisionMs?: number;
+  commitmentTimezoneId?: string;
   occupancy: MindOccupancy[];
   observations: Observation[];
   dueTriggers: FutureTrigger[];
@@ -139,6 +144,7 @@ export type IdleTickReason =
   | "thought_failed"
   | "commitment_deferred"
   | "commitment_missed"
+  | "commitment_expired"
   | "commitment_not_found"
   | "periodic_not_due"
   | "periodic_disabled"
@@ -657,6 +663,7 @@ async function tickConversation(
     });
     if (wake.kind === "defer") return emptyResult(conversationId, "commitment_deferred", dueTriggers, []);
     if (wake.kind === "missed") return emptyResult(conversationId, "commitment_missed", dueTriggers, []);
+    if (wake.kind === "expired") return emptyResult(conversationId, "commitment_expired", dueTriggers, []);
     if (wake.kind === "not_found") return emptyResult(conversationId, "commitment_not_found", dueTriggers, []);
     const claimed = claimCommitmentOpportunity(options.commitmentDb, {
       ownerId: options.commitmentOwnerId ?? options.occupantId ?? "owner",
@@ -755,6 +762,11 @@ async function tickConversation(
       commitmentId: commitment.commitmentId,
       realizationClause: commitment.realizationClause,
       evidenceCompleteness: "unknown" as const,
+      commitmentLatenessMs: commitment.latenessMs ?? 0,
+      commitmentLateBehavior: commitment.lateBehavior,
+      commitmentLatestUsefulAtMs: commitment.latestUsefulAtMs,
+      commitmentRequiredPrecisionMs: commitment.requiredPrecisionMs,
+      commitmentTimezoneId: commitment.timezoneId,
     } : {}),
     occupancy,
     observations,
@@ -778,6 +790,11 @@ async function executeAdmittedThought(
     commitmentId?: string;
     realizationClause?: string;
     evidenceCompleteness?: CommitmentEvidenceCompleteness;
+    commitmentLatenessMs?: number;
+    commitmentLateBehavior?: "deliver_late" | "reconsider" | "expire";
+    commitmentLatestUsefulAtMs?: number | null;
+    commitmentRequiredPrecisionMs?: number;
+    commitmentTimezoneId?: string;
     occupancy: MindOccupancy[];
     observations: Observation[];
     dueTriggers: FutureTrigger[];
@@ -796,6 +813,11 @@ async function executeAdmittedThought(
     commitmentId,
     realizationClause,
     evidenceCompleteness,
+    commitmentLatenessMs,
+    commitmentLateBehavior,
+    commitmentLatestUsefulAtMs,
+    commitmentRequiredPrecisionMs,
+    commitmentTimezoneId,
     occupancy,
     observations,
     dueTriggers,
@@ -815,6 +837,11 @@ async function executeAdmittedThought(
       ...(commitmentId ? { commitmentId } : {}),
       ...(realizationClause ? { realizationClause } : {}),
       ...(evidenceCompleteness ? { evidenceCompleteness } : {}),
+      ...(commitmentLatenessMs === undefined ? {} : { commitmentLatenessMs }),
+      ...(commitmentLateBehavior ? { commitmentLateBehavior } : {}),
+      ...(commitmentLatestUsefulAtMs === undefined ? {} : { commitmentLatestUsefulAtMs }),
+      ...(commitmentRequiredPrecisionMs === undefined ? {} : { commitmentRequiredPrecisionMs }),
+      ...(commitmentTimezoneId ? { commitmentTimezoneId } : {}),
       occupancy,
       observations,
       dueTriggers,

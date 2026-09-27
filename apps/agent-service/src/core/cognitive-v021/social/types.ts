@@ -84,6 +84,14 @@ export type CommitmentProposal = {
     | { kind: "exact"; atMs: number }
     | { kind: "bounded"; windowStartMs: number; windowEndMs: number }
     | { kind: "open" };
+  /** IANA timezone identifier used to interpret the human timing clause. */
+  timezoneId?: string;
+  /** Smallest timing precision the proposal promises. */
+  requiredPrecisionMs?: number;
+  /** Host behavior when the due time is reached late. */
+  lateBehavior?: "deliver_late" | "reconsider" | "expire";
+  /** Optional latest useful time for an expiring promise. */
+  latestUsefulAtMs?: number | null;
   /** Exact Thought-authored realization clause carried into Expression. */
   realizationClause: string;
   thoughtCycle: { cycleId: string; attemptId: string };

@@ -379,7 +379,7 @@ function validCommitmentTemporal(value: unknown): boolean {
 function validCommitmentProposal(value: unknown): boolean {
   const record = recordShape(value, [
     "ordinal", "action", "beneficiary", "destination", "temporal", "realizationClause", "thoughtCycle",
-  ]);
+  ], ["timezoneId", "requiredPrecisionMs", "lateBehavior", "latestUsefulAtMs"]);
   const thoughtCycle = record ? semanticRecord(record.thoughtCycle) : null;
   return !!record
     && integer(record.ordinal) && record.ordinal >= 0 && record.ordinal <= 7
@@ -391,7 +391,12 @@ function validCommitmentProposal(value: unknown): boolean {
     && !!thoughtCycle
     && Object.keys(thoughtCycle).length === 2
     && nonEmptyString(thoughtCycle.cycleId)
-    && nonEmptyString(thoughtCycle.attemptId);
+    && nonEmptyString(thoughtCycle.attemptId)
+    && (record.timezoneId === undefined || nonEmptyString(record.timezoneId))
+    && (record.requiredPrecisionMs === undefined || (integer(record.requiredPrecisionMs) && record.requiredPrecisionMs > 0))
+    && (record.lateBehavior === undefined || ["deliver_late", "reconsider", "expire"].includes(String(record.lateBehavior)))
+    && (record.latestUsefulAtMs === undefined || record.latestUsefulAtMs === null
+      || (integer(record.latestUsefulAtMs) && record.latestUsefulAtMs >= 0));
 }
 
 function validateCommitments(parent: SemanticRecord, allowlist: ReadonlySet<string>): ValidationResult {

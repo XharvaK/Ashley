@@ -586,6 +586,37 @@ export function createServer(
         }
         dueAtMs = body.dueAtMs;
       }
+      const hasWindowStartMs = Object.prototype.hasOwnProperty.call(body, "windowStartMs");
+      const hasWindowEndMs = Object.prototype.hasOwnProperty.call(body, "windowEndMs");
+      let windowStartMs: number | undefined;
+      let windowEndMs: number | undefined;
+      if (hasWindowStartMs || hasWindowEndMs) {
+        if (!hasWindowStartMs || !hasWindowEndMs
+          || typeof body.windowStartMs !== "number"
+          || typeof body.windowEndMs !== "number"
+          || !Number.isSafeInteger(body.windowStartMs)
+          || !Number.isSafeInteger(body.windowEndMs)
+          || body.windowStartMs < 0
+          || body.windowEndMs < body.windowStartMs) {
+          throw new AppError("message_required", "windowStartMs and windowEndMs must be ordered non-negative safe integers", 400);
+        }
+        windowStartMs = body.windowStartMs;
+        windowEndMs = body.windowEndMs;
+      }
+      const hasLateBehavior = Object.prototype.hasOwnProperty.call(body, "lateBehavior");
+      const lateBehavior = hasLateBehavior ? body.lateBehavior : undefined;
+      if (hasLateBehavior && !["deliver_late", "reconsider", "expire"].includes(String(lateBehavior))) {
+        throw new AppError("message_required", "lateBehavior is invalid", 400);
+      }
+      const hasLatestUsefulAtMs = Object.prototype.hasOwnProperty.call(body, "latestUsefulAtMs");
+      let latestUsefulAtMs: number | null | undefined;
+      if (hasLatestUsefulAtMs) {
+        if (body.latestUsefulAtMs !== null
+          && (typeof body.latestUsefulAtMs !== "number" || !Number.isSafeInteger(body.latestUsefulAtMs) || body.latestUsefulAtMs < 0)) {
+          throw new AppError("message_required", "latestUsefulAtMs must be null or a non-negative safe integer", 400);
+        }
+        latestUsefulAtMs = body.latestUsefulAtMs as number | null;
+      }
       const hasPurpose = Object.prototype.hasOwnProperty.call(body, "purpose") && body.purpose !== undefined;
       let purpose: string | null | undefined;
       if (hasPurpose) {
@@ -594,7 +625,11 @@ export function createServer(
         }
         purpose = body.purpose === null ? null : body.purpose.trim().slice(0, 1000);
       }
-      if (operation === "amend" && !hasDueAtMs && !hasPurpose) {
+      const hasCommitmentTiming = hasDueAtMs || hasWindowStartMs || hasWindowEndMs || hasLateBehavior || hasLatestUsefulAtMs;
+      if (operation === "amend" && kind === "commitment" && !hasCommitmentTiming) {
+        throw new AppError("message_required", "commitment amend requires timing fields", 400);
+      }
+      if (operation === "amend" && kind !== "commitment" && !hasDueAtMs && !hasPurpose) {
         throw new AppError("message_required", "amend requires dueAtMs or purpose", 400);
       }
       const limit = c1OptionalInteger(body, "limit");
@@ -608,6 +643,11 @@ export function createServer(
           id,
           limit,
           dueAtMs,
+          windowStartMs,
+          windowEndMs,
+          lateBehavior: lateBehavior as "deliver_late" | "reconsider" | "expire" | undefined,
+          latestUsefulAtMs,
+          hasLatestUsefulAtMs,
           purpose,
           hasDueAtMs,
           hasPurpose,

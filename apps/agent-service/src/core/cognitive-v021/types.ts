@@ -1600,6 +1600,11 @@ export type CommitmentDueProjection = Readonly<{
   commitmentId: string;
   realizationClause: string;
   evidenceCompleteness: CommitmentEvidenceCompleteness;
+  latenessMs: number;
+  lateBehavior: "deliver_late" | "reconsider" | "expire";
+  latestUsefulAtMs: number | null;
+  requiredPrecisionMs: number;
+  timezoneId: string;
 }>;
 
 /**

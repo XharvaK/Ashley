@@ -1126,6 +1126,10 @@ function materializeSemanticSettlement(
         beneficiary: proposal.beneficiary,
         destination: { ...proposal.destination },
         temporal: { ...proposal.temporal },
+        ...(proposal.timezoneId === undefined ? {} : { timezoneId: proposal.timezoneId }),
+        ...(proposal.requiredPrecisionMs === undefined ? {} : { requiredPrecisionMs: proposal.requiredPrecisionMs }),
+        ...(proposal.lateBehavior === undefined ? {} : { lateBehavior: proposal.lateBehavior }),
+        ...(proposal.latestUsefulAtMs === undefined ? {} : { latestUsefulAtMs: proposal.latestUsefulAtMs }),
         realizationClause: proposal.realizationClause,
         thoughtCycle: { ...proposal.thoughtCycle },
       })) } : {}),
@@ -2230,6 +2234,13 @@ function commitmentDueProjection(
     commitmentId: opportunity.commitmentId,
     realizationClause: opportunity.realizationClause,
     evidenceCompleteness,
+    latenessMs: typeof payload.latenessMs === "number" && Number.isFinite(payload.latenessMs)
+      ? Math.max(0, payload.latenessMs)
+      : opportunity.latenessMs ?? 0,
+    lateBehavior: opportunity.lateBehavior,
+    latestUsefulAtMs: opportunity.latestUsefulAtMs,
+    requiredPrecisionMs: opportunity.requiredPrecisionMs,
+    timezoneId: opportunity.timezoneId,
   };
 }
 
