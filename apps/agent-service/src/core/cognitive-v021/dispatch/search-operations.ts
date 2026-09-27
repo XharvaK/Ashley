@@ -20,6 +20,19 @@ const WEB_SEARCH_MAX_RESULT_SET_ID_CHARS = 256;
 const WEB_SEARCH_MAX_TITLE_CHARS = 1_024;
 const WEB_SEARCH_MAX_URL_CHARS = 2_048;
 const WEB_SEARCH_MAX_SNIPPET_CHARS = 8_192;
+const WEB_SEARCH_PROVIDER_REASON_CODES = new Set([
+  "web_search_quota_exhausted",
+  "web_search_provider_auth",
+  "web_search_provider_rate_limited",
+  "web_search_provider_unavailable",
+  "web_search_provider_error",
+  "web_search_provider_response_invalid",
+  "web_search_response_limit",
+  "web_search_network_error",
+  "web_search_timeout",
+  "web_search_cancelled",
+  "web_search_state_unavailable",
+]);
 
 type ValidatedWebSearchResultSet = Readonly<{
   query: string;
@@ -159,6 +172,9 @@ function mapWebSearchError(error: unknown): never {
   }
   if (code === "web_search_result_invalid") {
     throw new CapabilityUnavailableError("web_search_result_invalid");
+  }
+  if (WEB_SEARCH_PROVIDER_REASON_CODES.has(code)) {
+    throw new CapabilityUnavailableError(code);
   }
   throw new CapabilityUnavailableError("web_search_unavailable");
 }

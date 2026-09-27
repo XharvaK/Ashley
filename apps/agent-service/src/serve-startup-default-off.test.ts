@@ -36,26 +36,26 @@ function serveSourceCall(): string {
 }
 
 describe("R-4 shipping startup composition activates only existing perception seams", () => {
-  it("supplies the live operation executors with the existing page-fetch adapter", () => {
+  it("supplies the live operation executors with the existing page-fetch and Tavily adapters", () => {
     const call = serveSourceCall();
     expect(call).toContain("nuclear");
     expect(call).toContain("ownerId");
     expect(call).toContain("sidecar");
     expect(call).toContain("adapters");
     expect(call).toContain("webFetchProvider");
-    expect(call).not.toMatch(/webSearchProvider\s*:/);
+    expect(call).toContain("webSearchProvider");
   });
 
-  it("constructs only the existing direct page-fetch provider", () => {
+  it("constructs only the existing direct page-fetch and Tavily providers", () => {
     expect(SERVE_SOURCE).not.toMatch(/\bnew\s+UnavailableWeb(Search|Fetch)Provider\b/);
     expect(SERVE_SOURCE).toMatch(/\bnew\s+CuriosityWebFetchProvider\b/);
-    expect(SERVE_SOURCE).not.toMatch(/\bnew\s+\w*WebSearchProvider\b/);
+    expect(SERVE_SOURCE).toMatch(/\bnew\s+TavilyWebSearchProvider\b/);
   });
 
-  it("constructs the bounded Command Code vision transport without adding a search provider", () => {
+  it("constructs the bounded Command Code vision transport beside the existing Tavily search provider", () => {
     expect(SERVE_SOURCE).toContain("createCommandCodeVisionTransport");
     expect(SERVE_SOURCE).toContain("visionTransport");
-    expect(SERVE_SOURCE).not.toMatch(/webSearchProvider\s*:/);
+    expect(SERVE_SOURCE).toContain("TavilyWebSearchProvider");
   });
 
   it("keeps the legacy perception turn stubbed out of the shipping path", () => {
@@ -147,7 +147,7 @@ describe("R-4 shipping startup composition activates only existing perception se
           vision: "evidence_not_acquired",
           attachmentText: "evidence_not_acquired",
           conversationalRead: "evidence_not_acquired",
-          webSearch: "capability_not_in_live_set",
+          webSearch: "evidence_not_acquired",
         });
       }
     } finally {

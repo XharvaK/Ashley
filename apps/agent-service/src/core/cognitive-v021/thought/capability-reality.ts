@@ -40,11 +40,12 @@ const V021_LIVE_OPERATION_CAPABILITIES: ReadonlySet<CapabilityName> = new Set([
   "patch_export",
 ]);
 
-/** Production-capable attachment, mediated vision, and bounded page-fetch adapters. */
+/** Production-capable attachment, mediated vision, bounded search, and page-fetch adapters. */
 const V021_LIVE_PERCEPTION_CAPABILITIES: ReadonlySet<CapabilityName> = new Set([
   "vision",
   "attachment_text",
   "conversational_read",
+  "web_search",
 ]);
 
 export type CapabilityRealityOptions = {

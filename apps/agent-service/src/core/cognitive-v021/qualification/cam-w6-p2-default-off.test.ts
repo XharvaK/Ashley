@@ -45,7 +45,7 @@ function reality(overrides: CapabilityRealityOptions = {}) {
 let currentDb: DatabaseSync;
 
 describe("CAM-W6-P2 gate 1: activation uses existing faculty seams", () => {
-  it("keeps unsupported vision and web search dark while exposing existing attachment handling", () => {
+  it("keeps credential-gated vision and web search dark while exposing existing attachment handling", () => {
     currentDb = maximallyAuthorisedDb();
     try {
       const facts = reality();
@@ -59,7 +59,7 @@ describe("CAM-W6-P2 gate 1: activation uses existing faculty seams", () => {
         vision: "evidence_not_acquired",
         attachmentText: "capability_exists",
         conversationalRead: "evidence_not_acquired",
-        webSearch: "capability_not_in_live_set",
+        webSearch: "evidence_not_acquired",
       });
     } finally {
       currentDb.close();
@@ -113,7 +113,7 @@ describe("CAM-W6-P2 gate 1: activation uses existing faculty seams", () => {
         vision: "evidence_not_acquired",
         attachmentText: "needs_owner_approval",
         conversationalRead: "evidence_not_acquired",
-        webSearch: "capability_not_in_live_set",
+        webSearch: "evidence_not_acquired",
       });
     } finally {
       currentDb.close();

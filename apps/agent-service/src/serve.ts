@@ -10,6 +10,7 @@ import { runPerceptionBeforeThought } from "./core/cognitive-v021/perception/ada
 import { createCommandCodeVisionTransport } from "./core/cognitive-v021/perception/command-code-vision.js";
 import { sweepExpiredArtifacts } from "./core/perception/artifact-store.js";
 import { CuriosityWebFetchProvider } from "./core/perception/web-fetch-provider.js";
+import { TavilyWebSearchProvider } from "./core/perception/tavily-search-provider.js";
 import { createOutboxProjector, reconcileProjectedDeliverySweep } from "./core/cognitive-v021/delivery/outbox-projector.js";
 import { reconcileOrphanedSendingDeliveries, reconcileUnfulfilledFailedSpeechReservations } from "./core/cognitive-v021/delivery/pending.js";
 import { startInboxConsumer, type InboxConsumerHandle, type InboxConsumerHandler } from "./core/cognitive-v021/cycle/inbox-consumer.js";
@@ -184,15 +185,22 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
     const webFetchProvider = env.curiosityEnabled
       ? new CuriosityWebFetchProvider()
       : undefined;
+    const webSearchProvider = env.curiosityEnabled && env.curiosityLookupEnabled
+      ? new TavilyWebSearchProvider(nuclear)
+      : undefined;
     const visionTransport = env.commandCodeApiKey
       ? createCommandCodeVisionTransport()
       : undefined;
-    const capabilityReality = getCapabilityReality(nuclear, { webFetchProvider, visionTransport });
+    const capabilityReality = getCapabilityReality(nuclear, {
+      webFetchProvider,
+      webSearchProvider,
+      visionTransport,
+    });
     const liveOperationExecutors = createV021LiveOperationExecutors({
       nuclear,
       ownerId,
       sidecar,
-      adapters: { webFetchProvider },
+      adapters: { webFetchProvider, webSearchProvider },
     });
     const projector = createOutboxProjector(sidecar, nuclear, {
       gate: (deliveryIntent) => {
@@ -283,7 +291,11 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
         receiptDb: sidecar,
       }),
       loadAuthorityPacks: () => loadAuthorityPacks(sidecar, {
-        capability: getCapabilityReality(nuclear, { webFetchProvider, visionTransport }),
+        capability: getCapabilityReality(nuclear, {
+          webFetchProvider,
+          webSearchProvider,
+          visionTransport,
+        }),
         authorityDb: nuclear,
         receiptLimit: 256,
       }),
@@ -299,6 +311,7 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
         licenses,
         nowMs,
         webFetchProvider,
+        webSearchProvider,
         visionTransport,
       }),
       derivedStore,

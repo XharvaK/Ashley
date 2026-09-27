@@ -181,6 +181,9 @@ function createEnv() {
   cloudflareApiToken: process.env.CLOUDFLARE_API_TOKEN ?? "",
   cloudflareAccountId: process.env.CLOUDFLARE_ACCOUNT_ID ?? "",
   commandCodeApiKey: process.env.COMMAND_CODE_API_KEY ?? "",
+  // Tavily is a Host-only public search transport. The credential is never
+  // exposed to Thought or included in search evidence.
+  tavilyApiKey: process.env.TAVILY_API_KEY ?? "",
   // Stable Host-owned routing-locality identifier for the exact Cloudflare
   // DeepSeek Thought route. Non-secret, opaque, never model-visible, never
   // logged raw. Empty/unset means affinity is intentionally disabled.
@@ -235,6 +238,21 @@ function createEnv() {
     1440,
   ),
   curiosityEnabled: process.env.CURIOSITY_ENABLED !== "false",
+  curiosityLookupEnabled: process.env.CURIOSITY_LOOKUP_ENABLED !== "false",
+  curiosityTavilyMonthlyCredits: numericEnv(
+    "CURIOSITY_TAVILY_MONTHLY_CREDITS",
+    1000,
+    0,
+    1_000_000,
+    true,
+  ),
+  curiosityLookupPerDay: numericEnv(
+    "CURIOSITY_LOOKUP_PER_DAY",
+    40,
+    0,
+    100_000,
+    true,
+  ),
   // Sandbox V2 direct execution lifecycle master switch. It is fail-closed by
   // default and gates only the current V2 execution path.
   sandboxEngineeringLifecycleEnabled: strictBoolean(
