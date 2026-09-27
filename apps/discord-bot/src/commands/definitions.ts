@@ -79,9 +79,42 @@ export function buildCommandDefinitions(): RESTPostAPIChatInputApplicationComman
       .toJSON(),
     new SlashCommandBuilder()
       .setName(commandSurface.commitments)
-      .setDescription("Show active reminders and commitments")
+      .setDescription("Show or control owner temporal work")
       .addIntegerOption((o) =>
         o.setName("offset").setDescription("Pagination offset").setMinValue(0),
+      )
+      .addStringOption((o) =>
+        o
+          .setName("action")
+          .setDescription("Optional exact control action")
+          .addChoices(
+            { name: "summary", value: "summary" },
+            { name: "list", value: "list" },
+            { name: "inspect", value: "inspect" },
+            { name: "cancel", value: "cancel" },
+            { name: "amend", value: "amend" },
+            { name: "withdraw", value: "withdraw" },
+          ),
+      )
+      .addStringOption((o) =>
+        o
+          .setName("kind")
+          .setDescription("Exact stored work kind")
+          .addChoices(
+            { name: "future trigger", value: "future_trigger" },
+            { name: "subscription", value: "subscription" },
+            { name: "commitment", value: "commitment" },
+            { name: "directive", value: "directive" },
+          ),
+      )
+      .addStringOption((o) =>
+        o.setName("id").setDescription("Exact stored id"),
+      )
+      .addStringOption((o) =>
+        o.setName("due-at-ms").setDescription("New due/expiry Unix time in ms"),
+      )
+      .addStringOption((o) =>
+        o.setName("purpose").setDescription("New stored purpose"),
       )
       .toJSON(),
     new SlashCommandBuilder()

@@ -718,6 +718,68 @@ export async function getRelationshipSummary(offset = 0) {
   );
 }
 
+export type TemporalControlKind =
+  | "future_trigger"
+  | "subscription"
+  | "commitment"
+  | "directive";
+
+export type TemporalControlOperation =
+  | "list"
+  | "inspect"
+  | "cancel"
+  | "amend"
+  | "withdraw";
+
+export type TemporalControlRecord = {
+  kind: TemporalControlKind;
+  id: string;
+  conversationId: string | null;
+  purpose: string | null;
+  dueAtMs: number | null;
+  concernId: string | null;
+  status: string;
+  cancellationState: string;
+  [key: string]: unknown;
+};
+
+export type TemporalControlResponse = {
+  operation: TemporalControlOperation;
+  kind?: TemporalControlKind;
+  id?: string;
+  records?: {
+    futureTriggers: TemporalControlRecord[];
+    subscriptions: TemporalControlRecord[];
+    commitments: TemporalControlRecord[];
+    directives: TemporalControlRecord[];
+  };
+  record?: TemporalControlRecord;
+  acknowledgement?: string;
+  status?: string;
+  cancellationState?: string;
+  wakeState?: string | null;
+  activeWorkAborted?: boolean;
+  sourceReadable?: boolean;
+  changed?: boolean;
+};
+
+export async function ownerTemporalControl(input: {
+  operation: TemporalControlOperation;
+  kind?: TemporalControlKind;
+  id?: string;
+  dueAtMs?: number;
+  purpose?: string | null;
+  limit?: number;
+}): Promise<TemporalControlResponse> {
+  return agentFetch<TemporalControlResponse>("/nuclear/temporal", {
+    method: "POST",
+    body: JSON.stringify({
+      userId: config.ownerId,
+      ...input,
+    }),
+  });
+}
+
 export async function getContinuitySnapshot() {
   return agentFetch<{
     available: boolean;

@@ -4,7 +4,9 @@ import { listOccupancy } from "../concerns/occupancy.js";
 import type { DatabaseSync } from "node:sqlite";
 import type { FutureTrigger, InboxEvent, ThoughtWakeCause, WakeRecord } from "../types.js";
 import { occurrenceIdFor } from "../wake/identity.js";
-import { admitWakeInTransaction, finishWakeInTransaction, getWake, recordWakeCancellationInTransaction } from "../wake/ledger.js";
+import { cancelActiveThought } from "../cycle/active.js";
+import { getUnresolvedInFlightForWake } from "../effect/in-flight.js";
+import { admitWakeInTransaction, finishWakeInTransaction, getWake, reconcileWakeInTransaction, recordWakeCancellationInTransaction } from "../wake/ledger.js";
 import { getActiveDeferredFrontier } from "../frontier/ledger.js";
 
 type Row = Record<string, unknown>;
@@ -29,6 +31,24 @@ export type FutureTriggerFireResult = {
   events: InboxEvent[];
   thoughtModelAttempts: number;
 };
+
+export type FutureTriggerCancellationAcknowledgement =
+  | "queued_cancelled"
+  | "effect_fenced"
+  | "already_cancelled"
+  | "effect_already_completed"
+  | "effect_unknown"
+  | "not_cancellable"
+  | "not_found";
+
+export type FutureTriggerCancellationResult = {
+  acknowledgement: FutureTriggerCancellationAcknowledgement;
+  trigger: FutureTrigger | null;
+  wake: WakeRecord | null;
+  activeWorkAborted: boolean;
+};
+
+type FutureTriggerCancellationInternalAcknowledgement = FutureTriggerCancellationAcknowledgement | "cancelled";
 
 function isRow(value: unknown): value is Row {
   return typeof value === "object" && value !== null;
@@ -178,24 +198,94 @@ export function listFutureTriggers(db: DatabaseSync, conversationId?: string, op
     .filter((trigger): trigger is FutureTrigger => trigger !== null);
 }
 
-export function cancelFutureTriggerInTransaction(db: DatabaseSync, triggerId: string, nowMs: number): boolean {
+type FutureTriggerCancellationInTransaction = {
+  acknowledgement: FutureTriggerCancellationInternalAcknowledgement;
+  changed: boolean;
+  trigger: FutureTrigger | null;
+  wakeBefore: WakeRecord | null;
+  wakeAfter: WakeRecord | null;
+  activeWork?: { conversationId: string; cycleId: string; generation: number };
+};
+
+function cancelFutureTriggerInTransactionDetailed(
+  db: DatabaseSync,
+  triggerId: string,
+  nowMs: number,
+): FutureTriggerCancellationInTransaction {
   const trigger = getFutureTrigger(db, triggerId);
-  if (!trigger || trigger.status === "cancelled" || trigger.status === "suppressed_stale") return false;
-  if (trigger.status === "fired" && !trigger.wakeId) return false;
+  if (!trigger) return { acknowledgement: "not_found", changed: false, trigger: null, wakeBefore: null, wakeAfter: null };
+  if (trigger.status === "cancelled") {
+    return {
+      acknowledgement: "already_cancelled",
+      changed: false,
+      trigger,
+      wakeBefore: trigger.wakeId ? getWake(db, trigger.wakeId) : null,
+      wakeAfter: trigger.wakeId ? getWake(db, trigger.wakeId) : null,
+    };
+  }
+  if (trigger.status === "suppressed_stale") {
+    return {
+      acknowledgement: "not_cancellable",
+      changed: false,
+      trigger,
+      wakeBefore: trigger.wakeId ? getWake(db, trigger.wakeId) : null,
+      wakeAfter: trigger.wakeId ? getWake(db, trigger.wakeId) : null,
+    };
+  }
+  if (trigger.status === "fired" && !trigger.wakeId) {
+    return { acknowledgement: "not_cancellable", changed: false, trigger, wakeBefore: null, wakeAfter: null };
+  }
+  const wakeBefore = trigger.wakeId ? getWake(db, trigger.wakeId) : null;
+  if (wakeBefore?.state === "terminal" && wakeBefore.terminalReason === "completed") {
+    return { acknowledgement: "effect_already_completed", changed: false, trigger, wakeBefore, wakeAfter: wakeBefore };
+  }
+  const activeWork = wakeBefore
+    ? (() => {
+      const row = db.prepare("SELECT conversation_id, cycle_id, generation FROM cycle_records WHERE cycle_id = ? LIMIT 1")
+        .get(wakeBefore.cycleId) as Row | undefined;
+      return row && typeof row.conversation_id === "string" && typeof row.cycle_id === "string"
+        ? { conversationId: row.conversation_id, cycleId: row.cycle_id, generation: number(row.generation) }
+        : undefined;
+    })()
+    : undefined;
+  const unresolved = wakeBefore ? getUnresolvedInFlightForWake(db, wakeBefore.wakeId) : null;
   const result = db.prepare(
     "UPDATE future_triggers SET status = 'cancelled' WHERE trigger_id = ? AND status IN ('scheduled', 'needs_review', 'fired')",
   ).run(triggerId);
-  if (number(result.changes) !== 1) return false;
+  if (number(result.changes) !== 1) {
+    const current = getFutureTrigger(db, triggerId);
+    return { acknowledgement: "not_cancellable", changed: false, trigger: current, wakeBefore, wakeAfter: wakeBefore, activeWork };
+  }
   if (trigger.wakeId) {
     const wake = getWake(db, trigger.wakeId);
     if (wake && wake.state !== "terminal") {
       recordWakeCancellationInTransaction(db, { wakeId: trigger.wakeId, nowMs });
-      if (wake.state !== "consequence_pending" && wake.state !== "reconciling") {
-        try { finishWakeInTransaction(db, trigger.wakeId, wake.leaseToken, "cancelled", nowMs); } catch { /* preserve reconciliation for an owned lease */ }
+      if (unresolved || wake.state === "consequence_pending" || wake.state === "reconciling") {
+        if (wake.state !== "reconciling") reconcileWakeInTransaction(db, trigger.wakeId, nowMs);
+      } else {
+        try {
+          finishWakeInTransaction(db, trigger.wakeId, wake.leaseToken, "cancelled", nowMs);
+        } catch {
+          // Preserve the durable cancellation fence when an owned lease moved concurrently.
+        }
       }
     }
   }
-  return true;
+  const wakeAfter = trigger.wakeId ? getWake(db, trigger.wakeId) : null;
+  return {
+    acknowledgement: unresolved || wakeBefore?.state === "consequence_pending" || wakeBefore?.state === "reconciling"
+      ? "effect_unknown"
+      : "cancelled",
+    changed: true,
+    trigger: getFutureTrigger(db, triggerId),
+    wakeBefore,
+    wakeAfter,
+    activeWork,
+  };
+}
+
+export function cancelFutureTriggerInTransaction(db: DatabaseSync, triggerId: string, nowMs: number): boolean {
+  return cancelFutureTriggerInTransactionDetailed(db, triggerId, nowMs).changed;
 }
 
 export function cancelFutureTrigger(db: DatabaseSync, triggerId: string, nowMs = Date.now()): boolean {
@@ -208,6 +298,33 @@ export function cancelFutureTrigger(db: DatabaseSync, triggerId: string, nowMs =
     try { db.exec("ROLLBACK"); } catch { /* preserve the original error */ }
     throw error;
   }
+}
+
+/** Owner control uses this form so an external effect is never reported as undone. */
+export function cancelFutureTriggerWithOutcome(
+  db: DatabaseSync,
+  triggerId: string,
+  nowMs = Date.now(),
+): FutureTriggerCancellationResult {
+  db.exec("BEGIN IMMEDIATE");
+  let result: FutureTriggerCancellationInTransaction;
+  try {
+    result = cancelFutureTriggerInTransactionDetailed(db, triggerId, nowMs);
+    db.exec("COMMIT");
+  } catch (error) {
+    try { db.exec("ROLLBACK"); } catch { /* preserve the original error */ }
+    throw error;
+  }
+  const activeWorkAborted = result.activeWork ? cancelActiveThought({ ...result.activeWork, action: "preempt" }) : false;
+  const acknowledgement = result.acknowledgement === "cancelled"
+    ? activeWorkAborted ? "effect_fenced" : "queued_cancelled"
+    : result.acknowledgement;
+  return {
+    acknowledgement,
+    trigger: result.trigger,
+    wake: result.wakeAfter,
+    activeWorkAborted,
+  };
 }
 
 export function futureTriggerWakeContext(db: DatabaseSync, triggerId: string): ThoughtWakeCause | null {

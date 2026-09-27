@@ -100,6 +100,11 @@ import {
 } from "./core/relationship/social-authority.js";
 import { isRoomSeedActive } from "./core/relationship/room-seeding.js";
 import { getRaEffectiveConfig } from "./core/relationship/ra-effective-config.js";
+import {
+  executeTemporalControl,
+  type TemporalKind,
+  type TemporalOperation,
+} from "./core/cognitive-v021/initiative/temporal-control.js";
 
 const C5_CLASSIFICATIONS = ["ordinary", "sensitive", "never_public", "secret"] as const;
 const C5_OPERATIONS = [
@@ -117,6 +122,8 @@ const C5_OPERATIONS = [
   "mutual_activate",
   "mutual_withdraw",
 ] as const;
+const TEMPORAL_OPERATIONS = ["list", "inspect", "cancel", "amend", "withdraw"] as const;
+const TEMPORAL_KINDS = ["future_trigger", "subscription", "commitment", "directive"] as const;
 
 function c5RequiredString(body: Record<string, unknown>, key: string, max = 2000): string {
   const value = body[key];
@@ -546,6 +553,68 @@ export function createServer(
       const limit = Math.min(25, Number(req.query.limit ?? 25) || 25);
       const offset = Math.max(0, Number(req.query.offset ?? 0) || 0);
       res.json(manager.core.relationshipSummary(ownerId, limit, offset));
+    } catch (err) {
+      const { status, body } = toErrorResponse(err);
+      res.status(status).json(body);
+    }
+  });
+
+  /** Owner-only mechanical control of stored temporal work and directives. */
+  app.post("/nuclear/temporal", (req, res) => {
+    try {
+      const body = c1Body(req);
+      const ownerId = requireOwner(typeof body.userId === "string" ? body.userId : undefined);
+      const operation = c5Enum<TemporalOperation>(body, "operation", TEMPORAL_OPERATIONS);
+      const kind = body.kind === undefined || body.kind === null
+        ? undefined
+        : c5Enum<TemporalKind>(body, "kind", TEMPORAL_KINDS);
+      const id = operation === "list" ? undefined : c1RequiredString(body, "id", 300);
+      if (operation !== "list" && !kind) {
+        throw new AppError("message_required", "kind is required", 400);
+      }
+      if (operation === "cancel" && kind === "directive") {
+        throw new AppError("bad_request", "directive cancellation uses withdraw", 400);
+      }
+      if (operation === "withdraw" && kind !== "directive") {
+        throw new AppError("bad_request", "withdraw requires kind=directive", 400);
+      }
+      const hasDueAtMs = Object.prototype.hasOwnProperty.call(body, "dueAtMs");
+      let dueAtMs: number | undefined;
+      if (hasDueAtMs) {
+        if (typeof body.dueAtMs !== "number" || !Number.isSafeInteger(body.dueAtMs) || body.dueAtMs < 0) {
+          throw new AppError("message_required", "dueAtMs must be a non-negative safe integer", 400);
+        }
+        dueAtMs = body.dueAtMs;
+      }
+      const hasPurpose = Object.prototype.hasOwnProperty.call(body, "purpose") && body.purpose !== undefined;
+      let purpose: string | null | undefined;
+      if (hasPurpose) {
+        if (body.purpose !== null && typeof body.purpose !== "string") {
+          throw new AppError("message_required", "purpose must be a string or null", 400);
+        }
+        purpose = body.purpose === null ? null : body.purpose.trim().slice(0, 1000);
+      }
+      if (operation === "amend" && !hasDueAtMs && !hasPurpose) {
+        throw new AppError("message_required", "amend requires dueAtMs or purpose", 400);
+      }
+      const limit = c1OptionalInteger(body, "limit");
+      const result = executeTemporalControl(
+        getCognitiveSidecar(),
+        manager.core.getDatabase(),
+        ownerId,
+        {
+          operation,
+          kind,
+          id,
+          limit,
+          dueAtMs,
+          purpose,
+          hasDueAtMs,
+          hasPurpose,
+        },
+      );
+      if (!result) throw new AppError("not_found", "Temporal record not found", 404);
+      res.json(result);
     } catch (err) {
       const { status, body } = toErrorResponse(err);
       res.status(status).json(body);

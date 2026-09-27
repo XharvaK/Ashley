@@ -252,6 +252,30 @@ describe("route surface registry", () => {
     }
   });
 
+  it("rejects non-owner temporal control before opening either data plane", async () => {
+    const previousOwnerId = env.discordOwnerId;
+    const sidecar = openTestSidecar();
+    const nuclear = openNuclearDb(new DatabaseSync(":memory:"));
+    env.discordOwnerId = "temporal-route-owner";
+    const manager = {
+      core: { getDatabase: () => nuclear },
+    } as unknown as AgentManager;
+    const { server, url } = await startTestServer(createServer(manager, { cognitiveSidecar: sidecar }));
+    try {
+      const denied = await fetch(`${url}/nuclear/temporal`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ userId: "not-the-owner", operation: "list" }),
+      });
+      expect(denied.status).toBe(403);
+    } finally {
+      await stopTestServer(server);
+      env.discordOwnerId = previousOwnerId;
+      sidecar.close();
+      nuclear.close();
+    }
+  });
+
   it("keeps retired legacy chat, curiosity, and proactive entry points inert", async () => {
     const originalDiscordOwnerId = env.discordOwnerId;
     const originalMemoryOwnerId = env.memoryOwnerId;

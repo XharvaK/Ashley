@@ -167,7 +167,10 @@ export function listRelationshipSummary(
           .get(ownerId) as { c?: number }
       ).c ?? 0,
     );
-  const selfCommitmentCount = count("ashley_self_commitments", "AND status = 'active'");
+  const selfCommitmentCount = count(
+    "ashley_self_commitments",
+    "AND (status IN ('active', 'motivated') OR commitment_state IN ('admitted', 'communicated', 'attempted', 'deferred_blocked'))",
+  );
   const tensionCount = count("relational_tensions", "AND status = 'open'");
   const c5Diagnostics = relationshipProjectionDiagnostics(db, ownerId);
   const warnings: string[] = [];
