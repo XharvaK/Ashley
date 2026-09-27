@@ -61,11 +61,11 @@ describe("Nuclear schema v49 verification failure", () => {
   it("supports v49 and its verification_failed checks", () => {
     const db = openNuclearDb(new DatabaseSync(":memory:"));
     try {
-      expect(NUCLEAR_SUPPORTED_VERSION).toBe(52);
-      expect(schemaVersion(db)).toBe(52);
+      expect(NUCLEAR_SUPPORTED_VERSION).toBe(53);
+      expect(schemaVersion(db)).toBe(53);
       validateNuclearV49Schema(db);
       ensureNuclearV49Schema(db);
-      expect(schemaVersion(db)).toBe(52);
+      expect(schemaVersion(db)).toBe(53);
 
       db.prepare(
         `INSERT INTO candidate_changesets (
@@ -108,17 +108,17 @@ describe("Nuclear schema v49 verification failure", () => {
       seedHistoricalAbandonedRow(db);
 
       openNuclearDb(db, { continuity, migrate: true });
-      expect(schemaVersion(db)).toBe(52);
+      expect(schemaVersion(db)).toBe(53);
       expect(db.prepare("SELECT status FROM candidate_changesets WHERE changeset_id = 'cs-historical'").get())
         .toEqual({ status: "abandoned" });
 
       openNuclearDb(db, { continuity, migrate: true });
-      expect(schemaVersion(db)).toBe(52);
-
-      db.exec("PRAGMA user_version = 53");
-      expect(() => openNuclearDb(db, { continuity, migrate: true }))
-        .toThrow("unsupported_nuclear_schema:53>52");
       expect(schemaVersion(db)).toBe(53);
+
+      db.exec("PRAGMA user_version = 54");
+      expect(() => openNuclearDb(db, { continuity, migrate: true }))
+        .toThrow("unsupported_nuclear_schema:54>53");
+      expect(schemaVersion(db)).toBe(54);
     } finally {
       db.close();
       continuity.close();

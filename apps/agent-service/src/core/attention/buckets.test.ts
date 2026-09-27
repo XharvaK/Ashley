@@ -29,7 +29,7 @@ describe("quota bucket isolation", () => {
 
   it("independent buckets do not share TPM windows", () => {
     const db = openDb();
-    expect(NUCLEAR_SUPPORTED_VERSION).toBe(52);
+    expect(NUCLEAR_SUPPORTED_VERSION).toBe(53);
     env.mistralRequestsPerSecond = 1_000;
     env.mistralTokensPerMinute = 100;
     const clock = createFakeClock(1_000_000);
