@@ -14,10 +14,12 @@ import {
 } from "../../command-code/evidence.js";
 import type {
   ChatMessage,
+  CompletionOptions,
   ModelProviderAdapter,
   ProviderCompletion,
   ProviderDispatchArgs,
   TokenUsage,
+  TrustedReasoningControl,
 } from "../types.js";
 import { attachProviderHttpStatusBoundary } from "../types.js";
 
@@ -93,11 +95,28 @@ function mapMessages(messages: ChatMessage[]): Array<Record<string, unknown>> {
   ];
 }
 
+function reasoningEffortFor(
+  options: CompletionOptions,
+  fabricReasoning?: TrustedReasoningControl,
+): typeof COMMAND_CODE_POLICY.effort | undefined {
+  if (fabricReasoning) {
+    if (fabricReasoning.kind !== "command_code_reasoning_effort") {
+      throw new AppError(
+        "capability_mismatch",
+        "command_code_reasoning_control_mismatch",
+        400,
+      );
+    }
+    return fabricReasoning.value;
+  }
+  return options.reasoningEffort as typeof COMMAND_CODE_POLICY.effort | undefined;
+}
+
 function buildRequestBody(args: ProviderDispatchArgs): Record<string, unknown> {
   if (args.modelId !== COMMAND_CODE_POLICY.modelId) {
     throw new AppError("capability_mismatch", "command_code_model_not_qualified", 400);
   }
-  if (args.options.reasoningEffort !== COMMAND_CODE_POLICY.effort) {
+  if (reasoningEffortFor(args.options, args.fabricReasoning) !== COMMAND_CODE_POLICY.effort) {
     throw new AppError("capability_mismatch", "command_code_policy_effort_required", 400);
   }
   const structured = args.options.structuredOutput;

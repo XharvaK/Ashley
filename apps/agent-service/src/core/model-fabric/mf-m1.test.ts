@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DatabaseSync } from "node:sqlite";
+import { createHash } from "node:crypto";
 import { env } from "../../env.js";
 import { AppError } from "../../errors.js";
 import { openNuclearDb } from "../db.js";
@@ -12,6 +13,9 @@ import * as mistralAdapterModule from "../model-routing/adapters/mistral-adapter
 import * as groqAdapterModule from "../model-routing/adapters/groq-adapter.js";
 import * as nimAdapterModule from "../model-routing/adapters/nim-adapter.js";
 import * as cloudflareAdapterModule from "../model-routing/adapters/cloudflare-adapter.js";
+import * as commandCodeAdapterModule from "../model-routing/adapters/command-code-adapter.js";
+import { COMMAND_CODE_POLICY } from "../command-code/policy.js";
+import { resolveCurrentPolicy } from "./portfolio.js";
 import { attachProviderHttpStatusBoundary } from "../model-routing/types.js";
 import {
   capabilityProfileFor,
@@ -30,6 +34,7 @@ const savedKeys = {
   nim: env.nimApiKey,
   cloudflareToken: env.cloudflareApiToken,
   cloudflareAccount: env.cloudflareAccountId,
+  commandCode: env.commandCodeApiKey,
 };
 
 afterEach(() => {
@@ -41,6 +46,23 @@ afterEach(() => {
   resetAdapterCache();
   vi.restoreAllMocks();
 });
+
+function thoughtContext(invocationId: string) {
+  return {
+    invocationId,
+    cycleId: `cycle:${invocationId}`,
+    generation: 1,
+    semanticPass: 1,
+    structuralAttemptOrdinal: 0,
+    authorityEpoch: 1,
+    authorityVersionVector: { nuclear: 1 },
+    triggerRef: `trigger:${invocationId}`,
+    semanticProjectionHash: "sha256:semantic",
+    dispatchMessagesHash: "sha256:messages",
+    allowlistFingerprint: "sha256:allowlist",
+    absoluteDeadlineAtMs: Date.now() + 60_000,
+  };
+}
 
 function db(): DatabaseSync {
   return openNuclearDb(new DatabaseSync(":memory:"));
@@ -231,19 +253,23 @@ describe("MF-M1 completeChat receipts", () => {
     database.close();
   });
 
-  it("records the current Thought route as a single Cloudflare attempt", async () => {
-    env.cloudflareApiToken = "test-cloudflare-token";
-    env.cloudflareAccountId = "test-account";
-    const dispatch = vi.fn().mockResolvedValue({
-      text: "thought",
-      providerModel: "@cf/zai-org/glm-5.3-flash",
+  it("records the current Thought route as a single Command Code attempt", async () => {
+    env.commandCodeApiKey = "test-command-code-key";
+    const dispatchText = "thought";
+    const dispatch = vi.fn(async (args: { modelId: string }) => ({
+      text: dispatchText,
+      providerModel: args.modelId,
+      providerRequestId: "mf-m1-thought-1",
+      providerHttpStatus: 200,
+      providerRequestHash: "sha256:request",
+      providerResponseHash: `sha256:${createHash("sha256").update(dispatchText, "utf8").digest("hex")}`,
       usage: { promptTokens: 4, completionTokens: 5 },
       finishReason: "stop",
-    });
-    vi.spyOn(cloudflareAdapterModule, "createCloudflareAdapter").mockReturnValue({
-      provider: "cloudflare",
+    }));
+    vi.spyOn(commandCodeAdapterModule, "createCommandCodeAdapter").mockReturnValue({
+      provider: "command_code",
       dispatch,
-    });
+    } as never);
     const database = db();
 
     const result = await withOfflineAppGateDisabled(() => completeChat(
@@ -252,28 +278,30 @@ describe("MF-M1 completeChat receipts", () => {
         attentionDb: database,
         purpose: "thought",
         route: "thought",
+        directCommandCodeThought: true,
         logicalRole: "thought",
-        reasoningEffort: "high",
+        structuredOutput: thoughtOutputStructuredRequest(),
         deadlineAtMs: Date.now() + 60_000,
-      },
+        thoughtInvocationContext: thoughtContext("mf-m1-thought"),
+      } as never,
     ));
-    const metadata = fabricMetadata(result);
-    const receipt = metadata.receipt;
 
-    expect(receipt.attempts).toHaveLength(1);
-    expect(receipt.finalDispatchedRouteId).toBe("thought");
-    expect(receipt.fallbackClass).toBe("none");
-    expect(receipt.attempts[0]).toMatchObject({
-      provider: "cloudflare",
-      backend: "cloudflare",
-      configuredModelId: "@cf/zai-org/glm-5.3-flash",
-      fallbackClass: "none",
-      providerRequestCount: 1,
+    // CURRENT release truth: production Thought no longer routes through the
+    // Model Fabric dispatch path, so no fabric receipt is emitted. The
+    // single-attempt and no-fallback invariants are carried by the direct
+    // Command Code boundary evidence instead.
+    expect(result.modelFabric).toBeUndefined();
+    expect(result.commandCodeEvidence).toMatchObject({
+      backend: "command_code_api",
+      providerModel: COMMAND_CODE_POLICY.modelId,
+      requestedModelId: COMMAND_CODE_POLICY.modelId,
+      reasoningEffort: COMMAND_CODE_POLICY.effort,
+      providerAttempts: 1,
+      alternateProviderAttempts: 0,
     });
-    expect(receipt.attempts[0]?.dispatchTruth).toBe("response_received");
     expect(result.providerBoundaryControls).toMatchObject({
       maxTokens: expect.any(Number),
-      reasoningConfiguration: expect.any(String),
+      reasoningConfiguration: COMMAND_CODE_POLICY.effort,
       deadlineAtMs: expect.any(Number),
     });
     expect(result.providerBoundaryTiming).toMatchObject({
@@ -282,48 +310,52 @@ describe("MF-M1 completeChat receipts", () => {
       elapsedMs: expect.any(Number),
       outcome: "response_received",
     });
-    expect(metadata.providerBoundaryControls).toEqual(result.providerBoundaryControls);
-    expect(metadata.providerBoundaryTiming).toEqual(result.providerBoundaryTiming);
     expect(dispatch).toHaveBeenCalledTimes(1);
     database.close();
   });
 
-  it("records configured utility route versus forced Cloudflare Thought dispatch for observation", async () => {
-    env.cloudflareApiToken = "test-cloudflare-token";
-    env.cloudflareAccountId = "test-account";
-    const cloudflareDispatch = vi.fn().mockResolvedValue({
-      text: "observation",
-      providerModel: "@cf/zai-org/glm-5.3-flash",
-      usage: { promptTokens: 1, completionTokens: 1 },
-      finishReason: "stop",
-    });
-    vi.spyOn(cloudflareAdapterModule, "createCloudflareAdapter").mockReturnValue({
-      provider: "cloudflare",
-      dispatch: cloudflareDispatch,
-    });
+  it("keeps the configured utility scar on observation and fails Thought-owned non-Thought dispatch closed", async () => {
+    env.commandCodeApiKey = "test-command-code-key";
+    const commandCodeDispatch = vi.fn();
+    vi.spyOn(commandCodeAdapterModule, "createCommandCodeAdapter").mockReturnValue({
+      provider: "command_code",
+      dispatch: commandCodeDispatch,
+    } as never);
     const database = db();
 
-    const result = await withOfflineAppGateDisabled(() => completeChat(
+    // The configured scar is still declared utility_bulk in CURRENT while the
+    // dispatched Thought owner is Command Code. That distinction is a live
+    // resolution fact and stays asserted.
+    const configured = resolveCurrentPolicy({
+      logicalRole: "thought_observation",
+      purpose: "thought_observation",
+      lane: "exchange_cognition",
+    });
+    expect(configured.configuredRouteId).toBe("utility_bulk");
+    expect(configured.dispatchedRouteId).toBe("thought");
+    expect(configured.occupant).toMatchObject({
+      provider: "command_code",
+      configuredModelId: COMMAND_CODE_POLICY.modelId,
+      effectiveReasoning: COMMAND_CODE_POLICY.effort,
+    });
+
+    // CURRENT release truth: the Command Code adapter serves the Thought output
+    // contract only. A Thought-owned purpose that is not a Thought turn cannot
+    // reach the provider, and the refusal happens before transport.
+    await expect(withOfflineAppGateDisabled(() => completeChat(
       [{ role: "user", content: "observe" }],
       {
         attentionDb: database,
         purpose: "thought_observation",
         route: "thought",
         logicalRole: "thought_observation",
-        reasoningEffort: "high",
+        maxTokens: 450,
       },
-    ));
-    const receipt = fabricMetadata(result).receipt;
-
-    expect(receipt.logicalRole).toBe("thought_observation");
-    expect(receipt.requestedPurpose).toBe("thought_observation");
-    expect(receipt.configuredRouteId).toBe("utility_bulk");
-    expect(receipt.finalDispatchedRouteId).toBe("thought");
-    expect(receipt.attempts[0]).toMatchObject({
-      dispatchedRouteId: "thought",
-      provider: "cloudflare",
-      configuredModelId: "@cf/zai-org/glm-5.3-flash",
+    ))).rejects.toMatchObject({
+      code: "capability_mismatch",
+      message: "command_code_thought_contract_required",
     });
+    expect(commandCodeDispatch).not.toHaveBeenCalled();
     database.close();
   });
 

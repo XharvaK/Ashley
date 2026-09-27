@@ -182,7 +182,7 @@ describe("provider-aware missing key gating", () => {
     db.close();
   });
 
-  it("Thought route fails closed before reservation when the Command Code effort contract is unmet", async () => {
+  it("Thought route fails closed before reservation when the Command Code Thought contract is unmet", async () => {
     env.mistralApiKey = "";
     env.groqApiKey = "";
     env.nimApiKey = "";
@@ -203,7 +203,7 @@ describe("provider-aware missing key gating", () => {
       )),
     ).rejects.toMatchObject({
       code: "capability_mismatch",
-      message: "command_code_policy_effort_required",
+      message: "command_code_thought_contract_required",
     });
     expect(rowCount(db, "attention_requests")).toBe(0);
     db.close();
@@ -282,7 +282,7 @@ describe("shared NIM Lightning quota bucket at the dispatch layer", () => {
         )),
       ).rejects.toMatchObject({
         code: "capability_mismatch",
-        message: "command_code_policy_effort_required",
+        message: "command_code_thought_contract_required",
       });
       fetchSpy.mockRestore();
       const thoughtCompletedRows = Number(
