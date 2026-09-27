@@ -43,6 +43,7 @@ function deps(overrides: Partial<KernelDeps> = {}): KernelDeps {
 }
 
 async function thoughtAWithCompletion(threadId: string) {
+  const baseNowMs = Date.now();
   const sidecar = openTestSidecar();
   const attentionDb = openTestSidecar();
   const nuclear = openNuclearDb(new DatabaseSync(":memory:"));
@@ -53,10 +54,10 @@ async function thoughtAWithCompletion(threadId: string) {
     triggerRef: "owner-1",
     occupantId: "doc",
     authorityEpoch: 1,
-    nowMs: 1,
+    nowMs: baseNowMs,
   });
   appendOwnerUtterance(sidecar, {
-    conversationId: threadId, text: "investigate the service", discordMessageIds: ["d1"], nowMs: 2,
+    conversationId: threadId, text: "investigate the service", discordMessageIds: ["d1"], nowMs: baseNowMs + 1,
   });
   const admitted = admitDetachedOperation(sidecar, {
     idempotencyKey: `detached:${threadId}:${cycle.cycleId}:project.investigate`,
@@ -70,8 +71,8 @@ async function thoughtAWithCompletion(threadId: string) {
     request: { projectId: "project-ashley", focus: "apps/agent-service" },
     purpose: "investigate the service",
     evidenceNeed: "bounded file evidence",
-    operationDeadlineAtMs: 301_000,
-    nowMs: 1_000,
+    operationDeadlineAtMs: baseNowMs + 301_000,
+    nowMs: baseNowMs + 1_000,
   });
   if (!admitted.ok) throw new Error("admission failed");
   const interim = authorizeInterimSpeech(sidecar, {
@@ -82,13 +83,14 @@ async function thoughtAWithCompletion(threadId: string) {
       trigger: "owner_message_reactive", deliveryLane: "reactive", purpose: "licensed_speech",
     },
     origin: "live",
-    nowMs: 1_000,
+    nowMs: baseNowMs + 1_000,
   });
   if (!interim.ok) throw new Error("interim authorization failed");
   const dispatched = await dispatchDetachedOperation(
     sidecar,
     admitted.operation.operationId,
     async () => ({ ok: true, payload: { summary: "the service retries with backoff" } }),
+    { nowMs: baseNowMs + 2_000 },
   );
   if (!dispatched.ok) throw new Error("dispatch failed");
   return { sidecar, attentionDb, nuclear, cycle, operationId: admitted.operation.operationId };
