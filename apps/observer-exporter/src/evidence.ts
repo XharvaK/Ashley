@@ -944,7 +944,7 @@ function currentEpoch(
 function readMemoryContract(
   nuclear: DatabaseSync | null,
   surface: SurfaceReport,
-): { row: JsonObject | null | "UNKNOWN"; currentness: string | "UNKNOWN"; c1Version: number | "UNKNOWN"; cutover: string | null | "UNKNOWN" } {
+): { row: JsonObject | null | "UNKNOWN"; currentness: string | "UNKNOWN"; c1Version: number | "UNKNOWN"; cutover: string | "UNKNOWN" } {
   const rows = readRows(
     nuclear,
     surface,
@@ -960,7 +960,7 @@ function readMemoryContract(
     row,
     currentness: stringValue(rowValue(row, "currentness_authority")),
     c1Version: numberValue(rowValue(row, "c1_contract_version")),
-    cutover: row && row.cutover_at != null ? stringValue(row.cutover_at) : null,
+    cutover: row && row.cutover_at != null ? stringValue(row.cutover_at) : "not_recorded",
   };
 }
 

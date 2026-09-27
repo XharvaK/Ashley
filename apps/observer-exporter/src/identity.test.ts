@@ -164,7 +164,7 @@ describe("source-bound identity and evidence", () => {
       recallState: "active",
       currentnessAuthority: "mem_facts",
       c1ContractVersion: 1,
-      cutoverAt: null,
+      cutoverAt: "not_recorded",
       c1EpochId: "c1-epoch",
       recallEpochId: "recall-epoch",
       recallCutoffPresent: true,

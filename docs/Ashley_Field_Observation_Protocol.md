@@ -208,7 +208,7 @@ Every daily report, finding, attestation, and seven-day report MUST bind:
 | `recallState` | `capability_releases.state` for `recall` | `UNKNOWN` |
 | `currentnessAuthority` | `memory_contract_state.currentness_authority` (`mem_facts` \| `memory_assertions`) | `UNKNOWN` (`memory_contract_state_unavailable`) |
 | `c1ContractVersion` | `memory_contract_state.c1_contract_version` | `UNKNOWN` |
-| `cutoverAt` | `memory_contract_state.cutover_at` | `null` if never cut over; `UNKNOWN` if table missing |
+| `cutoverAt` | `memory_contract_state.cutover_at` | `not_recorded` when the column is unset; `UNKNOWN` if the table is missing |
 | `c1EpochId` | current `memory_evidence_qualification_epochs.epoch_id` | `no_current_epoch` or `UNKNOWN` if table absent in this SHA |
 | `recallEpochId` | current `recall_qualification_epochs.epoch_id` | `no_current_epoch` |
 | `recallCutoffPresent` | `recall_live_cutovers` for owner + current recall release | `recall_cutoff_missing` / `UNKNOWN` |
