@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DatabaseSync } from "node:sqlite";
+import { createHash } from "node:crypto";
 import { env } from "../../env.js";
 import { AppError } from "../../errors.js";
 import { openNuclearDb } from "../db.js";
@@ -12,6 +13,9 @@ import * as groqAdapterModule from "../model-routing/adapters/groq-adapter.js";
 import * as nimAdapterModule from "../model-routing/adapters/nim-adapter.js";
 import * as mistralAdapterModule from "../model-routing/adapters/mistral-adapter.js";
 import * as cloudflareAdapterModule from "../model-routing/adapters/cloudflare-adapter.js";
+import * as commandCodeAdapterModule from "../model-routing/adapters/command-code-adapter.js";
+import { thoughtOutputStructuredRequest } from "../cognitive-v021/thought/output-contract.js";
+import { COMMAND_CODE_POLICY } from "../command-code/policy.js";
 import { metadataFromError } from "./receipts.js";
 import { attachProviderHttpStatusBoundary } from "../model-routing/types.js";
 import { currentPortfolio } from "./portfolio.js";
@@ -67,6 +71,7 @@ const saved = {
   nim: env.nimApiKey,
   cloudflareToken: env.cloudflareApiToken,
   cloudflareAccount: env.cloudflareAccountId,
+  commandCode: env.commandCodeApiKey,
 };
 
 afterEach(() => {
@@ -76,6 +81,7 @@ afterEach(() => {
   env.nimApiKey = saved.nim;
   env.cloudflareApiToken = saved.cloudflareToken;
   env.cloudflareAccountId = saved.cloudflareAccount;
+  env.commandCodeApiKey = saved.commandCode;
   resetAdapterCache();
   vi.restoreAllMocks();
   for (const root of roots.splice(0)) {
@@ -274,9 +280,9 @@ describe("MF-ACT dispatch authority", () => {
     expect(resolved.policyRow.policyRowId).toBe(
       "mfr_thought_interactive_compat_v1",
     );
-    expect(resolved.occupant.configuredModelId).toBe("@cf/zai-org/glm-5.3-flash");
-    expect(resolved.occupant.provider).toBe("cloudflare");
-    expect(resolved.occupant.effectiveReasoning).toBe("max");
+    expect(resolved.occupant.configuredModelId).toBe("meta/muse-spark-1.3-contributor");
+    expect(resolved.occupant.provider).toBe("command_code");
+    expect(resolved.occupant.effectiveReasoning).toBe("xhigh");
     expect(resolved.activationRefId).toBeNull();
   });
 
@@ -345,7 +351,7 @@ describe("MF-ACT dispatch authority", () => {
       controlRootMode: "production",
     });
     expect(resolved.source).toBe("current_compatibility");
-    expect(resolved.occupant.configuredModelId).toBe("@cf/zai-org/glm-5.3-flash");
+    expect(resolved.occupant.configuredModelId).toBe("meta/muse-spark-1.3-contributor");
   });
 
   it("E/F: caller model and reasoning pins lose to an activated occupant", async () => {
@@ -398,7 +404,7 @@ describe("MF-ACT dispatch authority", () => {
     database.close();
   });
 
-  it("G: no activation keeps CURRENT Cloudflare GLM Thought and Groq Qwen 3.8 Expression pins", async () => {
+  it("G: no activation keeps CURRENT Command Code Muse Thought and Groq Qwen 3.8 Expression pins", async () => {
     const root = controlRoot();
     env.cloudflareApiToken = "test-cloudflare-token";
     env.cloudflareAccountId = "test-account";
@@ -438,22 +444,59 @@ describe("MF-ACT dispatch authority", () => {
       dispatch: groqDispatch,
     });
     const thoughtDb = db();
+    env.commandCodeApiKey = "test-command-code-key";
+    const commandCodeDispatch = vi.fn(async (args: { modelId: string }) => {
+      expect(args.modelId).toBe(COMMAND_CODE_POLICY.modelId);
+      const text = "{\"kind\":\"speak\"}";
+      return {
+        text,
+        providerModel: COMMAND_CODE_POLICY.modelId,
+        providerRequestId: "mf-act-g-1",
+        providerHttpStatus: 200,
+        providerRequestHash: "sha256:request",
+        providerResponseHash: `sha256:${createHash("sha256").update(text, "utf8").digest("hex")}`,
+        usage: { promptTokens: 1, completionTokens: 1 },
+        finishReason: "stop",
+      };
+    });
+    vi.spyOn(commandCodeAdapterModule, "createCommandCodeAdapter").mockReturnValue({
+      provider: "command_code",
+      dispatch: commandCodeDispatch,
+    } as never);
     const thought = await withOfflineAppGateDisabled(() => completeChat([{ role: "user", content: "think" }], {
       attentionDb: thoughtDb,
       purpose: "thought",
       logicalRole: "thought",
       lane: "interactive",
       route: "thought",
+      directCommandCodeThought: true,
+      structuredOutput: thoughtOutputStructuredRequest(),
+      thoughtInvocationContext: {
+        invocationId: "mf-act-g",
+        cycleId: "cycle:mf-act-g",
+        generation: 1,
+        semanticPass: 1,
+        structuralAttemptOrdinal: 0,
+        authorityEpoch: 1,
+        authorityVersionVector: { nuclear: 1 },
+        triggerRef: "trigger:mf-act-g",
+        semanticProjectionHash: "sha256:semantic",
+        dispatchMessagesHash: "sha256:messages",
+        allowlistFingerprint: "sha256:allowlist",
+        absoluteDeadlineAtMs: Date.now() + 30_000,
+      },
       modelFabricControlDir: root,
       modelFabricControlRootMode: "fixture",
-    }));
-    expect(thought.modelAlias).toBe("@cf/zai-org/glm-5.3-flash");
-    expect(thought.modelFabric?.resolvedRoute).toMatchObject({
-      policyRowId: "mfr_thought_interactive_compat_v1",
-      occupantId: "mfo_cloudflare_glm_5_3_flash_native_max",
-      provider: "cloudflare",
-      effectiveReasoning: "reasoning_effort=omitted;native_default=max",
+    } as never));
+    expect(thought.modelAlias).toBe(COMMAND_CODE_POLICY.modelId);
+    expect(commandCodeDispatch).toHaveBeenCalledTimes(1);
+    // No activation pointer exists, so the fixture TARGET occupant must not win.
+    expect(commandCodeDispatch.mock.calls[0]?.[0]).toMatchObject({ modelId: COMMAND_CODE_POLICY.modelId });
+    expect((thought as unknown as Record<string, Record<string, unknown>>).commandCodeEvidence).toMatchObject({
+      reasoningEffort: COMMAND_CODE_POLICY.effort,
+      requestedModelId: COMMAND_CODE_POLICY.modelId,
     });
+    expect(cloudflareDispatch).not.toHaveBeenCalled();
     thoughtDb.close();
     const expressionDb = db();
     const expression = await withOfflineAppGateDisabled(() => completeChat([{ role: "user", content: "hi" }], {

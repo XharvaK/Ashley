@@ -174,8 +174,8 @@ describe("MF-M4 OpenCode Zen adapter", () => {
     const thought = Object.entries(currentPortfolio().routeBindings).find(
       ([route]) => route === "thought",
     );
-    expect(thought?.[1].provider).toBe("cloudflare");
-    expect(thought?.[1].configuredModelId).toBe("@cf/zai-org/glm-5.3-flash");
+    expect(thought?.[1].provider).toBe("command_code");
+    expect(thought?.[1].configuredModelId).toBe("meta/muse-spark-1.3-contributor");
     expect(Object.values(currentPortfolio().routeBindings)).not.toContainEqual(
       expect.objectContaining({ provider: "opencode_zen" }),
     );

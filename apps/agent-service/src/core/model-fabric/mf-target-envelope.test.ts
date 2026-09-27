@@ -27,7 +27,7 @@ describe("TARGET portfolio + token envelope reconciliation", () => {
     expect(target.kind).toBe("candidate_target");
     expect(target.sourcePath.replaceAll("\\", "/")).toMatch(/target-12-9\.v2\.json$/);
     expect(existsSync(join(target.sourcePath, "..", "target-12-9.v1.json"))).toBe(true);
-    expect(current.portfolioRevisionId).toBe("mfp_current_compatibility_v5");
+    expect(current.portfolioRevisionId).toBe("mfp_current_compatibility_v6");
     expect(current.kind).toBe("current_compatibility");
   });
 
@@ -36,10 +36,10 @@ describe("TARGET portfolio + token envelope reconciliation", () => {
     const durable = current.rows.find((row) => row.policyRowId === "mfr_thought_durable_proactive_compat_v1")!;
     const expression = current.rows.find((row) => row.policyRowId === "mfr_expression_compat_v1")!;
     expect(thought.occupants[0]).toMatchObject({
-      provider: "cloudflare",
-      configuredModelId: "@cf/zai-org/glm-5.3-flash",
+      provider: "command_code",
+      configuredModelId: "meta/muse-spark-1.3-contributor",
       reasoningPolicy: "max_supported",
-      effectiveReasoning: "max",
+      effectiveReasoning: "xhigh",
     });
     expect(thought.deadlineMs).toBe(3600000);
     expect(thought.maxOutputTokens).toBe(65536);
@@ -75,8 +75,8 @@ describe("TARGET portfolio + token envelope reconciliation", () => {
       efforts: ["none", "medium"],
     });
     expect(current.routeBindings.thought).toMatchObject({
-      provider: "cloudflare",
-      configuredModelId: "@cf/zai-org/glm-5.3-flash",
+      provider: "command_code",
+      configuredModelId: "meta/muse-spark-1.3-contributor",
     });
     expect(current.routeBindings.ashley_expression).toMatchObject({
       provider: "groq",

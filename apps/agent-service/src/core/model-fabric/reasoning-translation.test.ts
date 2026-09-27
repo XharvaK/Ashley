@@ -33,6 +33,7 @@ describe("Nemotron reasoning maps", () => {
       "cloudflare_nemotron_super",
       "cloudflare_deepseek_v4_flash",
       "cloudflare_glm_5_3_flash",
+      "command_code_muse_spark_1_3_contributor",
       "groq_qwen_3_6",
       "groq_qwen_3_8",
       "mistral_small",

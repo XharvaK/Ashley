@@ -38,13 +38,13 @@ describe("model-routing router", () => {
   it("resolves Thought-owned observation and reflection to the Thought route", () => {
     expect(resolveRoute("thought_observation")).toMatchObject({
       route: "thought",
-      provider: "cloudflare",
-      configuredModelId: "@cf/zai-org/glm-5.3-flash",
+      provider: "command_code",
+      configuredModelId: "meta/muse-spark-1.3-contributor",
     });
     expect(resolveRoute("reflection_initiative")).toMatchObject({
       route: "thought",
-      provider: "cloudflare",
-      configuredModelId: "@cf/zai-org/glm-5.3-flash",
+      provider: "command_code",
+      configuredModelId: "meta/muse-spark-1.3-contributor",
     });
   });
 
@@ -98,8 +98,8 @@ describe("model-routing router", () => {
     expect(cols).toEqual(
       expect.arrayContaining(["provider_id", "route_alias", "quota_bucket"]),
     );
-    expect(routeBinding("thought").provider).toBe("cloudflare");
-    expect(routeBinding("thought").configuredModelId).toBe("@cf/zai-org/glm-5.3-flash");
+    expect(routeBinding("thought").provider).toBe("command_code");
+    expect(routeBinding("thought").configuredModelId).toBe("meta/muse-spark-1.3-contributor");
     db.close();
     continuity.close();
   });

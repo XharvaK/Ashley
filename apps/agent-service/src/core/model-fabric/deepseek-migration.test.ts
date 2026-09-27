@@ -31,10 +31,11 @@ import {
 
 const DEEPSEEK = "@cf/deepseek-ai/deepseek-v4-flash-0731";
 const GLM = "@cf/zai-org/glm-5.3-flash";
+const MUSE = "meta/muse-spark-1.3-contributor";
 const NEMOTRON = "@cf/nvidia/nemotron-3-120b-a12b";
 
 describe("GLM-5.3 Flash Thought provider migration witnesses", () => {
-  it("resolves every active Thought-owned row to Cloudflare GLM with no fallback", () => {
+  it("resolves every active Thought-owned row to a single occupant with no fallback", () => {
     const resolutions = [
       resolveCurrentPolicy({ logicalRole: "thought", purpose: "thought", lane: "interactive" }),
       resolveCurrentPolicy({ logicalRole: "thought", purpose: "thought", lane: "background" }),
@@ -44,28 +45,29 @@ describe("GLM-5.3 Flash Thought provider migration witnesses", () => {
 
     for (const resolution of resolutions) {
       expect(resolution.occupant).toMatchObject({
-        provider: "cloudflare",
-        configuredModelId: GLM,
-        independenceGroup: "zai_glm",
+        provider: "command_code",
+        configuredModelId: MUSE,
+        independenceGroup: "muse_spark",
         reasoningPolicy: "max_supported",
-        effectiveReasoning: "max",
+        effectiveReasoning: "xhigh",
         fallbackClassFromPrevious: "none",
         fallbackTriggerClasses: [],
       });
       expect(resolution.occupant.configuredModelId).not.toBe(DEEPSEEK);
       expect(resolution.occupant.configuredModelId).not.toBe(NEMOTRON);
+      expect(resolution.occupant.configuredModelId).not.toBe(GLM);
       expect(resolution.policyRow.reliabilityClass).toBe("single_attempt");
       expect(resolution.occupant.structuredOutputBinding).toMatchObject({
-        bindingId: expect.stringContaining("glm_5_3_flash"),
+        bindingId: expect.stringContaining("muse_spark_1_3_contributor"),
         mode: "json_object_compatibility",
       });
     }
 
     expect(resolutions.every((resolution) => resolution.policyRow.occupants.length === 1)).toBe(true);
-    expect(currentPortfolio().portfolioRevisionId).toBe("mfp_current_compatibility_v5");
+    expect(currentPortfolio().portfolioRevisionId).toBe("mfp_current_compatibility_v6");
     expect(currentPortfolio().routeBindings.thought).toMatchObject({
-      provider: "cloudflare",
-      configuredModelId: GLM,
+      provider: "command_code",
+      configuredModelId: MUSE,
       quotaContract: { tpm: 524288 },
     });
     expect(currentPortfolio().routeBindings.ashley_expression).toMatchObject({
@@ -300,9 +302,10 @@ describe("GLM-5.3 Flash Thought provider migration witnesses", () => {
     })).toMatchObject({ ok: true, kind: "ok" });
   });
 
-  it("keeps the current Cloudflare transport endpoint unchanged", () => {
+  it("keeps the Cloudflare transport endpoint registered but off the Thought route", () => {
     const source = currentPortfolio().routeBindings.thought;
-    expect(source).toMatchObject({ provider: "cloudflare", configuredModelId: GLM });
+    expect(source).toMatchObject({ provider: "command_code", configuredModelId: MUSE });
+    expect(source.provider).not.toBe("cloudflare");
     expect("https://api.cloudflare.com/client/v4/accounts/{account}/ai/v1/chat/completions")
       .toContain("/ai/v1/chat/completions");
   });
