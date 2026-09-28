@@ -1,6 +1,11 @@
 import type { DatabaseSync } from "node:sqlite";
 import type { CognitionMode } from "../types.js";
-import { currentBuildIdentity, currentContractId, type CapabilityState } from "../rollout/capabilities.js";
+import {
+  currentBuildIdentity,
+  currentContractId,
+  type CapabilityActivationPath,
+  type CapabilityState,
+} from "../rollout/capabilities.js";
 import {
   getCurrentMemoryEvidenceQualificationEpoch,
   getMemoryEvidenceQualificationReadiness,
@@ -50,6 +55,7 @@ export type MemoryEvidenceCutoverReadiness = Omit<
   activationBlockerCodes: C1ActivationBlocker[];
   blockerCodes: MemoryEvidenceCutoverBlocker[];
   masterMode: CognitionMode;
+  activationPath: CapabilityActivationPath;
   expressionPlanePaused: boolean;
   ownerExpressionActive: boolean;
   activeReleaseId: string;
@@ -91,6 +97,7 @@ export type MemoryEvidenceCutoverInput = {
   masterMode: CognitionMode;
   expressionPlanePaused: boolean;
   ownerExpressionActive: boolean;
+  activationPath?: CapabilityActivationPath;
 };
 
 type Row = Record<string, unknown>;
@@ -242,8 +249,14 @@ export function getMemoryEvidenceCutoverReadiness(
   now = new Date(),
 ): MemoryEvidenceCutoverReadiness {
   const ownerId = input.ownerId.trim();
+  const activationPath = input.activationPath ?? "maturation";
   const epoch = getCurrentMemoryEvidenceQualificationEpoch(db);
-  const qualification = getMemoryEvidenceQualificationReadiness(db, ownerId, now);
+  const qualification = getMemoryEvidenceQualificationReadiness(
+    db,
+    ownerId,
+    now,
+    activationPath,
+  );
   const marker = getMemoryContractState(db)?.currentnessAuthority ?? null;
   const activeReleaseState = releaseStateReadOnly(db);
   const preCutoverConsistency = readConsistency(db, now.toISOString());
@@ -269,6 +282,7 @@ export function getMemoryEvidenceCutoverReadiness(
     blockerCodes: blockers,
     eligible: blockers.length === 0,
     masterMode: input.masterMode,
+    activationPath,
     expressionPlanePaused: input.expressionPlanePaused,
     ownerExpressionActive: input.ownerExpressionActive,
     activeReleaseId: currentContractId(),

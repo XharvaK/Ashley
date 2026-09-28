@@ -106,6 +106,55 @@ function fullyQualifyC1(db: DatabaseSync): string {
   return started.epochId;
 }
 
+function qualifyOwnerBootstrapC1(db: DatabaseSync): string {
+  qualifyRecallAndRecordCutoff(db);
+  const started = startMemoryEvidenceQualificationEpoch(db, {
+    ownerId: OWNER,
+    startRequestKey: "activation-c1:owner-bootstrap-start",
+    predecessorEpochId: null,
+  }, START);
+  expect(started).toMatchObject({ ok: true, created: true });
+  if (!started.ok) throw new Error("activation_owner_bootstrap_epoch_setup_failed");
+
+  expect(recordMemoryEvidenceIsolatedEvaluation(db, {
+    ownerId: OWNER,
+    sourceKey: `c1-eval:v1:${C1_EVALUATION_DEFINITION_HASH}:owner-bootstrap-run`,
+    definitionId: C1_EVALUATION_DEFINITION_ID,
+    definitionVersion: C1_EVALUATION_DEFINITION_VERSION,
+    definitionHash: C1_EVALUATION_DEFINITION_HASH,
+    seeds: C1_REQUIRED_EVAL_SEEDS.map((id) => ({ id, passed: true })),
+  }, START)).toEqual({ recorded: true });
+
+  expect(recordMemoryEvidenceLiveShadow(db, {
+    ownerId: OWNER,
+    sourceKey: "c1-shadow:v1:decision:1",
+    decisionClass: "same_current",
+    qualifies: true,
+    trigger: "reactive",
+    sourceCount: 1,
+    detail: { decisionId: "1" },
+    occurredAt: START.toISOString(),
+  }, START)).toEqual({ recorded: true });
+  expect(recordMemoryEvidenceLiveShadow(db, {
+    ownerId: OWNER,
+    sourceKey: "c1-shadow:v1:decision:2",
+    decisionClass: "would_narrow",
+    qualifies: true,
+    trigger: "proactive",
+    sourceCount: 1,
+    detail: { decisionId: "2" },
+    occurredAt: new Date(START.getTime() + 1_000).toISOString(),
+  }, START)).toEqual({ recorded: true });
+
+  expect(promoteCapability(db, "memory_evidence", {
+    releaseId: RELEASE_ID,
+    authorizedBy: OWNER,
+    activationPath: "owner_bootstrap",
+    readiness: { ready: true },
+  })).toMatchObject({ ok: true, state: "active" });
+  return started.epochId;
+}
+
 function promoteC1(db: DatabaseSync, epochId: string): void {
   expect(promoteCapability(db, "memory_evidence", {
     releaseId: RELEASE_ID,
@@ -121,6 +170,7 @@ function cutoverInput(epochId: string, overrides: Partial<{
   masterMode: "observe" | "apply";
   expressionPlanePaused: boolean;
   ownerExpressionActive: boolean;
+  activationPath: "maturation" | "owner_bootstrap";
 }> = {}) {
   return {
     ownerId: OWNER,
@@ -128,6 +178,7 @@ function cutoverInput(epochId: string, overrides: Partial<{
     masterMode: overrides.masterMode ?? "observe",
     expressionPlanePaused: overrides.expressionPlanePaused ?? true,
     ownerExpressionActive: overrides.ownerExpressionActive ?? false,
+    activationPath: overrides.activationPath ?? "maturation",
   } as const;
 }
 
@@ -194,6 +245,37 @@ describe("C1 guarded activation", () => {
         currentnessAuthority: "mem_facts",
         preCutoverConsistency: { ok: true },
       });
+    } finally {
+      db.close();
+    }
+  });
+
+  it("keeps ordinary 25/7 gates while owner bootstrap waives only those gates", () => {
+    const db = openDb();
+    try {
+      const epochId = qualifyOwnerBootstrapC1(db);
+
+      const maturation = getMemoryEvidenceCutoverReadiness(db, cutoverInput(epochId));
+      expect(maturation.eligible).toBe(false);
+      expect(maturation.blockerCodes).toEqual(expect.arrayContaining([
+        "live_shadow_count_insufficient",
+        "live_shadow_span_insufficient",
+      ]));
+
+      const ownerBootstrap = getMemoryEvidenceCutoverReadiness(db, cutoverInput(epochId, {
+        activationPath: "owner_bootstrap",
+      }));
+      expect(ownerBootstrap).toMatchObject({
+        eligible: true,
+        epochId,
+        memoryEvidenceState: "active",
+        currentnessAuthority: "mem_facts",
+        preCutoverConsistency: { ok: true },
+      });
+      expect(ownerBootstrap.blockerCodes).not.toEqual(expect.arrayContaining([
+        "live_shadow_count_insufficient",
+        "live_shadow_span_insufficient",
+      ]));
     } finally {
       db.close();
     }

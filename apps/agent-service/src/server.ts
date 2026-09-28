@@ -310,6 +310,18 @@ function c1RequiredNullableString(
   return clean;
 }
 
+function c1ActivationPath(value: unknown): "maturation" | "owner_bootstrap" {
+  if (value === undefined) return "maturation";
+  if (value !== "maturation" && value !== "owner_bootstrap") {
+    throw new AppError(
+      "message_required",
+      "activationPath must be maturation or owner_bootstrap",
+      400,
+    );
+  }
+  return value;
+}
+
 function c1EvaluationSeeds(
   body: Record<string, unknown>,
 ): Array<{ id: string; passed: boolean }> {
@@ -1440,6 +1452,7 @@ export function createServer(
         ownerId,
         epochId: current?.epochId ?? "",
         masterMode: env.cognitionMode,
+        activationPath: c1ActivationPath(req.query.activationPath),
         ...quiescence,
       }));
     } catch (err) {
@@ -1459,6 +1472,7 @@ export function createServer(
         ownerId,
         epochId: c1RequiredString(body, "epochId"),
         masterMode: env.cognitionMode,
+        activationPath: c1ActivationPath(body.activationPath),
         ...quiescence,
       }));
     } catch (err) {
