@@ -495,6 +495,108 @@ describe("C1 memory evidence qualification epochs", () => {
     }
   });
 
+  it("owner bootstrap waives only maturation volume and span", () => {
+    const db = openDb();
+    try {
+      qualifyRecallAndRecordCutoff(db);
+      startC1(db);
+      expect(recordMemoryEvidenceIsolatedEvaluation(db, evaluationInput(), START))
+        .toEqual({ recorded: true });
+      recordQualifyingShadows(db, 1, { trigger: "reactive", prefix: "owner-reactive" });
+      recordQualifyingShadows(db, 1, { trigger: "proactive", prefix: "owner-proactive" });
+
+      const ownerBootstrap = getMemoryEvidenceQualificationReadiness(
+        db,
+        OWNER,
+        START,
+        "owner_bootstrap",
+      );
+      expect(ownerBootstrap).toMatchObject({
+        eligible: true,
+        qualifyingCount: 2,
+        spanDays: 0,
+        countsByTrigger: { reactive: 1, proactive: 1 },
+      });
+
+      const maturation = getMemoryEvidenceQualificationReadiness(db, OWNER, START);
+      expect(maturation.blockerCodes).toEqual(expect.arrayContaining([
+        "live_shadow_count_insufficient",
+        "live_shadow_span_insufficient",
+      ]));
+      expect(maturation.eligible).toBe(false);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("owner bootstrap promotion remains gated by C1 evidence", () => {
+    const db = openDb();
+    try {
+      qualifyRecallAndRecordCutoff(db);
+      startC1(db);
+      const readiness = { ready: true } as const;
+
+      expect(promoteCapability(db, "memory_evidence", {
+        releaseId: RELEASE_ID,
+        authorizedBy: OWNER,
+        activationPath: "owner_bootstrap",
+        readiness,
+      })).toEqual({ ok: false, reason: "not_eligible" });
+
+      expect(recordMemoryEvidenceIsolatedEvaluation(db, evaluationInput(), START))
+        .toEqual({ recorded: true });
+      recordQualifyingShadows(db, 1, { trigger: "reactive", prefix: "promotion-reactive" });
+      expect(promoteCapability(db, "memory_evidence", {
+        releaseId: RELEASE_ID,
+        authorizedBy: OWNER,
+        activationPath: "owner_bootstrap",
+        readiness,
+      })).toEqual({ ok: false, reason: "not_eligible" });
+
+      recordQualifyingShadows(db, 1, { trigger: "proactive", prefix: "promotion-proactive" });
+      expect(promoteCapability(db, "memory_evidence", {
+        releaseId: RELEASE_ID,
+        authorizedBy: OWNER,
+        activationPath: "owner_bootstrap",
+        readiness,
+      })).toEqual({ ok: true, state: "active" });
+    } finally {
+      db.close();
+    }
+  });
+
+  it("owner bootstrap remains blocked by a blocking C1 witness", () => {
+    const db = openDb();
+    try {
+      qualifyRecallAndRecordCutoff(db);
+      startC1(db);
+      expect(recordMemoryEvidenceIsolatedEvaluation(db, evaluationInput(), START))
+        .toEqual({ recorded: true });
+      expect(recordMemoryEvidenceLiveShadow(db, shadowInput({
+        sourceKey: "c1-shadow:v1:decision:4101",
+        trigger: "reactive",
+        decisionClass: "evaluation_error",
+        qualifies: false,
+        sourceCount: 0,
+      }), START)).toEqual({ recorded: true });
+      recordQualifyingShadows(db, 1, { trigger: "proactive", prefix: "blocking-proactive" });
+
+      const readiness = getMemoryEvidenceQualificationReadiness(
+        db,
+        OWNER,
+        START,
+        "owner_bootstrap",
+      );
+      expect(readiness).toMatchObject({
+        eligible: false,
+        blockingEventCount: 1,
+      });
+      expect(readiness.blockerCodes).toContain("blocking_witness_present");
+    } finally {
+      db.close();
+    }
+  });
+
   it("atomically seals the exact epoch, activates the release, and audits promotion", () => {
     const injections = [
       {

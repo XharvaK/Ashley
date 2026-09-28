@@ -684,6 +684,17 @@ export function promoteCapability(
         bootstrapReason: eligibility.reason,
       };
     }
+    if (capability === "memory_evidence") {
+      const qualification = getMemoryEvidenceQualificationReadiness(
+        db,
+        authorizedBy,
+        new Date(),
+        activationPath,
+      );
+      if (!qualification.eligible) {
+        return { ok: false, reason: "not_eligible" };
+      }
+    }
   } else if (!promotionEligible(db, capability, releaseId)) {
     return { ok: false, reason: "not_eligible" };
   }

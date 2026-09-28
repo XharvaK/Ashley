@@ -5,6 +5,7 @@ import { ensureBootstrapContract } from "../attention/ledger.js";
 import {
   currentBuildIdentity,
   currentContractId,
+  type CapabilityActivationPath,
   type CapabilityState,
 } from "./capabilities.js";
 
@@ -788,6 +789,7 @@ export function getMemoryEvidenceQualificationReadiness(
   db: DatabaseSync,
   ownerId: string,
   now = new Date(),
+  activationPath: CapabilityActivationPath = "maturation",
 ): MemoryEvidenceQualificationReadiness {
   const normalizedOwnerId = normalized(ownerId);
   const epochRow = currentEpochRow(db);
@@ -854,8 +856,10 @@ export function getMemoryEvidenceQualificationReadiness(
   if (!epoch || epoch.ownerId !== normalizedOwnerId || epoch.evalSeedCount < C1_REQUIRED_EVAL_SEEDS.length || !epoch.qualifiedAt) {
     add("required_eval_seeds_incomplete");
   }
-  if (qualifyingCount < 25) add("live_shadow_count_insufficient");
-  if (spanDays < 7) add("live_shadow_span_insufficient");
+  if (activationPath === "maturation") {
+    if (qualifyingCount < 25) add("live_shadow_count_insufficient");
+    if (spanDays < 7) add("live_shadow_span_insufficient");
+  }
   if (countsByTrigger.reactive < 1) add("reactive_witness_missing");
   if (countsByTrigger.proactive < 1) add("proactive_witness_missing");
 
