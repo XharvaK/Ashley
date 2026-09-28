@@ -56,12 +56,12 @@ export const V2_LIMITS = {
 
 /**
  * Frozen M0/M1-resolved production host facts (Linux Mint). Do not broaden
- * filesystem exposure. Mirrors the frozen M1 launcher constants.
+ * filesystem exposure. The fresh host uses the system Node prefix.
  */
 export const V2_HOST_FACTS = {
   BWRAP: "/usr/bin/bwrap",
   NODE_BIN: "/opt/node/bin/node",
-  NVM_NODE_PREFIX: "/home/xarvak/.nvm/versions/node/v22.23.3",
+  NVM_NODE_PREFIX: "/usr",
   PROJECT_MOUNT: "/project",
   PATH_VALUE: "/usr/bin",
   HOME_VALUE: "/tmp",
