@@ -152,6 +152,35 @@ describe("v0.2.1 CapabilityReality live-surface contract", () => {
     }
   });
 
+  it("advertises public fetch and search operation seams only when their providers are live", () => {
+    const db = activeDb();
+    try {
+      const base = {
+        registry: registry(),
+        masterMode: "apply" as const,
+        lifecycleEnabled: true,
+        substrateAvailable: true,
+      };
+      const unavailable = getCapabilityReality(db, base);
+      expect(unavailable.semanticObservations).toEqual(expect.arrayContaining([
+        { operationKind: "web.fetch", semanticClass: "observation", readOnly: true, available: false },
+        { operationKind: "web.search", semanticClass: "observation", readOnly: true, available: false },
+      ]));
+
+      const available = getCapabilityReality(db, {
+        ...base,
+        webFetchProvider: { available: true },
+        webSearchProvider: { available: true },
+      });
+      expect(available.semanticObservations).toEqual(expect.arrayContaining([
+        { operationKind: "web.fetch", semanticClass: "observation", readOnly: true, available: true },
+        { operationKind: "web.search", semanticClass: "observation", readOnly: true, available: true },
+      ]));
+    } finally {
+      db.close();
+    }
+  });
+
   it("advertises accepted Sandbox V2 faculties only when capability and substrate gates pass", () => {
     const db = activeDb();
     try {
@@ -383,7 +412,10 @@ describe("v0.2.1 CapabilityReality live-surface contract", () => {
         semanticClass: "observation",
         readOnly: true,
         available: true,
-      })));
+      })).concat([
+        { operationKind: "web.fetch", semanticClass: "observation", readOnly: true, available: false },
+        { operationKind: "web.search", semanticClass: "observation", readOnly: true, available: false },
+      ]));
       expect(room.semanticObservations?.every((entry) => entry.available === false)).toBe(true);
       expect(room.reachability?.reasons).toMatchObject({ "concern.inspect": "another_audience_only" });
       expect(JSON.stringify(owner.semanticObservations)).not.toMatch(/family|requiresProject|authorizedProjectIds|operatorBound/);

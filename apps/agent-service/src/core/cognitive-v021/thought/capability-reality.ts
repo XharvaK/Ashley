@@ -433,16 +433,23 @@ export function getCapabilityReality(
     },
   });
   const semanticObservations: readonly ThoughtSemanticObservation[] = Object.freeze([
-    "concern.inspect",
-    "capability.inspect",
-    "evidence.inspect",
-    "temporal.inspect",
-    "work.inspect",
-  ].map((operationKind) => Object.freeze({
+    ...[
+      "concern.inspect",
+      "capability.inspect",
+      "evidence.inspect",
+      "temporal.inspect",
+      "work.inspect",
+    ].map((operationKind) => ({
+      operationKind,
+      available: !externalAudience,
+    })),
+    { operationKind: "web.fetch", available: !externalAudience && perceptionFacts.conversationalRead },
+    { operationKind: "web.search", available: !externalAudience && perceptionFacts.webSearch },
+  ].map(({ operationKind, available }) => Object.freeze({
     operationKind,
     semanticClass: "observation" as const,
     readOnly: true as const,
-    available: !externalAudience,
+    available,
   })));
   const facts = {
     vision: audienceCapabilityAllowed("vision") ? perceptionFacts.vision : false,
