@@ -4,10 +4,12 @@ import { mkdtempSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { openNuclearDb } from "../../db.js";
 import { MAX_AGGREGATE_ATTACHMENT_BYTES, MAX_SINGLE_ATTACHMENT_BYTES } from "../../perception/types.js";
 import { readArtifactBytes } from "../../perception/artifact-store.js";
+import { persistOrVerifyObservation } from "../observation/persistence.js";
+import { openTestSidecar } from "../test-support.js";
 import { resolveAttachmentObservations } from "./attachments.js";
 import { isValidEvidenceOperationRequest } from "../thought/typed-inspection.js";
 
@@ -36,6 +38,15 @@ function fetchResult(bytes: string | Uint8Array, mime: string, finalUrl = "https
     finalUrl,
     contentHash: createHash("sha256").update(body).digest("hex"),
   };
+}
+
+function png(width = 3, height = 2): Uint8Array {
+  const bytes = new Uint8Array(24);
+  bytes.set([137, 80, 78, 71, 13, 10, 26, 10], 0);
+  bytes.set([0, 0, 0, 13, 73, 72, 68, 82], 8);
+  new DataView(bytes.buffer).setUint32(16, width, false);
+  new DataView(bytes.buffer).setUint32(20, height, false);
+  return bytes;
 }
 
 describe("owner attachment observation intake", () => {
@@ -205,6 +216,47 @@ describe("owner attachment observation intake", () => {
     assert.equal(observations.length, 3);
     assert.equal(fetchAttachment.mock.calls.length, 0);
     assert.ok(observations.every((item) => (item.payload as { error?: unknown }).error));
+    nuclear.close();
+  });
+
+  it("reuses a stored mediated visual observation on retry without a second vision request", async () => {
+    const nuclear = openNuclearDb(new DatabaseSync(":memory:"));
+    const sidecar = openTestSidecar();
+    const bytes = png();
+    const firstFetch = vi.fn(async () => fetchResult(bytes, "image/png"));
+    const firstDescribe = vi.fn(async () => "first bounded caption");
+    const input = {
+      nuclear,
+      observationDb: sidecar,
+      ownerId,
+      cycleId: "cycle-attachment-visual-retry",
+      generation: 1,
+      sourceMessageEntityUuid: "evidence-owner-8",
+      deliveryReservationEntityUuid: "owner-event-8",
+      attachmentTextEnabled: false,
+      visionAccess: "mediated" as const,
+      attachments: [attachment("scene.png", "image/png", "scene")],
+    };
+
+    const first = await resolveAttachmentObservations({
+      ...input,
+      imageTransport: { kind: "mediated_visual", helperModelId: "test-helper", describeImage: firstDescribe },
+      fetchAttachment: firstFetch,
+    });
+    persistOrVerifyObservation(sidecar, first[0]!, 100);
+
+    const secondFetch = vi.fn(async () => fetchResult(bytes, "image/png"));
+    const secondDescribe = vi.fn(async () => "different bounded caption");
+    const second = await resolveAttachmentObservations({
+      ...input,
+      imageTransport: { kind: "mediated_visual", helperModelId: "test-helper", describeImage: secondDescribe },
+      fetchAttachment: secondFetch,
+    });
+
+    expect(second).toEqual(first);
+    expect(secondFetch).not.toHaveBeenCalled();
+    expect(secondDescribe).not.toHaveBeenCalled();
+    sidecar.close();
     nuclear.close();
   });
 

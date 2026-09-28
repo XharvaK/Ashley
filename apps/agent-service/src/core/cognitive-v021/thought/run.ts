@@ -3057,6 +3057,7 @@ export async function runCognitiveCycle(
           attachmentTextEnabled: attachmentCapabilityReality.attachmentText,
           visionAccess: attachmentCapabilityReality.vision,
           imageTransport: deps.visionTransport,
+          observationDb: sidecar,
         })
       : [];
     try {

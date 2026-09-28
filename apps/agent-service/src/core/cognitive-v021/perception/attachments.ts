@@ -23,6 +23,7 @@ import {
   textArtifactRepresentationId,
   type ObservationView,
 } from "../observation/view.js";
+import { getCanonicalObservationById } from "../observation/persistence.js";
 import { readImageDimensions, type ImageDimensions, type VisionTransport } from "./images.js";
 import { parsePdfDocument, pdfPageSelector, type PdfPage } from "./pdf.js";
 
@@ -38,6 +39,8 @@ export type AttachmentFetcher = (input: {
 
 export type AttachmentObservationInput = {
   nuclear: DatabaseSync;
+  /** Durable cognitive observation store used to replay the same cycle safely. */
+  observationDb?: DatabaseSync;
   ownerId: string;
   cycleId: string;
   generation: number;
@@ -144,6 +147,32 @@ function observationId(cycleId: string, generation: number, attachmentId: string
     generation,
     attachmentId,
   })))}`;
+}
+
+function storedObservationForRetry(
+  input: AttachmentObservationInput,
+  attachment: AttachmentIntakeRef,
+): Observation | null {
+  if (!input.observationDb) return null;
+  const canonical = getCanonicalObservationById(
+    input.observationDb,
+    observationId(input.cycleId, input.generation, attachment.discordAttachmentId),
+  );
+  if (!canonical) return null;
+  return {
+    observationId: canonical.observationId,
+    cycleId: input.cycleId,
+    generation: input.generation,
+    derived: canonical.derived,
+    replaySafe: canonical.replaySafe,
+    modality: canonical.modality,
+    payload: canonical.payload,
+    ...(canonical.view == null ? {} : { view: canonical.view }),
+    provenance: canonical.provenance,
+    ...(canonical.rawOutranksDerivedOf === null ? {} : { rawOutranksDerivedOf: canonical.rawOutranksDerivedOf }),
+    dataClassification: canonical.dataClassification,
+    secretOmitted: canonical.secretOmitted,
+  };
 }
 
 function stableArtifactRow(
@@ -873,7 +902,10 @@ export async function resolveAttachmentObservations(
   const observations: Observation[] = [];
   for (const [index, attachment] of bounded.entries()) {
     if (attachment) {
-      observations.push(...await resolveOne(input, attachment, declaredAggregateBytes, fetchedBytes, fetcher));
+      const stored = storedObservationForRetry(input, attachment);
+      observations.push(...(stored
+        ? [stored]
+        : await resolveOne(input, attachment, declaredAggregateBytes, fetchedBytes, fetcher)));
     } else {
       observations.push(invalidReferenceObservation(input, index));
     }
