@@ -58,7 +58,10 @@ export type CapabilityRealityOptions = {
   commandCodeWorkerEnabled?: boolean;
   commandCodeApiKey?: string;
   commandCodeBinaryPath?: string;
+  commandCodeMinimumVersion?: string;
+  /** @deprecated Compatibility alias for older qualification fixtures. */
   commandCodePinnedVersion?: string;
+  commandCodeQualificationStatePath?: string;
   commandCodeBubblewrapPath?: string;
   commandCodeNodeExecutable?: string;
   webSearchProvider?: Pick<WebSearchProvider, "available">;
@@ -74,6 +77,7 @@ const DEVELOP_WORKER_REASON_CODES: Record<CommandCodeWorkerReadinessReason, stri
   credentials_missing: "develop_worker_credentials_missing",
   binary_unavailable: "develop_worker_binary_unavailable",
   isolation_unavailable: "develop_worker_isolation_unavailable",
+  qualification_unavailable: "develop_worker_qualification_unavailable",
 };
 
 function reasonForCapability(input: {
@@ -395,9 +399,10 @@ export function getCapabilityReality(
     workerEnabled: options.commandCodeWorkerEnabled ?? env.commandCodeWorkerEnabled,
     apiKey: options.commandCodeApiKey ?? env.commandCodeApiKey,
     binaryPath: options.commandCodeBinaryPath ?? env.commandCodeBinaryPath,
-    pinnedVersion: options.commandCodePinnedVersion ?? env.commandCodePinnedVersion,
+    minimumVersion: options.commandCodeMinimumVersion ?? options.commandCodePinnedVersion ?? env.commandCodeMinimumVersion,
+    qualificationStatePath: options.commandCodeQualificationStatePath ?? env.commandCodeQualificationStatePath,
     bubblewrapPath: options.commandCodeBubblewrapPath ?? env.commandCodeBubblewrapPath,
-    nodeExecutable: options.commandCodeNodeExecutable,
+    nodeExecutable: options.commandCodeNodeExecutable ?? env.commandCodeNodePath,
   });
   const workerInspectionReady = developReadiness.ready && canOfferWorkerBackedProjectInspection({
     registry,

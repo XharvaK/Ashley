@@ -196,9 +196,38 @@ function createEnv() {
   // Command Code CLI worker. It receives no project mount; Host tool dispatch
   // remains the only path to the admitted project/workspace operations.
   commandCodeWorkerEnabled: strictBoolean("ASHLEY_COMMAND_CODE_WORKER_ENABLED", false),
-  commandCodeBinaryPath: process.env.ASHLEY_COMMAND_CODE_BIN?.trim() ?? "",
+  commandCodeRuntimeRoot: strictTrimmed(
+    "ASHLEY_COMMAND_CODE_RUNTIME_ROOT",
+    join(homedir(), ".composer-assistant", "sandbox", "command-code", "current"),
+  ),
+  commandCodeBinaryPath: process.env.ASHLEY_COMMAND_CODE_BIN?.trim()
+    || join(
+      process.env.ASHLEY_COMMAND_CODE_RUNTIME_ROOT?.trim()
+        || join(homedir(), ".composer-assistant", "sandbox", "command-code", "current"),
+      "bin",
+      "command-code",
+    ),
+  commandCodeNodePath: process.env.ASHLEY_COMMAND_CODE_NODE?.trim()
+    || join(
+      process.env.ASHLEY_COMMAND_CODE_RUNTIME_ROOT?.trim()
+        || join(homedir(), ".composer-assistant", "sandbox", "command-code", "current"),
+      "bin",
+      "node",
+    ),
   commandCodeBubblewrapPath: strictTrimmed("ASHLEY_COMMAND_CODE_BWRAP_BIN", "/usr/bin/bwrap"),
-  commandCodePinnedVersion: strictTrimmed("ASHLEY_COMMAND_CODE_PINNED_VERSION", "1.64.0"),
+  commandCodeMinimumVersion: strictTrimmed("ASHLEY_COMMAND_CODE_MIN_VERSION", "1.64.0"),
+  commandCodeQualificationStatePath: strictTrimmed(
+    "ASHLEY_COMMAND_CODE_QUALIFICATION_STATE",
+    join(homedir(), ".composer-assistant", "sandbox", "command-code-state.json"),
+  ),
+  commandCodeUpdateEnabled: strictBoolean("ASHLEY_COMMAND_CODE_UPDATE_ENABLED", true),
+  commandCodeUpdateIntervalHours: numericEnv(
+    "ASHLEY_COMMAND_CODE_UPDATE_INTERVAL_HOURS",
+    6,
+    1,
+    168,
+    true,
+  ),
   // Visible Expression fallback (Wave 3): composition owns whether fallback
   // may run on an eligible turn; Model Fabric owns the provider/model selected
   // for the resolved ashley_expression_fallback route. ON by default; opt out

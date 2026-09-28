@@ -33,7 +33,10 @@ import {
 
 export const COMMAND_CODE_WORKER_MODEL_ID = COMMAND_CODE_POLICY.modelId;
 export const COMMAND_CODE_WORKER_EFFORT = COMMAND_CODE_POLICY.effort;
-export const COMMAND_CODE_WORKER_PINNED_VERSION = "1.64.0";
+/** Minimum CLI version supported by the current worker protocol contract. */
+export const COMMAND_CODE_WORKER_MIN_SUPPORTED_VERSION = "1.64.0";
+/** @deprecated Compatibility alias retained for older focused test fixtures. */
+export const COMMAND_CODE_WORKER_PINNED_VERSION = COMMAND_CODE_WORKER_MIN_SUPPORTED_VERSION;
 /** CLI-internal turn ceiling. Distinct from the Host-owned step counter. */
 export const COMMAND_CODE_WORKER_MAX_TURNS = 128 as const;
 const COMMAND_CODE_RUNTIME_MOUNT = "/opt";
@@ -125,6 +128,62 @@ export type CommandCodeRuntime = {
   version: string;
 };
 
+export type CommandCodeQualificationState = Readonly<{
+  schema: "ashley.command_code.qualification.v1";
+  activeVersion: string;
+  qualifiedAt: string;
+  cliWitness: "passed";
+  authenticationWitness: "passed";
+  sandboxWitness: "passed";
+  projectInspectionWitness: "passed";
+}>;
+
+function parseStableVersion(value: string): [number, number, number] | null {
+  const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(value.trim());
+  if (!match) return null;
+  return [Number(match[1]), Number(match[2]), Number(match[3])];
+}
+
+export function compareCommandCodeVersions(left: string, right: string): number | null {
+  const a = parseStableVersion(left);
+  const b = parseStableVersion(right);
+  if (!a || !b) return null;
+  for (let index = 0; index < a.length; index += 1) {
+    if (a[index] !== b[index]) return a[index] > b[index] ? 1 : -1;
+  }
+  return 0;
+}
+
+export function isCommandCodeVersionCompatible(
+  installedVersion: string,
+  minimumVersion: string,
+): boolean {
+  const comparison = compareCommandCodeVersions(installedVersion, minimumVersion);
+  return comparison !== null && comparison >= 0;
+}
+
+export function readCommandCodeQualificationState(
+  statePath: string,
+  expectedVersion: string,
+): CommandCodeQualificationState | null {
+  if (!statePath.trim()) return null;
+  try {
+    const parsed = JSON.parse(readFileSync(statePath, "utf8")) as Partial<CommandCodeQualificationState>;
+    if (
+      parsed.schema !== "ashley.command_code.qualification.v1"
+      || parsed.activeVersion !== expectedVersion
+      || typeof parsed.qualifiedAt !== "string"
+      || parsed.cliWitness !== "passed"
+      || parsed.authenticationWitness !== "passed"
+      || parsed.sandboxWitness !== "passed"
+      || parsed.projectInspectionWitness !== "passed"
+    ) return null;
+    return parsed as CommandCodeQualificationState;
+  } catch {
+    return null;
+  }
+}
+
 export type CommandCodeErrorEvidence = {
   statusCode: number | null;
   errorType: string | null;
@@ -163,8 +222,12 @@ export type CommandCodeWorkerInput = {
   purpose: string;
   apiKey: string;
   binaryPath: string;
+  nodeExecutable?: string;
   bubblewrapPath: string;
-  pinnedVersion: string;
+  minimumVersion?: string;
+  /** @deprecated Compatibility alias; interpreted as a minimum version. */
+  pinnedVersion?: string;
+  qualificationStatePath?: string;
   dispatchers: ToolBridgeDispatchers;
   inspectionBase: Omit<ExecuteProjectInspectionV2Input, "request">;
   workspaceBase: Omit<ExecuteWorkspaceExperimentV2Input, "request">;
@@ -255,13 +318,16 @@ export type CommandCodeWorkerReadinessReason =
   | "worker_disabled"
   | "credentials_missing"
   | "binary_unavailable"
-  | "isolation_unavailable";
+  | "isolation_unavailable"
+  | "qualification_unavailable";
 
 export type CommandCodeWorkerReadiness = {
   enabled: boolean;
   apiKeyPresent: boolean;
   binaryReady: boolean;
   isolationAvailable: boolean;
+  qualificationAvailable: boolean;
+  runtimeVersion: string | null;
   ready: boolean;
   /** First established blocker in evaluation order; null when ready. */
   reason: CommandCodeWorkerReadinessReason | null;
@@ -278,28 +344,37 @@ export function commandCodeWorkerReadiness(input: {
   workerEnabled: boolean;
   apiKey: string;
   binaryPath: string;
-  pinnedVersion: string;
-  bubblewrapPath: string;
   nodeExecutable?: string;
+  minimumVersion?: string;
+  /** @deprecated Compatibility alias; interpreted as a minimum version. */
+  pinnedVersion?: string;
+  bubblewrapPath: string;
+  qualificationStatePath?: string;
 }): CommandCodeWorkerReadiness {
+  const minimumVersion = input.minimumVersion ?? input.pinnedVersion ?? COMMAND_CODE_WORKER_MIN_SUPPORTED_VERSION;
   const enabled = input.workerEnabled === true;
   const apiKeyPresent = input.apiKey.trim().length > 0;
   if (!enabled) {
-    return { enabled, apiKeyPresent, binaryReady: false, isolationAvailable: false, ready: false, reason: "worker_disabled" };
+    return { enabled, apiKeyPresent, binaryReady: false, isolationAvailable: false, qualificationAvailable: false, runtimeVersion: null, ready: false, reason: "worker_disabled" };
   }
   if (!apiKeyPresent) {
-    return { enabled, apiKeyPresent, binaryReady: false, isolationAvailable: false, ready: false, reason: "credentials_missing" };
+    return { enabled, apiKeyPresent, binaryReady: false, isolationAvailable: false, qualificationAvailable: false, runtimeVersion: null, ready: false, reason: "credentials_missing" };
   }
   const runtime = resolveCommandCodeRuntime(input.binaryPath, input.nodeExecutable);
-  const binaryReady = runtime !== null && runtime.version === input.pinnedVersion;
+  const binaryReady = runtime !== null && isCommandCodeVersionCompatible(runtime.version, minimumVersion);
   if (!binaryReady) {
-    return { enabled, apiKeyPresent, binaryReady, isolationAvailable: false, ready: false, reason: "binary_unavailable" };
+    return { enabled, apiKeyPresent, binaryReady, isolationAvailable: false, qualificationAvailable: false, runtimeVersion: runtime?.version ?? null, ready: false, reason: "binary_unavailable" };
   }
   const isolationAvailable = existsSync(input.bubblewrapPath);
   if (!isolationAvailable) {
-    return { enabled, apiKeyPresent, binaryReady, isolationAvailable, ready: false, reason: "isolation_unavailable" };
+    return { enabled, apiKeyPresent, binaryReady, isolationAvailable, qualificationAvailable: false, runtimeVersion: runtime.version, ready: false, reason: "isolation_unavailable" };
   }
-  return { enabled, apiKeyPresent, binaryReady, isolationAvailable, ready: true, reason: null };
+  const qualificationAvailable = input.qualificationStatePath === undefined
+    || readCommandCodeQualificationState(input.qualificationStatePath, runtime.version) !== null;
+  if (!qualificationAvailable) {
+    return { enabled, apiKeyPresent, binaryReady, isolationAvailable, qualificationAvailable, runtimeVersion: runtime.version, ready: false, reason: "qualification_unavailable" };
+  }
+  return { enabled, apiKeyPresent, binaryReady, isolationAvailable, qualificationAvailable, runtimeVersion: runtime.version, ready: true, reason: null };
 }
 
 /** Build the isolated CLI invocation; private prompt and API key stay off argv. */
@@ -882,6 +957,7 @@ function externalError(evidence: CommandCodeErrorEvidence): string {
 }
 
 export async function executeCommandCodeWorker(input: CommandCodeWorkerInput): Promise<ModeBWorkerResult> {
+  const minimumVersion = input.minimumVersion ?? input.pinnedVersion ?? COMMAND_CODE_WORKER_MIN_SUPPORTED_VERSION;
   const requestedSteps = isRecord(input.request)
     && typeof input.request.maxSteps === "number"
     && Number.isSafeInteger(input.request.maxSteps)
@@ -917,7 +993,6 @@ export async function executeCommandCodeWorker(input: CommandCodeWorkerInput): P
   if (!input.workerEnabled) return empty("worker_disabled");
   if (input.signal?.aborted) return empty("command_code_cancelled");
   if (input.gateOk === false) return empty(input.gateError ?? "worker_gate_denied");
-  if (input.pinnedVersion !== COMMAND_CODE_WORKER_PINNED_VERSION) return empty("command_code_pin_mismatch");
   if (!input.apiKey.trim()) return empty("command_code_credentials_missing");
   const parsed = validateModeBRequest({ kind: input.kind, request: input.request });
   if (!parsed.ok) return empty(parsed.error);
@@ -927,12 +1002,16 @@ export async function executeCommandCodeWorker(input: CommandCodeWorkerInput): P
   if (parsed.value.kind === MODE_B_DEVELOP && !workspaceId) return empty("missing_workspace");
 
   let transport = input.transport;
-  let commandCodeVersion = input.pinnedVersion;
+  let commandCodeVersion = input.pinnedVersion ?? minimumVersion;
   if (!transport) {
-    const runtime = resolveCommandCodeRuntime(input.binaryPath);
+    const runtime = resolveCommandCodeRuntime(input.binaryPath, input.nodeExecutable);
     if (!runtime) return empty("command_code_cli_unavailable");
-    if (runtime.version !== input.pinnedVersion) return empty("command_code_version_mismatch");
+    if (!isCommandCodeVersionCompatible(runtime.version, minimumVersion)) return empty("command_code_version_mismatch");
     if (!existsSync(input.bubblewrapPath)) return empty("worker_isolation_unavailable");
+    if (
+      input.qualificationStatePath !== undefined
+      && readCommandCodeQualificationState(input.qualificationStatePath, runtime.version) === null
+    ) return empty("command_code_qualification_missing");
     commandCodeVersion = runtime.version;
     transport = spawnCommandCodeTransport({ runtime, bubblewrapPath: input.bubblewrapPath, apiKey: input.apiKey });
   }

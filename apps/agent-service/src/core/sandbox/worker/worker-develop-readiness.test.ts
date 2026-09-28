@@ -66,6 +66,82 @@ describe("commandCodeWorkerReadiness (selected DEVELOP backend owner)", () => {
     }
   });
 
+  it("accepts a newer compatible Command Code build", () => {
+    const install = fakeRuntimeInstall("1.66.0");
+    try {
+      const ready = commandCodeWorkerReadiness({
+        workerEnabled: true,
+        apiKey: "key",
+        binaryPath: install.binaryPath,
+        minimumVersion: "1.64.0",
+        bubblewrapPath: install.bubblewrapPath,
+        nodeExecutable: install.nodeExecutable,
+      });
+      expect(ready).toMatchObject({
+        ready: true,
+        reason: null,
+        runtimeVersion: "1.66.0",
+        qualificationAvailable: true,
+      });
+    } finally {
+      install.cleanup();
+    }
+  });
+
+  it("requires matching durable qualification evidence when configured", () => {
+    const install = fakeRuntimeInstall("1.66.0");
+    const qualificationStatePath = join(install.root, "qualification.json");
+    try {
+      const input = {
+        workerEnabled: true,
+        apiKey: "key",
+        binaryPath: install.binaryPath,
+        minimumVersion: "1.64.0",
+        bubblewrapPath: install.bubblewrapPath,
+        nodeExecutable: install.nodeExecutable,
+        qualificationStatePath,
+      };
+      expect(commandCodeWorkerReadiness(input)).toMatchObject({
+        ready: false,
+        reason: "qualification_unavailable",
+        qualificationAvailable: false,
+        runtimeVersion: "1.66.0",
+      });
+
+      writeFileSync(qualificationStatePath, JSON.stringify({
+        schema: "ashley.command_code.qualification.v1",
+        activeVersion: "1.66.0",
+        qualifiedAt: "2026-09-28T06:00:00.000Z",
+        cliWitness: "passed",
+        authenticationWitness: "passed",
+        sandboxWitness: "passed",
+        projectInspectionWitness: "passed",
+      }), "utf8");
+      expect(commandCodeWorkerReadiness(input)).toMatchObject({
+        ready: true,
+        reason: null,
+        qualificationAvailable: true,
+      });
+
+      writeFileSync(qualificationStatePath, JSON.stringify({
+        schema: "ashley.command_code.qualification.v1",
+        activeVersion: "1.65.0",
+        qualifiedAt: "2026-09-28T06:00:00.000Z",
+        cliWitness: "passed",
+        authenticationWitness: "passed",
+        sandboxWitness: "passed",
+        projectInspectionWitness: "passed",
+      }), "utf8");
+      expect(commandCodeWorkerReadiness(input)).toMatchObject({
+        ready: false,
+        reason: "qualification_unavailable",
+        qualificationAvailable: false,
+      });
+    } finally {
+      install.cleanup();
+    }
+  });
+
   it("evaluates blockers in order and never fabricates later facts", () => {
     expect(commandCodeWorkerReadiness({
       workerEnabled: false,

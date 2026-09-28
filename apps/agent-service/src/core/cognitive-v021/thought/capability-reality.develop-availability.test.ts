@@ -23,10 +23,21 @@ function fakeReadyRuntime(pin = COMMAND_CODE_WORKER_PINNED_VERSION) {
   writeFileSync(join(packageDir, "package.json"), JSON.stringify({ name: "command-code", version: pin }), "utf8");
   const bubblewrap = join(root, "bwrap");
   writeFileSync(bubblewrap, "bwrap", "utf8");
+  const qualificationStatePath = join(root, "qualification.json");
+  writeFileSync(qualificationStatePath, JSON.stringify({
+    schema: "ashley.command_code.qualification.v1",
+    activeVersion: pin,
+    qualifiedAt: "2026-09-28T00:00:00.000Z",
+    cliWitness: "passed",
+    authenticationWitness: "passed",
+    sandboxWitness: "passed",
+    projectInspectionWitness: "passed",
+  }), "utf8");
   const install = {
     binaryPath: script,
     bubblewrapPath: bubblewrap,
     nodeExecutable: nodeBin,
+    qualificationStatePath,
     cleanup() {
       rmSync(root, { recursive: true, force: true });
     },
@@ -70,7 +81,8 @@ function readyBackendOptions() {
     commandCodeWorkerEnabled: true,
     commandCodeApiKey: "test-key",
     commandCodeBinaryPath: install.binaryPath,
-    commandCodePinnedVersion: COMMAND_CODE_WORKER_PINNED_VERSION,
+    commandCodeMinimumVersion: COMMAND_CODE_WORKER_PINNED_VERSION,
+    commandCodeQualificationStatePath: install.qualificationStatePath,
     commandCodeBubblewrapPath: install.bubblewrapPath,
     commandCodeNodeExecutable: install.nodeExecutable,
   };

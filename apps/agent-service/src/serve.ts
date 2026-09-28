@@ -84,6 +84,12 @@ import {
 } from "./core/sandbox/project-registry.js";
 import { isSandboxV2Available } from "./core/sandbox/v2-execution.js";
 import {
+  maintainCommandCode,
+  writeCommandCodeQualificationState,
+} from "./core/command-code/lifecycle.js";
+import { qualifyCommandCodeCandidate } from "./core/command-code/production-qualification.js";
+import { dirname, join } from "node:path";
+import {
   ownerBootstrapReadinessFor,
   type OwnerBootstrapAvailability,
 } from "./core/rollout/owner-bootstrap-readiness.js";
@@ -216,6 +222,59 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
       substrateAvailable: isSandboxV2Available(),
       lifecycleEnabled: env.sandboxEngineeringLifecycleEnabled,
     };
+    const qualificationProjectId = projectRegistry
+      .list()
+      .find((entry) => entry.enabled === true && entry.readAllowed === true)
+      ?.projectId;
+    const runCommandCodeMaintenance = async (): Promise<void> => {
+      if (!env.commandCodeUpdateEnabled) return;
+      try {
+        const result = await maintainCommandCode({
+          baseDir: dirname(env.commandCodeRuntimeRoot),
+          activeRootPath: env.commandCodeRuntimeRoot,
+          qualificationStatePath: env.commandCodeQualificationStatePath,
+          lifecycleStatePath: join(dirname(env.commandCodeQualificationStatePath), "command-code-lifecycle-state.json"),
+          minimumVersion: env.commandCodeMinimumVersion,
+          enabled: env.commandCodeUpdateEnabled,
+          apiKeyPresent: env.commandCodeApiKey.trim().length > 0,
+          qualifyCandidate: async (candidate) => {
+            if (!qualificationProjectId) return { ok: false, reason: "no_approved_project_for_worker_qualification" };
+            const qualification = await qualifyCommandCodeCandidate({
+              candidate,
+              apiKey: env.commandCodeApiKey,
+              bubblewrapPath: env.commandCodeBubblewrapPath,
+              minimumVersion: env.commandCodeMinimumVersion,
+              registry: projectRegistry,
+              nuclear,
+              sidecar,
+              ownerId,
+              masterMode: env.cognitionMode,
+              lifecycleEnabled: env.sandboxEngineeringLifecycleEnabled,
+              substrateAvailable: isSandboxV2Available(),
+              projectId: qualificationProjectId,
+            });
+            if (qualification.ok) {
+              writeCommandCodeQualificationState(env.commandCodeQualificationStatePath, candidate.version);
+            }
+            return qualification;
+          },
+        });
+        console.log(JSON.stringify({
+          component: "command-code-lifecycle",
+          status: result.status,
+          currentVersion: result.currentVersion,
+          latestVersion: result.latestVersion,
+          ...(result.reason ? { reason: result.reason } : {}),
+        }));
+      } catch (error) {
+        console.warn("[command-code-lifecycle] maintenance_failed", error instanceof Error ? error.message : "unknown");
+      }
+    };
+    await runCommandCodeMaintenance();
+    const commandCodeMaintenanceTimer = env.commandCodeUpdateEnabled
+      ? setInterval(() => void runCommandCodeMaintenance(), env.commandCodeUpdateIntervalHours * 60 * 60 * 1000)
+      : null;
+    commandCodeMaintenanceTimer?.unref();
     const ownerBootstrapAvailability: OwnerBootstrapAvailability = {
       commandCode: env.commandCodeApiKey.trim().length > 0,
       webFetch: webFetchProvider?.available === true,

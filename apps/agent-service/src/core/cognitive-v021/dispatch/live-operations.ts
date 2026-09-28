@@ -1077,8 +1077,10 @@ export function createV021LiveOperationExecutors(
       purpose,
       apiKey: env.commandCodeApiKey,
       binaryPath: env.commandCodeBinaryPath,
+      nodeExecutable: env.commandCodeNodePath,
       bubblewrapPath: env.commandCodeBubblewrapPath,
-      pinnedVersion: env.commandCodePinnedVersion,
+      minimumVersion: env.commandCodeMinimumVersion,
+      qualificationStatePath: env.commandCodeQualificationStatePath,
       dispatchers: {
         executeProjectInspectionV2: adapters.executeProjectInspectionV2,
         executeWorkspaceExperimentV2: adapters.executeWorkspaceExperimentV2,
@@ -1139,8 +1141,10 @@ export function createV021LiveOperationExecutors(
         workerEnabled: env.commandCodeWorkerEnabled,
         apiKey: env.commandCodeApiKey,
         binaryPath: env.commandCodeBinaryPath,
-        pinnedVersion: env.commandCodePinnedVersion,
+        nodeExecutable: env.commandCodeNodePath,
+        minimumVersion: env.commandCodeMinimumVersion,
         bubblewrapPath: env.commandCodeBubblewrapPath,
+        qualificationStatePath: env.commandCodeQualificationStatePath,
       });
       if (!readiness.ready) return false;
       return canOfferWorkerBackedProjectInspection({
@@ -1172,8 +1176,10 @@ export function createV021LiveOperationExecutors(
         workerEnabled: env.commandCodeWorkerEnabled,
         apiKey: env.commandCodeApiKey,
         binaryPath: env.commandCodeBinaryPath,
-        pinnedVersion: env.commandCodePinnedVersion,
+        nodeExecutable: env.commandCodeNodePath,
+        minimumVersion: env.commandCodeMinimumVersion,
         bubblewrapPath: env.commandCodeBubblewrapPath,
+        qualificationStatePath: env.commandCodeQualificationStatePath,
       });
       if (!readiness.ready) {
         return { available: false as const, reason: "worker_unavailable", terminal: true as const };
