@@ -312,7 +312,7 @@ function canonicalBoundary(
   ).all(conversationId) as Array<{ discord_message_id?: unknown }>;
   const snowflakes = rows
     .map((row) => row.discord_message_id)
-    .filter((value): value is string => typeof value === "string" && /^\d{17,20}$/.test(value));
+    .filter((value): value is string => typeof value === "string" && isDiscordSnowflake(value));
   if (snowflakes.length === 0) return null;
   return snowflakes.sort(compareTransportIds).at(-1) ?? null;
 }
@@ -370,7 +370,7 @@ export function ensureOwnerTransportCursor(
   sidecar.exec("BEGIN IMMEDIATE");
   try {
     const current = readCursor(sidecar, surfaceKey);
-    if (current && typeof current.after_message_id === "string") {
+    if (current && typeof current.after_message_id === "string" && isDiscordSnowflake(current.after_message_id)) {
       sidecar.exec("COMMIT");
       return {
         initialized: true,
@@ -393,11 +393,19 @@ export function ensureOwnerTransportCursor(
         reason: "canonical_boundary_unavailable",
       };
     }
-    sidecar.prepare(
-      `INSERT INTO owner_discord_transport_cursors
-         (surface_key, owner_id, channel_id, guild_id, after_message_id, updated_at_ms)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-    ).run(surfaceKey, ownerId, channelId, guildId, boundary, nowMs);
+    if (current) {
+      sidecar.prepare(
+        `UPDATE owner_discord_transport_cursors
+            SET owner_id = ?, channel_id = ?, guild_id = ?, after_message_id = ?, updated_at_ms = ?
+          WHERE surface_key = ?`,
+      ).run(ownerId, channelId, guildId, boundary, nowMs, surfaceKey);
+    } else {
+      sidecar.prepare(
+        `INSERT INTO owner_discord_transport_cursors
+           (surface_key, owner_id, channel_id, guild_id, after_message_id, updated_at_ms)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      ).run(surfaceKey, ownerId, channelId, guildId, boundary, nowMs);
+    }
     sidecar.exec("COMMIT");
     return { initialized: true, surfaceKey, afterMessageId: boundary };
   } catch (error) {
@@ -413,6 +421,10 @@ function compareTransportIds(left: string, right: string): number {
     return a < b ? -1 : a > b ? 1 : 0;
   }
   return left < right ? -1 : left > right ? 1 : 0;
+}
+
+function isDiscordSnowflake(value: string): boolean {
+  return /^\d{17,20}$/.test(value);
 }
 
 export function recordOwnerTransportHistoryPage(

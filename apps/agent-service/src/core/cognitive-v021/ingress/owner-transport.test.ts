@@ -79,6 +79,17 @@ describe("Owner Discord transport continuity", () => {
       ],
       finalFragmentReceivedAtMs: 1_700_000_002_000,
     }, { nowMs: 1_700_000_002_000 });
+    sidecar.prepare(
+      `INSERT INTO owner_discord_transport_cursors
+         (surface_key, owner_id, channel_id, guild_id, after_message_id, updated_at_ms)
+       VALUES (?, ?, ?, NULL, ?, ?)`,
+    ).run(
+      "owner-dm:owner-1:dm-channel-1",
+      "owner-1",
+      "dm-channel-1",
+      "phase-c-final-vision-valid-thread-20260928",
+      1_700_000_002_050,
+    );
 
     expect(ensureOwnerTransportCursor(sidecar, nuclear, {
       ownerId: "owner-1",
