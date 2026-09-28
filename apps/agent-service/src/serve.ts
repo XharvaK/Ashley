@@ -73,6 +73,20 @@ import type {
   CapabilityActivationReadiness,
   CapabilityName,
 } from "./core/rollout/capabilities.js";
+import {
+  canOfferBoundedOperation,
+  canOfferCandidateAuthorship,
+  canOfferCandidateVerification,
+  canOfferCandidateWorkspace,
+  canOfferPatchExport,
+  canOfferProjectInspection,
+  loadOperatorProjectReadRegistry,
+} from "./core/sandbox/project-registry.js";
+import { isSandboxV2Available } from "./core/sandbox/v2-execution.js";
+import {
+  ownerBootstrapReadinessFor,
+  type OwnerBootstrapAvailability,
+} from "./core/rollout/owner-bootstrap-readiness.js";
 
 export function createAgentInboxConsumerHandler(
   manager: Pick<AgentManager, "dispatchCognitiveEvent">,
@@ -195,42 +209,26 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
     const visionTransport = env.commandCodeApiKey
       ? createCommandCodeVisionTransport()
       : undefined;
+    const projectRegistry = loadOperatorProjectReadRegistry();
+    const sandboxGateOptions = {
+      registry: projectRegistry,
+      masterMode: env.cognitionMode,
+      substrateAvailable: isSandboxV2Available(),
+      lifecycleEnabled: env.sandboxEngineeringLifecycleEnabled,
+    };
+    const ownerBootstrapAvailability: OwnerBootstrapAvailability = {
+      commandCode: env.commandCodeApiKey.trim().length > 0,
+      webFetch: webFetchProvider?.available === true,
+      webSearch: webSearchProvider?.available === true,
+      projectInspection: canOfferProjectInspection(undefined, sandboxGateOptions),
+      projectExperimentation: canOfferCandidateWorkspace(undefined, sandboxGateOptions),
+      candidateVerification: canOfferCandidateVerification(undefined, sandboxGateOptions),
+      candidateAuthorship: canOfferCandidateAuthorship(undefined, sandboxGateOptions),
+      boundedOperation: canOfferBoundedOperation(undefined, sandboxGateOptions),
+      patchExport: canOfferPatchExport(undefined, sandboxGateOptions),
+    };
     manager.core.configureCapabilityActivationReadiness((capability: CapabilityName): CapabilityActivationReadiness => {
-      switch (capability) {
-        case "thought":
-        case "vision":
-        case "attachment_text":
-          return env.commandCodeApiKey.trim().length > 0
-            ? { ready: true }
-            : { ready: false, reason: "provider_unavailable" };
-        case "reading":
-        case "conversational_read":
-          return webFetchProvider?.available === true
-            ? { ready: true }
-            : { ready: false, reason: "provider_unavailable" };
-        case "web_search":
-          return webSearchProvider?.available === true
-            ? { ready: true }
-            : { ready: false, reason: "provider_unavailable" };
-        case "memory_evidence":
-        case "context_budget":
-        case "learned_autonomy":
-        case "cognitive_graduation":
-        case "relational_graduation":
-        case "external_observe":
-        case "external_prepare":
-        case "external_private":
-        case "external_public":
-        case "project_inspection":
-        case "project_experimentation":
-        case "candidate_verification":
-        case "candidate_authorship":
-        case "bounded_operation":
-        case "patch_export":
-          return { ready: false, reason: "owner_grant_required" };
-        default:
-          return { ready: true };
-      }
+      return ownerBootstrapReadinessFor(capability, ownerBootstrapAvailability);
     });
     const capabilityReality = getCapabilityReality(nuclear, {
       webFetchProvider,
