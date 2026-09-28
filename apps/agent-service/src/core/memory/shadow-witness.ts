@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import type { Decision, EvidenceRef, Motivation } from "../types.js";
+import type { CycleTriggerKind } from "../cognitive-v021/types.js";
+import type { ProjectedThoughtInput } from "../cognitive-v021/thought/projection.js";
 import {
   getAssertion,
   type MemoryAssertion,
@@ -113,6 +115,85 @@ export type C1ShadowWitnessRecordResult =
   | C1EventResult
   | { recorded: false; reason: "decision_id_required" };
 
+export type C1V021ProviderBoundRef = {
+  kind:
+    | "raw_conversation"
+    | "working_context"
+    | "desk"
+    | "occupancy"
+    | "observation"
+    | "retrieval_memory"
+    | "retrieval_conversation"
+    | "retrieval_support"
+    | "trigger";
+  ref: string;
+};
+
+export type C1V021ProviderBoundBasis = {
+  cycleId: string;
+  generation: number;
+  triggerKind: CycleTriggerKind;
+  semanticPass: number;
+  semanticProjectionHash: string;
+  dispatchMessagesHash: string;
+  refs: readonly C1V021ProviderBoundRef[];
+  memoryRefs: readonly string[];
+};
+
+export type C1V021NativeWitnessInput = {
+  ownerId: string;
+  acceptedResult: {
+    settlementId: string;
+    cycleId: string;
+    generation: number;
+    triggerKind: CycleTriggerKind;
+    semanticResultHash: string;
+  };
+  providerBasis: C1V021ProviderBoundBasis;
+  observedAt: string;
+};
+
+export type C1V021ShadowReceipt = {
+  schema: "c1-shadow-receipt/v2";
+  settlementId: string;
+  cycleId: string;
+  generation: number;
+  semanticPass: number;
+  triggerKind: CycleTriggerKind;
+  trigger: "reactive" | "proactive";
+  currentnessAuthority: "mem_facts";
+  decisionClass: C1ShadowDecisionClass;
+  errorCode?: C1ShadowErrorCode;
+  qualifies: boolean;
+  sourceCount: number;
+  countsBySourceType: Record<C1ShadowSourceType, number>;
+  countsByAction: Partial<Record<C1ShadowAction, number>>;
+  countsByReason: Partial<Record<C1ShadowReason, number>>;
+  candidateDigestSha256: string;
+  semanticProjectionHash: string;
+  dispatchMessagesHash: string;
+  semanticResultHash: string;
+  providerBoundRefDigestSha256: string;
+  providerBoundRefCount: number;
+  sampledProviderBoundRefs: C1V021ProviderBoundRef[];
+  sampledSources: C1ShadowReceiptV1["sampledSources"];
+  omittedSourceCount: number;
+  omittedProviderBoundRefCount: number;
+};
+
+export type C1V021NativeWitness = C1V021ShadowReceipt & {
+  sourceKey: string;
+};
+
+export type C1V021NativeWitnessBuildResult = {
+  witness: C1V021NativeWitness | null;
+  diagnostic: C1ShadowErrorCode | null;
+};
+
+export type C1V021NativeWitnessRecordResult =
+  | C1EventResult
+  | { recorded: false; reason: "native_identity_required" };
+
 type Row = Record<string, unknown>;
 
 type Candidate = {
@@ -180,8 +261,108 @@ function digest(value: unknown): string {
   return createHash("sha256").update(canonical(value), "utf8").digest("hex");
 }
 
+export function c1V021SemanticResultHash(
+  settlement: object,
+  acceptedSettlementId: string,
+): string {
+  return digest({
+    ...(settlement as Record<string, unknown>),
+    settlementId: acceptedSettlementId,
+  });
+}
+
+export function c1V021TriggerClass(
+  triggerKind: CycleTriggerKind,
+): "reactive" | "proactive" {
+  switch (triggerKind) {
+    case "owner_message":
+    case "external_message":
+      return "reactive";
+    case "idle_opportunity":
+    case "commitment_due":
+    case "subscription_item":
+    case "future_trigger_due":
+    case "observation_or_receipt":
+    case "recovery":
+      return "proactive";
+    default: {
+      const exhaustive: never = triggerKind;
+      return exhaustive;
+    }
+  }
+}
+
+function nonEmptyRef(value: unknown): string | null {
+  return typeof value === "string" && value.length > 0 && !/[\r\n]/.test(value)
+    ? value
+    : null;
+}
+
+function providerBoundRefsForProjection(
+  projected: ProjectedThoughtInput,
+): { refs: C1V021ProviderBoundRef[]; memoryRefs: string[] } {
+  const refs: C1V021ProviderBoundRef[] = [];
+  const memoryRefs: string[] = [];
+  const seen = new Set<string>();
+  const add = (kind: C1V021ProviderBoundRef["kind"], value: unknown): void => {
+    const ref = nonEmptyRef(value);
+    if (!ref) return;
+    const key = `${kind}:${ref}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    refs.push({ kind, ref });
+  };
+
+  for (const row of projected.rawConversation) add("raw_conversation", row.rowId);
+  for (const item of projected.workingContext) add("working_context", item.id);
+  for (const item of projected.deskEntries ?? []) add("desk", item.id);
+  for (const item of projected.occupancy) add("occupancy", item.concernId);
+  for (const item of projected.observations) add("observation", item.observationId);
+  add("trigger", projected.trigger.ref);
+  for (const hit of projected.retrieval.hits) {
+    const kind = hit.sourceStore === "live_memory" || hit.sourceStore === "quarantined_memory"
+      ? "retrieval_memory"
+      : "retrieval_conversation";
+    add(kind, hit.ref);
+    if (kind === "retrieval_memory") {
+      const ref = nonEmptyRef(hit.ref);
+      if (ref && !memoryRefs.includes(ref)) memoryRefs.push(ref);
+    }
+    const supportRefs = (hit as unknown as { supportRefs?: unknown }).supportRefs;
+    if (Array.isArray(supportRefs)) {
+      for (const supportRef of supportRefs) add("retrieval_support", supportRef);
+    }
+  }
+  return { refs, memoryRefs };
+}
+
+export function c1V021ProviderBoundBasisFromProjection(
+  projected: ProjectedThoughtInput,
+  hashes: {
+    semanticProjectionHash: string;
+    dispatchMessagesHash: string;
+  },
+  semanticPass: number,
+): C1V021ProviderBoundBasis {
+  const refs = providerBoundRefsForProjection(projected);
+  return {
+    cycleId: projected.cycleId,
+    generation: projected.generation,
+    triggerKind: projected.trigger.kind,
+    semanticPass,
+    semanticProjectionHash: hashes.semanticProjectionHash,
+    dispatchMessagesHash: hashes.dispatchMessagesHash,
+    refs: refs.refs,
+    memoryRefs: refs.memoryRefs,
+  };
+}
+
 function sourceKey(decisionId: number): string {
   return `c1-shadow:v1:decision:${decisionId}`;
+}
+
+function nativeSourceKey(settlementId: string): string {
+  return `c1-shadow:v2:settlement:${settlementId}`;
 }
 
 function uniqueNumbers(values: number[]): number[] {
@@ -897,4 +1078,217 @@ export function recordC1ShadowWitness(
     occurredAt: input.observedAt,
   };
   return recordMemoryEvidenceLiveShadow(db, witnessInput, now);
+}
+
+type NativeMemoryRequest =
+  | { request: CandidateRequest }
+  | { unmappedRef: string };
+
+function nativeMemoryRequestFromRef(
+  db: DatabaseSync,
+  ownerId: string,
+  ref: string,
+): NativeMemoryRequest {
+  const direct = /^(?:legacy:)?(fact|episode|mind_state|hot_message|message):([1-9][0-9]*)$/.exec(ref);
+  if (direct) {
+    const sourceType = direct[1] === "message" ? "hot_message" : direct[1] as C1ShadowSourceType;
+    return {
+      request: {
+        sourceType,
+        sourceId: Number(direct[2]),
+        required: true,
+      },
+    };
+  }
+
+  const assertionRef = /^(?:legacy:)?assertion:([A-Za-z0-9_-]+)$/.exec(ref);
+  if (assertionRef) {
+    const rawId = assertionRef[1];
+    const numericId = positiveId(rawId);
+    const row = numericId === null
+      ? db.prepare(
+        `SELECT legacy_fact_id, legacy_episode_id, source_message_id
+         FROM memory_assertions
+         WHERE entity_uuid = ? AND owner_id = ? LIMIT 1`,
+      ).get(rawId, ownerId)
+      : db.prepare(
+        `SELECT legacy_fact_id, legacy_episode_id, source_message_id
+         FROM memory_assertions
+         WHERE id = ? AND owner_id = ? LIMIT 1`,
+      ).get(numericId, ownerId);
+    if (isRow(row)) {
+      const factId = positiveId(row.legacy_fact_id);
+      if (factId !== null) return { request: { sourceType: "fact", sourceId: factId, required: true } };
+      const episodeId = positiveId(row.legacy_episode_id);
+      if (episodeId !== null) return { request: { sourceType: "episode", sourceId: episodeId, required: true } };
+      const messageId = positiveId(row.source_message_id);
+      if (messageId !== null) return { request: { sourceType: "hot_message", sourceId: messageId, required: true } };
+    }
+  }
+  return { unmappedRef: ref };
+}
+
+function nativeErrorReceipt(
+  input: C1V021NativeWitnessInput,
+  trigger: "reactive" | "proactive",
+  errorCode: C1ShadowErrorCode,
+): C1V021ShadowReceipt {
+  const basis = input.providerBasis;
+  const providerRefs = [...basis.refs].slice(0, 12);
+  return {
+    schema: "c1-shadow-receipt/v2",
+    settlementId: input.acceptedResult.settlementId,
+    cycleId: input.acceptedResult.cycleId,
+    generation: input.acceptedResult.generation,
+    semanticPass: basis.semanticPass,
+    triggerKind: input.acceptedResult.triggerKind,
+    trigger,
+    currentnessAuthority: "mem_facts",
+    decisionClass: "evaluation_error",
+    errorCode,
+    qualifies: false,
+    sourceCount: 0,
+    countsBySourceType: emptyCounts(SOURCE_TYPES),
+    countsByAction: {},
+    countsByReason: {},
+    candidateDigestSha256: digest({ errorCode }),
+    semanticProjectionHash: basis.semanticProjectionHash,
+    dispatchMessagesHash: basis.dispatchMessagesHash,
+    semanticResultHash: input.acceptedResult.semanticResultHash,
+    providerBoundRefDigestSha256: digest(basis.refs),
+    providerBoundRefCount: basis.refs.length,
+    sampledProviderBoundRefs: providerRefs,
+    sampledSources: [],
+    omittedSourceCount: 0,
+    omittedProviderBoundRefCount: Math.max(0, basis.refs.length - providerRefs.length),
+  };
+}
+
+function nativeReceiptForCandidates(
+  input: C1V021NativeWitnessInput,
+  trigger: "reactive" | "proactive",
+  candidates: Candidate[],
+  unmappedRefs: string[],
+): C1V021ShadowReceipt {
+  const base = receiptForCandidates(0, trigger, candidates);
+  const orderedRefs = [...input.providerBasis.refs].sort((left, right) =>
+    canonical(left).localeCompare(canonical(right)));
+  const sampledProviderBoundRefs = orderedRefs.slice(0, 12);
+  const sourceCount = candidates.length + unmappedRefs.length;
+  const decisionClass = unmappedRefs.length > 0
+    ? "unmapped_fail_closed"
+    : base.decisionClass;
+  const qualifies = decisionClass !== "no_c1_material"
+    && decisionClass !== "unmapped_fail_closed"
+    && decisionClass !== "evaluation_error";
+  const receipt: C1V021ShadowReceipt = {
+    schema: "c1-shadow-receipt/v2",
+    settlementId: input.acceptedResult.settlementId,
+    cycleId: input.acceptedResult.cycleId,
+    generation: input.acceptedResult.generation,
+    semanticPass: input.providerBasis.semanticPass,
+    triggerKind: input.acceptedResult.triggerKind,
+    trigger,
+    currentnessAuthority: "mem_facts",
+    decisionClass,
+    qualifies,
+    sourceCount,
+    countsBySourceType: base.countsBySourceType,
+    countsByAction: base.countsByAction,
+    countsByReason: base.countsByReason,
+    candidateDigestSha256: digest({
+      candidates: base.candidateDigestSha256,
+      unmappedRefs: unmappedRefs.map((ref) => digest(ref)),
+    }),
+    semanticProjectionHash: input.providerBasis.semanticProjectionHash,
+    dispatchMessagesHash: input.providerBasis.dispatchMessagesHash,
+    semanticResultHash: input.acceptedResult.semanticResultHash,
+    providerBoundRefDigestSha256: digest(input.providerBasis.refs),
+    providerBoundRefCount: input.providerBasis.refs.length,
+    sampledProviderBoundRefs,
+    sampledSources: base.sampledSources,
+    omittedSourceCount: Math.max(0, candidates.length - base.sampledSources.length),
+    omittedProviderBoundRefCount: Math.max(0, orderedRefs.length - sampledProviderBoundRefs.length),
+  };
+  if (Buffer.byteLength(canonical(receipt), "utf8") > 4000) {
+    return nativeErrorReceipt(input, trigger, "receipt_overflow");
+  }
+  return receipt;
+}
+
+function nativeWitnessFromReceipt(
+  input: C1V021NativeWitnessInput,
+  receipt: C1V021ShadowReceipt,
+): C1V021NativeWitness {
+  return {
+    ...receipt,
+    sourceKey: nativeSourceKey(input.acceptedResult.settlementId),
+  };
+}
+
+export function buildC1V021NativeShadowWitness(
+  db: DatabaseSync,
+  input: C1V021NativeWitnessInput,
+): C1V021NativeWitnessBuildResult {
+  const settlementId = nonEmptyRef(input.acceptedResult.settlementId);
+  if (!settlementId) return { witness: null, diagnostic: "invariant_violation" };
+  const trigger = c1V021TriggerClass(input.acceptedResult.triggerKind);
+  const basis = input.providerBasis;
+  const validIdentity = basis.cycleId === input.acceptedResult.cycleId
+    && basis.generation === input.acceptedResult.generation
+    && basis.triggerKind === input.acceptedResult.triggerKind
+    && Number.isSafeInteger(basis.semanticPass)
+    && basis.semanticPass > 0
+    && nonEmptyRef(basis.semanticProjectionHash) !== null
+    && nonEmptyRef(basis.dispatchMessagesHash) !== null
+    && nonEmptyRef(input.acceptedResult.semanticResultHash) !== null;
+  if (!validIdentity) {
+    const receipt = nativeErrorReceipt(input, trigger, "invariant_violation");
+    return { witness: nativeWitnessFromReceipt(input, receipt), diagnostic: receipt.errorCode ?? null };
+  }
+  try {
+    const nativeRequests = [...new Set(basis.memoryRefs)]
+      .map((ref) => nativeMemoryRequestFromRef(db, input.ownerId, ref));
+    const unmappedRefs = nativeRequests
+      .filter((item): item is { unmappedRef: string } => "unmappedRef" in item)
+      .map((item) => item.unmappedRef);
+    const requests = nativeRequests
+      .filter((item): item is { request: CandidateRequest } => "request" in item)
+      .map((item) => item.request);
+    if (requests.length + unmappedRefs.length > 32) {
+      const receipt = nativeErrorReceipt(input, trigger, "candidate_overflow");
+      return { witness: nativeWitnessFromReceipt(input, receipt), diagnostic: receipt.errorCode ?? null };
+    }
+    const candidates = requests
+      .map((request) => evaluateCandidate(db, input.ownerId, request, input.observedAt))
+      .filter((candidate): candidate is Candidate => candidate !== null);
+    const receipt = nativeReceiptForCandidates(input, trigger, candidates, unmappedRefs);
+    return {
+      witness: nativeWitnessFromReceipt(input, receipt),
+      diagnostic: receipt.errorCode ?? null,
+    };
+  } catch {
+    const receipt = nativeErrorReceipt(input, trigger, "database_read_error");
+    return { witness: nativeWitnessFromReceipt(input, receipt), diagnostic: receipt.errorCode ?? null };
+  }
+}
+
+export function recordC1V021NativeShadowWitness(
+  db: DatabaseSync,
+  input: C1V021NativeWitnessInput,
+  now = new Date(),
+): C1V021NativeWitnessRecordResult {
+  const built = buildC1V021NativeShadowWitness(db, input);
+  if (!built.witness) return { recorded: false, reason: "native_identity_required" };
+  const { sourceKey: _sourceKey, ...receipt } = built.witness;
+  return recordMemoryEvidenceLiveShadow(db, {
+    ownerId: input.ownerId,
+    sourceKey: nativeSourceKey(input.acceptedResult.settlementId),
+    decisionClass: receipt.decisionClass,
+    qualifies: receipt.qualifies,
+    trigger: receipt.trigger,
+    sourceCount: Math.min(32, Math.max(0, receipt.sourceCount)),
+    detail: receipt,
+    occurredAt: input.observedAt,
+  }, now);
 }

@@ -158,6 +158,11 @@ import { getWake } from "../wake/ledger.js";
 import { resolveOriginProfile } from "../cycle/origin-profile.js";
 import { resolveRepairContinuityRecovery } from "../retry/owner-recovery.js";
 import { admitOwnerSuppliedClaim, runGovernedAdmissionCatchup } from "../memory/admission.js";
+import {
+  c1V021ProviderBoundBasisFromProjection,
+  c1V021SemanticResultHash,
+  recordC1V021NativeShadowWitness,
+} from "../../memory/shadow-witness.js";
 import { hasStructuredCurrentnessEntitlement } from "../authority/check.js";
 import {
   buildProviderS5,
@@ -4390,6 +4395,36 @@ export async function runCognitiveCycle(
         ownerObligationResolution: ownerResolutionFor("rejected"),
         ...(publicationReason ? { publicationReason } : {}),
       });
+    }
+    if (deps.origin !== "shadow" && publication.settlementId !== null) {
+      try {
+        // C1 observes only the accepted native settlement and the exact
+        // allocated projection already used by Thought. It has no authority
+        // over publication, delivery, or cognition, and failures remain
+        // observational.
+        recordC1V021NativeShadowWitness(nuclear, {
+          ownerId: settlement.occupantId,
+          acceptedResult: {
+            settlementId: publication.settlementId,
+            cycleId: settlement.cycleId,
+            generation: settlement.generation,
+            triggerKind: originProfile.triggerKind,
+            semanticResultHash: c1V021SemanticResultHash(
+              settlement,
+              publication.settlementId,
+            ),
+          },
+          providerBasis: c1V021ProviderBoundBasisFromProjection(
+            allocated.projected,
+            allocated.hashes,
+            pass,
+          ),
+          observedAt: new Date(deps.nowMs()).toISOString(),
+        }, new Date(deps.nowMs()));
+      } catch {
+        // Publication is authoritative. C1 qualification observation must
+        // never mutate or invalidate an otherwise accepted Thought result.
+      }
     }
     if (deps.origin !== "shadow" && (settlement.durableNominations ?? []).length > 0) {
       try {

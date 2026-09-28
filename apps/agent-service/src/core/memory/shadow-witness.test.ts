@@ -12,8 +12,23 @@ import {
 import { upsertMindStateItem } from "../state/mind-items.js";
 import {
   buildC1ShadowWitness,
+  buildC1V021NativeShadowWitness,
+  c1V021TriggerClass,
+  recordC1V021NativeShadowWitness,
   type C1ShadowWitnessInput,
+  type C1V021NativeWitnessInput,
 } from "./shadow-witness.js";
+import {
+  currentContractId,
+  promoteCapability,
+  recordIsolatedEvaluation,
+  recordLiveShadowEvent,
+  recordRecallLiveCutover,
+} from "../rollout/capabilities.js";
+import { startDeterministicRecallEpoch } from "../rollout/recall-epoch-test-util.js";
+import {
+  startMemoryEvidenceQualificationEpoch,
+} from "../rollout/memory-evidence-qualification-epoch.js";
 
 const OWNER_ID = "doc";
 const AT = "2026-08-20T12:00:00.000Z";
@@ -229,6 +244,69 @@ function receiptFor(
   ));
   if (!result.witness) throw new Error("shadow_witness_receipt_missing");
   return result.witness;
+}
+
+function startNativeC1Epoch(db: DatabaseSync): void {
+  const start = new Date("2026-08-01T00:00:00.000Z");
+  startDeterministicRecallEpoch(db, "native-c1-recall");
+  recordIsolatedEvaluation(db, "recall", {
+    releaseId: currentContractId(),
+    seeds: 3,
+    passed: true,
+    sourceKey: "native-c1-recall:eval",
+    occurredAt: start.toISOString(),
+  });
+  for (let index = 0; index < 25; index += 1) {
+    recordLiveShadowEvent(db, "recall", `native-c1-recall:shadow:${index}`, {
+      releaseId: currentContractId(),
+      occurredAt: new Date(start.getTime() + index * (7 * 86_400_000 / 24)).toISOString(),
+    });
+  }
+  expect(promoteCapability(db, "recall", {
+    releaseId: currentContractId(),
+    authorizedBy: OWNER_ID,
+  })).toMatchObject({ ok: true, state: "active" });
+  expect(recordRecallLiveCutover(db, OWNER_ID, {
+    authorizedBy: OWNER_ID,
+    masterMode: "observe",
+  })).toMatchObject({ success: true });
+  expect(startMemoryEvidenceQualificationEpoch(db, {
+    ownerId: OWNER_ID,
+    startRequestKey: "native-c1-epoch",
+    predecessorEpochId: null,
+  }, start)).toMatchObject({ ok: true, created: true });
+}
+
+function nativeInput(
+  triggerKind: C1V021NativeWitnessInput["acceptedResult"]["triggerKind"] = "owner_message",
+  settlementId = "settlement-native-1",
+  overrides: Partial<C1V021NativeWitnessInput["providerBasis"]> = {},
+): C1V021NativeWitnessInput {
+  return {
+    ownerId: OWNER_ID,
+    acceptedResult: {
+      settlementId,
+      cycleId: "cycle-native-1",
+      generation: 1,
+      triggerKind,
+      semanticResultHash: "semantic-result-hash",
+    },
+    providerBasis: {
+      cycleId: "cycle-native-1",
+      generation: 1,
+      triggerKind,
+      semanticPass: 1,
+      semanticProjectionHash: "semantic-projection-hash",
+      dispatchMessagesHash: "dispatch-messages-hash",
+      refs: [
+        { kind: "raw_conversation", ref: "conversation-row-1" },
+        { kind: "retrieval_memory", ref: "native-memory-ref-1" },
+      ],
+      memoryRefs: [],
+      ...overrides,
+    },
+    observedAt: AT,
+  };
 }
 
 describe("C1 semantic shadow witness", () => {
@@ -516,6 +594,152 @@ describe("C1 semantic shadow witness", () => {
       )).toBe(true);
     } finally {
       db.close();
+    }
+  });
+});
+
+describe("C1 v0.2.1-native shadow witness", () => {
+  it("records accepted reactive and proactive settlements without legacy Decision or Motivation rows", () => {
+    const db = openDb();
+    try {
+      startNativeC1Epoch(db);
+      const before = db.prepare(
+        "SELECT (SELECT COUNT(*) FROM decision_log) AS decisions, (SELECT COUNT(*) FROM motivations) AS motivations",
+      ).get() as { decisions: number; motivations: number };
+
+      const reactive = recordC1V021NativeShadowWitness(db, nativeInput("owner_message", "settlement-native-reactive"));
+      const proactive = recordC1V021NativeShadowWitness(
+        db,
+        nativeInput("idle_opportunity", "settlement-native-proactive"),
+      );
+      expect(reactive).toEqual({ recorded: true });
+      expect(proactive).toEqual({ recorded: true });
+
+      const after = db.prepare(
+        "SELECT (SELECT COUNT(*) FROM decision_log) AS decisions, (SELECT COUNT(*) FROM motivations) AS motivations",
+      ).get() as { decisions: number; motivations: number };
+      expect(after).toEqual(before);
+      expect(db.prepare(
+        `SELECT source_key, decision_class, qualifies, trigger, source_count
+         FROM memory_evidence_qualification_events
+         WHERE kind = 'live_shadow' ORDER BY source_key`,
+      ).all()).toEqual([
+        {
+          source_key: "c1-shadow:v2:settlement:settlement-native-proactive",
+          decision_class: "no_c1_material",
+          qualifies: 0,
+          trigger: "proactive",
+          source_count: 0,
+        },
+        {
+          source_key: "c1-shadow:v2:settlement:settlement-native-reactive",
+          decision_class: "no_c1_material",
+          qualifies: 0,
+          trigger: "reactive",
+          source_count: 0,
+        },
+      ]);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("is replay-idempotent and cannot relabel one settlement as both triggers", () => {
+    const db = openDb();
+    try {
+      startNativeC1Epoch(db);
+      const input = nativeInput("owner_message", "settlement-native-replay");
+      expect(recordC1V021NativeShadowWitness(db, input)).toEqual({ recorded: true });
+      expect(recordC1V021NativeShadowWitness(db, input)).toEqual({ recorded: false, reason: "idempotent" });
+      const relabeled = nativeInput("idle_opportunity", "settlement-native-replay");
+      expect(recordC1V021NativeShadowWitness(db, relabeled)).toEqual({
+        recorded: false,
+        reason: "source_key_collision",
+      });
+      expect(db.prepare(
+        "SELECT COUNT(*) AS count FROM memory_evidence_qualification_events WHERE kind = 'live_shadow'",
+      ).get()).toEqual({ count: 1 });
+    } finally {
+      db.close();
+    }
+  });
+
+  it("binds the receipt to the actual provider basis, preserves hashes, and fails closed for an unmapped memory ref", () => {
+    const db = openDb();
+    try {
+      const factRecord = fact(db, "native-provider-fact");
+      const input = nativeInput("owner_message", "settlement-native-provider", {
+        refs: [
+          { kind: "raw_conversation", ref: "conversation-row-2" },
+          { kind: "retrieval_memory", ref: `legacy:fact:${factRecord.factId}` },
+        ],
+        memoryRefs: [`legacy:fact:${factRecord.factId}`],
+      });
+      const built = buildC1V021NativeShadowWitness(db, input);
+      expect(built.witness).toMatchObject({
+        sourceKey: "c1-shadow:v2:settlement:settlement-native-provider",
+        schema: "c1-shadow-receipt/v2",
+        decisionClass: "same_current",
+        qualifies: true,
+        sourceCount: 1,
+        semanticProjectionHash: "semantic-projection-hash",
+        dispatchMessagesHash: "dispatch-messages-hash",
+        providerBoundRefCount: 2,
+        sampledProviderBoundRefs: expect.arrayContaining([
+          { kind: "retrieval_memory", ref: `legacy:fact:${factRecord.factId}` },
+        ]),
+      });
+      expect(JSON.stringify(built.witness)).not.toContain("native-provider-fact value");
+
+      const blocked = buildC1V021NativeShadowWitness(db, nativeInput("owner_message", "settlement-native-blocked", {
+        refs: [{ kind: "retrieval_memory", ref: "native-assertion-not-mappable" }],
+        memoryRefs: ["native-assertion-not-mappable"],
+      }));
+      expect(blocked.witness).toMatchObject({
+        decisionClass: "unmapped_fail_closed",
+        qualifies: false,
+        sourceCount: 1,
+      });
+    } finally {
+      db.close();
+    }
+  });
+
+  it("fails closed on provider-basis identity mismatch and records nothing without a current epoch", () => {
+    const db = openDb();
+    try {
+      const mismatch = buildC1V021NativeShadowWitness(db, nativeInput("owner_message", "settlement-native-mismatch", {
+        cycleId: "different-cycle",
+      }));
+      expect(mismatch.witness).toMatchObject({
+        decisionClass: "evaluation_error",
+        qualifies: false,
+        errorCode: "invariant_violation",
+      });
+      expect(recordC1V021NativeShadowWitness(db, nativeInput())).toEqual({
+        recorded: false,
+        reason: "no_current_epoch",
+      });
+      expect(db.prepare(
+        "SELECT COUNT(*) AS count FROM memory_evidence_qualification_events WHERE kind = 'live_shadow'",
+      ).get()).toEqual({ count: 0 });
+    } finally {
+      db.close();
+    }
+  });
+
+  it("maps only owner/external triggers to reactive and keeps initiative/observation triggers proactive", () => {
+    expect(c1V021TriggerClass("owner_message")).toBe("reactive");
+    expect(c1V021TriggerClass("external_message")).toBe("reactive");
+    for (const trigger of [
+      "idle_opportunity",
+      "commitment_due",
+      "subscription_item",
+      "future_trigger_due",
+      "observation_or_receipt",
+      "recovery",
+    ] as const) {
+      expect(c1V021TriggerClass(trigger)).toBe("proactive");
     }
   });
 });

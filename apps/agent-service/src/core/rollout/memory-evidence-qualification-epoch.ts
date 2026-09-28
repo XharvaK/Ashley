@@ -306,7 +306,8 @@ function boundedDetail(value: Record<string, unknown>): string | null {
 }
 
 function liveSourceKeyValid(sourceKey: string): boolean {
-  return /^c1-shadow:v1:decision:[1-9][0-9]*$/.test(sourceKey);
+  return /^c1-shadow:v1:decision:[1-9][0-9]*$/.test(sourceKey)
+    || /^c1-shadow:v2:settlement:[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(sourceKey);
 }
 
 function evaluationSourceKeyValid(sourceKey: string): boolean {
