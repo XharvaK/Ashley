@@ -16,6 +16,13 @@ import {
   createExternalCaptureHandler,
   isExternalSocialCaptureEnabled,
 } from "./core/cognitive-v021/ingress/http.js";
+import {
+  createOwnerTransportCaptureHandler,
+  createOwnerTransportHistoryPageHandler,
+  createOwnerTransportMarkAdmittedHandler,
+  createOwnerTransportPendingHandler,
+  createOwnerTransportStateHandler,
+} from "./core/cognitive-v021/ingress/owner-transport.js";
 import { getCognitiveHealthSnapshot } from "./core/cognitive-v021/dispatch/health.js";
 import {
   CURIOSITY_TTL_MS,
@@ -1941,6 +1948,78 @@ export function createServer(
           enabled: isExternalSocialCaptureEnabled,
           projectSystemNotice: options.projectSystemNotice,
         })(req, res, next);
+      } catch (err) {
+        const { status, body } = toErrorResponse(err);
+        res.status(status).json(body);
+      }
+    },
+  );
+
+  const ownerTransportHttpOptions = () => ({
+    sidecar: getCognitiveSidecar(),
+    nuclearDb: manager.core.getDatabase(),
+    authorizeOwner: (userId: string) => { requireOwner(userId); },
+    authorizeBotService: (req: express.Request) => { requireBotService(req); },
+  });
+
+  app.post(
+    "/chat/owner-transport/capture",
+    (req, res, next) => {
+      try {
+        requireReady();
+        createOwnerTransportCaptureHandler(ownerTransportHttpOptions())(req, res, next);
+      } catch (err) {
+        const { status, body } = toErrorResponse(err);
+        res.status(status).json(body);
+      }
+    },
+  );
+
+  app.get(
+    "/chat/owner-transport/state",
+    (req, res, next) => {
+      try {
+        requireReady();
+        createOwnerTransportStateHandler(ownerTransportHttpOptions())(req, res, next);
+      } catch (err) {
+        const { status, body } = toErrorResponse(err);
+        res.status(status).json(body);
+      }
+    },
+  );
+
+  app.post(
+    "/chat/owner-transport/history-page",
+    (req, res, next) => {
+      try {
+        requireReady();
+        createOwnerTransportHistoryPageHandler(ownerTransportHttpOptions())(req, res, next);
+      } catch (err) {
+        const { status, body } = toErrorResponse(err);
+        res.status(status).json(body);
+      }
+    },
+  );
+
+  app.get(
+    "/chat/owner-transport/pending",
+    (req, res, next) => {
+      try {
+        requireReady();
+        createOwnerTransportPendingHandler(ownerTransportHttpOptions())(req, res, next);
+      } catch (err) {
+        const { status, body } = toErrorResponse(err);
+        res.status(status).json(body);
+      }
+    },
+  );
+
+  app.post(
+    "/chat/owner-transport/admitted",
+    (req, res, next) => {
+      try {
+        requireReady();
+        createOwnerTransportMarkAdmittedHandler(ownerTransportHttpOptions())(req, res, next);
       } catch (err) {
         const { status, body } = toErrorResponse(err);
         res.status(status).json(body);

@@ -1,8 +1,10 @@
 import type { Message } from "discord.js";
 import {
   captureExternalChat,
+  captureOwnerTransport as captureOwnerDiscordMessage,
   ingressChat,
   ingressExternalBatch,
+  markOwnerTransportAdmitted,
   pauseProactiveRemote,
   resumeProactiveRemote,
   type ExternalBatchResult,
@@ -35,22 +37,36 @@ export type MessageIngressChat = (
     attachments?: Intake["attachments"];
     inboundDiscordMessageIds?: string[];
     finalFragmentReceivedAtMs?: number;
+    sourceSentAtMs?: number;
     hasIngestibleTextAttachment?: boolean;
     ownerRoomContext?: OwnerRoomContext;
   },
 ) => Promise<unknown>;
+
+export type OwnerTransportMessageCapture = {
+  discordMessageId: string;
+  channelId: string;
+  guildId?: string;
+  message: string;
+  attachments: Intake["attachments"];
+  sentAtMs: number;
+  capturedAtMs: number;
+  ownerRoomContext?: OwnerRoomContext;
+};
 
 export type BufferedMessageTurn = {
   text: string;
   attachments: Intake["attachments"];
   inboundDiscordMessageIds: string[];
   finalFragmentReceivedAtMs: number;
+  sourceSentAtMs: number;
   hasIngestibleTextAttachment: boolean;
   gateVerdict?: GateVerdict;
   ownerRoomContext?: OwnerRoomContext;
 };
 
 type BufferedFragment = Intake & {
+  sentAtMs?: number;
   gateVerdict?: GateVerdict;
   ownerRoomContext?: OwnerRoomContext;
   captureRef?: string;
@@ -82,6 +98,8 @@ export function createMessageCreateHandler(options: {
     conversationKey: string,
     finalFragmentReceivedAtMs?: number,
   ) => Promise<ExternalBatchResult>;
+  captureOwnerTransport?: (capture: OwnerTransportMessageCapture) => Promise<unknown>;
+  markOwnerTransportAdmitted?: (discordMessageIds: string[]) => Promise<unknown>;
   botId?: string;
   channelQueue?: { abort(channelId: string): void };
   onFirstFragment?: (channelId: string) => void;
@@ -130,6 +148,7 @@ export function createMessageCreateHandler(options: {
       attachments: buffered.fragments.flatMap((fragment) => fragment.attachments).slice(0, MAX_IMAGES),
       inboundDiscordMessageIds: buffered.fragments.map((fragment) => fragment.messageId),
       finalFragmentReceivedAtMs: buffered.finalFragmentReceivedAt,
+      sourceSentAtMs: buffered.fragments.at(-1)?.sentAtMs ?? buffered.finalFragmentReceivedAt,
       hasIngestibleTextAttachment: buffered.fragments.some((fragment) => hasIngestibleTextAttachment(fragment)),
     };
     const ownerRoomContexts = buffered.fragments
@@ -146,6 +165,7 @@ export function createMessageCreateHandler(options: {
         attachments: turn.attachments,
         inboundDiscordMessageIds: turn.inboundDiscordMessageIds,
         finalFragmentReceivedAtMs: turn.finalFragmentReceivedAtMs,
+        sourceSentAtMs: turn.sourceSentAtMs,
         hasIngestibleTextAttachment: turn.hasIngestibleTextAttachment,
         ...(ownerRoomContext ? { ownerRoomContext } : {}),
       });
@@ -158,6 +178,14 @@ export function createMessageCreateHandler(options: {
         typeof buffered.target.reply === "function"
       ) {
         await buffered.target.reply(agentErrorMessage(code, retryAfterSec)).catch(() => {});
+      }
+      return;
+    }
+    if (options.markOwnerTransportAdmitted) {
+      try {
+        await options.markOwnerTransportAdmitted(turn.inboundDiscordMessageIds);
+      } catch (error) {
+        console.error("[discord-bot] Owner transport admission mark failed; canonical admission already succeeded", error);
       }
     }
   };
@@ -205,9 +233,29 @@ export function createMessageCreateHandler(options: {
         return;
       }
       const channelId = message.channel.id;
+      const sentAtMs = Number.isSafeInteger(message.createdTimestamp) && message.createdTimestamp >= 0
+        ? message.createdTimestamp
+        : Date.now();
       const fragment: BufferedFragment = context?.ownerRoomContext
-        ? { ...intake, ownerRoomContext: context.ownerRoomContext }
-        : intake;
+        ? { ...intake, ownerRoomContext: context.ownerRoomContext, sentAtMs }
+        : { ...intake, sentAtMs };
+      if (options.captureOwnerTransport) {
+        try {
+          await options.captureOwnerTransport({
+            discordMessageId: intake.messageId,
+            channelId,
+            ...(message.guild?.id ? { guildId: message.guild.id } : {}),
+            message: intake.text,
+            attachments: intake.attachments,
+            sentAtMs,
+            capturedAtMs: Date.now(),
+            ...(context?.ownerRoomContext ? { ownerRoomContext: context.ownerRoomContext } : {}),
+          });
+        } catch (error) {
+          console.error("[discord-bot] Owner transport capture failed; history reconciliation remains authoritative:", error);
+          return;
+        }
+      }
       const first = localTurns.push(channelId, fragment, message);
       if (first) {
         options.onFirstFragment?.(channelId);
@@ -244,6 +292,8 @@ function externalConversationKey(
 
 const messageCreateHandler = createMessageCreateHandler({
   ingressChat,
+  captureOwnerTransport: (capture) => captureOwnerDiscordMessage(capture),
+  markOwnerTransportAdmitted,
   channelQueue,
   onFirstFragment: (channelId) => tempoTracker.mark(channelId),
 });

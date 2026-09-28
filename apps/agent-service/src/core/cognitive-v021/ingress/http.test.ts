@@ -71,6 +71,24 @@ describe("v0.2.1 durable ingress", () => {
     nuclear.close(); sidecar.close();
   });
 
+  it("preserves source Discord time separately from durable admission time", () => {
+    const sidecar = openTestSidecar();
+    const nuclear = openNuclearDb(new DatabaseSync(":memory:"));
+    const result = admitCognitiveIngress(sidecar, nuclear, {
+      userId: "doc",
+      message: "historical source time",
+      channel: "discord",
+      inboundDiscordMessageIds: ["d-source-time"],
+      finalFragmentReceivedAtMs: 2_000,
+      sourceSentAtMs: 1_000,
+    }, { nowMs: 2_000 });
+    const evidence = getEvidenceByRowId(sidecar, result.evidenceRowId);
+    expect(evidence?.createdAtMs).toBe(2_000);
+    expect(evidence?.sentAtMs).toBe(1_000);
+    expect(evidence?.provenance).toEqual({ source: "discord", receivedAtMs: 2_000 });
+    nuclear.close(); sidecar.close();
+  });
+
   it("rolls back evidence log row atomically if inbox admission fails downstream", () => {
     const sidecar = openTestSidecar();
     const nuclear = openNuclearDb(new DatabaseSync(":memory:"));

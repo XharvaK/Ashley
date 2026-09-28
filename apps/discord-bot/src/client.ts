@@ -19,6 +19,7 @@ import { startCognitiveIdleScheduler } from "./initiative/scheduler.js";
 import { startFulfillmentPump } from "./initiative/fulfillment-pump.js";
 import { reconcilePresence, startPresence } from "./presence.js";
 import { querySocialEligibility } from "./agent-client.js";
+import { createOwnerTransportReconciler } from "./chat/owner-transport-recovery.js";
 
 export function createClient(): Client {
   const client = new Client({
@@ -34,9 +35,14 @@ export function createClient(): Client {
     ],
     partials: [Partials.Channel, Partials.Message, Partials.Reaction],
   });
+  const ownerTransportReconciler = createOwnerTransportReconciler(client);
+  let ownerTransportReady = Promise.resolve();
 
   client.once(Events.ClientReady, (c) => {
     console.log(`[discord-bot] logged in as ${c.user.tag}`);
+    ownerTransportReady = ownerTransportReconciler.reconcile("ready").catch((error) => {
+      console.error("[discord-bot] Owner transport startup reconciliation failed; live capture remains active", error);
+    });
     startCognitiveIdleScheduler();
     startFulfillmentPump(client);
     startPresence(client);
@@ -44,6 +50,9 @@ export function createClient(): Client {
 
   client.on(Events.ShardResume, () => {
     void reconcilePresence(client, "resume");
+    ownerTransportReady = ownerTransportReconciler.reconcile("resume").catch((error) => {
+      console.error("[discord-bot] Owner transport resume reconciliation failed; retry remains available", error);
+    });
   });
 
   client.on(Events.InteractionCreate, (interaction) => {
@@ -76,6 +85,7 @@ export function createClient(): Client {
             console.warn("[discord-bot] Owner guild message is not an active trusted room; ignored");
             return;
           }
+          await ownerTransportReady;
           console.log(
             `[discord-bot] message from ${authorId} in ${full.channel.isDMBased() ? "DM" : "guild"}`,
           );

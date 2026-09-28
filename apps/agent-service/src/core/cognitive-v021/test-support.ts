@@ -15,6 +15,10 @@ export function openTestSidecar(): DatabaseSync {
 /** Rewind an in-memory current sidecar to a structurally valid historical fixture version. */
 export function setTestSidecarVersion(db: DatabaseSync, version: number): void {
   if (!Number.isSafeInteger(version) || version < 0) throw new Error("test_sidecar_version_invalid");
+  if (version < 35) {
+    db.exec("DROP TABLE IF EXISTS owner_discord_transport_captures");
+    db.exec("DROP TABLE IF EXISTS owner_discord_transport_cursors");
+  }
   if (version < 34) {
     const columns = new Set((db.prepare("PRAGMA table_info(future_triggers)").all() as Array<{ name?: unknown }>)
       .map((row) => typeof row.name === "string" ? row.name : ""));

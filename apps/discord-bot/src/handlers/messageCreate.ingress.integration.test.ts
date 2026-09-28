@@ -121,6 +121,66 @@ test("current ingress fails closed when durable admission fails", async () => {
   assert.equal(replies.length, 1);
 });
 
+test("Owner transport is durably captured before the RAM-only buffer", async () => {
+  const events: string[] = [];
+  const handler = createMessageCreateHandler({
+    quietMs: 1,
+    hardCapMs: 10,
+    captureOwnerTransport: async (capture) => {
+      events.push(`capture:${capture.discordMessageId}`);
+    },
+    ingressChat: async (_text, options) => {
+      events.push(`ingress:${options?.inboundDiscordMessageIds?.join(",")}`);
+    },
+  });
+
+  await handler.handleMessage(ownerMessage("owner-capture-1", "captured first", {}));
+  await handler.flushForTest("channel-1");
+
+  assert.deepEqual(events, ["capture:owner-capture-1", "ingress:owner-capture-1"]);
+});
+
+test("Owner transport is marked admitted only after canonical ingress succeeds", async () => {
+  const events: string[] = [];
+  const handler = createMessageCreateHandler({
+    quietMs: 1,
+    hardCapMs: 10,
+    captureOwnerTransport: async () => {
+      events.push("capture");
+    },
+    ingressChat: async () => {
+      events.push("ingress");
+    },
+    markOwnerTransportAdmitted: async (ids) => {
+      events.push(`mark:${ids.join(",")}`);
+    },
+  });
+
+  await handler.handleMessage(ownerMessage("owner-capture-ordered", "ordered", {}));
+  await handler.flushForTest("channel-1");
+
+  assert.deepEqual(events, ["capture", "ingress", "mark:owner-capture-ordered"]);
+});
+
+test("Owner transport capture failure does not place the message in the RAM-only buffer", async () => {
+  let ingresses = 0;
+  const handler = createMessageCreateHandler({
+    quietMs: 1,
+    hardCapMs: 10,
+    captureOwnerTransport: async () => {
+      throw new Error("transport_capture_unavailable");
+    },
+    ingressChat: async () => {
+      ingresses += 1;
+    },
+  });
+
+  await handler.handleMessage(ownerMessage("owner-capture-2", "must recover from history", {}));
+  await handler.flushForTest("channel-1");
+
+  assert.equal(ingresses, 0);
+});
+
 test("textless passive text attachment reaches ingress", async () => {
   const admitted: string[] = [];
   const attachment = {

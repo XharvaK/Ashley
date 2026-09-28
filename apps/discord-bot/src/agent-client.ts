@@ -78,9 +78,11 @@ export async function ingressChat(
       fileName: string;
       declaredByteSize?: number;
       sourceUrl: string;
+      sourceClass?: "supplied_image" | "supplied_screenshot";
     }>;
     inboundDiscordMessageIds?: string[];
     finalFragmentReceivedAtMs?: number;
+    sourceSentAtMs?: number;
     ownerRoomContext?: OwnerRoomContext;
   },
 ): Promise<CognitiveIngressResult> {
@@ -96,6 +98,7 @@ export async function ingressChat(
         attachments: options?.attachments?.length ? options.attachments : undefined,
         inboundDiscordMessageIds: options?.inboundDiscordMessageIds,
         finalFragmentReceivedAtMs: options?.finalFragmentReceivedAtMs,
+        sourceSentAtMs: options?.sourceSentAtMs,
         ownerRoomContext: options?.ownerRoomContext,
       }),
     },
@@ -110,6 +113,128 @@ export type SocialEligibilityResult = {
 const botServiceHeaders = (): HeadersInit => ({
   "X-Ashley-Bot-Service": config.token,
 });
+
+export type OwnerTransportCapture = {
+  discordMessageId: string;
+  channelId: string;
+  guildId?: string;
+  message: string;
+  attachments: Array<{
+    discordAttachmentId: string;
+    declaredMime: string;
+    fileName: string;
+    declaredByteSize?: number;
+    sourceUrl: string;
+    sourceClass?: "supplied_image" | "supplied_screenshot";
+  }>;
+  sentAtMs: number;
+  capturedAtMs: number;
+  ownerRoomContext?: OwnerRoomContext;
+};
+
+export async function captureOwnerTransport(
+  input: OwnerTransportCapture,
+): Promise<{ captured: true; duplicate: boolean; surfaceKey: string }> {
+  return agentFetch<{ captured: true; duplicate: boolean; surfaceKey: string }>(
+    "/chat/owner-transport/capture",
+    {
+      method: "POST",
+      headers: botServiceHeaders(),
+      body: JSON.stringify({
+        userId: config.ownerId,
+        discordMessageId: input.discordMessageId,
+        channelId: input.channelId,
+        guildId: input.guildId,
+        message: input.message,
+        attachments: input.attachments,
+        sentAtMs: input.sentAtMs,
+        capturedAtMs: input.capturedAtMs,
+        ownerRoomContext: input.ownerRoomContext,
+      }),
+    },
+  );
+}
+
+export type OwnerTransportSurface = {
+  channelId: string;
+  guildId?: string;
+};
+
+export type OwnerTransportPendingCapture = {
+  discordMessageId: string;
+  ownerId: string;
+  surfaceKey: string;
+  channelId: string;
+  guildId: string | null;
+  text: string;
+  attachments: OwnerTransportCapture["attachments"];
+  ownerRoomContext: OwnerRoomContext | null;
+  sentAtMs: number;
+  capturedAtMs: number;
+  source: "live" | "history";
+  admittedAtMs?: number | null;
+};
+
+export async function ownerTransportState(
+  surface: OwnerTransportSurface,
+): Promise<{ initialized: boolean; surfaceKey: string; afterMessageId: string | null; reason?: string }> {
+  const query = new URLSearchParams({
+    user_id: config.ownerId,
+    channel_id: surface.channelId,
+    ...(surface.guildId ? { guild_id: surface.guildId } : {}),
+  });
+  return agentFetch<{ initialized: boolean; surfaceKey: string; afterMessageId: string | null; reason?: string }>(
+    `/chat/owner-transport/state?${query.toString()}`,
+    {
+    headers: botServiceHeaders(),
+    },
+  );
+}
+
+export async function recordOwnerTransportHistoryPage(input: {
+  surface: OwnerTransportSurface;
+  afterMessageId: string;
+  nextAfterMessageId: string;
+  messages: OwnerTransportCapture[];
+}): Promise<{ accepted: true; surfaceKey: string; afterMessageId: string; newlyCaptured: number; duplicates: number }> {
+  return agentFetch<{ accepted: true; surfaceKey: string; afterMessageId: string; newlyCaptured: number; duplicates: number }>("/chat/owner-transport/history-page", {
+    method: "POST",
+    headers: botServiceHeaders(),
+    body: JSON.stringify({
+      userId: config.ownerId,
+      channelId: input.surface.channelId,
+      guildId: input.surface.guildId,
+      afterMessageId: input.afterMessageId,
+      nextAfterMessageId: input.nextAfterMessageId,
+      messages: input.messages.map((message) => ({
+        discordMessageId: message.discordMessageId,
+        message: message.message,
+        attachments: message.attachments,
+        sentAtMs: message.sentAtMs,
+        ownerRoomContext: message.ownerRoomContext,
+      })),
+    }),
+  });
+}
+
+export async function listPendingOwnerTransport(
+  limit = 100,
+): Promise<{ captures: OwnerTransportPendingCapture[] }> {
+  const query = new URLSearchParams({ user_id: config.ownerId, limit: String(limit) });
+  return agentFetch<{ captures: OwnerTransportPendingCapture[] }>(`/chat/owner-transport/pending?${query.toString()}`, {
+    headers: botServiceHeaders(),
+  });
+}
+
+export async function markOwnerTransportAdmitted(
+  discordMessageIds: string[],
+): Promise<{ ok: true; marked: number; alreadyAdmitted: number }> {
+  return agentFetch<{ ok: true; marked: number; alreadyAdmitted: number }>("/chat/owner-transport/admitted", {
+    method: "POST",
+    headers: botServiceHeaders(),
+    body: JSON.stringify({ userId: config.ownerId, discordMessageIds }),
+  });
+}
 
 export async function querySocialEligibility(input: {
   authorId: string;

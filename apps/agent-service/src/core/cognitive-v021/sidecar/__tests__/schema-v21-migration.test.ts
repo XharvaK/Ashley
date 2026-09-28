@@ -11,7 +11,7 @@ describe("cognitive sidecar Schema V21 migration", () => {
 
       openCognitiveSidecarDb(db, { dataPlane: { kind: "isolated" } });
       expect((db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(COGNITIVE_SIDECAR_SCHEMA_VERSION);
-      expect(COGNITIVE_SIDECAR_SCHEMA_VERSION).toBe(34);
+      expect(COGNITIVE_SIDECAR_SCHEMA_VERSION).toBe(35);
       const columns = (db.prepare("PRAGMA table_info(cognition_claims)").all() as Array<{ name: string }>)
         .map((column) => column.name);
       for (const column of [

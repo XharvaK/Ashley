@@ -1343,3 +1343,36 @@ ALTER TABLE future_triggers ADD COLUMN evidence_refs_json TEXT NOT NULL DEFAULT 
 ALTER TABLE future_triggers ADD COLUMN timing_policy TEXT;
 UPDATE cognitive_sidecar_meta SET schema_version = 34, projection_state = 'reconciling' WHERE id = 1;
 `;
+
+/** Add durable Owner Discord transport capture and reconciliation cursors. */
+export const COGNITIVE_SIDECAR_SCHEMA_V35 = String.raw`
+CREATE TABLE IF NOT EXISTS owner_discord_transport_captures (
+  discord_message_id TEXT PRIMARY KEY,
+  owner_id TEXT NOT NULL,
+  surface_key TEXT NOT NULL,
+  channel_id TEXT NOT NULL,
+  guild_id TEXT,
+  text TEXT NOT NULL,
+  attachments_json TEXT NOT NULL
+    CHECK(json_valid(attachments_json) AND json_type(attachments_json) = 'array'),
+  owner_room_context_json TEXT
+    CHECK(owner_room_context_json IS NULL OR
+      (json_valid(owner_room_context_json) AND json_type(owner_room_context_json) = 'object')),
+  sent_at_ms INTEGER NOT NULL,
+  captured_at_ms INTEGER NOT NULL,
+  source TEXT NOT NULL CHECK(source IN ('live', 'history')),
+  admitted_at_ms INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_owner_discord_transport_pending
+  ON owner_discord_transport_captures (owner_id, admitted_at_ms, sent_at_ms, captured_at_ms);
+
+CREATE TABLE IF NOT EXISTS owner_discord_transport_cursors (
+  surface_key TEXT PRIMARY KEY,
+  owner_id TEXT NOT NULL,
+  channel_id TEXT NOT NULL,
+  guild_id TEXT,
+  after_message_id TEXT NOT NULL,
+  updated_at_ms INTEGER NOT NULL
+);
+UPDATE cognitive_sidecar_meta SET schema_version = 35, projection_state = 'reconciling' WHERE id = 1;
+`;

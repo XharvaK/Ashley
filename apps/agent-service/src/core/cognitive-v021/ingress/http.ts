@@ -38,6 +38,7 @@ export type CognitiveIngressBody = {
   discordMessageIds?: string[];
   inboundDiscordMessageIds?: string[];
   finalFragmentReceivedAtMs?: number;
+  sourceSentAtMs?: number;
   attachments?: Array<{
     discordAttachmentId: string;
     declaredMime: string;
@@ -161,6 +162,10 @@ export function admitCognitiveIngress(
   if (!text) throw new Error("message_required");
   const discordMessageIds = input.discordMessageIds ?? input.inboundDiscordMessageIds ?? [];
   const admittedAtMs = options.nowMs ?? input.finalFragmentReceivedAtMs ?? Date.now();
+  const sourceSentAtMs = input.sourceSentAtMs ?? admittedAtMs;
+  if (!Number.isSafeInteger(sourceSentAtMs) || sourceSentAtMs < 0) {
+    throw new Error("source_sent_at_invalid");
+  }
   const ownerRoomContext = resolveOwnerRoomContext(nuclearDb, input, admittedAtMs);
   const conversationId = ownerRoomContext
     ? roomIdentity(ownerRoomContext.guildId, ownerRoomContext.channelId)
@@ -191,9 +196,12 @@ export function admitCognitiveIngress(
           channelId: ownerRoomContext.channelId,
         },
         audienceAtCapture: "room" as const,
-        sentAtMs: admittedAtMs,
+        sentAtMs: sourceSentAtMs,
         provenance: { source: "discord" as const, receivedAtMs: admittedAtMs },
-      } : {}),
+      } : {
+        sentAtMs: sourceSentAtMs,
+        provenance: { source: "discord" as const, receivedAtMs: admittedAtMs },
+      }),
     });
     evidence = appendResult.evidence;
 
@@ -1088,6 +1096,7 @@ export function createCognitiveIngressHandler(options: {
         discordMessageIds: body.discordMessageIds,
         inboundDiscordMessageIds: body.inboundDiscordMessageIds,
         finalFragmentReceivedAtMs: body.finalFragmentReceivedAtMs,
+        sourceSentAtMs: body.sourceSentAtMs,
         attachments: body.attachments,
       });
       res.status(202).json(result);
