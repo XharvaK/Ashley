@@ -180,6 +180,42 @@ describe("capability graduation policy", () => {
     db.close();
   });
 
+  it("owner bootstrap preserves external-effect ordering and does not grant unrelated cutovers", () => {
+    const db = openNuclearDb(new DatabaseSync(":memory:"));
+    activateThoughtChain(db);
+    const readiness = { ready: true } as const;
+
+    expect(promoteCapability(db, "external_prepare", {
+      releaseId,
+      authorizedBy: operator,
+      activationPath: "owner_bootstrap",
+      readiness,
+    })).toMatchObject({
+      ok: false,
+      reason: "not_eligible",
+      bootstrapReason: "dependencies_unavailable",
+    });
+
+    for (const capability of ["external_observe", "external_prepare", "external_private", "external_public"] as const) {
+      expect(promoteCapability(db, capability, {
+        releaseId,
+        authorizedBy: operator,
+        activationPath: "owner_bootstrap",
+        readiness,
+      })).toEqual({ ok: true, state: "active" });
+      expect(operatorPromoteDetail(db, capability)).toMatchObject({
+        promotionPath: "owner_bootstrap",
+        activationAuthority: "owner_authorized_fresh_host_bootstrap",
+      });
+    }
+
+    for (const capability of ["candidate_verification", "candidate_authorship", "bounded_operation", "patch_export"] as const) {
+      expect(statusOf(db, capability)?.state).toBe("observe");
+    }
+    expect(db.prepare("SELECT COUNT(*) AS c FROM social_permits").get()).toEqual({ c: 0 });
+    db.close();
+  });
+
   it("ordinary promotion remains maturation-gated", () => {
     const db = openNuclearDb(new DatabaseSync(":memory:"));
     expect(promoteCapability(db, "reading", {

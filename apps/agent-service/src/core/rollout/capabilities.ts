@@ -598,9 +598,6 @@ export function ownerBootstrapEligibility(
       reason: readiness.reason ?? "provider_unavailable",
     };
   }
-  if (capability === "memory_evidence") {
-    return { eligible: false, reason: "owner_grant_required" };
-  }
   if (!capabilityInfluenceDependenciesReady(db, capability, releaseId)) {
     return { eligible: false, reason: "dependencies_unavailable" };
   }

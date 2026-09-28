@@ -15,6 +15,7 @@ const available: OwnerBootstrapAvailability = {
   candidateAuthorship: true,
   boundedOperation: true,
   patchExport: true,
+  ownerGrantedCapabilities: new Set(),
 };
 
 describe("owner bootstrap readiness", () => {
@@ -63,5 +64,42 @@ describe("owner bootstrap readiness", () => {
         reason: "owner_grant_required",
       });
     }
+  });
+
+  it("recognizes only explicitly granted protected capabilities", () => {
+    const granted = Object.assign({}, available, {
+      ownerGrantedCapabilities: new Set<CapabilityName>([
+        "external_observe",
+        "external_prepare",
+        "external_private",
+        "external_public",
+        "memory_evidence",
+        "context_budget",
+        "learned_autonomy",
+        "cognitive_graduation",
+        "relational_graduation",
+      ]),
+    }) as OwnerBootstrapAvailability & {
+      ownerGrantedCapabilities: ReadonlySet<CapabilityName>;
+    };
+
+    for (const capability of granted.ownerGrantedCapabilities) {
+      expect(ownerBootstrapReadinessFor(capability, granted)).toEqual({ ready: true });
+    }
+
+    const externalOnly = Object.assign({}, available, {
+      ownerGrantedCapabilities: new Set<CapabilityName>([
+        "external_observe",
+        "external_prepare",
+        "external_private",
+        "external_public",
+      ]),
+    }) as OwnerBootstrapAvailability & {
+      ownerGrantedCapabilities: ReadonlySet<CapabilityName>;
+    };
+    expect(ownerBootstrapReadinessFor("memory_evidence", externalOnly)).toEqual({
+      ready: false,
+      reason: "owner_grant_required",
+    });
   });
 });

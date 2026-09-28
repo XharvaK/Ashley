@@ -567,4 +567,19 @@ describe("C1 memory evidence qualification epochs", () => {
       db.close();
     }
   });
+
+  it("allows owner bootstrap after the exact C1 qualification is complete", () => {
+    const db = openDb();
+    try {
+      fullyQualifyC1(db);
+      expect(promoteCapability(db, "memory_evidence", {
+        releaseId: RELEASE_ID,
+        authorizedBy: OWNER,
+        activationPath: "owner_bootstrap",
+        readiness: { ready: true },
+      })).toEqual({ ok: true, state: "active" });
+    } finally {
+      db.close();
+    }
+  });
 });

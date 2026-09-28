@@ -13,6 +13,7 @@ export type OwnerBootstrapAvailability = {
   candidateAuthorship: boolean;
   boundedOperation: boolean;
   patchExport: boolean;
+  ownerGrantedCapabilities: ReadonlySet<CapabilityName>;
 };
 
 function providerReadiness(available: boolean): CapabilityActivationReadiness {
@@ -25,6 +26,15 @@ function hostReadiness(available: boolean): CapabilityActivationReadiness {
   return available
     ? { ready: true }
     : { ready: false, reason: "dependencies_unavailable" };
+}
+
+function ownerGrantReadiness(
+  capability: CapabilityName,
+  availability: OwnerBootstrapAvailability,
+): CapabilityActivationReadiness {
+  return availability.ownerGrantedCapabilities.has(capability)
+    ? { ready: true }
+    : { ready: false, reason: "owner_grant_required" };
 }
 
 /**
@@ -67,7 +77,7 @@ export function ownerBootstrapReadinessFor(
     case "external_prepare":
     case "external_private":
     case "external_public":
-      return { ready: false, reason: "owner_grant_required" };
+      return ownerGrantReadiness(capability, availability);
     default:
       return { ready: true };
   }

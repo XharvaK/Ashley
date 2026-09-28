@@ -285,6 +285,17 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
       candidateAuthorship: canOfferCandidateAuthorship(undefined, sandboxGateOptions),
       boundedOperation: canOfferBoundedOperation(undefined, sandboxGateOptions),
       patchExport: canOfferPatchExport(undefined, sandboxGateOptions),
+      ownerGrantedCapabilities: new Set<CapabilityName>([
+        "external_observe",
+        "external_prepare",
+        "external_private",
+        "external_public",
+        "memory_evidence",
+        "context_budget",
+        "learned_autonomy",
+        "cognitive_graduation",
+        "relational_graduation",
+      ]),
     };
     manager.core.configureCapabilityActivationReadiness((capability: CapabilityName): CapabilityActivationReadiness => {
       return ownerBootstrapReadinessFor(capability, ownerBootstrapAvailability);
