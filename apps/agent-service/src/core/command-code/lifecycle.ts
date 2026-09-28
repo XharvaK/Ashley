@@ -24,7 +24,7 @@ import {
 export const COMMAND_CODE_PACKAGE_NAME = "command-code" as const;
 export const COMMAND_CODE_REGISTRY_URL = "https://registry.npmjs.org/command-code/latest" as const;
 export const COMMAND_CODE_LIFECYCLE_SCHEMA = "ashley.command_code.lifecycle.v1" as const;
-export const COMMAND_CODE_QUALIFICATION_CONTRACT = "worker-v2-tool-plus-completion-v3" as const;
+export const COMMAND_CODE_QUALIFICATION_CONTRACT = "worker-v2-tool-plus-completion-v4" as const;
 
 export type CommandCodeRegistryMetadata = Readonly<{
   name: typeof COMMAND_CODE_PACKAGE_NAME;
