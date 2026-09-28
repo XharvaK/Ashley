@@ -58,7 +58,7 @@ export async function qualifyCommandCodeCandidate(
     kind: MODE_B_INVESTIGATE,
     request: {
       projectId: input.projectId,
-      focus: "Use exactly one read-only project.list_directory tool on the authorized project root, then return a short bounded summary.",
+      focus: "Use exactly one read-only project.list_directory tool on the authorized project root, then return a short bounded summary. If prior_results contains a successful result for that tool, do not request the tool again; reply with a complete JSON object now.",
       // One bounded Host tool request plus one completion turn. The worker
       // step counter is a CLI-turn counter, not a Host-tool counter.
       maxSteps: 2,
@@ -119,11 +119,14 @@ export async function qualifyCommandCodeCandidate(
   const invocation = result.commandCodeInvocations[0];
   if (
     !invocation
-    || invocation.backend !== "command_code_cli"
-    || invocation.cliVersion !== input.candidate.version
-    || invocation.effort !== COMMAND_CODE_WORKER_EFFORT
-    || invocation.outcome !== "completed"
-    || result.steps.length === 0
+    || result.commandCodeInvocations.length !== 2
+    || result.commandCodeInvocations.some((item) => (
+      item.backend !== "command_code_cli"
+      || item.cliVersion !== input.candidate.version
+      || item.effort !== COMMAND_CODE_WORKER_EFFORT
+      || item.outcome !== "completed"
+    ))
+    || result.steps.length !== 1
   ) {
     return { ok: false, reason: "worker_qualification_missing_execution_evidence" };
   }

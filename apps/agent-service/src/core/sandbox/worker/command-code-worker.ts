@@ -756,6 +756,7 @@ function hostProtocolPrompt(input: {
     `projectId: ${input.request.projectId}`,
     input.request.focus ? `focus: ${input.request.focus}` : "",
     `purpose: ${input.purpose}`,
+    input.history ? "Treat prior_results as authoritative Host evidence. Do not repeat a successful tool request; continue from its result or finish." : "",
     input.history ? `prior_results:\n${input.history}` : "",
   ].filter(Boolean).join("\n");
 }
