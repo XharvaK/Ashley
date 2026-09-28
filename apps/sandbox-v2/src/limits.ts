@@ -61,7 +61,7 @@ export const V2_LIMITS = {
 export const V2_HOST_FACTS = {
   BWRAP: "/usr/bin/bwrap",
   NODE_BIN: "/opt/node/bin/node",
-  NVM_NODE_PREFIX: "/home/xarvak/.nvm/versions/node/v22.23.2",
+  NVM_NODE_PREFIX: "/home/xarvak/.nvm/versions/node/v22.23.3",
   PROJECT_MOUNT: "/project",
   PATH_VALUE: "/usr/bin",
   HOME_VALUE: "/tmp",
