@@ -305,16 +305,16 @@ function canonicalBoundary(
   sidecar: DatabaseSync,
   conversationId: string,
 ): string | null {
-  const row = sidecar.prepare(
+  const rows = sidecar.prepare(
     `SELECT discord_message_id
        FROM conversation_evidence_discord_ids
-      WHERE conversation_id = ?
-      ORDER BY LENGTH(discord_message_id) DESC, discord_message_id DESC
-      LIMIT 1`,
-  ).get(conversationId) as { discord_message_id?: unknown } | undefined;
-  return typeof row?.discord_message_id === "string" && row.discord_message_id
-    ? row.discord_message_id
-    : null;
+      WHERE conversation_id = ?`,
+  ).all(conversationId) as Array<{ discord_message_id?: unknown }>;
+  const snowflakes = rows
+    .map((row) => row.discord_message_id)
+    .filter((value): value is string => typeof value === "string" && /^\d{17,20}$/.test(value));
+  if (snowflakes.length === 0) return null;
+  return snowflakes.sort(compareTransportIds).at(-1) ?? null;
 }
 
 function readCursor(

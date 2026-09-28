@@ -5,6 +5,7 @@ import { admitCognitiveIngress } from "./http.js";
 import { openNuclearDb } from "../../db.js";
 import {
   captureOwnerTransport,
+  ensureOwnerTransportCursor,
   listPendingOwnerTransport,
   markOwnerTransportAdmitted,
   recordOwnerTransportHistoryPage,
@@ -63,6 +64,29 @@ describe("Owner Discord transport continuity", () => {
     expect(sidecar.prepare(
       "SELECT admitted_at_ms FROM owner_discord_transport_captures WHERE discord_message_id = ?",
     ).get("200")).toMatchObject({ admitted_at_ms: expect.any(Number) });
+  });
+
+  it("initializes history from a valid Discord boundary, ignoring non-transport evidence IDs", () => {
+    const sidecar = openTestSidecar();
+    const nuclear = openNuclearDb(new DatabaseSync(":memory:"));
+    admitCognitiveIngress(sidecar, nuclear, {
+      userId: "owner-1",
+      message: "existing canonical evidence",
+      channel: "discord",
+      inboundDiscordMessageIds: [
+        "phase-c-final-vision-valid-thread-20260928",
+        "123456789012345678",
+      ],
+      finalFragmentReceivedAtMs: 1_700_000_002_000,
+    }, { nowMs: 1_700_000_002_000 });
+
+    expect(ensureOwnerTransportCursor(sidecar, nuclear, {
+      ownerId: "owner-1",
+      channelId: "dm-channel-1",
+    }, { nowMs: 1_700_000_002_100 })).toMatchObject({
+      initialized: true,
+      afterMessageId: "123456789012345678",
+    });
   });
 
   it("commits history captures and cursor movement as one transaction", () => {
