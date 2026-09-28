@@ -84,6 +84,7 @@ describe("Command Code mediated vision", () => {
     });
     expect(request).toMatchObject({
       model: COMMAND_CODE_POLICY.modelId,
+      max_tokens: 16_384,
       reasoning_effort: "xhigh",
       response_format: { type: "json_object" },
     });
@@ -141,6 +142,24 @@ describe("Command Code mediated vision", () => {
       dimensions: { width: 8193, height: 1, source: "header" },
     })).rejects.toThrow("vision_dimensions_limit");
     expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it("fails closed for empty model output without a fallback provider", async () => {
+    env.commandCodeApiKey = "test-command-code-key";
+    const fetcher = vi.fn(async () => fakeResponse({
+      model: COMMAND_CODE_POLICY.modelId,
+      choices: [{ message: { content: "" }, finish_reason: "stop" }],
+    }));
+    const transport = createCommandCodeVisionTransport(fetcher);
+
+    await expect(transport.describeImage({
+      bytes: png(),
+      mime: "image/png",
+      fileName: "image.png",
+      sourceClass: "supplied_image",
+      dimensions: { width: 1, height: 1, source: "header" },
+    })).rejects.toThrow("vision_description_invalid");
+    expect(fetcher).toHaveBeenCalledOnce();
   });
 
   it("fails closed for malformed model output without a fallback provider", async () => {

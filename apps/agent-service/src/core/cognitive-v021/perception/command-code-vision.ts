@@ -18,7 +18,7 @@ import { visionMediaOutputStructuredRequest } from "./vision-output-contract.js"
 export const MAX_VISION_IMAGE_BYTES = MAX_SINGLE_ATTACHMENT_BYTES;
 export const MAX_VISION_DIMENSION = 8_192;
 export const MAX_VISION_PIXELS = 16_777_216;
-export const VISION_MAX_OUTPUT_TOKENS = 512;
+export const VISION_MAX_OUTPUT_TOKENS = 16_384;
 
 const ALLOWED_VISION_MIME_TYPES = new Set([
   "image/png",
