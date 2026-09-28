@@ -62,6 +62,19 @@ export const capabilityNames = [
 
 export type CapabilityName = typeof capabilityNames[number];
 export type CapabilityState = "observe" | "active" | "rolled_back" | "disabled";
+export type CapabilityActivationPath = "maturation" | "owner_bootstrap";
+export type CapabilityActivationBlocker =
+  | "activation_readiness_unavailable"
+  | "provider_unavailable"
+  | "dependencies_unavailable"
+  | "owner_grant_required";
+export type CapabilityActivationReadiness = {
+  ready: boolean;
+  reason?: CapabilityActivationBlocker;
+};
+export type CapabilityActivationReadinessResolver = (
+  capability: CapabilityName,
+) => CapabilityActivationReadiness;
 export type CapabilityEventKind =
   | "isolated_eval"
   | "live_shadow"
@@ -89,8 +102,10 @@ export type CapabilityEventKind =
  *    promotion → durable audited cutover.
  *
  * The policy is a declaration, like `dependencies`. It is NOT persisted state
- * and does NOT bypass eligibility: every policy still requires eval seeds,
- * qualification, dependency readiness, and valid release/contract state.
+ * and does NOT bypass eligibility on the maturation path. An explicit owner
+ * bootstrap path may waive the maturation evidence thresholds, but it still
+ * requires a valid release/contract state, active dependencies, and an
+ * independently supplied activation-readiness result.
  */
 export type CapabilityGraduationPolicy =
   | {
@@ -559,6 +574,39 @@ export function promotionEligible(
   return capabilityInfluenceDependenciesReady(db, capability, releaseId);
 }
 
+export type OwnerBootstrapEligibility =
+  | { eligible: true }
+  | { eligible: false; reason: CapabilityActivationBlocker };
+
+/**
+ * Fresh-host owner activation eligibility. This deliberately does not read
+ * eval-seed or live-shadow evidence. Those thresholds remain owned by
+ * `promotionEligible` and the ordinary maturation path.
+ */
+export function ownerBootstrapEligibility(
+  db: DatabaseSync,
+  capability: CapabilityName,
+  releaseId: string,
+  readiness?: CapabilityActivationReadiness,
+): OwnerBootstrapEligibility {
+  if (!readiness) {
+    return { eligible: false, reason: "activation_readiness_unavailable" };
+  }
+  if (!readiness.ready) {
+    return {
+      eligible: false,
+      reason: readiness.reason ?? "provider_unavailable",
+    };
+  }
+  if (capability === "memory_evidence") {
+    return { eligible: false, reason: "owner_grant_required" };
+  }
+  if (!capabilityInfluenceDependenciesReady(db, capability, releaseId)) {
+    return { eligible: false, reason: "dependencies_unavailable" };
+  }
+  return { eligible: true };
+}
+
 /**
  * Recall promotion qualification: authority preconditions are checked by
  * `promotionEligible`; this applies the CURRENT qualification epoch
@@ -588,6 +636,7 @@ export type PromoteCapabilityResult =
   | {
       ok: false;
       reason: "contract_mismatch" | "authorization_required" | "not_eligible" | "rolled_back" | "disabled";
+      bootstrapReason?: CapabilityActivationBlocker;
     };
 
 /**
@@ -600,10 +649,16 @@ export type PromoteCapabilityResult =
 export function promoteCapability(
   db: DatabaseSync,
   capability: CapabilityName,
-  input: { authorizedBy: string; releaseId?: string },
+  input: {
+    authorizedBy: string;
+    releaseId?: string;
+    activationPath?: CapabilityActivationPath;
+    readiness?: CapabilityActivationReadiness;
+  },
 ): PromoteCapabilityResult {
   const releaseId = input.releaseId ?? currentReleaseId();
   const authorizedBy = input.authorizedBy.trim();
+  const activationPath = input.activationPath ?? "maturation";
   if (!authorizedBy) {
     return { ok: false, reason: "authorization_required" };
   }
@@ -618,7 +673,21 @@ export function promoteCapability(
   if (state === "rolled_back" || state === "disabled") {
     return { ok: false, reason: state };
   }
-  if (!promotionEligible(db, capability, releaseId)) {
+  if (activationPath === "owner_bootstrap") {
+    const eligibility = ownerBootstrapEligibility(
+      db,
+      capability,
+      releaseId,
+      input.readiness,
+    );
+    if (!eligibility.eligible) {
+      return {
+        ok: false,
+        reason: "not_eligible",
+        bootstrapReason: eligibility.reason,
+      };
+    }
+  } else if (!promotionEligible(db, capability, releaseId)) {
     return { ok: false, reason: "not_eligible" };
   }
   if (capability === "memory_evidence") {
@@ -653,7 +722,12 @@ export function promoteCapability(
         sourceKey: `promote:${now}`,
         detail: {
           authorizedBy: authorizedBy.slice(0, 200),
-          promotionPath: graduationPolicyFor(capability).kind,
+          promotionPath: activationPath === "owner_bootstrap"
+            ? "owner_bootstrap"
+            : graduationPolicyFor(capability).kind,
+          ...(activationPath === "owner_bootstrap"
+            ? { activationAuthority: "owner_authorized_fresh_host_bootstrap" }
+            : {}),
           qualificationEpochId: epoch.epochId,
         },
         occurredAt: now,
@@ -690,7 +764,12 @@ export function promoteCapability(
     sourceKey: `promote:${now}`,
     detail: {
       authorizedBy: authorizedBy.slice(0, 200),
-      promotionPath: graduationPolicyFor(capability).kind,
+      promotionPath: activationPath === "owner_bootstrap"
+        ? "owner_bootstrap"
+        : graduationPolicyFor(capability).kind,
+      ...(activationPath === "owner_bootstrap"
+        ? { activationAuthority: "owner_authorized_fresh_host_bootstrap" }
+        : {}),
     },
     occurredAt: now,
   });

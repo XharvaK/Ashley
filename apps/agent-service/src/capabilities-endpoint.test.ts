@@ -13,6 +13,7 @@ import {
   recordLiveShadowEvent,
   recordRecallLiveCutover,
 } from "./core/rollout/capabilities.js";
+import type { CapabilityActivationReadiness } from "./core/rollout/capabilities.js";
 import { startDeterministicRecallEpoch } from "./core/rollout/recall-epoch-test-util.js";
 import {
   C1_EVALUATION_DEFINITION_HASH,
@@ -40,9 +41,13 @@ function makeManager(
     state?: "ready" | "paused";
     expressionQuiesced?: boolean;
     tick?: (ownerId: string) => Promise<unknown>;
+    activationReadiness?: (capability: string) => CapabilityActivationReadiness;
   } = {},
 ): AgentManager {
   const core = new AshleyCore(db);
+  if (options.activationReadiness) {
+    core.configureCapabilityActivationReadiness(options.activationReadiness);
+  }
   return {
     getCognitiveKernel: () => "v021" as const,
     getState: () => options.state ?? "ready",
@@ -55,7 +60,7 @@ function makeManager(
     })),
     core: {
       getDatabase: () => db,
-      promoteCapability: (input: { capability: string; authorizedBy: string }) =>
+      promoteCapability: (input: Parameters<AshleyCore["promoteCapability"]>[0]) =>
         core.promoteCapability(input),
       operatorRollbackCapability: (input: { capability: string; authorizedBy: string }) =>
         core.operatorRollbackCapability(input),
@@ -331,6 +336,85 @@ describe("POST /nuclear/capabilities/promote (operator endpoint)", () => {
         });
         expect(res.status).toBe(200);
         expect(res.body).toMatchObject({ ok: false, reason: "not_eligible" });
+      });
+    } finally {
+      db.close();
+    }
+  });
+
+  it("supports explicit owner bootstrap without maturation evidence and keeps it owner-bound", async () => {
+    const db = makeDb();
+    try {
+      await withServer(db, async (app) => {
+        const ordinary = await post(app, "/nuclear/capabilities/promote", {
+          userId: OWNER,
+          capability: "reading",
+        });
+        expect(ordinary.status).toBe(200);
+        expect(ordinary.body).toMatchObject({ ok: false, reason: "not_eligible" });
+
+        const denied = await post(app, "/nuclear/capabilities/promote", {
+          userId: INTRUDER,
+          capability: "reading",
+          activationPath: "owner_bootstrap",
+        });
+        expect(denied.status).toBe(403);
+
+        const promoted = await post(app, "/nuclear/capabilities/promote", {
+          userId: OWNER,
+          capability: "reading",
+          activationPath: "owner_bootstrap",
+        });
+        expect(promoted.status).toBe(200);
+        expect(promoted.body).toMatchObject({ ok: true, state: "active" });
+      }, {
+        activationReadiness: () => ({ ready: true }),
+      });
+    } finally {
+      db.close();
+    }
+  });
+
+  it("blocks owner bootstrap when its provider readiness is false", async () => {
+    const db = makeDb();
+    try {
+      await withServer(db, async (app) => {
+        const res = await post(app, "/nuclear/capabilities/promote", {
+          userId: OWNER,
+          capability: "reading",
+          activationPath: "owner_bootstrap",
+        });
+        expect(res.status).toBe(200);
+        expect(res.body).toMatchObject({
+          ok: false,
+          reason: "not_eligible",
+          bootstrapReason: "provider_unavailable",
+        });
+      }, {
+        activationReadiness: () => ({ ready: false, reason: "provider_unavailable" }),
+      });
+    } finally {
+      db.close();
+    }
+  });
+
+  it("rejects an unsupported activation path without changing release state", async () => {
+    const db = makeDb();
+    try {
+      await withServer(db, async (app) => {
+        const res = await post(app, "/nuclear/capabilities/promote", {
+          userId: OWNER,
+          capability: "reading",
+          activationPath: "unsupported_path",
+        });
+        expect(res.status).toBe(400);
+        expect(res.body).toMatchObject({ code: "message_required" });
+        const row = db.prepare(
+          `SELECT state FROM capability_releases WHERE capability = 'reading' AND release_id = ?`,
+        ).get(currentContractId()) as { state: string };
+        expect(row).toBeUndefined();
+      }, {
+        activationReadiness: () => ({ ready: true }),
       });
     } finally {
       db.close();

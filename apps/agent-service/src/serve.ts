@@ -69,6 +69,10 @@ import {
   recoverPendingCommitmentProposals,
 } from "./core/relationship/commitment-admission.js";
 import { seedTrustedRoomsFromOwnerEnvironment } from "./core/relationship/room-seeding.js";
+import type {
+  CapabilityActivationReadiness,
+  CapabilityName,
+} from "./core/rollout/capabilities.js";
 
 export function createAgentInboxConsumerHandler(
   manager: Pick<AgentManager, "dispatchCognitiveEvent">,
@@ -191,6 +195,43 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
     const visionTransport = env.commandCodeApiKey
       ? createCommandCodeVisionTransport()
       : undefined;
+    manager.core.configureCapabilityActivationReadiness((capability: CapabilityName): CapabilityActivationReadiness => {
+      switch (capability) {
+        case "thought":
+        case "vision":
+        case "attachment_text":
+          return env.commandCodeApiKey.trim().length > 0
+            ? { ready: true }
+            : { ready: false, reason: "provider_unavailable" };
+        case "reading":
+        case "conversational_read":
+          return webFetchProvider?.available === true
+            ? { ready: true }
+            : { ready: false, reason: "provider_unavailable" };
+        case "web_search":
+          return webSearchProvider?.available === true
+            ? { ready: true }
+            : { ready: false, reason: "provider_unavailable" };
+        case "memory_evidence":
+        case "context_budget":
+        case "learned_autonomy":
+        case "cognitive_graduation":
+        case "relational_graduation":
+        case "external_observe":
+        case "external_prepare":
+        case "external_private":
+        case "external_public":
+        case "project_inspection":
+        case "project_experimentation":
+        case "candidate_verification":
+        case "candidate_authorship":
+        case "bounded_operation":
+        case "patch_export":
+          return { ready: false, reason: "owner_grant_required" };
+        default:
+          return { ready: true };
+      }
+    });
     const capabilityReality = getCapabilityReality(nuclear, {
       webFetchProvider,
       webSearchProvider,

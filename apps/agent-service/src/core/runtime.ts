@@ -112,6 +112,9 @@ import {
   recordCriticalFailure,
   recordIsolatedEvaluation,
   type CapabilityName,
+  type CapabilityActivationBlocker,
+  type CapabilityActivationPath,
+  type CapabilityActivationReadinessResolver,
 } from "./rollout/capabilities.js";
 import { recordRecallLiveCutover } from "./memory/cutover.js";
 import {
@@ -287,6 +290,10 @@ export class AshleyCore {
   private readonly reflectionReviewAdjudicator: OpenCognitiveReviewAdjudicator | undefined;
 
   private readonly dataPlane: DataPlaneContext | null;
+  private capabilityActivationReadiness: CapabilityActivationReadinessResolver = () => ({
+    ready: false,
+    reason: "activation_readiness_unavailable" satisfies CapabilityActivationBlocker,
+  });
 
   constructor(
     db?: DatabaseSync,
@@ -327,6 +334,12 @@ export class AshleyCore {
     }
     recoverStaleRequests(this.db);
     processPendingReflectionEvents(this.db);
+  }
+
+  configureCapabilityActivationReadiness(
+    resolver: CapabilityActivationReadinessResolver,
+  ): void {
+    this.capabilityActivationReadiness = resolver;
   }
 
   private nuclearFilePath(): string | null {
@@ -1349,14 +1362,35 @@ export class AshleyCore {
     return this.getCapabilities();
   }
 
-  promoteCapability(input: { capability: string; authorizedBy: string }) {
+  promoteCapability(input: {
+    capability: string;
+    authorizedBy: string;
+    activationPath?: CapabilityActivationPath;
+  }) {
     if (!capabilityNames.includes(input.capability as CapabilityName)) {
       throw new Error("invalid_capability");
     }
+    const activationPath = input.activationPath ?? "maturation";
+    const readiness = activationPath === "owner_bootstrap"
+      ? (() => {
+          try {
+            return this.capabilityActivationReadiness(input.capability as CapabilityName);
+          } catch {
+            return {
+              ready: false,
+              reason: "activation_readiness_unavailable" as const,
+            };
+          }
+        })()
+      : undefined;
     const result = promoteCapabilityRelease(
       this.db,
       input.capability as CapabilityName,
-      { authorizedBy: input.authorizedBy },
+      {
+        authorizedBy: input.authorizedBy,
+        activationPath,
+        readiness,
+      },
     );
     return { ...result, capabilities: this.getCapabilities() };
   }

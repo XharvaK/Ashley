@@ -119,6 +119,76 @@ function operatorPromoteDetail(
 }
 
 describe("capability graduation policy", () => {
+  it("owner bootstrap activates without maturation evidence and records a distinct path", () => {
+    const db = openNuclearDb(new DatabaseSync(":memory:"));
+    const readiness = { ready: true };
+    const result = promoteCapability(db, "reading", {
+      releaseId,
+      authorizedBy: operator,
+      activationPath: "owner_bootstrap",
+      readiness,
+    });
+
+    expect(result).toEqual({ ok: true, state: "active" });
+    expect(statusOf(db, "reading")).toMatchObject({
+      state: "active",
+      evalSeedCount: 0,
+      qualifiedAt: null,
+      liveShadowEvents: 0,
+    });
+    expect(operatorPromoteDetail(db, "reading")).toMatchObject({
+      authorizedBy: operator,
+      promotionPath: "owner_bootstrap",
+      activationAuthority: "owner_authorized_fresh_host_bootstrap",
+    });
+    db.close();
+  });
+
+  it("owner bootstrap fails closed when a dependency is not active", () => {
+    const db = openNuclearDb(new DatabaseSync(":memory:"));
+    const result = promoteCapability(db, "vision", {
+      releaseId,
+      authorizedBy: operator,
+      activationPath: "owner_bootstrap",
+      readiness: { ready: true },
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      reason: "not_eligible",
+      bootstrapReason: "dependencies_unavailable",
+    });
+    expect(statusOf(db, "vision")?.state).toBe("observe");
+    db.close();
+  });
+
+  it("owner bootstrap fails closed when the required provider is unavailable", () => {
+    const db = openNuclearDb(new DatabaseSync(":memory:"));
+    const result = promoteCapability(db, "web_search", {
+      releaseId,
+      authorizedBy: operator,
+      activationPath: "owner_bootstrap",
+      readiness: { ready: false, reason: "provider_unavailable" },
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      reason: "not_eligible",
+      bootstrapReason: "provider_unavailable",
+    });
+    expect(statusOf(db, "web_search")?.state).toBe("observe");
+    db.close();
+  });
+
+  it("ordinary promotion remains maturation-gated", () => {
+    const db = openNuclearDb(new DatabaseSync(":memory:"));
+    expect(promoteCapability(db, "reading", {
+      releaseId,
+      authorizedBy: operator,
+    })).toEqual({ ok: false, reason: "not_eligible" });
+    db.close();
+  });
+
   it("defaults every capability to the historical live-shadow policy except operator_cutover capabilities", () => {
     const db = openNuclearDb(new DatabaseSync(":memory:"));
     for (const capability of ["recall", "mind_state", "affect", "thought", "learning", "refusal", "reading", "curiosity_consolidation", "source_discovery", "own_time_report", "project_inspection", "memory_evidence"] as const) {

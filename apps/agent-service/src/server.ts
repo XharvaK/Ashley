@@ -1284,17 +1284,30 @@ export function createServer(
 
   app.post("/nuclear/capabilities/promote", (req, res) => {
     try {
-      const { userId, capability } = req.body as {
+      const { userId, capability, activationPath } = req.body as {
         userId?: string;
         capability?: string;
+        activationPath?: string;
       };
       const ownerId = requireOwner(userId);
       if (typeof capability !== "string" || !capability.trim()) {
         throw new AppError("message_required", "capability required", 400);
       }
+      if (
+        activationPath !== undefined &&
+        activationPath !== "maturation" &&
+        activationPath !== "owner_bootstrap"
+      ) {
+        throw new AppError(
+          "message_required",
+          "activationPath must be maturation or owner_bootstrap",
+          400,
+        );
+      }
       res.json(manager.core.promoteCapability({
         capability,
         authorizedBy: ownerId,
+        activationPath: activationPath as "maturation" | "owner_bootstrap" | undefined,
       }));
     } catch (err) {
       const { status, body } = toErrorResponse(err);
