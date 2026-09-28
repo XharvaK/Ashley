@@ -24,6 +24,7 @@ import {
 export const COMMAND_CODE_PACKAGE_NAME = "command-code" as const;
 export const COMMAND_CODE_REGISTRY_URL = "https://registry.npmjs.org/command-code/latest" as const;
 export const COMMAND_CODE_LIFECYCLE_SCHEMA = "ashley.command_code.lifecycle.v1" as const;
+export const COMMAND_CODE_QUALIFICATION_CONTRACT = "worker-v2-tool-plus-completion-v1" as const;
 
 export type CommandCodeRegistryMetadata = Readonly<{
   name: typeof COMMAND_CODE_PACKAGE_NAME;
@@ -44,6 +45,7 @@ export type CommandCodeLifecycleState = Readonly<{
   lastUpdateResult: string;
   previousKnownGoodVersion: string | null;
   rejectedVersion: string | null;
+  rejectionContract: string | null;
   rejectionEvidence: string | null;
   registrySource: typeof COMMAND_CODE_REGISTRY_URL;
   latestDistIntegrity: string | null;
@@ -99,6 +101,7 @@ type MutableLifecycleState = {
   lastUpdateResult: string;
   previousKnownGoodVersion: string | null;
   rejectedVersion: string | null;
+  rejectionContract: string | null;
   rejectionEvidence: string | null;
   registrySource: typeof COMMAND_CODE_REGISTRY_URL;
   latestDistIntegrity: string | null;
@@ -121,6 +124,7 @@ function emptyState(): MutableLifecycleState {
     lastUpdateResult: "never_attempted",
     previousKnownGoodVersion: null,
     rejectedVersion: null,
+    rejectionContract: null,
     rejectionEvidence: null,
     registrySource: COMMAND_CODE_REGISTRY_URL,
     latestDistIntegrity: null,
@@ -404,11 +408,11 @@ export async function maintainCommandCode(config: CommandCodeLifecycleConfig): P
     return { status: "unchanged", currentVersion: active.version, latestVersion: metadata.version, state: persisted };
   }
   if (!isCommandCodeVersionCompatible(metadata.version, config.minimumVersion)) {
-    state = stateWith(state, { lastUpdateResult: "latest_incompatible", rejectedVersion: metadata.version, rejectionEvidence: "below_minimum_supported_version" });
+    state = stateWith(state, { lastUpdateResult: "latest_incompatible", rejectedVersion: metadata.version, rejectionContract: COMMAND_CODE_QUALIFICATION_CONTRACT, rejectionEvidence: "below_minimum_supported_version" });
     const persisted = persistState(config, state);
     return { status: active ? "retained" : "blocked", currentVersion: currentVersion ?? null, latestVersion: metadata.version, reason: "latest_below_minimum_supported_version", state: persisted };
   }
-  if (state.rejectedVersion === metadata.version) {
+  if (state.rejectedVersion === metadata.version && state.rejectionContract === COMMAND_CODE_QUALIFICATION_CONTRACT) {
     state = stateWith(state, { lastUpdateResult: "rejected_version_suppressed" });
     const persisted = persistState(config, state);
     return { status: "suppressed", currentVersion: currentVersion ?? null, latestVersion: metadata.version, reason: "rejected_version_suppressed", state: persisted };
@@ -422,7 +426,7 @@ export async function maintainCommandCode(config: CommandCodeLifecycleConfig): P
       npmExecutable: config.npmExecutable ?? "npm",
     })))( { version: metadata.version, baseDir: config.baseDir } );
   } catch (error) {
-    state = stateWith(state, { lastUpdateResult: "stage_failure", rejectionEvidence: error instanceof Error ? error.message : "stage_failure" });
+    state = stateWith(state, { lastUpdateResult: "stage_failure", rejectedVersion: metadata.version, rejectionContract: COMMAND_CODE_QUALIFICATION_CONTRACT, rejectionEvidence: error instanceof Error ? error.message : "stage_failure" });
     const persisted = persistState(config, state);
     return { status: active ? "retained" : "blocked", currentVersion: currentVersion ?? null, latestVersion: metadata.version, reason: "candidate_stage_failed", state: persisted };
   }
@@ -437,6 +441,7 @@ export async function maintainCommandCode(config: CommandCodeLifecycleConfig): P
     state = stateWith(state, {
       lastUpdateResult: "qualification_failure",
       rejectedVersion: metadata.version,
+      rejectionContract: COMMAND_CODE_QUALIFICATION_CONTRACT,
       rejectionEvidence: qualification.reason ?? "candidate_qualification_failed",
     });
     const persisted = persistState(config, state);
@@ -449,6 +454,7 @@ export async function maintainCommandCode(config: CommandCodeLifecycleConfig): P
     state = stateWith(state, {
       lastUpdateResult: "activation_failure",
       rejectedVersion: metadata.version,
+      rejectionContract: COMMAND_CODE_QUALIFICATION_CONTRACT,
       rejectionEvidence: "candidate_activation_failed",
     });
     const persisted = persistState(config, state);
@@ -467,6 +473,7 @@ export async function maintainCommandCode(config: CommandCodeLifecycleConfig): P
     currentQualifiedAt: readCommandCodeQualificationState(config.qualificationStatePath, candidate.version)?.qualifiedAt ?? null,
     previousKnownGoodVersion: currentVersion,
     rejectedVersion: null,
+    rejectionContract: null,
     rejectionEvidence: null,
     lastUpdateResult: "activated",
   });

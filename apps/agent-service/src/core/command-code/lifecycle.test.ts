@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   COMMAND_CODE_REGISTRY_URL,
+  COMMAND_CODE_QUALIFICATION_CONTRACT,
   maintainCommandCode,
   parseCommandCodeRegistryMetadata,
   readCommandCodeLifecycleState,
@@ -187,6 +188,7 @@ describe("Command Code lifecycle contract", () => {
       lastUpdateResult: "qualification_failure",
       previousKnownGoodVersion: null,
       rejectedVersion: "1.66.0",
+      rejectionContract: COMMAND_CODE_QUALIFICATION_CONTRACT,
       rejectionEvidence: "worker_qualification_failed",
       registrySource: COMMAND_CODE_REGISTRY_URL,
       latestDistIntegrity: "sha512-example",

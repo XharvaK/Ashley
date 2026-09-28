@@ -59,7 +59,9 @@ export async function qualifyCommandCodeCandidate(
     request: {
       projectId: input.projectId,
       focus: "Use exactly one read-only project.list_directory tool on the authorized project root, then return a short bounded summary.",
-      maxSteps: 1,
+      // One bounded Host tool request plus one completion turn. The worker
+      // step counter is a CLI-turn counter, not a Host-tool counter.
+      maxSteps: 2,
     },
     purpose: "Host startup compatibility qualification for the Command Code worker runtime",
     apiKey: input.apiKey,
