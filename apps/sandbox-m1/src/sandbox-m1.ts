@@ -126,7 +126,7 @@ function isRunnerEvidence(value: unknown): value is SandboxM1RunnerEvidence {
 // Frozen M0-resolved host facts (do not broaden filesystem exposure).
 const BWRAP = "/usr/bin/bwrap";
 const NODE_BIN = "/opt/node/bin/node";
-const NVM_NODE_PREFIX = "/home/xarvak/.nvm/versions/node/v22.23.2";
+const NODE_PREFIX = "/usr";
 const WORKSPACE_MOUNT = "/workspace";
 const PATH_VALUE = "/usr/bin";
 const HOME_VALUE = "/tmp";
@@ -219,7 +219,7 @@ function buildBwrapArgs(workspace: string): string[] {
     "--chdir", WORKSPACE_MOUNT,
     "--die-with-parent",
     "--new-session",
-    "--ro-bind", NVM_NODE_PREFIX, "/opt/node",
+    "--ro-bind", NODE_PREFIX, "/opt/node",
     NODE_BIN, "-e", SANDBOX_M1_RUNNER_SOURCE,
   ];
 }
