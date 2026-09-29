@@ -511,15 +511,24 @@ function applyToIdentity(
   revision: RevisionRecord,
   nowMs: number,
 ): number {
-  const revisedFrom = revision.revisesEntryId === null ? null : currentHead(nuclear, revision.revisesEntryId);
+  // The two stores cannot commit together (R14). If a crash landed between
+  // the nuclear insert and the sidecar update, the entry is already the
+  // current organic head with this exact wording: adopt it, never append twice.
+  const applied = nuclear.prepare(
+    `SELECT e.id, e.revised_from FROM identity_entries e
+      WHERE e.owner_id = ? AND e.layer = 'stable' AND e.kind = ? AND e.text = ? AND e.source = 'organic'
+        AND NOT EXISTS (SELECT 1 FROM identity_entries newer WHERE newer.revised_from = e.id)
+      ORDER BY e.id DESC LIMIT 1`,
+  ).get(ownerId, revision.layer, revision.proposedText) as Row | undefined;
+  const revisedFrom = applied ? (applied.revised_from == null ? null : Number(applied.revised_from))
+    : revision.revisesEntryId === null ? null : currentHead(nuclear, revision.revisesEntryId);
   const previous = revisedFrom === null ? null
     : nuclear.prepare("SELECT text FROM identity_entries WHERE id = ?").get(revisedFrom) as Row | undefined;
   const at = new Date(nowMs).toISOString();
-  const inserted = nuclear.prepare(
+  const entryId = applied ? Number(applied.id) : Number(nuclear.prepare(
     `INSERT INTO identity_entries (owner_id, layer, kind, text, source, revised_from, created_at, updated_at)
      VALUES (?, 'stable', ?, ?, 'organic', ?, ?, ?)`,
-  ).run(ownerId, revision.layer, revision.proposedText, revisedFrom, at, at);
-  const entryId = Number(inserted.lastInsertRowid);
+  ).run(ownerId, revision.layer, revision.proposedText, revisedFrom, at, at).lastInsertRowid);
   db.prepare(
     `UPDATE growth_revisions
         SET status = 'applied', applied_at_ms = ?, applied_entry_id = ?, previous_text = COALESCE(?, previous_text), updated_at_ms = ?

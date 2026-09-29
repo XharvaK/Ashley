@@ -291,6 +291,26 @@ describe("R10 independent, recurring evidence", () => {
   }));
 });
 
+describe("R14 applying an identity revision after a crash", () => {
+  it("adopts the entry a crashed apply already wrote instead of appending a duplicate", () => withStores((sidecar, nuclear) => {
+    const store = { nuclear, ownerId: OWNER };
+    const taste = revisableIdentityEntries(nuclear, OWNER).find((entry) => entry.kind === "taste" && entry.text.includes("dub techno"))!;
+    const proposal = { layer: "taste" as const, revisesEntryId: taste.entryId, text: "essays that argue, and dub techno", rationale: "r" };
+    const { revisionId } = propose(sidecar, nuclear, "c1", { ...proposal, evidenceRefs: [selfEvidence(sidecar, "self:k1", "Essays.", T0)] }, T0) as { revisionId: number };
+    propose(sidecar, nuclear, "c2", { ...proposal, evidenceRefs: [selfEvidence(sidecar, "self:k2", "More essays.", T0 + 2 * DAY)] }, T0 + 2 * DAY);
+    expect(evaluateRevisions(sidecar, store, T0 + 2 * DAY).applied).toEqual([revisionId]);
+    const entryId = getRevision(sidecar, revisionId)!.appliedEntryId;
+
+    // Simulate the crash: the nuclear entry exists, the sidecar never recorded it.
+    sidecar.prepare("UPDATE growth_revisions SET status = 'proposed', applied_at_ms = NULL, applied_entry_id = NULL WHERE revision_id = ?").run(revisionId);
+    expect(evaluateRevisions(sidecar, store, T0 + 2 * DAY + HOUR).applied).toEqual([revisionId]);
+    expect(getRevision(sidecar, revisionId)).toMatchObject({ status: "applied", appliedEntryId: entryId, previousText: taste.text });
+    const tastes = listIdentity(nuclear, OWNER, { layer: "stable" }).filter((entry) => entry.text === proposal.text);
+    expect(tastes).toHaveLength(1);
+    expect(nuclear.prepare("SELECT COUNT(*) AS n FROM identity_entries WHERE text = ?").get(proposal.text)).toEqual({ n: 1 });
+  }));
+});
+
 describe("Growth V1 G4 recordGrowth and the forget cascade", () => {
   it("records one settlement's growth claim and shows it back to Thought", () => withStores((sidecar, nuclear) => {
     const store = { nuclear, ownerId: OWNER };
