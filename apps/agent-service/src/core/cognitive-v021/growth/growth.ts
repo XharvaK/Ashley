@@ -49,6 +49,8 @@ export type ThoughtGrowth = {
     revisesEntryId?: number;
     proposed: string;
     evidence: number;
+    /** Separate passes that brought new evidence, and the days between the first and last. */
+    passes: number;
     spanDays: number;
     needs: string;
     ashleyPosition?: RevisionPositionKind;
@@ -68,8 +70,9 @@ function needsFor(layer: RevisionLayer): string {
   if (isFoundationalLayer(layer)) return "your affirmation in a later pass and the Owner's approval";
   const threshold = REVISION_THRESHOLDS[layer];
   const days = Math.round(threshold.spanMs / 86_400_000);
+  const passes = threshold.passes > 1 ? `, proposed in ${threshold.passes} separate passes over ${days} days` : "";
   const delay = threshold.delayMs > 0 ? `, then ${Math.round(threshold.delayMs / 3_600_000)} h` : "";
-  return `${threshold.evidence} pieces of evidence${days > 0 ? ` over ${days} days` : ""}${delay}`;
+  return `${threshold.evidence} independent origins${passes}${delay}`;
 }
 
 export function growthForThought(db: DatabaseSync, identityStore: IdentityStore | null, nowMs: number): ThoughtGrowth {
@@ -90,6 +93,7 @@ export function growthForThought(db: DatabaseSync, identityStore: IdentityStore 
       ...(revision.revisesEntryId === null ? {} : { revisesEntryId: revision.revisesEntryId }),
       proposed: revision.proposedText,
       evidence: stats.count,
+      passes: stats.passes,
       spanDays: Math.round((stats.spanMs / 86_400_000) * 10) / 10,
       needs: needsFor(revision.layer),
       ...(revision.ashleyPosition ? { ashleyPosition: revision.ashleyPosition } : {}),

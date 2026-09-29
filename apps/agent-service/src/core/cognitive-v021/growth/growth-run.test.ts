@@ -129,7 +129,7 @@ describe("Growth V1 G4 through the kernel", () => {
     }
   });
 
-  it("runs a NIGHT pass: a diary for the day, and a taste line regenerated from the branches she lived", async () => {
+  it("runs a NIGHT pass: a diary for the day, and a taste line regenerated from the branches she lived over two nights", async () => {
     const sidecar = openTestSidecar();
     const nuclear = openNuclearDb(new DatabaseSync(":memory:"));
     const conversationId = "thread-night-run";
@@ -153,14 +153,16 @@ describe("Growth V1 G4 through the kernel", () => {
               revisesEntryId: taste.id,
               text: newTaste,
               rationale: "the branches I live have moved",
-              evidenceRefs: ["interest:cognitive-biases/base-rate-neglect", "interest:books-essays/essays-that-argue"],
+              // The third branch is lived only after the first night; until then it resolves to nothing.
+              evidenceRefs: ["interest:cognitive-biases/base-rate-neglect", "interest:books-essays/essays-that-argue", "interest:cognitive-biases/anchoring"],
             }],
           },
         })),
         model: "fake", modelAlias: "thought", resolvedModelId: null,
       }));
+      let clock = FOUR_AM;
       const thought = async (input: { event: import("../types.js").InboxEvent | null }) =>
-        runCognitiveCycle(sidecar, nuclear, input.event!, deps(nuclear, { completeChat, nowMs: () => FOUR_AM }));
+        runCognitiveCycle(sidecar, nuclear, input.event!, deps(nuclear, { completeChat, nowMs: () => clock }));
       const options = { conversationId, occupantId: "doc", authorityEpoch: 1, timeZone: "Etc/GMT-3", thought };
       expect(await tickNight(sidecar, { ...options, nowMs: FOUR_AM - 60_000 })).toMatchObject({ outcome: "scheduled", nextNightAtMs: FOUR_AM });
       const ran = await tickNight(sidecar, { ...options, nowMs: FOUR_AM });
@@ -172,9 +174,17 @@ describe("Growth V1 G4 through the kernel", () => {
       expect(request).toContain("base-rate neglect");
       expect(listDiary(sidecar)).toEqual([expect.objectContaining({ day: "2026-09-30" })]);
       expect(listRecentJournal(sidecar, { limit: 1 })[0]).toMatchObject({ passKind: "night", activity: "reflect" });
-      const tastes = listIdentity(nuclear, "doc", { layer: "stable" }).filter((entry) => entry.kind === "taste").map((entry) => entry.text);
-      expect(tastes).toContain(newTaste);
-      expect(tastes).not.toContain(taste.text);
+      const tastesOf = () => listIdentity(nuclear, "doc", { layer: "stable" }).filter((entry) => entry.kind === "taste").map((entry) => entry.text);
+      // One night is one pass: a taste needs its proposal in two passes, two days apart.
+      expect(tastesOf()).not.toContain(newTaste);
+
+      recordInterestTouches(sidecar, [{ root: "Cognitive biases", branch: "anchoring", note: "an essay on first numbers" }], FOUR_AM + DAY);
+      // The consumer closes a finished night's event; this test drives the kernel directly.
+      sidecar.prepare("UPDATE inbox_events SET status = 'consumed' WHERE id LIKE 'night:%' AND status IN ('pending', 'claimed')").run();
+      clock = FOUR_AM + 2 * DAY;
+      expect(await tickNight(sidecar, { ...options, nowMs: clock })).toMatchObject({ outcome: "ran" });
+      expect(tastesOf()).toContain(newTaste);
+      expect(tastesOf()).not.toContain(taste.text);
     } finally {
       sidecar.close();
       nuclear.close();

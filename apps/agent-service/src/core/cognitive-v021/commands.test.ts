@@ -301,12 +301,15 @@ describe("v0.2.1 command wiring", () => {
         recordMemoryFormation(sidecar, { assertionKey: key, salience: 0.6, nowMs: 1_000 + at });
       }
       const taste = revisableIdentityEntries(nuclear, OWNER).find((entry) => entry.kind === "taste")!;
-      proposeRevisions(sidecar, {
-        cycleId: "cycle-taste",
-        proposals: [{ layer: "taste", revisesEntryId: taste.entryId, text: "trip planning, Kyoto above all", rationale: "what I keep reaching for", evidenceRefs: ["self:c1", "self:c2"] }],
-        identity: revisableIdentityEntries(nuclear, OWNER),
-        nowMs: 1_000 + 3 * DAY,
-      });
+      // A taste needs its proposal in two passes, two days apart.
+      for (const [cycleId, ref, at] of [["cycle-taste-1", "self:c1", 0], ["cycle-taste-2", "self:c2", 3 * DAY]] as const) {
+        proposeRevisions(sidecar, {
+          cycleId,
+          proposals: [{ layer: "taste", revisesEntryId: taste.entryId, text: "trip planning, Kyoto above all", rationale: "what I keep reaching for", evidenceRefs: [ref] }],
+          identity: revisableIdentityEntries(nuclear, OWNER),
+          nowMs: 1_000 + at,
+        });
+      }
       expect(evaluateRevisions(sidecar, { nuclear, ownerId: OWNER }, 1_000 + 3 * DAY).applied).toHaveLength(1);
       recordAppraisal(sidecar, { cycleId: "cycle-mood", appraisal: { note: "glad about the trip", valence: 0.3 }, dataClassification: "ordinary", nowMs: Date.now() });
 

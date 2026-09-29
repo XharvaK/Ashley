@@ -312,9 +312,9 @@ about, did well/badly. They are the fuel for every revision.
 
 | Layer | Examples | Applies when |
 |---|---|---|
-| Opinion | "Dub techno is best at 3am" | ≥ 2 evidence |
-| Taste / dynamic identity | interests, style, humour | ≥ 2 evidence over ≥ 2 days |
-| Stable trait | "patient with messy problems" | ≥ 3 evidence over ≥ 14 days, then 72 h delay |
+| Opinion | "Dub techno is best at 3am" | ≥ 2 independent origins |
+| Taste / dynamic identity | interests, style, humour | ≥ 2 origins, proposed in ≥ 2 passes over ≥ 2 days |
+| Stable trait | "patient with messy problems" | ≥ 3 origins, in ≥ 3 passes over ≥ 14 days, then 72 h delay |
 | Value / boundary | foundational | Ashley affirms AND Alex approves (`/identity`) |
 
 Every applied revision appends a new `identity_entries` row with

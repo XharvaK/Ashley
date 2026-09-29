@@ -92,9 +92,15 @@ count, open expectations, and recent lessons. A settlement may carry a
   ones expire after 14 days.
 - *Revisions* (`growth/revisions.ts`): she proposes a change to herself,
   citing evidence that must exist (memory keys, episodes, journal entries,
-  checked expectations). Proposals to the same target add up. An opinion
-  applies at 2 pieces of live evidence; a taste at 2 over 2 days; a trait
-  at 3 over 14 days, then 72 hours. A value or boundary needs her
+  checked expectations). Proposals to the same target add up. Evidence
+  counts by origin: records that share a conversation row, a pass, a
+  contact or a website count once, so a memory and the episode and journal
+  entry derived from it are one origin; at least one origin must be hers or
+  the Owner's, never only contacts or the web. Recurrence is measured on
+  her proposals: a pass counts when it cites evidence not cited before. An
+  opinion applies at 2 independent origins; a taste at 2, proposed in 2
+  passes over 2 days; a trait at 3, in 3 passes over 14 days, then 72
+  hours. A value or boundary needs her
   affirmation in a later pass and the Owner's approval through `/identity`
   (a new wording clears both). An applied identity revision appends a
   `nuclear.db:identity_entries` row that revises the old one; the Thought

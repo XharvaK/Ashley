@@ -3,6 +3,8 @@ import { maxClassification, type DataClassification } from "../../privacy/classi
 import { listIdentity } from "../../identity/store.js";
 import { getMemoryAssertion, REDACTED_MEMORY_STATEMENT } from "../memory/assertions.js";
 import { getEpisode } from "../memory/episodes.js";
+import { listMemorySupports } from "../memory/supports.js";
+import { getConversationEvidence } from "../evidence/conversation-log.js";
 import { getExpectation } from "./expectations.js";
 
 /**
@@ -13,12 +15,20 @@ import { getExpectation } from "./expectations.js";
  * cites the evidence for it; the Host only resolves that evidence, counts
  * it, and applies a revision once its layer's threshold holds:
  *
- * | layer            | applies when                                        |
- * |------------------|-----------------------------------------------------|
- * | opinion          | 2 pieces of live evidence                           |
- * | taste            | 2 pieces of evidence spanning at least 2 days       |
- * | trait            | 3 pieces spanning at least 14 days, then a 72 h wait |
+ * | layer            | applies when                                                  |
+ * |------------------|---------------------------------------------------------------|
+ * | opinion          | 2 independent origins                                         |
+ * | taste            | 2 origins, proposed in 2 separate passes at least 2 days apart |
+ * | trait            | 3 origins, in 3 passes spanning at least 14 days, then 72 h   |
  * | value / boundary | Ashley affirms (in a later pass) AND the Owner approves via /identity |
+ *
+ * Evidence counts by origin, not by record (R10): records that share a
+ * conversation row, a pass, a person or a website are one origin, so a
+ * memory and the episode and journal entry derived from it count once, and
+ * a contact or a site counts once however often it is cited. At least one
+ * origin must be her own or the Owner's: contacts and the web can never be
+ * the only support for a change to herself. Recurrence is measured on her
+ * proposals: a pass counts when it cites evidence not cited before.
  *
  * Proposals to the same target accumulate evidence; the wording is the
  * latest she gave. Nothing applies on a single impulse. An applied identity
@@ -42,10 +52,11 @@ export const REVISIONS_PER_SETTLEMENT = 3;
 export const REVISION_POSITIONS_PER_SETTLEMENT = 3;
 
 const DAY_MS = 24 * 60 * 60_000;
-export const REVISION_THRESHOLDS: Readonly<Record<"opinion" | "taste" | "trait", { evidence: number; spanMs: number; delayMs: number }>> = Object.freeze({
-  opinion: { evidence: 2, spanMs: 0, delayMs: 0 },
-  taste: { evidence: 2, spanMs: 2 * DAY_MS, delayMs: 0 },
-  trait: { evidence: 3, spanMs: 14 * DAY_MS, delayMs: 72 * 60 * 60_000 },
+/** evidence: independent origins; passes: separate proposing passes; spanMs: between the first and last of those passes. */
+export const REVISION_THRESHOLDS: Readonly<Record<"opinion" | "taste" | "trait", { evidence: number; passes: number; spanMs: number; delayMs: number }>> = Object.freeze({
+  opinion: { evidence: 2, passes: 1, spanMs: 0, delayMs: 0 },
+  taste: { evidence: 2, passes: 2, spanMs: 2 * DAY_MS, delayMs: 0 },
+  trait: { evidence: 3, passes: 3, spanMs: 14 * DAY_MS, delayMs: 72 * 60 * 60_000 },
 });
 
 /** What Thought proposes. */
@@ -84,7 +95,17 @@ export type RevisionRecord = {
   updatedAtMs: number;
 };
 
-export type RevisionEvidenceStats = { count: number; spanMs: number; refs: string[] };
+export type RevisionEvidenceStats = {
+  /** Independent origins among the live evidence. */
+  count: number;
+  /** Origins that are her own or the Owner's (not only a contact or the web). */
+  ownOrigins: number;
+  /** Separate passes whose newly cited evidence is still live. */
+  passes: number;
+  /** Time between the first and the last of those passes. */
+  spanMs: number;
+  refs: string[];
+};
 
 export type ProposalOutcome =
   | { outcome: "proposed" | "reinforced"; revisionId: number }
@@ -207,17 +228,135 @@ export function resolveRevisionEvidence(db: DatabaseSync, ref: string): Resolved
   return { ref: value, atMs, dataClassification: assertion.dataClassification };
 }
 
+type EvidenceOrigin = { roots: string[]; external: boolean };
+type Grounding = { roots: string[]; own: boolean; external: boolean };
+
+function rowGrounding(db: DatabaseSync, rowId: string): Grounding | null {
+  const evidence = getConversationEvidence(db, rowId);
+  if (!evidence) return null;
+  const row = `row:${evidence.lineageId}`;
+  if (evidence.role === "external_dialog") {
+    return { roots: [row, `person:${evidence.speakerPrincipalId ?? evidence.lineageId}`], own: false, external: true };
+  }
+  return { roots: [row], own: evidence.role === "owner" || evidence.role === "ashley", external: false };
+}
+
+function observationGrounding(db: DatabaseSync, observationId: string): Grounding {
+  const row = db.prepare("SELECT payload_json FROM observations WHERE observation_id = ?").get(observationId) as Row | undefined;
+  let payload: Row | null = null;
+  try {
+    const parsed = typeof row?.payload_json === "string" ? JSON.parse(row.payload_json) : null;
+    payload = typeof parsed === "object" && parsed !== null ? parsed as Row : null;
+  } catch { /* unreadable payload: the observation is its own origin */ }
+  for (const key of ["finalUrl", "requestedUrl", "url"]) {
+    const value = payload?.[key];
+    if (typeof value !== "string") continue;
+    try {
+      return { roots: [`observation:${observationId}`, `web:${new URL(value).hostname.toLowerCase()}`], own: false, external: true };
+    } catch { /* not a URL */ }
+  }
+  return { roots: [`observation:${observationId}`], own: false, external: false };
+}
+
+/** Roots from what an evidence record rests on; external only if nothing of hers or the Owner's grounds it. */
+function combine(ref: string, groundings: readonly (Grounding | null)[], links: readonly string[] = []): EvidenceOrigin {
+  const present = groundings.filter((item): item is Grounding => item !== null);
+  const own = present.some((item) => item.own);
+  const external = present.some((item) => item.external);
+  return {
+    roots: [`ref:${ref}`, ...links, ...present.flatMap((item) => item.roots)],
+    external: external && !own,
+  };
+}
+
+/**
+ * What one live evidence record derives from. Derived records (an episode,
+ * a journal entry, a memory formed in a pass) share the rows and passes
+ * they came from, so a chain of derivations resolves to one origin.
+ */
+function evidenceOrigin(db: DatabaseSync, ref: string): EvidenceOrigin {
+  if (ref.startsWith("expectation:")) {
+    const row = db.prepare("SELECT checked_cycle_id FROM expectations WHERE expectation_id = ?").get(ref) as Row | undefined;
+    return combine(ref, [], typeof row?.checked_cycle_id === "string" ? [`cycle:${row.checked_cycle_id}`] : []);
+  }
+  if (ref.startsWith("journal:")) {
+    const row = db.prepare("SELECT cycle_id, read_refs_json FROM activity_journal WHERE entry_id = ?").get(ref) as Row | undefined;
+    let reads: Array<{ observationId?: unknown }> = [];
+    try { reads = JSON.parse(String(row?.read_refs_json ?? "[]")); } catch { reads = []; }
+    const groundings = reads.flatMap((read) => typeof read.observationId === "string" ? [observationGrounding(db, read.observationId)] : []);
+    return combine(ref, groundings, typeof row?.cycle_id === "string" ? [`cycle:${row.cycle_id}`] : []);
+  }
+  if (ref.startsWith("interest:")) return combine(ref, []);
+  if (ref.startsWith("episode:")) {
+    const row = db.prepare("SELECT cycle_id, evidence_row_ids_json FROM episodes_v2 WHERE episode_id = ?").get(ref) as Row | undefined;
+    let rowIds: unknown[] = [];
+    try { rowIds = JSON.parse(String(row?.evidence_row_ids_json ?? "[]")); } catch { rowIds = []; }
+    const groundings = rowIds.flatMap((rowId) => typeof rowId === "string" ? [rowGrounding(db, rowId)] : []);
+    return combine(ref, groundings, typeof row?.cycle_id === "string" ? [`cycle:${row.cycle_id}`] : []);
+  }
+  const groundings: Array<Grounding | null> = [];
+  for (const support of listMemorySupports(db, ref)) {
+    const supportRef = support.supportRef;
+    if (supportRef?.kind === "conversation_text_span") groundings.push(rowGrounding(db, supportRef.evidenceRowId));
+    else if (supportRef?.kind === "observation_ref") groundings.push(observationGrounding(db, supportRef.observationId));
+    else if (supportRef?.kind === "receipt_ref") groundings.push({ roots: [`receipt:${supportRef.receiptId}`], own: false, external: false });
+    else if (supportRef) groundings.push({ roots: [`artifact:${supportRef.artifactId}`], own: false, external: false });
+    else if (support.supportId.startsWith("social:evidence:") && support.sourceRef) groundings.push(rowGrounding(db, support.sourceRef));
+  }
+  const cycles = (db.prepare(
+    "SELECT DISTINCT cycle_id FROM durable_nominations WHERE assertion_key = ? AND admitted = 1",
+  ).all(ref) as Row[]).map((row) => `cycle:${String(row.cycle_id)}`);
+  return combine(ref, groundings, cycles);
+}
+
+/** Count connected groups of records that share any root. */
+function independentOrigins(origins: readonly EvidenceOrigin[]): { count: number; own: number } {
+  const parent = origins.map((_, index) => index);
+  const find = (index: number): number => {
+    while (parent[index] !== index) {
+      parent[index] = parent[parent[index]!]!;
+      index = parent[index]!;
+    }
+    return index;
+  };
+  const owner = new Map<string, number>();
+  origins.forEach((origin, index) => {
+    for (const root of origin.roots) {
+      const seen = owner.get(root);
+      if (seen === undefined) owner.set(root, index);
+      else parent[find(index)] = find(seen);
+    }
+  });
+  const groups = new Map<number, boolean>();
+  origins.forEach((origin, index) => {
+    const group = find(index);
+    groups.set(group, (groups.get(group) ?? false) || !origin.external);
+  });
+  return { count: groups.size, own: [...groups.values()].filter(Boolean).length };
+}
+
 /** The revision's evidence as it stands now (live refs only). */
 export function revisionEvidenceStats(db: DatabaseSync, revisionId: number): RevisionEvidenceStats {
-  const refs = (db.prepare("SELECT evidence_ref FROM growth_revision_evidence WHERE revision_id = ? ORDER BY evidence_ref").all(revisionId) as Row[])
-    .map((row) => String(row.evidence_ref));
-  const live = refs.flatMap((ref) => {
-    const resolved = resolveRevisionEvidence(db, ref);
-    return resolved ? [resolved] : [];
-  });
-  if (live.length === 0) return { count: 0, spanMs: 0, refs: [] };
-  const times = live.map((item) => item.atMs);
-  return { count: live.length, spanMs: Math.max(...times) - Math.min(...times), refs: live.map((item) => item.ref) };
+  const linked = (db.prepare(
+    "SELECT evidence_ref, cited_cycle_id, linked_at_ms FROM growth_revision_evidence WHERE revision_id = ? ORDER BY evidence_ref",
+  ).all(revisionId) as Row[]).map((row) => ({
+    ref: String(row.evidence_ref),
+    cycleId: String(row.cited_cycle_id),
+    linkedAtMs: Number(row.linked_at_ms),
+  }));
+  const live = linked.filter((item) => resolveRevisionEvidence(db, item.ref) !== null);
+  if (live.length === 0) return { count: 0, ownOrigins: 0, passes: 0, spanMs: 0, refs: [] };
+  const origins = independentOrigins(live.map((item) => evidenceOrigin(db, item.ref)));
+  const passes = new Map<string, number>();
+  for (const item of live) passes.set(item.cycleId, Math.min(passes.get(item.cycleId) ?? Infinity, item.linkedAtMs));
+  const times = [...passes.values()];
+  return {
+    count: origins.count,
+    ownOrigins: origins.own,
+    passes: passes.size,
+    spanMs: Math.max(...times) - Math.min(...times),
+    refs: live.map((item) => item.ref),
+  };
 }
 
 function currentHead(nuclear: DatabaseSync, entryId: number): number {
@@ -416,10 +555,11 @@ export function evaluateRevisions(
     const stats = revisionEvidenceStats(db, revision.revisionId);
     let due = false;
     if (isFoundationalLayer(revision.layer)) {
-      due = stats.count >= 1 && revision.ashleyPosition === "affirm" && revision.ownerDecision === "approve";
+      due = stats.ownOrigins >= 1 && revision.ashleyPosition === "affirm" && revision.ownerDecision === "approve";
     } else {
       const threshold = REVISION_THRESHOLDS[revision.layer];
-      const met = stats.count >= threshold.evidence && stats.spanMs >= threshold.spanMs;
+      const met = stats.count >= threshold.evidence && stats.ownOrigins >= 1
+        && stats.passes >= threshold.passes && stats.spanMs >= threshold.spanMs;
       if (!met) {
         if (revision.status === "ripe") {
           // Evidence was forgotten: the wait starts over when it is met again.

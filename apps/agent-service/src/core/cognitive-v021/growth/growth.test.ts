@@ -151,14 +151,13 @@ describe("Growth V1 G4 revision engine", () => {
     expect(reverted).not.toContain("essays that argue, dub techno, and cognitive biases");
   }));
 
-  it("ripens a trait at three pieces over fourteen days, waits 72 hours, and starts over if evidence is forgotten", () => withStores((sidecar, nuclear) => {
+  it("ripens a trait proposed in three passes over fourteen days, waits 72 hours, and starts over if evidence is forgotten", () => withStores((sidecar, nuclear) => {
     const store = { nuclear, ownerId: OWNER };
-    const refs = [
-      selfEvidence(sidecar, "self:p1", "I stayed with the messy bug for hours.", T0),
-      selfEvidence(sidecar, "self:p2", "Patient again with the migration.", T0 + 7 * DAY),
-      selfEvidence(sidecar, "self:p3", "Still patient with a hard problem.", T0 + 14 * DAY),
-    ];
-    const { revisionId } = propose(sidecar, nuclear, "c1", { layer: "trait", topic: "patience", text: "patient with messy problems", rationale: "three weeks of it", evidenceRefs: refs }, T0 + 14 * DAY) as { revisionId: number };
+    const trait = { layer: "trait" as const, topic: "patience", text: "patient with messy problems", rationale: "it keeps happening" };
+    const { revisionId } = propose(sidecar, nuclear, "c1", { ...trait, evidenceRefs: [selfEvidence(sidecar, "self:p1", "I stayed with the messy bug for hours.", T0)] }, T0) as { revisionId: number };
+    propose(sidecar, nuclear, "c2", { ...trait, evidenceRefs: [selfEvidence(sidecar, "self:p2", "Patient again with the migration.", T0 + 7 * DAY)] }, T0 + 7 * DAY);
+    expect(evaluateRevisions(sidecar, store, T0 + 7 * DAY).ripened).toEqual([]);
+    propose(sidecar, nuclear, "c3", { ...trait, evidenceRefs: [selfEvidence(sidecar, "self:p3", "Still patient with a hard problem.", T0 + 14 * DAY)] }, T0 + 14 * DAY);
     expect(evaluateRevisions(sidecar, store, T0 + 14 * DAY)).toMatchObject({ applied: [], ripened: [revisionId] });
     expect(evaluateRevisions(sidecar, store, T0 + 14 * DAY + 71 * HOUR).applied).toEqual([]);
 
@@ -168,7 +167,7 @@ describe("Growth V1 G4 revision engine", () => {
     expect(getRevision(sidecar, revisionId)).toMatchObject({ status: "proposed", ripeAtMs: null });
 
     const replacement = selfEvidence(sidecar, "self:p4", "Patient through a long outage.", T0 + 16 * DAY);
-    propose(sidecar, nuclear, "c2", { layer: "trait", topic: "patience", text: "patient with messy problems", rationale: "again", evidenceRefs: [replacement] }, T0 + 16 * DAY);
+    propose(sidecar, nuclear, "c4", { ...trait, evidenceRefs: [replacement] }, T0 + 16 * DAY);
     expect(evaluateRevisions(sidecar, store, T0 + 16 * DAY).ripened).toEqual([revisionId]);
     expect(evaluateRevisions(sidecar, store, T0 + 16 * DAY + 72 * HOUR).applied).toEqual([revisionId]);
     expect(listIdentity(nuclear, OWNER, { layer: "stable" }).some((entry) => entry.kind === "trait" && entry.text === "patient with messy problems"))
@@ -220,6 +219,75 @@ describe("Growth V1 G4 revision engine", () => {
     checkExpectations(sidecar, { cycleId: "c3", checks: [{ expectationId: id!, outcome: "met", lesson: "He loved it." }], nowMs: T0 + HOUR });
     propose(sidecar, null, "c3", { ...proposal, evidenceRefs: [id!] }, T0 + HOUR);
     expect(evaluateRevisions(sidecar, null, T0 + HOUR).applied).toEqual([open.revisionId]);
+  }));
+});
+
+describe("R10 independent, recurring evidence", () => {
+  function nominatedIn(sidecar: DatabaseSync, key: string, cycleId: string) {
+    sidecar.prepare(
+      `INSERT INTO durable_nominations
+         (nomination_id, cycle_id, generation, assertion_key, statement, memory_kind, dimensions_json, data_classification, admitted)
+       VALUES (?, ?, 1, ?, 'x', 'learned_self_evidence', ?, 'ordinary', 1)`,
+    ).run(`nom:${key}`, cycleId, key, JSON.stringify(dimensions));
+  }
+
+  function journalOf(sidecar: DatabaseSync, cycleId: string, atMs: number, reads: string[] = []): string {
+    const entryId = `journal:${cycleId}`;
+    sidecar.prepare(
+      `INSERT INTO activity_journal (entry_id, conversation_id, cycle_id, pass_kind, activity, entry, read_refs_json, data_classification, created_at_ms)
+       VALUES (?, 'thread', ?, 'afterglow', 'reflect', 'I noticed it again.', ?, 'ordinary', ?)`,
+    ).run(entryId, cycleId, JSON.stringify(reads.map((observationId) => ({ observationId, modality: "page" }))), atMs);
+    return entryId;
+  }
+
+  function webRead(sidecar: DatabaseSync, observationId: string, cycleId: string, url: string) {
+    sidecar.prepare(
+      `INSERT INTO observations (observation_id, cycle_id, generation, derived, replay_safe, modality, payload_json, provenance, data_classification, secret_omitted, created_at_ms)
+       VALUES (?, ?, 1, 0, 1, 'page', ?, 'tool:web', 'ordinary', 0, 0)`,
+    ).run(observationId, cycleId, JSON.stringify({ url }));
+  }
+
+  it("counts a memory and the journal entry from the same pass as one origin", () => withStores((sidecar) => {
+    const memory = selfEvidence(sidecar, "self:one", "That set moved me.", T0);
+    nominatedIn(sidecar, memory, "pass-1");
+    const journal = journalOf(sidecar, "pass-1", T0);
+    const { revisionId } = propose(sidecar, null, "c1", { layer: "opinion", topic: "that set", text: "That set is great.", rationale: "r", evidenceRefs: [memory, journal] }, T0) as { revisionId: number };
+    expect(evaluateRevisions(sidecar, null, T0).applied).toEqual([]);
+    expect(growthForThought(sidecar, null, T0).revisions?.[0]).toMatchObject({ revisionId, evidence: 1 });
+  }));
+
+  it("refuses a taste proposed in one pass, however much evidence it cites", () => withStores((sidecar, nuclear) => {
+    const store = { nuclear, ownerId: OWNER };
+    const refs = [
+      selfEvidence(sidecar, "self:a1", "Essays again.", T0),
+      selfEvidence(sidecar, "self:a2", "More essays.", T0 + 3 * DAY),
+    ];
+    const { revisionId } = propose(sidecar, nuclear, "c1", { layer: "taste", topic: "essays", text: "essays that argue", rationale: "r", evidenceRefs: refs }, T0 + 3 * DAY) as { revisionId: number };
+    expect(evaluateRevisions(sidecar, store, T0 + 3 * DAY).applied).toEqual([]);
+    // Re-citing the same evidence later is not a new pass.
+    propose(sidecar, nuclear, "c2", { layer: "taste", topic: "essays", text: "essays that argue", rationale: "r", evidenceRefs: refs }, T0 + 6 * DAY);
+    expect(evaluateRevisions(sidecar, store, T0 + 6 * DAY).applied).toEqual([]);
+    expect(getRevision(sidecar, revisionId)?.status).toBe("proposed");
+  }));
+
+  it("counts one website once and never lets the web alone change her", () => withStores((sidecar) => {
+    webRead(sidecar, "obs-1", "pass-1", "https://example.org/a");
+    webRead(sidecar, "obs-2", "pass-2", "https://example.org/b");
+    webRead(sidecar, "obs-3", "pass-3", "https://other.net/c");
+    const first = journalOf(sidecar, "pass-1", T0, ["obs-1"]);
+    const sameSite = journalOf(sidecar, "pass-2", T0 + HOUR, ["obs-2"]);
+    const { revisionId } = propose(sidecar, null, "c1", { layer: "opinion", topic: "priors", text: "Priors matter.", rationale: "r", evidenceRefs: [first, sameSite] }, T0 + HOUR) as { revisionId: number };
+    expect(evaluateRevisions(sidecar, null, T0 + HOUR).applied).toEqual([]);
+    expect(growthForThought(sidecar, null, T0 + HOUR).revisions?.[0]).toMatchObject({ revisionId, evidence: 1 });
+
+    const otherSite = journalOf(sidecar, "pass-3", T0 + 2 * HOUR, ["obs-3"]);
+    propose(sidecar, null, "c2", { layer: "opinion", topic: "priors", text: "Priors matter.", rationale: "r", evidenceRefs: [otherSite] }, T0 + 2 * HOUR);
+    // Two sites are two origins, but both are the web.
+    expect(evaluateRevisions(sidecar, null, T0 + 2 * HOUR).applied).toEqual([]);
+
+    const own = selfEvidence(sidecar, "self:priors", "I keep reasoning from priors myself.", T0 + 3 * HOUR);
+    propose(sidecar, null, "c3", { layer: "opinion", topic: "priors", text: "Priors matter.", rationale: "r", evidenceRefs: [own] }, T0 + 3 * HOUR);
+    expect(evaluateRevisions(sidecar, null, T0 + 3 * HOUR).applied).toEqual([revisionId]);
   }));
 });
 
