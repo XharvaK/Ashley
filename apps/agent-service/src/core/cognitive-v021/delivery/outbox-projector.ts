@@ -39,7 +39,8 @@ import type {
   SystemNoticeOutbox,
 } from "../types.js";
 
-export type ProjectionGate = (intent: DeliveryIntent) => { ok: true } | { ok: false; reason: string };
+/** `defer: true` keeps the row pending for a later pass; otherwise a refusal suppresses it. */
+export type ProjectionGate = (intent: DeliveryIntent) => { ok: true } | { ok: false; reason: string; defer?: boolean };
 
 export type ProjectableRow = SpeechOutboxRow | SystemNoticeOutbox | OperationInterimOutbox;
 
@@ -546,7 +547,7 @@ function shouldProject(
   if (options.gate) {
     const gate = options.gate(row.deliveryIntent);
     if (!gate.ok) {
-      if (gate.reason === "daily_cap") return { ok: false, status: "pending", reason: gate.reason };
+      if (gate.defer === true || gate.reason === "daily_cap") return { ok: false, status: "pending", reason: gate.reason };
       return { ok: false, status: "suppressed", reason: gate.reason };
     }
   }

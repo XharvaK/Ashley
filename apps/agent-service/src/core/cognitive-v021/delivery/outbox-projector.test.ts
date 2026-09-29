@@ -5,6 +5,7 @@ import { admitTestCycle, openTestSidecar } from "../test-support.js";
 import { getCycle, updateCycleState } from "../cycle/inbox.js";
 import { enqueueWorkerUndertaking } from "../operation/worker-queue.js";
 import { insertOutboxPending } from "../speech/outbox.js";
+import { evaluateReachOutGate } from "../initiative/reach-out-gate.js";
 import { suppressUndeliveredOutbox } from "../speech/outbox.js";
 import { emitInfrastructureNotice, THOUGHT_UNAVAILABLE_NOTICE, updateSystemNoticeStatus } from "../speech/infrastructure-notice.js";
 import {
@@ -246,6 +247,48 @@ describe("v0.2.1 cross-database outbox projection", () => {
       cap = false;
       await projector.project(row.outboxId);
       expect(sidecar.prepare("SELECT send_status, nuclear_finalization_reason FROM speech_outbox WHERE outbox_id = ?").get(row.outboxId)).toMatchObject({ send_status: "suppressed", nuclear_finalization_reason: "proactive_paused" });
+    } finally {
+      sidecar.close();
+      nuclear.close();
+    }
+  });
+
+  it("keeps her own initiative pending while paused, then delivers it on resume (Growth V1 §5.5)", async () => {
+    const sidecar = openTestSidecar();
+    const nuclear = openNuclearDb(new DatabaseSync(":memory:"));
+    try {
+      const intent = (trigger: "idle" | "commitment_due", id: string) => ({
+        ownerId: "doc",
+        channel: "discord",
+        threadId: `thread-${id}`,
+        conversationId: `thread-${id}`,
+        trigger,
+        deliveryLane: "proactive" as const,
+        purpose: "licensed_speech" as const,
+      });
+      const own = insertOutboxPending(sidecar, {
+        settlementId: "settlement-own", cycleId: "cycle-own", generation: 1,
+        conversationId: "thread-own", licensedText: "a thought I had", deliveryIntent: intent("idle", "own"),
+      });
+      const reminder = insertOutboxPending(sidecar, {
+        settlementId: "settlement-reminder", cycleId: "cycle-reminder", generation: 1,
+        conversationId: "thread-reminder", licensedText: "the reminder you asked for", deliveryIntent: intent("commitment_due", "reminder"),
+      });
+      let paused = true;
+      const projector = new OutboxDeliveryProjector(sidecar, nuclear, {
+        gate: (deliveryIntent) => evaluateReachOutGate(deliveryIntent, { paused, chatInProgress: false }),
+      });
+      await projector.project(own.outboxId);
+      await projector.project(reminder.outboxId);
+      const status = (outboxId: number) =>
+        (sidecar.prepare("SELECT send_status FROM speech_outbox WHERE outbox_id = ?").get(outboxId) as { send_status: string }).send_status;
+      expect(status(own.outboxId)).toBe("pending");
+      expect(status(reminder.outboxId)).not.toBe("pending");
+      expect(status(reminder.outboxId)).not.toBe("suppressed");
+      paused = false;
+      await projector.project(own.outboxId);
+      expect(status(own.outboxId)).not.toBe("pending");
+      expect(status(own.outboxId)).not.toBe("suppressed");
     } finally {
       sidecar.close();
       nuclear.close();

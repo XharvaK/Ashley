@@ -25,10 +25,7 @@ import { serviceUnansweredOwnerRecovery } from "./core/cognitive-v021/retry/owne
 import { processPendingOpenCognitiveReviewsAsync } from "./core/reflection/initiative.js";
 import { repairMissingC3Experiences } from "./core/cognitive-v021/failure/c3-recovery.js";
 import { startFrontierCoordinator, type FrontierCoordinatorHandle } from "./core/cognitive-v021/frontier/index.js";
-import {
-  classifyInitiativeClass,
-  evaluateProactiveEligibility,
-} from "./core/cognitive-v021/initiative/eligibility.js";
+import { evaluateReachOutGate } from "./core/cognitive-v021/initiative/reach-out-gate.js";
 import type { KernelDeps, Observation } from "./core/cognitive-v021/types.js";
 import { createV021LiveOperationExecutors } from "./core/cognitive-v021/dispatch/live-operations.js";
 import {
@@ -313,22 +310,12 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
       adapters: { webFetchProvider, webSearchProvider },
     });
     const projector = createOutboxProjector(sidecar, nuclear, {
-      gate: (deliveryIntent) => {
-        if (deliveryIntent.deliveryLane !== "proactive") return { ok: true };
-        const status = manager.core.getProactiveOperationalStatus(deliveryIntent.ownerId);
-        const eligibility = evaluateProactiveEligibility(nuclear, {
-          ownerId: deliveryIntent.ownerId,
-          chatInProgress: !manager.core.isExpressionQuiesced(deliveryIntent.ownerId),
-          paused: status.paused,
-          enabled: status.enabled,
-          sentToday: status.sentToday,
-          maxPerDay: status.maxPerDay,
-          lastUserMessageAt: status.lastUserMessageAt,
-          minIdleHours: status.minIdleHours,
-          hasUrgent: classifyInitiativeClass(nuclear, deliveryIntent.ownerId) === "urgent_grounded",
-        });
-        return eligibility.ok ? { ok: true } : { ok: false, reason: eligibility.reason };
-      },
+      // Growth V1 §5.5: pause defers her own initiative; nothing is dropped,
+      // and speech Alex asked for is never held (initiative/reach-out-gate.ts).
+      gate: (deliveryIntent) => evaluateReachOutGate(deliveryIntent, {
+        paused: manager.core.getProactiveOperationalStatus(deliveryIntent.ownerId).paused,
+        chatInProgress: !manager.core.isExpressionQuiesced(deliveryIntent.ownerId),
+      }),
     });
     const runDetachedWorker = async (workerInput: Parameters<NonNullable<Parameters<typeof dispatchDetachedOperation>[2]>>[0]) => {
       const result = await liveOperationExecutors.runDetachedInvestigate({
