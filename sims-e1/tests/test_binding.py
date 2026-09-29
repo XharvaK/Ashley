@@ -134,6 +134,9 @@ class BindingTests(unittest.TestCase):
             "ashley_e1.arm", "ashley_e1.disarm", "ashley_e1.start", "ashley_e1.stop",
         ])
         self.assertEqual(len(calls["registrations"]), 4)
+        self.assertEqual([item[2].__name__ for item in calls["registrations"]], [
+            "_dispatch_arm", "_dispatch_disarm", "_dispatch_start", "_dispatch_stop",
+        ])
         self.assertEqual(calls["registrations"][0][1], "UNRESTRICTED")
         self.assertEqual(calls["registrations"][0][5], "Live")
         self.assertTrue(probe._cmd_arm("LAB_E1"))
@@ -200,6 +203,68 @@ class BindingTests(unittest.TestCase):
         probe._poll_tick()
         probe._POLL_BUSY = False
         self.assertEqual(probe.get_status()["counters"]["dropped_overrun"], 1)
+
+    def test_native_dispatch_adapters_preserve_state_machine_and_translate_session(self):
+        _, probe, calls = load_probe()
+        registered = {item[0]: item[2] for item in calls["registrations"]}
+        seen_connections = []
+        original_arm = probe._cmd_arm
+
+        def recording_arm(arm_name, _connection=None):
+            seen_connections.append((arm_name, _connection))
+            return original_arm(arm_name, _connection=_connection)
+
+        probe._cmd_arm = recording_arm
+        self.assertFalse(registered["ashley_e1.start"](_session_id=42))
+        self.assertEqual(calls["alarms"], [])
+        self.assertEqual(FakeWriter.instances, [])
+        self.assertFalse(registered["ashley_e1.arm"]("BADNAME", _session_id=42))
+        self.assertEqual(probe.get_status()["state"], "UNARMED")
+
+        self.assertTrue(registered["ashley_e1.arm"]("LAB_E1", _session_id=42))
+        self.assertEqual(seen_connections, [("BADNAME", 42), ("LAB_E1", 42)])
+        self.assertEqual(probe.get_status()["state"], "ARMED")
+        self.assertEqual(len(FakeWriter.instances), 1)
+
+        self.assertTrue(registered["ashley_e1.start"](_session_id=42))
+        self.assertEqual(probe.get_status()["state"], "SAMPLING")
+        self.assertEqual(len(calls["alarms"]), 1)
+        self.assertTrue(registered["ashley_e1.start"](_session_id=42))
+        self.assertEqual(len(calls["alarms"]), 1)
+        self.assertEqual(probe.get_status()["counters"]["redundant_starts"], 1)
+
+        self.assertFalse(registered["ashley_e1.arm"]("LAB_E1_FORK", _session_id=42))
+        self.assertEqual(probe.get_status()["state"], "SAMPLING")
+        self.assertTrue(registered["ashley_e1.stop"](_session_id=42))
+        self.assertEqual(probe.get_status()["state"], "ARMED")
+        self.assertTrue(registered["ashley_e1.stop"](_session_id=42))
+        self.assertTrue(registered["ashley_e1.disarm"](_session_id=42))
+        self.assertEqual(probe.get_status()["state"], "UNARMED")
+
+    def test_native_dispatch_adapters_fail_closed_on_wrong_argument_cardinality(self):
+        _, probe, calls = load_probe()
+        registered = {item[0]: item[2] for item in calls["registrations"]}
+
+        self.assertFalse(registered["ashley_e1.arm"](_session_id=42))
+        self.assertFalse(registered["ashley_e1.arm"]("LAB_E1", "extra", _session_id=42))
+        self.assertFalse(registered["ashley_e1.arm"](
+            "LAB_E1", _session_id=42, unexpected=True))
+        for name in ("ashley_e1.disarm", "ashley_e1.start", "ashley_e1.stop"):
+            self.assertFalse(registered[name]("extra", _session_id=42))
+            self.assertFalse(registered[name](_session_id=42, unexpected=True))
+
+        self.assertEqual(probe.get_status()["state"], "UNARMED")
+        self.assertEqual(FakeWriter.instances, [])
+        self.assertEqual(calls["alarms"], [])
+
+    def test_old_direct_semantic_handler_does_not_match_native_session_keyword(self):
+        _, probe, calls = load_probe()
+        registered_start = {
+            item[0]: item[2] for item in calls["registrations"]
+        }["ashley_e1.start"]
+        with self.assertRaises(TypeError):
+            probe._cmd_start(_session_id=42)
+        self.assertFalse(registered_start(_session_id=42))
 
 
 if __name__ == "__main__":

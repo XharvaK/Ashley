@@ -100,20 +100,44 @@ _COUNTERS = {"dropped_queue": 0, "dropped_overrun": 0,
              "dropped_serialize": 0, "redundant_starts": 0}
 
 
+def _dispatch_arm(*args, _session_id=0, **kwargs):
+    if len(args) != 1 or kwargs:
+        return False
+    return _cmd_arm(args[0], _connection=_session_id)
+
+
+def _dispatch_disarm(*args, _session_id=0, **kwargs):
+    if args or kwargs:
+        return False
+    return _cmd_disarm(_connection=_session_id)
+
+
+def _dispatch_start(*args, _session_id=0, **kwargs):
+    if args or kwargs:
+        return False
+    return _cmd_start(_connection=_session_id)
+
+
+def _dispatch_stop(*args, _session_id=0, **kwargs):
+    if args or kwargs:
+        return False
+    return _cmd_stop(_connection=_session_id)
+
+
 def _register_commands():
     if register is None or CommandType is None or CommandRestrictionFlags is None:
         return False
     register('ashley_e1.arm', CommandRestrictionFlags.UNRESTRICTED,
-             _cmd_arm, 'Arm the Ashley E1 probe in LAB_E1 or LAB_E1_FORK.',
+             _dispatch_arm, 'Arm the Ashley E1 probe in LAB_E1 or LAB_E1_FORK.',
              'ashley_e1.arm LAB_E1 | ashley_e1.arm LAB_E1_FORK', CommandType.Live)
     register('ashley_e1.disarm', CommandRestrictionFlags.UNRESTRICTED,
-             _cmd_disarm, 'Disarm the Ashley E1 probe and close the session.',
+             _dispatch_disarm, 'Disarm the Ashley E1 probe and close the session.',
              'ashley_e1.disarm', CommandType.Live)
     register('ashley_e1.start', CommandRestrictionFlags.UNRESTRICTED,
-             _cmd_start, 'Start Ashley E1 1 Hz sampling.',
+             _dispatch_start, 'Start Ashley E1 1 Hz sampling.',
              'ashley_e1.start', CommandType.Live)
     register('ashley_e1.stop', CommandRestrictionFlags.UNRESTRICTED,
-             _cmd_stop, 'Stop Ashley E1 sampling (remains armed).',
+             _dispatch_stop, 'Stop Ashley E1 sampling (remains armed).',
              'ashley_e1.stop', CommandType.Live)
     return True
 

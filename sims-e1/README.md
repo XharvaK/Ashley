@@ -13,8 +13,8 @@ owns JSONL file I/O.
 Build and verification use the pinned official CPython 3.7.0 x64 compiler:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File sims-e1/tools/build.ps1 -Version 1.0.2
-powershell -ExecutionPolicy Bypass -File sims-e1/tools/verify.ps1 -Version 1.0.2
+powershell -ExecutionPolicy Bypass -File sims-e1/tools/build.ps1 -Version 1.0.3
+powershell -ExecutionPolicy Bypass -File sims-e1/tools/verify.ps1 -Version 1.0.3
 ```
 
 `install.ps1` and `remove.ps1` are mechanical OD-4 tools. They require an
