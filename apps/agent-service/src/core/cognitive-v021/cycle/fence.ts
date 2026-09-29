@@ -21,6 +21,7 @@ import type { CycleRecord, CycleTriggerKind } from "../types.js";
 import type { AttemptInputBasis } from "../social/types.js";
 import { sha256 } from "../../model-fabric/hash.js";
 import { suppressUndeliveredOutbox } from "../speech/outbox.js";
+import { isUnsolicitedTriggerKind } from "../initiative/reach-out.js";
 import { cancelActiveThought } from "./active.js";
 import { admitWakeInTransaction, finishWakeInTransaction, getWake, reconcileWakeInTransaction, recordWakeCancellationInTransaction } from "../wake/ledger.js";
 import { occurrenceIdFor } from "../wake/identity.js";
@@ -471,7 +472,12 @@ export function composeOrPreemptInTransaction(
   }
 
   const wake = current.wakeId ? getWake(db, current.wakeId) : null;
-  const composable = isComposableWake(wake);
+  // Alex messaging always pre-empts her private time (Growth V1 §5.1): an
+  // Owner message never folds into an afterglow, AWAKE, NIGHT, or other
+  // pass she started on her own. That pass is retried later.
+  const ownerInterruptsPrivatePass = triggerKind === "owner_message"
+    && isUnsolicitedTriggerKind(current.triggerKind);
+  const composable = isComposableWake(wake) && !ownerInterruptsPrivatePass;
   const isZombie = !hasValidDurableContinuationOwner(db, current);
   const effectful = !isZombie && hasEffectfulInFlight(db, current.cycleId, current.generation);
   const published = !isZombie && hasPublishedOutbox(db, input.conversationId, current.generation);

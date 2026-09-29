@@ -2,7 +2,9 @@ import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import { openNuclearDb } from "../../db.js";
 import { appendOwnerUtterance } from "../evidence/conversation-log.js";
-import { updateCycleState } from "./inbox.js";
+import { getCycle, getInboxEvent, updateCycleState } from "./inbox.js";
+import { admitCognitiveIngress } from "../ingress/http.js";
+import { resolveActiveThread } from "../../memory/threads.js";
 import { composeOrPreempt } from "./fence.js";
 import { insertOutboxPending } from "../speech/outbox.js";
 import { admitTestCycle, openTestSidecar } from "../test-support.js";
@@ -30,6 +32,79 @@ describe("v0.2.1 cycle fence", () => {
       });
       expect(result.action).toBe("compose");
       expect(result.generation).toBe(1);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("pre-empts her private pass when Alex speaks, instead of folding his message into it (R1)", () => {
+    for (const privateKind of ["idle_opportunity", "future_trigger_due", "subscription_item"] as const) {
+      const db = openTestSidecar();
+      try {
+        const pass = admitTestCycle(db, {
+          conversationId: "thread-1", triggerKind: privateKind, triggerRef: "afterglow:r1..r2#1",
+          occupantId: "doc", authorityEpoch: 1, nowMs: 1,
+        });
+        updateCycleState(db, pass.cycleId, "thinking", 2);
+        const evidence = appendOwnerUtterance(db, {
+          conversationId: "thread-1", text: "hey, you there?", discordMessageIds: ["d2"], nowMs: 3,
+        });
+        const result = composeOrPreempt(db, {
+          conversationId: "thread-1", evidenceRowIds: [evidence.rowId], triggerRef: evidence.rowId,
+          occupantId: "doc", authorityEpoch: 1, nowMs: 4,
+        });
+        expect(result.action, privateKind).toBe("preempt");
+        expect(result.generation).toBe(2);
+        expect(result.cycle.triggerKind).toBe("owner_message");
+        expect(result.cycle.composeLogIds).toEqual([evidence.rowId]);
+        expect(result.activeThoughtCancellation).toMatchObject({ cycleId: pass.cycleId, action: "preempt" });
+      } finally {
+        db.close();
+      }
+    }
+  });
+
+  it("binds Alex's inbox event to a fresh Owner wake, not the private pass's wake, through real ingress (R1)", () => {
+    const db = openTestSidecar();
+    const nuclear = openNuclearDb(new DatabaseSync(":memory:"));
+    try {
+      const conversationId = resolveActiveThread(nuclear, "owner-1", "discord");
+      const pass = admitTestCycle(db, {
+        conversationId, triggerKind: "idle_opportunity", triggerRef: "awake:1",
+        occupantId: "owner-1", authorityEpoch: 1, nowMs: 1,
+      });
+      updateCycleState(db, pass.cycleId, "thinking", 2);
+      const ingress = admitCognitiveIngress(db, nuclear, {
+        userId: "owner-1", message: "hey, you there?",
+      }, { nowMs: 3, occupantId: "owner-1" });
+      expect(ingress.action).toBe("preempt");
+      const event = getInboxEvent(db, ingress.inboxEventId)!;
+      const ownerCycle = getCycle(db, ingress.cycleId)!;
+      expect(ownerCycle.triggerKind).toBe("owner_message");
+      expect(event.wakeId).toBe(ownerCycle.wakeId);
+      expect(event.wakeId).not.toBe(pass.wakeId);
+    } finally {
+      db.close();
+      nuclear.close();
+    }
+  });
+
+  it("still composes Alex's message into work he asked for", () => {
+    const db = openTestSidecar();
+    try {
+      const due = admitTestCycle(db, {
+        conversationId: "thread-1", triggerKind: "commitment_due", triggerRef: "reminder-1",
+        occupantId: "doc", authorityEpoch: 1, nowMs: 1,
+      });
+      updateCycleState(db, due.cycleId, "thinking", 2);
+      const evidence = appendOwnerUtterance(db, {
+        conversationId: "thread-1", text: "oh and also", discordMessageIds: ["d3"], nowMs: 3,
+      });
+      const result = composeOrPreempt(db, {
+        conversationId: "thread-1", evidenceRowIds: [evidence.rowId], triggerRef: evidence.rowId,
+        occupantId: "doc", authorityEpoch: 1, nowMs: 4,
+      });
+      expect(result.action).toBe("compose");
     } finally {
       db.close();
     }
