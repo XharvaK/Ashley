@@ -54,17 +54,19 @@ regressions were added.
 
 | Gate | Result |
 |---|---|
-| focused suite, host Python 3.12.14 | `93/93 PASS` |
-| focused suite, exact CPython 3.7.0 x64 | `93/93 PASS` |
+| focused suite, host Python 3.12.14 | `96/96 PASS` |
+| focused suite, exact CPython 3.7.0 x64 | `96/96 PASS` |
 | AST guards | `PASS` |
 | PowerShell parsing (`build.ps1`, `verify.ps1`, `install.ps1`, `remove.ps1`) | `PASS` |
 | `verify.ps1` | `PASS all checks` |
 
 The focused regression set covers no per-row flush, five-second cadence,
-periodic/rotation/pre-disarm checkpoint flush, signal-only shutdown,
-cap/failure diagnostics, three-failure escalation and reset, physical write
-failure, serialization failure, shutdown provenance, clean shutdown, and the
-slow-flush regression. Existing binding, bootstrap, schema, guard, identity,
+periodic/rotation/pre-disarm checkpoint flush, signal-only shutdown on the
+writer thread, flush-before-close ordering, cap/failure diagnostics,
+three-failure escalation and reset, physical write failure including final
+close, validation/serialization failure, shutdown provenance under writer
+failure, clean shutdown, and the slow-flush regression with all critical rows
+physically written. Existing binding, bootstrap, schema, guard, identity,
 package, root, sequence, and session tests remain green.
 
 ## Artifact

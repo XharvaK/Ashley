@@ -47,16 +47,19 @@ class RecordingStream:
         self.flush_delay = flush_delay
         self.fail_write = fail_write
         self.write_calls = []
+        self.events = []
         self.flush_calls = 0
         self.closed = False
 
     def write(self, payload):
         if self.fail_write:
             raise OSError("injected write failure")
+        self.events.append("write")
         self.write_calls.append(payload)
         return len(payload)
 
     def flush(self):
+        self.events.append("flush")
         self.flush_calls += 1
         if self.flush_delay:
             time.sleep(self.flush_delay)
@@ -66,6 +69,7 @@ class RecordingStream:
                 raise OSError("injected flush failure")
 
     def close(self):
+        self.events.append("close")
         self.closed = True
 
 
@@ -82,6 +86,10 @@ def memory_writer(temp, stream):
 def written_rows(path):
     with open(path, "r", encoding="utf-8") as handle:
         return [json.loads(line) for line in handle if line.strip()]
+
+
+def stream_rows(stream):
+    return [json.loads(payload.rstrip(b"\n")) for payload in stream.write_calls]
 
 
 class WriterBoundTests(unittest.TestCase):
@@ -220,15 +228,32 @@ class WriterContractRepairTests(unittest.TestCase):
             self.assertEqual(sink.state, "CAP_REACHED")
             self.assertGreaterEqual(stream.flush_calls, 1)
 
-    def test_signal_close_is_signal_only_and_writer_flushes_after_signal(self):
+    def test_signal_close_is_signal_only_and_writer_flushes_on_writer_thread(self):
         with tempfile.TemporaryDirectory() as temp:
             stream = RecordingStream()
-            sink = memory_writer(temp, stream)
-            sink._write_physical(b"buffered")
+            sink = writer.TelemetryWriter(
+                temp, "session-a", "1.0.0", "1.128.90.1030", autostart=False
+            )
+
+            def open_fake():
+                sink._active_path = os.path.join(temp, "fake.jsonl")
+                sink._stream = stream
+                sink._active_bytes = 0
+                sink.output_paths.append(sink._active_path)
+
+            sink._open_active = open_fake
+            sink._can_fit = lambda size: (True, True)
+            sink.start()
+            self.assertTrue(sink.try_put(presence_row(1)))
+            deadline = time.time() + 2.0
+            while sink._sequence == 0 and time.time() < deadline:
+                time.sleep(0.01)
+            self.assertEqual(sink._sequence, 1)
             sink.signal_close("DISARM_CLEAN")
             self.assertEqual(stream.flush_calls, 0)
-            sink._begin_shutdown()
-            self.assertEqual(stream.flush_calls, 1)
+            self.assertTrue(sink.wait_idle(5.0))
+            self.assertGreaterEqual(stream.flush_calls, 1)
+            self.assertTrue(stream.closed)
 
     def test_final_close_forces_flush_before_stream_close(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -237,7 +262,11 @@ class WriterContractRepairTests(unittest.TestCase):
             sink._close_reason = "DISARM_CLEAN"
             sink._write_close()
             self.assertGreaterEqual(stream.flush_calls, 1)
-            self.assertFalse(stream.closed)
+            sink._close_stream()
+            self.assertTrue(stream.closed)
+            self.assertLess(stream.events.index("write"),
+                            stream.events.index("flush"))
+            self.assertEqual(stream.events[-1], "close")
 
     def test_writer_failure_diagnostic_attempts_flush(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -284,6 +313,28 @@ class WriterContractRepairTests(unittest.TestCase):
             self.assertFalse(sink._write_row(presence_row(1)))
             self.assertEqual(sink.state, "FAILED_STICKY")
             self.assertEqual(sink.failure_reason, "write_failure")
+
+    def test_final_close_write_failure_is_immediately_sticky(self):
+        with tempfile.TemporaryDirectory() as temp:
+            stream = RecordingStream(fail_write=True)
+            sink = memory_writer(temp, stream)
+            sink._close_reason = "DISARM_CLEAN"
+            sink._write_close()
+            self.assertEqual(sink.state, "FAILED_STICKY")
+            self.assertEqual(sink.failure_reason, "write_failure")
+            self.assertTrue(sink._diagnostic_attempted)
+
+    def test_admission_value_error_is_counted_without_sticky_failure(self):
+        with tempfile.TemporaryDirectory() as temp:
+            sink = writer.TelemetryWriter(
+                temp, "session-a", "1.0.0", "1.128.90.1030", autostart=False
+            )
+            with mock.patch.object(schema, "validate_record",
+                                   side_effect=ValueError("invalid record")):
+                self.assertFalse(sink.try_put(presence_row(1)))
+            self.assertEqual(sink.counters["dropped_serialize"], 1)
+            self.assertEqual(sink._pending_drop_reason, "SERIALIZE_FAILURE")
+            self.assertEqual(sink.state, "OK")
 
     def test_writer_serialization_failure_is_counted_without_sticky_failure(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -340,6 +391,19 @@ class WriterContractRepairTests(unittest.TestCase):
             self.assertEqual(close["close_reason"], "DISARM_CLEAN")
             self.assertIsNone(close["reason"])
 
+    def test_shutdown_deadline_keeps_disarm_boundary_when_writer_failed(self):
+        with tempfile.TemporaryDirectory() as temp:
+            stream = RecordingStream()
+            sink = memory_writer(temp, stream)
+            sink.state = "FAILED_STICKY"
+            sink.failure_reason = "write_failure"
+            sink._shutdown_deadline_drops = 1
+            sink._close_reason = "DISARM_CLEAN"
+            sink._write_close()
+            close = stream_rows(stream)[-1]
+            self.assertEqual(close["close_reason"], "DISARM_CLEAN")
+            self.assertEqual(close["reason"], "SHUTDOWN_DEADLINE")
+
     def test_buffered_slow_flush_does_not_lose_critical_rows(self):
         with tempfile.TemporaryDirectory() as temp:
             stream = RecordingStream(flush_delay=0.03)
@@ -362,6 +426,9 @@ class WriterContractRepairTests(unittest.TestCase):
             self.assertTrue(sink.wait_idle(5.0))
             self.assertEqual(sink.counters["dropped_queue"], 0)
             self.assertGreaterEqual(stream.flush_calls, 1)
+            rows = stream_rows(stream)
+            self.assertEqual(sum(row["event_kind"] == "presence_snapshot"
+                                 for row in rows), 100)
 
 
 if __name__ == "__main__":

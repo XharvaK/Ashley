@@ -181,7 +181,7 @@ class TelemetryWriter:
             return False
         try:
             schema.validate_record(row)
-        except (schema.SchemaError, TypeError):
+        except (schema.SchemaError, TypeError, ValueError):
             self.counters["dropped_serialize"] += 1
             self._pending_drop_reason = "SERIALIZE_FAILURE"
             return False
@@ -457,7 +457,10 @@ class TelemetryWriter:
             monotonic_ns=time.perf_counter_ns(),
             reason=("SHUTDOWN_DEADLINE" if self._shutdown_deadline_drops else
                     (self.failure_reason if self.state != "OK" else None)),
-            close_reason=(self._close_reason if self.state == "OK" else self.state),
+            close_reason=(self._close_reason
+                          if self._shutdown_deadline_drops and
+                          self._close_reason == "DISARM_CLEAN" else
+                          (self._close_reason if self.state == "OK" else self.state)),
             counters=dict(self.counters), writer={"state": self.state,
                                                   "rotation_index": self.rotation_index},
         )
@@ -472,6 +475,7 @@ class TelemetryWriter:
                 self._attempt_flush(force=True)
         except (OSError, IOError, ValueError):
             self._close_written = False
+            self._mark_failure("FAILED_STICKY", "write_failure")
 
     def _run(self):
         deadline = None
