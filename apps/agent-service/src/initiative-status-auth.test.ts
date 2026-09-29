@@ -39,14 +39,14 @@ describe("initiative status authorization", () => {
 
     env.discordOwnerId = "doc";
     env.memoryOwnerId = "doc";
-    const app = createServer(manager);
+    const app = createServer(manager, { botServiceToken: "status-test-bot-token" });
     const server = app.listen(0, "127.0.0.1");
     try {
       await new Promise<void>((resolve) => server.once("listening", resolve));
       const address = server.address() as AddressInfo;
       const ownerResponse = await fetch(
         `http://127.0.0.1:${address.port}/initiative/status?owner_id=doc`,
-      );
+        { headers: { "X-Ashley-Bot-Service": "status-test-bot-token" } });
       expect(ownerResponse.status).toBe(200);
       const ownerBody = await ownerResponse.json() as Record<string, unknown>;
       expect(ownerBody).not.toHaveProperty("cognitiveContinuity");
@@ -66,7 +66,7 @@ describe("initiative status authorization", () => {
 
       const operationalResponse = await fetch(
         `http://127.0.0.1:${address.port}/initiative/operational-status?owner_id=doc`,
-      );
+        { headers: { "X-Ashley-Bot-Service": "status-test-bot-token" } });
       expect(operationalResponse.status).toBe(200);
       const operational = await operationalResponse.json();
       expect(operational).toMatchObject({ paused: false });
@@ -74,7 +74,7 @@ describe("initiative status authorization", () => {
 
       const nonOwnerResponse = await fetch(
         `http://127.0.0.1:${address.port}/initiative/status?owner_id=other`,
-      );
+        { headers: { "X-Ashley-Bot-Service": "status-test-bot-token" } });
       expect(nonOwnerResponse.status).toBe(403);
       expect(await nonOwnerResponse.json()).toMatchObject({
         code: "forbidden",

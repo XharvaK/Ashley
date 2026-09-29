@@ -224,7 +224,7 @@ function createEnv() {
     "ASHLEY_COMMAND_CODE_QUALIFICATION_STATE",
     join(homedir(), ".composer-assistant", "sandbox", "command-code-state.json"),
   ),
-  commandCodeUpdateEnabled: strictBoolean("ASHLEY_COMMAND_CODE_UPDATE_ENABLED", true),
+  commandCodeUpdateEnabled: strictBoolean("ASHLEY_COMMAND_CODE_UPDATE_ENABLED", false),
   commandCodeUpdateIntervalHours: numericEnv(
     "ASHLEY_COMMAND_CODE_UPDATE_INTERVAL_HOURS",
     6,
@@ -339,6 +339,12 @@ export function validateBoot(): {
     warnings.push(
       "MEMORY_OWNER_ID / DISCORD_OWNER_ID missing — set owner for nuclear memory",
     );
+  }
+  if (!env.discordOwnerId) {
+    errors.push("DISCORD_OWNER_ID missing — the Owner check fails closed without it");
+  }
+  if (!(process.env.DISCORD_BOT_TOKEN ?? "").trim()) {
+    errors.push("DISCORD_BOT_TOKEN missing — every route but /health requires the bot service token");
   }
   return { ok: errors.length === 0, errors, warnings };
 }

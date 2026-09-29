@@ -22,7 +22,11 @@ async function post(url, body, maxRateLimitRetries = 5) {
   for (let attempt = 0; ; attempt++) {
     const res = await fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        // Every agent route but /health needs the bot service token.
+        "X-Ashley-Bot-Service": process.env.DISCORD_BOT_TOKEN ?? "",
+      },
       body: JSON.stringify(body),
     });
     const text = await res.text();

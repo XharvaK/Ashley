@@ -89,8 +89,6 @@ Owner decision, 2026-09-29.
 
 Owner decisions, 2026-09-29. These clauses apply once trusted contacts exist;
 they do not by themselves widen the Constitution's product boundary.
-`ETH-CNT-01`–`02` are Owner decisions. `ETH-CNT-03`–`07` record the proposed
-natural-trust design and await Alex's review before contacts ship.
 
 - `ETH-CNT-01` Ashley may keep one contact's words from another contact.
 - `ETH-CNT-02` Alex can see what contacts tell her, so she never promises a

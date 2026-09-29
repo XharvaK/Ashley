@@ -17,6 +17,8 @@ const TOUCHED_VARS = [
   "ASHLEY_OPENCODE_HOME",
   "ASHLEY_OPENCODE_QUOTA_STATE",
   "ASHLEY_OPENCODE_CANDIDATE_DEVELOP_NVIDIA",
+  "DISCORD_OWNER_ID",
+  "DISCORD_BOT_TOKEN",
 ];
 
 const originals = new Map<string, string | undefined>(
@@ -26,6 +28,9 @@ const originals = new Map<string, string | undefined>(
 beforeEach(() => {
   for (const name of TOUCHED_VARS) delete process.env[name];
   process.env.COMPOSER_ENV_FILE = "";
+  // Boot requires an Owner and the bot service token (SC-ADM-02).
+  process.env.DISCORD_OWNER_ID = "env-test-owner";
+  process.env.DISCORD_BOT_TOKEN = "env-test-bot-token";
   vi.resetModules();
 });
 

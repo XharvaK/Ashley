@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { DatabaseSync } from "node:sqlite";
 import { AgentManager } from "./agent.js";
 import { assertRegisteredRoutes, routeSurface } from "./route-surface.js";
-import { createServer } from "./server.js";
+import { createServer as createAgentServer } from "./server.js";
 import { env } from "./env.js";
 import { openCognitiveSidecarDb } from "./core/cognitive-v021/sidecar/db.js";
 import { openTestSidecar } from "./core/cognitive-v021/test-support.js";
@@ -11,6 +11,22 @@ import { openNuclearDb } from "./core/db.js";
 import { openObservabilityStore, RAW_DEBUG_RETENTION_MAX_MS } from "./core/cognitive-v021/thought/diagnostics.js";
 import { applyPublicPresenceDecision } from "./core/cognitive-v021/public-presence.js";
 import type { Server } from "node:http";
+
+// Every route but /health needs the bot service token; admin routes also need
+// the bot to vouch for the Owner. These tests exercise authorization inside
+// the routes, so they present both; transport-auth.test.ts covers their absence.
+const TEST_BOT_TOKEN = "route-test-bot-token";
+const createServer: typeof createAgentServer = (manager, options = {}) =>
+  createAgentServer(manager, { botServiceToken: TEST_BOT_TOKEN, ...options });
+const fetch: typeof globalThis.fetch = (input, init = {}) =>
+  globalThis.fetch(input, {
+    ...init,
+    headers: {
+      "X-Ashley-Bot-Service": TEST_BOT_TOKEN,
+      "X-Ashley-Actor": env.discordOwnerId,
+      ...(init.headers as Record<string, string> | undefined),
+    },
+  });
 
 async function startTestServer(app: express.Express): Promise<{ server: Server; url: string }> {
   const server = app.listen(0);
@@ -74,6 +90,7 @@ describe("route surface registry", () => {
   });
 
   it("keeps social operation delegation control owner-only and exact-id", async () => {
+    const originalDiscordOwnerId = env.discordOwnerId;
     const ownerId = "delegation-route-owner";
     env.discordOwnerId = ownerId;
     const nuclear = openNuclearDb(new DatabaseSync(":memory:"));
@@ -135,6 +152,7 @@ describe("route surface registry", () => {
     } finally {
       await stopTestServer(server);
       nuclear.close();
+      env.discordOwnerId = originalDiscordOwnerId;
     }
   });
 
@@ -272,7 +290,9 @@ describe("route surface registry", () => {
   });
 
   it("routes explicit C5 admission through the owner-authenticated runtime seam", async () => {
-    const ownerId = env.discordOwnerId || "route-test-owner";
+    const originalDiscordOwnerId = env.discordOwnerId;
+    const ownerId = "route-test-owner";
+    env.discordOwnerId = ownerId;
     let captured: Record<string, unknown> | null = null;
     const manager = {
       core: {
@@ -318,6 +338,7 @@ describe("route surface registry", () => {
       expect(captured).not.toHaveProperty("capabilityMode");
     } finally {
       await stopTestServer(server);
+      env.discordOwnerId = originalDiscordOwnerId;
     }
   });
 

@@ -196,6 +196,12 @@ function seedOwnerBootstrapC1Evidence(db: DatabaseSync): void {
   })).toEqual({ recorded: true });
 }
 
+// The service token and Owner actor are what the bot presents; these tests
+// exercise authorization inside the routes (transport-auth.test.ts covers
+// their absence).
+const TEST_BOT_TOKEN = "capabilities-test-bot-token";
+const AUTH_HEADERS = { "X-Ashley-Bot-Service": TEST_BOT_TOKEN, "X-Ashley-Actor": OWNER };
+
 async function post(
   app: ReturnType<typeof createServer>,
   path: string,
@@ -207,7 +213,7 @@ async function post(
     const address = server.address() as AddressInfo;
     const response = await fetch(`http://127.0.0.1:${address.port}${path}`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...AUTH_HEADERS },
       body: JSON.stringify(body),
     });
     const payload = await response.json();
@@ -227,7 +233,7 @@ async function get(
   try {
     await new Promise<void>((resolve) => server.once("listening", resolve));
     const address = server.address() as AddressInfo;
-    const response = await fetch(`http://127.0.0.1:${address.port}${path}`);
+    const response = await fetch(`http://127.0.0.1:${address.port}${path}`, { headers: AUTH_HEADERS });
     const payload = await response.json();
     return { status: response.status, body: payload };
   } finally {
@@ -248,7 +254,7 @@ async function withServer(
   env.discordOwnerId = OWNER;
   env.memoryOwnerId = OWNER;
   try {
-    const app = createServer(makeManager(db, managerOptions));
+    const app = createServer(makeManager(db, managerOptions), { botServiceToken: TEST_BOT_TOKEN });
     await fn(app);
   } finally {
     env.discordOwnerId = originalDiscordOwnerId;

@@ -28,6 +28,7 @@ async function agentFetch<T>(
       ...init,
       headers: {
         "Content-Type": "application/json",
+        "X-Ashley-Bot-Service": config.token,
         ...(init?.headers ?? {}),
       },
       signal: AbortSignal.timeout(Math.max(1_000, timeoutMs)),
@@ -112,6 +113,15 @@ export type SocialEligibilityResult = {
 
 const botServiceHeaders = (): HeadersInit => ({
   "X-Ashley-Bot-Service": config.token,
+});
+
+/**
+ * Admin acts are Alex's alone (SC-ADM-01). Only call sites reached after the
+ * bot's own Owner check may send this: slash commands (handleSlash) and
+ * Owner-authored forget confirmations.
+ */
+const ownerActorHeaders = (): HeadersInit => ({
+  "X-Ashley-Actor": config.ownerId,
 });
 
 export type OwnerTransportCapture = {
@@ -554,7 +564,7 @@ export async function lookupPreflight(message: string): Promise<boolean> {
   try {
     const res = await fetch(`${config.agentUrl}/chat/preflight`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "X-Ashley-Bot-Service": config.token },
       body: JSON.stringify({ message }),
       signal: AbortSignal.timeout(2500),
     });
@@ -642,6 +652,7 @@ export async function forgetTopic(topic: string, confirmed: boolean) {
       runsRedacted: number;
     };
   }>("/memory/forget", {
+    headers: ownerActorHeaders(),
     method: "POST",
     body: JSON.stringify({
       userId: config.ownerId,
@@ -656,6 +667,7 @@ export async function bindForgetConfirmation(
   confirmationDiscordMessageId: string,
 ) {
   return agentFetch<{ ok: boolean }>("/memory/forget/bind", {
+    headers: ownerActorHeaders(),
     method: "POST",
     body: JSON.stringify({
       userId: config.ownerId,
@@ -669,6 +681,7 @@ export async function resolveForgetPreview(
   confirmationDiscordMessageId: string,
 ) {
   return agentFetch<{ previewId: string | null }>("/memory/forget/resolve", {
+    headers: ownerActorHeaders(),
     method: "POST",
     body: JSON.stringify({
       userId: config.ownerId,
@@ -689,6 +702,7 @@ export async function confirmForgetPreview(previewId: string) {
       oldBackups: string;
     };
   }>("/memory/forget", {
+    headers: ownerActorHeaders(),
     method: "POST",
     body: JSON.stringify({
       userId: config.ownerId,
@@ -700,6 +714,7 @@ export async function confirmForgetPreview(previewId: string) {
 
 export async function cancelForgetPreview(previewId: string) {
   return agentFetch<{ previewId?: string | null }>("/memory/forget", {
+    headers: ownerActorHeaders(),
     method: "POST",
     body: JSON.stringify({
       userId: config.ownerId,
@@ -740,6 +755,7 @@ export async function tickCognitiveIdle() {
 
 export async function pauseProactiveRemote() {
   return agentFetch<{ ok: boolean; paused: boolean }>("/initiative/pause", {
+    headers: ownerActorHeaders(),
     method: "POST",
     body: JSON.stringify({ userId: config.ownerId }),
   });
@@ -747,6 +763,7 @@ export async function pauseProactiveRemote() {
 
 export async function resumeProactiveRemote() {
   return agentFetch<{ ok: boolean; paused: boolean }>("/initiative/resume", {
+    headers: ownerActorHeaders(),
     method: "POST",
     body: JSON.stringify({ userId: config.ownerId }),
   });
@@ -830,6 +847,7 @@ export async function decideIdentityReview(
   return agentFetch<{ recorded: boolean; applied?: boolean; reviews: IdentityReview[] }>(
     "/growth/identity/reviews/doc",
     {
+      headers: ownerActorHeaders(),
       method: "POST",
       body: JSON.stringify({
         userId: config.ownerId,
@@ -975,6 +993,7 @@ export async function grantSocialOperationDelegations(input: {
   return agentFetch<{ ok: boolean; delegations: SocialOperationDelegation[] }>(
     "/nuclear/social-operation-delegations",
     {
+      headers: ownerActorHeaders(),
       method: "POST",
       body: JSON.stringify({ userId: config.ownerId, ...input }),
     },
@@ -1000,6 +1019,7 @@ export async function revokeSocialOperationDelegation(input: {
   return agentFetch<{ ok: boolean; delegation: SocialOperationDelegation }>(
     "/nuclear/social-operation-delegations/revoke",
     {
+      headers: ownerActorHeaders(),
       method: "POST",
       body: JSON.stringify({ userId: config.ownerId, ...input }),
     },

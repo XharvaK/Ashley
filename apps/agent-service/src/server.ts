@@ -8,6 +8,7 @@ import { toErrorResponse, AppError } from "./errors.js";
 import { listRecentDecisions } from "./core/agency/log.js";
 import { retrieveEpisodes } from "./core/memory/episodes.js";
 import { isAuthorizedOwnerId } from "./owner-auth.js";
+import { createTransportAuth } from "./transport-auth.js";
 import { assertRegisteredRoutes } from "./route-surface.js";
 import { openCognitiveSidecarDb } from "./core/cognitive-v021/sidecar/db.js";
 import {
@@ -392,6 +393,8 @@ export function createServer(
     cognitiveSidecar?: DatabaseSync | null;
     observabilityDb?: DatabaseSync | null;
     botServiceToken?: string;
+    /** Defaults to DISCORD_OWNER_ID; admin routes fail closed without it. */
+    ownerId?: string;
     projectSystemNotice?: (noticeId: number) => Promise<void> | void;
   } = {},
 ): express.Express {
@@ -402,6 +405,10 @@ export function createServer(
   const botServiceToken = (
     options.botServiceToken ?? process.env.DISCORD_BOT_TOKEN ?? ""
   ).trim();
+  app.use(createTransportAuth({
+    serviceToken: botServiceToken,
+    ownerId: options.ownerId ?? env.discordOwnerId,
+  }));
   function requireBotService(req: express.Request): void {
     const presented = req.get("X-Ashley-Bot-Service")?.trim() ?? "";
     if (!botServiceToken || !presented || presented !== botServiceToken) {
