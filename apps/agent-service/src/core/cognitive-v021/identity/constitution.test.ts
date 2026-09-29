@@ -2,6 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import { openNuclearDb } from "../../db.js";
 import { readIdentitySlice } from "./constitution.js";
+import { recordIdentityEntry } from "../../identity/store.js";
 import { buildOrientationKernel } from "../thought/orientation-kernel.js";
 
 describe("v0.2.1 IdentitySlice", () => {
@@ -56,6 +57,28 @@ describe("v0.2.1 IdentitySlice", () => {
       expect(kernel.selectedStableSelf).toEqual(slice.stableSelf.slice(0, 3));
       expect(kernel.values.join(" ")).not.toContain("learned");
       expect(kernel.boundaries.join(" ")).not.toContain("learned");
+    } finally {
+      db.close();
+    }
+  });
+
+  it("keeps every value and boundary however many tastes and traits she grows (R9)", () => {
+    const db = openNuclearDb(new DatabaseSync(":memory:"));
+    try {
+      const seeded = readIdentitySlice(db, "default");
+      for (let index = 0; index < 60; index += 1) {
+        recordIdentityEntry(db, { ownerId: "default", layer: "stable", kind: "taste", text: `taste ${index}`, source: "organic" });
+        recordIdentityEntry(db, { ownerId: "default", layer: "stable", kind: "trait", text: `trait ${index}`, source: "organic" });
+      }
+      const slice = readIdentitySlice(db, "default");
+      expect(slice.values).toEqual(seeded.values);
+      expect(slice.boundaries).toEqual(seeded.boundaries);
+      const tastes = slice.stableSelf.filter((text) => text.startsWith("taste "));
+      const traits = slice.stableSelf.filter((text) => text.startsWith("trait "));
+      expect(tastes).toHaveLength(20);
+      expect(traits).toHaveLength(20);
+      expect(tastes).toContain("taste 59");
+      expect(tastes).not.toContain("taste 0");
     } finally {
       db.close();
     }

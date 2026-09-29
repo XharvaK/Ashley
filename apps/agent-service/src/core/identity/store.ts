@@ -64,13 +64,32 @@ function mapOpinion(row: unknown): Opinion | null {
   };
 }
 
+function kindClause(
+  kinds: readonly string[] | undefined,
+  excludeKinds: readonly string[] | undefined,
+): { sql: string; params: string[] } {
+  let sql = "";
+  const params: string[] = [];
+  if (kinds !== undefined) {
+    if (kinds.length === 0) return { sql: " AND 0", params };
+    sql += ` AND e.kind IN (${kinds.map(() => "?").join(", ")})`;
+    params.push(...kinds);
+  }
+  if (excludeKinds !== undefined && excludeKinds.length > 0) {
+    sql += ` AND e.kind NOT IN (${excludeKinds.map(() => "?").join(", ")})`;
+    params.push(...excludeKinds);
+  }
+  return { sql, params };
+}
+
 export function listIdentity(
   db: DatabaseSync,
   ownerId: string,
-  options: { layer?: IdentityLayer; limit?: number; seed?: boolean } = {},
+  options: { layer?: IdentityLayer; limit?: number; seed?: boolean; kinds?: readonly string[]; excludeKinds?: readonly string[] } = {},
 ): IdentityEntry[] {
   if (options.seed !== false) seedIdentity(db, ownerId);
   const limit = Math.max(1, Math.min(100, options.limit ?? 40));
+  const kindFilter = kindClause(options.kinds, options.excludeKinds);
   const rows =
     options.layer === undefined
       ? db
@@ -78,7 +97,7 @@ export function listIdentity(
             `SELECT e.id, e.owner_id, e.layer, e.kind, e.text, e.source,
                     e.revised_from, e.created_at, e.updated_at
              FROM identity_entries e
-             WHERE e.owner_id = ?
+             WHERE e.owner_id = ?${kindFilter.sql}
                AND NOT EXISTS (
                  SELECT 1 FROM identity_entries newer
                  WHERE newer.revised_from = e.id
@@ -87,13 +106,13 @@ export function listIdentity(
                       e.updated_at DESC, e.id DESC
              LIMIT ?`,
           )
-          .all(ownerId, limit)
+          .all(ownerId, ...kindFilter.params, limit)
       : db
           .prepare(
             `SELECT e.id, e.owner_id, e.layer, e.kind, e.text, e.source,
                     e.revised_from, e.created_at, e.updated_at
              FROM identity_entries e
-             WHERE e.owner_id = ? AND e.layer = ?
+             WHERE e.owner_id = ? AND e.layer = ?${kindFilter.sql}
                AND NOT EXISTS (
                  SELECT 1 FROM identity_entries newer
                  WHERE newer.revised_from = e.id
@@ -101,7 +120,7 @@ export function listIdentity(
              ORDER BY e.updated_at DESC, e.id DESC
              LIMIT ?`,
           )
-          .all(ownerId, options.layer, limit);
+          .all(ownerId, options.layer, ...kindFilter.params, limit);
   return rows
     .map(mapIdentity)
     .filter((entry): entry is IdentityEntry => entry !== null)
