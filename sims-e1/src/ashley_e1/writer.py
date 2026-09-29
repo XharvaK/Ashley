@@ -15,6 +15,9 @@ MAX_ACTIVE_FILE_BYTES = 8 * 1024 * 1024
 MAX_ROTATED_SIBLINGS_PER_SESSION = 4
 MAX_TELEMETRY_DIR_BYTES = 200 * 1024 * 1024
 MAX_SAMPLING_FLUSH_INTERVAL_SECONDS = 5.0
+LEDGER_FILENAME = "ashley_e2_lineage_ledger.jsonl"
+MAX_LEDGER_BYTES = 2 * 1024 * 1024
+LEDGER_RECORDS = ("LOAD_OBSERVED", "SAVE_OBSERVED", "DESIGNATED_BODY")
 
 
 def derive_telemetry_root(module_path):
@@ -143,6 +146,8 @@ class TelemetryWriter:
         self._diagnostic_attempted = False
         self._lock = threading.RLock()
         self._on_idle = on_idle
+        self.ledger_state = "PENDING"
+        self.ledger_records = []
         if autostart:
             self.start()
 
@@ -180,6 +185,62 @@ class TelemetryWriter:
         if total > self.max_dir_bytes:
             self._mark_failure("CAP_REACHED", "directory_cap")
             return False
+        return True
+
+    def ledger_snapshot(self):
+        """Game-thread safe view: (state, tuple of plain-dict records)."""
+        return self.ledger_state, tuple(self.ledger_records)
+
+    def _ledger_path(self):
+        return os.path.join(self.root, LEDGER_FILENAME)
+
+    def _load_ledger(self):
+        path = self._ledger_path()
+        try:
+            if not os.path.exists(path):
+                self.ledger_state = "OK"
+                return
+            if os.path.getsize(path) > MAX_LEDGER_BYTES:
+                self.ledger_state = "TOO_LARGE"
+                return
+            records = []
+            with open(path, "rb") as handle:
+                for line in handle.read().split(b"\n"):
+                    if not line.strip():
+                        continue
+                    record = json.loads(line.decode("utf-8"))
+                    if isinstance(record, dict) and record.get("record") in LEDGER_RECORDS:
+                        records.append(record)
+            self.ledger_records = records
+            self.ledger_state = "OK"
+        except (OSError, IOError, ValueError, UnicodeDecodeError):
+            self.ledger_state = "UNREADABLE"
+
+    def _append_ledger(self, payload, wall_ms):
+        if self.ledger_state != "OK":
+            return False
+        record = dict(payload)
+        record["wall_timestamp_ms"] = wall_ms
+        record["session_id"] = self.session_id
+        data = json.dumps(record, ensure_ascii=True, separators=(",", ":"),
+                          sort_keys=True).encode("utf-8") + b"\n"
+        path = self._ledger_path()
+        try:
+            current = os.path.getsize(path) if os.path.exists(path) else 0
+            if current + len(data) > MAX_LEDGER_BYTES:
+                self.ledger_state = "TOO_LARGE"
+                return False
+            if self._logical_directory_bytes + len(data) > self.max_dir_bytes:
+                self.ledger_state = "WRITE_FAILED"
+                return False
+            with open(path, "ab") as handle:
+                handle.write(data)
+                handle.flush()
+        except (OSError, IOError, ValueError):
+            self.ledger_state = "WRITE_FAILED"
+            return False
+        self._logical_directory_bytes += len(data)
+        self.ledger_records.append(record)
         return True
 
     def set_sampling(self, active):
@@ -518,6 +579,10 @@ class TelemetryWriter:
             return False
         if not written:
             return False
+        if row.get("event_kind") == "lineage_event":
+            payload = row.get("e2") or {}
+            if payload.get("record") in LEDGER_RECORDS:
+                self._append_ledger(payload, row.get("wall_timestamp_ms"))
         return self._flush_if_due()
 
     def _write_close(self):
@@ -555,6 +620,7 @@ class TelemetryWriter:
         deadline = None
         try:
             if self.state == "OK" and self._initialize_cap_accounting():
+                self._load_ledger()
                 try:
                     self._open_active()
                 except (OSError, IOError):

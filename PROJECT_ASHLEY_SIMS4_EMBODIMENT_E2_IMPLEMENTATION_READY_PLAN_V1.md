@@ -463,3 +463,14 @@ Residual risks (accepted, owned by trials): ε unknown; Owner-unpause
 precedence unknown; finishing-callback payload unknown; super_affordances
 may require a context whose sim is the body (built from the same
 InteractionContext used for the push).
+
+## Appendix B. Implementation amendments (2026-09-29, during E2 build)
+
+| # | Plan text | Amendment | Reason / evidence |
+|---|---|---|---|
+| A1 | §6.2–6.3 compare "ticks_at_first_poll" to saved ticks with measured ε | Lineage coordinate is the loaded slot proto's `gameplay_data.world_game_time`, read at classification and inside the save callback; ε = 0 | `GameClock.save` stores `sim_now.absolute_ticks()` into that field; `GameClock.setup` restores it on load (TARGET_BYTECODE). Live ticks at first poll drift ~1000 ticks per real second between load and ARM (E1-B), so the planned comparison would misclassify every load. `RUNTIME_UNVERIFIED`: that `get_save_slot_proto_buff()` exposes the field after load and after save (E2-L L1/L2). |
+| A2 | §4 separate `ashley_e2/` package and `ashley_embodiment_*` artifact | E2 modules live in the existing package as `e2_admission`, `e2_lineage`, `e2_registry`, `e2_actuator`, `e2_control`; artifact stays `ashley_e1_<V>.ts4script` | install/remove duplicate detection keys on `ashley_e1*`; a second artifact name could leave two command-registering packages installed. |
+| A3 | §6.2 ledger in `AshleyEmbodimentLedger\lineage.jsonl` | `AshleyE1Telemetry\ashley_e2_lineage_ledger.jsonl` (2 MiB cap, counted in directory accounting; loaded and appended by the writer thread only) | Keeps the single audited root and cap accounting; no new directory. |
+| A4 | §8.3 MAINTAINED_10S | Maintenance must be continuous from ATTRIBUTED; a break followed by a re-seat can never earn it | Found by focused test: a later re-seat is a new, unattributed effect. |
+| A5 | — | STOP (not only DISARM) releases a live probe pause request and closes open experiments with a verdict | Fail-safe: the mod never holds the world paused while not sampling. |
+| A6 | — | Bootstrap required-import summary adds `sims4.commands.output` and `e2.actuator` (21 keys) | First-load gate N evidence in the bootstrap row. |

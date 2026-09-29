@@ -1,4 +1,4 @@
-"""AST-only shipped-source and artifact checks for the E1 build."""
+"""AST-only shipped-source and artifact checks for the E1/E2 build."""
 
 import ast
 import hashlib
@@ -14,6 +14,10 @@ APPROVED_GAME_ROOTS = {
     "alarms", "clock", "date_and_time", "interactions", "objects",
     "scheduling", "server", "services", "sims", "sims4",
 }
+PRODUCTION_MODULES = (
+    "__init__", "probe", "observers", "snapshot", "schema", "writer",
+    "e2_admission", "e2_lineage", "e2_registry", "e2_actuator", "e2_control",
+)
 FORBIDDEN_IMPORT_ROOTS = {
     "http", "importlib", "s4cl", "shm", "socket", "ssl", "subprocess", "urllib",
 }
@@ -25,6 +29,19 @@ FORBIDDEN_CALL_NAMES = {
     "save_game_gen", "save_using", "set_active_sim", "set_clock_speed",
     "set_current_time", "system", "test_and_execute",
 }
+# E2 actuation calls: allowed ONLY in e2_actuator.py (plan E2 §4), forbidden elsewhere.
+ACTUATOR_ONLY_CALLS = {
+    "push_super_affordance", "push_speed", "remove_request",
+    "register_on_finishing_callback", "add_manual_save_complete_callback",
+    "remove_manual_save_complete_callback",
+}
+ACTUATOR_FILE = "e2_actuator.py"
+# Pure E2 modules: no game imports at all.
+PURE_FILES = {"e2_admission.py", "e2_lineage.py", "e2_registry.py", "writer.py",
+              "schema.py", "snapshot.py"}
+FORBIDDEN_CALL_NAMES = FORBIDDEN_CALL_NAMES | (ACTUATOR_ONLY_CALLS - {"push_super_affordance"})
+
+
 def _root(name):
     return name.split(".", 1)[0]
 
@@ -44,10 +61,12 @@ def scan_text(source, filename):
                     findings.append("%s:%d forbidden import %s" % (filename, node.lineno, item.name))
                 if root not in APPROVED_STDLIB_IMPORTS and root not in APPROVED_GAME_ROOTS:
                     findings.append("%s:%d unapproved import %s" % (filename, node.lineno, item.name))
-                if (os.path.basename(filename).lower() == "writer.py" and
+                if (os.path.basename(filename).lower() in PURE_FILES and
                         root in APPROVED_GAME_ROOTS):
-                    findings.append("%s:%d writer imports game module %s" %
-                                    (filename, node.lineno, item.name))
+                    findings.append("%s:%d %s imports game module %s" %
+                                    (filename, node.lineno,
+                                     os.path.basename(filename).lower().rsplit(".", 1)[0],
+                                     item.name))
                 aliases[item.asname or root] = item.name
         elif isinstance(node, ast.ImportFrom):
             module = node.module or ""
@@ -58,10 +77,12 @@ def scan_text(source, filename):
                 findings.append("%s:%d forbidden import %s" % (filename, node.lineno, module))
             if root not in APPROVED_STDLIB_IMPORTS and root not in APPROVED_GAME_ROOTS:
                 findings.append("%s:%d unapproved import %s" % (filename, node.lineno, module))
-            if (os.path.basename(filename).lower() == "writer.py" and
+            if (os.path.basename(filename).lower() in PURE_FILES and
                     root in APPROVED_GAME_ROOTS):
-                findings.append("%s:%d writer imports game module %s" %
-                                (filename, node.lineno, module))
+                findings.append("%s:%d %s imports game module %s" %
+                                (filename, node.lineno,
+                                 os.path.basename(filename).lower().rsplit(".", 1)[0],
+                                 module))
             for item in node.names:
                 aliases[item.asname or item.name] = (module + "." + item.name).strip(".")
     for node in ast.walk(tree):
@@ -87,7 +108,10 @@ def scan_text(source, filename):
         target = _call_target(node.func)
         resolved_target = _resolve_expr(node.func, aliases) or target
         leaf = resolved_target.rsplit(".", 1)[-1] if resolved_target else ""
-        if leaf in FORBIDDEN_CALL_NAMES:
+        is_actuator = os.path.basename(filename).lower() == ACTUATOR_FILE
+        if leaf in ACTUATOR_ONLY_CALLS and is_actuator:
+            pass
+        elif leaf in FORBIDDEN_CALL_NAMES:
             findings.append("%s:%d forbidden call %s" % (filename, node.lineno, resolved_target or leaf))
         if resolved_target in ("eval", "exec", "compile", "__import__"):
             findings.append("%s:%d dynamic execution %s" % (filename, node.lineno, resolved_target))
@@ -140,10 +164,7 @@ def scan_tree(source_root):
 
 def inspect_archive(path, expected_magic):
     findings = []
-    required = {
-        "ashley_e1/__init__.pyc", "ashley_e1/probe.pyc", "ashley_e1/observers.pyc",
-        "ashley_e1/snapshot.pyc", "ashley_e1/schema.pyc", "ashley_e1/writer.pyc",
-    }
+    required = {"ashley_e1/%s.pyc" % name for name in PRODUCTION_MODULES}
     try:
         with zipfile.ZipFile(path, "r") as archive:
             names = set(archive.namelist())

@@ -28,7 +28,7 @@ class PackageContractTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             path = os.path.join(temp, "probe.ts4script")
             members = {"ashley_e1/%s.pyc" % name: MAGIC_370 + b"payload"
-                       for name in ("__init__", "probe", "observers", "snapshot", "schema", "writer")}
+                       for name in checks.PRODUCTION_MODULES}
             self.make_archive(path, members)
             self.assertEqual(checks.inspect_archive(path, MAGIC_370), [])
 

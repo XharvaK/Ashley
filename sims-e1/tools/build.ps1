@@ -1,5 +1,5 @@
 param(
-    [string]$Version = "1.0.11",
+    [string]$Version = "2.0.0",
     [string]$PythonPath = "C:\Users\Xharv\AppData\Local\Programs\Python\Python370-AshleyE1\python.exe",
     [string]$ImplementedCommit = "WORKTREE_UNCOMMITTED",
     [string]$BaselineCommit = ""
@@ -14,7 +14,7 @@ $artifact = Join-Path $buildRoot ("ashley_e1_" + $Version + ".ts4script")
 $sidecar = $artifact + ".sha256"
 $manifestPath = Join-Path $buildRoot "manifest.json"
 
-if ($Version -notmatch '^1\.0\.\d+$') { throw "Version must match 1.0.<n>" }
+if ($Version -notmatch '^\d+\.\d+\.\d+$') { throw "Version must match <major>.<minor>.<patch>" }
 if (-not (Test-Path -LiteralPath $PythonPath -PathType Leaf)) { throw "Pinned Python not found: $PythonPath" }
 $initSource = Get-Content -LiteralPath (Join-Path $sourceRoot "ashley_e1\__init__.py") -Raw
 if ($initSource -notmatch ('E1_PROBE_VERSION\s*=\s*"' + [regex]::Escape($Version) + '"')) {
@@ -32,7 +32,8 @@ import py_compile
 import sys
 py_compile.compile(sys.argv[1], cfile=sys.argv[2], dfile=sys.argv[3], doraise=True, optimize=0)
 '@
-$moduleNames = @("__init__", "probe", "observers", "snapshot", "schema", "writer")
+$moduleNames = @("__init__", "probe", "observers", "snapshot", "schema", "writer",
+                 "e2_admission", "e2_lineage", "e2_registry", "e2_actuator", "e2_control")
 foreach ($moduleName in $moduleNames) {
     $source = Join-Path $sourceRoot ("ashley_e1\" + $moduleName + ".py")
     $destination = Join-Path $stageRoot ("ashley_e1\" + $moduleName + ".pyc")
@@ -104,6 +105,7 @@ $manifest = [ordered]@{
     governing_documents = [ordered]@{
         master_sha256 = "A06C24544F23F3520FD0C1FDA78E375C8A24D12581BFB8D2E7D98EE0E4E178F3"
         plan_v1_2a_sha256 = "CBF47BF6803FE909F02C0BF2B0B0F21EBB78E139BDEB3595984F8E313130F683"
+        e2_plan = "PROJECT_ASHLEY_SIMS4_EMBODIMENT_E2_IMPLEMENTATION_READY_PLAN_V1.md"
     }
     compiler = [ordered]@{
         implementation = "CPython"
@@ -140,7 +142,10 @@ $manifest = [ordered]@{
         [ordered]@{ name = "alarms.add_alarm_real_time"; evidence = "PRIOR_ART" },
         [ordered]@{ name = "alarms.cancel_alarm"; evidence = "PRIOR_ART" },
         [ordered]@{ name = "clock.interval_in_real_seconds"; evidence = "PRIOR_ART" },
-        [ordered]@{ name = "sims4.commands.register"; evidence = "PRIOR_ART" }
+        [ordered]@{ name = "sims4.commands.register"; evidence = "PRIOR_ART" },
+        [ordered]@{ name = "sims.sim.Sim.push_super_affordance"; evidence = "TARGET_BYTECODE" },
+        [ordered]@{ name = "clock.GameClock.push_speed/remove_request"; evidence = "TARGET_BYTECODE" },
+        [ordered]@{ name = "PersistenceService.add_manual_save_complete_callback"; evidence = "TARGET_BYTECODE" }
     )
     source_content_sha256 = $metadataJson.source_content_sha256
     files = $metadataJson.files

@@ -47,6 +47,7 @@ except ImportError:
     CommandRestrictionFlags = None
     register = None
 
+from . import e2_control
 from . import observers
 from . import schema
 from .writer import TelemetryWriter, bootstrap_from_module_path, derive_telemetry_root
@@ -82,6 +83,10 @@ try:
     _interaction_context_type = _interaction_context_module.InteractionContext
 except AttributeError:
     _interaction_context_type = None
+try:
+    _commands_output = _commands_module.output
+except AttributeError:
+    _commands_output = None
 
 _INITIALIZED = False
 
@@ -105,6 +110,24 @@ _MISUSE_COUNT = 0
 _LAST_CAPTURE_COUNTERS = None
 _COUNTERS = {"dropped_queue": 0, "dropped_overrun": 0,
              "dropped_serialize": 0, "redundant_starts": 0}
+
+def _output(text, connection):
+    if _commands_output is None:
+        return
+    try:
+        _commands_output(text, connection)
+    except Exception:
+        pass
+
+
+_E2 = e2_control.E2Control(
+    emit=lambda row: _emit(row),
+    get_state=lambda: _STATE,
+    get_session_id=lambda: _TELEMETRY_SESSION_ID,
+    get_armed_snapshot=lambda: _ARMED_SNAPSHOT,
+    get_writer=lambda: _WRITER,
+    output=_output,
+)
 
 _ARM_NATIVE_TO_CANONICAL = {
     "lab_e1": "LAB_E1",
@@ -143,6 +166,36 @@ def _dispatch_stop(*args, _session_id=0, **kwargs):
     return _cmd_stop(_connection=_session_id)
 
 
+def _dispatch_e2_prepare(*args, _session_id=0, **kwargs):
+    if len(args) != 1 or kwargs or type(args[0]) is not str:
+        return False
+    object_id = args[0]
+    if not object_id.isdigit() or len(object_id) > 20:
+        return False
+    return _E2.cmd_prepare(object_id, _session_id)
+
+
+def _dispatch_e2_sit(*args, _session_id=0, **kwargs):
+    if len(args) != 1 or kwargs or type(args[0]) is not str:
+        return False
+    token = args[0]
+    if len(token) != 16 or any(ch not in "0123456789abcdef" for ch in token):
+        return False
+    return _E2.cmd_sit(token, _session_id)
+
+
+def _dispatch_e2_pause(*args, _session_id=0, **kwargs):
+    if args or kwargs:
+        return False
+    return _E2.cmd_pause(_session_id)
+
+
+def _dispatch_e2_release(*args, _session_id=0, **kwargs):
+    if args or kwargs:
+        return False
+    return _E2.cmd_release(_session_id)
+
+
 def _register_commands():
     if register is None or CommandType is None or CommandRestrictionFlags is None:
         return False
@@ -158,6 +211,18 @@ def _register_commands():
     register('ashley_e1.stop', CommandRestrictionFlags.UNRESTRICTED,
              _dispatch_stop, 'Stop Ashley E1 sampling (remains armed).',
              'ashley_e1.stop', CommandType.Live)
+    register('ashley_e2.prepare', CommandRestrictionFlags.UNRESTRICTED,
+             _dispatch_e2_prepare, 'Prepare one E2 sit experiment on an object id.',
+             'ashley_e2.prepare <object_id>', CommandType.Live)
+    register('ashley_e2.sit', CommandRestrictionFlags.UNRESTRICTED,
+             _dispatch_e2_sit, 'Admit and push one prepared E2 sit experiment.',
+             'ashley_e2.sit <token>', CommandType.Live)
+    register('ashley_e2.pause', CommandRestrictionFlags.UNRESTRICTED,
+             _dispatch_e2_pause, 'Push the E2 probe pause request.',
+             'ashley_e2.pause', CommandType.Live)
+    register('ashley_e2.release', CommandRestrictionFlags.UNRESTRICTED,
+             _dispatch_e2_release, 'Remove the E2 probe pause request.',
+             'ashley_e2.release', CommandType.Live)
     return True
 
 
@@ -182,6 +247,8 @@ def _required_import_summary():
         "sims4.commands.CommandType": CommandType is not None,
         "sims4.commands.CommandRestrictionFlags": CommandRestrictionFlags is not None,
         "sims4.commands.register": callable(register),
+        "sims4.commands.output": callable(_commands_output),
+        "e2.actuator": e2_control.e2_actuator is not None,
     }
 
 
@@ -302,6 +369,7 @@ def _cmd_arm(arm_name: str, _connection=None) -> bool:
         return False
     _WRITER_IDLE = False
     _STATE = "ARMED"
+    _E2.on_arm()
     return True
 
 
@@ -344,6 +412,7 @@ def _cmd_stop(_connection=None) -> bool:
         _ALARM_HANDLE = None
         _STATE = "ARMED"
         _set_writer_sampling(False)
+        _E2.on_stop("STOP")
     return True
 
 
@@ -354,6 +423,7 @@ def _cmd_disarm(_connection=None) -> bool:
     if not _cmd_stop():
         return False
     _set_writer_sampling(False)
+    _E2.on_disarm()
     close_reason = "DISARM_CLEAN" if _SESSION_OPENED else "ARMED_NEVER_STARTED"
     if _WRITER is not None:
         _WRITER.signal_close(close_reason)
@@ -512,3 +582,12 @@ def _poll_tick_body():
         _ARMED_SNAPSHOT["sim_id"])
     if not _emit(row):
         _cmd_stop()
+        return
+    try:
+        _E2.on_poll_row(row)
+    except Exception as error:
+        _emit(schema.make_record(
+            "guard_exhausted", telemetry_session_id=_TELEMETRY_SESSION_ID,
+            wall_timestamp_ms=int(time.time() * 1000),
+            monotonic_ns=time.perf_counter_ns(),
+            reason="E2_POLL_FAILURE:%s" % type(error).__name__))

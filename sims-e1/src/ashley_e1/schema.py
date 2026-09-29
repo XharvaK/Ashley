@@ -1,11 +1,11 @@
-"""Pure E1 telemetry schema and bounded record validation."""
+"""Pure E1/E2 telemetry schema and bounded record validation."""
 
 import json
 
 
-OBSERVATION_SCHEMA_VERSION = 1
-TELEMETRY_SCHEMA_ID = "e1.telemetry/v1"
-PROBE_VERSION = "1.0.11"
+OBSERVATION_SCHEMA_VERSION = 2
+TELEMETRY_SCHEMA_ID = "e1.telemetry/v2"
+PROBE_VERSION = "2.0.0"
 SIMS_BUILD = "1.128.90.1030"
 MAX_SERIALIZED_RECORD_BYTES = 8 * 1024
 MAX_ID_LENGTH = 64
@@ -35,7 +35,27 @@ EVENT_KINDS = (
     "load_disabled",
     "cap_reached",
     "writer_failed",
+    "experiment_event",
+    "speed_event",
+    "lineage_event",
 )
+E2_EVENT_KINDS = ("experiment_event", "speed_event", "lineage_event")
+E2_PAYLOAD_KEYS = {
+    "experiment_event": ("phase", "code", "experiment_id", "object_id", "token",
+                         "interaction_id", "claims", "finishing_type", "detail"),
+    "speed_event": ("phase", "code", "detail"),
+    "lineage_event": ("record", "guid", "slot_id", "sim_id", "ticks",
+                      "loaded_from_slot_id", "lineage_class", "session_uuid"),
+}
+EXPERIMENT_PHASES = (
+    "SIGNATURE_LEARNED", "PREPARE_OK", "PREPARE_REJECT", "ADMIT_REJECT",
+    "PUSHED", "PUSH_FAILED", "CLAIM", "FINISHED_CALLBACK", "VERDICT",
+)
+SPEED_PHASES = ("REQUEST_PUSHED", "REQUEST_REMOVED", "REJECT",
+                "RELEASED_ON_DISARM", "RELEASE_FAILED")
+LINEAGE_RECORDS = ("LOAD_OBSERVED", "SAVE_OBSERVED", "DESIGNATED_BODY", "CLASSIFIED")
+CLAIM_KEYS = ("REQUEST_ACCEPTED", "ENQUEUED", "STARTED", "EFFECT_OBSERVED",
+              "ATTRIBUTED", "MAINTAINED_10S", "FINISHED")
 MISSINGNESS_STATUSES = ("MISSING", "ABSENT", "UNSUPPORTED", "UNKNOWN")
 REQUIRED_IMPORT_KEYS = (
     "alarms",
@@ -57,6 +77,8 @@ REQUIRED_IMPORT_KEYS = (
     "sims4.commands.CommandType",
     "sims4.commands.CommandRestrictionFlags",
     "sims4.commands.register",
+    "sims4.commands.output",
+    "e2.actuator",
 )
 SOURCE_NORMS = ("OWNER_UI", "SCRIPT_DIRECTED", "UNKNOWN")
 SOURCE_CONFIDENCES = ("EXPOSED", "UNKNOWN")
@@ -69,7 +91,7 @@ COMMON_KEYS = {
     "event_kind", "reason", "checkpoint_reason", "close_reason",
     "observation_complete", "attestation", "save", "zone", "body",
     "interactions", "motives", "sim_signals", "missingness", "unsupported",
-    "availability", "counters", "writer", "note",
+    "availability", "counters", "writer", "note", "e2",
 }
 
 
@@ -176,6 +198,7 @@ def make_record(event_kind, telemetry_session_id=None, boot_id=None,
         "counters": _default_counters(),
         "writer": _default_writer(),
         "note": None,
+        "e2": None,
     }
     for key, value in payload.items():
         if key in row and isinstance(row[key], dict) and isinstance(value, dict):
@@ -232,7 +255,8 @@ def _validate_string_tree(value, key="value"):
             bounded_string(value, MAX_DETAIL_LENGTH, key, False)
         elif key in ("note",):
             bounded_string(value, MAX_NOTE_LENGTH, key, False)
-        elif key in ("affordance_text", "game_text", "calendar", "posture", "room"):
+        elif key in ("affordance_text", "game_text", "calendar", "posture", "room",
+                     "posture_name", "detail_text", "finishing_type"):
             bounded_string(value, MAX_DISPLAY_TEXT_LENGTH, key, False)
         else:
             bounded_string(value, MAX_ID_LENGTH, key, False)
@@ -288,15 +312,71 @@ def _validate_interactions(value):
              "interactions.observation_complete must be bool")
     for item in observed:
         _require(isinstance(item, dict), "interaction must be an object")
-        _require(set(item) == {"entry_key", "affordance_id", "affordance_text",
-                               "target_id", "source_raw", "source_norm",
-                               "source_confidence", "present", "membership"},
+        _require(set(item) == {"entry_key", "interaction_id", "affordance_id",
+                               "affordance_text", "target_id", "source_raw",
+                               "source_norm", "source_confidence", "present",
+                               "membership"},
                  "interaction shape")
         _require(item.get("membership") in MEMBERSHIPS, "invalid interaction membership")
         _require(item.get("source_norm") in SOURCE_NORMS, "invalid source_norm")
         _require(item.get("source_confidence") in SOURCE_CONFIDENCES,
                  "invalid source_confidence")
         _require(type(item.get("present")) is bool, "interaction.present must be bool")
+
+
+def _validate_posture(value):
+    if value is None:
+        return
+    _require(isinstance(value, dict) and set(value) == {"posture_name", "target_id"},
+             "body.posture shape")
+    if value["posture_name"] is not None:
+        bounded_string(value["posture_name"], MAX_DISPLAY_TEXT_LENGTH,
+                       "body.posture.posture_name", False)
+    if value["target_id"] is not None:
+        _require(isinstance(value["target_id"], str), "body.posture.target_id")
+        string_id(value["target_id"], "body.posture.target_id")
+
+
+def _validate_e2(row):
+    kind = row.get("event_kind")
+    payload = row.get("e2")
+    if kind not in E2_EVENT_KINDS:
+        _require(payload is None, "%s carries e2 payload" % kind)
+        return
+    _require(isinstance(payload, dict) and
+             set(payload) == set(E2_PAYLOAD_KEYS[kind]), "%s e2 shape" % kind)
+    _require(row.get("telemetry_session_id") is not None, "%s session id" % kind)
+    if kind == "experiment_event":
+        _require(payload["phase"] in EXPERIMENT_PHASES, "experiment phase")
+        claims = payload["claims"]
+        if claims is not None:
+            _require(isinstance(claims, dict) and set(claims) == set(CLAIM_KEYS),
+                     "experiment claims shape")
+            for value in claims.values():
+                _require(type(value) is bool, "experiment claim value")
+        for key in ("code", "experiment_id", "object_id", "token", "interaction_id"):
+            if payload[key] is not None:
+                _require(isinstance(payload[key], str), "experiment %s" % key)
+                string_id(payload[key], "experiment %s" % key)
+        if payload["finishing_type"] is not None:
+            bounded_string(payload["finishing_type"], MAX_DISPLAY_TEXT_LENGTH,
+                           "finishing_type", False)
+        if payload["detail"] is not None:
+            bounded_string(payload["detail"], MAX_DETAIL_LENGTH, "detail", False)
+    elif kind == "speed_event":
+        _require(payload["phase"] in SPEED_PHASES, "speed phase")
+        for key in ("code", "detail"):
+            if payload[key] is not None:
+                bounded_string(payload[key], MAX_DETAIL_LENGTH, "speed %s" % key, False)
+    else:
+        _require(payload["record"] in LINEAGE_RECORDS, "lineage record")
+        for key in ("guid", "slot_id", "sim_id", "loaded_from_slot_id",
+                    "lineage_class", "session_uuid"):
+            if payload[key] is not None:
+                _require(isinstance(payload[key], str), "lineage %s" % key)
+                string_id(payload[key], "lineage %s" % key)
+        if payload["ticks"] is not None:
+            _require(type(payload["ticks"]) is int, "lineage ticks")
 
 
 def _validate_motives(value):
@@ -394,6 +474,16 @@ def _validate_payload_contracts(row):
     elif kind == "session_open":
         _require(row.get("motives") == [] and row.get("sim_signals") == [],
                  "session open semantic payload")
+    elif kind in E2_EVENT_KINDS:
+        _require(row.get("save") == _default_save(), "%s save payload" % kind)
+        _require(row.get("zone") == _default_zone(), "%s zone payload" % kind)
+        _require(row.get("body") == _default_body(), "%s body payload" % kind)
+        _require(row.get("interactions") == _default_interactions(),
+                 "%s interactions payload" % kind)
+        _require(row.get("motives") == [] and row.get("sim_signals") == [],
+                 "%s semantic payload" % kind)
+        _require(row.get("attestation") == attestation(),
+                 "%s attestation payload" % kind)
 
 
 def _validate_common(row):
@@ -434,6 +524,8 @@ def _validate_common(row):
         _require(type(row["body"]["is_selectable"]) is bool, "body.is_selectable")
     if row.get("body").get("is_selected") is not None:
         _require(type(row["body"]["is_selected"]) is bool, "body.is_selected")
+    _validate_posture(row["body"].get("posture"))
+    _validate_e2(row)
     _validate_attestation(row.get("attestation"))
     _require(row.get("availability") in AVAILABILITY, "availability")
     _require(isinstance(row.get("counters"), dict) and

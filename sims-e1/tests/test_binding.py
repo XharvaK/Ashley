@@ -53,7 +53,8 @@ class FakeWriter:
 
 
 def install_stubs():
-    calls = {"registrations": [], "events": [], "alarms": [], "cancelled": []}
+    calls = {"registrations": [], "events": [], "alarms": [], "cancelled": [],
+             "outputs": [], "pushes": [], "speed": [], "save_callbacks": []}
     commands = types.ModuleType("sims4.commands")
     commands.CommandType = types.SimpleNamespace(Live="Live")
     commands.CommandRestrictionFlags = types.SimpleNamespace(UNRESTRICTED="UNRESTRICTED")
@@ -62,6 +63,7 @@ def install_stubs():
         calls["registrations"].append(args)
 
     commands.register = register
+    commands.output = lambda text, connection: calls["outputs"].append((text, connection))
     sims4 = types.ModuleType("sims4")
     sims4.__path__ = []
     sims4.commands = commands
@@ -85,6 +87,8 @@ def install_stubs():
 
     clock = types.ModuleType("clock")
     clock.interval_in_real_seconds = lambda value: value
+    clock.ClockSpeedMode = types.SimpleNamespace(PAUSED="PAUSED", NORMAL="NORMAL")
+    clock.GameSpeedChangeSource = types.SimpleNamespace(GAMEPLAY="GAMEPLAY")
     sys.modules["clock"] = clock
     date = types.ModuleType("date_and_time")
     date.TimeSpan = lambda value: value
@@ -96,6 +100,26 @@ def install_stubs():
     services = types.ModuleType("services")
     services.sim_info_manager = lambda: types.SimpleNamespace(get_all=lambda: [])
     services.client_manager = lambda: types.SimpleNamespace()
+
+    class _Clock:
+        def push_speed(self, speed, source=None, reason=None):
+            request = ("request", speed, source, reason)
+            calls["speed"].append(("push",) + request)
+            return request
+
+        def remove_request(self, request, source=None, reason=None):
+            calls["speed"].append(("remove", request, source, reason))
+
+    class _Persistence:
+        def add_manual_save_complete_callback(self, callback):
+            calls["save_callbacks"].append(callback)
+
+        def remove_manual_save_complete_callback(self, callback):
+            calls["save_callbacks"].remove(callback)
+
+    services.game_clock_service = lambda: _Clock()
+    services.get_persistence_service = lambda: _Persistence()
+    services.object_manager = lambda: {}
     sys.modules["services"] = services
 
     sims = types.ModuleType("sims")
@@ -118,9 +142,19 @@ def install_stubs():
     interactions.__path__ = []
     sys.modules["interactions"] = interactions
     context = types.ModuleType("interactions.context")
-    context.InteractionContext = type("InteractionContext", (), {})
+    class InteractionContext:
+        def __init__(self, sim, source, priority, insert_strategy=None):
+            self.sim, self.source, self.priority = sim, source, priority
+            self.insert_strategy = insert_strategy
+
+    context.InteractionContext = InteractionContext
     context.SOURCE_SCRIPT = "SCRIPT"
+    context.InteractionContext.SOURCE_SCRIPT_WITH_USER_INTENT = "SCRIPT_WITH_USER_INTENT"
+    context.QueueInsertStrategy = types.SimpleNamespace(NEXT="NEXT")
     sys.modules["interactions.context"] = context
+    priority = types.ModuleType("interactions.priority")
+    priority.Priority = types.SimpleNamespace(High="High")
+    sys.modules["interactions.priority"] = priority
     return calls
 
 
@@ -237,10 +271,13 @@ class BindingTests(unittest.TestCase):
         _, probe, calls = load_probe()
         self.assertEqual([item[0] for item in calls["registrations"]], [
             "ashley_e1.arm", "ashley_e1.disarm", "ashley_e1.start", "ashley_e1.stop",
+            "ashley_e2.prepare", "ashley_e2.sit", "ashley_e2.pause", "ashley_e2.release",
         ])
-        self.assertEqual(len(calls["registrations"]), 4)
+        self.assertEqual(len(calls["registrations"]), 8)
         self.assertEqual([item[2].__name__ for item in calls["registrations"]], [
             "_dispatch_arm", "_dispatch_disarm", "_dispatch_start", "_dispatch_stop",
+            "_dispatch_e2_prepare", "_dispatch_e2_sit", "_dispatch_e2_pause",
+            "_dispatch_e2_release",
         ])
         self.assertEqual(calls["registrations"][0][1], "UNRESTRICTED")
         self.assertEqual(calls["registrations"][0][5], "Live")

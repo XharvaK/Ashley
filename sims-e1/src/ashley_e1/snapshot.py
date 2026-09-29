@@ -8,6 +8,7 @@ def entry_key(entry):
 def minimal_interaction(entry):
     return {
         "entry_key": entry_key(entry),
+        "interaction_id": None,
         "affordance_id": None,
         "affordance_text": None,
         "target_id": None,

@@ -56,6 +56,25 @@ def _save_snapshot():
             "slot_id": None if raw_slot_id is None else str(raw_slot_id)}
 
 
+def _saved_world_ticks():
+    """Ticks stored in the loaded/last-saved slot proto (GameClock.save writes
+    sim_now ticks to gameplay_data.world_game_time; GameClock.setup reads it on
+    load — TARGET_BYTECODE 1.128). None when absent. Read only."""
+    buff = services.get_persistence_service().get_save_slot_proto_buff()
+    if buff is None:
+        return None
+    try:
+        value = buff.gameplay_data.world_game_time
+    except AttributeError:
+        return None
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def _game_snapshot():
     time_service = services.time_service()
     sim_now = time_service.sim_now
@@ -70,8 +89,34 @@ def _game_snapshot():
             "clock_speed": str(speed), "paused": speed == "PAUSED"}
 
 
+def _posture_snapshot(sim):
+    """Posture name and target id as plain strings; None-safe, never raises."""
+    try:
+        posture = sim.posture
+    except Exception:
+        return None
+    if posture is None:
+        return None
+    name = None
+    target_id = None
+    try:
+        name = str(posture.name)[:schema.MAX_DISPLAY_TEXT_LENGTH]
+    except Exception:
+        name = None
+    try:
+        target = posture.target
+        target_id = None if target is None else str(target.id)
+    except Exception:
+        target_id = None
+    return {"posture_name": name, "target_id": target_id}
+
+
 def _describe_interaction(entry):
     row = snapshot.minimal_interaction(entry)
+    try:
+        row["interaction_id"] = str(entry.id)
+    except Exception:
+        pass
     try:
         row["affordance_id"] = str(entry.guid64)
     except Exception:
@@ -111,7 +156,7 @@ def poll_once(telemetry_session_id, armed_name,
     raw_sim_id = sim_info.id
     sim_id = None if raw_sim_id is None else str(raw_sim_id)
     body = {"sim_id": sim_id, "instantiated": True, "is_selectable": True,
-            "is_selected": None, "posture": None}
+            "is_selected": None, "posture": _posture_snapshot(sim)}
     complete = snapshot.interactions_complete(
         queue_truncated, running_truncated, capture_complete)
     return schema.make_record(
