@@ -14,6 +14,7 @@ QUEUE_CAPACITY = 1024
 MAX_ACTIVE_FILE_BYTES = 8 * 1024 * 1024
 MAX_ROTATED_SIBLINGS_PER_SESSION = 4
 MAX_TELEMETRY_DIR_BYTES = 200 * 1024 * 1024
+MAX_SAMPLING_FLUSH_INTERVAL_SECONDS = 5.0
 
 
 def derive_telemetry_root(module_path):
@@ -125,8 +126,14 @@ class TelemetryWriter:
         self._close_written = False
         self._pre_disarm_requested = False
         self._pending_drop_reason = None
+        self._shutdown_deadline_drops = 0
+        self._shutdown_flush_attempted = False
         self._last_drop_summary = 0.0
         self._last_checkpoint = time.time()
+        self._dirty = False
+        self._last_flush_monotonic = time.perf_counter()
+        self._consecutive_flush_failures = 0
+        self._active_bytes = 0
         self._last_game = None
         self._sampling = False
         self._diagnostic_attempted = False
@@ -202,6 +209,38 @@ class TelemetryWriter:
         self._pre_disarm_requested = True
         self._stop_event.set()
 
+    def _begin_shutdown(self):
+        if self._shutdown_flush_attempted:
+            return
+        self._shutdown_flush_attempted = True
+        self._attempt_flush(force=True)
+
+    def _attempt_flush(self, force=False, escalate=True):
+        if self._stream is None:
+            return not self._dirty
+        if not force and not self._dirty:
+            return True
+        try:
+            self._stream.flush()
+        except (OSError, IOError, ValueError):
+            self._consecutive_flush_failures += 1
+            if (escalate and self._consecutive_flush_failures >= 3 and
+                    self.state == "OK"):
+                self._mark_failure("FAILED_STICKY", "flush_failure")
+            return False
+        self._consecutive_flush_failures = 0
+        self._dirty = False
+        self._last_flush_monotonic = time.perf_counter()
+        return True
+
+    def _flush_if_due(self):
+        if not self._sampling or not self._dirty:
+            return True
+        if (time.perf_counter() - self._last_flush_monotonic >=
+                MAX_SAMPLING_FLUSH_INTERVAL_SECONDS):
+            return self._attempt_flush(force=True)
+        return True
+
     def wait_idle(self, timeout=5.0):
         deadline = time.time() + timeout
         while not self._idle and time.time() < deadline:
@@ -219,19 +258,26 @@ class TelemetryWriter:
         stream = open(path, "xb")
         self._active_path = path
         self._stream = stream
+        self._active_bytes = 0
         self.output_paths.append(path)
 
     def _close_stream(self):
         if self._stream is not None:
             try:
-                self._stream.flush()
+                self._attempt_flush(force=True)
             finally:
                 self._stream.close()
             self._stream = None
 
     def _can_fit(self, size):
-        current = os.path.getsize(self._active_path) if self._active_path and os.path.exists(self._active_path) else 0
+        on_disk = (os.path.getsize(self._active_path)
+                   if self._active_path and os.path.exists(self._active_path)
+                   else 0)
+        current = max(on_disk, self._active_bytes)
+        pending = max(0, current - on_disk)
         total = _directory_size(self.root)
+        if total is not None:
+            total += pending
         return total is not None and total + size <= self.max_dir_bytes, current + size <= self.max_file_bytes
 
     def _mark_failure(self, state, reason):
@@ -245,6 +291,7 @@ class TelemetryWriter:
                 self._write_diagnostic(kind, reason)
             except (OSError, IOError, schema.SchemaError, TypeError, ValueError):
                 pass
+        self._attempt_flush(force=True, escalate=False)
 
     def _write_physical(self, payload):
         if self._stream is None:
@@ -253,9 +300,18 @@ class TelemetryWriter:
         if not fits_dir or not fits_file:
             return False
         self._stream.write(payload + b"\n")
-        self._stream.flush()
+        self._dirty = True
+        self._active_bytes += len(payload) + 1
         self._sequence += 1
         return True
+
+    def _serialize_or_account(self, row):
+        try:
+            return schema.serialize_record(row)
+        except (schema.SchemaError, TypeError, ValueError):
+            self.counters["dropped_serialize"] += 1
+            self._pending_drop_reason = "SERIALIZE_FAILURE"
+            return None
 
     def _write_diagnostic(self, kind, reason):
         row = schema.make_record(
@@ -266,10 +322,20 @@ class TelemetryWriter:
             writer={"state": self.state, "rotation_index": self.rotation_index},
         )
         row["written_sequence"] = self._sequence
-        payload = schema.serialize_record(row)
-        return self._write_physical(payload)
+        payload = self._serialize_or_account(row)
+        if payload is None:
+            return False
+        try:
+            written = self._write_physical(payload)
+        except (OSError, IOError, ValueError):
+            return False
+        if written:
+            self._attempt_flush(force=True, escalate=False)
+        return written
 
     def _write_checkpoint(self, reason):
+        if self.state != "OK":
+            return False
         payload = {
             "checkpoint_reason": reason,
             "counters": dict(self.counters),
@@ -283,26 +349,31 @@ class TelemetryWriter:
             monotonic_ns=time.perf_counter_ns(), **payload
         )
         checkpoint["written_sequence"] = self._sequence
+        serialized = self._serialize_or_account(checkpoint)
+        if serialized is None:
+            return False
         try:
-            payload = schema.serialize_record(checkpoint)
-            written = self._write_physical(payload)
-        except (OSError, IOError, schema.SchemaError, TypeError, ValueError):
+            written = self._write_physical(serialized)
+        except (OSError, IOError, ValueError):
             self._mark_failure("FAILED_STICKY", "write_failure")
             return False
         if not written:
             self._mark_failure("CAP_REACHED", "checkpoint_cap")
             return False
         self._last_checkpoint = time.time()
-        return True
+        self._attempt_flush(force=True)
+        return self.state == "OK"
 
     def _write_direct(self, row):
         if self.state != "OK":
             return False
         row = dict(row)
+        row["written_sequence"] = self._sequence
+        payload = self._serialize_or_account(row)
+        if payload is None:
+            return False
         if self._stream is None:
             self._open_active()
-        row["written_sequence"] = self._sequence
-        payload = schema.serialize_record(row)
         fits_dir, fits_file = self._can_fit(len(payload) + 1)
         if not fits_dir:
             self._mark_failure("CAP_REACHED", "directory_cap")
@@ -321,7 +392,9 @@ class TelemetryWriter:
             if not self._write_checkpoint("ROTATION"):
                 return False
             row["written_sequence"] = self._sequence
-            payload = schema.serialize_record(row)
+            payload = self._serialize_or_account(row)
+            if payload is None:
+                return False
             fits_dir, fits_file = self._can_fit(len(payload) + 1)
             if not fits_dir:
                 self._mark_failure("CAP_REACHED", "directory_cap")
@@ -355,21 +428,23 @@ class TelemetryWriter:
                 reason=self._pending_drop_reason, counters=dict(self.counters),
                 writer={"state": self.state, "rotation_index": self.rotation_index},
             )
-            try:
-                self._write_direct(summary)
+            summary_written = self._write_direct(summary)
+            if summary_written:
                 self._last_drop_summary = now
                 self._pending_drop_reason = None
-            except (OSError, IOError, schema.SchemaError, TypeError, ValueError):
-                self._mark_failure("FAILED_STICKY", "write_failure")
+            elif self.state != "OK":
                 return False
         row = dict(row)
         row["counters"] = dict(self.counters)
         row["writer"] = {"state": self.state, "rotation_index": self.rotation_index}
         try:
-            return self._write_direct(row)
-        except (OSError, IOError, schema.SchemaError, TypeError, ValueError):
+            written = self._write_direct(row)
+        except (OSError, IOError, ValueError):
             self._mark_failure("FAILED_STICKY", "write_failure")
             return False
+        if not written:
+            return False
+        return self._flush_if_due()
 
     def _write_close(self):
         if self._close_written or self._close_reason is None:
@@ -380,15 +455,22 @@ class TelemetryWriter:
             "session_close", telemetry_session_id=self.session_id,
             wall_timestamp_ms=int(time.time() * 1000),
             monotonic_ns=time.perf_counter_ns(),
+            reason=("SHUTDOWN_DEADLINE" if self._shutdown_deadline_drops else
+                    (self.failure_reason if self.state != "OK" else None)),
             close_reason=(self._close_reason if self.state == "OK" else self.state),
             counters=dict(self.counters), writer={"state": self.state,
                                                   "rotation_index": self.rotation_index},
         )
         row["written_sequence"] = self._sequence
+        payload = self._serialize_or_account(row)
+        if payload is None:
+            self._close_written = False
+            return
         try:
-            payload = schema.serialize_record(row)
             self._close_written = self._write_physical(payload)
-        except (OSError, IOError, schema.SchemaError, TypeError, ValueError):
+            if self._close_written:
+                self._attempt_flush(force=True)
+        except (OSError, IOError, ValueError):
             self._close_written = False
 
     def _run(self):
@@ -402,9 +484,12 @@ class TelemetryWriter:
                 try:
                     row = self._queue.get(timeout=0.05)
                 except queue.Empty:
+                    if self._stop_event.is_set() and deadline is None:
+                        self._begin_shutdown()
+                        deadline = time.time() + 2.0
+                    elif self._sampling:
+                        self._flush_if_due()
                     if self._stop_event.is_set():
-                        if deadline is None:
-                            deadline = time.time() + 2.0
                         if not self._queue.unfinished_tasks or time.time() >= deadline:
                             break
                     continue
@@ -413,6 +498,7 @@ class TelemetryWriter:
                 finally:
                     self._queue.task_done()
                 if self._stop_event.is_set() and deadline is None:
+                    self._begin_shutdown()
                     deadline = time.time() + 2.0
                 if deadline is not None and time.time() >= deadline:
                     while True:
@@ -422,7 +508,7 @@ class TelemetryWriter:
                             break
                         self._queue.task_done()
                         self.counters["dropped_queue"] += 1
-                    self._pending_drop_reason = "SHUTDOWN_DEADLINE"
+                        self._shutdown_deadline_drops += 1
                     break
             self._write_close()
         finally:
