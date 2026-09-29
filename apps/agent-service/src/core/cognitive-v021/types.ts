@@ -29,7 +29,7 @@ export type { SourceSupportRef } from "./evidence/interpretation-envelope.js";
 export const ARCHITECTURE_EPOCH = "v0.2.1" as const;
 export const IMPLEMENTATION_SPEC_VERSION = "0.2.1.r6" as const;
 export const THOUGHT_CONTRACT_VERSION = 2 as const;
-export const COGNITIVE_SIDECAR_SCHEMA_VERSION = 39 as const;
+export const COGNITIVE_SIDECAR_SCHEMA_VERSION = 40 as const;
 
 /**
  * Hard bound on cognition-facing concern discovery windows and pages. The
@@ -1049,6 +1049,8 @@ export type SettlementSemanticOutput = {
   interests?: readonly import("./memory/interests.js").InterestTouch[];
   /** Growth V1 G4: appraisal, expectations, revisions (Owner-private). */
   growth?: import("./growth/claim.js").GrowthClaim;
+  /** NIGHT pass only: diary, re-scored salience, closed questions, weekly narrative. */
+  night?: import("./growth/night.js").NightClaim;
   evidenceUse?: ThoughtEvidenceUse;
 };
 
@@ -1325,6 +1327,8 @@ export type ThoughtSettlementDraft = {
   interests?: import("./memory/interests.js").InterestTouch[];
   /** Stored by the Host after publication (growth/growth.ts). */
   growth?: import("./growth/claim.js").GrowthClaim;
+  /** NIGHT pass only; stored by the Host after publication (growth/night.ts). */
+  night?: import("./growth/night.js").NightClaim;
   operations: {
     observationsConsumed: string[];
     /** Authored retrieval reliance preserved for post-publication audit. */
@@ -1841,6 +1845,10 @@ export type ThoughtInnerPass =
   | {
       kind: "awake";
       agenda: ThoughtInnerAgenda;
+    }
+  | {
+      kind: "night";
+      agenda: import("./growth/night.js").ThoughtNightAgenda;
     };
 
 /**
@@ -1876,6 +1884,8 @@ export type V021ForgetEntityType =
   | "v021_growth_revision"
   | "v021_mood_event"
   | "v021_expectation"
+  | "v021_diary_entry"
+  | "v021_self_narrative"
   | "v021_concern"
   | "v021_occupancy"
   | "v021_future_trigger"

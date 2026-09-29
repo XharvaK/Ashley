@@ -2,6 +2,7 @@ import type { DatabaseSync } from "node:sqlite";
 import type { DataClassification } from "../../privacy/classification.js";
 import type { GrowthClaim } from "./claim.js";
 import { MOOD_BASELINE, readMood, recordAppraisal, type MoodVector } from "./mood.js";
+import { latestNarrative, listDiary } from "./night.js";
 import {
   checkExpectations,
   expireStaleExpectations,
@@ -57,6 +58,10 @@ export type ThoughtGrowth = {
   expectations?: Array<{ expectationId: string; statement: string; atMs: number }>;
   /** What recent checks taught her. */
   lessons?: Array<{ expectationId: string; statement: string; outcome: ExpectationOutcome; lesson: string; atMs: number }>;
+  /** Her latest weekly "who I am becoming" narrative. */
+  becoming?: { text: string; writtenAtMs: number };
+  /** Her last diary entry. */
+  diary?: { day: string; text: string };
 };
 
 function needsFor(layer: RevisionLayer): string {
@@ -103,6 +108,8 @@ export function growthForThought(db: DatabaseSync, identityStore: IdentityStore 
     lesson: item.lesson ?? "",
     atMs: item.checkedAtMs ?? item.createdAtMs,
   }));
+  const becoming = latestNarrative(db);
+  const [diary] = listDiary(db, 1);
   return {
     mood: {
       valence: mood.valence,
@@ -118,6 +125,8 @@ export function growthForThought(db: DatabaseSync, identityStore: IdentityStore 
     ...(revisions.length === 0 ? {} : { revisions }),
     ...(expectations.length === 0 ? {} : { expectations }),
     ...(lessons.length === 0 ? {} : { lessons }),
+    ...(becoming ? { becoming: { text: becoming.text, writtenAtMs: becoming.createdAtMs } } : {}),
+    ...(diary ? { diary: { day: diary.day, text: diary.text } } : {}),
   };
 }
 

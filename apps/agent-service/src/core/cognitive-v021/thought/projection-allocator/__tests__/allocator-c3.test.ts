@@ -10,6 +10,7 @@ import { allocateThoughtProjection } from "../allocator.js";
 // The afterglow guidance adds ~150 more; the envelopes that overflowed carry +500.
 // G3 inner-life guidance adds ~700 more: the tight envelopes shift by +1_000.
 // G4 growth guidance and schema (mood, expectations, revisions) add ~1_300 more: +1_000, like G3.
+// G5 night guidance and schema add ~900 more: the same tight envelopes shift +1_000 again.
 
 const identity = { constitutional: ["truth first"], stableSelf: ["curious"] };
 const capability = {
@@ -119,7 +120,7 @@ describe("MAT-II C3 allocator integration", () => {
       const allocated = allocateThoughtProjection({
         thoughtInput: input,
         requestId: "request-allocator-c3",
-        semanticBudgetTokens: 13_000,
+        semanticBudgetTokens: 14_000,
       });
       const projected = allocated.projected as typeof allocated.projected & {
         c3Experiences?: { version: 1; candidates: readonly unknown[] };
@@ -145,7 +146,7 @@ describe("MAT-II C3 allocator integration", () => {
       const allocated = allocateThoughtProjection({
         thoughtInput: input,
         requestId: "request-allocator-c3-unreachable",
-        semanticBudgetTokens: 13_000,
+        semanticBudgetTokens: 14_000,
       });
 
       expect(allocated.receipt.coverageManifest?.domains).toEqual(expect.arrayContaining([

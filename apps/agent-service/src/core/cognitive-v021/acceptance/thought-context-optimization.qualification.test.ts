@@ -195,10 +195,14 @@ describe("Thought Context Optimization — Coherent Candidate Qualification", ()
       const optimizedWireBytes = groqAllocation.receipt.decision.includedWireBytes;
 
       // Growth V1 doubled the lexical fuse (16/12 KB -> 32/24 KB) so a growing
-      // memory is not starved; the reduction target eases 0.5 -> 0.6 and the
-      // bound that actually prevents a dump is asserted directly.
+      // memory is not starved; the bound that actually prevents a dump is
+      // asserted directly. The reduction is measured on the context, net of
+      // the constant system contract (which grows with Thought guidance and
+      // is not a dump of these items), against the original 0.5 target.
       expect(groqAllocation.projected.retrieval.hits.length).toBeLessThanOrEqual(DEFENSE_FUSE_MAX_CANDIDATES);
-      expect(optimizedWireBytes).toBeLessThan(naiveWireBytes * 0.6);
+      const systemMessageBytes = groqAllocation.receipt.diagnostics?.system_message_bytes;
+      expect(systemMessageBytes).toBeGreaterThan(0);
+      expect(optimizedWireBytes - systemMessageBytes!).toBeLessThan(naiveWireBytes * 0.5);
     } finally {
       derived.close();
       sidecar.close();

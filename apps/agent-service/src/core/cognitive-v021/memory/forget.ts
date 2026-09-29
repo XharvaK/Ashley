@@ -12,6 +12,7 @@ import { forgetJournalEntry, journalEntryIdsForForget } from "../initiative/jour
 import { forgetRevision, revisionIdsForForget } from "../growth/revisions.js";
 import { forgetMoodEvent, moodEventIdsForForget } from "../growth/mood.js";
 import { expectationIdsForForget, forgetExpectation } from "../growth/expectations.js";
+import { diaryEntryIdsForForget, forgetDiaryEntry, forgetNarrative, narrativeIdsForForget } from "../growth/night.js";
 
 type Row = Record<string, unknown>;
 
@@ -27,6 +28,8 @@ export const V021_FORGET_TARGET_MATRIX = {
   growth_revisions: { behavior: "retract", content: "redact" },
   mood_events: { behavior: "none", content: "redact" },
   expectations: { behavior: "none", content: "redact" },
+  diary_entries: { behavior: "none", content: "redact" },
+  self_narratives: { behavior: "none", content: "redact" },
   concerns: { behavior: "resolve", content: "redact" },
   mind_occupancy: { behavior: "detach", content: "none" },
   future_triggers: { behavior: "cancel", content: "redact" },
@@ -406,6 +409,14 @@ export function applyV021Forget(
       changedRows += forgetExpectation(db, id, nowMs);
       addTarget(targets, "v021_expectation", id);
     }
+    for (const id of diaryEntryIdsForForget(db, topic)) {
+      changedRows += forgetDiaryEntry(db, id, nowMs);
+      addTarget(targets, "v021_diary_entry", id);
+    }
+    for (const id of narrativeIdsForForget(db, topic)) {
+      changedRows += forgetNarrative(db, id, nowMs);
+      addTarget(targets, "v021_self_narrative", id);
+    }
 
     // A redacted nomination must not be admitted on a later worker tick.
     void safePayload;
@@ -563,6 +574,8 @@ export function planV021Forget(
   for (const id of revisionIdsForForget(db, topic)) add("v021_growth_revision", id);
   for (const id of moodEventIdsForForget(db, topic)) add("v021_mood_event", id);
   for (const id of expectationIdsForForget(db, topic)) add("v021_expectation", id);
+  for (const id of diaryEntryIdsForForget(db, topic)) add("v021_diary_entry", id);
+  for (const id of narrativeIdsForForget(db, topic)) add("v021_self_narrative", id);
   return {
     topic,
     targets,
@@ -699,6 +712,12 @@ function applyV021ForgetTargetsInTransaction(
   }
   for (const id of targetIds(targets, "v021_expectation")) {
     changed.value += forgetExpectation(db, id, nowMs);
+  }
+  for (const id of targetIds(targets, "v021_diary_entry")) {
+    changed.value += forgetDiaryEntry(db, id, nowMs);
+  }
+  for (const id of targetIds(targets, "v021_self_narrative")) {
+    changed.value += forgetNarrative(db, id, nowMs);
   }
   for (const id of targetIds(targets, "v021_desk_entry")) {
     addChanges(db.prepare(

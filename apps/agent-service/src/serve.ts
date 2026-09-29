@@ -583,8 +583,8 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
       console.warn("[cognitive-v021] worker_queue_startup_deferred", error);
     }
     // Growth V1 inner life: one inner pass at a time, polled from consumer
-    // maintenance. A due afterglow always goes first; AWAKE runs only when
-    // there is nothing left to reflect on.
+    // maintenance. A due afterglow always goes first, then a due NIGHT; AWAKE
+    // runs only when there is nothing left to reflect on.
     let innerRunning = false;
     let innerLastPollMs = 0;
     const pollInnerLife = (nowMs: number): void => {
@@ -602,6 +602,12 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
           if (result.outcome === "ran") return;
         }
         if (awakeEnabled) {
+          // The night comes before the day's own time: it runs at most once a day.
+          const night = await manager.tickCognitiveNight(ownerId, nowMs, env.afterglowEnabled);
+          if (night.outcome === "ran" || night.outcome === "scheduled") {
+            console.log(`[cognitive-v021] night ${night.outcome} slot=${night.slot ?? 0} weekly=${night.weekly ?? false} quietHour=${night.quietHour ?? "?"} next=${night.nextNightAtMs ? new Date(night.nextNightAtMs).toISOString() : "?"} reason=${night.thought?.reason ?? "none"}`);
+          }
+          if (night.outcome === "ran") return;
           const result = await manager.tickCognitiveAwake(ownerId, nowMs, env.afterglowEnabled);
           if (result.outcome === "ran" || result.outcome === "scheduled") {
             console.log(`[cognitive-v021] awake ${result.outcome} slot=${result.slot ?? 0} next=${result.nextAwakeAtMs ? new Date(result.nextAwakeAtMs).toISOString() : "?"} reason=${result.thought?.reason ?? "none"}`);

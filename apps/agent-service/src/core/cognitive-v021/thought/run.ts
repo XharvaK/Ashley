@@ -167,12 +167,14 @@ import {
   loadAfterglowRows,
   type AfterglowPass,
 } from "../initiative/afterglow.js";
-import { awakePassFromPayload } from "../initiative/inner-pass.js";
+import { awakePassFromPayload, nightPassFromPayload } from "../initiative/inner-pass.js";
 import { buildInnerAgenda } from "../initiative/agenda.js";
 import { recordJournalEntry, type JournalPassKind } from "../initiative/journal.js";
 import { isUnsolicitedTriggerKind, unsolicitedFuseTripped } from "../initiative/reach-out.js";
 import { recordInterestTouches } from "../memory/interests.js";
 import { growthForThought, recordGrowth, type IdentityStore } from "../growth/growth.js";
+import { buildNightAgenda, recordNight } from "../growth/night.js";
+import { DEFAULT_OWNER_TIME_ZONE } from "./clock.js";
 import {
   c1V021ProviderBoundBasisFromProjection,
   c1V021SemanticResultHash,
@@ -1414,6 +1416,7 @@ function materializeSemanticSettlement(
   if (semantic.journal) result.journal = { ...semantic.journal };
   if (semantic.interests) result.interests = semantic.interests.map((touch) => ({ ...touch }));
   if (semantic.growth) result.growth = structuredClone(semantic.growth);
+  if (semantic.night) result.night = structuredClone(semantic.night);
   return result as ThoughtSettlementDraft;
 }
 
@@ -2754,6 +2757,7 @@ export async function runCognitiveCycle(
   const payload = payloadRecord(event);
   const afterglowPass = afterglowPassFromPayload(payload);
   const awakePass = awakePassFromPayload(payload);
+  const nightPass = nightPassFromPayload(payload);
   const ownerCoverage = event.dispatchCoverage ?? captureOwnerDispatchCoverage(sidecar, event);
   const ownerResolutionFor = (
     attemptOutcome: OwnerObligationAttemptOutcome,
@@ -3294,6 +3298,12 @@ export async function runCognitiveCycle(
       },
       ...(afterglowPass ? { innerPass: afterglowInnerPass(sidecar, afterglowPass) } : {}),
       ...(awakePass ? { innerPass: { kind: "awake" as const, agenda: buildInnerAgenda(sidecar, awakePass, deps.nowMs()) } } : {}),
+      ...(nightPass ? {
+        innerPass: {
+          kind: "night" as const,
+          agenda: buildNightAgenda(sidecar, { pass: nightPass, identityStore: identityStoreFor(nuclear, deps), nowMs: deps.nowMs() }),
+        },
+      } : {}),
       ...(effectiveThoughtAudience.kind === "owner_private" && !externalCycle
         ? { growth: growthForThought(sidecar, identityStoreFor(nuclear, deps), deps.nowMs()) }
         : {}),
@@ -4605,9 +4615,10 @@ export async function runCognitiveCycle(
         const nowMs = deps.nowMs();
         const interests = settlement.interests ?? [];
         if (interests.length > 0) recordInterestTouches(sidecar, interests, nowMs);
-        if (afterglowPass || awakePass || isUnsolicitedTriggerKind(cycle.triggerKind)) {
+        if (afterglowPass || awakePass || nightPass || isUnsolicitedTriggerKind(cycle.triggerKind)) {
           const passKind: JournalPassKind = afterglowPass ? "afterglow"
             : awakePass ? "awake"
+            : nightPass ? "night"
               : cycle.triggerKind === "future_trigger_due" ? "future_trigger" : "private";
           recordJournalEntry(sidecar, {
             conversationId: cycle.conversationId,
@@ -4635,6 +4646,16 @@ export async function runCognitiveCycle(
           dataClassification: "ordinary",
           nowMs: deps.nowMs(),
         });
+        if (nightPass && standing) {
+          recordNight(sidecar, {
+            cycleId: cycle.cycleId,
+            pass: nightPass,
+            ...(settlement.night ? { claim: settlement.night } : {}),
+            timeZone: env.ownerTimeZone || DEFAULT_OWNER_TIME_ZONE,
+            dataClassification: "ordinary",
+            nowMs: deps.nowMs(),
+          });
+        }
       } catch (error) {
         console.warn("[cognitive-v021] growth_record_deferred", error);
       }

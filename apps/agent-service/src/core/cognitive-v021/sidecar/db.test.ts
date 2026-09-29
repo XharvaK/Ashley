@@ -64,7 +64,11 @@ describe("cognitive v0.2.1 sidecar database", () => {
       // v37: episodes_v2 (+ its FTS5 table and five shadow tables), thread_stories, afterglow_state.
       // v38: inner_state, activity_journal, interest_branches.
       // v39: growth_revisions, growth_revision_evidence, mood_state, mood_events, expectations.
-      expect(tables).toHaveLength(68);
+      // v40: night_state, diary_entries, self_narratives.
+      expect(tables).toHaveLength(71);
+    for (const table of ["night_state", "diary_entries", "self_narratives"]) {
+      expect(tables).toContain(table);
+    }
     for (const table of ["growth_revisions", "growth_revision_evidence", "mood_state", "mood_events", "expectations"]) {
       expect(tables).toContain(table);
     }

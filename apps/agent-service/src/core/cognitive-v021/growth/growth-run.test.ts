@@ -12,6 +12,11 @@ import { runCognitiveCycle } from "../thought/run.js";
 import { readMood } from "./mood.js";
 import { listOpenExpectations } from "./expectations.js";
 import { listCurrentOpinions } from "./revisions.js";
+import { tickNight } from "../initiative/night.js";
+import { listRecentJournal } from "../initiative/journal.js";
+import { recordInterestTouches } from "../memory/interests.js";
+import { listIdentity } from "../../identity/store.js";
+import { listDiary } from "./night.js";
 
 const capabilityReality: CapabilityReality = {
   vision: false, attachmentText: false, conversationalRead: false, webSearch: false,
@@ -118,6 +123,58 @@ describe("Growth V1 G4 through the kernel", () => {
       await runCognitiveCycle(sidecar, nuclear, ownerTurn(sidecar, conversationId, "m2", "hello again", NOW + 60_000), deps(nuclear, { completeChat, nowMs: () => NOW + 60_000 }));
       expect(JSON.stringify(completeChat.mock.calls[0]?.[0])).not.toContain("patient with messy problems");
       expect(JSON.stringify(completeChat.mock.calls.at(-1)?.[0])).toContain("patient with messy problems");
+    } finally {
+      sidecar.close();
+      nuclear.close();
+    }
+  });
+
+  it("runs a NIGHT pass: a diary for the day, and a taste line regenerated from the branches she lived", async () => {
+    const sidecar = openTestSidecar();
+    const nuclear = openNuclearDb(new DatabaseSync(":memory:"));
+    const conversationId = "thread-night-run";
+    const DAY = 24 * 60 * 60_000;
+    const FOUR_AM = Date.UTC(2026, 9, 1, 1, 0); // 04:00 at the default UTC+3
+    try {
+      readIdentitySlice(nuclear, "doc");
+      const taste = listIdentity(nuclear, "doc", { layer: "stable" }).find((entry) => entry.kind === "taste" && entry.text.includes("dub techno"))!;
+      recordInterestTouches(sidecar, [{ root: "Cognitive biases", branch: "base-rate neglect", note: "kept coming back" }], FOUR_AM - 3 * DAY);
+      recordInterestTouches(sidecar, [{ root: "Books & essays", branch: "essays that argue", note: "a great one on priors" }], FOUR_AM - DAY);
+      const newTaste = "essays that argue, base-rate neglect and other cognitive biases, dub techno, and systems-heavy games";
+      const completeChat = vi.fn<KernelDeps["completeChat"]>(async () => ({
+        text: JSON.stringify(makeSemanticSettlement({
+          speech: { mode: "none" },
+          commitments: {},
+          journal: { activity: "reflect", entry: "Closed the day and looked at what I actually reach for." },
+          night: { diary: "A quiet day. Two essays on priors; I noticed I reach for biases more than psychopharmacology now." },
+          growth: {
+            revisions: [{
+              layer: "taste",
+              revisesEntryId: taste.id,
+              text: newTaste,
+              rationale: "the branches I live have moved",
+              evidenceRefs: ["interest:cognitive-biases/base-rate-neglect", "interest:books-essays/essays-that-argue"],
+            }],
+          },
+        })),
+        model: "fake", modelAlias: "thought", resolvedModelId: null,
+      }));
+      const thought = async (input: { event: import("../types.js").InboxEvent | null }) =>
+        runCognitiveCycle(sidecar, nuclear, input.event!, deps(nuclear, { completeChat, nowMs: () => FOUR_AM }));
+      const options = { conversationId, occupantId: "doc", authorityEpoch: 1, timeZone: "Etc/GMT-3", thought };
+      expect(await tickNight(sidecar, { ...options, nowMs: FOUR_AM - 60_000 })).toMatchObject({ outcome: "scheduled", nextNightAtMs: FOUR_AM });
+      const ran = await tickNight(sidecar, { ...options, nowMs: FOUR_AM });
+      expect(ran).toMatchObject({ outcome: "ran", slot: 1 });
+      expect(ran.thought?.reason).toBeNull();
+
+      const request = JSON.stringify(completeChat.mock.calls[0]?.[0]);
+      expect(request).toContain("When innerPass.kind is night");
+      expect(request).toContain("base-rate neglect");
+      expect(listDiary(sidecar)).toEqual([expect.objectContaining({ day: "2026-09-30" })]);
+      expect(listRecentJournal(sidecar, { limit: 1 })[0]).toMatchObject({ passKind: "night", activity: "reflect" });
+      const tastes = listIdentity(nuclear, "doc", { layer: "stable" }).filter((entry) => entry.kind === "taste").map((entry) => entry.text);
+      expect(tastes).toContain(newTaste);
+      expect(tastes).not.toContain(taste.text);
     } finally {
       sidecar.close();
       nuclear.close();

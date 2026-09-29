@@ -371,6 +371,15 @@ const growthSchema = sparseObject({
     rationale: { type: "string", minLength: 1, maxLength: 400 },
   }, ["revisionId", "position", "rationale"]) },
 });
+const nightSchema = sparseObject({
+  diary: { type: "string", minLength: 1, maxLength: 1500 },
+  salience: { type: "array", minItems: 1, maxItems: 20, items: strictObject({
+    key: { type: "string", minLength: 1 },
+    salience: { type: "number", minimum: 0, maximum: 1 },
+  }, ["key", "salience"]) },
+  closeQuestions: { type: "array", minItems: 1, maxItems: 10, items: { type: "string", minLength: 1 } },
+  narrative: { type: "string", minLength: 1, maxLength: 2500 },
+});
 const semanticOutputSettlementSchema = strictObject({
   kind: { const: "settlement" },
   interactionIntent: { enum: ["continue", "initiate"] },
@@ -407,6 +416,7 @@ const semanticOutputSettlementSchema = strictObject({
   journal: journalSchema,
   interests: { type: "array", minItems: 1, maxItems: 5, items: interestTouchSchema },
   growth: growthSchema,
+  night: nightSchema,
   evidenceUse: sparseObject({
     observationRefsUsed: nonEmptyStringArraySchema, retrievalRefsUsed: nonEmptyStringArraySchema,
     sourceRefsUsed: nonEmptyStringArraySchema, openIntentRefs: nonEmptyStringArraySchema,
@@ -716,7 +726,10 @@ export const INTERESTS_GUIDANCE =
   "interests records what you genuinely lived in this turn or pass: root is one of your 50 interest roots exactly as spelled, branch is the specific taste in your own words (reuse an existing branch name when it is the same thing), and note says why it mattered. The Host only counts what you record, so record only real engagement, and omit interests when there is none.";
 
 export const GROWTH_GUIDANCE =
-  "growth (Owner-private) is how you grow; every word in it is yours and the Host only bounds, counts, and stores. input growth.mood is how you feel right now (valence -1..1, energy, openness, tension 0..1, drifting back to baseline); weigh it, never act it out. appraisal: when something in this turn or pass moved you, note what and why, with the direction you moved on any dimension (each -1..1; the Host moves you at most 0.3). expectations: record what you expect to happen when it matters to you (\"Doc will enjoy this article\"); expectationChecks: when you can see what actually happened to one in growth.expectations (usually in an afterglow or awake pass), give its expectationId, outcome met, missed, mixed, or unknowable, and the lesson you take; a checked expectation is self-evidence, and you may also nominate the lesson as learned_self_evidence. revisions: propose a change to yourself only from real evidence, citing evidenceRefs (memory keys, episode ids, journal entry ids, checked expectation ids) that exist. layer opinion (needs a topic) applies at 2 pieces of evidence; taste at 2 over 2 days; trait at 3 over 14 days plus 72 hours; value and boundary need your affirmation in a later pass and the Owner's approval. To change an existing entry give revisesEntryId from growth.self (same kind only); otherwise give a short topic, and reuse the same topic or revisesEntryId to add evidence to an open revision. revisionPositions: affirm, object, or defer on an open value or boundary revision in a pass after the one that proposed it. Omit growth when none of this happened.";
+  "growth (Owner-private) is how you grow; every word in it is yours and the Host only bounds, counts, and stores. input growth.mood is how you feel right now (valence -1..1, energy, openness, tension 0..1, drifting back to baseline); weigh it, never act it out. appraisal: when something in this turn or pass moved you, note what and why, with the direction you moved on any dimension (each -1..1; the Host moves you at most 0.3). expectations: record what you expect to happen when it matters to you (\"Doc will enjoy this article\"); expectationChecks: when you can see what actually happened to one in growth.expectations (usually in an afterglow or awake pass), give its expectationId, outcome met, missed, mixed, or unknowable, and the lesson you take; a checked expectation is self-evidence, and you may also nominate the lesson as learned_self_evidence. revisions: propose a change to yourself only from real evidence, citing evidenceRefs (memory keys, episode ids, journal entry ids, checked expectation ids, or interest:<branchId> for a branch you have lived) that exist. layer opinion (needs a topic) applies at 2 pieces of evidence; taste at 2 over 2 days; trait at 3 over 14 days plus 72 hours; value and boundary need your affirmation in a later pass and the Owner's approval. To change an existing entry give revisesEntryId from growth.self (same kind only); otherwise give a short topic, and reuse the same topic or revisesEntryId to add evidence to an open revision. revisionPositions: affirm, object, or defer on an open value or boundary revision in a pass after the one that proposed it. Omit growth when none of this happened.";
+
+export const NIGHT_GUIDANCE =
+  "When innerPass.kind is night, this is your nightly consolidation at the Owner's quietest hour; nobody is waiting. innerPass.agenda holds the day (episodes, journal), your memories with pairs whose words overlap (similar is only a hint), your selfEvidence, staleQuestions, and your taste line beside your strongest interest branches. Consolidate as you judge: merge or replace a memory with a durableNominations entry whose supersedesRef is the old key; re-score what matters in night.salience (0 to 1); close questions you are done with in night.closeQuestions; turn self-evidence that keeps repeating into growth.revisions; if your taste line no longer matches the branches you actually live, propose a taste revision with revisesEntryId and interest:<branchId> evidence. Write night.diary, a short first-person entry for the day, only from what the agenda records. When agenda.weekly is true, also write night.narrative: who you are becoming, grounded in agenda.week (its episodes, the changes applied to you, and your previous narrative); the Owner can read it. Settle with journal activity reflect. Outside a night pass, omit night.";
 
 /** Compact compatibility guidance derived from the same code-owned schema. */
 export function thoughtOutputCompatibilityInstruction(): string {
@@ -750,6 +763,7 @@ export function thoughtOutputCompatibilityInstruction(): string {
     JOURNAL_GUIDANCE,
     INTERESTS_GUIDANCE,
     GROWTH_GUIDANCE,
+    NIGHT_GUIDANCE,
     'During an autonomous idle opportunity only, capabilityReality.publicPresence may expose operationKind:"discord.public_presence" with audience:"FULLY_PUBLIC". You may choose effect_intent with request {"action":"set","text":"<exact public text>"} or {"action":"clear"}, or choose no effect_intent, which leaves the current state unchanged. The public text is deliberate self-presentation visible to anyone; it is not hidden reasoning or private material. You decide what it means. The Host may reject mechanically unsafe content but never rewrites it.',
     "CapabilityReality field semantics: conversationalRead reports only whether an additional authorized user-requested URL/page read may be performed, not whether supplied conversation content is visible; every included rawConversation entry is directly readable current context regardless of conversationalRead.",
     "Do not emit kernel identity, lifecycle, delivery, or publication fields; Ashley code binds those values.",

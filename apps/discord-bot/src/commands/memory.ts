@@ -13,11 +13,15 @@ export function renderMemorySummary(data: {
   const episodes = data.episodes ?? [];
   const activity = data.activity ?? [];
   const interests = data.interests ?? [];
-  const grown = (data.growth?.opinions.length ?? 0) + (data.growth?.changes.length ?? 0) > 0;
+  const grown = (data.growth?.opinions.length ?? 0) + (data.growth?.changes.length ?? 0)
+    + (data.growth?.diary?.length ?? 0) + (data.growth?.becoming ? 1 : 0) > 0;
   if (!data.narrative && data.facts.length === 0 && episodes.length === 0 && activity.length === 0 && !grown) {
     return "Stored memory summary: no pinned memories.";
   }
   const lines: string[] = ["Stored memory summary:", ""];
+  if (data.growth?.becoming) {
+    lines.push(`Who she is becoming (${data.growth.becoming.writtenAt.slice(0, 10)}):`, data.growth.becoming.text, "");
+  }
   if (data.narrative) {
     lines.push("Where we left off:", data.narrative, "");
   }
@@ -50,6 +54,7 @@ export function renderMemorySummary(data: {
       lines.push("How she has changed lately:");
       for (const item of changes) lines.push(`• ${item.appliedAt.slice(0, 10)} ${item.layer}: ${item.text}`);
     }
+    for (const entry of data.growth.diary ?? []) lines.push(`Diary ${entry.day}: ${entry.text}`);
     lines.push("");
   }
   if (data.facts.length) {

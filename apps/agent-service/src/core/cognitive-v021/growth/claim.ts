@@ -19,6 +19,13 @@ import {
   type RevisionPosition,
   type RevisionProposal,
 } from "./revisions.js";
+import {
+  DIARY_MAX_CHARS,
+  NARRATIVE_MAX_CHARS,
+  NIGHT_CLOSE_QUESTIONS_MAX,
+  NIGHT_SALIENCE_MAX,
+  type NightClaim,
+} from "./night.js";
 
 /**
  * Growth V1 G4: what one settlement may author about Ashley's growth. Every
@@ -97,5 +104,22 @@ export function isValidGrowthClaim(value: unknown): value is GrowthClaim {
     && growth.revisions.every(validProposal))) return false;
   if (growth.revisionPositions !== undefined && !(boundedArray(growth.revisionPositions, REVISION_POSITIONS_PER_SETTLEMENT)
     && growth.revisionPositions.every(validPosition))) return false;
+  return true;
+}
+
+/** Structural check for the settlement's `night` field (NIGHT pass only). */
+export function isValidNightClaim(value: unknown): value is NightClaim {
+  const night = record(value);
+  if (!night || Object.keys(night).length === 0) return false;
+  if (!onlyKeys(night, ["diary", "salience", "closeQuestions", "narrative"])) return false;
+  if (night.diary !== undefined && !text(night.diary, DIARY_MAX_CHARS)) return false;
+  if (night.narrative !== undefined && !text(night.narrative, NARRATIVE_MAX_CHARS)) return false;
+  if (night.salience !== undefined && !(boundedArray(night.salience, NIGHT_SALIENCE_MAX) && night.salience.every((item) => {
+    const entry = record(item);
+    return entry !== null && onlyKeys(entry, ["key", "salience"]) && text(entry.key, 200)
+      && typeof entry.salience === "number" && entry.salience >= 0 && entry.salience <= 1;
+  }))) return false;
+  if (night.closeQuestions !== undefined && !(boundedArray(night.closeQuestions, NIGHT_CLOSE_QUESTIONS_MAX)
+    && night.closeQuestions.every((key) => text(key, 200)))) return false;
   return true;
 }

@@ -597,6 +597,8 @@ export type MemoryGrowth = {
   mood: { valence: number; energy: number; openness: number; tension: number; reason: string | null };
   opinions: Array<{ topic: string; stance: string }>;
   changes: Array<{ layer: string; text: string; appliedAt: string }>;
+  becoming?: { text: string; writtenAt: string } | null;
+  diary?: Array<{ day: string; text: string }>;
 };
 
 export async function memorySummary(includePrivate = false) {

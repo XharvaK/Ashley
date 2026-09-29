@@ -14,7 +14,7 @@ import type { InterestTouch } from "../memory/interests.js";
 
 export const JOURNAL_ACTIVITIES = ["think", "read", "plan", "reach_out", "rest", "reflect"] as const;
 export type JournalActivity = (typeof JOURNAL_ACTIVITIES)[number];
-export type JournalPassKind = "awake" | "afterglow" | "future_trigger" | "private";
+export type JournalPassKind = "awake" | "afterglow" | "night" | "future_trigger" | "private";
 
 export const JOURNAL_ENTRY_MAX_CHARS = 1_000;
 export const JOURNAL_READ_REFS_MAX = 8;
@@ -159,7 +159,7 @@ function mapEntry(row: Row): JournalEntry {
     entryId: text(row.entry_id),
     conversationId: text(row.conversation_id),
     cycleId: text(row.cycle_id),
-    passKind: (["awake", "afterglow", "future_trigger"].includes(text(row.pass_kind)) ? text(row.pass_kind) : "private") as JournalPassKind,
+    passKind: (["awake", "afterglow", "night", "future_trigger"].includes(text(row.pass_kind)) ? text(row.pass_kind) : "private") as JournalPassKind,
     activity: isJournalActivity(row.activity) ? row.activity : null,
     entry: typeof row.entry === "string" ? row.entry : null,
     reads: parseJson<JournalRead[]>(row.read_refs_json, []),

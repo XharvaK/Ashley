@@ -465,6 +465,36 @@ in `cognitive-v021/growth/` (sidecar v39):
 Not in G4: the NIGHT pass that promotes self-evidence and regenerates the
 taste line (G5), and a Discord action for revert.
 
+**G5 implementation status (2026-09-29, not yet deployed).** Implemented
+(sidecar v40):
+- *NIGHT* (`initiative/night.ts`): a private pass once per 24 h at the
+  Owner's quietest learned hour: Owner messages over 28 days are bucketed by
+  local hour, each hour weighed with its neighbours; 04:00 until 20 messages
+  exist. The next night is the quiet hour at least 12 h ahead, so a late
+  night or a moving hour never gives two in one day. It follows the AWAKE
+  layering (a live conversation and a due afterglow come first), shares the
+  single-flight poll, runs before AWAKE, and is switched with it by
+  `PERIODIC_COGNITION_ENABLED`.
+- *Consolidation* (`growth/night.ts`): the agenda gathers the day, her
+  memories with the pairs whose words overlap (a hint, never a verdict),
+  self-evidence, questions untouched for 14 days, and her taste entries
+  beside her 16 strongest branches. Merging and superseding use the
+  existing `durableNominations.supersedesRef`; promotion uses
+  `growth.revisions`. The new `night` field carries the diary, re-scored
+  salience (`memory_strength`), and closed questions (live off, words kept).
+- *Taste line*: regenerated through the revision engine as an ordinary taste
+  revision. A branch she has lived (`interest:<branchId>`) is now citable
+  evidence, dated by when she last lived it; a seed she never lived is not.
+- *Long arc*: when seven days have passed since the last one (12 h of
+  slack), the night is weekly and also writes "who I am becoming", grounded
+  in the week's episodes, applied changes, and the previous narrative.
+  §6.6 called it a dynamic identity entry; it is kept in the sidecar
+  (`self_narratives`) instead, so it joins the forget cascade, and it is
+  shown in every Owner-private Thought input and at the top of `/memory`.
+- Diary entries and narratives join the forget cascade (all three paths).
+
+Not in G5: the Sims embodied clock (G6).
+
 ## 11. Open points (Owner)
 
 None blocking. Owner-set: AFTERGLOW 30 min (watermarked), AWAKE 3 h,

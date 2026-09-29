@@ -56,3 +56,31 @@ export function awakePassFromPayload(payload: unknown): AwakePass | null {
   if (!Number.isSafeInteger(value.slot) || !Number.isSafeInteger(value.sinceMs)) return null;
   return { kind: "awake", slot: value.slot as number, sinceMs: value.sinceMs as number };
 }
+
+/** Host record of one NIGHT pass (Growth V1 §5.4, §6.6). */
+export type NightPass = {
+  kind: "night";
+  slot: number;
+  /** The day this night closes: what happened after this instant. */
+  sinceMs: number;
+  /** Every seventh night is also the long arc. */
+  weekly: boolean;
+  weekSinceMs: number;
+};
+
+/** The NIGHT pass an inbox payload carries, if it is one. */
+export function nightPassFromPayload(payload: unknown): NightPass | null {
+  if (typeof payload !== "object" || payload === null) return null;
+  const pass = (payload as Row).innerPass;
+  if (typeof pass !== "object" || pass === null) return null;
+  const value = pass as Row;
+  if (value.kind !== "night") return null;
+  if (!Number.isSafeInteger(value.slot) || !Number.isSafeInteger(value.sinceMs) || !Number.isSafeInteger(value.weekSinceMs)) return null;
+  return {
+    kind: "night",
+    slot: value.slot as number,
+    sinceMs: value.sinceMs as number,
+    weekly: value.weekly === true,
+    weekSinceMs: value.weekSinceMs as number,
+  };
+}

@@ -164,7 +164,8 @@ type ResolvedEvidence = { ref: string; atMs: number; dataClassification: DataCla
 
 /**
  * Resolve one cited ref against what exists now. Only live evidence counts:
- * a forgotten memory, episode, journal entry, or expectation stops counting
+ * a forgotten memory, episode, journal entry, interest branch, or
+ * expectation stops counting
  * the moment it is forgotten.
  */
 export function resolveRevisionEvidence(db: DatabaseSync, ref: string): ResolvedEvidence | null {
@@ -180,6 +181,15 @@ export function resolveRevisionEvidence(db: DatabaseSync, ref: string): Resolved
       .get(value) as Row | undefined;
     if (!row || typeof row.entry !== "string") return null;
     return { ref: value, atMs: Number(row.created_at_ms), dataClassification: classification(row.data_classification) };
+  }
+  if (value.startsWith("interest:")) {
+    // A branch she lived, as her interest graph records it: dated by when she
+    // last lived it. A seed she never lived is not evidence of anything.
+    const row = db.prepare(
+      "SELECT origin, lived_count, last_lived_at_ms FROM interest_branches WHERE branch_id = ? AND forgotten_at_ms IS NULL",
+    ).get(value.slice("interest:".length)) as Row | undefined;
+    if (!row || row.last_lived_at_ms == null || (row.origin === "seed" && Number(row.lived_count) < 2)) return null;
+    return { ref: value, atMs: Number(row.last_lived_at_ms), dataClassification: "ordinary" };
   }
   if (value.startsWith("episode:")) {
     const episode = getEpisode(db, value);

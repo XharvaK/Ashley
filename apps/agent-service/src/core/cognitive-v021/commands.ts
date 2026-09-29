@@ -4,6 +4,7 @@ import { getThreadStory, listRecentEpisodes } from "./memory/episodes.js";
 import { listRecentJournal } from "./initiative/journal.js";
 import { listInterestBranches } from "./memory/interests.js";
 import { readMood } from "./growth/mood.js";
+import { latestNarrative, listDiary } from "./growth/night.js";
 import {
   appliedEntryIdsForRevisions,
   listAppliedRevisions,
@@ -101,6 +102,10 @@ export type V021MemorySummary = {
     mood: { valence: number; energy: number; openness: number; tension: number; reason: string | null };
     opinions: Array<{ topic: string; stance: string }>;
     changes: Array<{ layer: string; text: string; appliedAt: string }>;
+    /** Her latest weekly "who I am becoming" narrative. */
+    becoming: { text: string; writtenAt: string } | null;
+    /** Her most recent diary entries, newest first. */
+    diary: Array<{ day: string; text: string }>;
   };
   lastUpdated: string;
   threadId: string;
@@ -311,6 +316,7 @@ export function getV021MemorySummary(
   const interests = listInterestBranches(sidecar, Date.now(), 5)
     .map((branch) => ({ root: branch.root, branch: branch.label }));
   const mood = readMood(sidecar, Date.now());
+  const selfNarrative = latestNarrative(sidecar);
   const visible = (classification: string) => includePrivate || classification !== "sensitive";
   const growth = {
     mood: { valence: mood.valence, energy: mood.energy, openness: mood.openness, tension: mood.tension, reason: mood.reason },
@@ -325,6 +331,8 @@ export function getV021MemorySummary(
         text: revision.proposedText,
         appliedAt: new Date(revision.appliedAtMs ?? revision.updatedAtMs).toISOString(),
       })),
+    becoming: selfNarrative ? { text: selfNarrative.text, writtenAt: new Date(selfNarrative.createdAtMs).toISOString() } : null,
+    diary: listDiary(sidecar, 2).map((entry) => ({ day: entry.day, text: entry.text })),
   };
   const lastUpdatedMs = evidence.at(-1)?.createdAtMs ?? 0;
   return {

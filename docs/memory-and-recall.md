@@ -97,6 +97,24 @@ count, open expectations, and recent lessons. A settlement may carry a
 `/memory` shows her mood, the opinions she holds, and recent identity
 changes.
 
+**Night and the long arc.** Once a day Ashley gets a NIGHT pass
+(`initiative/night.ts`) at the Owner's quietest local hour. The Host learns
+that hour from four weeks of Owner messages (04:00 until there are 20), and
+the next night is always at least 12 hours on. Like AWAKE, it is switched on
+by `PERIODIC_COGNITION_ENABLED`, waits for a live conversation and a due
+afterglow, and comes before AWAKE when both are due. The pass sees the day
+(episodes, journal), her memories with the pairs whose words overlap most,
+her self-evidence, open questions nobody touched for 14 days, and her taste
+line beside her strongest interest branches (`growth/night.ts`). She merges
+memories with ordinary superseding nominations, turns repeated
+self-evidence into revisions, and may regenerate her taste line through a
+taste revision grounded in branches she has lived (`interest:<branchId>`).
+In `night` she writes the diary for the day, re-scores salience, and closes
+stale questions (closing keeps the words; it only leaves recall). Once a
+week the same night is the long arc: she writes "who I am becoming",
+grounded in the week's episodes and applied changes. Thought sees her latest
+narrative and diary entry; `/memory` shows both.
+
 **Forgetting.** `/forget` reaches episodes whose words mention the topic and
 any episode built from a message it redacts. A thread story is retired when
 it mentions the topic or when any of its conversation's messages is
@@ -107,7 +125,8 @@ a pass happened stays). Interest branches that mention it are removed. Revisions
 apply, and an identity entry one already applied is removed. Appraisals and
 expectations that mention it lose their words (the mood numbers stay).
 Evidence a forget removes stops counting toward any revision, and a
-growth claim on a settlement a forget already redacted is not recorded.
+growth claim on a settlement a forget already redacted is not recorded. Diary entries and narratives that mention the topic lose
+their words.
 
 ## Legacy nuclear memory (pre-v0.2.1)
 

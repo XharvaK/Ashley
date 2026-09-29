@@ -72,4 +72,20 @@ describe("memory command", () => {
     });
     assert.equal(rendered, "Stored memory summary: no pinned memories.");
   });
+
+  it("leads with who she is becoming and shows her diary", () => {
+    const rendered = renderMemorySummary({
+      narrative: null,
+      facts: [],
+      growth: {
+        mood: { valence: 0, energy: 0.5, openness: 0.5, tension: 0, reason: null },
+        opinions: [],
+        changes: [],
+        becoming: { text: "I am becoming someone who reads before she argues.", writtenAt: "2026-10-06T01:00:00.000Z" },
+        diary: [{ day: "2026-10-05", text: "Quiet day; I read about Basic Channel." }],
+      },
+    });
+    assert.match(rendered, /^Stored memory summary:\n\nWho she is becoming \(2026-10-06\):\nI am becoming someone who reads before she argues\./);
+    assert.match(rendered, /Diary 2026-10-05: Quiet day; I read about Basic Channel\./);
+  });
 });

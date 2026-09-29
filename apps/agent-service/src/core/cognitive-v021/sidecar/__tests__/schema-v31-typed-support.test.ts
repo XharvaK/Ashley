@@ -43,10 +43,10 @@ describe("cognitive sidecar Schema V31 typed support refs", () => {
       expect((db.prepare("SELECT COUNT(*) AS count FROM learned_influences").get() as { count: number }).count)
         .toBe(learnedInfluenceCountBefore);
 
-      expect(COGNITIVE_SIDECAR_SCHEMA_VERSION).toBe(39);
-      expect(db.prepare("PRAGMA user_version").get()).toMatchObject({ user_version: 39 });
+      expect(COGNITIVE_SIDECAR_SCHEMA_VERSION).toBe(40);
+      expect(db.prepare("PRAGMA user_version").get()).toMatchObject({ user_version: 40 });
       expect(db.prepare("SELECT schema_version FROM cognitive_sidecar_meta WHERE id = 1").get())
-        .toMatchObject({ schema_version: 39 });
+        .toMatchObject({ schema_version: 40 });
       expect(db.prepare("SELECT support_ref_json FROM sidecar_memory_supports WHERE support_id = 'support:legacy-v30'").get())
         .toEqual({ support_ref_json: null });
       expect(db.prepare("SELECT source_refs_json, support_refs_json FROM concerns WHERE concern_id = 'concern:legacy-v30'").get())

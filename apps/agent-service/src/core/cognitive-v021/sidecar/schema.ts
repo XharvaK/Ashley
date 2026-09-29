@@ -1576,3 +1576,40 @@ CREATE INDEX IF NOT EXISTS idx_expectations_status
   ON expectations (status, created_at_ms);
 UPDATE cognitive_sidecar_meta SET schema_version = 39, projection_state = 'reconciling' WHERE id = 1;
 `;
+
+/**
+ * Growth V1 G5: the NIGHT rhythm, Ashley's diary, and her weekly
+ * "who I am becoming" narrative.
+ */
+export const COGNITIVE_SIDECAR_SCHEMA_V40 = String.raw`
+CREATE TABLE IF NOT EXISTS night_state (
+  conversation_id TEXT PRIMARY KEY,
+  next_night_at_ms INTEGER NOT NULL,
+  last_night_at_ms INTEGER,
+  night_slot INTEGER NOT NULL DEFAULT 0,
+  quiet_hour INTEGER NOT NULL CHECK (quiet_hour >= 0 AND quiet_hour <= 23),
+  rhythm_started_at_ms INTEGER NOT NULL,
+  last_weekly_at_ms INTEGER,
+  last_outcome TEXT,
+  updated_at_ms INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS diary_entries (
+  entry_id TEXT PRIMARY KEY,
+  cycle_id TEXT NOT NULL UNIQUE,
+  day TEXT NOT NULL,
+  text TEXT,
+  data_classification TEXT NOT NULL,
+  created_at_ms INTEGER NOT NULL,
+  forgotten_at_ms INTEGER
+);
+CREATE TABLE IF NOT EXISTS self_narratives (
+  narrative_id TEXT PRIMARY KEY,
+  cycle_id TEXT NOT NULL UNIQUE,
+  week_since_ms INTEGER NOT NULL,
+  text TEXT,
+  data_classification TEXT NOT NULL,
+  created_at_ms INTEGER NOT NULL,
+  forgotten_at_ms INTEGER
+);
+UPDATE cognitive_sidecar_meta SET schema_version = 40, projection_state = 'reconciling' WHERE id = 1;
+`;

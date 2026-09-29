@@ -25,6 +25,8 @@ import {
 } from "./core/cognitive-v021/initiative/idle.js";
 import { tickAfterglow, type AfterglowTickResult } from "./core/cognitive-v021/initiative/afterglow.js";
 import { tickAwake, type AwakeTickResult } from "./core/cognitive-v021/initiative/awake.js";
+import { tickNight, type NightTickResult } from "./core/cognitive-v021/initiative/night.js";
+import { DEFAULT_OWNER_TIME_ZONE } from "./core/cognitive-v021/thought/clock.js";
 import { detectCredentialShape, CREDENTIAL_OMITTED_PLACEHOLDER } from "./core/privacy/secrets.js";
 import { scanConfiguredSources } from "./core/curiosity/sources.js";
 import { performGroundedReads, type ReadRecord } from "./core/curiosity/reads.js";
@@ -257,6 +259,27 @@ export class AgentManager {
       conversationId,
       occupantId: ownerId,
       authorityEpoch: readCognitiveSidecarMeta(sidecar).authority_epoch,
+      nowMs,
+      afterglowEnabled,
+      thought: this.privateThoughtRunner(sidecar, ownerId),
+    });
+  }
+
+  /**
+   * Growth V1 NIGHT: once a day at the Owner's quietest hour, consolidation
+   * and the diary; every seventh night also the "who I am becoming" narrative.
+   */
+  async tickCognitiveNight(ownerId: string, nowMs = Date.now(), afterglowEnabled = true): Promise<NightTickResult> {
+    const sidecar = this.openCognitiveSidecar();
+    if (!sidecar || !this.cognitiveDeps) {
+      throw new AppError("agent_not_ready", "Cognitive dispatcher unavailable", 503);
+    }
+    const conversationId = resolveActiveThread(this.core.getDatabase(), ownerId, "discord");
+    return tickNight(sidecar, {
+      conversationId,
+      occupantId: ownerId,
+      authorityEpoch: readCognitiveSidecarMeta(sidecar).authority_epoch,
+      timeZone: env.ownerTimeZone || DEFAULT_OWNER_TIME_ZONE,
       nowMs,
       afterglowEnabled,
       thought: this.privateThoughtRunner(sidecar, ownerId),
