@@ -1,0 +1,10 @@
+build/*
+build/**
+!build/.gitkeep
+**/__pycache__/
+*.pyc
+*.pyo
+evidence/*.jsonl
+evidence/*.jsonl.*
+evidence/*/excerpts/
+evidence/*/screenshots/
