@@ -16,6 +16,7 @@ import {
   type DurableNominationRecord,
 } from "./nomination.js";
 import { appendMemorySupport } from "./supports.js";
+import { recordMemoryFormation } from "./strength.js";
 import { validateSourceSupportRefs } from "../evidence/interpretation-envelope.js";
 import { REDACTED_MEMORY_STATEMENT, upsertMemoryAssertion } from "./assertions.js";
 import { notifySidecarPostCommit } from "../retrieval/derived-store.js";
@@ -521,6 +522,12 @@ function admitOne(
       });
     }
   }
+  recordMemoryFormation(db, {
+    assertionKey: nomination.assertionKey,
+    salience: publishedDurableNominations(settlement)
+      .find((item) => publishedNominationMatches(item, nomination))?.salience,
+    nowMs,
+  });
   db.prepare("UPDATE durable_nominations SET admitted = 1 WHERE nomination_id = ?").run(nomination.nominationId);
   const result: AdmissionResult = { nominationId: nomination.nominationId, assertionKey: nomination.assertionKey, result: "admitted", assertion };
   logAdmission(db, result, nowMs);

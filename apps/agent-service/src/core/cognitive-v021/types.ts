@@ -29,7 +29,7 @@ export type { SourceSupportRef } from "./evidence/interpretation-envelope.js";
 export const ARCHITECTURE_EPOCH = "v0.2.1" as const;
 export const IMPLEMENTATION_SPEC_VERSION = "0.2.1.r6" as const;
 export const THOUGHT_CONTRACT_VERSION = 2 as const;
-export const COGNITIVE_SIDECAR_SCHEMA_VERSION = 35 as const;
+export const COGNITIVE_SIDECAR_SCHEMA_VERSION = 36 as const;
 
 /**
  * Hard bound on cognition-facing concern discovery windows and pages. The
@@ -1002,6 +1002,8 @@ export type ThoughtDurableNomination = {
   dataClassification: DataClassification;
   sourceRefs: readonly ExistingRef[];
   supportRefs?: readonly SourceSupportRef[];
+  /** How much this memory matters to Ashley, 0-1 (Growth V1 memory strength). */
+  salience?: number;
   supersedesRef: ExistingRef | null;
   concernRef: SemanticRef | null;
 };
@@ -1690,6 +1692,8 @@ export type ThoughtInput = {
   thoughtLegDeadlineAtMs?: number;
   /** Ashley's sense of time: local wall clock and time since each side spoke. */
   clock?: import("./thought/clock.js").ThoughtClock;
+  /** Always-present strongest memories about the Owner and herself (Owner-private only). */
+  coreProfile?: import("./memory/strength.js").CoreProfile;
   /** Present only for an autonomous idle-opportunity Thought. */
   publicPresence?: PublicPresenceContext;
   /** Host factual context for the single Ashley-authored capacity-wait turn. */
@@ -1747,6 +1751,7 @@ export type DurableNomination = {
   concernId: ConcernId | null;
   sourceRefs?: string[];
   supportRefs?: SourceSupportRef[];
+  salience?: number;
 };
 export type MemorySupportProvenance = "native" | "legacy_import";
 export type MemoryAssertion = {

@@ -1,4 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
+import { DEFAULT_SALIENCE, strengthScores } from "../memory/strength.js";
 import type {
   AssertionKey,
   DataClassification,
@@ -44,6 +45,8 @@ export type RetrieveCandidatesOptions = {
   licenses?: string[];
   /** Authenticated Owner identity used only by the callee trust-root resolver. */
   ownerId?: string;
+  /** Clock for memory-strength decay; defaults to the wall clock. */
+  nowMs?: number;
 };
 
 export function tokenizeForDiscovery(text: string): string[] {
@@ -449,11 +452,24 @@ export function retrieveCandidates(
     });
   }
 
+  // Growth V1 §4.6.2: within the lexical memory tiers, stronger memories
+  // (salience, recency of use, reinforcement) rise. A memory with no strength
+  // row scores the default and keeps its BM25 rank unchanged.
+  const nowMs = options.nowMs ?? Date.now();
+  const strengthen = (hits: RetrievalHit[]): RetrievalHit[] => {
+    const keys = hits.flatMap((hit) => (hit.assertionKey ? [hit.assertionKey] : []));
+    if (keys.length === 0) return hits;
+    const scores = strengthScores(sidecarDb, keys, nowMs);
+    return hits.map((hit) => hit.assertionKey
+      ? { ...hit, score: hit.score * (0.5 + (scores.get(hit.assertionKey) ?? DEFAULT_SALIENCE)) }
+      : hit);
+  };
+
   // Tiered deterministic ranking with defense-in-depth fuse
   const ranked = rankCandidates({
     exactKeyHits,
-    rawTriggerFtsHits: rawTriggerHits,
-    concernFtsHits: concernHits,
+    rawTriggerFtsHits: strengthen(rawTriggerHits),
+    concernFtsHits: strengthen(concernHits),
     logHits,
   });
 

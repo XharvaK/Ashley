@@ -4,6 +4,7 @@ import { admitTestCycle, makeThoughtDraft, openTestSidecar } from "../../test-su
 import { appendAshleyEvidence, appendOwnerUtterance } from "../../evidence/conversation-log.js";
 import { publishSemanticTransaction } from "../../settlement/publish.js";
 import { runGovernedAdmissionCatchup } from "../admission.js";
+import { getMemoryStrength } from "../strength.js";
 import { AUTOMATIC_ADMISSION_GROUNDING } from "../grounding.js";
 import { MEMORY_KINDS } from "../kinds.js";
 import type { DurableNomination, MemoryKind, SourceSupportRef } from "../../types.js";
@@ -189,6 +190,22 @@ describe("Growth V1 grounded automatic admission", () => {
       ]);
 
       expect(runGovernedAdmissionCatchup(db, { nowMs: 3 }).admitted).toBe(1);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("stores Thought's salience as the new memory's strength", () => {
+    const { db, ownerRowId } = fixture();
+    try {
+      publish(db, [
+        nomination("owner_preference", { salience: 0.9, supportRefs: [span(ownerRowId, OWNER_TEXT, "I can't stand cilantro")] }),
+        nomination("open_question"),
+      ]);
+
+      expect(runGovernedAdmissionCatchup(db, { nowMs: 3 }).admitted).toBe(2);
+      expect(getMemoryStrength(db, "key:owner_preference")).toMatchObject({ salience: 0.9, formedAtMs: 3, useCount: 0 });
+      expect(getMemoryStrength(db, "key:open_question")?.salience).toBe(0.5);
     } finally {
       db.close();
     }

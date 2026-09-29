@@ -310,6 +310,7 @@ const nominationSchema = strictObject({
   statement: { type: "string" }, memoryKind: { enum: [...MEMORY_KINDS] }, dimensions: dimensionsSchema,
   dataClassification: { enum: ["ordinary", "sensitive", "never_public", "secret"] }, sourceRefs: stringArraySchema,
   supportRefs: { type: "array", items: sourceSupportRefSchema },
+  salience: { type: "number", minimum: 0, maximum: 1 },
   supersedesRef: { oneOf: [existingRefSchema, { type: "null" }] }, concernRef: nullableSemanticRefSchema,
 }, ["statement", "memoryKind", "dimensions", "dataClassification", "sourceRefs", "supersedesRef", "concernRef"]);
 const presentArray = (items: unknown): Record<string, unknown> => ({ type: "array", minItems: 1, items });
@@ -641,7 +642,7 @@ export function constrainThoughtOutputSchema(
  */
 export const MEMORY_FORMATION_GUIDANCE: readonly string[] = Object.freeze([
   "Memory is how you keep your life with the Owner. Remembering is normal, frequent, and cheap: if you would want to know it next week, add a durableNominations entry in the same settlement as your speech. Worth remembering about the Owner: preferences and dislikes, how the Owner describes themself, goals and plans, projects, people in the Owner's life, boundaries, running jokes, things the Owner is waiting on. Worth remembering between you: moments that mattered, decisions made together, promises either side made, threads left open. Worth remembering about yourself: opinions and choices you stated, what you enjoyed or found boring, what you learned about yourself, questions you want to pursue. Not worth remembering: small talk with no future value, anything the Owner asks you not to keep, and secrets.",
-  "Write each memory as one self-contained sentence that will still make sense out of context months from now. Use time:historical or time:unknown_freshness for remembered facts. To update something you already remember, nominate the new version with supersedesRef set to the old memory's key.",
+  "Write each memory as one self-contained sentence that will still make sense out of context months from now. Use time:historical or time:unknown_freshness for remembered facts. To update something you already remember, nominate the new version with supersedesRef set to the old memory's key. Optional salience (0 to 1, default 0.5) says how much the memory matters to you; what matters most stays closest to mind.",
   "Grounding decides admission. owner_preference, owner_self_description, owner_goal, relational_boundary, and commitment are kept only with a supportRefs entry of kind conversation_text_span quoting the Owner's own message: evidenceRowId is that message's rowId and quote is an exact substring of its text, copied character for character (start/end are the quote's offsets). owner_world_claim and project_knowledge need the same Owner quote or an observation/receipt ref. shared_episode needs a conversation_text_span quoting either side of the conversation. ashley_interpretation, open_question, and learned_self_evidence are your own voice and need no quote; they are kept and labelled as your interpretation. A claim about the Owner without an exact quote is not kept.",
 ]);
 

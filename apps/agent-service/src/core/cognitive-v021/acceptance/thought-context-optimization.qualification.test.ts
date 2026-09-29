@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { DEFENSE_FUSE_MAX_CANDIDATES } from "../retrieval/rank.js";
 import { join } from "node:path";
 import { describe, it, expect } from "vitest";
 import { admitTestCycle, openTestSidecar } from "../test-support.js";
@@ -193,7 +194,11 @@ describe("Thought Context Optimization — Coherent Candidate Qualification", ()
       const naiveWireBytes = Buffer.byteLength(JSON.stringify(fixture), "utf8");
       const optimizedWireBytes = groqAllocation.receipt.decision.includedWireBytes;
 
-      expect(optimizedWireBytes).toBeLessThan(naiveWireBytes * 0.5);
+      // Growth V1 doubled the lexical fuse (16/12 KB -> 32/24 KB) so a growing
+      // memory is not starved; the reduction target eases 0.5 -> 0.6 and the
+      // bound that actually prevents a dump is asserted directly.
+      expect(groqAllocation.projected.retrieval.hits.length).toBeLessThanOrEqual(DEFENSE_FUSE_MAX_CANDIDATES);
+      expect(optimizedWireBytes).toBeLessThan(naiveWireBytes * 0.6);
     } finally {
       derived.close();
       sidecar.close();

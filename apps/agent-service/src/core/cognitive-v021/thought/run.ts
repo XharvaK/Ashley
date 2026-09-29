@@ -160,6 +160,7 @@ import { getWake } from "../wake/ledger.js";
 import { resolveOriginProfile } from "../cycle/origin-profile.js";
 import { resolveRepairContinuityRecovery } from "../retry/owner-recovery.js";
 import { admitOwnerSuppliedClaim, runGovernedAdmissionCatchup } from "../memory/admission.js";
+import { recordMemoryRecall, recordMemoryUse } from "../memory/strength.js";
 import {
   c1V021ProviderBoundBasisFromProjection,
   c1V021SemanticResultHash,
@@ -1395,6 +1396,7 @@ function materializeSemanticSettlement(
       ),
       sourceRefs: [...nomination.sourceRefs],
       ...(nomination.supportRefs ? { supportRefs: [...nomination.supportRefs] } : {}),
+      ...(nomination.salience === undefined ? {} : { salience: nomination.salience }),
     }));
   return result as ThoughtSettlementDraft;
 }
@@ -1425,8 +1427,14 @@ function semanticReferencesForInput(input: ThoughtInput | ProjectedThoughtInput)
     ...input.observations.map((item) => item.observationId),
     ...effectRefs,
     ...input.retrieval.hits.flatMap((hit) => "supportRefs" in hit ? [hit.ref, ...hit.supportRefs] : [hit.ref]),
+    ...coreProfileKeys(input),
     input.trigger.ref,
   ];
+}
+
+function coreProfileKeys(input: ThoughtInput | ProjectedThoughtInput): string[] {
+  const profile = input.coreProfile;
+  return profile ? [...profile.owner, ...profile.self].map((entry) => entry.key) : [];
 }
 
 function semanticReferenceTargetsForInput(
@@ -4479,6 +4487,26 @@ export async function runCognitiveCycle(
       } catch {
         // Publication is authoritative. C1 qualification observation must
         // never mutate or invalidate an otherwise accepted Thought result.
+      }
+    }
+    if (deps.origin !== "shadow" && publication.settlementId !== null && !publication.replayed) {
+      try {
+        // Growth V1 memory strength: every memory in this Thought's input was
+        // recalled; the ones its settlement cites were used.
+        const recalled = [
+          ...allocated.projected.retrieval.hits.flatMap((hit) =>
+            hit.sourceStore === "live_memory" || hit.sourceStore === "quarantined_memory" ? [hit.ref] : []),
+          ...coreProfileKeys(allocated.projected),
+        ];
+        recordMemoryRecall(sidecar, recalled, deps.nowMs());
+        const recalledSet = new Set(recalled);
+        recordMemoryUse(
+          sidecar,
+          (settlement.operations.retrievalRefsUsed ?? []).filter((ref) => recalledSet.has(ref)),
+          deps.nowMs(),
+        );
+      } catch {
+        // Strength is ranking metadata; it never disturbs publication.
       }
     }
     if (deps.origin !== "shadow" && (settlement.durableNominations ?? []).length > 0) {

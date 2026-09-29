@@ -126,6 +126,16 @@ describe("nomination MemoryKind structural boundary", () => {
     expect(nominationProps?.memoryKind?.enum).not.toContain("self_reflection");
   });
 
+  it("accepts an optional salience in [0, 1] and rejects anything else", () => {
+    const withSalience = (salience: unknown) => {
+      const settlement = validSettlement();
+      return { ...settlement, durableNominations: [{ ...settlement.durableNominations[0], salience }] };
+    };
+    expect(parseThoughtSemanticOutput(withSalience(0.8), refs).ok).toBe(true);
+    expect(parseThoughtSemanticOutput(withSalience(1.5), refs).ok).toBe(false);
+    expect(parseThoughtSemanticOutput(withSalience("high"), refs).ok).toBe(false);
+  });
+
   it("rejects memoryKind=self_reflection at the structural Thought boundary before publication", () => {
     const result = parseThoughtSemanticOutput(invalidSettlement(), refs);
     expect(result.ok).toBe(false);

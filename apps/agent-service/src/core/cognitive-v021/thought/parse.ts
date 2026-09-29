@@ -628,8 +628,9 @@ function validSubscriptionDelta(value: unknown, allowlist: ReadonlySet<string>):
 }
 
 function validNomination(value: unknown, allowlist: ReadonlySet<string>): value is ThoughtDurableNomination {
-  const record = recordShape(value, ["statement", "memoryKind", "dimensions", "dataClassification", "sourceRefs", "supersedesRef", "concernRef"], ["supportRefs"]);
+  const record = recordShape(value, ["statement", "memoryKind", "dimensions", "dataClassification", "sourceRefs", "supersedesRef", "concernRef"], ["supportRefs", "salience"]);
   return !!record && nonEmptyString(record.statement) && isMemoryKind(record.memoryKind)
+    && (!own(record, "salience") || (typeof record.salience === "number" && record.salience >= 0 && record.salience <= 1))
     && validEpistemicDimensions(record.dimensions)
     && ["ordinary", "sensitive", "never_public", "secret"].includes(record.dataClassification as string)
     && refArray(record.sourceRefs, allowlist) && optionalTypedSupportRefs(record)

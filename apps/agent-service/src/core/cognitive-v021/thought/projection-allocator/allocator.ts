@@ -652,6 +652,7 @@ export function allocateThoughtProjection(
       ...(input.previousInvocationDelta === undefined ? {} : { previousInvocationDelta: input.previousInvocationDelta }),
       ...(input.thoughtLegDeadlineAtMs === undefined ? {} : { thoughtLegDeadlineAtMs: input.thoughtLegDeadlineAtMs }),
       ...(input.clock === undefined ? {} : { clock: input.clock }),
+      ...(input.coreProfile === undefined ? {} : { coreProfile: input.coreProfile }),
       observations: includeObservations ? boundedRequiredSectionData.observations : [],
       inFlight: projectedInFlight,
       allowedOperationalEffectRefs: [...operationalNamespace.allowedOperationalEffectRefs],

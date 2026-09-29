@@ -13,6 +13,8 @@ import { applyWorkingContextDelta } from "../evidence/working-context.js";
 import { admitTestCycle, openTestSidecar } from "../test-support.js";
 import type { CapabilityReality, IdentitySlice, KernelDeps, Observation, ThoughtInput } from "../types.js";
 import { ORDINARY_THOUGHT_BUDGET_MS } from "../types.js";
+import { upsertMemoryAssertion } from "../memory/assertions.js";
+import { getMemoryStrength, recordMemoryFormation } from "../memory/strength.js";
 
 // Tests start their fake clock at 1_000 ms; one ordinary Thought budget later
 // is the shared absolute deadline (tracks the constant, not a copied value).
@@ -376,6 +378,60 @@ describe("v0.2.1 Thought run", () => {
       expect(sent).toContain("Tuesday 29 September 2026, 17:52");
       expect(sent).toContain("UTC+03:00");
       expect(sent).toContain("1 day 2 hours");
+    } finally {
+      sidecar.close();
+      attentionDb.close();
+      nuclear.close();
+    }
+  });
+
+  it("keeps Doc's strongest memories in view and strengthens the ones Thought uses", async () => {
+    const sidecar = openTestSidecar();
+    const attentionDb = openTestSidecar();
+    const nuclear = openNuclearDb(new DatabaseSync(":memory:"));
+    const conversationId = "thread-core-profile";
+    upsertMemoryAssertion(sidecar, {
+      assertionKey: "memory-cilantro",
+      statement: "Doc can't stand cilantro; it tastes like soap to him.",
+      memoryKind: "owner_preference",
+      dimensions: { source: "owner_utterance", status: "asserted", time: "unknown_freshness", reliability: "owner_supplied" },
+      dataClassification: "ordinary",
+      lineageParentKey: null,
+      admittedGeneration: 1,
+      live: true,
+    });
+    recordMemoryFormation(sidecar, { assertionKey: "memory-cilantro", salience: 0.7, nowMs: 1 });
+    const cycle = admitTestCycle(sidecar, {
+      conversationId,
+      triggerKind: "owner_message",
+      triggerRef: "profile-event",
+      occupantId: "doc",
+      authorityEpoch: 1,
+      nowMs: 2,
+    });
+    const evidence = appendOwnerUtterance(sidecar, { conversationId, text: "what should I cook tonight", nowMs: 3, audienceAtCapture: "owner_private" });
+    const event = appendInboxEvent(sidecar, {
+      wakeId: cycle.wakeId,
+      conversationId,
+      kind: "owner_utterance",
+      payload: { cycleId: cycle.cycleId, evidenceRowId: evidence.rowId, ownerId: "doc", ownerMessage: evidence.text },
+      createdAtMs: 3,
+    });
+    const completeChat = vi.fn<KernelDeps["completeChat"]>(async () => ({
+      text: JSON.stringify(makeSemanticSettlement({ evidenceUse: { retrievalRefsUsed: ["memory-cilantro"] } })),
+      model: "fake",
+      modelAlias: "thought",
+      resolvedModelId: null,
+    }));
+    try {
+      await runCognitiveCycle(sidecar, nuclear, event, deps({ attentionDb, completeChat, nowMs: () => 10 }));
+      expect(JSON.stringify(completeChat.mock.calls[0]?.[0])).toContain("tastes like soap");
+      expect(getMemoryStrength(sidecar, "memory-cilantro")).toMatchObject({
+        recallCount: 1,
+        lastRecalledAtMs: 10,
+        useCount: 1,
+        lastUsedAtMs: 10,
+      });
     } finally {
       sidecar.close();
       attentionDb.close();

@@ -1,5 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 import { buildThoughtClock } from "./clock.js";
+import { buildCoreProfile } from "../memory/strength.js";
 import {
   DEFAULT_LAST_N_TURNS,
   DEFAULT_OCCUPANCY_COMPACT_K,
@@ -1102,8 +1103,18 @@ export function buildThoughtInput(options: BuildThoughtInputOptions): ThoughtInp
         : {}),
     },
     options.derivedStore,
-    { authorityDb: options.authorityDb, audience, licenses, ownerId: options.cycle.occupantId },
+    {
+      authorityDb: options.authorityDb,
+      audience,
+      licenses,
+      ownerId: options.cycle.occupantId,
+      ...(options.clock ? { nowMs: options.clock.nowMs } : {}),
+    },
   );
+  // Memories are Owner-private: the core profile never enters another audience.
+  const coreProfile = audience.kind === "owner_private"
+    ? buildCoreProfile(options.sidecar, options.clock?.nowMs ?? Date.now())
+    : { owner: [], self: [] };
 
   const thoughtInput: ThoughtInputWithC2 = {
     cycleId: options.cycle.cycleId,
@@ -1156,6 +1167,7 @@ export function buildThoughtInput(options: BuildThoughtInputOptions): ThoughtInp
     ...(options.wakeCauses === undefined ? {} : { wakeCauses: options.wakeCauses.map((item) => ({ ...item })) }),
     ...(options.previousInvocationDelta === undefined ? {} : { previousInvocationDelta: options.previousInvocationDelta }),
     ...(options.thoughtLegDeadlineAtMs === undefined ? {} : { thoughtLegDeadlineAtMs: options.thoughtLegDeadlineAtMs }),
+    ...(coreProfile.owner.length + coreProfile.self.length === 0 ? {} : { coreProfile }),
     ...(options.clock === undefined ? {} : {
       clock: buildThoughtClock({
         nowMs: options.clock.nowMs,

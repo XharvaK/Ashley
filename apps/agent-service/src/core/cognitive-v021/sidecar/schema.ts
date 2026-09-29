@@ -1376,3 +1376,17 @@ CREATE TABLE IF NOT EXISTS owner_discord_transport_cursors (
 );
 UPDATE cognitive_sidecar_meta SET schema_version = 35, projection_state = 'reconciling' WHERE id = 1;
 `;
+
+/** Growth V1 §4.5: Host-maintained memory strength (ranking only; never deletes). */
+export const COGNITIVE_SIDECAR_SCHEMA_V36 = String.raw`
+CREATE TABLE IF NOT EXISTS memory_strength (
+  assertion_key TEXT PRIMARY KEY,
+  salience REAL NOT NULL CHECK (salience >= 0 AND salience <= 1),
+  recall_count INTEGER NOT NULL DEFAULT 0,
+  last_recalled_at_ms INTEGER,
+  use_count INTEGER NOT NULL DEFAULT 0,
+  last_used_at_ms INTEGER,
+  formed_at_ms INTEGER NOT NULL
+);
+UPDATE cognitive_sidecar_meta SET schema_version = 36, projection_state = 'reconciling' WHERE id = 1;
+`;

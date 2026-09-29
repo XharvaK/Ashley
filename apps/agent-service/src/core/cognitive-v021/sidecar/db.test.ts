@@ -61,7 +61,8 @@ describe("cognitive v0.2.1 sidecar database", () => {
         )
         .all() as Array<{ name: string }>
     ).map((row) => row.name);
-      expect(tables).toHaveLength(50);
+      expect(tables).toHaveLength(51);
+    expect(tables).toContain("memory_strength");
     expect(tables).toContain("interpretation_dependencies");
     expect(tables).toContain("effect_diagnostics");
     expect(tables).toContain("effect_continuations");
