@@ -298,15 +298,6 @@ def _cmd_arm(arm_name: str, _connection=None) -> bool:
         _ARMED_NAME = None
         _TELEMETRY_SESSION_ID = None
         return False
-    try:
-        writer_state = _WRITER.state
-    except AttributeError:
-        writer_state = "OK"
-    if writer_state != "OK":
-        _WRITER = None
-        _ARMED_NAME = None
-        _TELEMETRY_SESSION_ID = None
-        return False
     _WRITER_IDLE = False
     _STATE = "ARMED"
     return True

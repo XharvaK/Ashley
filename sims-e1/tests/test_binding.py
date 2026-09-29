@@ -138,6 +138,17 @@ def load_probe():
 
 
 class BindingTests(unittest.TestCase):
+    def test_arm_does_not_treat_writer_state_as_startup_readiness(self):
+        _, probe, _ = load_probe()
+
+        class FailedBeforeWorkerWriter(FakeWriter):
+            state = "FAILED_STICKY"
+
+        probe.TelemetryWriter = FailedBeforeWorkerWriter
+
+        self.assertTrue(probe._cmd_arm("LAB_E1"))
+        self.assertEqual(probe.get_status()["state"], "ARMED")
+
     def test_valid_stop_clears_handle_only_after_successful_cancel(self):
         _, probe, calls = load_probe()
         self.assertTrue(probe._cmd_arm("LAB_E1"))

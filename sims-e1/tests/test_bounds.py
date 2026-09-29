@@ -1,7 +1,9 @@
+import builtins
 import json
 import os
 import sys
 import tempfile
+import threading
 import time
 import types
 import unittest
@@ -77,9 +79,16 @@ def memory_writer(temp, stream):
     sink = writer.TelemetryWriter(
         temp, "session-a", "1.0.0", "1.128.90.1030", autostart=False
     )
+    sink._initialize_cap_accounting()
     sink._stream = stream
     sink._active_path = os.path.join(temp, "active.jsonl")
     sink._can_fit = lambda size: (True, True)
+    return sink
+
+
+def prepare_manual_writer(sink):
+    sink._initialize_cap_accounting()
+    sink._open_active()
     return sink
 
 
@@ -181,37 +190,201 @@ class WriterBoundTests(unittest.TestCase):
 
 
 class WriterContractRepairTests(unittest.TestCase):
-    def test_initial_inventory_runs_once_and_establishes_logical_truth(self):
+    def test_constructor_is_filesystem_pure_for_attended_session(self):
         with tempfile.TemporaryDirectory() as temp:
-            with mock.patch.object(writer, "_directory_size",
-                                   wraps=writer._directory_size) as directory_scan:
-                sink = writer.TelemetryWriter(
-                    temp, "session-a", "1.0.0", "1.128.90.1030",
-                    autostart=False,
-                )
-            self.assertEqual(directory_scan.call_count, 1)
-            self.assertTrue(sink._cap_truth_known)
-            self.assertEqual(sink._logical_directory_bytes, 0)
-            self.assertEqual(sink._logical_active_bytes, 0)
+            with mock.patch.object(writer.os, "makedirs",
+                                   wraps=writer.os.makedirs) as mkdirs:
+                with mock.patch.object(writer.os, "listdir",
+                                       wraps=writer.os.listdir) as listdir:
+                    with mock.patch.object(writer.os.path, "isfile",
+                                           wraps=writer.os.path.isfile) as isfile:
+                        with mock.patch.object(writer.os.path, "getsize",
+                                               wraps=writer.os.path.getsize) as getsize:
+                            with mock.patch.object(writer, "_directory_size",
+                                                   wraps=writer._directory_size) as directory_scan:
+                                with mock.patch.object(builtins, "open",
+                                                       wraps=builtins.open) as open_file:
+                                    sink = writer.TelemetryWriter(
+                                        temp, "session-a", "1.0.0", "1.128.90.1030",
+                                        autostart=False,
+                                    )
+            self.assertFalse(sink._cap_truth_known)
+            self.assertEqual(mkdirs.call_count, 0)
+            self.assertEqual(listdir.call_count, 0)
+            self.assertEqual(isfile.call_count, 0)
+            self.assertEqual(getsize.call_count, 0)
+            self.assertEqual(directory_scan.call_count, 0)
+            self.assertEqual(open_file.call_count, 0)
 
-    def test_initial_inventory_failure_fails_closed_without_unknown_admission(self):
+    def test_start_has_no_caller_thread_filesystem_io(self):
         with tempfile.TemporaryDirectory() as temp:
+            sink = writer.TelemetryWriter(
+                temp, "session-a", "1.0.0", "1.128.90.1030", autostart=False,
+            )
+            caller_thread = threading.get_ident()
+            calls = []
+
+            def guard(function, name):
+                def wrapped(*args, **kwargs):
+                    calls.append((name, threading.get_ident()))
+                    if threading.get_ident() == caller_thread:
+                        raise AssertionError("filesystem work on caller thread")
+                    return function(*args, **kwargs)
+                return wrapped
+
+            with mock.patch.object(writer.os, "makedirs",
+                                   side_effect=guard(writer.os.makedirs, "makedirs")):
+                with mock.patch.object(writer.os, "listdir",
+                                       side_effect=guard(writer.os.listdir, "listdir")):
+                    with mock.patch.object(writer.os.path, "isfile",
+                                           side_effect=guard(writer.os.path.isfile, "isfile")):
+                        with mock.patch.object(writer.os.path, "getsize",
+                                               side_effect=guard(writer.os.path.getsize, "getsize")):
+                            with mock.patch.object(writer.os.path, "exists",
+                                                   side_effect=guard(writer.os.path.exists, "exists")):
+                                with mock.patch.object(builtins, "open",
+                                                       side_effect=guard(builtins.open, "open")):
+                                    sink.start()
+                                    self.assertTrue(sink.try_put(clock_row(1)))
+                                    sink.signal_close("DISARM_CLEAN")
+                                    self.assertTrue(sink.wait_idle(5.0))
+
+            self.assertTrue(calls)
+            self.assertTrue(all(thread_id != caller_thread
+                                for _, thread_id in calls))
+
+    def test_writer_filesystem_lifecycle_runs_on_worker_thread(self):
+        with tempfile.TemporaryDirectory() as temp:
+            sink = writer.TelemetryWriter(
+                temp, "session-a", "1.0.0", "1.128.90.1030", autostart=False,
+            )
+            caller_thread = threading.get_ident()
+            events = {}
+
+            def watch(name):
+                original = getattr(sink, name)
+
+                def wrapped(*args, **kwargs):
+                    events.setdefault(name, []).append(threading.get_ident())
+                    return original(*args, **kwargs)
+
+                setattr(sink, name, wrapped)
+
+            for method in ("_initialize_cap_accounting", "_open_active",
+                           "_reconcile_directory", "_write_physical",
+                           "_attempt_flush", "_close_stream"):
+                watch(method)
+
+            sink.start()
+            self.assertTrue(sink.try_put(clock_row(1)))
+            sink.signal_close("DISARM_CLEAN")
+            self.assertTrue(sink.wait_idle(5.0))
+
+            for method in ("_initialize_cap_accounting", "_open_active",
+                           "_reconcile_directory", "_write_physical",
+                           "_attempt_flush", "_close_stream"):
+                self.assertIn(method, events)
+                self.assertTrue(all(thread_id != caller_thread
+                                    for thread_id in events[method]))
+
+    def test_writer_startup_orders_inventory_open_before_first_write(self):
+        with tempfile.TemporaryDirectory() as temp:
+            sink = writer.TelemetryWriter(
+                temp, "session-a", "1.0.0", "1.128.90.1030", autostart=False,
+            )
+            order = []
+
+            def watch(name):
+                original = getattr(sink, name)
+
+                def wrapped(*args, **kwargs):
+                    order.append(name)
+                    return original(*args, **kwargs)
+
+                setattr(sink, name, wrapped)
+
+            for method in ("_initialize_cap_accounting", "_open_active",
+                           "_write_physical"):
+                watch(method)
+
+            self.assertTrue(sink.try_put(clock_row(1)))
+            sink.start()
+            sink.signal_close("DISARM_CLEAN")
+            self.assertTrue(sink.wait_idle(5.0))
+
+            self.assertLess(order.index("_initialize_cap_accounting"),
+                            order.index("_open_active"))
+            self.assertLess(order.index("_open_active"),
+                            order.index("_write_physical"))
+
+    def test_initial_inventory_failure_is_worker_owned_and_fails_closed(self):
+        with tempfile.TemporaryDirectory() as temp:
+            sink = writer.TelemetryWriter(
+                temp, "session-a", "1.0.0", "1.128.90.1030", autostart=False,
+            )
+            self.assertTrue(sink.try_put(clock_row(1)))
             with mock.patch.object(writer, "_directory_size", return_value=None):
-                sink = writer.TelemetryWriter(
-                    temp, "session-a", "1.0.0", "1.128.90.1030",
-                    autostart=False,
-                )
+                sink.start()
+                sink.signal_close("DISARM_CLEAN")
+                self.assertTrue(sink.wait_idle(5.0))
             self.assertEqual(sink.state, "FAILED_STICKY")
             self.assertEqual(sink.failure_reason, "inventory_failure")
-            self.assertFalse(sink._cap_truth_known)
-            self.assertFalse(sink.try_put(clock_row(1)))
+            self.assertEqual(sink.output_paths, [])
+            self.assertEqual(sink._sequence, 0)
+
+    def test_root_mkdir_failure_is_worker_owned_and_bounded(self):
+        with tempfile.TemporaryDirectory() as temp:
+            sink = writer.TelemetryWriter(
+                temp, "session-a", "1.0.0", "1.128.90.1030", autostart=False,
+            )
+            self.assertTrue(sink.try_put(clock_row(1)))
+
+            def fail_mkdir(*args, **kwargs):
+                raise OSError("injected mkdir failure")
+
+            with mock.patch.object(writer.os, "makedirs", side_effect=fail_mkdir):
+                sink.start()
+                sink.signal_close("DISARM_CLEAN")
+                self.assertTrue(sink.wait_idle(5.0))
+            self.assertEqual(sink.state, "FAILED_STICKY")
+            self.assertEqual(sink.failure_reason, "inventory_failure")
+            self.assertEqual(sink.output_paths, [])
+            self.assertEqual(sink._sequence, 0)
+
+    def test_initial_inventory_runs_once_and_establishes_logical_truth(self):
+        with tempfile.TemporaryDirectory() as temp:
+            sink = writer.TelemetryWriter(
+                temp, "session-a", "1.0.0", "1.128.90.1030", autostart=False,
+            )
+            initialized = threading.Event()
+            initial_state = []
+            original_initialize = sink._initialize_cap_accounting
+
+            def watch_initialize(*args, **kwargs):
+                result = original_initialize(*args, **kwargs)
+                initial_state.append((sink._logical_directory_bytes,
+                                      sink._logical_active_bytes))
+                initialized.set()
+                return result
+
+            sink._initialize_cap_accounting = watch_initialize
+            with mock.patch.object(writer, "_directory_size",
+                                   wraps=writer._directory_size) as directory_scan:
+                sink.start()
+                self.assertTrue(initialized.wait(2.0))
+                self.assertEqual(directory_scan.call_count, 1)
+                sink.signal_close("DISARM_CLEAN")
+                self.assertTrue(sink.wait_idle(5.0))
+            self.assertTrue(sink._cap_truth_known)
+            self.assertGreaterEqual(sink._logical_directory_bytes, 0)
+            self.assertEqual(initial_state, [(0, 0)])
 
     def test_ordinary_rows_use_logical_caps_without_directory_or_active_stat(self):
         with tempfile.TemporaryDirectory() as temp:
             sink = writer.TelemetryWriter(
                 temp, "session-a", "1.0.0", "1.128.90.1030", autostart=False
             )
-            sink._open_active()
+            prepare_manual_writer(sink)
             with mock.patch.object(writer, "_directory_size",
                                    wraps=writer._directory_size) as directory_scan:
                 with mock.patch.object(writer.os.path, "getsize",
@@ -226,7 +399,7 @@ class WriterContractRepairTests(unittest.TestCase):
             sink = writer.TelemetryWriter(
                 temp, "session-a", "1.0.0", "1.128.90.1030", autostart=False
             )
-            sink._open_active()
+            prepare_manual_writer(sink)
             payload = b"payload"
             before_active = sink._logical_active_bytes
             before_directory = sink._logical_directory_bytes
@@ -242,7 +415,7 @@ class WriterContractRepairTests(unittest.TestCase):
             sink = writer.TelemetryWriter(
                 temp, "session-a", "1.0.0", "1.128.90.1030", autostart=False
             )
-            sink._open_active()
+            prepare_manual_writer(sink)
             sink._stream.close()
             sink._stream = RecordingStream(fail_write=True)
             before_active = sink._logical_active_bytes
@@ -257,7 +430,7 @@ class WriterContractRepairTests(unittest.TestCase):
             sink = writer.TelemetryWriter(
                 temp, "session-a", "1.0.0", "1.128.90.1030", autostart=False
             )
-            sink._open_active()
+            prepare_manual_writer(sink)
             before_active = sink._logical_active_bytes
             before_directory = sink._logical_directory_bytes
             with mock.patch.object(sink._stream, "write", return_value=1):
@@ -272,7 +445,7 @@ class WriterContractRepairTests(unittest.TestCase):
             sink = writer.TelemetryWriter(
                 temp, "session-a", "1.0.0", "1.128.90.1030", autostart=False
             )
-            sink._open_active()
+            prepare_manual_writer(sink)
             self.assertTrue(sink._write_physical(b"payload"))
             with mock.patch.object(writer, "_directory_size",
                                    wraps=writer._directory_size) as directory_scan:
@@ -289,7 +462,7 @@ class WriterContractRepairTests(unittest.TestCase):
             sink = writer.TelemetryWriter(
                 temp, "session-a", "1.0.0", "1.128.90.1030", autostart=False
             )
-            sink._open_active()
+            prepare_manual_writer(sink)
             self.assertTrue(sink._write_physical(b"payload"))
             sink.set_sampling(True)
             sink._last_flush_monotonic = 10.0
@@ -305,7 +478,7 @@ class WriterContractRepairTests(unittest.TestCase):
             sink = writer.TelemetryWriter(
                 temp, "session-a", "1.0.0", "1.128.90.1030", autostart=False
             )
-            sink._open_active()
+            prepare_manual_writer(sink)
             with mock.patch.object(sink, "_reconcile_directory",
                                    wraps=sink._reconcile_directory) as reconcile:
                 self.assertTrue(sink._write_checkpoint("PERIODIC_60S"))
@@ -318,6 +491,7 @@ class WriterContractRepairTests(unittest.TestCase):
             sink = writer.TelemetryWriter(
                 temp, "session-a", "1.0.0", "1.128.90.1030", autostart=False
             )
+            sink._initialize_cap_accounting()
             sink._stream = stream
             sink._active_path = os.path.join(temp, "active.jsonl")
             sink._active_bytes = 0
@@ -338,7 +512,7 @@ class WriterContractRepairTests(unittest.TestCase):
                 temp, "session-a", "1.0.0", "1.128.90.1030",
                 max_dir_bytes=256, autostart=False,
             )
-            sink._open_active()
+            prepare_manual_writer(sink)
             with open(os.path.join(temp, "owner-evidence.jsonl"), "wb") as handle:
                 handle.write(b"x" * 220)
             self.assertTrue(sink._reconcile_directory())
@@ -355,6 +529,7 @@ class WriterContractRepairTests(unittest.TestCase):
                 max_file_bytes=(sample_size * 2) + 20, max_rotations=2,
                 max_dir_bytes=1024 * 1024, autostart=False,
             )
+            sink._initialize_cap_accounting()
             with mock.patch.object(sink, "_reconcile_directory",
                                    wraps=sink._reconcile_directory) as reconcile:
                 self.assertTrue(sink._write_direct(clock_row(1)))
@@ -370,7 +545,7 @@ class WriterContractRepairTests(unittest.TestCase):
                 temp, "session-a", "1.0.0", "1.128.90.1030",
                 max_file_bytes=1, max_rotations=2, autostart=False,
             )
-            sink._open_active()
+            prepare_manual_writer(sink)
             with mock.patch.object(sink, "_reconcile_directory", return_value=False):
                 self.assertFalse(sink._write_direct(clock_row(1)))
             self.assertEqual(sink.state, "FAILED_STICKY")
@@ -384,7 +559,7 @@ class WriterContractRepairTests(unittest.TestCase):
             sink = writer.TelemetryWriter(
                 temp, "session-a", "1.0.0", "1.128.90.1030", autostart=False
             )
-            sink._open_active()
+            prepare_manual_writer(sink)
             sink._close_reason = "DISARM_CLEAN"
             sink._pre_disarm_requested = True
             with mock.patch.object(sink, "_reconcile_directory",

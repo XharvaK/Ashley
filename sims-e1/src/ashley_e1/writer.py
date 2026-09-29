@@ -143,7 +143,6 @@ class TelemetryWriter:
         self._diagnostic_attempted = False
         self._lock = threading.RLock()
         self._on_idle = on_idle
-        self._initialize_cap_accounting()
         if autostart:
             self.start()
 
@@ -157,7 +156,6 @@ class TelemetryWriter:
         if self.state != "OK":
             self._idle = True
             return
-        os.makedirs(self.root, exist_ok=True)
         self._idle = False
         self._thread = threading.Thread(target=self._run, name="ashley-e1-writer")
         self._thread.daemon = True
@@ -556,7 +554,7 @@ class TelemetryWriter:
     def _run(self):
         deadline = None
         try:
-            if self.state == "OK":
+            if self.state == "OK" and self._initialize_cap_accounting():
                 try:
                     self._open_active()
                 except (OSError, IOError):
