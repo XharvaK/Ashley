@@ -9,7 +9,7 @@ import type {
 import { DerivedStore } from "./derived-store.js";
 import { hasAuthorityBarrier, requireStableAuthorityBarrier } from "../authority/barrier.js";
 import { hasPendingDerivedInvalidation } from "../authority/journal.js";
-import { listOwnerTrustedRoomConversationIds } from "../../relationship/social-authority.js";
+import { listOwnerRecallConversationIds } from "./owner-scope.js";
 
 export type RawFtsMemoryRow = {
   assertionKey: AssertionKey;
@@ -200,11 +200,13 @@ export function searchConversationFts(
   // primary conversation is always in scope; nothing is inferred from ID
   // prefixes. Each scoped conversation witnesses its own source-currentness
   // below, so adding a scope cannot weaken invalidation checks.
+  // The caller's scope is honoured only where authority re-derives it, so a
+  // room-audience caller (empty scope) never spends its hit limit on
+  // Owner-private threads, and a forged scope admits nothing extra.
   let additionalConversationIds: readonly string[] = [];
-  if (options.authorityDb) {
-    additionalConversationIds = options.ownerId?.trim()
-      ? listOwnerTrustedRoomConversationIds(options.authorityDb, options.ownerId)
-      : [];
+  if (options.authorityDb && options.ownerId?.trim()) {
+    const allowed = new Set(listOwnerRecallConversationIds(options.authorityDb, options.ownerId));
+    additionalConversationIds = (options.additionalConversationIds ?? []).filter((id) => allowed.has(id));
   }
   const scope = [
     conversationId,

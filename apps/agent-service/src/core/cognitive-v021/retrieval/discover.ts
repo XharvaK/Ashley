@@ -20,7 +20,7 @@ import { rankCandidates } from "./rank.js";
 import { deduplicateCandidates } from "./dedup.js";
 import { hasAuthorityBarrier } from "../authority/barrier.js";
 import { hasPendingDerivedInvalidation } from "../authority/journal.js";
-import { listOwnerTrustedRoomConversationIds } from "../../relationship/social-authority.js";
+import { listOwnerRecallConversationIds, listOwnerThreadConversationIds } from "./owner-scope.js";
 
 export type RetrieveCandidatesInput = {
   conversationId: string;
@@ -140,29 +140,26 @@ function canonicalRetrievalScope(
   authorityDb: DatabaseSync | undefined,
   requestedAudience: SocialAudience,
   ownerId: string | undefined,
-): { audience: SocialAudience; conversationIds: string[] } {
+): { audience: SocialAudience; conversationIds: string[]; ownerThreadIds: ReadonlySet<string> } {
   if (!authorityDb) {
     return {
       audience: directConversationAudience(input.conversationId),
       conversationIds: [],
+      ownerThreadIds: new Set(),
     };
   }
 
-  let trustedRoomIds: string[] = [];
-  if (ownerId?.trim()) {
-    try {
-      trustedRoomIds = listOwnerTrustedRoomConversationIds(authorityDb, ownerId);
-    } catch {
-      trustedRoomIds = [];
-    }
-  }
+  const recallIds = ownerId?.trim() ? listOwnerRecallConversationIds(authorityDb, ownerId) : [];
   const currentRoomId = roomConversationId(input.conversationId);
   const audience = directConversationAudience(input.conversationId);
   return {
     audience,
     conversationIds: audience.kind === "owner_private"
-      ? trustedRoomIds.filter((id) => id !== input.conversationId && id !== currentRoomId)
+      ? recallIds.filter((id) => id !== input.conversationId && id !== currentRoomId)
       : [],
+    ownerThreadIds: audience.kind === "owner_private" && ownerId?.trim()
+      ? new Set(listOwnerThreadConversationIds(authorityDb, ownerId))
+      : new Set(),
   };
 }
 
@@ -216,6 +213,7 @@ type CrossSurfaceRawRow = {
   text?: unknown;
   data_classification?: unknown;
   secret_omitted?: unknown;
+  role?: unknown;
   speaker_kind?: unknown;
   audience_at_capture?: unknown;
   source_status?: unknown;
@@ -227,14 +225,18 @@ type CrossSurfaceRawRow = {
  * satisfy every eligibility bound (allowed conversation, Owner/Ashley
  * attribution on the raw column, current lineage version, non-secret, not
  * secret-omitted, present non-redacted text). Anything else fails closed.
+ * Owner-private thread rows are captured without an audience column: in the
+ * Owner's own threads an owner/ashley role (with a matching or unset speaker
+ * kind) is the attribution. Rooms always need the explicit columns.
  */
 function recheckCrossSurfaceLogHit(
   sidecarDb: DatabaseSync,
   rowId: string,
   allowedConversationIds: ReadonlySet<string>,
+  ownerThreadIds: ReadonlySet<string> = new Set(),
 ): ReturnType<typeof getConversationEvidence> {
   const row = sidecarDb.prepare(
-    `SELECT row_id, lineage_id, version, conversation_id, text,
+    `SELECT row_id, lineage_id, version, conversation_id, text, role,
             data_classification, secret_omitted, speaker_kind,
             audience_at_capture, source_status
        FROM conversation_evidence_log
@@ -246,9 +248,15 @@ function recheckCrossSurfaceLogHit(
   }
   // Raw-column check on purpose: a mapped record is not authority for
   // cross-surface attribution, so malformed raw attribution must fail closed.
-  if (row.speaker_kind !== "owner" && row.speaker_kind !== "ashley") return null;
-  if (row.audience_at_capture !== "owner_private" &&
-      row.audience_at_capture !== "dm" && row.audience_at_capture !== "room") return null;
+  const ownerThreadRow = ownerThreadIds.has(row.conversation_id)
+    && (row.role === "owner" || row.role === "ashley")
+    && (row.speaker_kind == null || row.speaker_kind === row.role)
+    && (row.audience_at_capture == null || row.audience_at_capture === "owner_private" || row.audience_at_capture === "dm");
+  if (!ownerThreadRow) {
+    if (row.speaker_kind !== "owner" && row.speaker_kind !== "ashley") return null;
+    if (row.audience_at_capture !== "owner_private" &&
+        row.audience_at_capture !== "dm" && row.audience_at_capture !== "room") return null;
+  }
   if (row.data_classification === "secret") return null;
   if (Number(row.secret_omitted) === 1) return null;
   if (typeof row.text !== "string" || !row.text || row.text === "[redacted]") return null;
@@ -403,7 +411,7 @@ export function retrieveCandidates(
     logHits = logResult.rows.flatMap((row) => {
       const crossSurface = row.conversationId !== input.conversationId;
       const evidence = crossSurface
-        ? recheckCrossSurfaceLogHit(sidecarDb, row.rowId, crossSurfaceAllowed)
+        ? recheckCrossSurfaceLogHit(sidecarDb, row.rowId, crossSurfaceAllowed, canonicalScope.ownerThreadIds)
         : getConversationEvidence(sidecarDb, row.rowId);
       // A failed cross-surface recheck (or an orphan index row) is not a
       // candidate at all. Same-conversation rows always resolve here because

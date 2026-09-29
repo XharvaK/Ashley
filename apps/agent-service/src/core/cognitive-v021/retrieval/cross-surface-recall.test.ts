@@ -545,6 +545,58 @@ describe("owner-private cross-surface recall bridge", () => {
     }
   });
 
+  it("recalls the Owner's earlier, archived private threads but no other owner's", () => {
+    const fixture = seedFixture();
+    const archived = appendOwnerUtterance(fixture.sidecar, {
+      conversationId: "old-thread",
+      text: "Orpheus cactus came from my grandmother",
+    }).rowId;
+    const stranger = appendOwnerUtterance(fixture.sidecar, {
+      conversationId: "someone-elses-thread",
+      text: "Orpheus cactus for sale",
+    }).rowId;
+    const derived = openDerivedStore(":memory:");
+    const nuclear = openNuclearWithRooms();
+    nuclear.exec(
+      `CREATE TABLE mem_threads (id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, status TEXT NOT NULL,
+         channel TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
+    );
+    const thread = nuclear.prepare("INSERT INTO mem_threads VALUES (?, ?, ?, 'discord', ?, ?)");
+    thread.run("old-thread", "owner-1", "archived", "2026-01-01", "2026-01-02");
+    thread.run(DM, "owner-1", "active", "2026-01-03", "2026-01-03");
+    thread.run("someone-elses-thread", "owner-2", "active", "2026-01-01", "2026-01-01");
+    try {
+      derived.reconcile(fixture.sidecar);
+      const request = { triggerTerms: ["orpheus"], workingContextTopics: [], assertionKeys: [], includeLogSearch: true as const };
+      const owner = retrieveCandidates(
+        fixture.sidecar,
+        { conversationId: DM, request },
+        derived,
+        { authorityDb: nuclear, ownerId: "owner-1", audience: { kind: "owner_private" } },
+      );
+      expect(owner.state).toBe("ready");
+      expect(logRefs(owner)).toEqual(expect.arrayContaining([fixture.dmOwner, archived]));
+      expect(logRefs(owner)).not.toContain(stranger);
+
+      const room = retrieveCandidates(
+        fixture.sidecar,
+        { conversationId: ROOM, request },
+        derived,
+        { authorityDb: nuclear, ownerId: "owner-1", audience: { kind: "room", roomId: ROOM } },
+      );
+      expect(logRefs(room)).toEqual([]);
+      const scanned = searchConversationFts(derived, fixture.sidecar, ROOM, "orpheus", {
+        authorityDb: nuclear,
+        ownerId: "owner-1",
+      });
+      expect(scanned.rows.map((row) => row.rowId)).toEqual([]);
+    } finally {
+      nuclear.close();
+      derived.close();
+      fixture.sidecar.close();
+    }
+  });
+
   it("H: preserves distinct conversation identities and copies no rows", () => {
     const fixture = seedFixture();
     const derived = openDerivedStore(":memory:");
