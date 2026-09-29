@@ -281,8 +281,13 @@ class TelemetryWriter:
             monotonic_ns=time.perf_counter_ns(), **payload
         )
         checkpoint["written_sequence"] = self._sequence
-        payload = schema.serialize_record(checkpoint)
-        if not self._write_physical(payload):
+        try:
+            payload = schema.serialize_record(checkpoint)
+            written = self._write_physical(payload)
+        except (OSError, IOError, schema.SchemaError, TypeError, ValueError):
+            self._mark_failure("FAILED_STICKY", "write_failure")
+            return False
+        if not written:
             self._mark_failure("CAP_REACHED", "checkpoint_cap")
             return False
         self._last_checkpoint = time.time()
@@ -322,7 +327,13 @@ class TelemetryWriter:
             if not fits_file:
                 self._mark_failure("CAP_REACHED", "record_cap")
                 return False
-        return self._write_physical(payload)
+        written = self._write_physical(payload)
+        if not written and self.state == "OK":
+            if self._stream is None:
+                self._mark_failure("FAILED_STICKY", "write_failure")
+            else:
+                self._mark_failure("CAP_REACHED", "capacity_race")
+        return written
 
     def _write_row(self, row):
         if self.state != "OK":
