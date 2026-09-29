@@ -126,4 +126,16 @@ describe("reaching out", () => {
       db.close();
     }
   });
+
+  it("says she spoke only when her message was delivered (R11)", () => {
+    const db = openTestSidecar();
+    try {
+      recordJournalEntry(db, { conversationId: "thread", cycleId: "cycle-queued", passKind: "awake", claim: { activity: "reach_out", entry: "Sent Alex the article." }, spoke: true, nowMs: T0 });
+      expect(listRecentJournal(db, { limit: 1 })[0]).toMatchObject({ spoke: false });
+      appendAshleyEvidence(db, { conversationId: "thread", text: "Found the article you meant.", producingCycleId: "cycle-queued", delivered: true, nowMs: T0 + MINUTE });
+      expect(listRecentJournal(db, { limit: 1 })[0]).toMatchObject({ spoke: true });
+    } finally {
+      db.close();
+    }
+  });
 });

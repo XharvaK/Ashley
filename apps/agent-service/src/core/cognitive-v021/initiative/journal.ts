@@ -8,6 +8,9 @@ import type { InterestTouch } from "../memory/interests.js";
  *
  * Every private pass leaves one entry. The Host records the facts it
  * witnessed (which pass, what Ashley read in that cycle, whether she spoke);
+ * "spoke" is read from delivered Ashley evidence for the cycle, never from a
+ * send that was only queued, so a suppressed or failed send never reads as
+ * spoken (R11);
  * Ashley writes the entry itself. It is the only evidence she may describe
  * her time between messages from.
  */
@@ -125,6 +128,7 @@ export function recordJournalEntry(
     passKind: JournalPassKind;
     claim?: JournalClaim;
     interests?: readonly InterestTouch[];
+    /** Speech was queued for delivery; stored for audit. Readers see "spoke" only once it is delivered. */
     spoke: boolean;
     nowMs: number;
   },
@@ -164,7 +168,7 @@ function mapEntry(row: Row): JournalEntry {
     entry: typeof row.entry === "string" ? row.entry : null,
     reads: parseJson<JournalRead[]>(row.read_refs_json, []),
     interests: parseJson<string[]>(row.interests_json, []),
-    spoke: Number(row.spoke) === 1,
+    spoke: Number(row.delivered_speech) === 1,
     dataClassification: classification(row.data_classification),
     createdAtMs: Number(row.created_at_ms ?? 0),
   };
@@ -176,9 +180,13 @@ export function listRecentJournal(
   input: { sinceMs?: number; limit: number },
 ): JournalEntry[] {
   return (db.prepare(
-    `SELECT * FROM activity_journal
-      WHERE forgotten_at_ms IS NULL AND created_at_ms >= ? AND data_classification != 'secret'
-      ORDER BY created_at_ms DESC, entry_id DESC LIMIT ?`,
+    `SELECT j.*, EXISTS (
+         SELECT 1 FROM conversation_evidence_log e
+          WHERE e.producing_cycle_id = j.cycle_id AND e.role = 'ashley' AND e.delivered = 1
+       ) AS delivered_speech
+       FROM activity_journal j
+      WHERE j.forgotten_at_ms IS NULL AND j.created_at_ms >= ? AND j.data_classification != 'secret'
+      ORDER BY j.created_at_ms DESC, j.entry_id DESC LIMIT ?`,
   ).all(input.sinceMs ?? 0, Math.max(1, input.limit)) as Row[]).map(mapEntry);
 }
 
