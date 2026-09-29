@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { fetchAttachmentBytes } from "../../perception/fetch.js";
-import { parseAttachmentCsv, resolveAttachmentJsonPath } from "../perception/attachments.js";
+import { attachDirectImage, parseAttachmentCsv, resolveAttachmentJsonPath } from "../perception/attachments.js";
 import { parsePdfDocument, PdfDocumentError } from "../perception/pdf.js";
 import { createPendingArtifacts, transitionArtifactStatus, urlFingerprint } from "../../perception/ingest.js";
 import {
@@ -53,6 +53,8 @@ type RetainedImage = {
   width: number | null;
   height: number | null;
   sourceClass: AttachmentSourceClass;
+  bytes: Uint8Array;
+  recallRecord: string | null;
 };
 
 type EvidenceRefreshResult = {
@@ -165,7 +167,8 @@ function currentArtifactRow(
   const row = db.prepare(
     `SELECT entity_uuid, owner_id, status, content_hash, mime_declared, mime_detected,
             preserved, url_fingerprint, discord_attachment_id,
-            source_message_entity_uuid, delivery_reservation_entity_uuid, provenance_json
+            source_message_entity_uuid, delivery_reservation_entity_uuid, provenance_json,
+            excerpt
        FROM perception_artifacts
       WHERE entity_uuid = ?`,
   ).get(artifactId) as Row | undefined;
@@ -324,6 +327,8 @@ function artifactImageCapture(
     width: dimensions?.width ?? null,
     height: dimensions?.height ?? null,
     sourceClass,
+    bytes,
+    recallRecord: requiredText(row.excerpt),
   };
 }
 
@@ -733,7 +738,9 @@ function executeImageRead(
     kind: "image",
     ...(region === undefined ? {} : { region }),
   } as const;
-  return observation(input.req, {
+  // Looking again means seeing the retained image itself (direct sight),
+  // plus the concise recall record written when it was first seen.
+  const reread = observation(input.req, {
     artifactId: source.artifactId,
     representationId: source.representationId,
     artifactHash: source.contentHash,
@@ -754,6 +761,7 @@ function executeImageRead(
       access: "retained_image",
       exif: "not_stripped",
     },
+    ...(source.recallRecord === null ? {} : { recallRecord: source.recallRecord }),
     completeness: "complete",
     omission: null,
     nextCursor: null,
@@ -762,6 +770,7 @@ function executeImageRead(
     parentArtifactId: source.artifactId,
     representationId: source.representationId,
     derivation: "image_read",
+    access: "direct_visual",
     requestedSelector: request.selector,
     returnedSelector,
     completeness: "complete",
@@ -771,6 +780,8 @@ function executeImageRead(
     contentHashBasis: "retained_bytes",
     inputTrust: "untrusted_evidence",
   }, "image");
+  attachDirectImage(reread.payload as Record<string, unknown>, source.bytes, source.mime);
+  return reread;
 }
 
 async function executeRead(input: EvidenceOperationInput, request: EvidenceReadRequest): Promise<Observation> {

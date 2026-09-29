@@ -149,6 +149,9 @@ describe("CAM-W3-P6 visual access", () => {
       sourceClass: "supplied_screenshot",
       exif: "not_stripped",
     });
+    // Looking again at a retained image is direct sight of the same pixels.
+    expect(retained.view?.access).toBe("direct_visual");
+    expect(messagesFor(retained)[1]).toMatchObject({ imageUrls: [expect.stringMatching(/^data:image\/png;base64,/)] });
     const messages = messagesFor(observation);
     expect(messages[1]).toMatchObject({ imageUrls: [expect.stringMatching(/^data:image\/png;base64,/) ] });
     expect(messages[1]!.content).not.toContain("imageDataUri");

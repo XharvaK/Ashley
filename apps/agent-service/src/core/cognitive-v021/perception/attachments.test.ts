@@ -260,6 +260,91 @@ describe("owner attachment observation intake", () => {
     nuclear.close();
   });
 
+  it("gives Thought the image itself and writes a concise recall record in the background", async () => {
+    const nuclear = openNuclearDb(new DatabaseSync(":memory:"));
+    const sidecar = openTestSidecar();
+    const bytes = png();
+    let releaseRecord: (value: string) => void = () => {};
+    const describeForRecord = vi.fn(() => new Promise<string>((resolve) => { releaseRecord = resolve; }));
+    const input = {
+      nuclear,
+      observationDb: sidecar,
+      ownerId,
+      cycleId: "cycle-attachment-direct",
+      generation: 1,
+      sourceMessageEntityUuid: "evidence-owner-direct",
+      deliveryReservationEntityUuid: "owner-event-direct",
+      attachmentTextEnabled: false,
+      visionAccess: true as const,
+      attachments: [attachment("shot.png", "image/png", "shot")],
+    };
+
+    const first = await resolveAttachmentObservations({
+      ...input,
+      imageTransport: { kind: "direct_visual", recordModelId: "test-helper", describeForRecord },
+      fetchAttachment: vi.fn(async () => fetchResult(bytes, "image/png")),
+    });
+
+    // The turn does not wait for the record.
+    const observation = first[0]!;
+    const payload = observation.payload as Record<string, unknown>;
+    expect(observation.view?.access).toBe("direct_visual");
+    expect(payload.imageDataUri).toMatch(/^data:image\/png;base64,/);
+    expect(Object.keys(payload)).not.toContain("imageDataUri");
+    expect(payload).not.toHaveProperty("description");
+    expect(describeForRecord).toHaveBeenCalledTimes(1);
+    const artifactId = payload.artifactId as string;
+    const excerptOf = () => (nuclear.prepare("SELECT excerpt FROM perception_artifacts WHERE entity_uuid = ?")
+      .get(artifactId) as { excerpt: string | null }).excerpt;
+    expect(excerptOf()).toBeNull();
+
+    releaseRecord("Sims 4 CAS quiz: \"I get asked out on a date\" [Go out] [Ask who else] [Politely decline]");
+    await vi.waitFor(() => expect(excerptOf()).toContain("asked out on a date"));
+
+    // A replay in the same cycle (supersession/retry) sees the same pixels
+    // again from the retained artifact, without refetching or re-describing.
+    persistOrVerifyObservation(sidecar, observation, 100);
+    const refetch = vi.fn(async () => fetchResult(bytes, "image/png"));
+    const replay = await resolveAttachmentObservations({
+      ...input,
+      imageTransport: { kind: "direct_visual", recordModelId: "test-helper", describeForRecord },
+      fetchAttachment: refetch,
+    });
+    expect((replay[0]!.payload as Record<string, unknown>).imageDataUri).toBe(payload.imageDataUri);
+    expect(refetch).not.toHaveBeenCalled();
+    expect(describeForRecord).toHaveBeenCalledTimes(1);
+    sidecar.close();
+    nuclear.close();
+  });
+
+  it("never revives a forgotten artifact when the background record lands late", async () => {
+    const nuclear = openNuclearDb(new DatabaseSync(":memory:"));
+    let releaseRecord: (value: string) => void = () => {};
+    const observations = await resolveAttachmentObservations({
+      nuclear,
+      ownerId,
+      cycleId: "cycle-attachment-direct-forget",
+      generation: 1,
+      sourceMessageEntityUuid: "evidence-owner-forget",
+      deliveryReservationEntityUuid: "owner-event-forget",
+      attachmentTextEnabled: false,
+      visionAccess: true,
+      attachments: [attachment("secret.png", "image/png", "secret")],
+      imageTransport: {
+        kind: "direct_visual",
+        describeForRecord: () => new Promise<string>((resolve) => { releaseRecord = resolve; }),
+      },
+      fetchAttachment: vi.fn(async () => fetchResult(png(), "image/png")),
+    });
+    const artifactId = (observations[0]!.payload as { artifactId: string }).artifactId;
+    nuclear.prepare("UPDATE perception_artifacts SET status = 'redacted', excerpt = NULL WHERE entity_uuid = ?").run(artifactId);
+    releaseRecord("the forgotten picture");
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    const row = nuclear.prepare("SELECT excerpt FROM perception_artifacts WHERE entity_uuid = ?").get(artifactId) as { excerpt: string | null };
+    expect(row.excerpt).toBeNull();
+    nuclear.close();
+  });
+
   it("accepts structured evidence selectors and rejects unbounded selectors", () => {
     assert.equal(isValidEvidenceOperationRequest("evidence.read", {
       artifactId: "artifact-1",

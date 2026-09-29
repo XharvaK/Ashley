@@ -145,6 +145,28 @@ export function transitionArtifactStatus(
   return changes > 0;
 }
 
+/**
+ * Attach a late (background) recall record to an artifact. Never revives a
+ * redacted/expired row: a forget that lands first wins.
+ */
+export function recordArtifactExcerpt(
+  db: DatabaseSync,
+  entityUuid: string,
+  ownerId: string,
+  excerpt: string,
+): boolean {
+  const text = excerpt.trim();
+  if (!text) return false;
+  return db
+    .prepare(
+      `UPDATE perception_artifacts
+       SET excerpt = ?, updated_at = ?
+       WHERE entity_uuid = ? AND owner_id = ?
+         AND status NOT IN ('redacted', 'expired')`,
+    )
+    .run(text, new Date().toISOString(), entityUuid, ownerId).changes > 0;
+}
+
 export function markArtifactIncluded(
   db: DatabaseSync,
   entityUuid: string,

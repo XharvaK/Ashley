@@ -20,7 +20,7 @@ import {
 } from "../../sandbox/worker/command-code-worker.js";
 import type { WebSearchProvider } from "../../perception/search-provider.js";
 import type { WebFetchProvider } from "../../perception/web-fetch-provider.js";
-import type { CommandCodeVisionTransport } from "../perception/command-code-vision.js";
+import type { CommandCodeDirectVisionTransport, CommandCodeVisionTransport } from "../perception/command-code-vision.js";
 import { currentReleaseId, type CapabilityName } from "../../rollout/capabilities.js";
 import type {
   CapabilityReality,
@@ -66,7 +66,7 @@ export type CapabilityRealityOptions = {
   commandCodeNodeExecutable?: string;
   webSearchProvider?: Pick<WebSearchProvider, "available">;
   webFetchProvider?: Pick<WebFetchProvider, "available">;
-  visionTransport?: Pick<CommandCodeVisionTransport, "kind" | "available">;
+  visionTransport?: Pick<CommandCodeVisionTransport | CommandCodeDirectVisionTransport, "kind" | "available">;
   /** Test override for qualification fixtures. Production passes visionTransport. */
   visionMode?: "direct" | "mediated";
   nowMs?: number;

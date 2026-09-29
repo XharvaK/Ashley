@@ -12,9 +12,11 @@ import { fetchAttachmentBytes, type FetchAttachmentResult } from "../../percepti
 import {
   createPendingArtifacts,
   buildInlineDataUri,
+  recordArtifactExcerpt,
   transitionArtifactStatus,
 } from "../../perception/ingest.js";
 import {
+  readArtifactBytes,
   storeArtifactBytes,
 } from "../../perception/artifact-store.js";
 import type { JsonValue, Observation } from "../types.js";
@@ -149,6 +151,20 @@ function observationId(cycleId: string, generation: number, attachmentId: string
   })))}`;
 }
 
+/**
+ * Host-only wire material for direct sight. Deliberately non-enumerable so a
+ * durable observation never stores a second copy of the image beside the
+ * retained artifact; the projection allocator forwards it to Thought.
+ */
+export function attachDirectImage(payload: Record<string, unknown>, bytes: Uint8Array, mime: string): void {
+  Object.defineProperty(payload, "imageDataUri", {
+    value: buildInlineDataUri(bytes, mime),
+    enumerable: false,
+    writable: false,
+    configurable: false,
+  });
+}
+
 function storedObservationForRetry(
   input: AttachmentObservationInput,
   attachment: AttachmentIntakeRef,
@@ -159,6 +175,37 @@ function storedObservationForRetry(
     observationId(input.cycleId, input.generation, attachment.discordAttachmentId),
   );
   if (!canonical) return null;
+  if (canonical.modality === "image" && canonical.view?.access === "direct_visual") {
+    // The stored row deliberately omits pixels. A replay (supersession or
+    // retry) must see the same image again, so re-attach it from the retained
+    // artifact; if that is impossible, fall through to a fresh resolution.
+    const payload = canonical.payload;
+    const mime = payload && typeof payload === "object" && !Array.isArray(payload)
+      ? (payload as Record<string, unknown>).detectedMime
+      : undefined;
+    if (typeof mime !== "string" || !canonical.view.parentArtifactId) return null;
+    try {
+      const bytes = readArtifactBytes(input.nuclear, canonical.view.parentArtifactId, input.ownerId);
+      const replayPayload = { ...(payload as Record<string, unknown>) };
+      attachDirectImage(replayPayload, bytes, mime);
+      return {
+        observationId: canonical.observationId,
+        cycleId: input.cycleId,
+        generation: input.generation,
+        derived: canonical.derived,
+        replaySafe: canonical.replaySafe,
+        modality: canonical.modality,
+        payload: replayPayload as JsonValue,
+        view: canonical.view,
+        provenance: canonical.provenance,
+        ...(canonical.rawOutranksDerivedOf === null ? {} : { rawOutranksDerivedOf: canonical.rawOutranksDerivedOf }),
+        dataClassification: canonical.dataClassification,
+        secretOmitted: canonical.secretOmitted,
+      };
+    } catch {
+      return null;
+    }
+  }
   return {
     observationId: canonical.observationId,
     cycleId: input.cycleId,
@@ -580,14 +627,16 @@ async function imageObservation(
   };
 
   if (transport.kind === "direct_visual") {
-    // Host-only wire material. It is deliberately non-enumerable so a durable
-    // observation never stores a second copy of the image beside the artifact.
-    Object.defineProperty(payload, "imageDataUri", {
-      value: buildInlineDataUri(bytes, mime),
-      enumerable: false,
-      writable: false,
-      configurable: false,
-    });
+    attachDirectImage(payload, bytes, mime);
+    if (transport.describeForRecord) {
+      payload.recallRecord = "background";
+      // Off the Thought critical path: Thought already sees the image; this
+      // concise record is only what remains for later recall.
+      const describe = transport.describeForRecord;
+      void describe({ bytes: new Uint8Array(bytes), mime, fileName: attachment.fileName, sourceClass, dimensions })
+        .then((record) => { recordArtifactExcerpt(input.nuclear, artifactId, input.ownerId, record); })
+        .catch(() => { /* a missing recall record never affects the turn */ });
+    }
   } else {
     const description = (await transport.describeImage({
       bytes: new Uint8Array(bytes),

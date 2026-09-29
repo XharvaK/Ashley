@@ -7,7 +7,7 @@ import { loadAuthorityPacks } from "./core/cognitive-v021/authority/packs.js";
 import { getCapabilityReality } from "./core/cognitive-v021/thought/capability-reality.js";
 import { readIdentitySlice } from "./core/cognitive-v021/identity/constitution.js";
 import { runPerceptionBeforeThought } from "./core/cognitive-v021/perception/adapter.js";
-import { createCommandCodeVisionTransport } from "./core/cognitive-v021/perception/command-code-vision.js";
+import { createCommandCodeDirectVisionTransport } from "./core/cognitive-v021/perception/command-code-vision.js";
 import { sweepExpiredArtifacts } from "./core/perception/artifact-store.js";
 import { CuriosityWebFetchProvider } from "./core/perception/web-fetch-provider.js";
 import { TavilyWebSearchProvider } from "./core/perception/tavily-search-provider.js";
@@ -213,7 +213,7 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
       ? new TavilyWebSearchProvider(nuclear)
       : undefined;
     const visionTransport = env.commandCodeApiKey
-      ? createCommandCodeVisionTransport()
+      ? createCommandCodeDirectVisionTransport()
       : undefined;
     const projectRegistry = loadOperatorProjectReadRegistry();
     const sandboxGateOptions = {

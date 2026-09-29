@@ -94,16 +94,26 @@ export function readImageDimensions(bytes: Uint8Array, mime: string): ImageDimen
   return null;
 }
 
+export type VisionDescribeInput = {
+  bytes: Uint8Array;
+  mime: string;
+  fileName: string;
+  sourceClass: AttachmentSourceClass;
+  dimensions: ImageDimensions | null;
+};
+
 export type VisionTransport =
-  | Readonly<{ kind: "direct_visual" }>
+  | Readonly<{
+      kind: "direct_visual";
+      /**
+       * Optional background record for later recall. Thought sees the image
+       * itself; this concise text is only what remains after the turn.
+       */
+      recordModelId?: string;
+      describeForRecord?: (input: VisionDescribeInput) => Promise<string>;
+    }>
   | Readonly<{
       kind: "mediated_visual";
       helperModelId: string;
-      describeImage: (input: {
-        bytes: Uint8Array;
-        mime: string;
-        fileName: string;
-        sourceClass: AttachmentSourceClass;
-        dimensions: ImageDimensions | null;
-      }) => Promise<string>;
+      describeImage: (input: VisionDescribeInput) => Promise<string>;
     }>;
