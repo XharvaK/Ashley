@@ -146,15 +146,17 @@ def initialize_probe():
     global _INITIALIZED, _TELEMETRY_ROOT
     if _INITIALIZED:
         return
-    _INITIALIZED = True
     _STATE_RESET()
+    command_registration_result = _register_commands()
+    if not command_registration_result:
+        return
+    _INITIALIZED = True
     _TELEMETRY_ROOT = derive_telemetry_root(__file__)
     if _TELEMETRY_ROOT is not None:
         bootstrap_from_module_path(
             __file__, E1_PROBE_VERSION, SIMS_BUILD,
             required_imports=_required_import_summary(),
         )
-    _register_commands()
 
 
 def _STATE_RESET():

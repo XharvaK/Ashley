@@ -45,6 +45,69 @@ class BootstrapTests(unittest.TestCase):
         self.assertEqual(calls["alarms"], [])
         self.assertEqual(FakeWriter.instances, [])
 
+    def test_command_registration_precedes_bootstrap_emission(self):
+        _, probe, calls = load_probe()
+        events = []
+        original_register = probe.register
+        probe._INITIALIZED = False
+
+        def recording_register(*args, **kwargs):
+            events.append("register")
+            return original_register(*args, **kwargs)
+
+        probe.register = recording_register
+        probe.derive_telemetry_root = lambda path: tempfile.mkdtemp(
+            prefix="ashley-e1-root-")
+        probe.bootstrap_from_module_path = lambda *args, **kwargs: events.append(
+            "bootstrap")
+
+        probe.initialize_probe()
+
+        self.assertEqual(events, ["register", "register", "register", "register",
+                                  "bootstrap"])
+        self.assertEqual(len(calls["registrations"]), 8)
+        self.assertEqual(probe.get_status()["state"], "UNARMED")
+        self.assertEqual(calls["alarms"], [])
+        self.assertEqual(FakeWriter.instances, [])
+
+    def test_registration_exception_emits_no_successful_bootstrap_witness(self):
+        _, probe, calls = load_probe()
+        events = []
+        probe._INITIALIZED = False
+
+        def failing_register(*args, **kwargs):
+            events.append("register")
+            raise RuntimeError("registration failed")
+
+        probe.register = failing_register
+        probe.derive_telemetry_root = lambda path: tempfile.mkdtemp(
+            prefix="ashley-e1-root-")
+        probe.bootstrap_from_module_path = lambda *args, **kwargs: events.append(
+            "bootstrap")
+
+        with self.assertRaisesRegex(RuntimeError, "registration failed"):
+            probe.initialize_probe()
+
+        self.assertEqual(events, ["register"])
+        self.assertFalse(probe._INITIALIZED)
+        self.assertEqual(calls["alarms"], [])
+        self.assertEqual(FakeWriter.instances, [])
+
+    def test_successful_initialization_emits_one_bootstrap_and_is_idempotent(self):
+        _, probe, _ = load_probe()
+        events = []
+        probe._INITIALIZED = False
+        probe.derive_telemetry_root = lambda path: tempfile.mkdtemp(
+            prefix="ashley-e1-root-")
+        probe.bootstrap_from_module_path = lambda *args, **kwargs: events.append(
+            "bootstrap")
+
+        probe.initialize_probe()
+        probe.initialize_probe()
+
+        self.assertEqual(events, ["bootstrap"])
+        self.assertTrue(probe._INITIALIZED)
+
     def test_bootstrap_emits_required_import_summary(self):
         load_probe()
         from ashley_e1 import schema, writer
@@ -53,7 +116,7 @@ class BootstrapTests(unittest.TestCase):
             module_path = os.path.join(temp, "The Sims 4", "Mods", "AshleyE1",
                                        "ashley_e1", "writer.py")
             root = writer.bootstrap_from_module_path(
-                module_path, "1.0.1", "1.128.90.1030", summary)
+                module_path, "1.0.2", "1.128.90.1030", summary)
             files = [name for name in os.listdir(root) if name.startswith("ashley_e1_bootstrap_")]
             self.assertEqual(len(files), 1)
             with open(os.path.join(root, files[0]), "r", encoding="utf-8") as handle:
