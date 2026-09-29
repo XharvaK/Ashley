@@ -102,6 +102,7 @@ describe("P04 required recovery before listen", () => {
       core: {
         getDatabase: () => nuclear,
         getHealth: () => ({ dbPath: join(dir, "nuclear.db") }),
+        configureCapabilityActivationReadiness: () => undefined,
       },
     };
 

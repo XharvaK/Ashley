@@ -53,7 +53,7 @@ describe("R-4 shipping startup composition activates only existing perception se
   });
 
   it("constructs the bounded Command Code vision transport beside the existing Tavily search provider", () => {
-    expect(SERVE_SOURCE).toContain("createCommandCodeVisionTransport");
+    expect(SERVE_SOURCE).toContain("createCommandCodeDirectVisionTransport");
     expect(SERVE_SOURCE).toContain("visionTransport");
     expect(SERVE_SOURCE).toContain("TavilyWebSearchProvider");
   });
