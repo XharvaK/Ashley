@@ -27,3 +27,8 @@ work/phase5-*
 
 docs/cognitive-rework/v0.2.1/artifacts/runtime/*
 !docs/cognitive-rework/v0.2.1/artifacts/runtime/README.md
+
+# Local-only working material (never published)
+_Internal/
+.codex-remote-attachments/
+.commandcode/
