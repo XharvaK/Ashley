@@ -61,7 +61,6 @@ import {
 import { promoteEligiblePending } from "./core/cognitive-v021/social/dm-activation.js";
 import { promoteEligibleRoomPending } from "./core/cognitive-v021/social/room-activation.js";
 import { recoverInitialContactEligibility } from "./core/cognitive-v021/social/continuity-memory.js";
-import { createLiveExpressionBinding } from "./core/cognitive-v021/speech/live-expression.js";
 import {
   getCommitmentOpportunity,
   isCommitmentsEnabled,
@@ -384,10 +383,10 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
       nowMs: () => Date.now(),
       attentionDb: nuclear,
       completeChat,
-      ...createLiveExpressionBinding({
-        attentionDb: nuclear,
-        completeChat,
-      }),
+      // Thought's surfaceDraft is Ashley's own voice. The separate Expression
+      // rewrite (a smaller model with no identity context) is retired: it
+      // could only flatten her words. Owner decision 2026-09-29.
+      expressionEnabled: false,
       runPerception: async (input): Promise<Observation[]> => runPerceptionBeforeThought({
         ...input,
         runPerception: async () => [],
