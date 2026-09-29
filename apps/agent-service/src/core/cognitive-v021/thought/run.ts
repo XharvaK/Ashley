@@ -70,6 +70,7 @@ import {
   currentAttemptIs,
   getCycleFreshnessState,
   getInboxEvent,
+  listCycleOwnerUtterances,
 } from "../cycle/inbox.js";
 import {
   activeThoughtMayFinishWhileDetachedCompletionQueued,
@@ -2028,6 +2029,38 @@ function payloadRecord(event: InboxEvent): Record<string, unknown> {
     : {};
 }
 
+type OwnerAttachmentSource = { sourceMessageEntityUuid: string; attachments: readonly unknown[] };
+
+/**
+ * Attachment refs for every Owner utterance in this cycle: the triggering
+ * event first, then fragments absorbed while the cycle was thinking. Absorbed
+ * fragments carry their own attachment refs on their own inbox events.
+ */
+export function ownerAttachmentSources(
+  sidecar: DatabaseSync,
+  event: InboxEvent,
+  payload: Record<string, unknown>,
+  cycle: { cycleId: string; conversationId: string },
+): OwnerAttachmentSource[] {
+  const sourceOf = (id: string, record: Record<string, unknown>): OwnerAttachmentSource | null => {
+    const attachments = Array.isArray(record.attachments) ? record.attachments : [];
+    if (attachments.length === 0) return null;
+    const evidenceRowId = typeof record.evidenceRowId === "string" ? record.evidenceRowId.trim() : "";
+    return { sourceMessageEntityUuid: evidenceRowId || id, attachments };
+  };
+  const sources: OwnerAttachmentSource[] = [];
+  const seen = new Set<string>([event.id]);
+  const trigger = sourceOf(event.id, payload);
+  if (trigger) sources.push(trigger);
+  for (const absorbed of listCycleOwnerUtterances(sidecar, cycle.conversationId, cycle.cycleId)) {
+    if (seen.has(absorbed.id)) continue;
+    seen.add(absorbed.id);
+    const source = sourceOf(absorbed.id, payloadRecord(absorbed));
+    if (source) sources.push(source);
+  }
+  return sources;
+}
+
 /** Build the semantic cause record without composing a new future-trigger purpose. */
 export function buildThoughtWakeCauses(
   sidecar: DatabaseSync,
@@ -3043,28 +3076,30 @@ export async function runCognitiveCycle(
   const perceive = async (): Promise<Observation[]> => {
     if (boundObservations) return boundObservations;
     const resolveAttachments = deps.resolveAttachmentObservations ?? resolveAttachmentObservations;
-    const declaredAttachments = Array.isArray(payload.attachments) ? payload.attachments : [];
-    const hasAttachments = event.kind === "owner_utterance" && declaredAttachments.length > 0;
-    const attachmentCapabilityReality = hasAttachments ? currentCapabilityReality() : null;
-    const attachmentObservations = hasAttachments && attachmentCapabilityReality
-      ? await resolveAttachments({
+    const attachmentSources = event.kind === "owner_utterance"
+      ? ownerAttachmentSources(sidecar, event, payload, cycle)
+      : [];
+    const attachmentCapabilityReality = attachmentSources.length > 0 ? currentCapabilityReality() : null;
+    const attachmentObservations: Observation[] = [];
+    if (attachmentCapabilityReality) {
+      for (const source of attachmentSources) {
+        attachmentObservations.push(...await resolveAttachments({
           nuclear,
           ownerId: typeof payload.ownerId === "string" && payload.ownerId.trim()
             ? payload.ownerId.trim()
             : cycle.occupantId,
           cycleId: cycle.cycleId,
           generation: cycle.generation,
-          sourceMessageEntityUuid: typeof payload.evidenceRowId === "string" && payload.evidenceRowId.trim()
-            ? payload.evidenceRowId.trim()
-            : event.id,
+          sourceMessageEntityUuid: source.sourceMessageEntityUuid,
           deliveryReservationEntityUuid: event.id,
-          attachments: declaredAttachments,
+          attachments: source.attachments,
           attachmentTextEnabled: attachmentCapabilityReality.attachmentText,
           visionAccess: attachmentCapabilityReality.vision,
           imageTransport: deps.visionTransport,
           observationDb: sidecar,
-        })
-      : [];
+        }));
+      }
+    }
     try {
       const perceived = await adaptPerception({
         cycleId: cycle.cycleId,

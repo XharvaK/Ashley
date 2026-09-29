@@ -814,6 +814,23 @@ export function listInboxEvents(db: DatabaseSync, conversationId: string, option
   return rows.map(mapInbox).filter((row): row is InboxEvent => row !== null);
 }
 
+/**
+ * Owner utterances admitted into one cycle, oldest first. A fragment that
+ * arrives while the cycle is thinking is absorbed as evidence into that cycle;
+ * its own inbox event still carries its attachment refs, so perception must
+ * read them from here rather than from the triggering event alone.
+ */
+export function listCycleOwnerUtterances(db: DatabaseSync, conversationId: string, cycleId: string, limit = 32): InboxEvent[] {
+  const bounded = Math.max(1, Math.min(100, limit));
+  const rows = db.prepare(
+    `SELECT * FROM inbox_events
+     WHERE conversation_id = ? AND kind = 'owner_utterance'
+       AND json_valid(payload_json) AND json_extract(payload_json, '$.cycleId') = ?
+     ORDER BY created_at_ms ASC, rowid ASC LIMIT ?`,
+  ).all(conversationId, cycleId, bounded);
+  return rows.map(mapInbox).filter((row): row is InboxEvent => row !== null);
+}
+
 export function claimInboxEvent(db: DatabaseSync, input: { workerId: string; conversationId?: string; eventId?: string; nowMs?: number; leaseMs?: number }): InboxEvent | null {
   const nowMs = input.nowMs ?? Date.now();
   try {

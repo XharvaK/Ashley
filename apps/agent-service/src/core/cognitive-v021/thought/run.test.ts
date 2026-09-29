@@ -250,6 +250,82 @@ describe("v0.2.1 Thought run", () => {
     }
   });
 
+  it("perceives an image sent as a separate fragment folded into the caption's cycle", async () => {
+    // Regression 2026-09-29: caption and screenshot arrived 2 s apart as two
+    // Discord messages; the screenshot's event joined the caption's cycle and
+    // perception read attachments from the caption's event only.
+    const sidecar = openTestSidecar();
+    const attentionDb = openTestSidecar();
+    const nuclear = openNuclearDb(new DatabaseSync(":memory:"));
+    const conversationId = "thread-attachment-fragment";
+    const cycle = admitTestCycle(sidecar, {
+      conversationId,
+      triggerKind: "owner_message",
+      triggerRef: "caption-event",
+      occupantId: "doc",
+      authorityEpoch: 1,
+      nowMs: 1,
+    });
+    const caption = appendOwnerUtterance(sidecar, {
+      conversationId,
+      text: "ill send you the screenshot",
+      nowMs: 2,
+      audienceAtCapture: "owner_private",
+    });
+    const event = appendInboxEvent(sidecar, {
+      wakeId: cycle.wakeId,
+      conversationId,
+      kind: "owner_utterance",
+      payload: { cycleId: cycle.cycleId, evidenceRowId: caption.rowId, ownerId: "doc", ownerMessage: caption.text },
+      createdAtMs: 3,
+    });
+    const imageEvidence = appendOwnerUtterance(sidecar, {
+      conversationId,
+      text: "(shared 1 image(s))",
+      nowMs: 4,
+      audienceAtCapture: "owner_private",
+    });
+    const screenshot = {
+      discordAttachmentId: "attachment-screenshot",
+      declaredMime: "image/webp",
+      fileName: "image.png",
+      sourceUrl: "https://cdn.example.test/image.png",
+      sourceClass: "supplied_image",
+    };
+    appendInboxEvent(sidecar, {
+      wakeId: cycle.wakeId,
+      conversationId,
+      kind: "owner_utterance",
+      payload: { cycleId: cycle.cycleId, evidenceRowId: imageEvidence.rowId, ownerId: "doc", attachments: [screenshot] },
+      createdAtMs: 5,
+    });
+    const resolveAttachmentObservations = vi.fn<NonNullable<KernelDeps["resolveAttachmentObservations"]>>(async () => []);
+    const completeChat = vi.fn<KernelDeps["completeChat"]>(async () => ({
+      text: JSON.stringify(makeSemanticSettlement()),
+      model: "fake",
+      modelAlias: "thought",
+      resolvedModelId: null,
+    }));
+    try {
+      await runCognitiveCycle(sidecar, nuclear, event, deps({
+        attentionDb,
+        completeChat,
+        capabilityReality: { ...capabilityReality, vision: "mediated" },
+        resolveAttachmentObservations,
+      }));
+      expect(resolveAttachmentObservations).toHaveBeenCalledWith(expect.objectContaining({
+        attachments: [screenshot],
+        sourceMessageEntityUuid: imageEvidence.rowId,
+        deliveryReservationEntityUuid: event.id,
+        visionAccess: "mediated",
+      }));
+    } finally {
+      sidecar.close();
+      attentionDb.close();
+      nuclear.close();
+    }
+  });
+
   it("binds authenticated Owner room context to a room destination without externalizing the cycle", () => {
     const destination = ownerRoomDestinationFor(
       "room:guild-1:channel-1",
