@@ -4,6 +4,7 @@ import sys
 import tempfile
 import types
 import unittest
+import weakref
 
 
 SRC = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src"))
@@ -69,6 +70,7 @@ def install_stubs():
     alarms = types.ModuleType("alarms")
 
     def add_alarm_real_time(*args, **kwargs):
+        weakref.ref(kwargs["owner"])
         handle = FakeHandle()
         calls["alarms"].append((handle, args, kwargs))
         return handle
@@ -87,6 +89,7 @@ def install_stubs():
     date.TimeSpan = lambda value: value
     sys.modules["date_and_time"] = date
     objects = types.ModuleType("objects")
+    objects.ALL_HIDDEN_REASONS = object()
     objects.HiddenReasonFlag = types.SimpleNamespace(ALL_HIDDEN_FLAGS="ALL")
     sys.modules["objects"] = objects
     services = types.ModuleType("services")
@@ -222,6 +225,21 @@ class BindingTests(unittest.TestCase):
         self.assertEqual(probe.get_status()["state"], "SAMPLING")
         self.assertTrue(FakeWriter.instances[-1].sampling)
 
+    def test_alarm_owner_is_weak_referenceable_and_singleton_across_cycles(self):
+        _, probe, _ = load_probe()
+        owner = probe._PROBE_ALARM_OWNER
+        self.assertIs(weakref.ref(owner)(), owner)
+
+        self.assertTrue(probe._cmd_arm("LAB_E1"))
+        self.assertTrue(probe._cmd_start())
+        self.assertTrue(probe._cmd_stop())
+        self.assertTrue(probe._cmd_disarm())
+        FakeWriter.instances[-1].finish()
+        probe._WRITER_IDLE = True
+        self.assertTrue(probe._cmd_arm("LAB_E1"))
+        self.assertTrue(probe._cmd_start())
+        self.assertIs(probe._PROBE_ALARM_OWNER, owner)
+
     def test_start_does_not_construct_timespan_around_interval_result(self):
         _, probe, calls = load_probe()
         sentinel = object()
@@ -288,6 +306,57 @@ class BindingTests(unittest.TestCase):
         rows = FakeWriter.instances[-1].rows
         self.assertEqual([item["event_kind"] for item in rows],
                          ["session_open", "presence_snapshot"])
+
+    def test_incomplete_session_identity_fails_closed_before_session_open(self):
+        from ashley_e1 import schema
+
+        for missing in ("save_slot_guid", "slot_id", "sim_id"):
+            with self.subTest(missing=missing):
+                _, probe, calls = load_probe()
+                self.assertTrue(probe._cmd_arm("LAB_E1"))
+                self.assertTrue(probe._cmd_start())
+                save = {"save_slot_guid": "guid", "slot_id": "slot"}
+                body = {"sim_id": "sim", "instantiated": True,
+                        "is_selectable": True, "is_selected": None,
+                        "posture": None}
+                if missing in save:
+                    save[missing] = None
+                else:
+                    body[missing] = None
+                row = schema.make_record(
+                    "presence_snapshot",
+                    telemetry_session_id=probe.get_status()["telemetry_session_id"],
+                    wall_timestamp_ms=10, monotonic_ns=20,
+                    observation_complete=True,
+                    attestation=schema.attestation("LAB_E1"),
+                    save=save, body=body,
+                    interactions={"observed": [], "queue_truncated": False,
+                                  "running_truncated": False,
+                                  "observation_complete": True},
+                )
+                opened = []
+                original_session_open = probe._session_open_from
+                probe._session_open_from = lambda value: (
+                    opened.append(value), original_session_open(value))[1]
+                probe.observers.poll_once = lambda session, name, row=row: row
+                probe._poll_tick(calls["alarms"][0][0])
+
+                writer = FakeWriter.instances[-1]
+                self.assertEqual(opened, [])
+                self.assertEqual([item["event_kind"] for item in writer.rows],
+                                 ["guard_exhausted"])
+                self.assertEqual(
+                    writer.rows[0]["reason"],
+                    "OBSERVATION_FAILURE:SESSION_OPEN_IDENTITY_INCOMPLETE",
+                )
+                schema.validate_record(writer.rows[0])
+                self.assertIsNone(writer.rows[0]["save"]["save_slot_guid"])
+                self.assertIsNone(writer.rows[0]["save"]["slot_id"])
+                self.assertIsNone(writer.rows[0]["body"]["sim_id"])
+                self.assertIsNone(probe.get_status()["armed_snapshot"])
+                self.assertFalse(probe._SESSION_OPENED)
+                self.assertEqual(probe.get_status()["state"], "ARMED")
+                self.assertFalse(writer.sampling)
 
     def test_reentrant_poll_is_counted_as_overrun(self):
         _, probe, _ = load_probe()

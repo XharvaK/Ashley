@@ -84,7 +84,13 @@ except AttributeError:
     _interaction_context_type = None
 
 _INITIALIZED = False
-_PROBE_ALARM_OWNER = object()
+
+
+class _ProbeAlarmOwner:
+    pass
+
+
+_PROBE_ALARM_OWNER = _ProbeAlarmOwner()
 _STATE = "UNARMED"
 _ARMED_NAME = None
 _ARMED_SNAPSHOT = None
@@ -457,6 +463,20 @@ def _poll_tick_body():
         row["interactions"] = interactions
         row["observation_complete"] = False
     if not _SESSION_OPENED:
+        save = row.get("save", {})
+        body = row.get("body", {})
+        if (save.get("save_slot_guid") is None or
+                save.get("slot_id") is None or
+                body.get("sim_id") is None):
+            _emit(schema.make_record(
+                "guard_exhausted",
+                telemetry_session_id=_TELEMETRY_SESSION_ID,
+                wall_timestamp_ms=int(time.time() * 1000),
+                monotonic_ns=time.perf_counter_ns(),
+                reason="OBSERVATION_FAILURE:SESSION_OPEN_IDENTITY_INCOMPLETE",
+            ))
+            _cmd_stop()
+            return
         if not _emit(_session_open_from(row)):
             _cmd_stop()
             return

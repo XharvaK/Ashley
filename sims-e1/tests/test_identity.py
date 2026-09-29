@@ -2,9 +2,14 @@ import os
 import sys
 import types
 import unittest
+from types import SimpleNamespace
 
 if "services" not in sys.modules:
     sys.modules["services"] = types.ModuleType("services")
+if "objects" not in sys.modules:
+    objects = types.ModuleType("objects")
+    objects.ALL_HIDDEN_REASONS = object()
+    sys.modules["objects"] = objects
 
 
 SRC = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src"))
@@ -145,6 +150,113 @@ class BodySelectionTests(unittest.TestCase):
         self.assertNotIn("bool(selectable)", source)
         self.assertNotIn("active_sim", source)
         self.assertNotIn("getattr(", source)
+
+
+class ObserverPollTests(unittest.TestCase):
+    def _patch(self, name, value):
+        had_value = hasattr(observers.services, name)
+        previous = getattr(observers.services, name, None)
+        setattr(observers.services, name, value)
+        if had_value:
+            self.addCleanup(setattr, observers.services, name, previous)
+        else:
+            self.addCleanup(delattr, observers.services, name)
+
+    def _poll_once(self, queue, running, sim_id="sim", seen_flags=None,
+                   slot_id="slot", guid="guid"):
+        if seen_flags is None:
+            seen_flags = []
+
+        sim = SimpleNamespace(queue=queue, si_state=running)
+
+        class SimInfo:
+            is_selectable = True
+            id = sim_id
+
+            def get_sim_instance(self, allow_hidden_flags=None):
+                seen_flags.append(allow_hidden_flags)
+                return sim
+
+        info = SimInfo()
+        self._patch(
+            "sim_info_manager",
+            lambda: SimpleNamespace(get_all=lambda: [info]),
+        )
+        self._patch(
+            "get_persistence_service",
+            lambda: SimpleNamespace(
+                get_save_slot_proto_guid=lambda: guid,
+                get_save_slot_proto_buff=lambda: SimpleNamespace(slot_id=slot_id),
+            ),
+        )
+        self._patch(
+            "time_service",
+            lambda: SimpleNamespace(
+                sim_now=SimpleNamespace(
+                    absolute_ticks=lambda: 12,
+                    __str__=lambda self: "calendar",
+                ),
+            ),
+        )
+        self._patch(
+            "game_clock_service",
+            lambda: SimpleNamespace(clock_speed="NORMAL"),
+        )
+        previous_monotonic = observers._monotonic_ns
+        observers._monotonic_ns = lambda: 34
+        self.addCleanup(setattr, observers, "_monotonic_ns", previous_monotonic)
+        return observers.poll_once("session", "LAB_E1"), seen_flags
+
+    def test_poll_default_uses_approved_hidden_flags(self):
+        _, seen_flags = self._poll_once([], [])
+        self.assertEqual(len(seen_flags), 1)
+        self.assertIs(seen_flags[0], observers.ALL_HIDDEN_REASONS)
+
+    def test_none_queue_or_running_view_is_incomplete_not_an_exception(self):
+        for queue, running in ((None, []), ([], None), (None, None)):
+            with self.subTest(queue=queue, running=running):
+                row, _ = self._poll_once(queue, running)
+                self.assertFalse(row["observation_complete"])
+                self.assertFalse(row["interactions"]["observation_complete"])
+
+    def test_initialized_empty_views_remain_complete(self):
+        row, _ = self._poll_once([], [])
+        self.assertTrue(row["observation_complete"])
+        self.assertTrue(row["interactions"]["observation_complete"])
+        self.assertEqual(row["interactions"]["observed"], [])
+
+    def test_available_side_is_preserved_when_other_view_is_unavailable(self):
+        queued = [object()]
+        row, _ = self._poll_once(queued, None)
+        self.assertEqual(len(row["interactions"]["observed"]), 1)
+        self.assertFalse(row["observation_complete"])
+
+    def test_missing_sim_id_stays_none(self):
+        row, _ = self._poll_once([], [], sim_id=None)
+        self.assertIsNone(row["body"]["sim_id"])
+
+    def test_missing_save_buffer_is_none_safe(self):
+        persistence = SimpleNamespace(
+            get_save_slot_proto_guid=lambda: None,
+            get_save_slot_proto_buff=lambda: None,
+        )
+        self._patch("get_persistence_service", lambda: persistence)
+        self.assertEqual(
+            observers._save_snapshot(),
+            {"save_slot_guid": None, "slot_id": None},
+        )
+
+    def test_missing_or_falsy_slot_id_is_preserved(self):
+        for raw_slot, expected in ((None, None), (0, "0"), (False, "False")):
+            with self.subTest(raw_slot=raw_slot):
+                persistence = SimpleNamespace(
+                    get_save_slot_proto_guid=lambda: 123,
+                    get_save_slot_proto_buff=lambda: SimpleNamespace(
+                        slot_id=raw_slot),
+                )
+                self._patch("get_persistence_service", lambda: persistence)
+                snapshot = observers._save_snapshot()
+                self.assertEqual(snapshot["slot_id"], expected)
 
 
 if __name__ == "__main__":

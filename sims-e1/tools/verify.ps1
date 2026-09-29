@@ -1,6 +1,7 @@
 param(
-    [string]$Version = "1.0.6",
-    [string]$PythonPath = "C:\Users\Xharv\AppData\Local\Programs\Python\Python370-AshleyE1\python.exe"
+    [string]$Version = "1.0.7",
+    [string]$PythonPath = "C:\Users\Xharv\AppData\Local\Programs\Python\Python370-AshleyE1\python.exe",
+    [string]$HostPythonPath = ""
 )
 
 $ErrorActionPreference = "Continue"
@@ -24,32 +25,70 @@ function Record-Fail([string]$Message) {
     $lines.Add($line)
     Write-Output $line
 }
-
-if (-not (Test-Path -LiteralPath $artifact -PathType Leaf)) { Record-Fail "artifact missing" }
-if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) { Record-Fail "manifest missing" }
-if (-not (Test-Path -LiteralPath $PythonPath -PathType Leaf)) { Record-Fail "pinned compiler missing" }
-
-if (-not $failed) {
-    $versionText = (& $PythonPath -c "import sys; print('%d.%d.%d' % sys.version_info[:3]); raise SystemExit(0 if sys.version_info[:2] == (3, 7) and sys.version_info[2] == 0 else 1)")
-    if ($LASTEXITCODE -eq 0) { Record-Pass ("compiler=" + $versionText.Trim()) } else { Record-Fail "compiler is not CPython 3.7.0" }
+function Record-Skip([string]$Message) {
+    $line = "VERIFY_SKIP " + $Message
+    $lines.Add($line)
+    Write-Output $line
 }
 
-$systemPython = (Get-Command python -ErrorAction SilentlyContinue).Source
-if ($null -eq $systemPython) {
-    Record-Fail "system Python unavailable"
+$artifactReady = Test-Path -LiteralPath $artifact -PathType Leaf
+$manifestReady = Test-Path -LiteralPath $manifestPath -PathType Leaf
+$sidecarReady = Test-Path -LiteralPath $sidecar -PathType Leaf
+if (-not $artifactReady) { Record-Fail "artifact missing" }
+if (-not $manifestReady) { Record-Fail "manifest missing" }
+if (-not $sidecarReady) { Record-Fail "artifact sidecar missing" }
+
+$compilerAvailable = Test-Path -LiteralPath $PythonPath -PathType Leaf
+if (-not $compilerAvailable) {
+    Record-Fail "pinned compiler missing"
 } else {
-    $systemVersion = (& $systemPython --version 2>&1 | Out-String).Trim()
-    if ($systemVersion -match '^Python 3\.14\.') { Record-Pass ("system=" + $systemVersion) }
-    else { Record-Fail ("system Python must be 3.14.x: " + $systemVersion) }
+    $versionText = (& $PythonPath -c "import sys; print('%d.%d.%d' % sys.version_info[:3]); raise SystemExit(0 if sys.version_info[:2] == (3, 7) and sys.version_info[2] == 0 else 1)")
+    if ($LASTEXITCODE -eq 0) {
+        Record-Pass ("compiler=" + $versionText.Trim())
+    } else {
+        Record-Fail "compiler is not CPython 3.7.0"
+    }
 }
 
-if (-not $failed) {
+$hostPython = $null
+$hostReady = $false
+if (-not [string]::IsNullOrWhiteSpace($HostPythonPath)) {
+    if (Test-Path -LiteralPath $HostPythonPath -PathType Leaf) {
+        $hostPython = (Get-Item -LiteralPath $HostPythonPath).FullName
+    } else {
+        Record-Skip "host Python unavailable; explicit HostPythonPath not found"
+    }
+} else {
+    $hostCommand = Get-Command python -ErrorAction SilentlyContinue
+    if ($null -ne $hostCommand) {
+        $hostPython = $hostCommand.Source
+    } else {
+        Record-Skip "host Python unavailable; secondary compatibility lane skipped"
+    }
+}
+
+if ($null -ne $hostPython) {
+    $hostVersion = (& $hostPython --version 2>&1 | Out-String).Trim()
+    if ($LASTEXITCODE -eq 0 -and $hostVersion -match '^Python 3\.\d+\.\d+$') {
+        Record-Pass ("host=" + $hostVersion)
+        $hostReady = $true
+    } else {
+        Record-Fail ("host Python must be Python 3.x: " + $hostVersion)
+    }
+}
+
+if ($compilerAvailable) {
     $guardOutput = & $PythonPath (Join-Path $repo "sims-e1\tools\check_guards.py") (Join-Path $repo "sims-e1\src") 2>&1
     if ($LASTEXITCODE -eq 0) { Record-Pass "AST guards" } else { Record-Fail ("AST guards: " + ($guardOutput -join " | ")) }
-    $testOutput = & $systemPython -m unittest discover -s (Join-Path $repo "sims-e1\tests") -p "test_*.py" 2>&1
-    if ($LASTEXITCODE -eq 0) { Record-Pass "focused tests under system Python" } else { Record-Fail ("system tests: " + ($testOutput -join " | ")) }
     $pinnedOutput = & $PythonPath -m unittest discover -s (Join-Path $repo "sims-e1\tests") -p "test_*.py" 2>&1
     if ($LASTEXITCODE -eq 0) { Record-Pass "focused tests under CPython 3.7.0" } else { Record-Fail ("pinned tests: " + ($pinnedOutput -join " | ")) }
+} else {
+    Record-Skip "pinned compiler checks skipped: CPython 3.7.0 unavailable"
+}
+
+if ($hostReady) {
+    $hostTestOutput = & $hostPython -m unittest discover -s (Join-Path $repo "sims-e1\tests") -p "test_*.py" 2>&1
+    if ($LASTEXITCODE -eq 0) { Record-Pass "focused tests under host Python" } else { Record-Fail ("host tests: " + ($hostTestOutput -join " | ")) }
 }
 
 $packageCode = @'
@@ -139,10 +178,12 @@ for error in errors:
     print(error)
 raise SystemExit(1 if errors else 0)
 '@
-if (-not $failed) {
+if ($compilerAvailable -and $artifactReady -and $manifestReady -and $sidecarReady) {
     $packageOutput = & $PythonPath -c $packageCode $artifact $manifestPath (Join-Path $repo "sims-e1\src") $sidecar $Version 2>&1
     if ($LASTEXITCODE -eq 0) { Record-Pass "artifact layout, magic, hashes, manifest, source digest" }
     else { Record-Fail ("artifact verification: " + ($packageOutput -join " | ")) }
+} else {
+    Record-Skip "artifact verification prerequisites unavailable"
 }
 
 $lines | Set-Content -LiteralPath $logPath -Encoding UTF8

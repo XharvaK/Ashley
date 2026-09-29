@@ -3,6 +3,8 @@
 import services  # PRIOR_ART|RUNTIME_UNVERIFIED: vanilla service getters.
 import time
 
+from objects import ALL_HIDDEN_REASONS  # PRIOR_ART|RUNTIME_UNVERIFIED: approved hidden-flag constant.
+
 from . import schema
 from . import snapshot
 
@@ -49,8 +51,9 @@ def _save_snapshot():
     persistence = services.get_persistence_service()
     guid = persistence.get_save_slot_proto_guid()
     buff = persistence.get_save_slot_proto_buff()
+    raw_slot_id = None if buff is None else buff.slot_id
     return {"save_slot_guid": None if guid is None else str(guid),
-            "slot_id": None if buff.slot_id is None else str(buff.slot_id)}
+            "slot_id": None if raw_slot_id is None else str(raw_slot_id)}
 
 
 def _game_snapshot():
@@ -88,12 +91,16 @@ def _describe_interaction(entry):
     return row
 
 
-def poll_once(telemetry_session_id, armed_name, hidden_flags=None):
+def poll_once(telemetry_session_id, armed_name,
+              hidden_flags=ALL_HIDDEN_REASONS):
     """Read one body and return a plain-data presence record."""
     candidates = services.sim_info_manager().get_all()
     sim_info, sim = select_lab_body(candidates, hidden_flags)
-    queued = sim.queue
-    running = sim.si_state
+    raw_queued = sim.queue
+    raw_running = sim.si_state
+    capture_complete = raw_queued is not None and raw_running is not None
+    queued = () if raw_queued is None else raw_queued
+    running = () if raw_running is None else raw_running
     interactions, queue_truncated, running_truncated = snapshot.merge_interactions(
         queued, running, _describe_interaction
     )
@@ -101,10 +108,12 @@ def poll_once(telemetry_session_id, armed_name, hidden_flags=None):
     game = _game_snapshot()
     wall = int(time.time() * 1000)
     mono = _monotonic_ns()
-    sim_id = str(sim_info.id)
+    raw_sim_id = sim_info.id
+    sim_id = None if raw_sim_id is None else str(raw_sim_id)
     body = {"sim_id": sim_id, "instantiated": True, "is_selectable": True,
             "is_selected": None, "posture": None}
-    complete = snapshot.interactions_complete(queue_truncated, running_truncated, True)
+    complete = snapshot.interactions_complete(
+        queue_truncated, running_truncated, capture_complete)
     return schema.make_record(
         "presence_snapshot", telemetry_session_id=telemetry_session_id,
         wall_timestamp_ms=wall, monotonic_ns=mono,
