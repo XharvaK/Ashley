@@ -181,6 +181,218 @@ class WriterBoundTests(unittest.TestCase):
 
 
 class WriterContractRepairTests(unittest.TestCase):
+    def test_initial_inventory_runs_once_and_establishes_logical_truth(self):
+        with tempfile.TemporaryDirectory() as temp:
+            with mock.patch.object(writer, "_directory_size",
+                                   wraps=writer._directory_size) as directory_scan:
+                sink = writer.TelemetryWriter(
+                    temp, "session-a", "1.0.0", "1.128.90.1030",
+                    autostart=False,
+                )
+            self.assertEqual(directory_scan.call_count, 1)
+            self.assertTrue(sink._cap_truth_known)
+            self.assertEqual(sink._logical_directory_bytes, 0)
+            self.assertEqual(sink._logical_active_bytes, 0)
+
+    def test_initial_inventory_failure_fails_closed_without_unknown_admission(self):
+        with tempfile.TemporaryDirectory() as temp:
+            with mock.patch.object(writer, "_directory_size", return_value=None):
+                sink = writer.TelemetryWriter(
+                    temp, "session-a", "1.0.0", "1.128.90.1030",
+                    autostart=False,
+                )
+            self.assertEqual(sink.state, "FAILED_STICKY")
+            self.assertEqual(sink.failure_reason, "inventory_failure")
+            self.assertFalse(sink._cap_truth_known)
+            self.assertFalse(sink.try_put(clock_row(1)))
+
+    def test_ordinary_rows_use_logical_caps_without_directory_or_active_stat(self):
+        with tempfile.TemporaryDirectory() as temp:
+            sink = writer.TelemetryWriter(
+                temp, "session-a", "1.0.0", "1.128.90.1030", autostart=False
+            )
+            sink._open_active()
+            with mock.patch.object(writer, "_directory_size",
+                                   wraps=writer._directory_size) as directory_scan:
+                with mock.patch.object(writer.os.path, "getsize",
+                                       wraps=writer.os.path.getsize) as active_stat:
+                    self.assertTrue(sink._write_row(presence_row(1)))
+            self.assertEqual(directory_scan.call_count, 0)
+            self.assertEqual(active_stat.call_count, 0)
+            sink._close_stream(reconcile=False)
+
+    def test_successful_physical_write_commits_logical_bytes_once(self):
+        with tempfile.TemporaryDirectory() as temp:
+            sink = writer.TelemetryWriter(
+                temp, "session-a", "1.0.0", "1.128.90.1030", autostart=False
+            )
+            sink._open_active()
+            payload = b"payload"
+            before_active = sink._logical_active_bytes
+            before_directory = sink._logical_directory_bytes
+            self.assertTrue(sink._write_physical(payload))
+            size = len(payload) + 1
+            self.assertEqual(sink._logical_active_bytes, before_active + size)
+            self.assertEqual(sink._logical_directory_bytes, before_directory + size)
+            self.assertEqual(sink._active_bytes, sink._logical_active_bytes)
+            sink._close_stream(reconcile=False)
+
+    def test_failed_physical_write_does_not_commit_logical_bytes(self):
+        with tempfile.TemporaryDirectory() as temp:
+            sink = writer.TelemetryWriter(
+                temp, "session-a", "1.0.0", "1.128.90.1030", autostart=False
+            )
+            sink._open_active()
+            sink._stream.close()
+            sink._stream = RecordingStream(fail_write=True)
+            before_active = sink._logical_active_bytes
+            before_directory = sink._logical_directory_bytes
+            with self.assertRaises(OSError):
+                sink._write_physical(b"payload")
+            self.assertEqual(sink._logical_active_bytes, before_active)
+            self.assertEqual(sink._logical_directory_bytes, before_directory)
+
+    def test_uncertain_physical_write_does_not_commit_logical_bytes(self):
+        with tempfile.TemporaryDirectory() as temp:
+            sink = writer.TelemetryWriter(
+                temp, "session-a", "1.0.0", "1.128.90.1030", autostart=False
+            )
+            sink._open_active()
+            before_active = sink._logical_active_bytes
+            before_directory = sink._logical_directory_bytes
+            with mock.patch.object(sink._stream, "write", return_value=1):
+                with self.assertRaises(OSError):
+                    sink._write_physical(b"payload")
+            self.assertEqual(sink._logical_active_bytes, before_active)
+            self.assertEqual(sink._logical_directory_bytes, before_directory)
+            sink._close_stream(reconcile=False)
+
+    def test_flush_boundary_reconciles_physical_directory_once(self):
+        with tempfile.TemporaryDirectory() as temp:
+            sink = writer.TelemetryWriter(
+                temp, "session-a", "1.0.0", "1.128.90.1030", autostart=False
+            )
+            sink._open_active()
+            self.assertTrue(sink._write_physical(b"payload"))
+            with mock.patch.object(writer, "_directory_size",
+                                   wraps=writer._directory_size) as directory_scan:
+                self.assertTrue(sink._flush_boundary(force=True))
+            self.assertEqual(directory_scan.call_count, 1)
+            self.assertEqual(
+                sink._logical_directory_bytes,
+                os.path.getsize(sink._active_path),
+            )
+            sink._close_stream(reconcile=False)
+
+    def test_five_second_sampling_flush_reconciles(self):
+        with tempfile.TemporaryDirectory() as temp:
+            sink = writer.TelemetryWriter(
+                temp, "session-a", "1.0.0", "1.128.90.1030", autostart=False
+            )
+            sink._open_active()
+            self.assertTrue(sink._write_physical(b"payload"))
+            sink.set_sampling(True)
+            sink._last_flush_monotonic = 10.0
+            with mock.patch.object(writer.time, "perf_counter", return_value=16.0):
+                with mock.patch.object(sink, "_reconcile_directory",
+                                       wraps=sink._reconcile_directory) as reconcile:
+                    self.assertTrue(sink._flush_if_due())
+            self.assertEqual(reconcile.call_count, 1)
+            sink._close_stream(reconcile=False)
+
+    def test_checkpoint_reconciles_after_forced_flush(self):
+        with tempfile.TemporaryDirectory() as temp:
+            sink = writer.TelemetryWriter(
+                temp, "session-a", "1.0.0", "1.128.90.1030", autostart=False
+            )
+            sink._open_active()
+            with mock.patch.object(sink, "_reconcile_directory",
+                                   wraps=sink._reconcile_directory) as reconcile:
+                self.assertTrue(sink._write_checkpoint("PERIODIC_60S"))
+            self.assertEqual(reconcile.call_count, 1)
+            sink._close_stream(reconcile=False)
+
+    def test_buffered_bytes_are_not_double_counted_by_reconciliation(self):
+        with tempfile.TemporaryDirectory() as temp:
+            stream = RecordingStream()
+            sink = writer.TelemetryWriter(
+                temp, "session-a", "1.0.0", "1.128.90.1030", autostart=False
+            )
+            sink._stream = stream
+            sink._active_path = os.path.join(temp, "active.jsonl")
+            sink._active_bytes = 0
+            sink._logical_active_bytes = 0
+            sink._logical_directory_bytes = 0
+            payload = b"buffered"
+            self.assertTrue(sink._write_physical(payload))
+            expected = len(payload) + 1
+            self.assertEqual(sink._logical_directory_bytes, expected)
+            self.assertTrue(sink._reconcile_directory())
+            self.assertEqual(sink._logical_directory_bytes, expected)
+            self.assertEqual(sink._logical_active_bytes, expected)
+            sink._stream.close()
+
+    def test_external_growth_is_discovered_and_blocks_future_admission(self):
+        with tempfile.TemporaryDirectory() as temp:
+            sink = writer.TelemetryWriter(
+                temp, "session-a", "1.0.0", "1.128.90.1030",
+                max_dir_bytes=256, autostart=False,
+            )
+            sink._open_active()
+            with open(os.path.join(temp, "owner-evidence.jsonl"), "wb") as handle:
+                handle.write(b"x" * 220)
+            self.assertTrue(sink._reconcile_directory())
+            self.assertFalse(sink._write_row(clock_row(1)))
+            self.assertEqual(sink.state, "CAP_REACHED")
+            self.assertTrue(os.path.exists(os.path.join(temp, "owner-evidence.jsonl")))
+            sink._close_stream(reconcile=False)
+
+    def test_rotation_reconciles_before_new_active_file(self):
+        with tempfile.TemporaryDirectory() as temp:
+            sample_size = len(schema.serialize_record(clock_row(1))) + 1
+            sink = writer.TelemetryWriter(
+                temp, "session-a", "1.0.0", "1.128.90.1030",
+                max_file_bytes=(sample_size * 2) + 20, max_rotations=2,
+                max_dir_bytes=1024 * 1024, autostart=False,
+            )
+            with mock.patch.object(sink, "_reconcile_directory",
+                                   wraps=sink._reconcile_directory) as reconcile:
+                self.assertTrue(sink._write_direct(clock_row(1)))
+                self.assertTrue(sink._write_direct(clock_row(2)))
+                sink._write_direct(clock_row(3))
+            self.assertGreaterEqual(reconcile.call_count, 1)
+            self.assertGreaterEqual(sink.rotation_index, 1)
+            sink._close_stream(reconcile=False)
+
+    def test_rotation_reconciliation_failure_stops_before_new_file(self):
+        with tempfile.TemporaryDirectory() as temp:
+            sink = writer.TelemetryWriter(
+                temp, "session-a", "1.0.0", "1.128.90.1030",
+                max_file_bytes=1, max_rotations=2, autostart=False,
+            )
+            sink._open_active()
+            with mock.patch.object(sink, "_reconcile_directory", return_value=False):
+                self.assertFalse(sink._write_direct(clock_row(1)))
+            self.assertEqual(sink.state, "FAILED_STICKY")
+            self.assertEqual(sink.failure_reason, "inventory_failure")
+            self.assertEqual(sink.rotation_index, 0)
+            self.assertEqual(len(sink.output_paths), 1)
+            sink._close_stream(reconcile=False)
+
+    def test_close_boundary_reconciles(self):
+        with tempfile.TemporaryDirectory() as temp:
+            sink = writer.TelemetryWriter(
+                temp, "session-a", "1.0.0", "1.128.90.1030", autostart=False
+            )
+            sink._open_active()
+            sink._close_reason = "DISARM_CLEAN"
+            sink._pre_disarm_requested = True
+            with mock.patch.object(sink, "_reconcile_directory",
+                                   wraps=sink._reconcile_directory) as reconcile:
+                sink._write_close()
+                sink._close_stream()
+            self.assertGreaterEqual(reconcile.call_count, 1)
+
     def test_ordinary_rows_do_not_flush_once_per_row(self):
         with tempfile.TemporaryDirectory() as temp:
             stream = RecordingStream()

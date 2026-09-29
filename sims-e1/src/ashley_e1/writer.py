@@ -134,11 +134,16 @@ class TelemetryWriter:
         self._last_flush_monotonic = time.perf_counter()
         self._consecutive_flush_failures = 0
         self._active_bytes = 0
+        self._logical_directory_bytes = 0
+        self._logical_active_bytes = 0
+        self._cap_truth_known = False
+        self._admitted_size = None
         self._last_game = None
         self._sampling = False
         self._diagnostic_attempted = False
         self._lock = threading.RLock()
         self._on_idle = on_idle
+        self._initialize_cap_accounting()
         if autostart:
             self.start()
 
@@ -149,11 +154,35 @@ class TelemetryWriter:
     def start(self):
         if self._thread is not None:
             return
+        if self.state != "OK":
+            self._idle = True
+            return
         os.makedirs(self.root, exist_ok=True)
         self._idle = False
         self._thread = threading.Thread(target=self._run, name="ashley-e1-writer")
         self._thread.daemon = True
         self._thread.start()
+
+    def _initialize_cap_accounting(self):
+        try:
+            os.makedirs(self.root, exist_ok=True)
+        except (OSError, IOError):
+            self._cap_truth_known = False
+            self._mark_failure("FAILED_STICKY", "inventory_failure")
+            return False
+        total = _directory_size(self.root)
+        if total is None:
+            self._cap_truth_known = False
+            self._mark_failure("FAILED_STICKY", "inventory_failure")
+            return False
+        self._logical_directory_bytes = total
+        self._logical_active_bytes = 0
+        self._active_bytes = 0
+        self._cap_truth_known = True
+        if total > self.max_dir_bytes:
+            self._mark_failure("CAP_REACHED", "directory_cap")
+            return False
+        return True
 
     def set_sampling(self, active):
         self._sampling = bool(active)
@@ -213,7 +242,7 @@ class TelemetryWriter:
         if self._shutdown_flush_attempted:
             return
         self._shutdown_flush_attempted = True
-        self._attempt_flush(force=True)
+        self._flush_boundary(force=True)
 
     def _attempt_flush(self, force=False, escalate=True):
         if self._stream is None:
@@ -233,12 +262,46 @@ class TelemetryWriter:
         self._last_flush_monotonic = time.perf_counter()
         return True
 
+    def _reconcile_directory(self):
+        total = _directory_size(self.root)
+        if total is None:
+            self._cap_truth_known = False
+            return False
+        active_on_disk = 0
+        if self._active_path and os.path.exists(self._active_path):
+            try:
+                active_on_disk = os.path.getsize(self._active_path)
+            except OSError:
+                self._cap_truth_known = False
+                return False
+        buffered = max(0, self._logical_active_bytes - active_on_disk)
+        self._logical_directory_bytes = total + buffered
+        self._logical_active_bytes = max(active_on_disk, self._logical_active_bytes)
+        self._active_bytes = self._logical_active_bytes
+        self._cap_truth_known = True
+        return True
+
+    def _flush_boundary(self, force=False, escalate=True, reconcile=True):
+        if not self._attempt_flush(force=force, escalate=escalate):
+            return False
+        if not reconcile or self._stream is None:
+            return self.state == "OK"
+        if not self._reconcile_directory():
+            if escalate and self.state == "OK":
+                self._mark_failure("FAILED_STICKY", "inventory_failure")
+            return False
+        if self._logical_directory_bytes > self.max_dir_bytes:
+            if escalate and self.state == "OK":
+                self._mark_failure("CAP_REACHED", "directory_cap")
+            return False
+        return self.state == "OK"
+
     def _flush_if_due(self):
         if not self._sampling or not self._dirty:
             return True
         if (time.perf_counter() - self._last_flush_monotonic >=
                 MAX_SAMPLING_FLUSH_INTERVAL_SECONDS):
-            return self._attempt_flush(force=True)
+            return self._flush_boundary(force=True)
         return True
 
     def wait_idle(self, timeout=5.0):
@@ -259,26 +322,27 @@ class TelemetryWriter:
         self._active_path = path
         self._stream = stream
         self._active_bytes = 0
+        self._logical_active_bytes = 0
         self.output_paths.append(path)
 
-    def _close_stream(self):
+    def _close_stream(self, reconcile=True, escalate=False):
+        closed_cleanly = True
         if self._stream is not None:
             try:
-                self._attempt_flush(force=True)
+                closed_cleanly = self._flush_boundary(
+                    force=True, escalate=escalate, reconcile=reconcile)
             finally:
                 self._stream.close()
             self._stream = None
+        return closed_cleanly
 
     def _can_fit(self, size):
-        on_disk = (os.path.getsize(self._active_path)
-                   if self._active_path and os.path.exists(self._active_path)
-                   else 0)
-        current = max(on_disk, self._active_bytes)
-        pending = max(0, current - on_disk)
-        total = _directory_size(self.root)
-        if total is not None:
-            total += pending
-        return total is not None and total + size <= self.max_dir_bytes, current + size <= self.max_file_bytes
+        if not self._cap_truth_known:
+            return False, False
+        return (
+            self._logical_directory_bytes + size <= self.max_dir_bytes,
+            self._logical_active_bytes + size <= self.max_file_bytes,
+        )
 
     def _mark_failure(self, state, reason):
         self.state = state
@@ -294,14 +358,24 @@ class TelemetryWriter:
         self._attempt_flush(force=True, escalate=False)
 
     def _write_physical(self, payload):
-        if self._stream is None:
+        if self._stream is None or not self._cap_truth_known:
+            self._admitted_size = None
             return False
-        fits_dir, fits_file = self._can_fit(len(payload) + 1)
-        if not fits_dir or not fits_file:
-            return False
-        self._stream.write(payload + b"\n")
+        size = len(payload) + 1
+        admitted = self._admitted_size == size
+        self._admitted_size = None
+        if not admitted:
+            fits_dir, fits_file = self._can_fit(size)
+            if not fits_dir or not fits_file:
+                return False
+        data = payload + b"\n"
+        written = self._stream.write(data)
+        if written != len(data):
+            raise OSError("incomplete physical write")
         self._dirty = True
-        self._active_bytes += len(payload) + 1
+        self._active_bytes += size
+        self._logical_active_bytes += size
+        self._logical_directory_bytes += size
         self._sequence += 1
         return True
 
@@ -361,7 +435,7 @@ class TelemetryWriter:
             self._mark_failure("CAP_REACHED", "checkpoint_cap")
             return False
         self._last_checkpoint = time.time()
-        self._attempt_flush(force=True)
+        self._flush_boundary(force=True)
         return self.state == "OK"
 
     def _write_direct(self, row):
@@ -382,7 +456,8 @@ class TelemetryWriter:
             if self.rotation_index >= self.max_rotations:
                 self._mark_failure("CAP_REACHED", "rotation_cap")
                 return False
-            self._close_stream()
+            if not self._close_stream(escalate=True):
+                return False
             self.rotation_index += 1
             try:
                 self._open_active()
@@ -402,6 +477,7 @@ class TelemetryWriter:
             if not fits_file:
                 self._mark_failure("CAP_REACHED", "record_cap")
                 return False
+        self._admitted_size = len(payload) + 1
         written = self._write_physical(payload)
         if not written and self.state == "OK":
             if self._stream is None:
@@ -472,7 +548,7 @@ class TelemetryWriter:
         try:
             self._close_written = self._write_physical(payload)
             if self._close_written:
-                self._attempt_flush(force=True)
+                self._flush_boundary(force=True)
         except (OSError, IOError, ValueError):
             self._close_written = False
             self._mark_failure("FAILED_STICKY", "write_failure")
@@ -480,10 +556,11 @@ class TelemetryWriter:
     def _run(self):
         deadline = None
         try:
-            try:
-                self._open_active()
-            except (OSError, IOError):
-                self._mark_failure("FAILED_STICKY", "write_failure")
+            if self.state == "OK":
+                try:
+                    self._open_active()
+                except (OSError, IOError):
+                    self._mark_failure("FAILED_STICKY", "write_failure")
             while True:
                 try:
                     row = self._queue.get(timeout=0.05)
@@ -516,7 +593,7 @@ class TelemetryWriter:
                     break
             self._write_close()
         finally:
-            self._close_stream()
+            self._close_stream(reconcile=not self._close_written)
             self._idle = True
             if self._on_idle is not None:
                 self._on_idle()

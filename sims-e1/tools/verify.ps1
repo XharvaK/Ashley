@@ -1,5 +1,5 @@
 param(
-    [string]$Version = "1.0.8",
+    [string]$Version = "1.0.9",
     [string]$PythonPath = "C:\Users\Xharv\AppData\Local\Programs\Python\Python370-AshleyE1\python.exe",
     [string]$HostPythonPath = ""
 )

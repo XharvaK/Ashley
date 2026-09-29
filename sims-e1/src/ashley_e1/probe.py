@@ -138,6 +138,7 @@ def _dispatch_start(*args, _session_id=0, **kwargs):
 
 def _dispatch_stop(*args, _session_id=0, **kwargs):
     if args or kwargs:
+        _emit_stop_failure("STOP_DISPATCH_INVALID_SHAPE")
         return False
     return _cmd_stop(_connection=_session_id)
 
@@ -257,6 +258,21 @@ def _set_writer_sampling(active):
             pass
 
 
+def _emit_stop_failure(reason):
+    if _WRITER is None or _STATE == "UNARMED":
+        return False
+    try:
+        return _emit(schema.make_record(
+            "guard_exhausted",
+            telemetry_session_id=_TELEMETRY_SESSION_ID,
+            wall_timestamp_ms=int(time.time() * 1000),
+            monotonic_ns=time.perf_counter_ns(),
+            reason=reason,
+        ))
+    except Exception:
+        return False
+
+
 def _cmd_arm(arm_name: str, _connection=None) -> bool:
     global _STATE, _ARMED_NAME, _ARMED_SNAPSHOT, _TELEMETRY_SESSION_ID
     global _WRITER, _WRITER_IDLE, _SESSION_OPENED, _MISUSE_COUNT
@@ -278,6 +294,15 @@ def _cmd_arm(arm_name: str, _connection=None) -> bool:
                                   E1_PROBE_VERSION, SIMS_BUILD,
                                   on_idle=_writer_became_idle)
     except (OSError, IOError, ValueError):
+        _WRITER = None
+        _ARMED_NAME = None
+        _TELEMETRY_SESSION_ID = None
+        return False
+    try:
+        writer_state = _WRITER.state
+    except AttributeError:
+        writer_state = "OK"
+    if writer_state != "OK":
         _WRITER = None
         _ARMED_NAME = None
         _TELEMETRY_SESSION_ID = None
@@ -317,7 +342,12 @@ def _cmd_stop(_connection=None) -> bool:
         return False
     if _STATE == "SAMPLING":
         if _ALARM_HANDLE is not None:
-            alarms.cancel_alarm(_ALARM_HANDLE)
+            try:
+                alarms.cancel_alarm(_ALARM_HANDLE)
+            except Exception as error:
+                _emit_stop_failure("STOP_CANCEL_FAILURE:%s" %
+                                   type(error).__name__)
+                return False
         _ALARM_HANDLE = None
         _STATE = "ARMED"
         _set_writer_sampling(False)
@@ -328,7 +358,8 @@ def _cmd_disarm(_connection=None) -> bool:
     global _STATE, _ARMED_NAME, _ARMED_SNAPSHOT, _SESSION_OPENED, _WRITER_IDLE
     if _STATE == "UNARMED":
         return True
-    _cmd_stop()
+    if not _cmd_stop():
+        return False
     _set_writer_sampling(False)
     close_reason = "DISARM_CLEAN" if _SESSION_OPENED else "ARMED_NEVER_STARTED"
     if _WRITER is not None:

@@ -5,6 +5,7 @@ import tempfile
 import types
 import unittest
 import weakref
+from unittest import mock
 
 
 SRC = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src"))
@@ -137,6 +138,90 @@ def load_probe():
 
 
 class BindingTests(unittest.TestCase):
+    def test_valid_stop_clears_handle_only_after_successful_cancel(self):
+        _, probe, calls = load_probe()
+        self.assertTrue(probe._cmd_arm("LAB_E1"))
+        self.assertTrue(probe._cmd_start())
+        handle = probe.get_status()["alarm_handle"]
+        writer = FakeWriter.instances[-1]
+
+        self.assertTrue(probe._cmd_stop())
+
+        self.assertEqual(calls["cancelled"], [handle])
+        self.assertIsNone(probe.get_status()["alarm_handle"])
+        self.assertEqual(probe.get_status()["state"], "ARMED")
+        self.assertFalse(writer.sampling)
+        self.assertEqual(writer.rows, [])
+
+    def test_cancel_exception_preserves_sampling_and_emits_bounded_failure(self):
+        _, probe, _ = load_probe()
+        self.assertTrue(probe._cmd_arm("LAB_E1"))
+        self.assertTrue(probe._cmd_start())
+        handle = probe.get_status()["alarm_handle"]
+        writer = FakeWriter.instances[-1]
+
+        def failing_cancel(value):
+            self.assertIs(value, handle)
+            raise RuntimeError("do not expose this message")
+
+        probe.alarms.cancel_alarm = failing_cancel
+
+        self.assertFalse(probe._cmd_stop())
+
+        self.assertIs(probe.get_status()["alarm_handle"], handle)
+        self.assertEqual(probe.get_status()["state"], "SAMPLING")
+        self.assertTrue(writer.sampling)
+        self.assertEqual(len(writer.rows), 1)
+        self.assertEqual(writer.rows[0]["event_kind"], "guard_exhausted")
+        self.assertEqual(writer.rows[0]["reason"], "STOP_CANCEL_FAILURE:RuntimeError")
+
+    def test_invalid_stop_shape_while_active_emits_one_bounded_failure(self):
+        _, probe, _ = load_probe()
+        self.assertTrue(probe._cmd_arm("LAB_E1"))
+        writer = FakeWriter.instances[-1]
+        with mock.patch.object(probe, "_cmd_stop") as stop:
+            self.assertFalse(probe._dispatch_stop("unexpected", _session_id=42))
+            stop.assert_not_called()
+        self.assertEqual(len(writer.rows), 1)
+        self.assertEqual(writer.rows[0]["event_kind"], "guard_exhausted")
+        self.assertEqual(writer.rows[0]["reason"], "STOP_DISPATCH_INVALID_SHAPE")
+
+    def test_invalid_stop_shape_without_session_has_no_alternate_log(self):
+        _, probe, _ = load_probe()
+        self.assertFalse(probe._dispatch_stop("unexpected", _session_id=42))
+        self.assertEqual(FakeWriter.instances, [])
+
+    def test_redundant_stop_while_armed_is_silent_success(self):
+        _, probe, _ = load_probe()
+        self.assertTrue(probe._cmd_arm("LAB_E1"))
+        writer = FakeWriter.instances[-1]
+        self.assertTrue(probe._cmd_stop())
+        self.assertTrue(probe._cmd_stop())
+        self.assertEqual(probe.get_status()["state"], "ARMED")
+        self.assertEqual(writer.rows, [])
+
+    def test_disarm_propagates_failed_stop_without_claiming_unarmed(self):
+        _, probe, _ = load_probe()
+        self.assertTrue(probe._cmd_arm("LAB_E1"))
+        self.assertTrue(probe._cmd_start())
+        handle = probe.get_status()["alarm_handle"]
+        writer = FakeWriter.instances[-1]
+
+        def failing_cancel(value):
+            self.assertIs(value, handle)
+            raise RuntimeError("cancel failed")
+
+        probe.alarms.cancel_alarm = failing_cancel
+
+        self.assertFalse(probe._cmd_disarm())
+
+        self.assertEqual(probe.get_status()["state"], "SAMPLING")
+        self.assertIs(probe.get_status()["alarm_handle"], handle)
+        self.assertIsNone(writer.close_reason)
+        self.assertTrue(writer.sampling)
+        self.assertEqual(len(writer.rows), 1)
+        self.assertEqual(writer.rows[0]["reason"], "STOP_CANCEL_FAILURE:RuntimeError")
+
     def test_production_registrations_use_target_forms(self):
         _, probe, calls = load_probe()
         self.assertEqual([item[0] for item in calls["registrations"]], [
