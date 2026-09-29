@@ -13,6 +13,8 @@ import { listWorkingContext } from "../evidence/working-context.js";
 import { appendOwnerUtterance } from "../evidence/conversation-log.js";
 import { upsertMemoryAssertion } from "../memory/assertions.js";
 import { captureThoughtSourceCurrentness } from "../thought/source-currentness.js";
+import { applyV021Forget } from "../memory/forget.js";
+import { readForgetEpoch } from "../memory/forget-epoch.js";
 import { captureThoughtSourcePackage } from "../thought/input.js";
 import { createObservationSubscription } from "../observation/subscriptions.js";
 import { scheduleFutureTrigger } from "../initiative/future-triggers.js";
@@ -645,6 +647,42 @@ describe("v0.2.1 semantic publication transaction", () => {
         reason: "source_currentness_stale",
       });
       expect(db.prepare("SELECT COUNT(*) AS count FROM settlements").get()).toMatchObject({ count: 0 });
+    } finally {
+      db.close();
+    }
+  });
+
+  it("refuses a settlement whose input predates a forget (R2)", () => {
+    const db = openTestSidecar();
+    try {
+      admitTestCycle(db, { cycleId: "cycle-forget-race", conversationId: "thread-forget", triggerKind: "owner_message", triggerRef: "one", occupantId: "doc", authorityEpoch: 1, nowMs: 1 });
+      appendOwnerUtterance(db, { conversationId: "thread-forget", text: "my sister Lena is visiting", nowMs: 1, audienceAtCapture: "owner_private" });
+      const sourceCurrentness = captureThoughtSourceCurrentness(db, undefined, null, listWorkingContext(db, "thread-forget"));
+      expect(sourceCurrentness.forgetEpoch).toBe(0);
+
+      // Alex forgets while this Thought is still running.
+      applyV021Forget(db, { topic: "Lena", nowMs: 2 });
+
+      expect(publishSemanticTransaction(db, settlement({
+        cycleId: "cycle-forget-race",
+        triggerRef: "thread-forget",
+        workingContextDelta: [],
+      }), { sourceCurrentness })).toMatchObject({ published: false, reason: "source_currentness_stale" });
+      expect(db.prepare("SELECT COUNT(*) AS count FROM settlements").get()).toMatchObject({ count: 0 });
+
+      // A pass assembled after the forget publishes normally.
+      const fresh = captureThoughtSourceCurrentness(db, undefined, null, listWorkingContext(db, "thread-forget"));
+      expect(fresh.forgetEpoch).toBe(1);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("does not move the forget epoch when nothing matched", () => {
+    const db = openTestSidecar();
+    try {
+      applyV021Forget(db, { topic: "nothing-here", nowMs: 2 });
+      expect(readForgetEpoch(db)).toBe(0);
     } finally {
       db.close();
     }

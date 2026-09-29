@@ -128,9 +128,13 @@ Evidence a forget removes stops counting toward any revision, and a
 growth claim on a settlement a forget already redacted is not recorded. Diary entries and narratives that mention the topic lose
 their words.
 
-Only the afterglow checks for a forget that lands mid-pass today; a Thought
-already in flight elsewhere can still publish what it saw (repair R2 in the
-2026-09-29 improvement pack).
+Every erase bumps a forget epoch in the sidecar. A Thought records the epoch
+when its input is assembled, and publication refuses a settlement whose epoch
+has moved, so work already in flight never republishes what a forget removed;
+an Owner turn refused this way is re-run by unanswered-Owner recovery. Rows
+written between a `/forget` preview and its confirmation are not re-scanned
+(the preview keeps only a fingerprint of the topic); semantic forgetting
+replaces preview and confirm.
 
 **Decided direction (Owner, 2026-09-29; not yet built).** Forgetting becomes
 semantic and Alex-only (Stewardship Compact `SC-FGT-*`, `SC-ADM-*`): Alex asks

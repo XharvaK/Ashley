@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { bumpForgetEpoch } from "./memory/forget-epoch.js";
 import type { DatabaseSync } from "node:sqlite";
 import { getThreadStory, listRecentEpisodes } from "./memory/episodes.js";
 import { listRecentJournal } from "./initiative/journal.js";
@@ -517,6 +518,11 @@ export function confirmV021Forget(
     for (const entryId of appliedEntryIdsForRevisions(sidecar, revisionIds)) {
       if (removeOrganicIdentityEntry(nuclear, input.identityOwnerId, entryId)) identityEntriesRemoved += 1;
     }
+  }
+  if (sidecarTargets.length === 0 && compatibilityTargets.length > 0) {
+    // Only legacy records matched; the epoch still moves so no Thought
+    // assembled before this forget can publish what it saw (R2).
+    bumpForgetEpoch(sidecar, input.nowMs ?? Date.now());
   }
   const nuclearResult = compatibilityTargets.length > 0
     ? applyForgetTargets(nuclear, ownerId, compatibilityTargets, {

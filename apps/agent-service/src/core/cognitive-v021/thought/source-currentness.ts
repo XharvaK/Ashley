@@ -1,4 +1,5 @@
 import { sha256, stableJson } from "../../model-fabric/hash.js";
+import { readForgetEpoch } from "../memory/forget-epoch.js";
 import type { DatabaseSync } from "node:sqlite";
 import type {
   CognitiveStatus,
@@ -85,6 +86,8 @@ export type ThoughtSourceCurrentness = Readonly<{
   learnedSelfRevisionHead: string;
   relationshipOwnerId: string | null;
   relationshipRevisionHead: string;
+  /** R2: the forget epoch this input was assembled under. */
+  forgetEpoch?: number;
 }>;
 
 /** The exact source rows and bounded domain evidence consumed by one pass. */
@@ -278,6 +281,7 @@ export function captureThoughtSourceCurrentness(
     learnedSelfRevisionHead: learnedSelfRevisionHead(sidecar),
     relationshipOwnerId: ownerId,
     relationshipRevisionHead: relationshipRevisionHead(authorityDb, ownerId),
+    forgetEpoch: readForgetEpoch(sidecar),
   };
   return Object.freeze(currentness);
 }
@@ -568,6 +572,11 @@ export function assertThoughtSourceCurrentness(
   if (relationshipRevisionHead(authorityDb, expected.relationshipOwnerId) !== expected.relationshipRevisionHead) {
     throw currentnessError("relationship_currentness_stale");
   }
+  // A forget that landed after this input was assembled wins: whatever the
+  // pass saw may include what was erased (SC-FGT-03).
+  if (expected.forgetEpoch !== undefined && readForgetEpoch(sidecar) !== expected.forgetEpoch) {
+    throw currentnessError("forget_epoch_stale");
+  }
 }
 
 export function isThoughtSourceCurrentnessError(error: unknown): boolean {
@@ -582,5 +591,6 @@ export function isThoughtSourceCurrentnessError(error: unknown): boolean {
     message === "future_trigger_currentness_stale" ||
     message === "future_trigger_currentness_unbound" ||
     message === "learned_self_revision_head_stale" ||
-    message === "relationship_currentness_stale";
+    message === "relationship_currentness_stale" ||
+    message === "forget_epoch_stale";
 }

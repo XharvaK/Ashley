@@ -1613,3 +1613,19 @@ CREATE TABLE IF NOT EXISTS self_narratives (
 );
 UPDATE cognitive_sidecar_meta SET schema_version = 40, projection_state = 'reconciling' WHERE id = 1;
 `;
+
+/**
+ * R2: a forget epoch. Every erase bumps it inside its own transaction; a
+ * Thought captures it when its input is assembled, and publication refuses
+ * a settlement whose epoch is stale, so work already in flight can never
+ * republish what a forget removed.
+ */
+export const COGNITIVE_SIDECAR_SCHEMA_V41 = String.raw`
+CREATE TABLE IF NOT EXISTS forget_epoch (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  epoch INTEGER NOT NULL DEFAULT 0,
+  updated_at_ms INTEGER
+);
+INSERT OR IGNORE INTO forget_epoch (id, epoch, updated_at_ms) VALUES (1, 0, NULL);
+UPDATE cognitive_sidecar_meta SET schema_version = 41, projection_state = 'reconciling' WHERE id = 1;
+`;

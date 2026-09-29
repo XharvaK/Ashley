@@ -1,4 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
+import { bumpForgetEpoch } from "./forget-epoch.js";
 import type { V021ForgetTarget } from "../types.js";
 import { hashMemoryAssertion, getMemoryAssertion, REDACTED_MEMORY_STATEMENT } from "./assertions.js";
 import { cancelDeliveryReservation } from "../../delivery/abort-registry.js";
@@ -420,7 +421,7 @@ export function applyV021Forget(
 
     // A redacted nomination must not be admitted on a later worker tick.
     void safePayload;
-    void nowMs;
+    if (targets.length > 0 || changedRows > 0) bumpForgetEpoch(db, nowMs);
     db.exec("COMMIT");
     notifySidecarPostCommit(db, {
       changedRowIds: [...changedRowIds],
@@ -797,6 +798,7 @@ function applyV021ForgetTargetsInTransaction(
   }
 
   void nowMs;
+  if (targets.length > 0) bumpForgetEpoch(db, nowMs);
   return { topic: "", targets, changedRows: changed.value };
 }
 
