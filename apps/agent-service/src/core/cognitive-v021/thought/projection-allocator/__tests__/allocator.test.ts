@@ -31,8 +31,7 @@ import { mintEffectRef } from "../../../effect/effect-ref.js";
 // G3 inner-life guidance (awake, journal, interests) adds ~700 more; the tight
 // envelopes below shift by +1_000 so each keeps its original headroom.
 // G4 growth guidance and schema (mood, expectations, revisions) add ~1_300 more
-// tokens; the same tight envelopes shift by +1_000 again, and the few disclosure
-// overflow cases whose packing is not monotonic in the envelope are tuned individually.
+// tokens; the same tight envelopes shift by +1_000 again.
 
 function makeThoughtInput(overrides: Partial<ThoughtInput> = {}): ThoughtInput {
   return {
@@ -448,9 +447,8 @@ describe("Whole-Thought Projection Allocator", () => {
       // E2b accommodation: truthful retrieval-loss disclosure (~100 estimator
       // tokens for count + guidance) participates in the final wire, so this
       // pressure scenario budgets slightly above its pre-E2b 16_384 tuning.
-      // Trigger-lineage assertions below are unchanged. G4: tuned individually
-      // (20_400 packs to 20_673 after disclosure; 20_900 fits).
-      semanticBudgetTokens: 20_900,
+      // Trigger-lineage assertions below are unchanged.
+      semanticBudgetTokens: 20_400,
       requestId: "req-trigger-lineage-pressure",
     });
     const candidateDefinitions = buildAllocationCandidates(input, []);
@@ -1852,9 +1850,9 @@ describe("E2b retrieval loss honesty (allocator)", () => {
         });
       } catch (caught) {
         // Base/required failure is monotonic (smaller budgets only fail
-        // harder) — stop. Disclosure-shell failures are NOT monotonic: below
-        // a retrieval_loss_disclosure throw, fewer hits fit and allocation
-        // may succeed again with higher omission — keep scanning down.
+        // harder) — stop. A disclosure-shell failure no longer occurs (the
+        // final render evicts optional inclusions until the disclosure fits);
+        // if one ever did, keep scanning down.
         if (caught instanceof RequiredOverflowError) {
           if ((caught as RequiredOverflowError).section === "retrieval_loss_disclosure") continue;
           break;
@@ -1903,6 +1901,32 @@ describe("E2b retrieval loss honesty (allocator)", () => {
       requestId: "req-e2b-all-fit-again",
     });
     expect(again.hashes).toEqual(allocated.hashes);
+  });
+
+  it("fits a truthful loss disclosure at every envelope once the required prefix fits", () => {
+    // Regression: packing ran without the disclosure, so an unlucky fill
+    // just under the envelope overshot once the disclosure was added, and a
+    // larger envelope could fail where a smaller one passed. Sweep a dense
+    // range of envelopes: every one must succeed, fit, and disclose exactly.
+    const input = retrievalInput(20, 60);
+    const full = fitEstimate(input);
+    let disclosed = 0;
+    for (let budget = full - 1; budget >= full - 6_000; budget -= 37) {
+      let allocated: ReturnType<typeof allocateThoughtProjection>;
+      try {
+        allocated = allocateThoughtProjection({ thoughtInput: input, semanticBudgetTokens: budget, requestId: `req-disclosure-fit-${budget}` });
+      } catch (caught) {
+        // Only the required prefix may stop the sweep; a disclosure overflow is the bug.
+        if (caught instanceof RequiredOverflowError && !(caught as RequiredOverflowError).section?.endsWith("loss_disclosure")) break;
+        throw caught;
+      }
+      expect(allocated.receipt.estimatedInputTokens, `budget ${budget}`).toBeLessThanOrEqual(budget);
+      const omitted = allocated.projected.retrieval.allocatorOmittedCount ?? 0;
+      if (omitted > 0) disclosed += 1;
+      expect(omitted, `budget ${budget}`).toBe(20 - allocated.projected.retrieval.hits.length);
+      expect(omittedRetrievalRefs(allocated).length, `budget ${budget}`).toBe(omitted);
+    }
+    expect(disclosed).toBeGreaterThan(10);
   });
 
   it("discloses an exact partial allocator omission with source miss preserved (C)", () => {
@@ -2774,8 +2798,7 @@ describe("E2c optional Working Context loss honesty (allocator)", () => {
     const allocated = allocateThoughtProjection({
       thoughtInput: input,
       quotaBucket: "groq:openai/gpt-oss-20b",
-      // G4 growth guidance: 32_768 packs to 32_968 after disclosure; 33_768 fits.
-      semanticBudgetTokens: 33_768,
+      semanticBudgetTokens: 32_768,
       requestId: "req-e2c-joint-fit",
     });
 

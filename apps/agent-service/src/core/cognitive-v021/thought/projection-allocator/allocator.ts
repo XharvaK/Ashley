@@ -885,22 +885,106 @@ export function allocateThoughtProjection(
   // tentatives (no count, no guidance, transient miss). Only this FINAL render
   // repairs source miss truth and emits the exact allocator-stage omission
   // count from the frozen post-invalidation denominator and FINAL inclusions.
-  const finalProjected = renderTentative(
-    workingContextIncluded,
-    deskEntriesIncluded,
-    retrievalHitsIncluded,
-    conversationIncluded,
-    orientationKernelIncluded,
-    domainPointersIncluded,
-    c3ExperiencesIncluded,
-    true,
-    observationsIncluded,
-  );
-  thoughtMessagesForProjectionCallCount += 1;
-  const finalMessages = thoughtMessagesForProjection(finalProjected, undefined, messageMemo);
-  const finalEstimate = estimateRequestTokens(finalMessages, {
-    maxTokens: budget.maxOutputTokens,
-  });
+  const renderFinal = () => {
+    const projected = renderTentative(
+      workingContextIncluded,
+      deskEntriesIncluded,
+      retrievalHitsIncluded,
+      conversationIncluded,
+      orientationKernelIncluded,
+      domainPointersIncluded,
+      c3ExperiencesIncluded,
+      true,
+      observationsIncluded,
+    );
+    thoughtMessagesForProjectionCallCount += 1;
+    const messages = thoughtMessagesForProjection(projected, undefined, messageMemo);
+    const estimate = estimateRequestTokens(messages, { maxTokens: budget.maxOutputTokens });
+    return { projected, messages, estimate };
+  };
+  const disclosesLoss = (projected: ReturnType<typeof renderTentative>): boolean =>
+    (projected.retrieval.allocatorOmittedCount ?? 0) > 0
+    || (projected.workingContextSelection?.optionalAllocatorOmittedCount ?? 0) > 0;
+  const unfitted = renderFinal();
+  let final = unfitted;
+  // Disclosure fit: tentatives are packed without the loss disclosure, which
+  // only the final render carries, so a pack that lands just under the
+  // envelope can overshoot once the disclosure is added. Make room by
+  // evicting the lowest-priority optional inclusions (the last accepted)
+  // and re-rendering; the disclosed counts are recomputed from the final
+  // inclusions, so they stay exact. Required sections are never evicted.
+  // All or nothing: if no eviction makes the disclosure fit, every eviction
+  // is undone and the gate below fails closed on the original allocation.
+  const snapshot = {
+    included: [...includedCandidates],
+    conversation: [...conversationIncluded],
+    conversationOmitted: new Set(conversationOmittedIds),
+    workingContext: [...workingContextIncluded],
+    deskEntries: [...deskEntriesIncluded],
+    retrieval: [...retrievalHitsIncluded],
+    flags: { observationsIncluded, orientationKernelIncluded, domainPointersIncluded, c3ExperiencesIncluded, compression },
+    omitted: omittedCandidates.length,
+    omittedData: omittedCandidateData.length,
+  };
+  const replace = <T>(items: T[], next: readonly T[]): void => {
+    items.splice(0, items.length, ...next);
+  };
+  while (disclosesLoss(final.projected) && final.estimate.estimatedInputTokens > budget.semanticBudgetTokens) {
+    let index = includedCandidates.length - 1;
+    while (index >= 0 && includedCandidates[index]!.required) index -= 1;
+    if (index < 0) break;
+    const [evicted] = includedCandidates.splice(index, 1);
+    if (!evicted) break;
+    const drop = <T>(items: T[], item: unknown): void => {
+      const at = items.indexOf(item as T);
+      if (at >= 0) items.splice(at, 1);
+    };
+    if (evicted.section === "recent_raw") {
+      drop(conversationIncluded, evicted.data);
+      if (evicted.ref) conversationOmittedIds.add(evicted.ref);
+    } else if (evicted.section.startsWith("working_context")) {
+      drop(workingContextIncluded, evicted.data);
+    } else if (evicted.section === "desk_entry") {
+      drop(deskEntriesIncluded, evicted.data);
+    } else if (evicted.section === "retrieval_compact") {
+      drop(retrievalHitsIncluded, evicted.data);
+    } else if (evicted.section === "observations") {
+      observationsIncluded = false;
+    } else if (evicted.section === "orientation_kernel") {
+      orientationKernelIncluded = false;
+    } else if (evicted.section === "domain_pointers") {
+      domainPointersIncluded = false;
+    } else if (evicted.section === "c3_terminal_experiences") {
+      c3ExperiencesIncluded = false;
+    }
+    compression = true;
+    omittedCandidateData.push(evicted);
+    omittedCandidates.push({
+      id: evicted.id,
+      section: evicted.section,
+      ref: evicted.ref,
+      required: evicted.required,
+      priority: evicted.priority,
+      estimatedTokens: structuralTokens(evicted.data),
+      reason: "budget_omission",
+      requiredness: evicted.requiredness,
+    });
+    final = renderFinal();
+  }
+  if (disclosesLoss(final.projected) && final.estimate.estimatedInputTokens > budget.semanticBudgetTokens && final !== unfitted) {
+    replace(includedCandidates, snapshot.included);
+    replace(conversationIncluded, snapshot.conversation);
+    conversationOmittedIds.clear();
+    for (const id of snapshot.conversationOmitted) conversationOmittedIds.add(id);
+    replace(workingContextIncluded, snapshot.workingContext);
+    replace(deskEntriesIncluded, snapshot.deskEntries);
+    replace(retrievalHitsIncluded, snapshot.retrieval);
+    ({ observationsIncluded, orientationKernelIncluded, domainPointersIncluded, c3ExperiencesIncluded, compression } = snapshot.flags);
+    omittedCandidates.length = snapshot.omitted;
+    omittedCandidateData.length = snapshot.omittedData;
+    final = unfitted;
+  }
+  const { projected: finalProjected, messages: finalMessages, estimate: finalEstimate } = final;
   // E2b+E2c disclosure-scoped caller-envelope gate: applies ONLY when a
   // loss disclosure is present on the FINAL wire. The fixed global byte gate
   // below is the 262144-token logical byte envelope; caller envelopes

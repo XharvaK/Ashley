@@ -9,7 +9,7 @@ import { allocateThoughtProjection } from "../allocator.js";
 // the code-owned contract, so caller envelopes below carry a 1_000-token allowance.
 // The afterglow guidance adds ~150 more; the envelopes that overflowed carry +500.
 // G3 inner-life guidance adds ~700 more: the tight envelopes shift by +1_000.
-// G4 growth guidance and schema (mood, expectations, revisions) add ~1_300 more: +1_000, like G3; the overflow cases below are tuned individually.
+// G4 growth guidance and schema (mood, expectations, revisions) add ~1_300 more: +1_000, like G3.
 
 const identity = { constitutional: ["truth first"], stableSelf: ["curious"] };
 const capability = {
