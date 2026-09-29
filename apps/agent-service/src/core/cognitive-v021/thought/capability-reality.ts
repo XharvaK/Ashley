@@ -444,6 +444,7 @@ export function getCapabilityReality(
       "evidence.inspect",
       "temporal.inspect",
       "work.inspect",
+      "memory.lookup",
     ].map((operationKind) => ({
       operationKind,
       available: !externalAudience,

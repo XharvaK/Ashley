@@ -359,6 +359,16 @@ go, production witness (read-only DB evidence), honest verdict.
 | G5 Night + long arc | consolidation, diary, weekly narrative | nightly diary; weekly narrative |
 | G6 Sims seam | embodied clock bypass | with E3 |
 
+**G1 implementation status (2026-09-29, not yet deployed).** Implemented:
+formation guidance, grounded admission for all kinds (decided once),
+salience + `memory_strength` (sidecar v36), core profile, strength
+re-ranking, fuse 32/24 KB, window 40, recall across every Owner-private
+thread, the clock, and `memory.lookup`. Moved to G2: the rolling thread
+story, because its only writer is the afterglow pass; until then rows
+older than the window stay reachable through log search, memories, and
+`memory.lookup`. Also deferred: "open commitments" in the core profile
+(commitment-kind memories are included; live commitment state is not).
+
 ## 11. Open points (Owner)
 
 None blocking. Owner-set: AFTERGLOW 30 min (watermarked), AWAKE 3 h,

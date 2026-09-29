@@ -1,3 +1,4 @@
+import { isMemoryKind } from "../memory/kinds.js";
 import { isValidWebSearchRequest } from "../../perception/search-provider.js";
 import {
   isValidWebFetchRequest,
@@ -9,7 +10,10 @@ export const TYPED_INSPECTION_OPERATION_KINDS = [
   "evidence.inspect",
   "temporal.inspect",
   "work.inspect",
+  "memory.lookup",
 ] as const;
+
+export const MEMORY_LOOKUP_MAX_QUERY_CHARS = 200;
 
 export const EVIDENCE_OPERATION_KINDS = ["evidence.read", "evidence.refresh"] as const;
 export const WEB_SEARCH_OPERATION_KINDS = ["web.search"] as const;
@@ -258,6 +262,20 @@ export function isValidTypedInspectionRequest(
     return onlyKeys(value, ["operationKind"])
       && typeof value.operationKind === "string"
       && /^[a-z][a-z0-9_.-]{0,95}$/.test(value.operationKind);
+  }
+
+  if (operationKind === "memory.lookup") {
+    return onlyKeys(value, ["query", "kinds", "limit", "cursor"])
+      && typeof value.query === "string"
+      && value.query.trim().length > 0
+      && value.query.length <= MEMORY_LOOKUP_MAX_QUERY_CHARS
+      && (value.kinds === undefined || (
+        Array.isArray(value.kinds)
+        && value.kinds.length > 0
+        && value.kinds.every((kind) => isMemoryKind(kind))
+      ))
+      && validLimit(value.limit)
+      && validCursor(value.cursor);
   }
 
   if (!onlyKeys(value, ["filter", "limit", "cursor"]) || !validLimit(value.limit) || !validCursor(value.cursor)) {

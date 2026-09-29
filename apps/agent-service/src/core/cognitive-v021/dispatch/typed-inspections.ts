@@ -13,6 +13,8 @@ import { listFutureTriggers } from "../initiative/future-triggers.js";
 import { listObservationSubscriptions } from "../observation/subscriptions.js";
 import { projectSocialOperationDelegations } from "../../relationship/social-authority.js";
 import type { Observation, ObservationRequest } from "../types.js";
+import { listLiveMemoryAssertions, REDACTED_MEMORY_STATEMENT } from "../memory/assertions.js";
+import { strengthScores } from "../memory/strength.js";
 import type { SocialAudience } from "../social/types.js";
 import {
   CapabilityUnavailableError,
@@ -276,6 +278,59 @@ function storedPurpose(value: unknown): string | null {
     : null;
 }
 
+/**
+ * Growth V1 §4.6.3 deliberate recall: Ashley looks through her own live
+ * Owner-private memories. Every query term is matched case-insensitively
+ * against the statement; matches rank by terms matched, then by strength.
+ * Read-only: looking does not count as a recall or a use.
+ */
+function lookupMemory(
+  req: ObservationRequest,
+  sidecar: DatabaseSync,
+  scope: Scope,
+  nowMs: () => number,
+): Observation {
+  const request = req.request as { query: string; kinds?: string[]; limit?: number; cursor?: string };
+  const limit = boundedLimit(request.limit);
+  const kinds = request.kinds ? [...new Set(request.kinds)].sort() : null;
+  const scopeHash = cursorScope(scope, "memory.lookup", { query: request.query, kinds });
+  const offset = offsetFromCursor(request.cursor, scopeHash);
+  const terms = [...new Set(request.query.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((term) => term.length > 1))];
+  const now = nowMs();
+  const candidates = listLiveMemoryAssertions(sidecar).filter((assertion) =>
+    assertion.statement !== REDACTED_MEMORY_STATEMENT
+    && (!assertion.audienceScope || assertion.audienceScope.kind === "owner_private")
+    && (kinds === null || kinds.includes(assertion.memoryKind)));
+  const scores = strengthScores(sidecar, candidates.map((assertion) => assertion.assertionKey), now);
+  const matches = candidates
+    .map((assertion) => {
+      const text = assertion.statement.toLowerCase();
+      return { assertion, hits: terms.filter((term) => text.includes(term)).length };
+    })
+    .filter((item) => terms.length === 0 || item.hits > 0)
+    .sort((a, b) => b.hits - a.hits
+      || (scores.get(b.assertion.assertionKey) ?? 0) - (scores.get(a.assertion.assertionKey) ?? 0)
+      || a.assertion.assertionKey.localeCompare(b.assertion.assertionKey));
+  const end = offset + limit;
+  return observation(req, "memory.lookup", {
+    query: request.query,
+    ...(kinds ? { kinds } : {}),
+    memories: matches.slice(offset, end).map(({ assertion }) => ({
+      key: assertion.assertionKey,
+      statement: assertion.statement,
+      memoryKind: assertion.memoryKind,
+      source: assertion.dimensions.source,
+      time: assertion.dimensions.time,
+      strength: Math.round((scores.get(assertion.assertionKey) ?? 0) * 1000) / 1000,
+    })),
+    searchedPopulation: candidates.length,
+    matchedCount: matches.length,
+    nextCursor: nextCursor(end, end < matches.length, scopeHash),
+    capturedAtMs: now,
+    accessLimits: ["owner_private", "live_memories_only", "read_only"],
+  });
+}
+
 function inspectTemporal(
   req: ObservationRequest,
   nuclear: DatabaseSync,
@@ -431,6 +486,9 @@ export function executeTypedInspection(input: {
   }
   if (req.kind === "temporal.inspect") {
     return inspectTemporal(req, input.nuclear, input.sidecar, scope, input.nowMs);
+  }
+  if (req.kind === "memory.lookup") {
+    return lookupMemory(req, input.sidecar, scope, input.nowMs);
   }
   return inspectWork(req, input.sidecar, scope, input.nowMs);
 }

@@ -407,6 +407,7 @@ describe("v0.2.1 CapabilityReality live-surface contract", () => {
         "evidence.inspect",
         "temporal.inspect",
         "work.inspect",
+        "memory.lookup",
       ].map((operationKind) => ({
         operationKind,
         semanticClass: "observation",
