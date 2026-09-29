@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { env } from "../../../env.js";
 import type { DatabaseSync } from "node:sqlite";
 import { isAuthorizedOwnerId } from "../../../owner-auth.js";
 import { LONG_OPERATION_HORIZON_MS } from "../../sandbox/worker/contracts.js";
@@ -2061,6 +2062,20 @@ export function ownerAttachmentSources(
   return sources;
 }
 
+/** Owner rows this cycle is answering: the trigger plus absorbed fragments. */
+function cycleOwnerRowIds(
+  sidecar: DatabaseSync,
+  payload: Record<string, unknown>,
+  cycle: { cycleId: string; conversationId: string },
+): string[] {
+  const ids = typeof payload.evidenceRowId === "string" ? [payload.evidenceRowId] : [];
+  for (const absorbed of listCycleOwnerUtterances(sidecar, cycle.conversationId, cycle.cycleId)) {
+    const rowId = payloadRecord(absorbed).evidenceRowId;
+    if (typeof rowId === "string") ids.push(rowId);
+  }
+  return ids;
+}
+
 /** Build the semantic cause record without composing a new future-trigger purpose. */
 export function buildThoughtWakeCauses(
   sidecar: DatabaseSync,
@@ -3208,6 +3223,11 @@ export async function runCognitiveCycle(
       wakeCauses: buildThoughtWakeCauses(sidecar, event, wake, cycle, originProfile.triggerKind),
       previousInvocationDelta: "unknown",
       thoughtLegDeadlineAtMs: thoughtDeadlineAtMs,
+      clock: {
+        nowMs: deps.nowMs(),
+        timeZone: env.ownerTimeZone,
+        currentRowIds: cycleOwnerRowIds(sidecar, payload, cycle),
+      },
       ...(settlementOnly ? { settlementOnly: true } : {}),
       ...(effectContinuationInput ? { effectContinuation: effectContinuationInput } : {}),
       ...(capacityWait ? { capacityWait } : {}),

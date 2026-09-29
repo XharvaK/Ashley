@@ -4,6 +4,7 @@ import { openDerivedStore } from "../retrieval/derived-store.js";
 import { appendEvidenceInTransaction, appendOwnerUtterance, listConversationEvidence } from "../evidence/conversation-log.js";
 import { listWorkingContext } from "../evidence/working-context.js";
 import type { CapabilityReality, IdentitySlice, MindOccupancy, Observation, WorkingContextItem } from "../types.js";
+import { DEFAULT_LAST_N_TURNS } from "../types.js";
 import { buildThoughtInput, filterCapabilityReality, frontierAwareEvidenceSelection } from "./input.js";
 import { appendCycleLogIds, getCycle } from "../cycle/inbox.js";
 import {
@@ -19,8 +20,13 @@ const capability: CapabilityReality = {
   approvedProjectIds: ["project-ashley"],
 };
 
+// Selection mechanics are exercised at a fixed 12-row width; the live
+// default window is asserted separately below.
+const MECHANICS_WINDOW = 12;
+
 function makeInput(db: ReturnType<typeof openTestSidecar>, cycle: ReturnType<typeof admitTestCycle>, overrides: Partial<Parameters<typeof buildThoughtInput>[0]> = {}) {
   return buildThoughtInput({
+    lastNTurns: MECHANICS_WINDOW,
     sidecar: db,
     cycle,
     triggerText: "continue the unresolved thread",
@@ -213,6 +219,7 @@ describe("v0.2.1 ThoughtInput assembly", () => {
       ).run(cycle.conversationId);
 
       const input = buildThoughtInput({
+        lastNTurns: MECHANICS_WINDOW,
         sidecar: db,
         cycle,
         constitution: identity,
@@ -261,6 +268,7 @@ describe("v0.2.1 ThoughtInput assembly", () => {
       ).run("concern-discovered");
 
       const input = buildThoughtInput({
+        lastNTurns: MECHANICS_WINDOW,
         sidecar: db,
         cycle,
         constitution: identity,
@@ -270,6 +278,29 @@ describe("v0.2.1 ThoughtInput assembly", () => {
       });
 
       expect((input as any).sourceCurrentness.concernAuthorableTargetIds).toEqual([]);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("carries the last 40 rows verbatim by default (Growth V1 window)", () => {
+    const db = openTestSidecar();
+    try {
+      const cycle = admitTestCycle(db, {
+        cycleId: "cycle-window", conversationId: "thread-window", triggerKind: "owner_message",
+        triggerRef: "owner-window", occupantId: "doc", authorityEpoch: 1, nowMs: 1,
+      });
+      for (let index = 0; index < 50; index++) {
+        appendOwnerUtterance(db, {
+          conversationId: "thread-window", text: `window turn ${index}`,
+          discordMessageIds: [`window-${index}`], nowMs: index + 1,
+        });
+      }
+      const input = makeInput(db, cycle, { lastNTurns: undefined });
+      expect(DEFAULT_LAST_N_TURNS).toBe(40);
+      expect(input.rawConversation).toHaveLength(40);
+      expect(input.rawConversation[0]?.text).toBe("window turn 10");
+      expect(input.conversationSelection?.recencyOmittedCount).toBe(10);
     } finally {
       db.close();
     }
@@ -299,6 +330,7 @@ describe("v0.2.1 ThoughtInput assembly", () => {
       const derived = openDerivedStore(":memory:");
       derived.reconcile(db);
       const input = buildThoughtInput({
+        lastNTurns: MECHANICS_WINDOW,
         sidecar: db,
         cycle,
         triggerText: "Explain HY19 carefully",
@@ -329,6 +361,7 @@ describe("v0.2.1 ThoughtInput assembly", () => {
     try {
       const cycle = admitTestCycle(db, { conversationId: "thread-1", triggerKind: "owner_message", triggerRef: "x", nowMs: 1 });
       const input = buildThoughtInput({
+        lastNTurns: MECHANICS_WINDOW,
         sidecar: db, cycle, constitution: identity, capabilityReality: capability,
         workingContext: [], occupancy: [], learnedSelfSlice: { dispositions: [], interests: [] },
       });
@@ -553,6 +586,7 @@ describe("v0.2.1 ThoughtInput assembly", () => {
       });
 
       const selection = frontierAwareEvidenceSelection(db, "thread-recency", {
+        lastNTurns: MECHANICS_WINDOW,
         triggerEvidence: currentTrigger,
       });
       expect(selection.selectedEvidence).toHaveLength(12);
@@ -714,6 +748,7 @@ describe("E2a conversation recency loss honesty", () => {
       });
 
       const selection = frontierAwareEvidenceSelection(db, "thread-e2a-loss", {
+        lastNTurns: MECHANICS_WINDOW,
         triggerEvidence: currentTrigger,
       });
       expect(selection.selectedEvidence).toHaveLength(12);

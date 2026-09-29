@@ -332,6 +332,57 @@ describe("v0.2.1 Thought run", () => {
     }
   });
 
+  it("gives Thought a clock: local time and time since the Owner's previous message", async () => {
+    // 2026-09-29T14:52:00Z is Tuesday 17:52 at UTC+3.
+    const NOW = Date.UTC(2026, 8, 29, 14, 52);
+    const sidecar = openTestSidecar();
+    const attentionDb = openTestSidecar();
+    const nuclear = openNuclearDb(new DatabaseSync(":memory:"));
+    const conversationId = "thread-clock";
+    appendOwnerUtterance(sidecar, { conversationId, text: "night ashley", nowMs: NOW - 26 * 3_600_000, audienceAtCapture: "owner_private" });
+    const cycle = admitTestCycle(sidecar, {
+      conversationId,
+      triggerKind: "owner_message",
+      triggerRef: "clock-event",
+      occupantId: "doc",
+      authorityEpoch: 1,
+      nowMs: NOW - 3_000,
+    });
+    const first = appendOwnerUtterance(sidecar, { conversationId, text: "morning", nowMs: NOW - 3_000, audienceAtCapture: "owner_private" });
+    const event = appendInboxEvent(sidecar, {
+      wakeId: cycle.wakeId,
+      conversationId,
+      kind: "owner_utterance",
+      payload: { cycleId: cycle.cycleId, evidenceRowId: first.rowId, ownerId: "doc", ownerMessage: first.text },
+      createdAtMs: NOW - 3_000,
+    });
+    const fragment = appendOwnerUtterance(sidecar, { conversationId, text: "well, afternoon", nowMs: NOW - 1_000, audienceAtCapture: "owner_private" });
+    appendInboxEvent(sidecar, {
+      wakeId: cycle.wakeId,
+      conversationId,
+      kind: "owner_utterance",
+      payload: { cycleId: cycle.cycleId, evidenceRowId: fragment.rowId, ownerId: "doc", ownerMessage: fragment.text },
+      createdAtMs: NOW - 1_000,
+    });
+    const completeChat = vi.fn<KernelDeps["completeChat"]>(async () => ({
+      text: JSON.stringify(makeSemanticSettlement()),
+      model: "fake",
+      modelAlias: "thought",
+      resolvedModelId: null,
+    }));
+    try {
+      await runCognitiveCycle(sidecar, nuclear, event, deps({ attentionDb, completeChat, nowMs: () => NOW }));
+      const sent = JSON.stringify(completeChat.mock.calls[0]?.[0]);
+      expect(sent).toContain("Tuesday 29 September 2026, 17:52");
+      expect(sent).toContain("UTC+03:00");
+      expect(sent).toContain("1 day 2 hours");
+    } finally {
+      sidecar.close();
+      attentionDb.close();
+      nuclear.close();
+    }
+  });
+
   it("binds authenticated Owner room context to a room destination without externalizing the cycle", () => {
     const destination = ownerRoomDestinationFor(
       "room:guild-1:channel-1",

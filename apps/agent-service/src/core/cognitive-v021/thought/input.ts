@@ -1,4 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
+import { buildThoughtClock } from "./clock.js";
 import {
   DEFAULT_LAST_N_TURNS,
   DEFAULT_OCCUPANCY_COMPACT_K,
@@ -127,6 +128,8 @@ export type BuildThoughtInputOptions = {
   wakeCauses?: ThoughtInput["wakeCauses"];
   previousInvocationDelta?: string;
   thoughtLegDeadlineAtMs?: number;
+  /** When present, Thought receives a clock built over the selected rows. */
+  clock?: { nowMs: number; timeZone?: string; currentRowIds?: readonly string[] };
   /** Fire-time commitment meaning and three-state evidence completeness. */
   commitmentDue?: CommitmentDueProjection;
   /** Active disclosure-license entity UUIDs already resolved by the Host. */
@@ -1153,6 +1156,14 @@ export function buildThoughtInput(options: BuildThoughtInputOptions): ThoughtInp
     ...(options.wakeCauses === undefined ? {} : { wakeCauses: options.wakeCauses.map((item) => ({ ...item })) }),
     ...(options.previousInvocationDelta === undefined ? {} : { previousInvocationDelta: options.previousInvocationDelta }),
     ...(options.thoughtLegDeadlineAtMs === undefined ? {} : { thoughtLegDeadlineAtMs: options.thoughtLegDeadlineAtMs }),
+    ...(options.clock === undefined ? {} : {
+      clock: buildThoughtClock({
+        nowMs: options.clock.nowMs,
+        timeZone: options.clock.timeZone,
+        rows: rawConversation,
+        currentRowIds: new Set(options.clock.currentRowIds ?? []),
+      }),
+    }),
     ...(options.publicPresence === undefined ? {} : { publicPresence: options.publicPresence }),
     ...(options.effectContinuation === undefined ? {} : {
       effectContinuation: {

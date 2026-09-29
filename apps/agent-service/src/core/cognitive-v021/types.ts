@@ -68,7 +68,8 @@ export const PRIVATE_THOUGHT_MAX_CONCURRENT = 1 as const;
 export const PRIVATE_SUBSCRIPTION_ITEMS_PER_IDLE = 4 as const;
 export const MAX_OBSERVATION_ROUNDS = 4 as const;
 export const MAX_EFFECT_ROUNDS = 4 as const;
-export const DEFAULT_LAST_N_TURNS = 12 as const;
+/** Growth V1 §4.6.4: verbatim recency window (was 12). Older rows stay searchable. */
+export const DEFAULT_LAST_N_TURNS = 40 as const;
 export const DEFAULT_OCCUPANCY_COMPACT_K = 12 as const;
 export const DEFAULT_IDLE_TICK_MS = 60_000 as const;
 export const DEFAULT_MAX_SUBSCRIPTIONS = 16 as const;
@@ -1687,6 +1688,8 @@ export type ThoughtInput = {
   previousInvocationDelta?: string;
   /** Deadline for the current Thought leg, refreshed before each invocation. */
   thoughtLegDeadlineAtMs?: number;
+  /** Ashley's sense of time: local wall clock and time since each side spoke. */
+  clock?: import("./thought/clock.js").ThoughtClock;
   /** Present only for an autonomous idle-opportunity Thought. */
   publicPresence?: PublicPresenceContext;
   /** Host factual context for the single Ashley-authored capacity-wait turn. */

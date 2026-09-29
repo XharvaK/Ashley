@@ -134,6 +134,7 @@ export type ProjectedThoughtInput = {
   wakeCauses?: ThoughtInput["wakeCauses"];
   previousInvocationDelta?: string;
   thoughtLegDeadlineAtMs?: number;
+  clock?: ThoughtInput["clock"];
   /** Current public state is model-visible only during autonomous cognition. */
   publicPresence?: PublicPresenceContext;
   availableDestinations?: readonly AvailableSocialDestination[];
@@ -456,6 +457,7 @@ export function projectThoughtInput(
     ...(fullInput.wakeCauses === undefined ? {} : { wakeCauses: [...fullInput.wakeCauses] }),
     ...(fullInput.previousInvocationDelta === undefined ? {} : { previousInvocationDelta: fullInput.previousInvocationDelta }),
     ...(fullInput.thoughtLegDeadlineAtMs === undefined ? {} : { thoughtLegDeadlineAtMs: fullInput.thoughtLegDeadlineAtMs }),
+    ...(fullInput.clock === undefined ? {} : { clock: fullInput.clock }),
     ...(fullInput.publicPresence === undefined ? {} : { publicPresence: fullInput.publicPresence }),
     ...(fullInput.availableDestinations === undefined ? {} : {
       availableDestinations: [...fullInput.availableDestinations],
