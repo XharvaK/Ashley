@@ -231,6 +231,13 @@ class ObserverPollTests(unittest.TestCase):
         self.assertEqual(len(row["interactions"]["observed"]), 1)
         self.assertFalse(row["observation_complete"])
 
+    def test_observer_does_not_author_snapshot_attestation(self):
+        row, _ = self._poll_once([], [], slot_id="2", guid="2773024768")
+        self.assertEqual(row["attestation"]["armed_name"], "LAB_E1")
+        for key in ("snapshot_guid", "snapshot_slot", "snapshot_sim"):
+            self.assertIsNone(row["attestation"][key])
+        self.assertEqual(row["save"], {"save_slot_guid": "2773024768", "slot_id": "2"})
+
     def test_missing_sim_id_stays_none(self):
         row, _ = self._poll_once([], [], sim_id=None)
         self.assertIsNone(row["body"]["sim_id"])

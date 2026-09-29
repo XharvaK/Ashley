@@ -289,6 +289,8 @@ def _cmd_arm(arm_name: str, _connection=None) -> bool:
     _ARMED_SNAPSHOT = None
     _SESSION_OPENED = False
     _LAST_CAPTURE_COUNTERS = None
+    for key in _COUNTERS:
+        _COUNTERS[key] = 0
     try:
         _WRITER = TelemetryWriter(_TELEMETRY_ROOT, _TELEMETRY_SESSION_ID,
                                   E1_PROBE_VERSION, SIMS_BUILD,
@@ -371,7 +373,8 @@ def _emit(row):
         return False
     for key, value in _COUNTERS.items():
         try:
-            _WRITER.counters[key] = value
+            if value > _WRITER.counters.get(key, 0):
+                _WRITER.counters[key] = value
         except AttributeError:
             break
     accepted = _WRITER.try_put(row)
@@ -503,5 +506,9 @@ def _poll_tick_body():
             _cmd_stop()
             return
         _SESSION_OPENED = True
+    row = dict(row)
+    row["attestation"] = schema.attestation(
+        _ARMED_NAME, None, _ARMED_SNAPSHOT["guid"], _ARMED_SNAPSHOT["slot_id"],
+        _ARMED_SNAPSHOT["sim_id"])
     if not _emit(row):
         _cmd_stop()

@@ -403,6 +403,72 @@ class BindingTests(unittest.TestCase):
         self.assertEqual([item["event_kind"] for item in rows],
                          ["session_open", "presence_snapshot"])
 
+    def test_presence_attestation_carries_armed_snapshot_fields_in_place(self):
+        _, probe, calls = load_probe()
+        from ashley_e1 import schema
+        self.assertTrue(probe._cmd_arm("LAB_E1"))
+        self.assertTrue(probe._cmd_start())
+
+        def make_row(guid, slot, sim):
+            return schema.make_record(
+                "presence_snapshot",
+                telemetry_session_id=probe.get_status()["telemetry_session_id"],
+                wall_timestamp_ms=10, monotonic_ns=20, observation_complete=True,
+                attestation=schema.attestation("LAB_E1"),
+                save={"save_slot_guid": guid, "slot_id": slot},
+                body={"sim_id": sim, "instantiated": True, "is_selectable": True,
+                      "is_selected": None, "posture": None},
+                interactions={"observed": [], "queue_truncated": False,
+                              "running_truncated": False,
+                              "observation_complete": True},
+            )
+
+        rows_in = [make_row("2773024768", "2", "118"), make_row("999", "7", "118")]
+        probe.observers.poll_once = lambda session, name: rows_in.pop(0)
+        probe._poll_tick(calls["alarms"][0][0])
+        probe._poll_tick(calls["alarms"][0][0])
+        rows = FakeWriter.instances[-1].rows
+        self.assertEqual([item["event_kind"] for item in rows],
+                         ["session_open", "presence_snapshot", "presence_snapshot"])
+        expected = {"armed_name": "LAB_E1", "armed_name_hash": None,
+                    "snapshot_guid": "2773024768", "snapshot_slot": "2",
+                    "snapshot_sim": "118"}
+        for row in rows:
+            self.assertEqual(row["attestation"], expected)
+        # The current read stays in save{}; attestation is the armed snapshot.
+        self.assertEqual(rows[2]["save"], {"save_slot_guid": "999", "slot_id": "7"})
+        for row in rows:
+            schema.validate_record(row)
+
+    def test_counters_are_per_session_across_rearm(self):
+        _, probe, calls = load_probe()
+        self.assertTrue(probe._cmd_arm("LAB_E1"))
+        self.assertTrue(probe._cmd_start())
+        self.assertTrue(probe._cmd_start())
+        probe._COUNTERS["dropped_overrun"] = 4
+        self.assertTrue(probe._cmd_disarm())
+        FakeWriter.instances[-1].finish()
+        self.assertTrue(probe._cmd_arm("LAB_E1"))
+        self.assertEqual(probe.get_status()["counters"],
+                         {"dropped_queue": 0, "dropped_overrun": 0,
+                          "dropped_serialize": 0, "redundant_starts": 0})
+        self.assertEqual(FakeWriter.instances[-1].counters["redundant_starts"], 0)
+
+    def test_emit_never_lowers_writer_owned_counters(self):
+        _, probe, calls = load_probe()
+        self.assertTrue(probe._cmd_arm("LAB_E1"))
+        writer = FakeWriter.instances[-1]
+        writer.counters["dropped_serialize"] = 2
+        writer.counters["dropped_queue"] = 1
+        probe._COUNTERS["dropped_overrun"] = 3
+        from ashley_e1 import schema
+        probe._emit(schema.make_record(
+            "guard_exhausted", telemetry_session_id="s", wall_timestamp_ms=1,
+            monotonic_ns=1, reason="X"))
+        self.assertEqual(writer.counters["dropped_serialize"], 2)
+        self.assertEqual(writer.counters["dropped_queue"], 1)
+        self.assertEqual(writer.counters["dropped_overrun"], 3)
+
     def test_incomplete_session_identity_fails_closed_before_session_open(self):
         from ashley_e1 import schema
 

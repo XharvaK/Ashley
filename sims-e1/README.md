@@ -4,12 +4,15 @@ This directory contains the owner-commanded, read-only Sims 4 Embodiment
 probe described by
 `PROJECT_ASHLEY_SIMS4_EMBODIMENT_E0_E1_IMPLEMENTATION_READY_PLAN_V1_2a.md`.
 
-This internal probe build is version `1.0.10`. Product-facing branding remains
+This internal probe build is version `1.0.11`. Product-facing branding remains
 `Embodiment 1.0.0`; `E1` is an internal engineering and stage identifier.
-Version `1.0.10` is a bounded writer-thread ownership correction on the
-1.0.9 runtime-boundary repair and diagnostic
-candidate. It is not a proven writer-throughput fix or a proven stop-root-cause
-fix until new runtime evidence exists.
+Version `1.0.11` is a bounded telemetry-truth correction on 1.0.10, which
+passed first-load acceptance A-M
+(`evidence/E1_ACCEPTANCE_2026-09-29_09/acceptance.md`). Presence rows now carry
+the probe-owned armed snapshot in `attestation` (1.0.10 and earlier wrote the
+save GUID into `snapshot_slot` and left `snapshot_guid` null); per-session
+counters reset on every accepted ARM; and the game thread never lowers a
+writer-owned counter. 1.0.11 itself still requires runtime requalification.
 
 The 1.0.10 repair preserves the closed command, scheduler, callback, and
 writer contracts while making the alarm owner weak-referenceable, passing the
@@ -43,8 +46,8 @@ not preserve cannot be recovered by the probe.
 Build and verification use the pinned official CPython 3.7.0 x64 compiler:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File sims-e1/tools/build.ps1 -Version 1.0.10
-powershell -ExecutionPolicy Bypass -File sims-e1/tools/verify.ps1 -Version 1.0.10
+powershell -ExecutionPolicy Bypass -File sims-e1/tools/build.ps1 -Version 1.0.11
+powershell -ExecutionPolicy Bypass -File sims-e1/tools/verify.ps1 -Version 1.0.11
 ```
 
 `install.ps1` and `remove.ps1` are mechanical OD-4 tools. They require an
