@@ -74,8 +74,9 @@ package, root, sequence, and session tests remain green.
 | Item | Value |
 |---|---|
 | path | `sims-e1/build/ashley_e1_1.0.8.ts4script` |
-| bytes | `24806` |
-| SHA256 | `2CFE8C9DFA7B29B4EE2D76587D7B9F1D698923A0FE8E98AF7ECFC9EF6D0D5AF3` |
+| manifest implementation commit | `14ec2d8` |
+| bytes | `24837` |
+| SHA256 | `E0E1CB043EBC21EA12F0975BF8A8620FCD44BB65F502E210EA212FC673709240` |
 | members | six: `__init__.pyc`, `observers.pyc`, `probe.pyc`, `schema.pyc`, `snapshot.pyc`, `writer.pyc` |
 | magic | `420d0d0a` on all six members |
 | raw `.py` / `__pycache__` members | none |
