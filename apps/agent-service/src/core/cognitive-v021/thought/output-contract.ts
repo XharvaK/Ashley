@@ -4,6 +4,8 @@ import {
 } from "./contract-identity.js";
 import { sha256 } from "../../model-fabric/hash.js";
 import { MEMORY_KINDS } from "../memory/kinds.js";
+import { INTEREST_ROOTS } from "../memory/interests.js";
+import { JOURNAL_ACTIVITIES } from "../initiative/journal.js";
 import { CONSEQUENCE_AVAILABILITY } from "./consequence-projection.js";
 import type { OperationalEffectNamespace } from "../effect/effect-ref.js";
 import type {
@@ -332,6 +334,15 @@ const reflectionSchema = sparseObject({
   }, ["summary", "salience"]),
   threadStory: { type: "string", minLength: 1, maxLength: 6000 },
 });
+const journalSchema = strictObject({
+  activity: { enum: [...JOURNAL_ACTIVITIES] },
+  entry: { type: "string", minLength: 1, maxLength: 1000 },
+}, ["activity", "entry"]);
+const interestTouchSchema = strictObject({
+  root: { enum: [...INTEREST_ROOTS] },
+  branch: { type: "string", minLength: 1, maxLength: 80 },
+  note: { type: "string", minLength: 1, maxLength: 300 },
+}, ["root", "branch"]);
 const semanticOutputSettlementSchema = strictObject({
   kind: { const: "settlement" },
   interactionIntent: { enum: ["continue", "initiate"] },
@@ -365,6 +376,8 @@ const semanticOutputSettlementSchema = strictObject({
   subscriptionDeltas: { type: "array", minItems: 1, items: subscriptionDeltaSchema },
   durableNominations: { type: "array", minItems: 1, items: nominationSchema },
   reflection: reflectionSchema,
+  journal: journalSchema,
+  interests: { type: "array", minItems: 1, maxItems: 5, items: interestTouchSchema },
   evidenceUse: sparseObject({
     observationRefsUsed: nonEmptyStringArraySchema, retrievalRefsUsed: nonEmptyStringArraySchema,
     sourceRefsUsed: nonEmptyStringArraySchema, openIntentRefs: nonEmptyStringArraySchema,
@@ -664,6 +677,15 @@ export const MEMORY_FORMATION_GUIDANCE: readonly string[] = Object.freeze([
 export const AFTERGLOW_GUIDANCE =
   "When innerPass.kind is afterglow, this is your own quiet time after a conversation, not a turn anyone is waiting on. innerPass.rows are the messages you have not reflected on yet (mode silence: the conversation went quiet; mode rolling: a long conversation is still going). Reflect in reflection: episode is your memory of this stretch in your own words (summary of what happened and what it meant, tone, salience 0 to 1, unresolvedThreads still open, takeaway for yourself); threadStory rewrites the story of your whole conversation with the Owner so far, folding this stretch into the previous threadStory, as the continuous narrative you want to carry forward (people, projects, running jokes, where things stand). Also nominate any memory you missed during the conversation, and schedule a futureTriggerDeltas entry if you want to follow something up later. speech.mode is normally none here; speak only if something truly cannot wait. Outside an afterglow, omit reflection.";
 
+export const AWAKE_GUIDANCE =
+  "When innerPass.kind is awake, this is your own time between conversations; nobody is waiting on you. innerPass.agenda gathers what is new and still open: episodesSince (what happened since your last pass), unresolvedThreads, openQuestions, interests (all 50 roots are yours; branches are your specific tastes, whose strength grows only when you live them), and reachOut (how your recent unprompted messages landed, and how many you sent in the last 24 hours against fuseLimit). Choose what to do with the pass: think (revisit a question or thread, form or adjust an opinion, nominate what you conclude), read (use web.search or web.fetch through observation_intent, then settle with your take), plan (futureTriggerDeltas, subscriptionDeltas), reach_out (speak to the Owner with interactionIntent initiate when something genuinely earns it; never a generic check-in), or rest (a legitimate choice). Follow your own curiosity, not a quota. Always settle with journal.";
+
+export const JOURNAL_GUIDANCE =
+  "In every private pass (an afterglow, an awake pass, or your own scheduled follow-up) settle with journal: activity is what you mainly did (think, read, plan, reach_out, rest, or reflect for an afterglow) and entry is your own first-person note of it. The Host attaches what you actually read in that cycle; a read with nothing read is recorded without the label. Never journal what you did not do. activityJournal in your input is your own record of recent private passes: describe your time between messages only from it. When you mention something you read there, bind that span as an epistemic commitment with source tool, status asserted, time historical, and observationRefs from that entry's reads, and list the same refs in evidenceUse.observationRefsUsed. Outside a private pass, omit journal.";
+
+export const INTERESTS_GUIDANCE =
+  "interests records what you genuinely lived in this turn or pass: root is one of your 50 interest roots exactly as spelled, branch is the specific taste in your own words (reuse an existing branch name when it is the same thing), and note says why it mattered. The Host only counts what you record, so record only real engagement, and omit interests when there is none.";
+
 /** Compact compatibility guidance derived from the same code-owned schema. */
 export function thoughtOutputCompatibilityInstruction(): string {
   const settlement = record(THOUGHT_OUTPUT_SCHEMA.oneOf instanceof Array ? THOUGHT_OUTPUT_SCHEMA.oneOf[0] : null);
@@ -692,6 +714,9 @@ export function thoughtOutputCompatibilityInstruction(): string {
     "Use interpretationEnvelope for directive_interpretation; cite exact conversation_text_span support and keep unknown scope or interval unknown.",
     ...MEMORY_FORMATION_GUIDANCE,
     AFTERGLOW_GUIDANCE,
+    AWAKE_GUIDANCE,
+    JOURNAL_GUIDANCE,
+    INTERESTS_GUIDANCE,
     'During an autonomous idle opportunity only, capabilityReality.publicPresence may expose operationKind:"discord.public_presence" with audience:"FULLY_PUBLIC". You may choose effect_intent with request {"action":"set","text":"<exact public text>"} or {"action":"clear"}, or choose no effect_intent, which leaves the current state unchanged. The public text is deliberate self-presentation visible to anyone; it is not hidden reasoning or private material. You decide what it means. The Host may reject mechanically unsafe content but never rewrites it.',
     "CapabilityReality field semantics: conversationalRead reports only whether an additional authorized user-requested URL/page read may be performed, not whether supplied conversation content is visible; every included rawConversation entry is directly readable current context regardless of conversationalRead.",
     "Do not emit kernel identity, lifecycle, delivery, or publication fields; Ashley code binds those values.",

@@ -1,6 +1,6 @@
 import type { EpisodeReflection } from "../memory/episodes.js";
 
-/** Afterglow identity carried on an inbox payload (Growth V1 §5.1). Dependency-free. */
+/** Inner-pass identity carried on an inbox payload (Growth V1 §5.1). Dependency-free. */
 
 export type AfterglowMode = "silence" | "rolling";
 
@@ -37,3 +37,22 @@ export function afterglowPassFromPayload(payload: unknown): AfterglowPass | null
   };
 }
 
+
+/** Host record of one AWAKE pass: which slot, and where its layering watermark stands. */
+export type AwakePass = {
+  kind: "awake";
+  slot: number;
+  /** Episodes that ended after this instant are new to this pass (layering rule 3). */
+  sinceMs: number;
+};
+
+/** The AWAKE pass an inbox payload carries, if it is one. */
+export function awakePassFromPayload(payload: unknown): AwakePass | null {
+  if (typeof payload !== "object" || payload === null) return null;
+  const pass = (payload as Row).innerPass;
+  if (typeof pass !== "object" || pass === null) return null;
+  const value = pass as Row;
+  if (value.kind !== "awake") return null;
+  if (!Number.isSafeInteger(value.slot) || !Number.isSafeInteger(value.sinceMs)) return null;
+  return { kind: "awake", slot: value.slot as number, sinceMs: value.sinceMs as number };
+}

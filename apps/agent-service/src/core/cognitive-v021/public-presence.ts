@@ -1,5 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
-import { afterglowPassFromPayload } from "./initiative/afterglow-pass.js";
+import { afterglowPassFromPayload } from "./initiative/inner-pass.js";
 import { evaluatePublicDisclosure, type EthPubProtectedCategory } from "../privacy/disclosure.js";
 import { detectCredentialShape } from "../privacy/secrets.js";
 import type {

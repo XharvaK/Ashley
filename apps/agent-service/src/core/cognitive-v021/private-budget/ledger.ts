@@ -556,7 +556,7 @@ export function getPrivateBudgetProjection(
  * One reservation authorizes one cycle (the parent row, attempt 1,
  * initial_dispatch). Each bounded structural-repair attempt binds one child
  * row (attempts 2..N, structural_repair). Repair attempts never create parent
- * rows, so they are invisible to the 4/hour count by construction. The
+ * rows, so they are invisible to the hourly count by construction. The
  * parent's first binding is immutable; every consumer reads the full attempt
  * set as UNION(parent AS ordinal 1, children AS ordinals 2..N).
  */

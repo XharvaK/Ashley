@@ -167,6 +167,11 @@ import {
   loadAfterglowRows,
   type AfterglowPass,
 } from "../initiative/afterglow.js";
+import { awakePassFromPayload } from "../initiative/inner-pass.js";
+import { buildInnerAgenda } from "../initiative/agenda.js";
+import { recordJournalEntry, type JournalPassKind } from "../initiative/journal.js";
+import { isUnsolicitedTriggerKind, unsolicitedFuseTripped } from "../initiative/reach-out.js";
+import { recordInterestTouches } from "../memory/interests.js";
 import {
   c1V021ProviderBoundBasisFromProjection,
   c1V021SemanticResultHash,
@@ -1405,6 +1410,8 @@ function materializeSemanticSettlement(
       ...(nomination.salience === undefined ? {} : { salience: nomination.salience }),
     }));
   if (semantic.reflection) result.reflection = semantic.reflection;
+  if (semantic.journal) result.journal = { ...semantic.journal };
+  if (semantic.interests) result.interests = semantic.interests.map((touch) => ({ ...touch }));
   return result as ThoughtSettlementDraft;
 }
 
@@ -1435,8 +1442,17 @@ function semanticReferencesForInput(input: ThoughtInput | ProjectedThoughtInput)
     ...effectRefs,
     ...input.retrieval.hits.flatMap((hit) => "supportRefs" in hit ? [hit.ref, ...hit.supportRefs] : [hit.ref]),
     ...coreProfileKeys(input),
+    ...journalReadRefs(input).map((read) => read.observationId),
     input.trigger.ref,
   ];
+}
+
+/** What the activity journal says Ashley read: citable evidence for "I read…" (plan §5.3). */
+function journalReadRefs(input: ThoughtInput | ProjectedThoughtInput): Array<Pick<Observation, "observationId" | "modality">> {
+  return (input.activityJournal ?? []).flatMap((entry) => (entry.reads ?? []).flatMap((read) =>
+    read.modality === "page" || read.modality === "text"
+      ? [{ observationId: read.observationId, modality: read.modality }]
+      : []));
 }
 
 function coreProfileKeys(input: ThoughtInput | ProjectedThoughtInput): string[] {
@@ -1466,6 +1482,7 @@ function semanticReferenceTargetsForInput(
   for (const item of input.occupancy) recordTarget(item.concernId, "concern");
   for (const concernId of concernAuthorableTargetIdsForInput(input)) recordTarget(concernId, "concern");
   for (const item of input.observations) recordTarget(item.observationId, "observation");
+  for (const read of journalReadRefs(input)) recordTarget(read.observationId, "observation");
   return targets;
 }
 
@@ -2718,6 +2735,7 @@ export async function runCognitiveCycle(
 ): Promise<KernelRunResult> {
   const payload = payloadRecord(event);
   const afterglowPass = afterglowPassFromPayload(payload);
+  const awakePass = awakePassFromPayload(payload);
   const ownerCoverage = event.dispatchCoverage ?? captureOwnerDispatchCoverage(sidecar, event);
   const ownerResolutionFor = (
     attemptOutcome: OwnerObligationAttemptOutcome,
@@ -3257,6 +3275,7 @@ export async function runCognitiveCycle(
         currentRowIds: cycleOwnerRowIds(sidecar, payload, cycle),
       },
       ...(afterglowPass ? { innerPass: afterglowInnerPass(sidecar, afterglowPass) } : {}),
+      ...(awakePass ? { innerPass: { kind: "awake" as const, agenda: buildInnerAgenda(sidecar, awakePass, deps.nowMs()) } } : {}),
       ...(settlementOnly ? { settlementOnly: true } : {}),
       ...(effectContinuationInput ? { effectContinuation: effectContinuationInput } : {}),
       ...(capacityWait ? { capacityWait } : {}),
@@ -4301,7 +4320,7 @@ export async function runCognitiveCycle(
       commitments: validation.draft.commitments,
       commitmentBindings,
       commitmentRealizationClauses: commitmentProposals.map((proposal) => proposal.realizationClause),
-      observations: observationsForThought,
+      observations: [...observationsForThought, ...journalReadRefs(allocated.projected)],
     });
     if (!fidelity.ok) {
       if (REVISABLE_AUTHORITY_CODES.has(fidelity.code as AuthorityCode)) {
@@ -4407,6 +4426,20 @@ export async function runCognitiveCycle(
         interactionIntent: settlement.interactionIntent,
         licenseRefs: [...externalBinding.licenseRefs],
       };
+    }
+    if (
+      !externalCycle
+      && settlement.speech.mode === "draft"
+      && isUnsolicitedTriggerKind(cycle.triggerKind)
+      && unsolicitedFuseTripped(sidecar, deps.nowMs())
+    ) {
+      // Runaway fuse (plan §5.5): a mechanical ceiling, never a judgement of
+      // whether the message was worth sending.
+      return emitFailure(
+        "unsolicited_fuse",
+        null,
+        makeThoughtTerminal("budget_exhausted", { codes: ["unsolicited_fuse"], stage: "reach_out_fuse" }),
+      );
     }
     const publication = publishSemanticTransaction(sidecar, settlement, {
       nowMs: deps.nowMs(),
@@ -4543,6 +4576,31 @@ export async function runCognitiveCycle(
         // Publication is authoritative. The watermark stays put, so the next
         // afterglow attempt covers these rows again.
         console.warn("[cognitive-v021] afterglow_completion_deferred", error);
+      }
+    }
+    if (deps.origin !== "shadow" && publication.settlementId !== null && !externalCycle
+      && effectiveThoughtAudience.kind === "owner_private") {
+      try {
+        const nowMs = deps.nowMs();
+        const interests = settlement.interests ?? [];
+        if (interests.length > 0) recordInterestTouches(sidecar, interests, nowMs);
+        if (afterglowPass || awakePass || isUnsolicitedTriggerKind(cycle.triggerKind)) {
+          const passKind: JournalPassKind = afterglowPass ? "afterglow"
+            : awakePass ? "awake"
+              : cycle.triggerKind === "future_trigger_due" ? "future_trigger" : "private";
+          recordJournalEntry(sidecar, {
+            conversationId: cycle.conversationId,
+            cycleId: cycle.cycleId,
+            passKind,
+            ...(settlement.journal ? { claim: settlement.journal } : {}),
+            interests,
+            spoke: publication.outboxId !== null,
+            nowMs,
+          });
+        }
+      } catch (error) {
+        // Publication is authoritative; the journal and interests are records of it.
+        console.warn("[cognitive-v021] inner_life_record_deferred", error);
       }
     }
     if (deps.origin !== "shadow" && (settlement.durableNominations ?? []).length > 0) {

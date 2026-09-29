@@ -43,6 +43,8 @@ import {
 } from "./output-contract.js";
 import { parseSourceSupportRef, parseWorkingContextInterpretationDraft } from "../evidence/interpretation-envelope.js";
 import { isConcernObjectiveFacet } from "../concerns/objective.js";
+import { isInterestRoot } from "../memory/interests.js";
+import { isJournalActivity } from "../initiative/journal.js";
 
 export type ThoughtSemanticParseFailureCode =
   | "invalid_json"
@@ -841,10 +843,30 @@ function validReflection(value: unknown): boolean {
   return true;
 }
 
+/** Growth V1 journal: what Ashley mainly did in a private pass, in her own words. */
+function validJournal(value: unknown): boolean {
+  const journal = semanticRecord(value);
+  if (!journal) return false;
+  if (Object.keys(journal).some((key) => key !== "activity" && key !== "entry")) return false;
+  return isJournalActivity(journal.activity) && boundedText(journal.entry, 1000);
+}
+
+/** Growth V1 interests: the roots and branches Ashley lived. */
+function validInterests(value: unknown): boolean {
+  if (!Array.isArray(value) || value.length === 0 || value.length > 5) return false;
+  return value.every((item) => {
+    const touch = semanticRecord(item);
+    if (!touch) return false;
+    if (Object.keys(touch).some((key) => !["root", "branch", "note"].includes(key))) return false;
+    if (!isInterestRoot(touch.root) || !boundedText(touch.branch, 80)) return false;
+    return !own(touch, "note") || boundedText(touch.note, 300);
+  });
+}
+
 function parseSettlementSemantic(value: SemanticRecord, allowlist: ReadonlySet<string>): ThoughtSemanticParseResult {
   const unknown = Object.keys(value).find((key) => ![
     "kind", "interactionIntent", "speech", "initiativePreference", "interpretation", "commitments", "workingContextDeltas", "deskDeltas", "concernDeltas",
-    "occupancyDeltas", "futureTriggerDeltas", "subscriptionDeltas", "durableNominations", "reflection", "evidenceUse",
+    "occupancyDeltas", "futureTriggerDeltas", "subscriptionDeltas", "durableNominations", "reflection", "journal", "interests", "evidenceUse",
   ].includes(key));
   if (unknown) return semanticFailure("unknown_field", unknown);
   if (value.kind !== "settlement") return semanticFailure("wrong_kind", "kind");
@@ -888,6 +910,12 @@ function parseSettlementSemantic(value: SemanticRecord, allowlist: ReadonlySet<s
   }
   if (own(value, "reflection") && !validReflection(value.reflection)) {
     return semanticFailure("wrong_type", "reflection");
+  }
+  if (own(value, "journal") && !validJournal(value.journal)) {
+    return semanticFailure("wrong_type", "journal");
+  }
+  if (own(value, "interests") && !validInterests(value.interests)) {
+    return semanticFailure("wrong_type", "interests");
   }
   result = validateEvidenceUse(value, allowlist);
   if (!result.ok) return semanticFailure(result.code, result.field);

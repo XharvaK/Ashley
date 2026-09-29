@@ -7,6 +7,8 @@ import { isTerminalDeliveryState } from "../../delivery/types.js";
 import { notifySidecarPostCommit } from "../retrieval/derived-store.js";
 import { markInterpretationSupportUnavailable } from "../evidence/interpretation-dependencies.js";
 import { episodeIdsForForget, forgetEpisode, forgetThreadStory, threadStoryIdsForForget } from "./episodes.js";
+import { forgetInterestBranch, interestBranchIdsForForget } from "./interests.js";
+import { forgetJournalEntry, journalEntryIdsForForget } from "../initiative/journal.js";
 
 type Row = Record<string, unknown>;
 
@@ -17,6 +19,8 @@ export const V021_FORGET_TARGET_MATRIX = {
   desk_entries: { behavior: "detach", content: "redact" },
   episodes_v2: { behavior: "none", content: "redact" },
   thread_stories: { behavior: "none", content: "redact" },
+  activity_journal: { behavior: "none", content: "redact" },
+  interest_branches: { behavior: "none", content: "redact" },
   concerns: { behavior: "resolve", content: "redact" },
   mind_occupancy: { behavior: "detach", content: "none" },
   future_triggers: { behavior: "cancel", content: "redact" },
@@ -376,6 +380,14 @@ export function applyV021Forget(
       changedRows += forgetThreadStory(db, id, nowMs);
       addTarget(targets, "v021_thread_story", id);
     }
+    for (const id of journalEntryIdsForForget(db, topic, [...targetIds(targets, "v021_observation")])) {
+      changedRows += forgetJournalEntry(db, id, nowMs);
+      addTarget(targets, "v021_journal_entry", id);
+    }
+    for (const id of interestBranchIdsForForget(db, topic)) {
+      changedRows += forgetInterestBranch(db, id);
+      addTarget(targets, "v021_interest_branch", id);
+    }
 
     // A redacted nomination must not be admitted on a later worker tick.
     void safePayload;
@@ -528,6 +540,8 @@ export function planV021Forget(
     add("v021_in_flight", text(row.effect_id), "cancel");
   }
 
+  for (const id of journalEntryIdsForForget(db, topic, [...targetIds(targets, "v021_observation")])) add("v021_journal_entry", id);
+  for (const id of interestBranchIdsForForget(db, topic)) add("v021_interest_branch", id);
   return {
     topic,
     targets,
@@ -649,6 +663,12 @@ function applyV021ForgetTargetsInTransaction(
   }
   for (const id of targetIds(targets, "v021_thread_story")) {
     changed.value += forgetThreadStory(db, id, nowMs);
+  }
+  for (const id of targetIds(targets, "v021_journal_entry")) {
+    changed.value += forgetJournalEntry(db, id, nowMs);
+  }
+  for (const id of targetIds(targets, "v021_interest_branch")) {
+    changed.value += forgetInterestBranch(db, id);
   }
   for (const id of targetIds(targets, "v021_desk_entry")) {
     addChanges(db.prepare(

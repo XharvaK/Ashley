@@ -11,10 +11,7 @@ import { DatabaseSync } from "node:sqlite";
 import {
   openCognitiveSidecarDb,
 } from "./core/cognitive-v021/sidecar/db.js";
-import {
-  isPeriodicCognitionEnabled,
-  runLiveCognitiveTurn,
-} from "./core/cognitive-v021/dispatch/live.js";
+import { runLiveCognitiveTurn } from "./core/cognitive-v021/dispatch/live.js";
 import { reconcileProjectedDelivery } from "./core/cognitive-v021/delivery/outbox-projector.js";
 import { readCognitiveSidecarMeta } from "./core/cognitive-v021/sidecar/db.js";
 import { appendInboxEvent, claimInboxEvent } from "./core/cognitive-v021/cycle/inbox.js";
@@ -27,6 +24,7 @@ import {
   type IdleTickResult,
 } from "./core/cognitive-v021/initiative/idle.js";
 import { tickAfterglow, type AfterglowTickResult } from "./core/cognitive-v021/initiative/afterglow.js";
+import { tickAwake, type AwakeTickResult } from "./core/cognitive-v021/initiative/awake.js";
 import { detectCredentialShape, CREDENTIAL_OMITTED_PLACEHOLDER } from "./core/privacy/secrets.js";
 import { scanConfiguredSources } from "./core/curiosity/sources.js";
 import { performGroundedReads, type ReadRecord } from "./core/curiosity/reads.js";
@@ -199,7 +197,9 @@ export class AgentManager {
       authorityEpoch,
       commitmentDb: nuclear,
       commitmentOwnerId: ownerId,
-      periodicCognitionEnabled: isPeriodicCognitionEnabled(),
+      // Growth V1: the AWAKE rhythm (tickCognitiveAwake) replaced the 4 h
+      // periodic schedule, and PERIODIC_COGNITION_ENABLED now switches AWAKE.
+      periodicCognitionEnabled: false,
       curiosityObservationProvider: async () => {
         try { await scanConfiguredSources(nuclear); } catch { /* mechanical acquisition must not block Thought */ }
         try {
@@ -239,6 +239,26 @@ export class AgentManager {
       occupantId: ownerId,
       authorityEpoch: readCognitiveSidecarMeta(sidecar).authority_epoch,
       nowMs,
+      thought: this.privateThoughtRunner(sidecar, ownerId),
+    });
+  }
+
+  /**
+   * Growth V1 AWAKE: Ashley's own time every three hours, through the same
+   * private Thought path. Waits for a due afterglow and for a live conversation.
+   */
+  async tickCognitiveAwake(ownerId: string, nowMs = Date.now(), afterglowEnabled = true): Promise<AwakeTickResult> {
+    const sidecar = this.openCognitiveSidecar();
+    if (!sidecar || !this.cognitiveDeps) {
+      throw new AppError("agent_not_ready", "Cognitive dispatcher unavailable", 503);
+    }
+    const conversationId = resolveActiveThread(this.core.getDatabase(), ownerId, "discord");
+    return tickAwake(sidecar, {
+      conversationId,
+      occupantId: ownerId,
+      authorityEpoch: readCognitiveSidecarMeta(sidecar).authority_epoch,
+      nowMs,
+      afterglowEnabled,
       thought: this.privateThoughtRunner(sidecar, ownerId),
     });
   }

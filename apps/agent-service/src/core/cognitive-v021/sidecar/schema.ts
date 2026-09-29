@@ -1440,3 +1440,58 @@ CREATE TABLE IF NOT EXISTS afterglow_state (
 );
 UPDATE cognitive_sidecar_meta SET schema_version = 37, projection_state = 'reconciling' WHERE id = 1;
 `;
+
+/**
+ * Growth V1 G3 inner life: the AWAKE rhythm, the activity journal, and the
+ * interest graph. The seeded branches re-home Ashley's two seeded taste
+ * entries under their roots (plan §6.3); they fade unless she lives them.
+ */
+export const COGNITIVE_SIDECAR_SCHEMA_V38 = String.raw`
+CREATE TABLE IF NOT EXISTS inner_state (
+  conversation_id TEXT PRIMARY KEY,
+  next_awake_at_ms INTEGER NOT NULL,
+  last_awake_at_ms INTEGER,
+  awake_slot INTEGER NOT NULL DEFAULT 0,
+  last_outcome TEXT,
+  updated_at_ms INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS activity_journal (
+  entry_id TEXT PRIMARY KEY,
+  conversation_id TEXT NOT NULL,
+  cycle_id TEXT NOT NULL UNIQUE,
+  pass_kind TEXT NOT NULL,
+  activity TEXT,
+  entry TEXT,
+  read_refs_json TEXT NOT NULL DEFAULT '[]',
+  interests_json TEXT NOT NULL DEFAULT '[]',
+  spoke INTEGER NOT NULL DEFAULT 0,
+  data_classification TEXT NOT NULL,
+  created_at_ms INTEGER NOT NULL,
+  forgotten_at_ms INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_activity_journal_created
+  ON activity_journal (created_at_ms);
+CREATE TABLE IF NOT EXISTS interest_branches (
+  branch_id TEXT PRIMARY KEY,
+  root TEXT NOT NULL,
+  label TEXT NOT NULL,
+  origin TEXT NOT NULL,
+  lived_count INTEGER NOT NULL DEFAULT 0,
+  last_note TEXT,
+  created_at_ms INTEGER NOT NULL,
+  last_lived_at_ms INTEGER,
+  forgotten_at_ms INTEGER
+);
+INSERT OR IGNORE INTO interest_branches (branch_id, root, label, origin, lived_count, created_at_ms, last_lived_at_ms)
+SELECT seed.branch_id, seed.root, seed.label, 'seed', 1, now.ms, now.ms
+  FROM (SELECT CAST(strftime('%s', 'now') AS INTEGER) * 1000 AS ms) AS now,
+       (SELECT 'electronic-music/dub-techno' AS branch_id, 'Electronic music' AS root, 'dub techno' AS label
+        UNION ALL SELECT 'artificial-intelligence/open-weight-ai', 'Artificial intelligence', 'open-weight AI'
+        UNION ALL SELECT 'technology/database-internals', 'Technology', 'database internals'
+        UNION ALL SELECT 'technology/small-sharp-tools', 'Technology', 'small sharp tools'
+        UNION ALL SELECT 'technology/software-architecture', 'Technology', 'software architecture'
+        UNION ALL SELECT 'books-essays/essays-that-argue', 'Books & essays', 'essays that argue'
+        UNION ALL SELECT 'video-games-strategy-systems/systems-heavy-games', 'Video games (strategy & systems)', 'systems-heavy games'
+        UNION ALL SELECT 'psychopharmacology/mechanism-depth-psychopharmacology', 'Psychopharmacology', 'mechanism-depth psychopharmacology') AS seed;
+UPDATE cognitive_sidecar_meta SET schema_version = 38, projection_state = 'reconciling' WHERE id = 1;
+`;

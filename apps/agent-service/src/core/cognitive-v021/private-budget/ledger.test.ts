@@ -15,6 +15,7 @@ import {
   reservePrivateThought,
 } from "./ledger.js";
 import { reconcilePolicyClock } from "./policy-time-ledger.js";
+import { PRIVATE_THOUGHT_MAX_CALLS_PER_HOUR } from "../types.js";
 
 const BASE = 1_000_000;
 
@@ -217,7 +218,7 @@ describe("durable private budget ledger", () => {
     }
   });
 
-  it("counts the 4/hour ceiling globally across conversations (no thread-switch bypass)", () => {
+  it("counts the hourly ceiling globally across conversations (no thread-switch bypass)", () => {
     const sidecar = db();
     try {
       const reserveOn = (suffix: string, conversationId: string, nowMs = BASE) => reservePrivateThought(sidecar, {
@@ -227,19 +228,19 @@ describe("durable private budget ledger", () => {
         policyId: "private-v1",
         wallClockNowMs: nowMs,
       });
-      expect(reserveOn("a-1", "conversation:alpha").kind).toBe("reserved");
-      expect(reserveOn("a-2", "conversation:alpha").kind).toBe("reserved");
-      expect(reserveOn("b-1", "conversation:beta").kind).toBe("reserved");
-      expect(reserveOn("b-2", "conversation:beta").kind).toBe("reserved");
-      // Four admissions across two threads exhaust the ONE global allowance:
-      // the fifth is refused on either conversation.
+      for (let index = 0; index < PRIVATE_THOUGHT_MAX_CALLS_PER_HOUR; index += 1) {
+        const conversation = index % 2 === 0 ? "conversation:alpha" : "conversation:beta";
+        expect(reserveOn(`fill-${index}`, conversation).kind).toBe("reserved");
+      }
+      // Admissions across two threads exhaust the ONE global allowance:
+      // the next is refused on either conversation.
       expect(reserveOn("a-3", "conversation:alpha")).toEqual({ kind: "refused", reason: "capacity_exhausted", remaining: 0 });
       expect(reserveOn("b-3", "conversation:beta")).toEqual({ kind: "refused", reason: "capacity_exhausted", remaining: 0 });
       // The projection is policy-scoped: conversationId is accepted for
       // diagnostic continuity but does not change the global count.
-      expect(getPrivateBudgetProjection(sidecar, { policyId: "private-v1", wallClockNowMs: BASE })).toMatchObject({ consumingCount: 4, remaining: 0 });
-      expect(getPrivateBudgetProjection(sidecar, { conversationId: "conversation:alpha", policyId: "private-v1", wallClockNowMs: BASE })).toMatchObject({ consumingCount: 4, remaining: 0 });
-      expect(getPrivateBudgetProjection(sidecar, { conversationId: "conversation:unseen", policyId: "private-v1", wallClockNowMs: BASE })).toMatchObject({ consumingCount: 4, remaining: 0 });
+      expect(getPrivateBudgetProjection(sidecar, { policyId: "private-v1", wallClockNowMs: BASE })).toMatchObject({ consumingCount: PRIVATE_THOUGHT_MAX_CALLS_PER_HOUR, remaining: 0 });
+      expect(getPrivateBudgetProjection(sidecar, { conversationId: "conversation:alpha", policyId: "private-v1", wallClockNowMs: BASE })).toMatchObject({ consumingCount: PRIVATE_THOUGHT_MAX_CALLS_PER_HOUR, remaining: 0 });
+      expect(getPrivateBudgetProjection(sidecar, { conversationId: "conversation:unseen", policyId: "private-v1", wallClockNowMs: BASE })).toMatchObject({ consumingCount: PRIVATE_THOUGHT_MAX_CALLS_PER_HOUR, remaining: 0 });
     } finally {
       sidecar.close();
     }

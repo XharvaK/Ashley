@@ -29,7 +29,7 @@ export type { SourceSupportRef } from "./evidence/interpretation-envelope.js";
 export const ARCHITECTURE_EPOCH = "v0.2.1" as const;
 export const IMPLEMENTATION_SPEC_VERSION = "0.2.1.r6" as const;
 export const THOUGHT_CONTRACT_VERSION = 2 as const;
-export const COGNITIVE_SIDECAR_SCHEMA_VERSION = 37 as const;
+export const COGNITIVE_SIDECAR_SCHEMA_VERSION = 38 as const;
 
 /**
  * Hard bound on cognition-facing concern discovery windows and pages. The
@@ -63,7 +63,7 @@ export const LEGACY_IMPORT_TOOL_VERSION = 1 as const;
 export const MAX_AUTHORITY_REVISIONS = 2 as const;
 export const MAX_THOUGHT_PASSES = 6 as const;
 export const MAX_THOUGHT_MODEL_ATTEMPTS = 12 as const;
-export const PRIVATE_THOUGHT_MAX_CALLS_PER_HOUR = 4 as const;
+export const PRIVATE_THOUGHT_MAX_CALLS_PER_HOUR = 12 as const;
 export const PRIVATE_THOUGHT_MAX_CONCURRENT = 1 as const;
 export const PRIVATE_SUBSCRIPTION_ITEMS_PER_IDLE = 4 as const;
 export const MAX_OBSERVATION_ROUNDS = 4 as const;
@@ -228,7 +228,7 @@ export type WakeRecord = Readonly<{
 export type PrivateBudgetReservationState = "held" | "committed" | "released" | "reconcile_required" | "expired";
 export type PrivateBudgetPolicy = Readonly<{
   policyId: string;
-  limit: 4;
+  limit: typeof PRIVATE_THOUGHT_MAX_CALLS_PER_HOUR;
   windowMs: 3_600_000;
   clockDiscontinuityMs: 300_000;
 }>;
@@ -1042,7 +1042,11 @@ export type SettlementSemanticOutput = {
   subscriptionDeltas?: readonly SubscriptionSemanticDelta[];
   durableNominations?: readonly ThoughtDurableNomination[];
   /** Afterglow only: Ashley's episode and rewritten thread story. */
-  reflection?: import("./initiative/afterglow-pass.js").AfterglowReflection;
+  reflection?: import("./initiative/inner-pass.js").AfterglowReflection;
+  /** Private passes: Ashley's own journal entry for this pass. */
+  journal?: import("./initiative/journal.js").JournalClaim;
+  /** Interests Ashley lived in this turn or pass (Owner-private). */
+  interests?: readonly import("./memory/interests.js").InterestTouch[];
   evidenceUse?: ThoughtEvidenceUse;
 };
 
@@ -1312,7 +1316,11 @@ export type ThoughtSettlementDraft = {
   subscriptions?: SubscriptionDelta[];
   durableNominations?: DurableNomination[];
   /** Afterglow only: stored by the Host after publication (initiative/afterglow.ts). */
-  reflection?: import("./initiative/afterglow-pass.js").AfterglowReflection;
+  reflection?: import("./initiative/inner-pass.js").AfterglowReflection;
+  /** Private passes: stored by the Host after publication (initiative/journal.ts). */
+  journal?: import("./initiative/journal.js").JournalClaim;
+  /** Stored by the Host after publication (memory/interests.ts). */
+  interests?: import("./memory/interests.js").InterestTouch[];
   operations: {
     observationsConsumed: string[];
     /** Authored retrieval reliance preserved for post-publication audit. */
@@ -1702,7 +1710,9 @@ export type ThoughtInput = {
   threadStory?: ThoughtThreadStory;
   /** Recent episodes and the ones this moment brings to mind (Owner-private only). */
   episodes?: readonly import("./memory/episodes.js").ThoughtEpisode[];
-  /** Present only during an afterglow: the conversation rows to reflect on. */
+  /** What Ashley did in her private passes lately, as the journal records it (Owner-private only). */
+  activityJournal?: readonly import("./initiative/journal.js").ThoughtJournalEntry[];
+  /** Present only during an afterglow or AWAKE pass. */
   innerPass?: ThoughtInnerPass;
   /** Present only for an autonomous idle-opportunity Thought. */
   publicPresence?: PublicPresenceContext;
@@ -1816,10 +1826,36 @@ export type V021ForgetDisposition =
   | "NO_ACTION";
 export type ThoughtThreadStory = { story: string; writtenAtMs: number };
 
-export type ThoughtInnerPass = {
-  kind: "afterglow";
-  mode: "silence" | "rolling";
-  rows: ReadonlyArray<{ rowId: string; role: "owner" | "ashley"; text: string; atMs: number }>;
+export type ThoughtInnerPass =
+  | {
+      kind: "afterglow";
+      mode: "silence" | "rolling";
+      rows: ReadonlyArray<{ rowId: string; role: "owner" | "ashley"; text: string; atMs: number }>;
+    }
+  | {
+      kind: "awake";
+      agenda: ThoughtInnerAgenda;
+    };
+
+/**
+ * The inner agenda (plan §5.3). The Host assembles it and chooses nothing:
+ * what is new since the last pass, what is still open, what she cares about,
+ * and how her recent reaching out landed.
+ */
+export type ThoughtInnerAgenda = {
+  lastAwakeAtMs: number | null;
+  episodesSince: readonly import("./memory/episodes.js").ThoughtEpisode[];
+  unresolvedThreads: readonly string[];
+  openQuestions: ReadonlyArray<{ key: string; statement: string }>;
+  interests: {
+    roots: readonly string[];
+    branches: ReadonlyArray<{ root: string; branch: string; strength: number; lastLivedAtMs: number | null; note?: string }>;
+  };
+  reachOut: {
+    unsolicitedLast24h: number;
+    fuseLimit: number;
+    recent: ReadonlyArray<{ atMs: number; excerpt: string; ownerRepliedAfterMs: number | null }>;
+  };
 };
 
 export type V021ForgetEntityType =
@@ -1829,6 +1865,8 @@ export type V021ForgetEntityType =
   | "v021_desk_entry"
   | "v021_episode"
   | "v021_thread_story"
+  | "v021_journal_entry"
+  | "v021_interest_branch"
   | "v021_concern"
   | "v021_occupancy"
   | "v021_future_trigger"

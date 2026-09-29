@@ -1,5 +1,6 @@
 import type { AgentManager } from "./agent.js";
 import { AFTERGLOW_POLL_MS } from "./core/cognitive-v021/initiative/afterglow.js";
+import { isPeriodicCognitionEnabled } from "./core/cognitive-v021/dispatch/live.js";
 import { env } from "./env.js";
 import { createServer, listen } from "./server.js";
 import { completeChat } from "./mistral-client.js";
@@ -579,22 +580,34 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
     } catch (error) {
       console.warn("[cognitive-v021] worker_queue_startup_deferred", error);
     }
-    // Growth V1 afterglow: single flight, polled from consumer maintenance.
-    let afterglowRunning = false;
-    let afterglowLastPollMs = 0;
-    const pollAfterglow = (nowMs: number): void => {
-      if (!env.afterglowEnabled || afterglowRunning || manager.isPaused()) return;
-      if (nowMs - afterglowLastPollMs < AFTERGLOW_POLL_MS) return;
-      afterglowRunning = true;
-      afterglowLastPollMs = nowMs;
-      void manager.tickCognitiveAfterglow(ownerId, nowMs)
-        .then((result) => {
+    // Growth V1 inner life: one inner pass at a time, polled from consumer
+    // maintenance. A due afterglow always goes first; AWAKE runs only when
+    // there is nothing left to reflect on.
+    let innerRunning = false;
+    let innerLastPollMs = 0;
+    const pollInnerLife = (nowMs: number): void => {
+      const awakeEnabled = isPeriodicCognitionEnabled();
+      if ((!env.afterglowEnabled && !awakeEnabled) || innerRunning || manager.isPaused()) return;
+      if (nowMs - innerLastPollMs < AFTERGLOW_POLL_MS) return;
+      innerRunning = true;
+      innerLastPollMs = nowMs;
+      void (async () => {
+        if (env.afterglowEnabled) {
+          const result = await manager.tickCognitiveAfterglow(ownerId, nowMs);
           if (result.outcome === "ran" || result.outcome === "abandoned") {
             console.log(`[cognitive-v021] afterglow ${result.outcome} mode=${result.mode ?? "?"} rows=${result.coveredRows ?? 0} reason=${result.thought?.reason ?? "none"}`);
           }
-        })
-        .catch((error) => console.warn("[cognitive-v021] afterglow deferred", error))
-        .finally(() => { afterglowRunning = false; });
+          if (result.outcome === "ran") return;
+        }
+        if (awakeEnabled) {
+          const result = await manager.tickCognitiveAwake(ownerId, nowMs, env.afterglowEnabled);
+          if (result.outcome === "ran" || result.outcome === "scheduled") {
+            console.log(`[cognitive-v021] awake ${result.outcome} slot=${result.slot ?? 0} next=${result.nextAwakeAtMs ? new Date(result.nextAwakeAtMs).toISOString() : "?"} reason=${result.thought?.reason ?? "none"}`);
+          }
+        }
+      })()
+        .catch((error) => console.warn("[cognitive-v021] inner life deferred", error))
+        .finally(() => { innerRunning = false; });
     };
     cognitiveConsumer = startInboxConsumer(sidecar, {
       workerId: `agent-service:${process.pid}`,
@@ -672,7 +685,7 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
           console.warn("[perception] artifact retention maintenance deferred", error);
         }
         if (observabilityDb) purgeThoughtDebugCaptures(observabilityDb, nowMs);
-        pollAfterglow(nowMs);
+        pollInnerLife(nowMs);
       },
       onError: (error, event) => console.error(`[cognitive-v021] event failed id=${event?.id ?? "?"}`, error),
     });

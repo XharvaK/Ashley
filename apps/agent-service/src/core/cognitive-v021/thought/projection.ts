@@ -138,6 +138,7 @@ export type ProjectedThoughtInput = {
   coreProfile?: ThoughtInput["coreProfile"];
   threadStory?: ThoughtInput["threadStory"];
   episodes?: ThoughtInput["episodes"];
+  activityJournal?: ThoughtInput["activityJournal"];
   innerPass?: ThoughtInput["innerPass"];
   /** Current public state is model-visible only during autonomous cognition. */
   publicPresence?: PublicPresenceContext;
@@ -465,6 +466,7 @@ export function projectThoughtInput(
     ...(fullInput.coreProfile === undefined ? {} : { coreProfile: fullInput.coreProfile }),
     ...(fullInput.threadStory === undefined ? {} : { threadStory: fullInput.threadStory }),
     ...(fullInput.episodes === undefined ? {} : { episodes: fullInput.episodes }),
+    ...(fullInput.activityJournal === undefined ? {} : { activityJournal: fullInput.activityJournal }),
     ...(fullInput.innerPass === undefined ? {} : { innerPass: fullInput.innerPass }),
     ...(fullInput.publicPresence === undefined ? {} : { publicPresence: fullInput.publicPresence }),
     ...(fullInput.availableDestinations === undefined ? {} : {

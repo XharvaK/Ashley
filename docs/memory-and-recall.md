@@ -49,11 +49,35 @@ uses the private Thought budget, never runs while a turn is in progress,
 and can be turned off with `ASHLEY_AFTERGLOW_ENABLED=false`. `/memory` shows
 the thread story and recent episodes.
 
+**Own time, journal, interests.** Every 3 hours (±20 min) Ashley gets an
+AWAKE pass (`initiative/awake.ts`). It waits while the Owner conversation is
+live and lets a due afterglow go first. It is switched on by
+`PERIODIC_COGNITION_ENABLED=true`, which replaced the old 4-hour periodic
+schedule. The pass gets an inner agenda (`initiative/agenda.ts`): new
+episodes, open threads and questions, her interests, and how her recent
+unprompted messages landed. She chooses to think, read (her own
+`web.search`/`web.fetch`), plan, reach out, or rest.
+
+Every private pass leaves an activity-journal entry
+(`initiative/journal.ts`): the Host records what she read in that cycle and
+whether she spoke, and she writes the entry. The journal is in every
+Owner-private Thought input, and she may describe her time between messages
+only from it. A reading claim may cite a journal read, and fidelity checks
+it against the real observation.
+
+Interests (`memory/interests.ts`) are 50 fixed roots with branches that grow
+only when a settlement says she lived them, and fade over a 30-day
+half-life otherwise.
+
+At most 12 unprompted messages go out per 24 hours (`initiative/reach-out.ts`).
+
 **Forgetting.** `/forget` reaches episodes whose words mention the topic and
 any episode built from a message it redacts. A thread story is retired when
 it mentions the topic or when any of its conversation's messages is
 redacted; the next afterglow writes a fresh one. A forget that lands during
-an afterglow wins: that reflection is dropped.
+an afterglow wins: that reflection is dropped. Journal entries that mention
+the topic or cite a redacted read lose their words and reads (the fact that
+a pass happened stays). Interest branches that mention it are removed.
 
 ## Legacy nuclear memory (pre-v0.2.1)
 

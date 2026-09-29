@@ -9,6 +9,10 @@ import {
 } from "../cycle/inbox.js";
 import { appendAshleyEvidence, appendExternalUtteranceInTransaction, appendOwnerUtterance } from "../evidence/conversation-log.js";
 import { evaluateAfterglow, tickAfterglow } from "../initiative/afterglow.js";
+import { AWAKE_FIRST_DELAY_MS, tickAwake } from "../initiative/awake.js";
+import { listRecentJournal } from "../initiative/journal.js";
+import { UNSOLICITED_FUSE_LIMIT } from "../initiative/reach-out.js";
+import { listInterestBranches } from "../memory/interests.js";
 import { getThreadStory, listRecentEpisodes } from "../memory/episodes.js";
 import { admitExternalBatch, admitExternalCapture, type ExternalCaptureBody } from "../ingress/http.js";
 import { applyWorkingContextDelta } from "../evidence/working-context.js";
@@ -445,6 +449,129 @@ describe("v0.2.1 Thought run", () => {
       sidecar.close();
       attentionDb.close();
       nuclear.close();
+    }
+  });
+
+  it("gives Ashley her own time: she reads, journals it, grows an interest, and can later say what she read", async () => {
+    const NOW = Date.UTC(2026, 8, 29, 14, 0);
+    const MINUTE = 60_000;
+    const sidecar = openTestSidecar();
+    const attentionDb = openTestSidecar();
+    const nuclear = openNuclearDb(new DatabaseSync(":memory:"));
+    const conversationId = "thread-awake-run";
+    const readId = "v021:observation:awake-read-1";
+    const readSpan = "I read about Basic Channel";
+    let calls = 0;
+    const completeChat = vi.fn<KernelDeps["completeChat"]>(async () => {
+      calls += 1;
+      if (calls === 1) {
+        // What web.fetch leaves behind in this cycle: a page observation.
+        const cycle = sidecar.prepare("SELECT cycle_id, generation FROM cycle_records WHERE trigger_ref = 'awake:1'").get() as { cycle_id: string; generation: number };
+        sidecar.prepare(
+          `INSERT INTO observations (observation_id, cycle_id, generation, derived, replay_safe, modality, payload_json, provenance, data_classification, secret_omitted, created_at_ms)
+           VALUES (?, ?, ?, 0, 1, 'page', ?, 'perception:web-fetch', 'ordinary', 0, ?)`,
+        ).run(readId, cycle.cycle_id, cycle.generation, JSON.stringify({ finalUrl: "https://example.org/basic-channel", contentUtf8: "Basic Channel..." }), NOW);
+        return {
+          text: JSON.stringify(makeSemanticSettlement({
+            speech: { mode: "none" },
+            commitments: {},
+            journal: { activity: "read", entry: "Read a long piece on Basic Channel and where dub techno came from." },
+            interests: [{ root: "Electronic music", branch: "dub techno", note: "the Basic Channel history pulled me in" }],
+          })),
+          model: "fake", modelAlias: "thought", resolvedModelId: null,
+        };
+      }
+      return {
+        text: JSON.stringify(makeSemanticSettlement({
+          speech: { mode: "draft", surfaceDraft: `${readSpan} this afternoon.` },
+          commitments: {
+            epistemic: [{
+              dimensions: { source: "tool", status: "asserted", time: "historical", reliability: "fallible_observation" },
+              statement: "Ashley read about Basic Channel during her own time.",
+              surfaceSpan: readSpan,
+              observationRefs: [readId],
+            }],
+            conversational: ["answer"],
+          },
+          evidenceUse: { observationRefsUsed: [readId] },
+        })),
+        model: "fake", modelAlias: "thought", resolvedModelId: null,
+      };
+    });
+    const thought = async (input: { event: import("../types.js").InboxEvent | null }) =>
+      runCognitiveCycle(sidecar, nuclear, input.event!, deps({ attentionDb, completeChat, nowMs: () => NOW }));
+    try {
+      expect(await tickAwake(sidecar, { conversationId, occupantId: "doc", authorityEpoch: 1, nowMs: NOW - AWAKE_FIRST_DELAY_MS, thought }))
+        .toMatchObject({ outcome: "scheduled" });
+      const result = await tickAwake(sidecar, { conversationId, occupantId: "doc", authorityEpoch: 1, nowMs: NOW, thought });
+      expect(result).toMatchObject({ outcome: "ran", slot: 1 });
+      expect(result.thought?.reason).toBeNull();
+      const awake = JSON.stringify(completeChat.mock.calls[0]?.[0]);
+      expect(awake).toContain("When innerPass.kind is awake");
+      expect(awake).toContain('\\"agenda\\"');
+      expect(awake).toContain("dub techno");
+
+      const [entry] = listRecentJournal(sidecar, { limit: 5 });
+      expect(entry).toMatchObject({ passKind: "awake", activity: "read", spoke: false });
+      expect(entry?.reads.map((read) => read.observationId)).toEqual([readId]);
+      expect(listInterestBranches(sidecar, NOW).find((branch) => branch.branchId === "electronic-music/dub-techno"))
+        .toMatchObject({ livedCount: 2, origin: "seed" });
+
+      const cycle = admitTestCycle(sidecar, { conversationId, triggerKind: "owner_message", triggerRef: "what-did-you-do", occupantId: "doc", authorityEpoch: 1, nowMs: NOW + MINUTE });
+      const message = appendOwnerUtterance(sidecar, { conversationId, text: "what did you get up to today?", nowMs: NOW + MINUTE, audienceAtCapture: "owner_private" });
+      const event = appendInboxEvent(sidecar, {
+        wakeId: cycle.wakeId,
+        conversationId,
+        kind: "owner_utterance",
+        payload: { cycleId: cycle.cycleId, evidenceRowId: message.rowId, ownerId: "doc", ownerMessage: message.text },
+        createdAtMs: NOW + MINUTE,
+      });
+      const answered = await runCognitiveCycle(sidecar, nuclear, event, deps({ attentionDb, completeChat, nowMs: () => NOW + MINUTE }));
+      expect(JSON.stringify(completeChat.mock.calls[1]?.[0])).toContain("Read a long piece on Basic Channel");
+      // The journal licenses the reading claim against the real observation.
+      expect(answered.outboxId).not.toBeNull();
+    } finally {
+      sidecar.close();
+      attentionDb.close();
+      nuclear.close();
+    }
+  });
+
+  it("holds back an unprompted message once the 24-hour fuse is spent", async () => {
+    const NOW = Date.UTC(2026, 8, 29, 18, 0);
+    const conversationId = "thread-fuse-run";
+    for (const sent of [UNSOLICITED_FUSE_LIMIT - 1, UNSOLICITED_FUSE_LIMIT]) {
+      const sidecar = openTestSidecar();
+      const attentionDb = openTestSidecar();
+      const nuclear = openNuclearDb(new DatabaseSync(":memory:"));
+      try {
+        const earlier = admitTestCycle(sidecar, { conversationId, triggerKind: "idle_opportunity", triggerRef: "awake:earlier", occupantId: "doc", authorityEpoch: 1, nowMs: NOW - 60_000 });
+        sidecar.prepare("UPDATE cycle_records SET state = 'idle' WHERE cycle_id = ?").run(earlier.cycleId);
+        for (let index = 0; index < sent; index += 1) {
+          appendAshleyEvidence(sidecar, { conversationId, text: `earlier note ${index}`, nowMs: NOW - 60_000 + index, producingCycleId: earlier.cycleId, delivered: true, audienceAtCapture: "owner_private" });
+        }
+        const completeChat = vi.fn<KernelDeps["completeChat"]>(async () => ({
+          text: JSON.stringify(makeSemanticSettlement({ interactionIntent: "initiate", journal: { activity: "reach_out", entry: "Told Doc hello." } })),
+          model: "fake", modelAlias: "thought", resolvedModelId: null,
+        }));
+        let outboxId: number | null | undefined;
+        await tickAwake(sidecar, { conversationId, occupantId: "doc", authorityEpoch: 1, nowMs: NOW - AWAKE_FIRST_DELAY_MS, thought: async () => ({}) });
+        await tickAwake(sidecar, {
+          conversationId, occupantId: "doc", authorityEpoch: 1, nowMs: NOW,
+          thought: async (input) => {
+            const result = await runCognitiveCycle(sidecar, nuclear, input.event!, deps({ attentionDb, completeChat, nowMs: () => NOW }));
+            outboxId = result.outboxId;
+            return result;
+          },
+        });
+        expect(completeChat).toHaveBeenCalled();
+        if (sent < UNSOLICITED_FUSE_LIMIT) expect(outboxId, "under the fuse").not.toBeNull();
+        else expect(outboxId, "fuse spent").toBeNull();
+      } finally {
+        sidecar.close();
+        attentionDb.close();
+        nuclear.close();
+      }
     }
   });
 

@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { getThreadStory, listRecentEpisodes } from "./memory/episodes.js";
+import { listRecentJournal } from "./initiative/journal.js";
+import { listInterestBranches } from "./memory/interests.js";
 import {
   applyForgetTargets,
   requireEntityUuid,
@@ -83,6 +85,10 @@ export type V021MemorySummary = {
   narrative: string | null;
   /** Recent episodes Ashley wrote in her afterglows, newest first. */
   episodes: Array<{ summary: string; endedAt: string }>;
+  /** Ashley's recent private passes, as her activity journal records them, newest first. */
+  activity: Array<{ at: string; pass: string; activity: string | null; entry: string | null }>;
+  /** Her strongest interest branches. */
+  interests: Array<{ root: string; branch: string }>;
   lastUpdated: string;
   threadId: string;
 };
@@ -281,11 +287,23 @@ export function getV021MemorySummary(
     .filter((episode) => episode.dataClassification !== "secret"
       && (includePrivate || episode.dataClassification !== "sensitive"))
     .map((episode) => ({ summary: episode.summary, endedAt: new Date(episode.endedAtMs).toISOString() }));
+  const activity = listRecentJournal(sidecar, { limit: 5 })
+    .filter((entry) => includePrivate || entry.dataClassification !== "sensitive")
+    .map((entry) => ({
+      at: new Date(entry.createdAtMs).toISOString(),
+      pass: entry.passKind,
+      activity: entry.activity,
+      entry: entry.entry,
+    }));
+  const interests = listInterestBranches(sidecar, Date.now(), 5)
+    .map((branch) => ({ root: branch.root, branch: branch.label }));
   const lastUpdatedMs = evidence.at(-1)?.createdAtMs ?? 0;
   return {
     facts,
     narrative,
     episodes,
+    activity,
+    interests,
     lastUpdated: new Date(lastUpdatedMs).toISOString(),
     threadId,
   };

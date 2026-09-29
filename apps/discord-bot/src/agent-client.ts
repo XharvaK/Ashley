@@ -601,6 +601,8 @@ export async function memorySummary(includePrivate = false) {
     facts: Array<{ key: string; value: string; category: string }>;
     narrative: string | null;
     episodes?: Array<{ summary: string; endedAt: string }>;
+    activity?: Array<{ at: string; pass: string; activity: string | null; entry: string | null }>;
+    interests?: Array<{ root: string; branch: string }>;
     lastUpdated: string;
   }>(`/memory/summary?${q}`);
 }

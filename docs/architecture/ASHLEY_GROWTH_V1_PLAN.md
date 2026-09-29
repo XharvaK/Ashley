@@ -381,6 +381,48 @@ settlement, and delivery paths apply unchanged. It is never offered public
 presence. Deferred to G3 with the AWAKE state: layering rule 3 (AWAKE
 waits for a due afterglow), expectation checks (§6.5), and mood.
 
+**G3 implementation status (2026-09-29, not yet deployed).** Implemented:
+- *AWAKE* (`initiative/awake.ts`): a private pass every 3 h, jittered by up
+  to ±20 min; the first comes 20 min after the rhythm starts. It is a private
+  `idle_opportunity` cycle like the afterglow. Layering rule 3: AWAKE waits
+  while the Owner conversation is live, and a due afterglow runs first. Each
+  pass consumes the episodes written since the previous pass. Afterglow and
+  AWAKE share one single-flight poll (`serve.ts`), so only one inner pass
+  runs at a time.
+- *Inner agenda* (`initiative/agenda.ts`): new episodes, unresolved
+  threads, open questions, all 50 interest roots with the strongest
+  branches, and reach-out evidence (unprompted messages in 24 h, whether
+  and how fast the Owner replied). Due triggers, concerns, and
+  subscriptions still arrive through the ordinary input. "Read" means
+  Thought's own `web.search`/`web.fetch`. The nuclear curiosity feeds were
+  not wired in: fresh state has no sources, and Ashley can subscribe
+  through `subscriptionDeltas`.
+- *Activity journal* (`initiative/journal.ts`): one entry per private
+  pass. The Host records the pass kind, the page and text observations
+  read in that cycle, and whether she spoke. Ashley writes the entry (the
+  `journal` settlement field). A "read" with nothing read loses the label.
+  The journal is in every Owner-private Thought input. The honesty licence
+  extends to it: a reading claim may cite a journal read's observation, and
+  fidelity checks it against the real, unredacted observation. `core.md`
+  now reads "Describe your time between messages only from your activity
+  journal."
+- *Interest graph* (`memory/interests.ts`): the 50 roots are fixed, and
+  branches grow only when a settlement records `interests`. Strength is
+  (1 + ln(1 + lived)) × a 30-day half-life. The 8 seeded tastes are
+  re-homed as seed branches (sidecar v38).
+- *Reaching out* (`initiative/reach-out.ts`): a runaway fuse of 12
+  unprompted messages (idle, future trigger, subscription) per 24 h,
+  enforced at publication.
+- *Budget*: private budget 4 → 12 per hour.
+- *Periodic*: `PERIODIC_COGNITION_ENABLED` now switches AWAKE on, and the
+  old 4 h periodic schedule is retired (the idle tick passes
+  `periodicCognitionEnabled: false`).
+- The journal and interest branches join the forget cascade.
+- `/memory` shows "Own time lately" and "Growing interests".
+
+Deferred to G4: mood, expectations/calibration. Deferred to G5: the NIGHT
+pass regenerating the identity taste line from the strongest branches.
+
 ## 11. Open points (Owner)
 
 None blocking. Owner-set: AFTERGLOW 30 min (watermarked), AWAKE 3 h,

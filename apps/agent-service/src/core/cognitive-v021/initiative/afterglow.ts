@@ -16,9 +16,9 @@ import {
   type IdleTickResult,
 } from "./idle.js";
 import { recordEpisode, writeThreadStory } from "../memory/episodes.js";
-import type { AfterglowMode, AfterglowPass, AfterglowReflection } from "./afterglow-pass.js";
+import type { AfterglowMode, AfterglowPass, AfterglowReflection } from "./inner-pass.js";
 
-export { afterglowPassFromPayload, type AfterglowMode, type AfterglowPass, type AfterglowReflection } from "./afterglow-pass.js";
+export { afterglowPassFromPayload, type AfterglowMode, type AfterglowPass, type AfterglowReflection } from "./inner-pass.js";
 
 /**
  * Growth V1 §5.1–§5.2: the afterglow.

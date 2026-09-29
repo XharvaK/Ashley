@@ -70,6 +70,7 @@ import {
 } from "./occupied-concerns.js";
 import { isDeskEntryAudienceEligible, listDeskEntries } from "../desk/store.js";
 import { episodesForThought, getThreadStory } from "../memory/episodes.js";
+import { journalForThought } from "../initiative/journal.js";
 import { getThoughtAttemptCounters } from "./counters.js";
 
 export type BuildThoughtInputOptions = {
@@ -133,7 +134,7 @@ export type BuildThoughtInputOptions = {
   thoughtLegDeadlineAtMs?: number;
   /** When present, Thought receives a clock built over the selected rows. */
   clock?: { nowMs: number; timeZone?: string; currentRowIds?: readonly string[] };
-  /** Afterglow only: the rows Ashley reflects on in this private Thought. */
+  /** Afterglow or AWAKE only: what this private pass is about. */
   innerPass?: ThoughtInnerPass;
   /** Fire-time commitment meaning and three-state evidence completeness. */
   commitmentDue?: CommitmentDueProjection;
@@ -1125,6 +1126,9 @@ export function buildThoughtInput(options: BuildThoughtInputOptions): ThoughtInp
   const episodes = audience.kind === "owner_private"
     ? episodesForThought(options.sidecar, query.rawTriggerTerms)
     : [];
+  const activityJournal = audience.kind === "owner_private"
+    ? journalForThought(options.sidecar, options.clock?.nowMs ?? Date.now())
+    : [];
 
   const thoughtInput: ThoughtInputWithC2 = {
     cycleId: options.cycle.cycleId,
@@ -1180,6 +1184,7 @@ export function buildThoughtInput(options: BuildThoughtInputOptions): ThoughtInp
     ...(coreProfile.owner.length + coreProfile.self.length === 0 ? {} : { coreProfile }),
     ...(threadStory ? { threadStory: { story: threadStory.story, writtenAtMs: threadStory.writtenAtMs } } : {}),
     ...(episodes.length === 0 ? {} : { episodes }),
+    ...(activityJournal.length === 0 ? {} : { activityJournal }),
     ...(options.innerPass && audience.kind === "owner_private" ? { innerPass: options.innerPass } : {}),
     ...(options.clock === undefined ? {} : {
       clock: buildThoughtClock({

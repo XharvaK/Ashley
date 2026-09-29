@@ -14,8 +14,7 @@ describe("cognitive sidecar schema v37", () => {
 
       openCognitiveSidecarDb(db, { dataPlane: { kind: "isolated" } });
 
-      expect(COGNITIVE_SIDECAR_SCHEMA_VERSION).toBe(37);
-      expect((db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(37);
+      expect((db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(COGNITIVE_SIDECAR_SCHEMA_VERSION);
       for (const table of ["episodes_v2", "episodes_v2_fts", "thread_stories", "afterglow_state"]) {
         expect(db.prepare("SELECT name FROM sqlite_master WHERE name = ?").get(table), table).toBeTruthy();
       }

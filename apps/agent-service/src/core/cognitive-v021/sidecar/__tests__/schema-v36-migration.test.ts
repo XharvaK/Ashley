@@ -12,8 +12,8 @@ describe("cognitive sidecar schema v36", () => {
 
       openCognitiveSidecarDb(db, { dataPlane: { kind: "isolated" } });
 
-      expect(COGNITIVE_SIDECAR_SCHEMA_VERSION).toBe(37);
-      expect((db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(37);
+      expect(COGNITIVE_SIDECAR_SCHEMA_VERSION).toBe(38);
+      expect((db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(38);
       expect(db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'memory_strength'").get())
         .toBeTruthy();
     } finally {

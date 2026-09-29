@@ -18,7 +18,7 @@ import {
   COGNITIVE_SIDECAR_SCHEMA_V10,
   COGNITIVE_SIDECAR_SCHEMA_V11,
 } from "./schema.js";
-import { COGNITIVE_SIDECAR_SCHEMA_VERSION } from "../types.js";
+import { COGNITIVE_SIDECAR_SCHEMA_VERSION, PRIVATE_THOUGHT_MAX_CALLS_PER_HOUR } from "../types.js";
 
 function fakeDatabaseWithMainFile(file: string): DatabaseSync {
   return {
@@ -62,7 +62,11 @@ describe("cognitive v0.2.1 sidecar database", () => {
         .all() as Array<{ name: string }>
     ).map((row) => row.name);
       // v37: episodes_v2 (+ its FTS5 table and five shadow tables), thread_stories, afterglow_state.
-      expect(tables).toHaveLength(60);
+      // v38: inner_state, activity_journal, interest_branches.
+      expect(tables).toHaveLength(63);
+    expect(tables).toContain("inner_state");
+    expect(tables).toContain("activity_journal");
+    expect(tables).toContain("interest_branches");
     expect(tables).toContain("memory_strength");
     expect(tables).toContain("episodes_v2");
     expect(tables).toContain("episodes_v2_fts");
@@ -514,7 +518,7 @@ describe("cognitive v0.2.1 sidecar database", () => {
       });
       expect(first.kind).toBe("reserved");
       if (first.kind !== "reserved") throw new Error("test_reservation_missing");
-      expect(first.remaining).toBe(3);
+      expect(first.remaining).toBe(PRIVATE_THOUGHT_MAX_CALLS_PER_HOUR - 1);
       expect(db.prepare("SELECT clock_state FROM private_budget_policy_clock WHERE policy_id = 'ashley.private_thought.v1'").get()).toMatchObject({ clock_state: "stable" });
       expect((db.prepare("SELECT COUNT(*) AS count FROM private_budget_reservations").get() as { count: number }).count).toBe(1);
     } finally {
