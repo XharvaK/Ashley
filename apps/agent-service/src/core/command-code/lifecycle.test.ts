@@ -151,6 +151,27 @@ describe("Command Code lifecycle contract", () => {
     expect(qualified).toBe(1);
   });
 
+  it.skipIf(process.platform === "win32")("installs a candidate without running upstream install scripts", async () => {
+    const root = mkdtempSync(join(tmpdir(), "ashley-command-code-lifecycle-"));
+    const paths = config(root);
+    const argsPath = join(root, "npm-args.txt");
+    const fakeNpm = join(root, "fake-npm.sh");
+    writeFileSync(fakeNpm, `#!/bin/sh\nprintf '%s\\n' "$@" > '${argsPath}'\nexit 1\n`, { mode: 0o755 });
+    const result = await maintainCommandCode({
+      ...paths,
+      npmExecutable: fakeNpm,
+      fetchLatest: async () => ({
+        name: "command-code",
+        version: "1.66.0",
+        dist: { tarball: "https://registry.npmjs.org/command-code/-/command-code-1.66.0.tgz" },
+      }),
+    });
+    expect(result.reason).toBe("candidate_stage_failed");
+    const args = readFileSync(argsPath, "utf8").trim().split("\n");
+    expect(args).toContain("--ignore-scripts");
+    expect(args).toContain("command-code@1.66.0");
+  });
+
   it("retains the previous known-good runtime when candidate qualification fails", async () => {
     const root = mkdtempSync(join(tmpdir(), "ashley-command-code-lifecycle-"));
     const paths = config(root);

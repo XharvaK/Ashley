@@ -271,6 +271,9 @@ async function installCandidateFromNpm(input: {
     "--prefix",
     versionRoot,
     `${COMMAND_CODE_PACKAGE_NAME}@${input.version}`,
+    // Upstream install scripts never run on the host: the candidate is
+    // qualified in the sandbox before anything from it executes.
+    "--ignore-scripts",
     "--no-audit",
     "--no-fund",
   ]);
