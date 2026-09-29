@@ -3,6 +3,13 @@ import type { DatabaseSync } from "node:sqlite";
 import { getThreadStory, listRecentEpisodes } from "./memory/episodes.js";
 import { listRecentJournal } from "./initiative/journal.js";
 import { listInterestBranches } from "./memory/interests.js";
+import { readMood } from "./growth/mood.js";
+import {
+  appliedEntryIdsForRevisions,
+  listAppliedRevisions,
+  listCurrentOpinions,
+  removeOrganicIdentityEntry,
+} from "./growth/revisions.js";
 import {
   applyForgetTargets,
   requireEntityUuid,
@@ -89,6 +96,12 @@ export type V021MemorySummary = {
   activity: Array<{ at: string; pass: string; activity: string | null; entry: string | null }>;
   /** Her strongest interest branches. */
   interests: Array<{ root: string; branch: string }>;
+  /** Her mood as it stands now, and the opinions and identity changes her growth has applied. */
+  growth: {
+    mood: { valence: number; energy: number; openness: number; tension: number; reason: string | null };
+    opinions: Array<{ topic: string; stance: string }>;
+    changes: Array<{ layer: string; text: string; appliedAt: string }>;
+  };
   lastUpdated: string;
   threadId: string;
 };
@@ -297,6 +310,22 @@ export function getV021MemorySummary(
     }));
   const interests = listInterestBranches(sidecar, Date.now(), 5)
     .map((branch) => ({ root: branch.root, branch: branch.label }));
+  const mood = readMood(sidecar, Date.now());
+  const visible = (classification: string) => includePrivate || classification !== "sensitive";
+  const growth = {
+    mood: { valence: mood.valence, energy: mood.energy, openness: mood.openness, tension: mood.tension, reason: mood.reason },
+    opinions: listCurrentOpinions(sidecar, 5)
+      .filter((revision) => visible(revision.dataClassification))
+      .map((revision) => ({ topic: revision.topic ?? revision.targetKey, stance: revision.proposedText })),
+    changes: listAppliedRevisions(sidecar, { limit: 10 })
+      .filter((revision) => revision.layer !== "opinion" && visible(revision.dataClassification))
+      .slice(0, 5)
+      .map((revision) => ({
+        layer: revision.layer,
+        text: revision.proposedText,
+        appliedAt: new Date(revision.appliedAtMs ?? revision.updatedAtMs).toISOString(),
+      })),
+  };
   const lastUpdatedMs = evidence.at(-1)?.createdAtMs ?? 0;
   return {
     facts,
@@ -304,6 +333,7 @@ export function getV021MemorySummary(
     episodes,
     activity,
     interests,
+    growth,
     lastUpdated: new Date(lastUpdatedMs).toISOString(),
     threadId,
   };
@@ -441,7 +471,13 @@ export function confirmV021Forget(
   sidecar: DatabaseSync,
   nuclear: DatabaseSync,
   continuity: DatabaseSync,
-  input: { ownerId: string; previewId: string; nowMs?: number },
+  input: {
+    ownerId: string;
+    previewId: string;
+    nowMs?: number;
+    /** The nuclear identity owner; when set, identity entries applied by forgotten revisions are removed too. */
+    identityOwnerId?: string;
+  },
 ): ForgetResult {
   const ownerId = input.ownerId.trim();
   const previewId = input.previewId.trim();
@@ -465,6 +501,15 @@ export function confirmV021Forget(
     nowMs: input.nowMs,
     delivery: { nuclearDb: nuclear, ownerId },
   });
+  let identityEntriesRemoved = 0;
+  if (input.identityOwnerId) {
+    const revisionIds = sidecarTargets
+      .filter((target) => target.entityType === "v021_growth_revision")
+      .map((target) => target.entityUuid);
+    for (const entryId of appliedEntryIdsForRevisions(sidecar, revisionIds)) {
+      if (removeOrganicIdentityEntry(nuclear, input.identityOwnerId, entryId)) identityEntriesRemoved += 1;
+    }
+  }
   const nuclearResult = compatibilityTargets.length > 0
     ? applyForgetTargets(nuclear, ownerId, compatibilityTargets, {
         tombstoneId: confirmed.tombstoneId,
@@ -477,7 +522,7 @@ export function confirmV021Forget(
   );
   return {
     preview: [],
-    deleted: sidecarResult.changedRows + (nuclearResult?.deleted ?? 0),
+    deleted: sidecarResult.changedRows + identityEntriesRemoved + (nuclearResult?.deleted ?? 0),
     receiptId: nuclearResult?.receiptId ?? null,
     counts: nuclearResult?.counts ?? { ...EMPTY_COUNTS },
     previewId,

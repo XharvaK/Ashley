@@ -172,6 +172,7 @@ import { buildInnerAgenda } from "../initiative/agenda.js";
 import { recordJournalEntry, type JournalPassKind } from "../initiative/journal.js";
 import { isUnsolicitedTriggerKind, unsolicitedFuseTripped } from "../initiative/reach-out.js";
 import { recordInterestTouches } from "../memory/interests.js";
+import { growthForThought, recordGrowth, type IdentityStore } from "../growth/growth.js";
 import {
   c1V021ProviderBoundBasisFromProjection,
   c1V021SemanticResultHash,
@@ -1412,6 +1413,7 @@ function materializeSemanticSettlement(
   if (semantic.reflection) result.reflection = semantic.reflection;
   if (semantic.journal) result.journal = { ...semantic.journal };
   if (semantic.interests) result.interests = semantic.interests.map((touch) => ({ ...touch }));
+  if (semantic.growth) result.growth = structuredClone(semantic.growth);
   return result as ThoughtSettlementDraft;
 }
 
@@ -1445,6 +1447,22 @@ function semanticReferencesForInput(input: ThoughtInput | ProjectedThoughtInput)
     ...journalReadRefs(input).map((read) => read.observationId),
     input.trigger.ref,
   ];
+}
+
+function settlementRedacted(sidecar: DatabaseSync, settlementId: string): boolean {
+  const row = sidecar.prepare("SELECT payload_json FROM settlements WHERE settlement_id = ?").get(settlementId) as
+    { payload_json?: unknown } | undefined;
+  if (!row || typeof row.payload_json !== "string") return false;
+  try {
+    return (JSON.parse(row.payload_json) as { redacted?: unknown }).redacted === true;
+  } catch {
+    return false;
+  }
+}
+
+/** The nuclear identity store the revision engine may write, when the deployment names its owner. */
+function identityStoreFor(nuclear: DatabaseSync, deps: KernelDeps): IdentityStore | null {
+  return deps.identityOwnerId ? { nuclear, ownerId: deps.identityOwnerId } : null;
 }
 
 /** What the activity journal says Ashley read: citable evidence for "I read…" (plan §5.3). */
@@ -3264,7 +3282,7 @@ export async function runCognitiveCycle(
       triggerText: ownerMessage,
       triggerEvidence,
       ...(continuityRecovery ? { continuityRecovery } : {}),
-      constitution: deps.constitution,
+      constitution: deps.readConstitution?.() ?? deps.constitution,
       capabilityReality: invocationCapabilityReality,
       wakeCauses: buildThoughtWakeCauses(sidecar, event, wake, cycle, originProfile.triggerKind),
       previousInvocationDelta: "unknown",
@@ -3276,6 +3294,9 @@ export async function runCognitiveCycle(
       },
       ...(afterglowPass ? { innerPass: afterglowInnerPass(sidecar, afterglowPass) } : {}),
       ...(awakePass ? { innerPass: { kind: "awake" as const, agenda: buildInnerAgenda(sidecar, awakePass, deps.nowMs()) } } : {}),
+      ...(effectiveThoughtAudience.kind === "owner_private" && !externalCycle
+        ? { growth: growthForThought(sidecar, identityStoreFor(nuclear, deps), deps.nowMs()) }
+        : {}),
       ...(settlementOnly ? { settlementOnly: true } : {}),
       ...(effectContinuationInput ? { effectContinuation: effectContinuationInput } : {}),
       ...(capacityWait ? { capacityWait } : {}),
@@ -4601,6 +4622,21 @@ export async function runCognitiveCycle(
       } catch (error) {
         // Publication is authoritative; the journal and interests are records of it.
         console.warn("[cognitive-v021] inner_life_record_deferred", error);
+      }
+      try {
+        // Growth V1 G4. A forget that redacted this settlement first wins:
+        // its growth claim is not recorded. Open revisions are still checked,
+        // so a wait that ran out applies without a new claim.
+        const standing = !settlementRedacted(sidecar, publication.settlementId);
+        recordGrowth(sidecar, {
+          cycleId: cycle.cycleId,
+          ...(standing && settlement.growth ? { claim: settlement.growth } : {}),
+          identityStore: identityStoreFor(nuclear, deps),
+          dataClassification: "ordinary",
+          nowMs: deps.nowMs(),
+        });
+      } catch (error) {
+        console.warn("[cognitive-v021] growth_record_deferred", error);
       }
     }
     if (deps.origin !== "shadow" && (settlement.durableNominations ?? []).length > 0) {

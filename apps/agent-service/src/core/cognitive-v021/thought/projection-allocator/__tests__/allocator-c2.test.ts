@@ -11,6 +11,7 @@ import { projectThoughtInput } from "../../projection.js";
 // the code-owned contract, so caller envelopes below carry a 1_000-token allowance.
 // The afterglow guidance adds ~150 more; the envelopes that overflowed carry +500.
 // G3 inner-life guidance adds ~700 more: the tight envelopes shift by +1_000.
+// G4 growth guidance and schema (mood, expectations, revisions) add ~1_300 more: +1_000, like G3; the overflow cases below are tuned individually.
 
 describe("MAT-II C2 allocator integration", () => {
   it("projects the orientation kernel and domain pointers through the existing allocator", () => {
@@ -97,7 +98,7 @@ describe("MAT-II C2 allocator integration", () => {
 
       const allocated = allocateThoughtProjection({
         thoughtInput: input,
-        semanticBudgetTokens: 12_000,
+        semanticBudgetTokens: 13_000,
         requestId: "c2-uniqueness-request",
       });
       const visible = JSON.parse(allocated.messages[1]?.content ?? "{}") as Record<string, unknown>;
@@ -239,10 +240,10 @@ describe("MAT-II C2 allocator integration", () => {
         thoughtInput: { ...input, rawConversation: [current] },
         // The current required C2 sections exceed the historical 9,500
         // fixture envelope; use the active 16,384 comparison envelope.
-        semanticBudgetTokens: 17_384,
+        semanticBudgetTokens: 18_384,
         requestId: "c2-required-prefix-request",
       });
-      expect(requiredOnly.receipt.estimatedInputTokens).toBeLessThanOrEqual(17_384);
+      expect(requiredOnly.receipt.estimatedInputTokens).toBeLessThanOrEqual(18_384);
       expect(requiredOnly.receipt.decision.omitted.filter(
         (candidate) => candidate.section === "recent_raw",
       )).toHaveLength(0);
@@ -254,10 +255,10 @@ describe("MAT-II C2 allocator integration", () => {
         thoughtInput: input,
         // This comparison envelope is intentionally below the restoration
         // target but large enough to retain the four-message protected suffix.
-        semanticBudgetTokens: 17_384,
+        semanticBudgetTokens: 18_384,
         requestId: "c2-budget-request",
       });
-      expect(allocated.receipt.estimatedInputTokens).toBeLessThanOrEqual(17_384);
+      expect(allocated.receipt.estimatedInputTokens).toBeLessThanOrEqual(18_384);
       expect(allocated.receipt.requiredOverflow).toBe(false);
       expect(allocated.projected.rawConversation.map((row) => row.rowId)).toContain(current.rowId);
       expect(allocated.receipt.decision.included).toEqual(expect.arrayContaining([

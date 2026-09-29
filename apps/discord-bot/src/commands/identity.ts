@@ -1,11 +1,16 @@
 import type { ChatInputCommandInteraction } from "discord.js";
 import { decideIdentityReview, identityReviews } from "../agent-client.js";
 
-function renderReview(review: Awaited<ReturnType<typeof identityReviews>>["reviews"][number]): string {
+export function renderReview(review: Awaited<ReturnType<typeof identityReviews>>["reviews"][number]): string {
   const status = review.appliedAt
     ? "applied"
     : `Ashley: ${review.ashleyPosition ?? "pending"}; Doc: ${review.docDecision ?? "pending"}`;
-  return `#${review.id} ${review.targetKey}\n${review.proposedValue}\n${status}`;
+  const lines = [`#${review.id} ${review.targetKind}: ${review.targetKey}`];
+  if (review.previousValue) lines.push(`was: ${review.previousValue}`);
+  lines.push(review.proposedValue);
+  if (review.ashleyRationale) lines.push(`Ashley: ${review.ashleyRationale}`);
+  lines.push(review.evidenceCount === undefined ? status : `${status}; evidence: ${review.evidenceCount}`);
+  return lines.join("\n");
 }
 
 export async function execute(
@@ -14,7 +19,9 @@ export async function execute(
   const action = interaction.options.getString("action", true);
   if (action === "review") {
     const result = await identityReviews();
-    const pending = result.reviews.filter((review) => !review.appliedAt).slice(0, 10);
+    const pending = result.reviews
+      .filter((review) => !review.appliedAt && (review.status === undefined || review.status === "proposed"))
+      .slice(0, 10);
     await interaction.editReply(
       pending.length > 0
         ? pending.map(renderReview).join("\n\n")
@@ -28,7 +35,7 @@ export async function execute(
   const result = await decideIdentityReview(reviewId, decision, rationale);
   await interaction.editReply(
     result.recorded
-      ? `Recorded Doc's ${decision} decision for identity review #${reviewId}.`
-      : `Identity review #${reviewId} was not found or is already applied.`,
+      ? `Recorded Doc's ${decision} decision for identity review #${reviewId}.${result.applied ? " Ashley had affirmed it, so it is now part of her identity." : ""}`
+      : `Identity review #${reviewId} was not found or is no longer open.`,
   );
 }

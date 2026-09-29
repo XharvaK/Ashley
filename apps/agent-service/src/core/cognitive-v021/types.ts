@@ -29,7 +29,7 @@ export type { SourceSupportRef } from "./evidence/interpretation-envelope.js";
 export const ARCHITECTURE_EPOCH = "v0.2.1" as const;
 export const IMPLEMENTATION_SPEC_VERSION = "0.2.1.r6" as const;
 export const THOUGHT_CONTRACT_VERSION = 2 as const;
-export const COGNITIVE_SIDECAR_SCHEMA_VERSION = 38 as const;
+export const COGNITIVE_SIDECAR_SCHEMA_VERSION = 39 as const;
 
 /**
  * Hard bound on cognition-facing concern discovery windows and pages. The
@@ -1047,6 +1047,8 @@ export type SettlementSemanticOutput = {
   journal?: import("./initiative/journal.js").JournalClaim;
   /** Interests Ashley lived in this turn or pass (Owner-private). */
   interests?: readonly import("./memory/interests.js").InterestTouch[];
+  /** Growth V1 G4: appraisal, expectations, revisions (Owner-private). */
+  growth?: import("./growth/claim.js").GrowthClaim;
   evidenceUse?: ThoughtEvidenceUse;
 };
 
@@ -1321,6 +1323,8 @@ export type ThoughtSettlementDraft = {
   journal?: import("./initiative/journal.js").JournalClaim;
   /** Stored by the Host after publication (memory/interests.ts). */
   interests?: import("./memory/interests.js").InterestTouch[];
+  /** Stored by the Host after publication (growth/growth.ts). */
+  growth?: import("./growth/claim.js").GrowthClaim;
   operations: {
     observationsConsumed: string[];
     /** Authored retrieval reliance preserved for post-publication audit. */
@@ -1712,6 +1716,8 @@ export type ThoughtInput = {
   episodes?: readonly import("./memory/episodes.js").ThoughtEpisode[];
   /** What Ashley did in her private passes lately, as the journal records it (Owner-private only). */
   activityJournal?: readonly import("./initiative/journal.js").ThoughtJournalEntry[];
+  /** Mood, opinions, open revisions and expectations (Owner-private only). */
+  growth?: import("./growth/growth.js").ThoughtGrowth;
   /** Present only during an afterglow or AWAKE pass. */
   innerPass?: ThoughtInnerPass;
   /** Present only for an autonomous idle-opportunity Thought. */
@@ -1867,6 +1873,9 @@ export type V021ForgetEntityType =
   | "v021_thread_story"
   | "v021_journal_entry"
   | "v021_interest_branch"
+  | "v021_growth_revision"
+  | "v021_mood_event"
+  | "v021_expectation"
   | "v021_concern"
   | "v021_occupancy"
   | "v021_future_trigger"
@@ -2129,6 +2138,10 @@ export type KernelDeps = {
   /** Shadow supplies `shadow`; live/default execution remains `live`. */
   origin?: OutboxOrigin;
   constitution: IdentitySlice;
+  /** Reads the identity slice fresh for each cycle, so an applied revision is seen at once. */
+  readConstitution?: () => IdentitySlice;
+  /** The nuclear identity owner the revision engine writes for (Growth V1 G4). */
+  identityOwnerId?: string;
   capabilityReality: CapabilityReality;
   /** Refreshes volatile capability and release facts before each Thought call. */
   refreshCapabilityReality?: (input: {

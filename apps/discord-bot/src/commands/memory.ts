@@ -1,5 +1,5 @@
 import type { ChatInputCommandInteraction } from "discord.js";
-import { memorySummary } from "../agent-client.js";
+import { memorySummary, type MemoryGrowth } from "../agent-client.js";
 import { formatFactLabel } from "../memory-labels.js";
 
 export function renderMemorySummary(data: {
@@ -8,11 +8,13 @@ export function renderMemorySummary(data: {
   episodes?: Array<{ summary: string; endedAt: string }>;
   activity?: Array<{ at: string; pass: string; activity: string | null; entry: string | null }>;
   interests?: Array<{ root: string; branch: string }>;
+  growth?: MemoryGrowth;
 }): string {
   const episodes = data.episodes ?? [];
   const activity = data.activity ?? [];
   const interests = data.interests ?? [];
-  if (!data.narrative && data.facts.length === 0 && episodes.length === 0 && activity.length === 0) {
+  const grown = (data.growth?.opinions.length ?? 0) + (data.growth?.changes.length ?? 0) > 0;
+  if (!data.narrative && data.facts.length === 0 && episodes.length === 0 && activity.length === 0 && !grown) {
     return "Stored memory summary: no pinned memories.";
   }
   const lines: string[] = ["Stored memory summary:", ""];
@@ -34,6 +36,20 @@ export function renderMemorySummary(data: {
   }
   if (interests.length) {
     lines.push(`Growing interests: ${interests.map((item) => `${item.branch} (${item.root})`).join(", ")}`);
+    lines.push("");
+  }
+  if (data.growth) {
+    const { mood, opinions, changes } = data.growth;
+    const signed = (value: number) => `${value >= 0 ? "+" : ""}${value.toFixed(2)}`;
+    lines.push(`Mood: valence ${signed(mood.valence)}, energy ${mood.energy.toFixed(2)}, openness ${mood.openness.toFixed(2)}, tension ${mood.tension.toFixed(2)}${mood.reason ? ` (${mood.reason})` : ""}`);
+    if (opinions.length) {
+      lines.push("Opinions she holds:");
+      for (const item of opinions) lines.push(`• ${item.topic}: ${item.stance}`);
+    }
+    if (changes.length) {
+      lines.push("How she has changed lately:");
+      for (const item of changes) lines.push(`• ${item.appliedAt.slice(0, 10)} ${item.layer}: ${item.text}`);
+    }
     lines.push("");
   }
   if (data.facts.length) {

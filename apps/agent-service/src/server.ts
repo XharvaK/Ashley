@@ -3,7 +3,7 @@ import cors from "cors";
 import type { Server } from "node:http";
 import { DatabaseSync } from "node:sqlite";
 import { AgentManager } from "./agent.js";
-import { env } from "./env.js";
+import { env, nuclearIdentityOwnerId } from "./env.js";
 import { toErrorResponse, AppError } from "./errors.js";
 import { listRecentDecisions } from "./core/agency/log.js";
 import { retrieveEpisodes } from "./core/memory/episodes.js";
@@ -51,6 +51,12 @@ import {
   getV021MemorySummary,
   previewV021Forget,
 } from "./core/cognitive-v021/commands.js";
+import {
+  evaluateRevisions,
+  listFoundationalReviews,
+  recordOwnerRevisionDecision,
+  revertRevision,
+} from "./core/cognitive-v021/growth/revisions.js";
 import {
   admitOwnerCorrection,
   type AdmissionPath,
@@ -2469,6 +2475,64 @@ export function createServer(
     }
   });
 
+  // Growth V1 G4: foundational revisions (values, boundaries) wait on the
+  // Owner here; /identity reads and decides them. Diagnostics never authorize:
+  // a decision applies only when Ashley has affirmed the same wording.
+  app.get("/growth/identity/reviews", (req, res) => {
+    try {
+      requireOwner(String(req.query.owner_id ?? "") || undefined);
+      const limit = Math.min(100, Number(req.query.limit ?? 50) || 50);
+      res.json({ reviews: listFoundationalReviews(getCognitiveSidecar(), limit) });
+    } catch (err) {
+      const { status, body } = toErrorResponse(err);
+      res.status(status).json(body);
+    }
+  });
+
+  app.post("/growth/identity/reviews/doc", (req, res) => {
+    try {
+      const { userId, reviewId, decision, rationale } = req.body as {
+        userId?: string;
+        reviewId?: number;
+        decision?: "approve" | "reject" | "defer";
+        rationale?: string;
+      };
+      requireOwner(userId);
+      if (!Number.isSafeInteger(reviewId) || !decision || !["approve", "reject", "defer"].includes(decision)) {
+        throw new AppError("message_required", "Owner review fields required", 400);
+      }
+      const sidecar = getCognitiveSidecar();
+      const nowMs = Date.now();
+      const recorded = recordOwnerRevisionDecision(sidecar, {
+        revisionId: reviewId as number,
+        decision,
+        ...(typeof rationale === "string" ? { rationale } : {}),
+        nowMs,
+      });
+      const identityStore = { nuclear: manager.core.getDatabase(), ownerId: nuclearIdentityOwnerId() };
+      const applied = recorded ? evaluateRevisions(sidecar, identityStore, nowMs).applied.includes(reviewId as number) : false;
+      res.json({ recorded, applied, reviews: listFoundationalReviews(sidecar) });
+    } catch (err) {
+      const { status, body } = toErrorResponse(err);
+      res.status(status).json(body);
+    }
+  });
+
+  app.post("/growth/revisions/revert", (req, res) => {
+    try {
+      const { userId, revisionId } = req.body as { userId?: string; revisionId?: number };
+      requireOwner(userId);
+      if (!Number.isSafeInteger(revisionId)) {
+        throw new AppError("message_required", "revisionId required", 400);
+      }
+      const identityStore = { nuclear: manager.core.getDatabase(), ownerId: nuclearIdentityOwnerId() };
+      res.json({ reverted: revertRevision(getCognitiveSidecar(), identityStore, revisionId as number, Date.now()) });
+    } catch (err) {
+      const { status, body } = toErrorResponse(err);
+      res.status(status).json(body);
+    }
+  });
+
   app.post("/memory/newthread", (req, res) => {
     try {
       const { userId } = req.body as { userId?: string };
@@ -2516,6 +2580,7 @@ export function createServer(
           {
             ownerId: owner,
             previewId: previewId.trim(),
+            identityOwnerId: nuclearIdentityOwnerId(),
           },
         ));
         return;

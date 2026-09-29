@@ -71,13 +71,43 @@ half-life otherwise.
 
 At most 12 unprompted messages go out per 24 hours (`initiative/reach-out.ts`).
 
+**Growth: mood, expectations, revisions.** Every Owner-private Thought
+also receives `growth` (`growth/growth.ts`): her mood, her current identity
+entries by id, the opinions she holds, open revisions with their evidence
+count, open expectations, and recent lessons. A settlement may carry a
+`growth` claim, recorded after publication:
+- *Mood* (`growth/mood.ts`): valence (-1..1), energy, openness, tension
+  (0..1). Ashley's appraisal says what moved her and which way. The Host
+  moves each dimension by at most 0.3 per appraisal and decays it toward
+  baseline at x0.85 per hour. Mood is input, never a script.
+- *Expectations* (`growth/expectations.ts`): she records what she expects
+  and, in a later cycle, checks it (met, missed, mixed, unknowable) with
+  the lesson she takes. A checked expectation is self-evidence. Unchecked
+  ones expire after 14 days.
+- *Revisions* (`growth/revisions.ts`): she proposes a change to herself,
+  citing evidence that must exist (memory keys, episodes, journal entries,
+  checked expectations). Proposals to the same target add up. An opinion
+  applies at 2 pieces of live evidence; a taste at 2 over 2 days; a trait
+  at 3 over 14 days, then 72 hours. A value or boundary needs her
+  affirmation in a later pass and the Owner's approval through `/identity`
+  (a new wording clears both). An applied identity revision appends a
+  `nuclear.db:identity_entries` row that revises the old one; the Thought
+  identity slice is read fresh each cycle, so the change is seen at once.
+  The Owner can revert one (`POST /growth/revisions/revert`).
+`/memory` shows her mood, the opinions she holds, and recent identity
+changes.
+
 **Forgetting.** `/forget` reaches episodes whose words mention the topic and
 any episode built from a message it redacts. A thread story is retired when
 it mentions the topic or when any of its conversation's messages is
 redacted; the next afterglow writes a fresh one. A forget that lands during
 an afterglow wins: that reflection is dropped. Journal entries that mention
 the topic or cite a redacted read lose their words and reads (the fact that
-a pass happened stays). Interest branches that mention it are removed.
+a pass happened stays). Interest branches that mention it are removed. Revisions that mention it can never
+apply, and an identity entry one already applied is removed. Appraisals and
+expectations that mention it lose their words (the mood numbers stay).
+Evidence a forget removes stops counting toward any revision, and a
+growth claim on a settlement a forget already redacted is not recorded.
 
 ## Legacy nuclear memory (pre-v0.2.1)
 

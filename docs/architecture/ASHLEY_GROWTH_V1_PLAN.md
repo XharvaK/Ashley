@@ -423,6 +423,48 @@ waits for a due afterglow), expectation checks (§6.5), and mood.
 Deferred to G4: mood, expectations/calibration. Deferred to G5: the NIGHT
 pass regenerating the identity taste line from the strongest branches.
 
+**G4 implementation status (2026-09-29, not yet deployed).** Implemented
+in `cognitive-v021/growth/` (sidecar v39):
+- *Where it lives.* Section 8 named the nuclear `learning_revisions`,
+  `affective_*` and `identity_reviews` tables. G4 keeps its records in the
+  sidecar instead, like G1–G3, so they join the v0.2.1 forget cascade; the
+  stale tables stay unwired. Applied identity revisions still land in
+  `nuclear.db:identity_entries`, the canonical identity store.
+- *Revision engine* (`revisions.ts`): Thought proposes (`growth.revisions`)
+  and cites evidence; the Host resolves it (live memory keys, episodes,
+  journal entries, checked expectations) and applies at the §6.2
+  thresholds. Proposals to one target (an opinion topic, an identity entry
+  id, or a new entry's topic) accumulate evidence, and her latest wording
+  stands. A taste may revise only a taste, and so on. Vision and core
+  principles are not revisable here. Evidence a forget removes stops
+  counting, and a ripe trait falls back and waits again.
+- *Values and boundaries*: Ashley affirms, objects, or defers
+  (`growth.revisionPositions`) in a pass after the one that proposed it; the
+  Owner approves, rejects, or defers through `/identity`, which now reads
+  `/growth/identity/reviews`. A new wording clears both positions. The old
+  `/nuclear/identity/reviews` routes are unchanged and no longer fed.
+- *Identity is read per cycle* (`KernelDeps.readConstitution`), so an
+  applied revision reaches the next Thought without a restart.
+- *Revert*: `POST /growth/revisions/revert` (Owner) removes the appended
+  entry and relinks what revised it; an opinion falls back to the one it
+  replaced. Not yet exposed as a Discord action.
+- *Mood* (`mood.ts`): four dimensions, one appraisal per cycle, deltas
+  bounded to ±0.3, continuous decay ×0.85/h toward baseline (valence 0,
+  energy 0.5, openness 0.5, tension 0). The reason is dropped once settled.
+- *Expectations* (`expectations.ts`): recorded, checked in a later cycle
+  with an outcome and lesson, expired after 14 days unchecked. A checked
+  one is citable self-evidence. §6.5's "the outcome becomes self-evidence"
+  is met by that citation; the guidance also invites her to nominate the
+  lesson as `learned_self_evidence`, but the Host does not write memories
+  on her behalf.
+- Growth is recorded after publication on every Owner-private settlement,
+  so a trait whose 72 h wait ran out applies on the next one. A growth
+  claim on a settlement that a forget already redacted is dropped.
+- `/memory` shows mood, opinions, and recent identity changes.
+
+Not in G4: the NIGHT pass that promotes self-evidence and regenerates the
+taste line (G5), and a Discord action for revert.
+
 ## 11. Open points (Owner)
 
 None blocking. Owner-set: AFTERGLOW 30 min (watermarked), AWAKE 3 h,

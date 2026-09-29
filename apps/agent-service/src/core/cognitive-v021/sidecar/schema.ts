@@ -1495,3 +1495,84 @@ SELECT seed.branch_id, seed.root, seed.label, 'seed', 1, now.ms, now.ms
         UNION ALL SELECT 'psychopharmacology/mechanism-depth-psychopharmacology', 'Psychopharmacology', 'mechanism-depth psychopharmacology') AS seed;
 UPDATE cognitive_sidecar_meta SET schema_version = 38, projection_state = 'reconciling' WHERE id = 1;
 `;
+
+/**
+ * Growth V1 G4: the revision engine, mood, and expectations. Applied
+ * identity revisions land in the nuclear identity store; everything Ashley
+ * authors about her growth lives here and joins the forget cascade.
+ */
+export const COGNITIVE_SIDECAR_SCHEMA_V39 = String.raw`
+CREATE TABLE IF NOT EXISTS growth_revisions (
+  revision_id INTEGER PRIMARY KEY AUTOINCREMENT,
+  layer TEXT NOT NULL CHECK (layer IN ('opinion', 'taste', 'trait', 'value', 'boundary')),
+  target_key TEXT NOT NULL,
+  topic TEXT,
+  revises_entry_id INTEGER,
+  previous_text TEXT,
+  proposed_text TEXT NOT NULL,
+  rationale TEXT,
+  status TEXT NOT NULL CHECK (status IN ('proposed', 'ripe', 'applied', 'superseded', 'reverted', 'rejected', 'forgotten')),
+  ripe_at_ms INTEGER,
+  applied_at_ms INTEGER,
+  applied_entry_id INTEGER,
+  ashley_position TEXT CHECK (ashley_position IN ('affirm', 'object', 'defer')),
+  ashley_rationale TEXT,
+  ashley_cycle_id TEXT,
+  ashley_decided_at_ms INTEGER,
+  owner_decision TEXT CHECK (owner_decision IN ('approve', 'reject', 'defer')),
+  owner_rationale TEXT,
+  owner_decided_at_ms INTEGER,
+  proposed_cycle_id TEXT NOT NULL,
+  data_classification TEXT NOT NULL,
+  created_at_ms INTEGER NOT NULL,
+  updated_at_ms INTEGER NOT NULL,
+  forgotten_at_ms INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_growth_revisions_target
+  ON growth_revisions (target_key, status);
+CREATE TABLE IF NOT EXISTS growth_revision_evidence (
+  revision_id INTEGER NOT NULL,
+  evidence_ref TEXT NOT NULL,
+  cited_cycle_id TEXT NOT NULL,
+  linked_at_ms INTEGER NOT NULL,
+  PRIMARY KEY (revision_id, evidence_ref)
+);
+CREATE TABLE IF NOT EXISTS mood_state (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  valence REAL NOT NULL,
+  energy REAL NOT NULL,
+  openness REAL NOT NULL,
+  tension REAL NOT NULL,
+  reason TEXT,
+  source_event_id TEXT,
+  last_appraisal_at_ms INTEGER,
+  updated_at_ms INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS mood_events (
+  event_id TEXT PRIMARY KEY,
+  cycle_id TEXT NOT NULL UNIQUE,
+  appraisal TEXT,
+  valence_delta REAL NOT NULL,
+  energy_delta REAL NOT NULL,
+  openness_delta REAL NOT NULL,
+  tension_delta REAL NOT NULL,
+  data_classification TEXT NOT NULL,
+  created_at_ms INTEGER NOT NULL,
+  forgotten_at_ms INTEGER
+);
+CREATE TABLE IF NOT EXISTS expectations (
+  expectation_id TEXT PRIMARY KEY,
+  cycle_id TEXT NOT NULL,
+  statement TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('open', 'met', 'missed', 'mixed', 'unknowable', 'expired')),
+  lesson TEXT,
+  checked_cycle_id TEXT,
+  data_classification TEXT NOT NULL,
+  created_at_ms INTEGER NOT NULL,
+  checked_at_ms INTEGER,
+  forgotten_at_ms INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_expectations_status
+  ON expectations (status, created_at_ms);
+UPDATE cognitive_sidecar_meta SET schema_version = 39, projection_state = 'reconciling' WHERE id = 1;
+`;

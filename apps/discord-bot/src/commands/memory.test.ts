@@ -48,4 +48,28 @@ describe("memory command", () => {
     assert.match(rendered, /Own time lately:\n• 2026-09-29 14:05 awake · read: Read about Basic Channel\.\n• 2026-09-29 11:00 afterglow\n/);
     assert.match(rendered, /Growing interests: dub techno \(Electronic music\)/);
   });
+
+  it("shows her mood, the opinions she holds, and how she has changed", () => {
+    const rendered = renderMemorySummary({
+      narrative: null,
+      facts: [],
+      growth: {
+        mood: { valence: 0.2, energy: 0.6, openness: 0.5, tension: 0.1, reason: "the Basic Channel thread lit me up" },
+        opinions: [{ topic: "dub techno at night", stance: "best after 2am, on headphones" }],
+        changes: [{ layer: "taste", text: "dub techno, essays that argue", appliedAt: "2026-10-02T03:00:00.000Z" }],
+      },
+    });
+    assert.match(rendered, /Mood: valence \+0\.20, energy 0\.60, openness 0\.50, tension 0\.10 \(the Basic Channel thread lit me up\)/);
+    assert.match(rendered, /Opinions she holds:\n• dub techno at night: best after 2am, on headphones/);
+    assert.match(rendered, /How she has changed lately:\n• 2026-10-02 taste: dub techno, essays that argue/);
+  });
+
+  it("does not treat a resting mood alone as stored memory", () => {
+    const rendered = renderMemorySummary({
+      narrative: null,
+      facts: [],
+      growth: { mood: { valence: 0, energy: 0.5, openness: 0.5, tension: 0, reason: null }, opinions: [], changes: [] },
+    });
+    assert.equal(rendered, "Stored memory summary: no pinned memories.");
+  });
 });

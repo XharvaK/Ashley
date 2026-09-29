@@ -319,6 +319,11 @@ if (pointedEnvFile) {
 
 export const env = createEnv();
 
+/** The owner the nuclear identity store is kept for (the same one Thought's identity slice reads). */
+export function nuclearIdentityOwnerId(): string {
+  return env.memoryOwnerId || env.discordOwnerId || "default";
+}
+
 export function refreshEnvFromProcess(): void {
   Object.assign(env, createEnv());
 }

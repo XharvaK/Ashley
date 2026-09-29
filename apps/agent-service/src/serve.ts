@@ -1,7 +1,7 @@
 import type { AgentManager } from "./agent.js";
 import { AFTERGLOW_POLL_MS } from "./core/cognitive-v021/initiative/afterglow.js";
 import { isPeriodicCognitionEnabled } from "./core/cognitive-v021/dispatch/live.js";
-import { env } from "./env.js";
+import { env, nuclearIdentityOwnerId } from "./env.js";
 import { createServer, listen } from "./server.js";
 import { completeChat } from "./mistral-client.js";
 import { checkAuthority } from "./core/cognitive-v021/authority/check.js";
@@ -205,7 +205,7 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
   if (cognitiveSidecar) {
     const sidecar = cognitiveSidecar;
     const nuclear = manager.core.getDatabase();
-    const ownerId = env.memoryOwnerId || env.discordOwnerId || "default";
+    const ownerId = nuclearIdentityOwnerId();
     seedTrustedRoomsFromOwnerEnvironment(nuclear, { ownerId });
     const webFetchProvider = env.curiosityEnabled
       ? new CuriosityWebFetchProvider()
@@ -414,6 +414,8 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
       projectInterim: (interimId) => projector.projectInterim(interimId),
       enqueueWorkerUndertaking: (input) => enqueueWorkerUndertakingIntent(sidecar, input),
       constitution: readIdentitySlice(nuclear, ownerId),
+      readConstitution: () => readIdentitySlice(nuclear, ownerId),
+      identityOwnerId: ownerId,
       capabilityReality,
       visionTransport,
       refreshCapabilityReality: ({ audience, licenses, nowMs }) => getCapabilityReality(nuclear, {

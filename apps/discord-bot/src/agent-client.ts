@@ -592,6 +592,13 @@ export async function pinMemory(
   );
 }
 
+/** Mood, opinions, and applied identity changes (Growth V1 G4). */
+export type MemoryGrowth = {
+  mood: { valence: number; energy: number; openness: number; tension: number; reason: string | null };
+  opinions: Array<{ topic: string; stance: string }>;
+  changes: Array<{ layer: string; text: string; appliedAt: string }>;
+};
+
 export async function memorySummary(includePrivate = false) {
   const q = new URLSearchParams({
     owner_id: config.ownerId,
@@ -603,6 +610,7 @@ export async function memorySummary(includePrivate = false) {
     episodes?: Array<{ summary: string; endedAt: string }>;
     activity?: Array<{ at: string; pass: string; activity: string | null; entry: string | null }>;
     interests?: Array<{ root: string; branch: string }>;
+    growth?: MemoryGrowth;
     lastUpdated: string;
   }>(`/memory/summary?${q}`);
 }
@@ -789,21 +797,26 @@ export async function initiativeStatus(): Promise<InitiativeStatus> {
   return agentFetch<InitiativeStatus>(`/initiative/status?${q}`);
 }
 
+/** A foundational revision Ashley proposed (Growth V1 G4). */
 export type IdentityReview = {
   id: number;
   revisionId: number;
   targetKind: "value" | "boundary";
   targetKey: string;
   proposedValue: string;
+  previousValue?: string | null;
   ashleyPosition: "affirm" | "object" | "defer" | null;
+  ashleyRationale?: string | null;
   docDecision: "approve" | "reject" | "defer" | null;
+  evidenceCount?: number;
   appliedAt: string | null;
+  status?: string;
 };
 
 export async function identityReviews() {
   const query = new URLSearchParams({ owner_id: config.ownerId });
   return agentFetch<{ reviews: IdentityReview[] }>(
-    `/nuclear/identity/reviews?${query.toString()}`,
+    `/growth/identity/reviews?${query.toString()}`,
   );
 }
 
@@ -812,8 +825,8 @@ export async function decideIdentityReview(
   decision: "approve" | "reject" | "defer",
   rationale?: string,
 ) {
-  return agentFetch<{ recorded: boolean; reviews: IdentityReview[] }>(
-    "/nuclear/identity/reviews/doc",
+  return agentFetch<{ recorded: boolean; applied?: boolean; reviews: IdentityReview[] }>(
+    "/growth/identity/reviews/doc",
     {
       method: "POST",
       body: JSON.stringify({

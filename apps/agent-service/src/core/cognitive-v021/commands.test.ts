@@ -16,6 +16,10 @@ import { insertOutboxPending } from "./speech/outbox.js";
 import { sendOutbox } from "./speech/send.js";
 import { upsertMemoryAssertion } from "./memory/assertions.js";
 import { scheduleFutureTrigger } from "./initiative/future-triggers.js";
+import { recordMemoryFormation } from "./memory/strength.js";
+import { recordAppraisal } from "./growth/mood.js";
+import { evaluateRevisions, proposeRevisions, revisableIdentityEntries } from "./growth/revisions.js";
+import { listIdentity } from "../identity/store.js";
 import {
   admitV021RememberCommand,
   getV021MemorySummary,
@@ -284,6 +288,43 @@ describe("v0.2.1 command wiring", () => {
       nuclear.close();
       continuity.close();
       rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("/forget removes Ashley's growth about a topic, including an identity entry it applied; /memory shows her growth", () => {
+    const { sidecar, nuclear, continuity } = stores();
+    try {
+      const dimensions = { source: "ashley_interpretation" as const, status: "interpreted" as const, time: "current" as const, reliability: "inferred" as const };
+      const DAY = 24 * 60 * 60_000;
+      for (const [key, statement, at] of [["self:c1", "Kyoto planning made me happy.", 0], ["self:c2", "Kyoto again, still happy.", 3 * DAY]] as const) {
+        upsertMemoryAssertion(sidecar, { assertionKey: key, statement, memoryKind: "learned_self_evidence", dimensions, dataClassification: "ordinary", lineageParentKey: null, admittedGeneration: 1, live: true });
+        recordMemoryFormation(sidecar, { assertionKey: key, salience: 0.6, nowMs: 1_000 + at });
+      }
+      const taste = revisableIdentityEntries(nuclear, OWNER).find((entry) => entry.kind === "taste")!;
+      proposeRevisions(sidecar, {
+        cycleId: "cycle-taste",
+        proposals: [{ layer: "taste", revisesEntryId: taste.entryId, text: "trip planning, Kyoto above all", rationale: "what I keep reaching for", evidenceRefs: ["self:c1", "self:c2"] }],
+        identity: revisableIdentityEntries(nuclear, OWNER),
+        nowMs: 1_000 + 3 * DAY,
+      });
+      expect(evaluateRevisions(sidecar, { nuclear, ownerId: OWNER }, 1_000 + 3 * DAY).applied).toHaveLength(1);
+      recordAppraisal(sidecar, { cycleId: "cycle-mood", appraisal: { note: "glad about the trip", valence: 0.3 }, dataClassification: "ordinary", nowMs: Date.now() });
+
+      const summary = getV021MemorySummary(sidecar, nuclear, OWNER, false);
+      expect(summary.growth.changes).toEqual([expect.objectContaining({ layer: "taste", text: "trip planning, Kyoto above all" })]);
+      expect(summary.growth.mood.reason).toBe("glad about the trip");
+
+      const preview = previewV021Forget(sidecar, nuclear, continuity, { ownerId: OWNER, topic: "kyoto", nowMs: 2 });
+      expect(preview.categoryCounts).toMatchObject({ v021_growth_revision: 1 });
+      confirmV021Forget(sidecar, nuclear, continuity, { ownerId: OWNER, previewId: preview.previewId!, nowMs: 3, identityOwnerId: OWNER });
+      const tastes = listIdentity(nuclear, OWNER, { layer: "stable" }).filter((entry) => entry.kind === "taste").map((entry) => entry.text);
+      expect(tastes).not.toContain("trip planning, Kyoto above all");
+      expect(tastes).toContain(taste.text);
+      expect(getV021MemorySummary(sidecar, nuclear, OWNER, false).growth.changes).toEqual([]);
+    } finally {
+      sidecar.close();
+      nuclear.close();
+      continuity.close();
     }
   });
 });
