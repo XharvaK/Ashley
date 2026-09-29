@@ -1,4 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
+import { writeCommandCodeQualificationState } from "../../command-code/lifecycle.js";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -136,8 +137,13 @@ describe("modification solvability preflight", () => {
     const db = activeDb();
     try {
       const install = fakeReadyRuntime();
+      // A ready worker is one whose installed version passed sandboxed
+      // qualification; the fixture records that like the lifecycle does.
+      const qualificationStatePath = join(dirname(dirname(install.nodeExecutable)), "command-code-state.json");
+      writeCommandCodeQualificationState(qualificationStatePath, COMMAND_CODE_WORKER_PINNED_VERSION);
       const result = evaluateModificationSolvability(baseInput(db, registry(true), {
         realityOptions: {
+          commandCodeQualificationStatePath: qualificationStatePath,
           commandCodeWorkerEnabled: true,
           commandCodeApiKey: "test-key",
           commandCodeBinaryPath: install.binaryPath,

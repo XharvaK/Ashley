@@ -164,7 +164,10 @@ describe("interim-hold Thought contract", () => {
     const instruction = thoughtOutputCompatibilityInstruction();
     expect(instruction).toContain("Interim-hold law");
     expect(instruction).toContain("operation_pending");
-    expect(instruction).toContain("project.inspect is the only current semantic project-read capability");
+    // Workspace read operations now exist, so project.inspect is no longer the
+    // only project-read capability; the law is that only it may carry a hold.
+    expect(instruction).toContain("project.inspect is read-only");
+    expect(instruction).toContain("only project.inspect observation_intent may carry interimSpeech");
   });
 });
 

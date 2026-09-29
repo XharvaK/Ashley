@@ -286,8 +286,9 @@ describe("P1 occupied-concern projection", () => {
         // Calibrated above the legacy 10_000 default: the concern-authority
         // separation instruction and the bounded concern discovery window both
         // add fixed contract overhead, so the domain-pointers fit case carries
-        // matching headroom.
-        semanticBudgetTokens: 10_500,
+        // matching headroom. The required orientation kernel alone now
+        // estimates near 14k; shrinking it is improvement I0, not this test.
+        semanticBudgetTokens: 16_000,
         maxOutputTokens: 1_024,
       });
       const visible = JSON.parse(String(allocated.messages[1]?.content ?? "{}")) as Record<string, unknown>;

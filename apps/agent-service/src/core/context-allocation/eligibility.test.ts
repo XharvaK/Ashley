@@ -130,7 +130,9 @@ describe("C2 eligibility and route trust", () => {
     expect(deriveContextRoute(request([]))).toMatchObject({
       routeId: "thought",
       routeClass: "remote_companion",
-      adapterClass: "cloudflare-adapter",
+      // The adapter follows the current Thought occupant, a routing fact
+      // resolved from config, never pinned here.
+      adapterClass: expect.stringMatching(/^[a-z_]+-adapter$/),
       profileId: "thought_summary",
       profileVersion: 1,
     });

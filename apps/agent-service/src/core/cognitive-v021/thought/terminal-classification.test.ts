@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { ORDINARY_THOUGHT_BUDGET_MS } from "../types.js";
 import { DatabaseSync } from "node:sqlite";
 import { appendInboxEvent } from "../cycle/inbox.js";
 import { appendOwnerUtterance } from "../evidence/conversation-log.js";
@@ -372,7 +373,7 @@ describe("FAILURE-TRUTH-COMPLETENESS-01 producer-to-notice", () => {
     // Monotonic clock jumping past the bounded budget: the loop-top deadline
     // fires before any provider dispatch.
     let t = 0;
-    const nowMs = vi.fn(() => (t += 400_000));
+    const nowMs = vi.fn(() => (t += ORDINARY_THOUGHT_BUDGET_MS + 1));
     try {
       const result = await runCognitiveCycle(
         sidecar, attentionDb, event, deps({ attentionDb, completeChat, nowMs }),
