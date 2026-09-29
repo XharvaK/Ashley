@@ -29,6 +29,23 @@ export const AUTOMATIC_ADMISSION_GROUNDING: Readonly<Record<MemoryKind, Admissio
   learned_self_evidence: "ashley_authored",
 });
 
+const GROUNDING_RANK: Readonly<Record<AdmissionGrounding, number>> = Object.freeze({
+  owner_quote: 3,
+  owner_quote_or_observation: 2,
+  conversation_quote: 1,
+  ashley_authored: 0,
+});
+
+/**
+ * R6: a memory may replace another only if its kind needs at least the same
+ * grounding, so her reading of the Owner can never retire what the Owner said.
+ */
+export function canReplaceMemoryKind(next: MemoryKind, previous: MemoryKind): boolean {
+  const nextRank = GROUNDING_RANK[AUTOMATIC_ADMISSION_GROUNDING[next]];
+  const previousRank = GROUNDING_RANK[AUTOMATIC_ADMISSION_GROUNDING[previous]];
+  return nextRank !== undefined && previousRank !== undefined && nextRank >= previousRank;
+}
+
 export const AUTOMATIC_ADMISSION_KINDS = Object.freeze(
   Object.keys(AUTOMATIC_ADMISSION_GROUNDING) as MemoryKind[],
 );

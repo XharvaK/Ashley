@@ -3,9 +3,8 @@ import { canEnterModelContext } from "../../privacy/classification.js";
 import type { LearnedSelfEvidenceEntry, LearnedSelfSlice, MemoryAssertion, MemoryKind, MemorySupport } from "../types.js";
 import type { SocialAudience } from "../social/types.js";
 import { listMemoryAssertions } from "../memory/assertions.js";
-import { listMemorySupports } from "../memory/supports.js";
+import { listMemorySupports, supportConversationId } from "../memory/supports.js";
 import { hasLearnedSelfThoughtAdoption } from "../memory/admission.js";
-import { getConversationEvidence } from "../evidence/conversation-log.js";
 import { validateSourceSupportRefs } from "../evidence/interpretation-envelope.js";
 
 export type LearnedSelfEntry = {
@@ -70,19 +69,6 @@ function addText(target: { dispositions: string[]; interests: string[] }, statem
   }
 }
 
-function conversationIdForSupport(db: DatabaseSync, support: MemorySupport): string | null {
-  if (support.supportRef?.kind === "conversation_text_span") {
-    return getConversationEvidence(db, support.supportRef.evidenceRowId)?.conversationId ?? null;
-  }
-  if (!support.settlementId) return null;
-  const row = db.prepare(
-    `SELECT c.conversation_id
-       FROM settlements s JOIN cycle_records c ON c.cycle_id = s.cycle_id
-      WHERE s.settlement_id = ? LIMIT 1`,
-  ).get(support.settlementId) as { conversation_id?: unknown } | undefined;
-  return typeof row?.conversation_id === "string" ? row.conversation_id : null;
-}
-
 function supportAvailability(
   db: DatabaseSync,
   assertion: MemoryAssertion,
@@ -93,7 +79,7 @@ function supportAvailability(
   const ownerOrigin = assertion.dimensions.source === "owner_utterance"
     || assertion.dimensions.reliability === "owner_supplied";
   for (const support of typed) {
-    const conversationId = conversationIdForSupport(db, support);
+    const conversationId = supportConversationId(db, support);
     if (!conversationId || !support.supportRef) return "unavailable";
     try {
       const [source] = validateSourceSupportRefs(db, [support.supportRef], conversationId);

@@ -15,15 +15,16 @@ import {
   listDurableNominations,
   type DurableNominationRecord,
 } from "./nomination.js";
-import { appendMemorySupport } from "./supports.js";
+import { appendMemorySupport, listMemorySupports, supportConversationId } from "./supports.js";
 import { recordMemoryFormation } from "./strength.js";
-import { validateSourceSupportRefs } from "../evidence/interpretation-envelope.js";
-import { REDACTED_MEMORY_STATEMENT, upsertMemoryAssertion } from "./assertions.js";
+import { parseSourceSupportRef, validateSourceSupportRefs, type ResolvedSource } from "../evidence/interpretation-envelope.js";
+import { getMemoryAssertion, REDACTED_MEMORY_STATEMENT, upsertMemoryAssertion } from "./assertions.js";
 import { notifySidecarPostCommit } from "../retrieval/derived-store.js";
 import { hasStructuredCurrentnessEntitlement } from "../authority/check.js";
 import {
   AUTOMATIC_ADMISSION_KINDS,
   alignConversationSpans,
+  canReplaceMemoryKind,
   isGroundedForKind,
   ownerQuotedRowIds,
 } from "./grounding.js";
@@ -280,6 +281,83 @@ function findVerifiedOwnerEvidence(
   return null;
 }
 
+function isSocialConversationId(conversationId: string): boolean {
+  return conversationId.startsWith("dm:") || conversationId.startsWith("room:");
+}
+
+type ResolvedSupport = {
+  refs: SourceSupportRef[];
+  resolved: ResolvedSource[];
+  /** The conversation each ref belongs to; supports are validated against it. */
+  conversationIds: string[];
+};
+
+/**
+ * Typed support resolves in the nominating conversation, except that an
+ * Owner-private cycle may quote the Owner from any conversation recall showed
+ * it (R7). The cited row must still resolve to the Owner principal.
+ */
+function resolveTypedSupport(
+  db: DatabaseSync,
+  values: readonly unknown[],
+  conversationId: string,
+): ResolvedSupport {
+  const result: ResolvedSupport = { refs: [], resolved: [], conversationIds: [] };
+  for (const value of values) {
+    const ref = parseSourceSupportRef(value);
+    if (!ref) throw new Error("support_ref_invalid");
+    let refConversationId = conversationId;
+    if (ref.kind === "conversation_text_span" && !isSocialConversationId(conversationId)) {
+      const rowConversationId = getConversationEvidence(db, ref.evidenceRowId)?.conversationId;
+      if (rowConversationId && rowConversationId !== conversationId) refConversationId = rowConversationId;
+    }
+    const [resolved] = validateSourceSupportRefs(db, [ref], refConversationId);
+    if (refConversationId !== conversationId && resolved?.principalKind !== "owner") {
+      throw new Error("support_ref_unresolvable");
+    }
+    result.refs.push(ref);
+    result.resolved.push(resolved!);
+    result.conversationIds.push(refConversationId);
+  }
+  return result;
+}
+
+/**
+ * R6 merge: a memory that restates or replaces live ones carries their still
+ * resolvable support forward, so a merged Owner fact stays grounded by the
+ * Owner's own words. Owner-origin memories inherit only Owner support.
+ */
+function inheritedSupport(
+  db: DatabaseSync,
+  assertionKeys: readonly string[],
+  ownerOrigin: boolean,
+): ResolvedSupport {
+  const result: ResolvedSupport = { refs: [], resolved: [], conversationIds: [] };
+  const seen = new Set<string>();
+  for (const key of new Set(assertionKeys)) {
+    const previous = getMemoryAssertion(db, key);
+    if (!previous?.live) continue;
+    for (const support of listMemorySupports(db, key)) {
+      if (!support.supportRef) continue;
+      const identity = JSON.stringify(support.supportRef);
+      if (seen.has(identity)) continue;
+      const refConversationId = supportConversationId(db, support);
+      if (!refConversationId) continue;
+      try {
+        const [resolved] = validateSourceSupportRefs(db, [support.supportRef], refConversationId);
+        if (!resolved || (ownerOrigin && resolved.principalKind !== "owner")) continue;
+        seen.add(identity);
+        result.refs.push(support.supportRef);
+        result.resolved.push(resolved);
+        result.conversationIds.push(refConversationId);
+      } catch {
+        // A forgotten, redacted or edited source no longer supports anything.
+      }
+    }
+  }
+  return result;
+}
+
 function admitOne(
   db: DatabaseSync,
   nomination: DurableNominationRecord,
@@ -334,24 +412,37 @@ function admitOne(
     return result;
   }
 
+  // R6: never let a weaker-grounded kind replace a memory, by key or by supersession.
+  const replacedKeys = [nomination.assertionKey, nomination.supersedesAssertionKey]
+    .filter((key): key is string => typeof key === "string" && key.length > 0);
+  for (const key of replacedKeys) {
+    const previous = getMemoryAssertion(db, key);
+    if (previous?.live && !canReplaceMemoryKind(nomination.memoryKind, previous.memoryKind)) {
+      const result = noAssertion("admission_skipped_provenance");
+      logAdmission(db, result, nowMs);
+      return result;
+    }
+  }
+
   // 1. Typed support refs use the same current-source resolver as Working Context.
-  let typedSupportRefs: SourceSupportRef[] = [];
-  let resolvedTypedSupport: ReturnType<typeof validateSourceSupportRefs> = [];
+  let typed: ResolvedSupport;
   try {
-    const values = alignConversationSpans(db, publishedSupportRefs(settlement, nomination));
-    resolvedTypedSupport = validateSourceSupportRefs(db, values, current.conversationId);
-    typedSupportRefs = values as SourceSupportRef[];
+    typed = resolveTypedSupport(db, alignConversationSpans(db, publishedSupportRefs(settlement, nomination)), current.conversationId);
   } catch {
     const result = noAssertion("admission_skipped_provenance");
     logAdmission(db, result, nowMs);
     return result;
   }
   const isOwnerOrigin = nomination.dimensions.source === "owner_utterance" || nomination.dimensions.reliability === "owner_supplied";
-  if (isOwnerOrigin && resolvedTypedSupport.some((source) => source.principalKind !== "owner")) {
+  if (isOwnerOrigin && typed.resolved.some((source) => source.principalKind !== "owner")) {
     const result = noAssertion("admission_skipped_provenance");
     logAdmission(db, result, nowMs);
     return result;
   }
+  const inherited = inheritedSupport(db, replacedKeys, isOwnerOrigin);
+  const typedSupportRefs = [...typed.refs, ...inherited.refs];
+  const resolvedTypedSupport = [...typed.resolved, ...inherited.resolved];
+  const supportConversationIds = [...typed.conversationIds, ...inherited.conversationIds];
 
   if (options.requireGrounding
     && !isGroundedForKind(nomination.memoryKind, typedSupportRefs, resolvedTypedSupport)) {
@@ -494,7 +585,7 @@ function admitOne(
       dimensions: nomination.dimensions,
       dataClassification: effectiveClassification,
       supportRef,
-      conversationId: current.conversationId,
+      conversationId: supportConversationIds[index] ?? current.conversationId,
       createdAtMs: nowMs,
     });
   }

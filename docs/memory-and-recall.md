@@ -14,7 +14,13 @@ claims about the Owner must quote the Owner's own message verbatim in a
 `conversation_text_span`; world and project facts may use an observation or
 receipt instead; shared episodes quote either side; Ashley's own kinds
 (`ashley_interpretation`, `open_question`, `learned_self_evidence`) need no
-quote and stay labelled as hers. Each nomination is decided once and the
+quote and stay labelled as hers. An Owner quote may come from any
+Owner-private conversation, not only the nominating one; a row from another
+conversation grounds only if it resolves to the Owner. A memory replaces
+another (by `supersedesRef` or the same key) only if its kind needs at least
+the same grounding, so her interpretation never retires what the Owner said;
+a replacement inherits the old memory's still-resolvable quotes, so a merged
+Owner fact stays grounded. Each nomination is decided once and the
 decision is logged in `admission_log`. `/remember` and `remember:` still
 admit directly.
 

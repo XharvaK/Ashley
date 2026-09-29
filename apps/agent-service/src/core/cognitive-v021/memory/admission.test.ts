@@ -442,4 +442,136 @@ describe("v0.2.1 fenced Memory admission", () => {
       } finally { db.close(); }
     });
   });
+  describe("R6 supersession and R7 cross-thread grounding", () => {
+    const historicalOwner = { source: "owner_utterance", status: "asserted", time: "historical", reliability: "owner_supplied" } as const;
+    const interpretation = { source: "ashley_interpretation", status: "interpreted", time: "historical", reliability: "inferred" } as const;
+
+    function quote(ev: { rowId: string; text: string | null }) {
+      return { kind: "conversation_text_span" as const, evidenceRowId: ev.rowId, start: 0, end: ev.text!.length, quote: ev.text! };
+    }
+
+    function seedOwnerPreference(db: Parameters<typeof tickAdmission>[0]) {
+      const ev = appendOwnerUtterance(db, { conversationId: "thread-a", text: "I hate mornings", discordMessageIds: ["m-a"], nowMs: 1 });
+      admitTestCycle(db, { cycleId: "cycle-a", conversationId: "thread-a", generation: 1, triggerKind: "owner_message", triggerRef: ev.rowId, occupantId: "doc", nowMs: 1 });
+      publishNomination(db, nomination({
+        nominationId: "nom-pref",
+        cycleId: "cycle-a",
+        assertionKey: "owner:mornings",
+        statement: "Alex hates mornings.",
+        memoryKind: "owner_preference",
+        dimensions: historicalOwner,
+        sourceRefs: [ev.rowId],
+        supportRefs: [quote(ev)],
+      }), "settlement-pref", { operations: { observationsConsumed: [] }, currentness: null as any });
+      expect(tickAdmission(db, { nowMs: 2, requireGrounding: true }).admitted).toBe(1);
+      return ev;
+    }
+
+    function publishPrivatePass(db: Parameters<typeof tickAdmission>[0], input: Partial<DurableNomination>, id: string) {
+      admitTestCycle(db, { cycleId: `cycle-${id}`, conversationId: "thread-a", generation: 2, triggerKind: "owner_message", triggerRef: `trigger-${id}`, occupantId: "doc", nowMs: 3 });
+      publishNomination(db, nomination({ nominationId: `nom-${id}`, cycleId: `cycle-${id}`, generation: 2, sourceRefs: [], ...input }), `settlement-${id}`, {
+        operations: { observationsConsumed: [] },
+        currentness: null as any,
+      });
+    }
+
+    it("refuses an interpretation that supersedes something Alex said", () => {
+      const db = openTestSidecar();
+      try {
+        seedOwnerPreference(db);
+        publishPrivatePass(db, {
+          assertionKey: "ashley:mornings",
+          statement: "Alex is probably just tired lately.",
+          memoryKind: "ashley_interpretation",
+          dimensions: interpretation,
+          supersedesAssertionKey: "owner:mornings",
+        }, "interp");
+        const result = tickAdmission(db, { nowMs: 4, requireGrounding: true });
+        expect(result.results[0]?.result).toBe("admission_skipped_provenance");
+        expect(db.prepare("SELECT live FROM sidecar_memory_assertions WHERE assertion_key = 'owner:mornings'").get()).toEqual({ live: 1 });
+      } finally { db.close(); }
+    });
+
+    it("refuses an interpretation that overwrites an Owner memory under the same key", () => {
+      const db = openTestSidecar();
+      try {
+        seedOwnerPreference(db);
+        publishPrivatePass(db, {
+          assertionKey: "owner:mornings",
+          statement: "Alex is probably just tired lately.",
+          memoryKind: "ashley_interpretation",
+          dimensions: interpretation,
+        }, "overwrite");
+        expect(tickAdmission(db, { nowMs: 4, requireGrounding: true }).results[0]?.result).toBe("admission_skipped_provenance");
+        expect(db.prepare("SELECT statement FROM sidecar_memory_assertions WHERE assertion_key = 'owner:mornings'").get())
+          .toEqual({ statement: "Alex hates mornings." });
+      } finally { db.close(); }
+    });
+
+    it("keeps a merged Owner fact grounded by carrying the old quotes forward", () => {
+      const db = openTestSidecar();
+      try {
+        const ev = seedOwnerPreference(db);
+        publishPrivatePass(db, {
+          assertionKey: "owner:mornings-merged",
+          statement: "Alex hates mornings and likes a slow start.",
+          memoryKind: "owner_preference",
+          dimensions: historicalOwner,
+          supersedesAssertionKey: "owner:mornings",
+        }, "merge");
+        expect(tickAdmission(db, { nowMs: 4, requireGrounding: true }).results[0]?.result).toBe("admitted");
+        expect(db.prepare("SELECT assertion_key, live FROM sidecar_memory_assertions ORDER BY assertion_key").all()).toEqual([
+          { assertion_key: "owner:mornings", live: 0 },
+          { assertion_key: "owner:mornings-merged", live: 1 },
+        ]);
+        expect(db.prepare(
+          "SELECT support_ref_json FROM sidecar_memory_supports WHERE assertion_key = 'owner:mornings-merged' AND support_ref_json IS NOT NULL",
+        ).all()).toEqual([{ support_ref_json: JSON.stringify(quote(ev)) }]);
+      } finally { db.close(); }
+    });
+
+    it("refuses an unquoted Owner fact that replaces nothing", () => {
+      const db = openTestSidecar();
+      try {
+        seedOwnerPreference(db);
+        publishPrivatePass(db, {
+          assertionKey: "owner:evenings",
+          statement: "Alex loves evenings.",
+          memoryKind: "owner_preference",
+          dimensions: historicalOwner,
+        }, "bare");
+        expect(tickAdmission(db, { nowMs: 4, requireGrounding: true }).results[0]?.result).toBe("admission_skipped_provenance");
+      } finally { db.close(); }
+    });
+
+    it("grounds an Owner memory on Alex's words from another Owner thread", () => {
+      const db = openTestSidecar();
+      try {
+        const older = appendOwnerUtterance(db, { conversationId: "thread-old", text: "I play bass on weekends", discordMessageIds: ["m-old"], nowMs: 1 });
+        publishPrivatePass(db, {
+          assertionKey: "owner:bass",
+          statement: "Alex plays bass on weekends.",
+          memoryKind: "owner_self_description",
+          dimensions: historicalOwner,
+          supportRefs: [quote(older)],
+        }, "cross");
+        expect(tickAdmission(db, { nowMs: 4, requireGrounding: true }).results[0]?.result).toBe("admitted");
+      } finally { db.close(); }
+    });
+
+    it("never grounds on her own words from another thread", () => {
+      const db = openTestSidecar();
+      try {
+        const hers = appendAshleyEvidence(db, { conversationId: "thread-old", text: "You play bass on weekends", nowMs: 1 });
+        publishPrivatePass(db, {
+          assertionKey: "shared:bass",
+          statement: "We talked about bass.",
+          memoryKind: "shared_episode",
+          dimensions: interpretation,
+          supportRefs: [quote(hers)],
+        }, "hers");
+        expect(tickAdmission(db, { nowMs: 4, requireGrounding: true }).results[0]?.result).toBe("admission_skipped_provenance");
+      } finally { db.close(); }
+    });
+  });
 });

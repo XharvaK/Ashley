@@ -11,6 +11,7 @@ import type {
   SourceSupportRef,
 } from "../types.js";
 import { parseSourceSupportRef, validateSourceSupportRefs } from "../evidence/interpretation-envelope.js";
+import { getConversationEvidence } from "../evidence/conversation-log.js";
 
 type DbRow = Record<string, unknown>;
 
@@ -114,6 +115,20 @@ export function appendMemorySupport(
   const result = mapSupport(row);
   if (!result) throw new Error("memory_support_insert_lost");
   return result;
+}
+
+/** The conversation a stored support belongs to: its quoted row's, else its settlement's. */
+export function supportConversationId(db: DatabaseSync, support: MemorySupport): string | null {
+  if (support.supportRef?.kind === "conversation_text_span") {
+    return getConversationEvidence(db, support.supportRef.evidenceRowId)?.conversationId ?? null;
+  }
+  if (!support.settlementId) return null;
+  const row = db.prepare(
+    `SELECT c.conversation_id
+       FROM settlements s JOIN cycle_records c ON c.cycle_id = s.cycle_id
+      WHERE s.settlement_id = ? LIMIT 1`,
+  ).get(support.settlementId) as { conversation_id?: unknown } | undefined;
+  return typeof row?.conversation_id === "string" ? row.conversation_id : null;
 }
 
 export function getMemorySupport(db: DatabaseSync, supportId: string): MemorySupport | null {
