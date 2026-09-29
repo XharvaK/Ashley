@@ -1,7 +1,8 @@
 param(
     [string]$Version = "1.0.0",
     [string]$PythonPath = "C:\Users\Xharv\AppData\Local\Programs\Python\Python370-AshleyE1\python.exe",
-    [string]$ImplementedCommit = "WORKTREE_UNCOMMITTED"
+    [string]$ImplementedCommit = "WORKTREE_UNCOMMITTED",
+    [string]$BaselineCommit = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -87,7 +88,11 @@ for name in sorted(os.listdir(os.path.join(root, 'ashley_e1'))):
 print(json.dumps({'files': items, 'source_content_sha256': hashlib.sha256(material).hexdigest().upper()}))
 '@
 $metadataJson = (& $PythonPath -c $metadataCode $sourceRoot | Out-String).Trim() | ConvertFrom-Json
-$baselineCommit = (& git -C $repo rev-parse HEAD).Trim()
+$baselineCommit = if ([string]::IsNullOrWhiteSpace($BaselineCommit)) {
+    (& git -C $repo rev-parse HEAD).Trim()
+} else {
+    $BaselineCommit.Trim()
+}
 $compilerHash = (Get-FileHash -LiteralPath $PythonPath -Algorithm SHA256).Hash.ToUpperInvariant()
 $simsPythonDll = "E:\SteamLibrary\steamapps\common\The Sims 4\Game\Bin\python37_x64.dll"
 $manifest = [ordered]@{
