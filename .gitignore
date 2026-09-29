@@ -45,3 +45,12 @@ _Internal/
 /report.md
 /campaign-adjudication-attempt-1.json
 /'+((o.receipt
+
+# Sims/Domus working evidence and Mint-bound qualification runners (local until Domus)
+/sims-e1/evidence/E1_ACCEPTANCE_2026-09-29_*/
+/sims-e1/evidence/E1_RUNTIME_BOUNDARY_CLOSURE_2026-09-29/
+/sims-e1/evidence/E1_WRITER_CLOSURE_2026-09-29/
+/sims-e1/evidence/NATIVE_DISPATCH_DIAGNOSTIC_RUNTIME_2026-09-29_*/
+/sims-e1/evidence/SCHEDULER_TIMESPAN_REPAIR_2026-09-29/
+/sims-e1/evidence/TARGET_*_2026-09-29/
+/scripts/qualification/
