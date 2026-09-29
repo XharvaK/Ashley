@@ -50,7 +50,8 @@ def _directory_size(root):
     return total
 
 
-def bootstrap_from_module_path(module_path, probe_version, sims_build):
+def bootstrap_from_module_path(module_path, probe_version, sims_build,
+                               required_imports):
     root = derive_telemetry_root(module_path)
     if root is None:
         return None
@@ -58,7 +59,8 @@ def bootstrap_from_module_path(module_path, probe_version, sims_build):
     boot_id = str(uuid.uuid4())
     row = schema.make_load_disabled_record(
         boot_id, int(time.time() * 1000), time.perf_counter_ns(),
-        {"python_version": "3.7.0", "perf_counter": True},
+        {"python_version": "3.7.0", "perf_counter": True,
+         "required_imports": dict(required_imports)},
         probe_version=probe_version, sims_build=sims_build,
     )
     path = os.path.join(root, "ashley_e1_bootstrap_%s.jsonl" % boot_id)

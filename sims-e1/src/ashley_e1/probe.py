@@ -1,12 +1,50 @@
 """Owner-command state machine and one real-time alarm callback."""
 
-import alarms  # PRIOR_ART|RUNTIME_UNVERIFIED: vanilla real-time alarm API.
-import clock  # PRIOR_ART|RUNTIME_UNVERIFIED: vanilla real-time interval API.
-import date_and_time  # PRIOR_ART|RUNTIME_UNVERIFIED: vanilla TimeSpan API.
+try:
+    import alarms  # PRIOR_ART|RUNTIME_UNVERIFIED: vanilla real-time alarm API.
+except ImportError:
+    alarms = None
+try:
+    import clock  # PRIOR_ART|RUNTIME_UNVERIFIED: vanilla real-time interval API.
+except ImportError:
+    clock = None
+try:
+    import date_and_time  # PRIOR_ART|RUNTIME_UNVERIFIED: vanilla TimeSpan API.
+except ImportError:
+    date_and_time = None
+try:
+    import interactions.context as _interaction_context_module  # PRIOR_ART|RUNTIME_UNVERIFIED: read surface.
+except ImportError:
+    _interaction_context_module = None
+try:
+    import server.clientmanager as _clientmanager_module  # PRIOR_ART|RUNTIME_UNVERIFIED: client manager surface.
+except ImportError:
+    _clientmanager_module = None
+try:
+    import services as _services_module  # PRIOR_ART|RUNTIME_UNVERIFIED: vanilla service getters.
+except ImportError:
+    _services_module = None
+try:
+    from sims.sim import Sim as _Sim  # PRIOR_ART|RUNTIME_UNVERIFIED: approved Sim surface.
+except ImportError:
+    _Sim = None
+try:
+    from sims.sim_info import SimInfo as _SimInfo  # PRIOR_ART|RUNTIME_UNVERIFIED: approved SimInfo surface.
+except ImportError:
+    _SimInfo = None
+try:
+    import sims4.commands as _commands_module  # PRIOR_ART|RUNTIME_UNVERIFIED: vanilla command surface.
+except ImportError:
+    _commands_module = None
 import time
 import uuid
 
-from sims4.commands import CommandType, CommandRestrictionFlags, register  # PRIOR_ART|RUNTIME_UNVERIFIED: vanilla command surface.
+try:
+    from sims4.commands import CommandType, CommandRestrictionFlags, register  # PRIOR_ART|RUNTIME_UNVERIFIED: vanilla command surface.
+except ImportError:
+    CommandType = None
+    CommandRestrictionFlags = None
+    register = None
 
 from . import observers
 from . import schema
@@ -15,8 +53,34 @@ from .writer import TelemetryWriter, bootstrap_from_module_path, derive_telemetr
 
 E1_PROBE_VERSION = schema.PROBE_VERSION
 SIMS_BUILD = schema.SIMS_BUILD
-TimeSpan = date_and_time.TimeSpan
-interval_in_real_seconds = clock.interval_in_real_seconds
+try:
+    TimeSpan = date_and_time.TimeSpan
+except AttributeError:
+    TimeSpan = None
+try:
+    interval_in_real_seconds = clock.interval_in_real_seconds
+except AttributeError:
+    interval_in_real_seconds = None
+try:
+    _alarms_add_alarm_real_time = alarms.add_alarm_real_time
+except AttributeError:
+    _alarms_add_alarm_real_time = None
+try:
+    _alarms_cancel_alarm = alarms.cancel_alarm
+except AttributeError:
+    _alarms_cancel_alarm = None
+try:
+    _services_sim_info_manager = _services_module.sim_info_manager
+except AttributeError:
+    _services_sim_info_manager = None
+try:
+    _services_client_manager = _services_module.client_manager
+except AttributeError:
+    _services_client_manager = None
+try:
+    _interaction_context_type = _interaction_context_module.InteractionContext
+except AttributeError:
+    _interaction_context_type = None
 
 _INITIALIZED = False
 _PROBE_ALARM_OWNER = object()
@@ -37,6 +101,8 @@ _COUNTERS = {"dropped_queue": 0, "dropped_overrun": 0,
 
 
 def _register_commands():
+    if register is None or CommandType is None or CommandRestrictionFlags is None:
+        return False
     register('ashley_e1.arm', CommandRestrictionFlags.UNRESTRICTED,
              _cmd_arm, 'Arm the Ashley E1 probe in LAB_E1 or LAB_E1_FORK.',
              'ashley_e1.arm LAB_E1 | ashley_e1.arm LAB_E1_FORK', CommandType.Live)
@@ -49,6 +115,31 @@ def _register_commands():
     register('ashley_e1.stop', CommandRestrictionFlags.UNRESTRICTED,
              _cmd_stop, 'Stop Ashley E1 sampling (remains armed).',
              'ashley_e1.stop', CommandType.Live)
+    return True
+
+
+def _required_import_summary():
+    return {
+        "alarms": alarms is not None,
+        "alarms.add_alarm_real_time": callable(_alarms_add_alarm_real_time),
+        "alarms.cancel_alarm": callable(_alarms_cancel_alarm),
+        "clock": clock is not None,
+        "clock.interval_in_real_seconds": callable(interval_in_real_seconds),
+        "date_and_time": date_and_time is not None,
+        "date_and_time.TimeSpan": callable(TimeSpan),
+        "services": _services_module is not None,
+        "services.sim_info_manager": callable(_services_sim_info_manager),
+        "services.client_manager": callable(_services_client_manager),
+        "server.clientmanager": _clientmanager_module is not None,
+        "sims.sim.Sim": _Sim is not None,
+        "sims.sim_info.SimInfo": _SimInfo is not None,
+        "interactions.context": _interaction_context_module is not None,
+        "interactions.context.InteractionContext": _interaction_context_type is not None,
+        "sims4.commands": _commands_module is not None,
+        "sims4.commands.CommandType": CommandType is not None,
+        "sims4.commands.CommandRestrictionFlags": CommandRestrictionFlags is not None,
+        "sims4.commands.register": callable(register),
+    }
 
 
 def initialize_probe():
@@ -57,10 +148,13 @@ def initialize_probe():
         return
     _INITIALIZED = True
     _STATE_RESET()
-    _register_commands()
     _TELEMETRY_ROOT = derive_telemetry_root(__file__)
     if _TELEMETRY_ROOT is not None:
-        bootstrap_from_module_path(__file__, E1_PROBE_VERSION, SIMS_BUILD)
+        bootstrap_from_module_path(
+            __file__, E1_PROBE_VERSION, SIMS_BUILD,
+            required_imports=_required_import_summary(),
+        )
+    _register_commands()
 
 
 def _STATE_RESET():

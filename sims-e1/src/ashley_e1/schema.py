@@ -5,7 +5,7 @@ import json
 
 OBSERVATION_SCHEMA_VERSION = 1
 TELEMETRY_SCHEMA_ID = "e1.telemetry/v1"
-PROBE_VERSION = "1.0.0"
+PROBE_VERSION = "1.0.1"
 SIMS_BUILD = "1.128.90.1030"
 MAX_SERIALIZED_RECORD_BYTES = 8 * 1024
 MAX_ID_LENGTH = 64
@@ -37,6 +37,27 @@ EVENT_KINDS = (
     "writer_failed",
 )
 MISSINGNESS_STATUSES = ("MISSING", "ABSENT", "UNSUPPORTED", "UNKNOWN")
+REQUIRED_IMPORT_KEYS = (
+    "alarms",
+    "alarms.add_alarm_real_time",
+    "alarms.cancel_alarm",
+    "clock",
+    "clock.interval_in_real_seconds",
+    "date_and_time",
+    "date_and_time.TimeSpan",
+    "services",
+    "services.sim_info_manager",
+    "services.client_manager",
+    "server.clientmanager",
+    "sims.sim.Sim",
+    "sims.sim_info.SimInfo",
+    "interactions.context",
+    "interactions.context.InteractionContext",
+    "sims4.commands",
+    "sims4.commands.CommandType",
+    "sims4.commands.CommandRestrictionFlags",
+    "sims4.commands.register",
+)
 SOURCE_NORMS = ("OWNER_UI", "SCRIPT_DIRECTED", "UNKNOWN")
 SOURCE_CONFIDENCES = ("EXPOSED", "UNKNOWN")
 MEMBERSHIPS = ("QUEUED", "RUNNING", "QUEUED_AND_RUNNING")
@@ -169,6 +190,7 @@ def make_record(event_kind, telemetry_session_id=None, boot_id=None,
 def make_load_disabled_record(boot_id, wall_timestamp_ms, monotonic_ns, runtime,
                               probe_version=PROBE_VERSION, sims_build=SIMS_BUILD):
     _require(isinstance(runtime, dict), "runtime must be a dict")
+    _validate_load_disabled_runtime(runtime)
     return {
         "schema_version": OBSERVATION_SCHEMA_VERSION,
         "telemetry_session_id": None,
@@ -183,6 +205,23 @@ def make_load_disabled_record(boot_id, wall_timestamp_ms, monotonic_ns, runtime,
         "attestation": attestation(),
         "runtime": dict(runtime),
     }
+
+
+def _validate_load_disabled_runtime(runtime):
+    _require(set(runtime) == {"python_version", "perf_counter", "required_imports"},
+             "load_disabled runtime shape")
+    bounded_string(runtime.get("python_version"), MAX_ID_LENGTH,
+                   "runtime.python_version", False)
+    _require(type(runtime.get("perf_counter")) is bool,
+             "runtime.perf_counter")
+    required_imports = runtime.get("required_imports")
+    _require(isinstance(required_imports, dict),
+             "runtime.required_imports")
+    _require(set(required_imports) == set(REQUIRED_IMPORT_KEYS),
+             "runtime.required_imports keys")
+    for key in REQUIRED_IMPORT_KEYS:
+        _require(type(required_imports[key]) is bool,
+                 "runtime.required_imports.%s" % key)
 
 
 def _validate_string_tree(value, key="value"):
@@ -445,6 +484,7 @@ def validate_record(row):
         _require(row.get("attestation", {}).get("armed_name") == "UNARMED",
                  "load_disabled armed_name")
         _require(isinstance(row.get("runtime"), dict), "load_disabled runtime")
+        _validate_load_disabled_runtime(row["runtime"])
         for forbidden in ("save", "zone", "body", "interactions", "motives", "sim_signals"):
             _require(forbidden not in row, "load_disabled contains %s" % forbidden)
     else:

@@ -84,7 +84,33 @@ def install_stubs():
     objects.HiddenReasonFlag = types.SimpleNamespace(ALL_HIDDEN_FLAGS="ALL")
     sys.modules["objects"] = objects
     services = types.ModuleType("services")
+    services.sim_info_manager = lambda: types.SimpleNamespace(get_all=lambda: [])
+    services.client_manager = lambda: types.SimpleNamespace()
     sys.modules["services"] = services
+
+    sims = types.ModuleType("sims")
+    sims.__path__ = []
+    sys.modules["sims"] = sims
+    sims_sim = types.ModuleType("sims.sim")
+    sims_sim.Sim = type("Sim", (), {})
+    sys.modules["sims.sim"] = sims_sim
+    sims_info = types.ModuleType("sims.sim_info")
+    sims_info.SimInfo = type("SimInfo", (), {})
+    sys.modules["sims.sim_info"] = sims_info
+
+    server = types.ModuleType("server")
+    server.__path__ = []
+    sys.modules["server"] = server
+    clientmanager = types.ModuleType("server.clientmanager")
+    sys.modules["server.clientmanager"] = clientmanager
+
+    interactions = types.ModuleType("interactions")
+    interactions.__path__ = []
+    sys.modules["interactions"] = interactions
+    context = types.ModuleType("interactions.context")
+    context.InteractionContext = type("InteractionContext", (), {})
+    context.SOURCE_SCRIPT = "SCRIPT"
+    sys.modules["interactions.context"] = context
     return calls
 
 

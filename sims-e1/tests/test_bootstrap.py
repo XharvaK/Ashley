@@ -1,9 +1,11 @@
+import json
 import importlib
 import os
 import sys
+import tempfile
 import unittest
 
-from test_binding import load_probe
+from test_binding import FakeWriter, load_probe
 
 
 class BootstrapTests(unittest.TestCase):
@@ -25,6 +27,42 @@ class BootstrapTests(unittest.TestCase):
         self.assertEqual(calls["alarms"], [])
         self.assertTrue(probe._cmd_start())
         self.assertEqual(len(calls["alarms"]), 1)
+
+    def test_initialize_passes_closed_import_summary_to_bootstrap(self):
+        _, probe, calls = load_probe()
+        captured = []
+        probe._INITIALIZED = False
+        probe.derive_telemetry_root = lambda path: tempfile.mkdtemp(prefix="ashley-e1-root-")
+        probe.bootstrap_from_module_path = lambda *args, **kwargs: captured.append((args, kwargs))
+        probe.initialize_probe()
+        self.assertEqual(len(captured), 1)
+        summary = captured[0][1]["required_imports"]
+        from ashley_e1 import schema
+        self.assertEqual(set(summary), set(schema.REQUIRED_IMPORT_KEYS))
+        self.assertTrue(all(type(value) is bool for value in summary.values()))
+        self.assertTrue(all(summary.values()))
+        self.assertEqual(probe.get_status()["state"], "UNARMED")
+        self.assertEqual(calls["alarms"], [])
+        self.assertEqual(FakeWriter.instances, [])
+
+    def test_bootstrap_emits_required_import_summary(self):
+        load_probe()
+        from ashley_e1 import schema, writer
+        summary = {key: True for key in schema.REQUIRED_IMPORT_KEYS}
+        with tempfile.TemporaryDirectory() as temp:
+            module_path = os.path.join(temp, "The Sims 4", "Mods", "AshleyE1",
+                                       "ashley_e1", "writer.py")
+            root = writer.bootstrap_from_module_path(
+                module_path, "1.0.1", "1.128.90.1030", summary)
+            files = [name for name in os.listdir(root) if name.startswith("ashley_e1_bootstrap_")]
+            self.assertEqual(len(files), 1)
+            with open(os.path.join(root, files[0]), "r", encoding="utf-8") as handle:
+                row = json.loads(handle.readline())
+            self.assertEqual(row["runtime"]["required_imports"], summary)
+            self.assertEqual(row["attestation"]["armed_name"], "UNARMED")
+            self.assertIsNone(row["telemetry_session_id"])
+            for forbidden in ("save", "zone", "body", "interactions", "motives", "sim_signals"):
+                self.assertNotIn(forbidden, row)
 
 
 if __name__ == "__main__":

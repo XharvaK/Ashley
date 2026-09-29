@@ -13,7 +13,7 @@ if "ashley_e1" not in sys.modules:
     package.__path__ = [os.path.join(SRC, "ashley_e1")]
     sys.modules["ashley_e1"] = package
 
-from ashley_e1 import writer
+from ashley_e1 import schema, writer
 
 
 class RootDerivationTests(unittest.TestCase):
@@ -40,7 +40,8 @@ class RootDerivationTests(unittest.TestCase):
             before = list(os.walk(temp))
             self.assertIsNone(writer.bootstrap_from_module_path(
                 os.path.join(temp, "src", "ashley_e1", "writer.py"),
-                "1.0.0", "1.128.90.1030"
+                "1.0.1", "1.128.90.1030",
+                {key: True for key in schema.REQUIRED_IMPORT_KEYS},
             ))
             self.assertEqual(before, list(os.walk(temp)))
 

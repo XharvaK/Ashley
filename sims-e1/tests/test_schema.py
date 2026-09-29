@@ -17,6 +17,9 @@ from ashley_e1 import schema
 
 
 class SchemaContractTests(unittest.TestCase):
+    def _required_imports(self, value=True):
+        return {key: value for key in schema.REQUIRED_IMPORT_KEYS}
+
     def test_closed_vocabularies_are_exact(self):
         self.assertEqual(schema.OBSERVATION_SCHEMA_VERSION, 1)
         self.assertEqual(schema.TELEMETRY_SCHEMA_ID, "e1.telemetry/v1")
@@ -47,13 +50,73 @@ class SchemaContractTests(unittest.TestCase):
             boot_id="00000000-0000-4000-8000-000000000001",
             wall_timestamp_ms=12,
             monotonic_ns=34,
-            runtime={"python_version": "3.7.0", "perf_counter": True},
+            runtime={"python_version": "3.7.0", "perf_counter": True,
+                     "required_imports": self._required_imports()},
         )
         schema.validate_record(row)
         self.assertIsNone(row["telemetry_session_id"])
         self.assertEqual(row["attestation"]["armed_name"], "UNARMED")
         for forbidden in ("save", "zone", "body", "interactions", "motives", "sim_signals"):
             self.assertNotIn(forbidden, row)
+
+    def test_load_disabled_requires_exact_required_import_summary(self):
+        row = schema.make_load_disabled_record(
+            boot_id="00000000-0000-4000-8000-000000000011",
+            wall_timestamp_ms=12,
+            monotonic_ns=34,
+            runtime={"python_version": "3.7.0", "perf_counter": True,
+                     "required_imports": self._required_imports()},
+        )
+        schema.validate_record(row)
+        self.assertEqual(set(row["runtime"]),
+                         {"python_version", "perf_counter", "required_imports"})
+        self.assertEqual(set(row["runtime"]["required_imports"]),
+                         set(schema.REQUIRED_IMPORT_KEYS))
+
+    def test_load_disabled_missing_required_imports_fails(self):
+        with self.assertRaises(schema.SchemaError):
+            schema.make_load_disabled_record(
+                boot_id="00000000-0000-4000-8000-000000000012",
+                wall_timestamp_ms=12,
+                monotonic_ns=34,
+                runtime={"python_version": "3.7.0", "perf_counter": True},
+            )
+
+    def test_load_disabled_missing_one_required_import_key_fails(self):
+        imports = self._required_imports()
+        imports.pop(schema.REQUIRED_IMPORT_KEYS[0])
+        with self.assertRaises(schema.SchemaError):
+            schema.make_load_disabled_record(
+                boot_id="00000000-0000-4000-8000-000000000013",
+                wall_timestamp_ms=12,
+                monotonic_ns=34,
+                runtime={"python_version": "3.7.0", "perf_counter": True,
+                         "required_imports": imports},
+            )
+
+    def test_load_disabled_non_boolean_import_availability_fails(self):
+        imports = self._required_imports()
+        imports[schema.REQUIRED_IMPORT_KEYS[0]] = "AVAILABLE"
+        with self.assertRaises(schema.SchemaError):
+            schema.make_load_disabled_record(
+                boot_id="00000000-0000-4000-8000-000000000014",
+                wall_timestamp_ms=12,
+                monotonic_ns=34,
+                runtime={"python_version": "3.7.0", "perf_counter": True,
+                         "required_imports": imports},
+            )
+
+    def test_load_disabled_unknown_import_summary_key_fails(self):
+        imports = self._required_imports()
+        imports["unapproved.fallback"] = True
+        with self.assertRaises(schema.SchemaError):
+            schema.make_load_disabled_record(
+                boot_id="00000000-0000-4000-8000-000000000015",
+                wall_timestamp_ms=12,
+                monotonic_ns=34,
+                runtime={"python_version": "3.7.0", "perf_counter": True,
+                         "required_imports": imports},
+            )
 
     def test_presence_payload_and_large_ids_are_lossless(self):
         huge = "18446744073709551615"
