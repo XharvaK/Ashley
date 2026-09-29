@@ -228,7 +228,6 @@ npm run eval:full -- -Baseline baseline-w0 -Label wave5
 |---------|--------|
 | `/remember` | Pin fact |
 | `/memory` | Show memory |
-| `/new` | Fresh thread |
 | `/forget` | Forget by topic |
 | `/proactive` | Initiative status / pause / resume |
 | `/identity` | Owner-only foundational review / approve / reject / defer |

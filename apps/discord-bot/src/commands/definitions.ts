@@ -24,10 +24,6 @@ export function buildCommandDefinitions(): RESTPostAPIChatInputApplicationComman
       )
       .toJSON(),
     new SlashCommandBuilder()
-      .setName(commandSurface.newThread)
-      .setDescription("Start a fresh conversation thread")
-      .toJSON(),
-    new SlashCommandBuilder()
       .setName(commandSurface.forget)
       .setDescription("Forget memories matching a topic")
       .addStringOption((o) =>

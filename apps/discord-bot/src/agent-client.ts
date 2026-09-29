@@ -604,12 +604,6 @@ export async function memorySummary(includePrivate = false) {
   }>(`/memory/summary?${q}`);
 }
 
-export async function newThread() {
-  return agentFetch<{ threadId: string }>("/memory/newthread", {
-    method: "POST",
-    body: JSON.stringify({ userId: config.ownerId }),
-  });
-}
 
 export async function forgetTopic(topic: string, confirmed: boolean) {
   return agentFetch<{

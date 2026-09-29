@@ -3,7 +3,6 @@ import { agentErrorMessage } from "../chat/agent-errors.js";
 import { isOwner } from "../security/gate.js";
 import * as remember from "../commands/remember.js";
 import * as memory from "../commands/memory.js";
-import * as newCmd from "../commands/new.js";
 import * as forget from "../commands/forget.js";
 import * as proactive from "../commands/proactive.js";
 import * as identity from "../commands/identity.js";
@@ -45,9 +44,6 @@ export async function handleSlash(
         break;
       case "memory":
         await memory.execute(interaction);
-        break;
-      case "new":
-        await newCmd.execute(interaction);
         break;
       case "forget":
         await forget.execute(interaction);

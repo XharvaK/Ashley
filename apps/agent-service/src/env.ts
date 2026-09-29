@@ -260,12 +260,6 @@ function createEnv() {
     0,
     72,
   ),
-  cognitionIdleConsolidationMin: numericEnv(
-    "COGNITION_IDLE_CONSOLIDATION_MIN",
-    10,
-    0,
-    1440,
-  ),
   curiosityEnabled: process.env.CURIOSITY_ENABLED !== "false",
   curiosityLookupEnabled: process.env.CURIOSITY_LOOKUP_ENABLED !== "false",
   curiosityTavilyMonthlyCredits: numericEnv(

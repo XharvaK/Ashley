@@ -11,7 +11,6 @@ evidence. Episodes never replace their source messages.
 - Pins: Discord `/remember`, or chat `remember:` / `bunu hatırla:`
 - List: `/memory`
 - Forget: `/forget`
-- Fresh thread: `/new`
 
 Facts categories: `project`, `preference`, `person`, `ongoing`, `pinned`.
 

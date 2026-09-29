@@ -12,6 +12,11 @@ import { admitExternalBatch, admitExternalCapture, type ExternalCaptureBody } fr
 import { applyWorkingContextDelta } from "../evidence/working-context.js";
 import { admitTestCycle, openTestSidecar } from "../test-support.js";
 import type { CapabilityReality, IdentitySlice, KernelDeps, Observation, ThoughtInput } from "../types.js";
+import { ORDINARY_THOUGHT_BUDGET_MS } from "../types.js";
+
+// Tests start their fake clock at 1_000 ms; one ordinary Thought budget later
+// is the shared absolute deadline (tracks the constant, not a copied value).
+const FIRST_DEADLINE_MS = 1_000 + ORDINARY_THOUGHT_BUDGET_MS;
 import { makeSemanticSettlement } from "../test-support.js";
 import { DatabaseSync } from "node:sqlite";
 import { openNuclearDb } from "../../db.js";
@@ -34,6 +39,7 @@ import {
   ownerRoomDestinationFor,
   buildThoughtWakeCauses,
   runCognitiveCycle,
+  STRUCTURAL_RETRY_MAX_OUTPUT_TOKENS,
 } from "./run.js";
 import { scheduleFutureTrigger } from "../initiative/future-triggers.js";
 
@@ -838,7 +844,7 @@ describe("v0.2.1 Thought run", () => {
         expect(operationalSchema).toBeUndefined();
         expect(JSON.parse(messages[1]?.content ?? "{}").allowedOperationalEffectRefs).toEqual([]);
         requests.push({ messages, deadline: options.deadlineAtMs });
-        now = outcome === "deadline" ? 301_000 : now + 10_000;
+        now = outcome === "deadline" ? FIRST_DEADLINE_MS : now + 10_000;
         return {
           text: JSON.stringify(requests.length === 1 || outcome !== "corrected" ? bad : corrected),
           model: "fake", modelAlias: "thought", resolvedModelId: null,
@@ -860,7 +866,7 @@ describe("v0.2.1 Thought run", () => {
         expect(counters.structuralRetries).toBe(0);
         expect(counters.authorityRevisions).toBe(outcome === "still_invalid" ? 2 : 1);
         expect(requests.map((r) => r.deadline)).toEqual(
-          Array(outcome === "corrected" ? 2 : outcome === "still_invalid" ? 3 : 1).fill(301_000),
+          Array(outcome === "corrected" ? 2 : outcome === "still_invalid" ? 3 : 1).fill(FIRST_DEADLINE_MS),
         );
         if (outcome !== "deadline") {
           expect(JSON.parse(requests[1].messages[1].content).authorityObjections)
@@ -941,7 +947,7 @@ describe("v0.2.1 Thought run", () => {
         acceptedThoughtPasses: 1,
       });
       expect(requests).toHaveLength(2);
-      expect(requests.map((request) => request.deadline)).toEqual([301_000, 301_000]);
+      expect(requests.map((request) => request.deadline)).toEqual([FIRST_DEADLINE_MS, FIRST_DEADLINE_MS]);
       expect(JSON.parse(requests[1].messages[1].content).authorityObjections)
         .toEqual(["OPERATIONAL_CLAIM_EFFECTREF_UNKNOWN"]);
       const feedback = requests[1].messages.map((message) => {
@@ -1827,8 +1833,8 @@ describe("v0.2.1 Thought run", () => {
       nowMs: () => now,
     }));
     expect(result.published).toBe(true);
-    expect(deadlines).toEqual([301_000, 301_000]);
-    expect(maxTokens).toEqual([undefined, 16_384]);
+    expect(deadlines).toEqual([FIRST_DEADLINE_MS, FIRST_DEADLINE_MS]);
+    expect(maxTokens).toEqual([undefined, STRUCTURAL_RETRY_MAX_OUTPUT_TOKENS]);
     expect(temperatures).toEqual([1.0, 1.0]);
     expect(structuredContractIds).toEqual(["ashley.thought.semantic.v2", "ashley.thought.semantic.v2"]);
     expect(userInputs[1]).toBe(userInputs[0]);

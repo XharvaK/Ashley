@@ -145,7 +145,21 @@ salience × recency decay (half-life ~30 days on last use) × reinforcement
 3. **Deliberate:** implement the dead `memory.lookup` operation (Owner-
    private, read-only, bounded): free-text + kind filter → ranked
    assertions/episodes. Ashley can go and look.
-4. **Recency window:** `DEFAULT_LAST_N_TURNS` 12 → 40.
+4. **Recency window and continuity (no cliff at message 41):**
+   - last 40 rows verbatim (`DEFAULT_LAST_N_TURNS` 12 → 40);
+   - a **thread story** — a rolling narrative of everything older than the
+     window, rewritten by each afterglow and always present;
+   - episodes and memories recalled by relevance;
+   - the full log stays searchable forever. The Discord `/new` command
+     (which archived the thread and hid prior conversation from log search)
+     was retired 2026-09-29 by Owner decision; G1 also widens log search to
+     all of Doc's Owner-private threads so older archived threads stay
+     reachable. The `/memory/newthread` HTTP route remains for eval
+     harnesses only;
+   - rule 2 of §5.1 guarantees no row leaves the window unreflected.
+5. **Clock:** Thought input gains the current local time, weekday, the
+   Owner's timezone (UTC+3), and time since the last exchange. Today she
+   sees only raw epoch-ms timestamps on messages.
 
 ### 4.7 Visibility
 
@@ -159,12 +173,30 @@ salience × recency decay (half-life ~30 days on last use) × reinforcement
 | State | Enter | Behaviour |
 |---|---|---|
 | ENGAGED | Owner message | normal turns |
-| AFTERGLOW | 20 min after last exchange | one reflection pass (§5.2) |
-| AWAKE | after afterglow | musing passes every 45–75 min (jittered) |
+| AFTERGLOW | 30 min of silence after unreflected conversation | light reflection (§5.2) |
+| AWAKE | every 3 h (jittered ±20 min) | big "own time" pass (§5.3) |
 | NIGHT | once per 24 h, at the quietest learned hour | consolidation pass (§5.4) |
 | EMBODIED | a Sims session armed | inner rhythm yields; Sims clock drives wakes (§5.7) |
 
 Doc messaging always pre-empts; no state delays a reply.
+
+**Harmony rules (Owner 2026-09-29):**
+1. *Watermarks, not timers.* AFTERGLOW covers exactly the conversation
+   rows after the previous afterglow's watermark. Each new message restarts
+   the 30-min silence clock. Example: talk at 10:00 and 10:20 → one
+   afterglow at 10:50 covering both. Coverage is by row range, so nothing is
+   reflected twice and nothing is skipped; rows arriving during an
+   afterglow belong to the next one.
+2. *Window pressure.* If unreflected rows exceed 30 during a long
+   conversation, a background rolling afterglow runs early so nothing leaves
+   the verbatim window unreflected (§4.6).
+3. *Layering.* AWAKE never re-reads raw conversation; it consumes the
+   afterglows/episodes written since its own watermark. If an afterglow is
+   due, it runs first and AWAKE waits for it.
+4. *Single flight.* One inner pass at a time; ENGAGED pre-empts and the
+   pass resumes after the next afterglow.
+5. Ashley's self-scheduled future triggers fire on their own time in any
+   state except EMBODIED (where they queue).
 
 ### 5.2 Afterglow reflection
 
@@ -208,8 +240,11 @@ pacing. No generic check-ins by contract (existing proactive prompt).
 
 ### 5.6 Budget and cadence
 
-Private budget 4 → 30 Thought calls/hour (runaway fuse, not a pacing
-tool). `PERIODIC_COGNITION_ENABLED=true` on Mint as part of rollout. Old 4 h
+Private budget 4 → 12 Thought calls per rolling hour (Owner). It counts
+only Thought calls Ashley makes on her own initiative (afterglow, AWAKE,
+NIGHT, self-scheduled triggers); replies to Doc are never counted. It is a
+runaway fuse, not the rhythm: one AWAKE pass may use several calls
+(e.g. read → take → decide to message). `PERIODIC_COGNITION_ENABLED=true` on Mint as part of rollout. Old 4 h
 cadence replaced by the state machine above.
 
 ### 5.7 Sims embodied clock
@@ -244,15 +279,18 @@ the Host checks thresholds; nothing is applied on a single impulse.
 
 ### 6.3 Taste and interests
 
-The two seeded `taste` identity entries (Owner-derived and too specific) are
-retired at G3 rollout by an appended revision (`revised_from` kept, so
-history is preserved), replaced by "curious across a wide pool; choosing and
-discovering my own tastes". Ashley's first reflection after rollout then
-chooses a starting set from the Appendix A pool (her choice, recorded as
-self-evidence). Interest strength
-then moves with engagement (reads she valued, conversations she started,
-takes she wrote). She may add interests outside the pool; unused interests
-fade in ranking but are never erased from history.
+**Interest graph (Owner 2026-09-29).** The 50 Appendix A interests are
+her **core roots** — stable, all hers from day one. Specific tastes are
+**branches** under roots, each with a strength that moves only with lived
+evidence (reads she valued, conversations, takes, reactions). Nobody
+retires anything: the two seeded `taste` entries are re-homed as her first
+branches (dub techno → Electronic music; open-weight AI → Artificial
+intelligence; database internals, small sharp tools, software architecture →
+Technology; essays that argue → Books & essays; systems-heavy games → Video
+games). Branches she lives with grow and sprout new branches; branches she
+never touches fade in ranking but stay in history. The taste line of her
+identity is regenerated from her strongest branches at NIGHT, through the
+revision engine, so it changes because she changed.
 
 ### 6.4 Mood (port of `state/affect.ts`)
 
@@ -314,7 +352,7 @@ go, production witness (read-only DB evidence), honest verdict.
 
 | Phase | Content | Witness |
 |---|---|---|
-| G1 Memory formation | contract guidance, grounded admission, strength table, core profile, window 40, `memory.lookup` | memories appear after ordinary chat; recalled next day |
+| G1 Memory formation | contract guidance, grounded admission, strength table, core profile, window 40 + thread story, cross-thread log search, clock/sense of time, `memory.lookup` | memories appear after ordinary chat; recalled next day |
 | G2 Afterglow + episodes | state machine (ENGAGED/AFTERGLOW), `episodes_v2`, forget cascade | an episode per conversation; forget removes it |
 | G3 Inner life | AWAKE musing, agenda, journal + honesty licence, budget, periodic enable, curiosity feeds, interest choice | journaled passes; a grounded unsolicited message |
 | G4 Growth | revision engine, mood, expectations/calibration | a revision applied from real evidence; mood moves and decays |
@@ -323,8 +361,9 @@ go, production witness (read-only DB evidence), honest verdict.
 
 ## 11. Open points (Owner)
 
-None blocking. Defaults chosen: AFTERGLOW 20 min, AWAKE 45–75 min, runaway
-fuse 12 unsolicited/24 h, window 40, recall fuse 32/24 KB. All tunable.
+None blocking. Owner-set: AFTERGLOW 30 min (watermarked), AWAKE 3 h,
+private budget 12/h. Defaults: window 40 + thread story, runaway fuse 12
+unsolicited/24 h, recall fuse 32/24 KB. All tunable.
 
 ## Appendix A — Interest pool (50)
 
