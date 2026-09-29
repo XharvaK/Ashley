@@ -1,5 +1,5 @@
 param(
-    [string]$Version = "1.0.3",
+    [string]$Version = "1.0.4",
     [string]$PythonPath = "C:\Users\Xharv\AppData\Local\Programs\Python\Python370-AshleyE1\python.exe"
 )
 
@@ -67,6 +67,12 @@ expected_magic = bytes.fromhex('420d0d0a')
 errors = inspect_archive(artifact, expected_magic)
 if manifest.get('probe_version') != expected_version:
     errors.append('manifest probe version mismatch')
+if manifest.get('diagnostic_only') is not True:
+    errors.append('diagnostic-only marker mismatch')
+if manifest.get('od4_acceptance_candidate') is not False:
+    errors.append('OD-4 acceptance marker mismatch')
+if manifest.get('build_purpose') != 'native_command_dispatch_diagnostic':
+    errors.append('diagnostic build purpose mismatch')
 if manifest.get('target_sims_build') != '1.128.90.1030':
     errors.append('target Sims build mismatch')
 if manifest.get('compiler', {}).get('version') != '3.7.0' or manifest.get('compiler', {}).get('architecture') != 'x64':

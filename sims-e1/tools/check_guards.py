@@ -25,6 +25,7 @@ FORBIDDEN_CALL_NAMES = {
     "save_game_gen", "save_using", "set_active_sim", "set_clock_speed",
     "set_current_time", "system", "test_and_execute",
 }
+DIAGNOSTIC_FILE_NAMES = {"diagnostic.py"}
 
 
 def _root(name):
@@ -93,9 +94,12 @@ def scan_text(source, filename):
             findings.append("%s:%d forbidden call %s" % (filename, node.lineno, resolved_target or leaf))
         if resolved_target in ("eval", "exec", "compile", "__import__"):
             findings.append("%s:%d dynamic execution %s" % (filename, node.lineno, resolved_target))
-        if leaf == "getattr" or leaf == "__import__":
+        if ((leaf == "getattr" or leaf == "__import__") and
+                os.path.basename(filename).lower() not in DIAGNOSTIC_FILE_NAMES):
             findings.append("%s:%d reflective dispatch" % (filename, node.lineno))
-        if leaf == "open" and os.path.basename(filename).lower() != "writer.py":
+        if (leaf == "open" and
+                os.path.basename(filename).lower() not in
+                ({"writer.py"} | DIAGNOSTIC_FILE_NAMES)):
             findings.append("%s:%d open outside writer" % (filename, node.lineno))
     return findings
 

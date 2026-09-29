@@ -40,14 +40,22 @@ import time
 import uuid
 
 try:
-    from sims4.commands import CommandType, CommandRestrictionFlags, register  # PRIOR_ART|RUNTIME_UNVERIFIED: vanilla command surface.
+    from sims4.commands import (CommandType, CommandRestrictionFlags,
+                                register)  # PRIOR_ART|RUNTIME_UNVERIFIED: vanilla command surface.
 except ImportError:
     CommandType = None
     CommandRestrictionFlags = None
     register = None
+try:
+    from sims4.commands import Command  # PRIOR_ART|RUNTIME_UNVERIFIED: vanilla command surface.
+except ImportError:
+    Command = None
 
 from . import observers
 from . import schema
+from .diagnostic import write_bootstrap as _write_diagnostic_bootstrap
+from .diagnostic import write_raw as _write_diagnostic_raw
+from .diagnostic import write_wrapped as _write_diagnostic_wrapped
 from .writer import TelemetryWriter, bootstrap_from_module_path, derive_telemetry_root
 
 
@@ -124,6 +132,16 @@ def _dispatch_stop(*args, _session_id=0, **kwargs):
     return _cmd_stop(_connection=_session_id)
 
 
+def _diag_raw(*args, _session_id=0, **kwargs):
+    _write_diagnostic_raw(_TELEMETRY_ROOT, args, kwargs, _session_id)
+    return False
+
+
+def _diag_wrapped(_connection=None, _account=None):
+    _write_diagnostic_wrapped(_TELEMETRY_ROOT, _connection, _account)
+    return False
+
+
 def _register_commands():
     if register is None or CommandType is None or CommandRestrictionFlags is None:
         return False
@@ -139,6 +157,14 @@ def _register_commands():
     register('ashley_e1.stop', CommandRestrictionFlags.UNRESTRICTED,
              _dispatch_stop, 'Stop Ashley E1 sampling (remains armed).',
              'ashley_e1.stop', CommandType.Live)
+    register('ashley_e1.diag_raw', CommandRestrictionFlags.UNRESTRICTED,
+             _diag_raw, 'Temporary native command dispatch diagnostic.',
+             'ashley_e1.diag_raw [args]', CommandType.Live)
+    if callable(Command):
+        Command('ashley_e1.diag_wrapped',
+                command_type=CommandType.Live,
+                command_restrictions=CommandRestrictionFlags.UNRESTRICTED)(
+                    _diag_wrapped)
     return True
 
 
@@ -181,6 +207,8 @@ def initialize_probe():
             __file__, E1_PROBE_VERSION, SIMS_BUILD,
             required_imports=_required_import_summary(),
         )
+        _write_diagnostic_bootstrap(
+            _TELEMETRY_ROOT, _commands_module, register, Command)
 
 
 def _STATE_RESET():

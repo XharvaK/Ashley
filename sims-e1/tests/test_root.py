@@ -40,7 +40,7 @@ class RootDerivationTests(unittest.TestCase):
             before = list(os.walk(temp))
             self.assertIsNone(writer.bootstrap_from_module_path(
                 os.path.join(temp, "src", "ashley_e1", "writer.py"),
-                "1.0.3", "1.128.90.1030",
+                "1.0.4", "1.128.90.1030",
                 {key: True for key in schema.REQUIRED_IMPORT_KEYS},
             ))
             self.assertEqual(before, list(os.walk(temp)))

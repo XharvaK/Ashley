@@ -1,4 +1,5 @@
 import importlib
+import inspect
 import os
 import sys
 import tempfile
@@ -45,15 +46,39 @@ class FakeWriter:
 
 
 def install_stubs():
-    calls = {"registrations": [], "alarms": [], "cancelled": []}
+    calls = {"registrations": [], "events": [], "alarms": [], "cancelled": []}
     commands = types.ModuleType("sims4.commands")
     commands.CommandType = types.SimpleNamespace(Live="Live")
     commands.CommandRestrictionFlags = types.SimpleNamespace(UNRESTRICTED="UNRESTRICTED")
+    commands.__enable_native_commands = True
+    native_commands = types.ModuleType("_commands")
+    commands._commands = native_commands
+    sys.modules["_commands"] = native_commands
 
     def register(*args):
+        calls["events"].append("register")
         calls["registrations"].append(args)
 
     commands.register = register
+
+    def Command(*aliases, **options):
+        def decorate(function):
+            full_arg_spec = inspect.getfullargspec(function)
+
+            def invoke(*args, _session_id=0, **kwargs):
+                if "_connection" in full_arg_spec.args:
+                    kwargs["_connection"] = _session_id
+                if "_account" in full_arg_spec.args:
+                    kwargs["_account"] = _session_id
+                return function(*args, **kwargs)
+
+            for alias in aliases:
+                register(alias, options["command_restrictions"], invoke,
+                         "", "", options["command_type"])
+            return function
+        return decorate
+
+    commands.Command = Command
     sims4 = types.ModuleType("sims4")
     sims4.__path__ = []
     sims4.commands = commands
@@ -128,14 +153,16 @@ def load_probe():
 
 
 class BindingTests(unittest.TestCase):
-    def test_exactly_four_registrations_and_five_forms(self):
+    def test_real_and_diagnostic_registrations_use_target_forms(self):
         _, probe, calls = load_probe()
         self.assertEqual([item[0] for item in calls["registrations"]], [
             "ashley_e1.arm", "ashley_e1.disarm", "ashley_e1.start", "ashley_e1.stop",
+            "ashley_e1.diag_raw", "ashley_e1.diag_wrapped",
         ])
-        self.assertEqual(len(calls["registrations"]), 4)
+        self.assertEqual(len(calls["registrations"]), 6)
         self.assertEqual([item[2].__name__ for item in calls["registrations"]], [
             "_dispatch_arm", "_dispatch_disarm", "_dispatch_start", "_dispatch_stop",
+            "_diag_raw", "invoke",
         ])
         self.assertEqual(calls["registrations"][0][1], "UNRESTRICTED")
         self.assertEqual(calls["registrations"][0][5], "Live")
