@@ -4,10 +4,18 @@ This directory contains the owner-commanded, read-only Sims 4 Embodiment
 probe described by
 `PROJECT_ASHLEY_SIMS4_EMBODIMENT_E0_E1_IMPLEMENTATION_READY_PLAN_V1_2a.md`.
 
-This internal probe build is version `1.0.5`. Product-facing branding remains
+This internal probe build is version `1.0.6`. Product-facing branding remains
 `Embodiment 1.0.0`; `E1` is an internal engineering and stage identifier.
-Version `1.0.5` is the next OD-4 acceptance candidate after the bounded native
-arm-name adapter repair.
+Version `1.0.6` is the next OD-4 acceptance candidate after the bounded native
+arm-name adapter repair and the target-proven scheduler binding correction.
+
+The V1.2a expression `TimeSpan(interval_in_real_seconds(1))` was falsified by
+exact Sims 1.128 bytecode: `interval_in_real_seconds(1)` already returns a
+`TimeSpan`, and the nested constructor raises `TypeError: must be real number,
+not TimeSpan`. The corrected binding passes `interval_in_real_seconds(1)`
+directly as the `time_span` argument. Architecture and bootstrap semantics are
+unchanged; the `date_and_time.TimeSpan` required-import key remains closed and
+is still recorded in the 19-key summary.
 
 The target Sims 1.128 command transport lowercases ordinary string arguments
 before the Python callback. Owner command documentation remains
@@ -20,8 +28,8 @@ not preserve cannot be recovered by the probe.
 Build and verification use the pinned official CPython 3.7.0 x64 compiler:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File sims-e1/tools/build.ps1 -Version 1.0.5
-powershell -ExecutionPolicy Bypass -File sims-e1/tools/verify.ps1 -Version 1.0.5
+powershell -ExecutionPolicy Bypass -File sims-e1/tools/build.ps1 -Version 1.0.6
+powershell -ExecutionPolicy Bypass -File sims-e1/tools/verify.ps1 -Version 1.0.6
 ```
 
 `install.ps1` and `remove.ps1` are mechanical OD-4 tools. They require an

@@ -295,7 +295,7 @@ def _cmd_start(_connection=None) -> bool:
         return False
     try:
         _ALARM_HANDLE = alarms.add_alarm_real_time(owner=_PROBE_ALARM_OWNER,
-            time_span=TimeSpan(interval_in_real_seconds(1)), callback=_poll_tick,
+            time_span=interval_in_real_seconds(1), callback=_poll_tick,
             repeating=True, use_sleep_time=False, cross_zone=False)
     except Exception:
         _ALARM_HANDLE = None

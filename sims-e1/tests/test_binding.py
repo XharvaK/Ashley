@@ -7,6 +7,8 @@ import unittest
 
 
 SRC = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src"))
+if SRC not in sys.path:
+    sys.path.insert(0, SRC)
 
 
 class FakeHandle:
@@ -25,6 +27,7 @@ class FakeWriter:
         self._idle = False
         self.close_reason = None
         self.on_idle = on_idle
+        self.sampling = False
         FakeWriter.instances.append(self)
 
     @property
@@ -37,6 +40,9 @@ class FakeWriter:
 
     def signal_close(self, reason):
         self.close_reason = reason
+
+    def set_sampling(self, active):
+        self.sampling = active
 
     def finish(self):
         self._idle = True
@@ -183,10 +189,68 @@ class BindingTests(unittest.TestCase):
         self.assertTrue(probe._cmd_start())
         self.assertTrue(probe._cmd_start())
         self.assertEqual(len(calls["alarms"]), 1)
+        self.assertTrue(FakeWriter.instances[-1].sampling)
         self.assertEqual(probe.get_status()["counters"]["redundant_starts"], 1)
         self.assertTrue(probe._cmd_stop())
         self.assertEqual(len(calls["cancelled"]), 1)
+        self.assertFalse(FakeWriter.instances[-1].sampling)
         self.assertTrue(probe._cmd_disarm())
+
+    def test_start_forwards_interval_sentinel_and_exact_alarm_arguments(self):
+        _, probe, calls = load_probe()
+        sentinel = object()
+        constructed = []
+
+        def replacement_time_span(value):
+            constructed.append(value)
+            return object()
+
+        probe.interval_in_real_seconds = lambda seconds: sentinel
+        probe.TimeSpan = replacement_time_span
+        self.assertTrue(probe._cmd_arm("LAB_E1"))
+        self.assertTrue(probe._cmd_start())
+
+        _, args, kwargs = calls["alarms"][0]
+        self.assertEqual(args, ())
+        self.assertIs(kwargs["owner"], probe._PROBE_ALARM_OWNER)
+        self.assertIs(kwargs["time_span"], sentinel)
+        self.assertIs(kwargs["callback"], probe._poll_tick)
+        self.assertTrue(kwargs["repeating"])
+        self.assertFalse(kwargs["use_sleep_time"])
+        self.assertFalse(kwargs["cross_zone"])
+        self.assertEqual(constructed, [])
+        self.assertEqual(probe.get_status()["state"], "SAMPLING")
+        self.assertTrue(FakeWriter.instances[-1].sampling)
+
+    def test_start_does_not_construct_timespan_around_interval_result(self):
+        _, probe, calls = load_probe()
+        sentinel = object()
+        constructed = []
+
+        def fail_if_constructed(value):
+            constructed.append(value)
+            raise AssertionError("nested TimeSpan construction")
+
+        probe.interval_in_real_seconds = lambda seconds: sentinel
+        probe.TimeSpan = fail_if_constructed
+        self.assertTrue(probe._cmd_arm("LAB_E1"))
+        self.assertTrue(probe._cmd_start())
+        self.assertEqual(constructed, [])
+        self.assertIs(calls["alarms"][0][2]["time_span"], sentinel)
+
+    def test_start_alarm_construction_failure_remains_fail_closed(self):
+        _, probe, calls = load_probe()
+
+        def failing_add_alarm(*args, **kwargs):
+            raise RuntimeError("alarm construction failed")
+
+        probe.alarms.add_alarm_real_time = failing_add_alarm
+        self.assertTrue(probe._cmd_arm("LAB_E1"))
+        self.assertFalse(probe._cmd_start())
+        self.assertIsNone(probe.get_status()["alarm_handle"])
+        self.assertEqual(probe.get_status()["state"], "ARMED")
+        self.assertFalse(FakeWriter.instances[-1].sampling)
+        self.assertEqual(calls["alarms"], [])
 
     def test_arm_while_sampling_is_rejected_and_state_is_unchanged(self):
         _, probe, _ = load_probe()
