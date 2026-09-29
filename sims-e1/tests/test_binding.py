@@ -1,5 +1,4 @@
 import importlib
-import inspect
 import os
 import sys
 import tempfile
@@ -50,35 +49,11 @@ def install_stubs():
     commands = types.ModuleType("sims4.commands")
     commands.CommandType = types.SimpleNamespace(Live="Live")
     commands.CommandRestrictionFlags = types.SimpleNamespace(UNRESTRICTED="UNRESTRICTED")
-    commands.__enable_native_commands = True
-    native_commands = types.ModuleType("_commands")
-    commands._commands = native_commands
-    sys.modules["_commands"] = native_commands
-
     def register(*args):
         calls["events"].append("register")
         calls["registrations"].append(args)
 
     commands.register = register
-
-    def Command(*aliases, **options):
-        def decorate(function):
-            full_arg_spec = inspect.getfullargspec(function)
-
-            def invoke(*args, _session_id=0, **kwargs):
-                if "_connection" in full_arg_spec.args:
-                    kwargs["_connection"] = _session_id
-                if "_account" in full_arg_spec.args:
-                    kwargs["_account"] = _session_id
-                return function(*args, **kwargs)
-
-            for alias in aliases:
-                register(alias, options["command_restrictions"], invoke,
-                         "", "", options["command_type"])
-            return function
-        return decorate
-
-    commands.Command = Command
     sims4 = types.ModuleType("sims4")
     sims4.__path__ = []
     sims4.commands = commands
@@ -153,16 +128,14 @@ def load_probe():
 
 
 class BindingTests(unittest.TestCase):
-    def test_real_and_diagnostic_registrations_use_target_forms(self):
+    def test_production_registrations_use_target_forms(self):
         _, probe, calls = load_probe()
         self.assertEqual([item[0] for item in calls["registrations"]], [
             "ashley_e1.arm", "ashley_e1.disarm", "ashley_e1.start", "ashley_e1.stop",
-            "ashley_e1.diag_raw", "ashley_e1.diag_wrapped",
         ])
-        self.assertEqual(len(calls["registrations"]), 6)
+        self.assertEqual(len(calls["registrations"]), 4)
         self.assertEqual([item[2].__name__ for item in calls["registrations"]], [
             "_dispatch_arm", "_dispatch_disarm", "_dispatch_start", "_dispatch_stop",
-            "_diag_raw", "invoke",
         ])
         self.assertEqual(calls["registrations"][0][1], "UNRESTRICTED")
         self.assertEqual(calls["registrations"][0][5], "Live")
@@ -172,6 +145,36 @@ class BindingTests(unittest.TestCase):
         probe._WRITER_IDLE = True
         self.assertTrue(probe._cmd_arm("LAB_E1_FORK"))
         self.assertFalse(probe._cmd_arm("LAB_E1_FORK_EXTRA"))
+
+    def test_native_lowercase_arm_token_maps_to_canonical_name_and_arms(self):
+        _, probe, calls = load_probe()
+        registered = {item[0]: item[2] for item in calls["registrations"]}
+        seen = []
+        original_arm = probe._cmd_arm
+
+        def recording_arm(arm_name, _connection=None):
+            seen.append((arm_name, _connection))
+            return original_arm(arm_name, _connection=_connection)
+
+        probe._cmd_arm = recording_arm
+        self.assertTrue(registered["ashley_e1.arm"]("lab_e1", _session_id=3))
+        self.assertEqual(seen, [("LAB_E1", 3)])
+        self.assertEqual(probe.get_status()["state"], "ARMED")
+        self.assertEqual(probe.get_status()["armed_name"], "LAB_E1")
+        self.assertEqual(len(FakeWriter.instances), 1)
+
+    def test_native_lowercase_fork_token_maps_to_canonical_name(self):
+        _, probe, calls = load_probe()
+        registered = {item[0]: item[2] for item in calls["registrations"]}
+        seen = []
+
+        def recording_arm(arm_name, _connection=None):
+            seen.append((arm_name, _connection))
+            return True
+
+        probe._cmd_arm = recording_arm
+        self.assertTrue(registered["ashley_e1.arm"]("lab_e1_fork", _session_id=4))
+        self.assertEqual(seen, [("LAB_E1_FORK", 4)])
 
     def test_start_is_single_alarm_and_repeated_start_is_noop_success(self):
         _, probe, calls = load_probe()
@@ -248,8 +251,8 @@ class BindingTests(unittest.TestCase):
         self.assertFalse(registered["ashley_e1.arm"]("BADNAME", _session_id=42))
         self.assertEqual(probe.get_status()["state"], "UNARMED")
 
-        self.assertTrue(registered["ashley_e1.arm"]("LAB_E1", _session_id=42))
-        self.assertEqual(seen_connections, [("BADNAME", 42), ("LAB_E1", 42)])
+        self.assertTrue(registered["ashley_e1.arm"]("lab_e1", _session_id=42))
+        self.assertEqual(seen_connections, [("LAB_E1", 42)])
         self.assertEqual(probe.get_status()["state"], "ARMED")
         self.assertEqual(len(FakeWriter.instances), 1)
 
@@ -260,7 +263,7 @@ class BindingTests(unittest.TestCase):
         self.assertEqual(len(calls["alarms"]), 1)
         self.assertEqual(probe.get_status()["counters"]["redundant_starts"], 1)
 
-        self.assertFalse(registered["ashley_e1.arm"]("LAB_E1_FORK", _session_id=42))
+        self.assertFalse(registered["ashley_e1.arm"]("lab_e1_fork", _session_id=42))
         self.assertEqual(probe.get_status()["state"], "SAMPLING")
         self.assertTrue(registered["ashley_e1.stop"](_session_id=42))
         self.assertEqual(probe.get_status()["state"], "ARMED")
@@ -276,6 +279,8 @@ class BindingTests(unittest.TestCase):
         self.assertFalse(registered["ashley_e1.arm"]("LAB_E1", "extra", _session_id=42))
         self.assertFalse(registered["ashley_e1.arm"](
             "LAB_E1", _session_id=42, unexpected=True))
+        self.assertFalse(registered["ashley_e1.arm"]("badname", _session_id=42))
+        self.assertFalse(registered["ashley_e1.arm"](7, _session_id=42))
         for name in ("ashley_e1.disarm", "ashley_e1.start", "ashley_e1.stop"):
             self.assertFalse(registered[name]("extra", _session_id=42))
             self.assertFalse(registered[name](_session_id=42, unexpected=True))
@@ -292,6 +297,8 @@ class BindingTests(unittest.TestCase):
         with self.assertRaises(TypeError):
             probe._cmd_start(_session_id=42)
         self.assertFalse(registered_start(_session_id=42))
+        self.assertFalse(probe._cmd_arm("lab_e1"))
+        self.assertTrue(probe._cmd_arm("LAB_E1"))
 
 
 if __name__ == "__main__":

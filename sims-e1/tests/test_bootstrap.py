@@ -11,13 +11,13 @@ from test_binding import FakeWriter, load_probe
 class BootstrapTests(unittest.TestCase):
     def test_package_initializes_once_and_secondary_imports_are_pure(self):
         package, probe, calls = load_probe()
-        self.assertEqual(len(calls["registrations"]), 6)
+        self.assertEqual(len(calls["registrations"]), 4)
         probe.initialize_probe()
-        self.assertEqual(len(calls["registrations"]), 6)
+        self.assertEqual(len(calls["registrations"]), 4)
         self.assertEqual(len(calls["alarms"]), 0)
         for name in ("observers", "snapshot", "schema", "writer"):
             importlib.import_module("ashley_e1." + name)
-        self.assertEqual(len(calls["registrations"]), 6)
+        self.assertEqual(len(calls["registrations"]), 4)
         self.assertEqual(len(calls["alarms"]), 0)
 
     def test_no_alarm_exists_before_explicit_start(self):
@@ -53,15 +53,11 @@ class BootstrapTests(unittest.TestCase):
             prefix="ashley-e1-root-")
         probe.bootstrap_from_module_path = lambda *args, **kwargs: calls["events"].append(
             "bootstrap")
-        probe._write_diagnostic_bootstrap = lambda *args, **kwargs: calls["events"].append(
-            "diagnostic_bootstrap")
-
         probe.initialize_probe()
 
         self.assertEqual(calls["events"], ["register", "register", "register",
-                                             "register", "register", "register",
-                                             "bootstrap", "diagnostic_bootstrap"])
-        self.assertEqual(len(calls["registrations"]), 12)
+                                             "register", "bootstrap"])
+        self.assertEqual(len(calls["registrations"]), 8)
         self.assertEqual(probe.get_status()["state"], "UNARMED")
         self.assertEqual(calls["alarms"], [])
         self.assertEqual(FakeWriter.instances, [])
@@ -89,28 +85,6 @@ class BootstrapTests(unittest.TestCase):
         self.assertEqual(calls["alarms"], [])
         self.assertEqual(FakeWriter.instances, [])
 
-    def test_decorator_registration_exception_emits_no_successful_bootstrap_witness(self):
-        _, probe, calls = load_probe()
-        captured = []
-        probe._INITIALIZED = False
-
-        def failing_command(*args, **kwargs):
-            raise RuntimeError("decorator registration failed")
-
-        probe.Command = failing_command
-        probe.derive_telemetry_root = lambda path: tempfile.mkdtemp(
-            prefix="ashley-e1-root-")
-        probe.bootstrap_from_module_path = lambda *args, **kwargs: captured.append(
-            "bootstrap")
-
-        with self.assertRaisesRegex(RuntimeError, "decorator registration failed"):
-            probe.initialize_probe()
-
-        self.assertEqual(captured, [])
-        self.assertFalse(probe._INITIALIZED)
-        self.assertEqual(calls["alarms"], [])
-        self.assertEqual(FakeWriter.instances, [])
-
     def test_successful_initialization_emits_one_bootstrap_and_is_idempotent(self):
         _, probe, _ = load_probe()
         events = []
@@ -134,7 +108,7 @@ class BootstrapTests(unittest.TestCase):
             module_path = os.path.join(temp, "The Sims 4", "Mods", "AshleyE1",
                                        "ashley_e1", "writer.py")
             root = writer.bootstrap_from_module_path(
-                module_path, "1.0.4", "1.128.90.1030", summary)
+                module_path, "1.0.5", "1.128.90.1030", summary)
             files = [name for name in os.listdir(root) if name.startswith("ashley_e1_bootstrap_")]
             self.assertEqual(len(files), 1)
             with open(os.path.join(root, files[0]), "r", encoding="utf-8") as handle:

@@ -1,5 +1,5 @@
 param(
-    [string]$Version = "1.0.4",
+    [string]$Version = "1.0.5",
     [string]$PythonPath = "C:\Users\Xharv\AppData\Local\Programs\Python\Python370-AshleyE1\python.exe",
     [string]$ImplementedCommit = "WORKTREE_UNCOMMITTED",
     [string]$BaselineCommit = ""
@@ -32,7 +32,7 @@ import py_compile
 import sys
 py_compile.compile(sys.argv[1], cfile=sys.argv[2], dfile=sys.argv[3], doraise=True, optimize=0)
 '@
-$moduleNames = @("__init__", "probe", "observers", "snapshot", "schema", "writer", "diagnostic")
+$moduleNames = @("__init__", "probe", "observers", "snapshot", "schema", "writer")
 foreach ($moduleName in $moduleNames) {
     $source = Join-Path $sourceRoot ("ashley_e1\" + $moduleName + ".py")
     $destination = Join-Path $stageRoot ("ashley_e1\" + $moduleName + ".pyc")
@@ -98,9 +98,6 @@ $simsPythonDll = "E:\SteamLibrary\steamapps\common\The Sims 4\Game\Bin\python37_
 $manifest = [ordered]@{
     manifest_version = 1
     probe_version = $Version
-    diagnostic_only = $true
-    od4_acceptance_candidate = $false
-    build_purpose = "native_command_dispatch_diagnostic"
     target_sims_build = "1.128.90.1030"
     baseline_commit = $baselineCommit
     implemented_commit = $ImplementedCommit
