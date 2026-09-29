@@ -8,6 +8,8 @@ import { retrieveCandidates } from "../retrieval/discover.js";
 import { allocateThoughtProjection } from "../thought/projection-allocator/allocator.js";
 import { estimateRequestTokens } from "../../attention/estimate.js";
 import { quotaContractFor } from "../../model-routing/router.js";
+import { bucketForRoute } from "../../model-routing/registry.js";
+import { INTERACTIVE_THOUGHT_MAX_OUTPUT } from "../thought/projection-allocator/budget.js";
 import { QUALITY_CORPUS_SCENARIOS } from "../test/fixtures/quality-corpus.js";
 import type { IdentitySlice, CapabilityReality } from "../types.js";
 
@@ -34,12 +36,11 @@ const capabilityReality: CapabilityReality = {
   approvedProjectIds: [],
 };
 
-const HARD_TPM_CEILING = quotaContractFor("nim:openai/gpt-oss-20b").tpm; // 16,000
-// The route-neutral semantic inspection contract and the concern-authority
-// separation contract each add a bounded envelope to the Thought projection.
-// Keep the fixture demand within the 16,000 TPM qualification ceiling after
-// those contract changes.
-const QUALITY_CORPUS_MAX_OUTPUT_TOKENS = 3_390;
+// Gate A binds to the route Thought actually dispatches on and its real output
+// ceiling. It previously gated on a retired 16k-TPM NIM route and shrank the
+// output reservation each time the contract grew to keep fitting it.
+const HARD_TPM_CEILING = quotaContractFor(bucketForRoute("thought")).tpm;
+const QUALITY_CORPUS_MAX_OUTPUT_TOKENS = INTERACTIVE_THOUGHT_MAX_OUTPUT;
 
 describe("Quality Corpus 18-Scenario Acceptance Qualification (§17.4, §18)", () => {
   for (const scenario of QUALITY_CORPUS_SCENARIOS) {
@@ -147,7 +148,7 @@ describe("Quality Corpus 18-Scenario Acceptance Qualification (§17.4, §18)", (
 
         // 8. Verification against Hard Gates:
 
-        // Gate A: Total demand <= 16000 TPM
+        // Gate A: total demand fits the Thought route's per-minute contract
         const estimate = estimateRequestTokens(allocated.messages as any, {
           maxTokens: QUALITY_CORPUS_MAX_OUTPUT_TOKENS,
         });

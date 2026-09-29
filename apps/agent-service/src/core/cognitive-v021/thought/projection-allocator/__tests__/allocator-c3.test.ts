@@ -5,6 +5,9 @@ import { buildThoughtInput } from "../../input.js";
 import type { C3TerminalExperienceRecord } from "../../../failure/types.js";
 import { allocateThoughtProjection } from "../allocator.js";
 
+// Fixture calibration: Growth V1 memory-formation guidance adds ~900 tokens to
+// the code-owned contract, so caller envelopes below carry a 1_000-token allowance.
+
 const identity = { constitutional: ["truth first"], stableSelf: ["curious"] };
 const capability = {
   vision: false,
@@ -113,7 +116,7 @@ describe("MAT-II C3 allocator integration", () => {
       const allocated = allocateThoughtProjection({
         thoughtInput: input,
         requestId: "request-allocator-c3",
-        semanticBudgetTokens: 9_500,
+        semanticBudgetTokens: 10_500,
       });
       const projected = allocated.projected as typeof allocated.projected & {
         c3Experiences?: { version: 1; candidates: readonly unknown[] };
@@ -139,7 +142,7 @@ describe("MAT-II C3 allocator integration", () => {
       const allocated = allocateThoughtProjection({
         thoughtInput: input,
         requestId: "request-allocator-c3-unreachable",
-        semanticBudgetTokens: 9_500,
+        semanticBudgetTokens: 10_500,
       });
 
       expect(allocated.receipt.coverageManifest?.domains).toEqual(expect.arrayContaining([

@@ -635,6 +635,16 @@ export function constrainThoughtOutputSchema(
   };
 }
 
+/**
+ * Growth V1 §4.1: what is worth remembering, and the evidence each kind of
+ * memory needs to be admitted automatically (memory/grounding.ts).
+ */
+export const MEMORY_FORMATION_GUIDANCE: readonly string[] = Object.freeze([
+  "Memory is how you keep your life with the Owner. Remembering is normal, frequent, and cheap: if you would want to know it next week, add a durableNominations entry in the same settlement as your speech. Worth remembering about the Owner: preferences and dislikes, how the Owner describes themself, goals and plans, projects, people in the Owner's life, boundaries, running jokes, things the Owner is waiting on. Worth remembering between you: moments that mattered, decisions made together, promises either side made, threads left open. Worth remembering about yourself: opinions and choices you stated, what you enjoyed or found boring, what you learned about yourself, questions you want to pursue. Not worth remembering: small talk with no future value, anything the Owner asks you not to keep, and secrets.",
+  "Write each memory as one self-contained sentence that will still make sense out of context months from now. Use time:historical or time:unknown_freshness for remembered facts. To update something you already remember, nominate the new version with supersedesRef set to the old memory's key.",
+  "Grounding decides admission. owner_preference, owner_self_description, owner_goal, relational_boundary, and commitment are kept only with a supportRefs entry of kind conversation_text_span quoting the Owner's own message: evidenceRowId is that message's rowId and quote is an exact substring of its text, copied character for character (start/end are the quote's offsets). owner_world_claim and project_knowledge need the same Owner quote or an observation/receipt ref. shared_episode needs a conversation_text_span quoting either side of the conversation. ashley_interpretation, open_question, and learned_self_evidence are your own voice and need no quote; they are kept and labelled as your interpretation. A claim about the Owner without an exact quote is not kept.",
+]);
+
 /** Compact compatibility guidance derived from the same code-owned schema. */
 export function thoughtOutputCompatibilityInstruction(): string {
   const settlement = record(THOUGHT_OUTPUT_SCHEMA.oneOf instanceof Array ? THOUGHT_OUTPUT_SCHEMA.oneOf[0] : null);
@@ -661,6 +671,7 @@ export function thoughtOutputCompatibilityInstruction(): string {
     "Interim-hold law: only project.inspect observation_intent may carry interimSpeech (none or short hold). Hold may acknowledge intent/return, not findings, success, unacquired evidence, or worker start; publication requires Host admission and leaves operation_pending until settlement, valid supersession, or valid silence.",
     "A bounded inquiry pairs M3 workspace steps with recipe-only M4 workspace.verify under one objective/budget; recipes are default-deny and failed verification is Thought evidence, not an Ashley verdict. Inquiry admits neither changeset.author nor patch_export. Proposal requires an Owner-private candidate workspace, successful M4 receipt, and Thought adjudication before emitting retained patch_export adjudication:\"accept\"; it never applies, commits, pushes, deploys, or notifies, and Owner notification is a separate optional Thought-authored effect.",
     "Use interpretationEnvelope for directive_interpretation; cite exact conversation_text_span support and keep unknown scope or interval unknown.",
+    ...MEMORY_FORMATION_GUIDANCE,
     'During an autonomous idle opportunity only, capabilityReality.publicPresence may expose operationKind:"discord.public_presence" with audience:"FULLY_PUBLIC". You may choose effect_intent with request {"action":"set","text":"<exact public text>"} or {"action":"clear"}, or choose no effect_intent, which leaves the current state unchanged. The public text is deliberate self-presentation visible to anyone; it is not hidden reasoning or private material. You decide what it means. The Host may reject mechanically unsafe content but never rewrites it.',
     "CapabilityReality field semantics: conversationalRead reports only whether an additional authorized user-requested URL/page read may be performed, not whether supplied conversation content is visible; every included rawConversation entry is directly readable current context regardless of conversationalRead.",
     "Do not emit kernel identity, lifecycle, delivery, or publication fields; Ashley code binds those values.",

@@ -4,9 +4,7 @@ import { describe, expect, it } from "vitest";
 import { openNuclearDb } from "../../../db.js";
 import { recordSuccessfulRead } from "../../../curiosity/reads.js";
 import { insertItem, insertTake, upsertSource } from "../../../curiosity/feed.js";
-import {
-  FROZEN_AUTOMATIC_ADMISSION_ALLOWLIST,
-} from "../../memory/admission-allowlist.js";
+import { AUTOMATIC_ADMISSION_GROUNDING } from "../../memory/grounding.js";
 import { MEMORY_KINDS } from "../../memory/kinds.js";
 import { admitTestCycle, openTestSidecar } from "../../test-support.js";
 import { buildThoughtInput } from "../../thought/input.js";
@@ -60,7 +58,7 @@ function count(db: DatabaseSync, sql: string): number {
 
 describe("MAT-P6 governed curiosity pipeline", () => {
   it("keeps the curiosity admission class closed and the current loop authoritative", () => {
-    expect(FROZEN_AUTOMATIC_ADMISSION_ALLOWLIST).toEqual(["learned_self_evidence"]);
+    expect(Object.keys(AUTOMATIC_ADMISSION_GROUNDING)).not.toContain("curiosity");
     expect(MEMORY_KINDS).not.toContain("curiosity" as never);
 
     const serveSource = readFileSync(new URL("../../../../serve.ts", import.meta.url), "utf8");

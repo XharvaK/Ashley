@@ -189,6 +189,8 @@ export function listDurableNominations(
     allowedKinds?: readonly MemoryKind[];
     /** Alias for callers that use the retrieval vocabulary. */
     memoryKinds?: readonly MemoryKind[];
+    /** Only nominations with no recorded admission decision. */
+    undecidedOnly?: boolean;
   } = {},
 ): DurableNominationRecord[] {
   const limit = Math.max(1, Math.min(10_000, options.limit ?? 10_000));
@@ -203,6 +205,9 @@ export function listDurableNominations(
     if (allowedKinds.length === 0) return [];
     conditions.push(`memory_kind IN (${allowedKinds.map(() => "?").join(",")})`);
     args.push(...allowedKinds);
+  }
+  if (options.undecidedOnly) {
+    conditions.push("NOT EXISTS (SELECT 1 FROM admission_log l WHERE l.nomination_id = durable_nominations.nomination_id)");
   }
   args.push(limit);
   const rows = db.prepare(

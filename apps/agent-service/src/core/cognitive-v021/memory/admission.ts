@@ -20,7 +20,12 @@ import { validateSourceSupportRefs } from "../evidence/interpretation-envelope.j
 import { REDACTED_MEMORY_STATEMENT, upsertMemoryAssertion } from "./assertions.js";
 import { notifySidecarPostCommit } from "../retrieval/derived-store.js";
 import { hasStructuredCurrentnessEntitlement } from "../authority/check.js";
-import { FROZEN_AUTOMATIC_ADMISSION_ALLOWLIST } from "./admission-allowlist.js";
+import {
+  AUTOMATIC_ADMISSION_KINDS,
+  alignConversationSpans,
+  isGroundedForKind,
+  ownerQuotedRowIds,
+} from "./grounding.js";
 import {
   prepareExternalSocialNomination,
   type PreparedExternalSocialRevision,
@@ -144,6 +149,10 @@ export type AdmissionOptions = {
   allowedKinds?: readonly import("../types.js").MemoryKind[];
   /** Alias for callers that use the retrieval vocabulary. */
   memoryKinds?: readonly import("../types.js").MemoryKind[];
+  /** Apply the per-kind evidence rule of grounded automatic admission. */
+  requireGrounding?: boolean;
+  /** Skip nominations that already have a recorded admission decision. */
+  undecidedOnly?: boolean;
 };
 
 function text(value: unknown, fallback = ""): string {
@@ -274,7 +283,7 @@ function admitOne(
   db: DatabaseSync,
   nomination: DurableNominationRecord,
   nowMs: number,
-  options: { requireCurrentGeneration?: number; currentnessEntitled?: boolean } = {},
+  options: { requireCurrentGeneration?: number; currentnessEntitled?: boolean; requireGrounding?: boolean } = {},
 ): AdmissionResult {
   const noAssertion = (result: AdmissionResult["result"]): AdmissionResult => ({ nominationId: nomination.nominationId, assertionKey: nomination.assertionKey, result, assertion: null });
   if (nomination.dataClassification === "secret") {
@@ -328,7 +337,7 @@ function admitOne(
   let typedSupportRefs: SourceSupportRef[] = [];
   let resolvedTypedSupport: ReturnType<typeof validateSourceSupportRefs> = [];
   try {
-    const values = publishedSupportRefs(settlement, nomination);
+    const values = alignConversationSpans(db, publishedSupportRefs(settlement, nomination));
     resolvedTypedSupport = validateSourceSupportRefs(db, values, current.conversationId);
     typedSupportRefs = values as SourceSupportRef[];
   } catch {
@@ -343,11 +352,22 @@ function admitOne(
     return result;
   }
 
+  if (options.requireGrounding
+    && !isGroundedForKind(nomination.memoryKind, typedSupportRefs, resolvedTypedSupport)) {
+    const result = noAssertion("admission_skipped_provenance");
+    logAdmission(db, result, nowMs);
+    return result;
+  }
+
   // Legacy sourceRefs remain an independent admission input for existing readers.
   const sourceRefs = resolveNominationSourceRefs(db, nomination, settlement);
 
   if (isOwnerOrigin) {
-    const verified = findVerifiedOwnerEvidence(db, sourceRefs);
+    // A verbatim quote of an Owner message is at least as strong as a bare row ref.
+    const verified = findVerifiedOwnerEvidence(db, [
+      ...sourceRefs,
+      ...ownerQuotedRowIds(typedSupportRefs, resolvedTypedSupport),
+    ]);
     if (!verified) {
       const hasSecretRef = sourceRefs.some((ref) => {
         const row = db.prepare("SELECT data_classification, secret_omitted FROM conversation_evidence_log WHERE row_id = ? OR lineage_id = ?").get(ref, ref) as DbRow | undefined;
@@ -517,6 +537,7 @@ export function tickAdmission(
     limit: options.limit,
     allowedKinds: options.allowedKinds,
     memoryKinds: options.memoryKinds,
+    undecidedOnly: options.undecidedOnly,
   })
     .filter((nomination) => options.nominationIds == null || options.nominationIds.includes(nomination.nominationId));
   const result: AdmissionTickResult = {
@@ -534,7 +555,7 @@ export function tickAdmission(
   db.exec("BEGIN IMMEDIATE");
   try {
     for (const nomination of selected) {
-      const admitted = admitOne(db, nomination, nowMs);
+      const admitted = admitOne(db, nomination, nowMs, { requireGrounding: options.requireGrounding });
       result.results.push(admitted);
       switch (admitted.result) {
         case "admitted":
@@ -576,9 +597,10 @@ export type GovernedAdmissionCatchupOptions = {
 };
 
 /**
- * Bounded lifecycle/startup catch-up. The allowlist is fixed in source and is
- * always supplied to the admission selector, so unrelated durable kinds stay
- * pending instead of being repeatedly scanned or minted as assertions.
+ * Bounded lifecycle/startup catch-up: grounded automatic admission (Growth V1
+ * §4.3). Every kind is eligible on the evidence its kind requires. A
+ * nomination is decided once; a recorded skip is final, so rejected
+ * nominations never sit pending or starve newer ones out of the bound.
  */
 export function runGovernedAdmissionCatchup(
   db: DatabaseSync,
@@ -586,7 +608,9 @@ export function runGovernedAdmissionCatchup(
 ): AdmissionTickResult {
   return tickAdmission(db, {
     ...options,
-    allowedKinds: FROZEN_AUTOMATIC_ADMISSION_ALLOWLIST,
+    allowedKinds: AUTOMATIC_ADMISSION_KINDS,
+    requireGrounding: true,
+    undecidedOnly: true,
   });
 }
 

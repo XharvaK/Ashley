@@ -6,7 +6,6 @@ import { buildLearnedSelfSlice } from "../../identity/learned-self.js";
 import {
   runGovernedAdmissionCatchup,
 } from "../admission.js";
-import { FROZEN_AUTOMATIC_ADMISSION_ALLOWLIST } from "../admission-allowlist.js";
 import { listDurableNominations } from "../nomination.js";
 import type { DurableNomination } from "../../types.js";
 
@@ -63,7 +62,7 @@ function publishNomination(db: Parameters<typeof runGovernedAdmissionCatchup>[0]
 }
 
 describe("MAT-II governed automatic admission", () => {
-  it("admits only Thought-authored learned_self_evidence through the frozen automatic path", () => {
+  it("admits Thought-authored learned_self_evidence through the automatic path", () => {
     const db = openTestSidecar();
     try {
       const evidence = appendOwnerUtterance(db, {
@@ -85,7 +84,6 @@ describe("MAT-II governed automatic admission", () => {
 
       const result = runGovernedAdmissionCatchup(db, { nowMs: 2 });
 
-      expect(FROZEN_AUTOMATIC_ADMISSION_ALLOWLIST).toEqual(["learned_self_evidence"]);
       expect(result.admitted).toBe(1);
       expect(db.prepare("SELECT admitted FROM durable_nominations WHERE nomination_id = ?").get("nomination-learned"))
         .toMatchObject({ admitted: 1 });
@@ -101,7 +99,7 @@ describe("MAT-II governed automatic admission", () => {
     }
   });
 
-  it("leaves non-allowlisted kinds durable and unminted", () => {
+  it("rejects an ungrounded Owner-facing kind once, with a recorded reason, and mints nothing", () => {
     const db = openTestSidecar();
     try {
       const evidence = appendOwnerUtterance(db, {
@@ -130,9 +128,9 @@ describe("MAT-II governed automatic admission", () => {
 
       const result = runGovernedAdmissionCatchup(db, { nowMs: 2 });
 
-      expect(result.considered).toBe(0);
-      expect(listDurableNominations(db, { admitted: false, allowedKinds: FROZEN_AUTOMATIC_ADMISSION_ALLOWLIST }))
-        .toHaveLength(0);
+      expect(result.considered).toBe(1);
+      expect(result.skippedProvenance).toBe(1);
+      expect(listDurableNominations(db, { admitted: false, undecidedOnly: true })).toHaveLength(0);
       expect(db.prepare("SELECT admitted FROM durable_nominations WHERE nomination_id = ?").get("nomination-world"))
         .toMatchObject({ admitted: 0 });
       expect(db.prepare("SELECT COUNT(*) AS count FROM sidecar_memory_assertions").get())
