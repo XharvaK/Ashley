@@ -61,8 +61,13 @@ describe("cognitive v0.2.1 sidecar database", () => {
         )
         .all() as Array<{ name: string }>
     ).map((row) => row.name);
-      expect(tables).toHaveLength(51);
+      // v37: episodes_v2 (+ its FTS5 table and five shadow tables), thread_stories, afterglow_state.
+      expect(tables).toHaveLength(60);
     expect(tables).toContain("memory_strength");
+    expect(tables).toContain("episodes_v2");
+    expect(tables).toContain("episodes_v2_fts");
+    expect(tables).toContain("thread_stories");
+    expect(tables).toContain("afterglow_state");
     expect(tables).toContain("interpretation_dependencies");
     expect(tables).toContain("effect_diagnostics");
     expect(tables).toContain("effect_continuations");

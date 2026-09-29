@@ -8,6 +8,8 @@ import { parseThoughtSemanticOutput } from "../thought/parse.js";
 import { REDACTED_MEMORY_STATEMENT, upsertMemoryAssertion } from "../memory/assertions.js";
 import { getMemoryStrength, recordMemoryFormation } from "../memory/strength.js";
 import type { MemoryKind, ObservationRequest } from "../types.js";
+import { appendOwnerUtterance } from "../evidence/conversation-log.js";
+import { recordEpisode } from "../memory/episodes.js";
 
 const OWNER = "owner-lookup";
 
@@ -90,6 +92,28 @@ describe("memory.lookup", () => {
       expect(payload.matchedCount).toBe(2);
       expect(payload.nextCursor).toBeNull();
       expect(getMemoryStrength(sidecar, "cilantro-soap")?.recallCount).toBe(0);
+    } finally {
+      sidecar.close();
+      nuclear.close();
+    }
+  });
+
+  it("brings back the episodes the words recall", async () => {
+    const { sidecar, nuclear, executor } = setup();
+    try {
+      const row = appendOwnerUtterance(sidecar, { conversationId: "thread-lookup", text: "cilantro again?!", nowMs: 5, audienceAtCapture: "owner_private" });
+      recordEpisode(sidecar, {
+        conversationId: "thread-lookup",
+        cycleId: "cycle-episode",
+        rows: [{ rowId: row.rowId, createdAtMs: 5, dataClassification: "ordinary" }],
+        reflection: { summary: "Doc groaned about cilantro on his tacos.", salience: 0.5 },
+        nowMs: 6,
+      });
+      const observation = await executor.executeObservation(request({ query: "cilantro" }));
+      expect((observation.payload as { episodes?: Array<{ summary: string }> }).episodes?.map((episode) => episode.summary))
+        .toEqual(["Doc groaned about cilantro on his tacos."]);
+      const goals = await executor.executeObservation(request({ query: "cilantro", kinds: ["owner_goal"] }));
+      expect((goals.payload as { episodes?: unknown }).episodes).toBeUndefined();
     } finally {
       sidecar.close();
       nuclear.close();

@@ -724,11 +724,11 @@ describe("Thought semantic output contract", () => {
     // web.fetch vocabulary and instructions, and Growth V1 nomination salience and memory.lookup;
     // parser identity remains the v2 semantic parser.
     expect(THOUGHT_SEMANTIC_SCHEMA_FINGERPRINT).toBe(
-      "sha256:5e276982f928132fe70fb4fe01029be8bb4a1c514487e02930f1a92c4b459cf6",
+      "sha256:bc077ddddb543462dcdd9381f378d2de233d7a49bc7c3cce8a4884a12dfc8d6a",
     );
     const zeroOp = constrainThoughtOutputSchema(buildOperationalEffectNamespaceFromRefs([]));
     expect(zeroOp.wireSchemaFingerprint).toBe(
-      "sha256:11c6b3ae3ea4cfcebe8c1c021e186212fe73bcefecec5b58536a7ae4dd743049",
+      "sha256:8a4cab2196b6b8ae27f281218bf2044c4a380346addbf81d94b8a429c29cf22c",
     );
     expect(zeroOp.namespaceConstraintFingerprint).toBe(
       "sha256:d277b3804b25361994107886d1f33f779a7501298b01fe483ebe7c795b6e19c6",

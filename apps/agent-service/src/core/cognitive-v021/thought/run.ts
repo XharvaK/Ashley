@@ -162,6 +162,12 @@ import { resolveRepairContinuityRecovery } from "../retry/owner-recovery.js";
 import { admitOwnerSuppliedClaim, runGovernedAdmissionCatchup } from "../memory/admission.js";
 import { recordMemoryRecall, recordMemoryUse } from "../memory/strength.js";
 import {
+  afterglowPassFromPayload,
+  completeAfterglow,
+  loadAfterglowRows,
+  type AfterglowPass,
+} from "../initiative/afterglow.js";
+import {
   c1V021ProviderBoundBasisFromProjection,
   c1V021SemanticResultHash,
   recordC1V021NativeShadowWitness,
@@ -1398,6 +1404,7 @@ function materializeSemanticSettlement(
       ...(nomination.supportRefs ? { supportRefs: [...nomination.supportRefs] } : {}),
       ...(nomination.salience === undefined ? {} : { salience: nomination.salience }),
     }));
+  if (semantic.reflection) result.reflection = semantic.reflection;
   return result as ThoughtSettlementDraft;
 }
 
@@ -2528,6 +2535,17 @@ function persistedMalformedRetries(
   return count;
 }
 
+/** The rows an afterglow reflects on, as they stand now; forgotten rows stay out. */
+function afterglowInnerPass(sidecar: DatabaseSync, pass: AfterglowPass): import("../types.js").ThoughtInnerPass {
+  return {
+    kind: "afterglow",
+    mode: pass.mode,
+    rows: loadAfterglowRows(sidecar, pass.rowIds)
+      .filter((row) => !row.redacted)
+      .map((row) => ({ rowId: row.rowId, role: row.role, text: row.text, atMs: row.createdAtMs })),
+  };
+}
+
 function publishedSettlement(
   draft: ThoughtSettlementDraft,
   settlementId: string,
@@ -2699,6 +2717,7 @@ export async function runCognitiveCycle(
   options: { privateBudgetBinding?: PrivateBudgetDispatchBinding } = {},
 ): Promise<KernelRunResult> {
   const payload = payloadRecord(event);
+  const afterglowPass = afterglowPassFromPayload(payload);
   const ownerCoverage = event.dispatchCoverage ?? captureOwnerDispatchCoverage(sidecar, event);
   const ownerResolutionFor = (
     attemptOutcome: OwnerObligationAttemptOutcome,
@@ -2795,6 +2814,7 @@ export async function runCognitiveCycle(
     occupantId: cycle.occupantId,
     configuredOwnerId: payload.ownerId,
     reconciling: wake.state === "reconciling",
+    afterglow: afterglowPass !== null,
   });
   const publicPresence = publicPresenceEnabled
     ? readPublicPresenceContext(sidecar, deps.nowMs())
@@ -3236,6 +3256,7 @@ export async function runCognitiveCycle(
         timeZone: env.ownerTimeZone,
         currentRowIds: cycleOwnerRowIds(sidecar, payload, cycle),
       },
+      ...(afterglowPass ? { innerPass: afterglowInnerPass(sidecar, afterglowPass) } : {}),
       ...(settlementOnly ? { settlementOnly: true } : {}),
       ...(effectContinuationInput ? { effectContinuation: effectContinuationInput } : {}),
       ...(capacityWait ? { capacityWait } : {}),
@@ -4507,6 +4528,21 @@ export async function runCognitiveCycle(
         );
       } catch {
         // Strength is ranking metadata; it never disturbs publication.
+      }
+    }
+    if (deps.origin !== "shadow" && afterglowPass && publication.settlementId !== null) {
+      try {
+        completeAfterglow(sidecar, {
+          conversationId: cycle.conversationId,
+          cycleId: cycle.cycleId,
+          pass: afterglowPass,
+          reflection: settlement.reflection,
+          nowMs: deps.nowMs(),
+        });
+      } catch (error) {
+        // Publication is authoritative. The watermark stays put, so the next
+        // afterglow attempt covers these rows again.
+        console.warn("[cognitive-v021] afterglow_completion_deferred", error);
       }
     }
     if (deps.origin !== "shadow" && (settlement.durableNominations ?? []).length > 0) {

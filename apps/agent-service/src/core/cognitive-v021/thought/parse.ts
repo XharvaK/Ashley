@@ -814,10 +814,37 @@ function validateSettlementLocalAliases(
   return OK;
 }
 
+function boundedText(value: unknown, max: number): boolean {
+  return typeof value === "string" && value.trim().length > 0 && value.length <= max;
+}
+
+/** Growth V1 afterglow reflection: an episode and/or a rewritten thread story. */
+function validReflection(value: unknown): boolean {
+  const reflection = semanticRecord(value);
+  if (!reflection) return false;
+  const keys = Object.keys(reflection);
+  if (keys.length === 0 || keys.some((key) => key !== "episode" && key !== "threadStory")) return false;
+  if (own(reflection, "threadStory") && !boundedText(reflection.threadStory, 6000)) return false;
+  if (!own(reflection, "episode")) return true;
+  const episode = semanticRecord(reflection.episode);
+  if (!episode) return false;
+  if (Object.keys(episode).some((key) => !["summary", "salience", "tone", "unresolvedThreads", "takeaway"].includes(key))) return false;
+  if (!boundedText(episode.summary, 1200)) return false;
+  if (typeof episode.salience !== "number" || !Number.isFinite(episode.salience) || episode.salience < 0 || episode.salience > 1) return false;
+  if (own(episode, "tone") && !boundedText(episode.tone, 80)) return false;
+  if (own(episode, "takeaway") && !boundedText(episode.takeaway, 600)) return false;
+  if (own(episode, "unresolvedThreads")) {
+    const threads = episode.unresolvedThreads;
+    if (!Array.isArray(threads) || threads.length === 0 || threads.length > 8) return false;
+    if (!threads.every((thread) => boundedText(thread, 200))) return false;
+  }
+  return true;
+}
+
 function parseSettlementSemantic(value: SemanticRecord, allowlist: ReadonlySet<string>): ThoughtSemanticParseResult {
   const unknown = Object.keys(value).find((key) => ![
     "kind", "interactionIntent", "speech", "initiativePreference", "interpretation", "commitments", "workingContextDeltas", "deskDeltas", "concernDeltas",
-    "occupancyDeltas", "futureTriggerDeltas", "subscriptionDeltas", "durableNominations", "evidenceUse",
+    "occupancyDeltas", "futureTriggerDeltas", "subscriptionDeltas", "durableNominations", "reflection", "evidenceUse",
   ].includes(key));
   if (unknown) return semanticFailure("unknown_field", unknown);
   if (value.kind !== "settlement") return semanticFailure("wrong_kind", "kind");
@@ -858,6 +885,9 @@ function parseSettlementSemantic(value: SemanticRecord, allowlist: ReadonlySet<s
   for (const [key, validator] of arrays) {
     result = optionalArray(value, key, validator);
     if (!result.ok) return semanticFailure(result.code, result.field);
+  }
+  if (own(value, "reflection") && !validReflection(value.reflection)) {
+    return semanticFailure("wrong_type", "reflection");
   }
   result = validateEvidenceUse(value, allowlist);
   if (!result.ok) return semanticFailure(result.code, result.field);

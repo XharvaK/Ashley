@@ -181,6 +181,11 @@ export type IdleTickResult = {
 
 /** Scheduler-only overlap guard. It is not a budget counter or capacity source. */
 const activePrivateCalls = new Set<string>();
+
+/** Single flight: one private Thought per conversation at a time. */
+export function isPrivateThoughtActive(conversationId: string): boolean {
+  return activePrivateCalls.has(conversationId);
+}
 const UNKNOWN_EXECUTION_PROVENANCE: ThoughtExecutionProvenance = Object.freeze({
   dispatchTruth: "unknown",
   providerAttempts: "unknown",
@@ -779,7 +784,7 @@ async function tickConversation(
 }
 
 /** Shared Thought-execution tail: settle, provenance, and result mapping. */
-async function executeAdmittedThought(
+export async function executeAdmittedThought(
   db: DatabaseSync,
   input: {
     conversationId: string;

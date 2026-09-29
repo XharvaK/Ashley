@@ -1390,3 +1390,53 @@ CREATE TABLE IF NOT EXISTS memory_strength (
 );
 UPDATE cognitive_sidecar_meta SET schema_version = 36, projection_state = 'reconciling' WHERE id = 1;
 `;
+
+/**
+ * Growth V1 §4.4/§5.1: episodes Ashley writes when she reflects on a
+ * conversation, the rolling thread story, and the afterglow watermark.
+ */
+export const COGNITIVE_SIDECAR_SCHEMA_V37 = String.raw`
+CREATE TABLE IF NOT EXISTS episodes_v2 (
+  episode_id TEXT PRIMARY KEY,
+  conversation_id TEXT NOT NULL,
+  cycle_id TEXT NOT NULL,
+  started_at_ms INTEGER NOT NULL,
+  ended_at_ms INTEGER NOT NULL,
+  evidence_row_ids_json TEXT NOT NULL,
+  summary TEXT NOT NULL,
+  tone TEXT,
+  salience REAL NOT NULL CHECK (salience >= 0 AND salience <= 1),
+  unresolved_threads_json TEXT NOT NULL DEFAULT '[]',
+  ashley_takeaway TEXT,
+  data_classification TEXT NOT NULL,
+  created_at_ms INTEGER NOT NULL,
+  forgotten_at_ms INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_episodes_v2_conversation_ended
+  ON episodes_v2 (conversation_id, ended_at_ms);
+CREATE VIRTUAL TABLE IF NOT EXISTS episodes_v2_fts USING fts5(
+  episode_id UNINDEXED,
+  summary,
+  ashley_takeaway,
+  tokenize = 'unicode61'
+);
+CREATE TABLE IF NOT EXISTS thread_stories (
+  conversation_id TEXT PRIMARY KEY,
+  story TEXT NOT NULL,
+  through_row_id TEXT,
+  cycle_id TEXT NOT NULL,
+  data_classification TEXT NOT NULL,
+  written_at_ms INTEGER NOT NULL,
+  forgotten_at_ms INTEGER
+);
+CREATE TABLE IF NOT EXISTS afterglow_state (
+  conversation_id TEXT PRIMARY KEY,
+  reflected_through_seq INTEGER NOT NULL DEFAULT 0,
+  attempt_range TEXT,
+  attempt_count INTEGER NOT NULL DEFAULT 0,
+  failed_attempts INTEGER NOT NULL DEFAULT 0,
+  last_outcome TEXT,
+  updated_at_ms INTEGER NOT NULL
+);
+UPDATE cognitive_sidecar_meta SET schema_version = 37, projection_state = 'reconciling' WHERE id = 1;
+`;

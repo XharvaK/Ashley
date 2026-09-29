@@ -27,6 +27,7 @@ import { mintEffectRef } from "../../../effect/effect-ref.js";
 
 // Fixture calibration: Growth V1 memory-formation guidance adds ~900 tokens to
 // the code-owned contract, so caller envelopes below carry a 1_000-token allowance.
+// The afterglow guidance adds ~150 more; the envelopes that overflowed carry +500.
 
 function makeThoughtInput(overrides: Partial<ThoughtInput> = {}): ThoughtInput {
   return {
@@ -267,7 +268,7 @@ describe("Whole-Thought Projection Allocator", () => {
         rawConversation: rows,
         trigger: { kind: "owner_message", ref: rows.at(-1)!.rowId },
       }),
-      semanticBudgetTokens: 11_500,
+      semanticBudgetTokens: 12_000,
       requestId: "req-small-ordinary-conversation",
     });
 
@@ -741,12 +742,12 @@ describe("Whole-Thought Projection Allocator", () => {
       semanticProjectionEnvelope: {
         id: "test-envelope",
         version: 1,
-        maxInputTokens: 9500,
+        maxInputTokens: 10_000,
       },
       requestId: "req-breakdown",
     });
 
-    expect(allocated.receipt.semanticProjectionEnvelope.maxInputTokens).toBe(9500);
+    expect(allocated.receipt.semanticProjectionEnvelope.maxInputTokens).toBe(10_000);
     expect(allocated.receipt.tokenBreakdown.static_contract_tokens).toBeGreaterThan(0);
     expect(allocated.receipt.tokenBreakdown.conversation_tokens).toBeGreaterThan(0);
     expect(allocated.receipt.tokenBreakdown.working_context_tokens).toBeGreaterThan(0);

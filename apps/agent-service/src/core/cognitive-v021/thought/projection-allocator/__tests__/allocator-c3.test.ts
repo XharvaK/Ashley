@@ -7,6 +7,7 @@ import { allocateThoughtProjection } from "../allocator.js";
 
 // Fixture calibration: Growth V1 memory-formation guidance adds ~900 tokens to
 // the code-owned contract, so caller envelopes below carry a 1_000-token allowance.
+// The afterglow guidance adds ~150 more; the envelopes that overflowed carry +500.
 
 const identity = { constitutional: ["truth first"], stableSelf: ["curious"] };
 const capability = {
@@ -116,7 +117,7 @@ describe("MAT-II C3 allocator integration", () => {
       const allocated = allocateThoughtProjection({
         thoughtInput: input,
         requestId: "request-allocator-c3",
-        semanticBudgetTokens: 10_500,
+        semanticBudgetTokens: 11_000,
       });
       const projected = allocated.projected as typeof allocated.projected & {
         c3Experiences?: { version: 1; candidates: readonly unknown[] };
@@ -142,7 +143,7 @@ describe("MAT-II C3 allocator integration", () => {
       const allocated = allocateThoughtProjection({
         thoughtInput: input,
         requestId: "request-allocator-c3-unreachable",
-        semanticBudgetTokens: 10_500,
+        semanticBudgetTokens: 11_000,
       });
 
       expect(allocated.receipt.coverageManifest?.domains).toEqual(expect.arrayContaining([

@@ -7,7 +7,9 @@ import {
   getInboxEvent,
   initializeAttemptInputBasis,
 } from "../cycle/inbox.js";
-import { appendExternalUtteranceInTransaction, appendOwnerUtterance } from "../evidence/conversation-log.js";
+import { appendAshleyEvidence, appendExternalUtteranceInTransaction, appendOwnerUtterance } from "../evidence/conversation-log.js";
+import { evaluateAfterglow, tickAfterglow } from "../initiative/afterglow.js";
+import { getThreadStory, listRecentEpisodes } from "../memory/episodes.js";
 import { admitExternalBatch, admitExternalCapture, type ExternalCaptureBody } from "../ingress/http.js";
 import { applyWorkingContextDelta } from "../evidence/working-context.js";
 import { admitTestCycle, openTestSidecar } from "../test-support.js";
@@ -378,6 +380,67 @@ describe("v0.2.1 Thought run", () => {
       expect(sent).toContain("Tuesday 29 September 2026, 17:52");
       expect(sent).toContain("UTC+03:00");
       expect(sent).toContain("1 day 2 hours");
+    } finally {
+      sidecar.close();
+      attentionDb.close();
+      nuclear.close();
+    }
+  });
+
+  it("reflects in an afterglow, and the episode and thread story carry into the next turn", async () => {
+    const NOW = Date.UTC(2026, 8, 29, 14, 0);
+    const MINUTE = 60_000;
+    const sidecar = openTestSidecar();
+    const attentionDb = openTestSidecar();
+    const nuclear = openNuclearDb(new DatabaseSync(":memory:"));
+    const conversationId = "thread-afterglow-run";
+    appendOwnerUtterance(sidecar, { conversationId, text: "we should plan the Kyoto trip", nowMs: NOW - 45 * MINUTE, audienceAtCapture: "owner_private" });
+    appendAshleyEvidence(sidecar, { conversationId, text: "spring or autumn?", nowMs: NOW - 44 * MINUTE, delivered: true, audienceAtCapture: "owner_private" });
+    const reflection = {
+      episode: { summary: "Doc and I started planning a spring trip to Kyoto.", salience: 0.8, tone: "excited", unresolvedThreads: ["which month"] },
+      threadStory: "Doc and I talk most days. Right now we are planning a spring trip to Kyoto.",
+    };
+    let calls = 0;
+    const completeChat = vi.fn<KernelDeps["completeChat"]>(async () => ({
+      text: JSON.stringify((calls += 1) === 1
+        ? makeSemanticSettlement({ speech: { mode: "none" }, commitments: {}, reflection })
+        : makeSemanticSettlement()),
+      model: "fake",
+      modelAlias: "thought",
+      resolvedModelId: null,
+    }));
+    try {
+      const result = await tickAfterglow(sidecar, {
+        conversationId,
+        occupantId: "doc",
+        authorityEpoch: 1,
+        nowMs: NOW,
+        thought: async (input) => runCognitiveCycle(sidecar, nuclear, input.event!, deps({ attentionDb, completeChat, nowMs: () => NOW })),
+      });
+      expect(result).toMatchObject({ outcome: "ran", mode: "silence", coveredRows: 2 });
+      expect(result.thought?.reason).toBeNull();
+      const reflecting = JSON.stringify(completeChat.mock.calls[0]?.[0]);
+      expect(reflecting).toContain('\\"innerPass\\"');
+      expect(reflecting).toContain('\\"mode\\":\\"silence\\"');
+      expect(reflecting).toContain("When innerPass.kind is afterglow");
+      expect(listRecentEpisodes(sidecar, 5).map((episode) => episode.summary)).toEqual([reflection.episode.summary]);
+      expect(getThreadStory(sidecar, conversationId)?.story).toBe(reflection.threadStory);
+      expect(evaluateAfterglow(sidecar, { conversationId, nowMs: NOW }).kind).toBe("nothing");
+
+      const cycle = admitTestCycle(sidecar, { conversationId, triggerKind: "owner_message", triggerRef: "after-afterglow", occupantId: "doc", authorityEpoch: 1, nowMs: NOW + MINUTE });
+      const message = appendOwnerUtterance(sidecar, { conversationId, text: "did you book anything for Kyoto?", nowMs: NOW + MINUTE, audienceAtCapture: "owner_private" });
+      const event = appendInboxEvent(sidecar, {
+        wakeId: cycle.wakeId,
+        conversationId,
+        kind: "owner_utterance",
+        payload: { cycleId: cycle.cycleId, evidenceRowId: message.rowId, ownerId: "doc", ownerMessage: message.text },
+        createdAtMs: NOW + MINUTE,
+      });
+      await runCognitiveCycle(sidecar, nuclear, event, deps({ attentionDb, completeChat, nowMs: () => NOW + MINUTE }));
+      const next = JSON.stringify(completeChat.mock.calls[1]?.[0]);
+      expect(next).toContain(reflection.threadStory);
+      expect(next).toContain(reflection.episode.summary);
+      expect(next).not.toContain('\\"innerPass\\"');
     } finally {
       sidecar.close();
       attentionDb.close();

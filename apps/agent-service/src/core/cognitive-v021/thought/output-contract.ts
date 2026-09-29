@@ -322,6 +322,16 @@ const initiativePreferenceSchema = strictObject({
   stance: { enum: ["willing", "strong"] },
   reason: { type: "string", minLength: 1, maxLength: 280 },
 }, ["stance", "reason"]);
+const reflectionSchema = sparseObject({
+  episode: strictObject({
+    summary: { type: "string", minLength: 1, maxLength: 1200 },
+    salience: { type: "number", minimum: 0, maximum: 1 },
+    tone: { type: "string", minLength: 1, maxLength: 80 },
+    unresolvedThreads: { type: "array", minItems: 1, maxItems: 8, items: { type: "string", minLength: 1, maxLength: 200 } },
+    takeaway: { type: "string", minLength: 1, maxLength: 600 },
+  }, ["summary", "salience"]),
+  threadStory: { type: "string", minLength: 1, maxLength: 6000 },
+});
 const semanticOutputSettlementSchema = strictObject({
   kind: { const: "settlement" },
   interactionIntent: { enum: ["continue", "initiate"] },
@@ -354,6 +364,7 @@ const semanticOutputSettlementSchema = strictObject({
   futureTriggerDeltas: { type: "array", minItems: 1, items: futureTriggerDeltaSchema },
   subscriptionDeltas: { type: "array", minItems: 1, items: subscriptionDeltaSchema },
   durableNominations: { type: "array", minItems: 1, items: nominationSchema },
+  reflection: reflectionSchema,
   evidenceUse: sparseObject({
     observationRefsUsed: nonEmptyStringArraySchema, retrievalRefsUsed: nonEmptyStringArraySchema,
     sourceRefsUsed: nonEmptyStringArraySchema, openIntentRefs: nonEmptyStringArraySchema,
@@ -646,6 +657,13 @@ export const MEMORY_FORMATION_GUIDANCE: readonly string[] = Object.freeze([
   "Grounding decides admission. owner_preference, owner_self_description, owner_goal, relational_boundary, and commitment are kept only with a supportRefs entry of kind conversation_text_span quoting the Owner's own message: evidenceRowId is that message's rowId and quote is an exact substring of its text, copied character for character (start/end are the quote's offsets). owner_world_claim and project_knowledge need the same Owner quote or an observation/receipt ref. shared_episode needs a conversation_text_span quoting either side of the conversation. ashley_interpretation, open_question, and learned_self_evidence are your own voice and need no quote; they are kept and labelled as your interpretation. A claim about the Owner without an exact quote is not kept.",
 ]);
 
+/**
+ * Growth V1 §5.2: the afterglow. Thought reflects on a conversation that has
+ * gone quiet; the Host stores what it writes and never writes it itself.
+ */
+export const AFTERGLOW_GUIDANCE =
+  "When innerPass.kind is afterglow, this is your own quiet time after a conversation, not a turn anyone is waiting on. innerPass.rows are the messages you have not reflected on yet (mode silence: the conversation went quiet; mode rolling: a long conversation is still going). Reflect in reflection: episode is your memory of this stretch in your own words (summary of what happened and what it meant, tone, salience 0 to 1, unresolvedThreads still open, takeaway for yourself); threadStory rewrites the story of your whole conversation with the Owner so far, folding this stretch into the previous threadStory, as the continuous narrative you want to carry forward (people, projects, running jokes, where things stand). Also nominate any memory you missed during the conversation, and schedule a futureTriggerDeltas entry if you want to follow something up later. speech.mode is normally none here; speak only if something truly cannot wait. Outside an afterglow, omit reflection.";
+
 /** Compact compatibility guidance derived from the same code-owned schema. */
 export function thoughtOutputCompatibilityInstruction(): string {
   const settlement = record(THOUGHT_OUTPUT_SCHEMA.oneOf instanceof Array ? THOUGHT_OUTPUT_SCHEMA.oneOf[0] : null);
@@ -673,6 +691,7 @@ export function thoughtOutputCompatibilityInstruction(): string {
     "A bounded inquiry pairs M3 workspace steps with recipe-only M4 workspace.verify under one objective/budget; recipes are default-deny and failed verification is Thought evidence, not an Ashley verdict. Inquiry admits neither changeset.author nor patch_export. Proposal requires an Owner-private candidate workspace, successful M4 receipt, and Thought adjudication before emitting retained patch_export adjudication:\"accept\"; it never applies, commits, pushes, deploys, or notifies, and Owner notification is a separate optional Thought-authored effect.",
     "Use interpretationEnvelope for directive_interpretation; cite exact conversation_text_span support and keep unknown scope or interval unknown.",
     ...MEMORY_FORMATION_GUIDANCE,
+    AFTERGLOW_GUIDANCE,
     'During an autonomous idle opportunity only, capabilityReality.publicPresence may expose operationKind:"discord.public_presence" with audience:"FULLY_PUBLIC". You may choose effect_intent with request {"action":"set","text":"<exact public text>"} or {"action":"clear"}, or choose no effect_intent, which leaves the current state unchanged. The public text is deliberate self-presentation visible to anyone; it is not hidden reasoning or private material. You decide what it means. The Host may reject mechanically unsafe content but never rewrites it.',
     "CapabilityReality field semantics: conversationalRead reports only whether an additional authorized user-requested URL/page read may be performed, not whether supplied conversation content is visible; every included rawConversation entry is directly readable current context regardless of conversationalRead.",
     "Do not emit kernel identity, lifecycle, delivery, or publication fields; Ashley code binds those values.",

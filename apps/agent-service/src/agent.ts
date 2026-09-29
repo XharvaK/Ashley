@@ -23,8 +23,10 @@ import { DURABLE_WORK_COORDINATION_LEASE_MS } from "./core/cognitive-v021/retry/
 import {
   tickIdleOpportunity,
   type IdleObservationDraft,
+  type IdleThoughtRunner,
   type IdleTickResult,
 } from "./core/cognitive-v021/initiative/idle.js";
+import { tickAfterglow, type AfterglowTickResult } from "./core/cognitive-v021/initiative/afterglow.js";
 import { detectCredentialShape, CREDENTIAL_OMITTED_PLACEHOLDER } from "./core/privacy/secrets.js";
 import { scanConfiguredSources } from "./core/curiosity/sources.js";
 import { performGroundedReads, type ReadRecord } from "./core/curiosity/reads.js";
@@ -218,7 +220,32 @@ export class AgentManager {
           return [];
         }
       },
-      runThought: async (input) => {
+      runThought: this.privateThoughtRunner(sidecar, ownerId),
+    });
+  }
+
+  /**
+   * Growth V1 afterglow: reflect on the Owner conversation once it has gone
+   * quiet (or grown long), through the same private Thought path.
+   */
+  async tickCognitiveAfterglow(ownerId: string, nowMs = Date.now()): Promise<AfterglowTickResult> {
+    const sidecar = this.openCognitiveSidecar();
+    if (!sidecar || !this.cognitiveDeps) {
+      throw new AppError("agent_not_ready", "Cognitive dispatcher unavailable", 503);
+    }
+    const conversationId = resolveActiveThread(this.core.getDatabase(), ownerId, "discord");
+    return tickAfterglow(sidecar, {
+      conversationId,
+      occupantId: ownerId,
+      authorityEpoch: readCognitiveSidecarMeta(sidecar).authority_epoch,
+      nowMs,
+      thought: this.privateThoughtRunner(sidecar, ownerId),
+    });
+  }
+
+  /** Runs one admitted private Thought through the durable inbox and kernel. */
+  private privateThoughtRunner(sidecar: DatabaseSync, ownerId: string): IdleThoughtRunner {
+    return async (input) => {
         const event = input.event ?? appendInboxEvent(sidecar, {
           id: `idle:${input.wakeId}`,
           wakeId: input.wakeId,
@@ -261,8 +288,7 @@ export class AgentManager {
           ...(dispatched ?? {}),
           speechMode: dispatched === null || dispatched.outboxId == null ? "none" as const : "draft" as const,
         };
-      },
-    });
+    };
   }
 
   /** Trusted host state used by guarded C1 currentness activation. */

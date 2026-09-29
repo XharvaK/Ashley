@@ -1,4 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
+import { searchEpisodes, toThoughtEpisode } from "../memory/episodes.js";
 import { WORKSPACE_WORKER_REQUEST_SCHEMA_ID } from "@composer-assistant/sandbox-v2";
 import { sha256 } from "../../model-fabric/hash.js";
 import { currentReleaseId } from "../../rollout/capabilities.js";
@@ -284,6 +285,8 @@ function storedPurpose(value: unknown): string | null {
  * against the statement; matches rank by terms matched, then by strength.
  * Read-only: looking does not count as a recall or a use.
  */
+const MEMORY_LOOKUP_EPISODE_LIMIT = 5;
+
 function lookupMemory(
   req: ObservationRequest,
   sidecar: DatabaseSync,
@@ -312,6 +315,12 @@ function lookupMemory(
       || (scores.get(b.assertion.assertionKey) ?? 0) - (scores.get(a.assertion.assertionKey) ?? 0)
       || a.assertion.assertionKey.localeCompare(b.assertion.assertionKey));
   const end = offset + limit;
+  // Episodes ride on the first page: the conversations these words recall.
+  const episodes = offset === 0 && (kinds === null || kinds.includes("shared_episode"))
+    ? searchEpisodes(sidecar, terms, MEMORY_LOOKUP_EPISODE_LIMIT)
+      .filter((episode) => episode.dataClassification !== "secret")
+      .map(toThoughtEpisode)
+    : [];
   return observation(req, "memory.lookup", {
     query: request.query,
     ...(kinds ? { kinds } : {}),
@@ -323,6 +332,7 @@ function lookupMemory(
       time: assertion.dimensions.time,
       strength: Math.round((scores.get(assertion.assertionKey) ?? 0) * 1000) / 1000,
     })),
+    ...(episodes.length > 0 ? { episodes } : {}),
     searchedPopulation: candidates.length,
     matchedCount: matches.length,
     nextCursor: nextCursor(end, end < matches.length, scopeHash),

@@ -369,6 +369,18 @@ older than the window stay reachable through log search, memories, and
 `memory.lookup`. Also deferred: "open commitments" in the core profile
 (commitment-kind memories are included; live commitment state is not).
 
+**G2 implementation status (2026-09-29, not yet deployed).** Implemented:
+the AFTERGLOW pass (30-min silence and 30-row rolling triggers, row
+watermark, single flight, 3 attempts, then that stretch is skipped),
+`episodes_v2` with FTS, the rolling thread story (always present in
+Owner-private Thought input), episodes in Thought input and in
+`memory.lookup`, the forget cascade over both, and `/memory` showing story
+and episodes (sidecar v37). An afterglow is a private `idle_opportunity`
+cycle marked by its inbox payload, so the existing wake, budget, kernel,
+settlement, and delivery paths apply unchanged. It is never offered public
+presence. Deferred to G3 with the AWAKE state: layering rule 3 (AWAKE
+waits for a due afterglow), expectation checks (§6.5), and mood.
+
 ## 11. Open points (Owner)
 
 None blocking. Owner-set: AFTERGLOW 30 min (watermarked), AWAKE 3 h,

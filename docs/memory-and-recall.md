@@ -31,8 +31,29 @@ last use x (1 + ln(1 + uses)). It orders recall and never deletes.
 - associative retrieval: exact keys, then BM25 over memories (re-ranked by
   strength) and over the conversation log of every Owner-private thread
   and trusted room, within a 32-hit / 24 KB fuse;
+- the thread story and her most recent and most relevant episodes (below);
 - `memory.lookup`, a read-only Owner-private observation Ashley can choose
-  to search her own memories deliberately.
+  to search her own memories and episodes deliberately.
+
+**Afterglow, episodes, thread story.** When the Owner conversation has been
+quiet for 30 minutes, or more than 30 rows are waiting during a long one,
+the Host runs a private Thought over exactly the rows Ashley has not
+reflected on yet (`initiative/afterglow.ts`; watermark in `afterglow_state`).
+In it Ashley writes an episode of that stretch (`episodes_v2`, FTS-indexed,
+linked to the exact rows) and rewrites the thread story, the running
+narrative of the whole conversation (`thread_stories`). She may also
+nominate memories she missed. The Host decides only when; Ashley writes
+every word. Each stretch is reflected once. After 3 failed attempts that
+stretch is skipped, and its rows stay searchable in the log. The pass
+uses the private Thought budget, never runs while a turn is in progress,
+and can be turned off with `ASHLEY_AFTERGLOW_ENABLED=false`. `/memory` shows
+the thread story and recent episodes.
+
+**Forgetting.** `/forget` reaches episodes whose words mention the topic and
+any episode built from a message it redacts. A thread story is retired when
+it mentions the topic or when any of its conversation's messages is
+redacted; the next afterglow writes a fresh one. A forget that lands during
+an afterglow wins: that reflection is dropped.
 
 ## Legacy nuclear memory (pre-v0.2.1)
 

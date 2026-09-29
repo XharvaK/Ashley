@@ -15,6 +15,7 @@ import {
   type MindOccupancy,
   type Observation,
   type ThoughtInput,
+  type ThoughtInnerPass,
   type WorkingContextItem,
   type LearnedSelfSlice,
   type AuthorityCode,
@@ -68,6 +69,7 @@ import {
   enrichOccupancyForThought,
 } from "./occupied-concerns.js";
 import { isDeskEntryAudienceEligible, listDeskEntries } from "../desk/store.js";
+import { episodesForThought, getThreadStory } from "../memory/episodes.js";
 import { getThoughtAttemptCounters } from "./counters.js";
 
 export type BuildThoughtInputOptions = {
@@ -131,6 +133,8 @@ export type BuildThoughtInputOptions = {
   thoughtLegDeadlineAtMs?: number;
   /** When present, Thought receives a clock built over the selected rows. */
   clock?: { nowMs: number; timeZone?: string; currentRowIds?: readonly string[] };
+  /** Afterglow only: the rows Ashley reflects on in this private Thought. */
+  innerPass?: ThoughtInnerPass;
   /** Fire-time commitment meaning and three-state evidence completeness. */
   commitmentDue?: CommitmentDueProjection;
   /** Active disclosure-license entity UUIDs already resolved by the Host. */
@@ -1115,6 +1119,12 @@ export function buildThoughtInput(options: BuildThoughtInputOptions): ThoughtInp
   const coreProfile = audience.kind === "owner_private"
     ? buildCoreProfile(options.sidecar, options.clock?.nowMs ?? Date.now())
     : { owner: [], self: [] };
+  const threadStory = audience.kind === "owner_private"
+    ? getThreadStory(options.sidecar, options.cycle.conversationId)
+    : null;
+  const episodes = audience.kind === "owner_private"
+    ? episodesForThought(options.sidecar, query.rawTriggerTerms)
+    : [];
 
   const thoughtInput: ThoughtInputWithC2 = {
     cycleId: options.cycle.cycleId,
@@ -1168,6 +1178,9 @@ export function buildThoughtInput(options: BuildThoughtInputOptions): ThoughtInp
     ...(options.previousInvocationDelta === undefined ? {} : { previousInvocationDelta: options.previousInvocationDelta }),
     ...(options.thoughtLegDeadlineAtMs === undefined ? {} : { thoughtLegDeadlineAtMs: options.thoughtLegDeadlineAtMs }),
     ...(coreProfile.owner.length + coreProfile.self.length === 0 ? {} : { coreProfile }),
+    ...(threadStory ? { threadStory: { story: threadStory.story, writtenAtMs: threadStory.writtenAtMs } } : {}),
+    ...(episodes.length === 0 ? {} : { episodes }),
+    ...(options.innerPass && audience.kind === "owner_private" ? { innerPass: options.innerPass } : {}),
     ...(options.clock === undefined ? {} : {
       clock: buildThoughtClock({
         nowMs: options.clock.nowMs,

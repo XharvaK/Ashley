@@ -131,6 +131,8 @@ function createEnv() {
   discordOwnerId: process.env.DISCORD_OWNER_ID ?? "",
   /** IANA zone for Ashley's clock; empty keeps the fixed UTC+3 default. */
   ownerTimeZone: process.env.ASHLEY_OWNER_TIME_ZONE?.trim() ?? "",
+  /** Growth V1 afterglow reflection; on unless explicitly "false". */
+  afterglowEnabled: process.env.ASHLEY_AFTERGLOW_ENABLED?.trim().toLowerCase() !== "false",
   memoryOwnerId:
     process.env.MEMORY_OWNER_ID ?? process.env.DISCORD_OWNER_ID ?? "",
   agentPort: numericEnv("AGENT_PORT", 3710, 1, 65_535, true),

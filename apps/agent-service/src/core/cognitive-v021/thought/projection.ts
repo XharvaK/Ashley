@@ -136,6 +136,9 @@ export type ProjectedThoughtInput = {
   thoughtLegDeadlineAtMs?: number;
   clock?: ThoughtInput["clock"];
   coreProfile?: ThoughtInput["coreProfile"];
+  threadStory?: ThoughtInput["threadStory"];
+  episodes?: ThoughtInput["episodes"];
+  innerPass?: ThoughtInput["innerPass"];
   /** Current public state is model-visible only during autonomous cognition. */
   publicPresence?: PublicPresenceContext;
   availableDestinations?: readonly AvailableSocialDestination[];
@@ -460,6 +463,9 @@ export function projectThoughtInput(
     ...(fullInput.thoughtLegDeadlineAtMs === undefined ? {} : { thoughtLegDeadlineAtMs: fullInput.thoughtLegDeadlineAtMs }),
     ...(fullInput.clock === undefined ? {} : { clock: fullInput.clock }),
     ...(fullInput.coreProfile === undefined ? {} : { coreProfile: fullInput.coreProfile }),
+    ...(fullInput.threadStory === undefined ? {} : { threadStory: fullInput.threadStory }),
+    ...(fullInput.episodes === undefined ? {} : { episodes: fullInput.episodes }),
+    ...(fullInput.innerPass === undefined ? {} : { innerPass: fullInput.innerPass }),
     ...(fullInput.publicPresence === undefined ? {} : { publicPresence: fullInput.publicPresence }),
     ...(fullInput.availableDestinations === undefined ? {} : {
       availableDestinations: [...fullInput.availableDestinations],

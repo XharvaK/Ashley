@@ -600,6 +600,7 @@ export async function memorySummary(includePrivate = false) {
   return agentFetch<{
     facts: Array<{ key: string; value: string; category: string }>;
     narrative: string | null;
+    episodes?: Array<{ summary: string; endedAt: string }>;
     lastUpdated: string;
   }>(`/memory/summary?${q}`);
 }

@@ -1,4 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
+import { afterglowPassFromPayload } from "./initiative/afterglow-pass.js";
 import { evaluatePublicDisclosure, type EthPubProtectedCategory } from "../privacy/disclosure.js";
 import { detectCredentialShape } from "../privacy/secrets.js";
 import type {
@@ -58,6 +59,8 @@ export type PublicPresenceOpportunityInput = Readonly<{
   occupantId: unknown;
   configuredOwnerId: unknown;
   reconciling: boolean;
+  /** An afterglow is private reflection, not an opportunity to present in public. */
+  afterglow?: boolean;
 }>;
 
 export type PublicPresenceProjectionOutcome = "succeeded" | "failed" | "unknown";
@@ -137,7 +140,8 @@ export function isAutonomousPublicPresenceOpportunity(
     && input.channel === "discord"
     && nonEmptyString(input.configuredOwnerId)
     && input.occupantId === input.configuredOwnerId
-    && !input.reconciling;
+    && !input.reconciling
+    && input.afterglow !== true;
 }
 
 function disclosureCode(reason: string): PublicPresenceValidationCode {
@@ -466,6 +470,7 @@ export function isAutonomousPublicPresenceProposal(
     occupantId: cycle.occupant_id,
     configuredOwnerId,
     reconciling: wake.state === "reconciling" || event.kind === "reconciling",
+    afterglow: afterglowPassFromPayload(payload) !== null,
   }) && payload.ownerId === configuredOwnerId;
 }
 

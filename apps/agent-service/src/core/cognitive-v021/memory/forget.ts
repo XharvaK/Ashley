@@ -6,6 +6,7 @@ import { getDeliveryReservation } from "../../delivery/store.js";
 import { isTerminalDeliveryState } from "../../delivery/types.js";
 import { notifySidecarPostCommit } from "../retrieval/derived-store.js";
 import { markInterpretationSupportUnavailable } from "../evidence/interpretation-dependencies.js";
+import { episodeIdsForForget, forgetEpisode, forgetThreadStory, threadStoryIdsForForget } from "./episodes.js";
 
 type Row = Record<string, unknown>;
 
@@ -14,6 +15,8 @@ export const V021_FORGET_TARGET_MATRIX = {
   thought_steps: { behavior: "none", content: "redact" },
   working_context_items: { behavior: "detach", content: "redact" },
   desk_entries: { behavior: "detach", content: "redact" },
+  episodes_v2: { behavior: "none", content: "redact" },
+  thread_stories: { behavior: "none", content: "redact" },
   concerns: { behavior: "resolve", content: "redact" },
   mind_occupancy: { behavior: "detach", content: "none" },
   future_triggers: { behavior: "cancel", content: "redact" },
@@ -365,6 +368,15 @@ export function applyV021Forget(
       addTarget(targets, "v021_in_flight", id, "cancel");
     }
 
+    for (const id of episodeIdsForForget(db, topic, forgottenEvidenceIds)) {
+      changedRows += forgetEpisode(db, id, nowMs);
+      addTarget(targets, "v021_episode", id);
+    }
+    for (const id of threadStoryIdsForForget(db, topic, forgottenEvidenceIds)) {
+      changedRows += forgetThreadStory(db, id, nowMs);
+      addTarget(targets, "v021_thread_story", id);
+    }
+
     // A redacted nomination must not be admitted on a later worker tick.
     void safePayload;
     void nowMs;
@@ -424,10 +436,14 @@ export function planV021Forget(
     action: V021ForgetTarget["action"] = "redact",
   ) => countPlanTarget(targets, categoryCounts, entityType, entityUuid, action);
 
+  const evidenceIds = new Set<string>();
   for (const row of db.prepare("SELECT row_id, text FROM conversation_evidence_log").all()) {
     if (!isRow(row) || !hasTopic(row.text, topic)) continue;
     add("v021_conversation_evidence", text(row.row_id));
+    evidenceIds.add(text(row.row_id));
   }
+  for (const id of episodeIdsForForget(db, topic, evidenceIds)) add("v021_episode", id);
+  for (const id of threadStoryIdsForForget(db, topic, evidenceIds)) add("v021_thread_story", id);
 
   for (const row of db.prepare("SELECT concern_id, statement FROM concerns").all()) {
     if (!isRow(row) || !hasTopic(row.statement, topic)) continue;
@@ -627,6 +643,12 @@ function applyV021ForgetTargetsInTransaction(
 
   for (const id of targetIds(targets, "v021_working_context")) {
     changed.value += redactWorkingContextOwnText(db, id);
+  }
+  for (const id of targetIds(targets, "v021_episode")) {
+    changed.value += forgetEpisode(db, id, nowMs);
+  }
+  for (const id of targetIds(targets, "v021_thread_story")) {
+    changed.value += forgetThreadStory(db, id, nowMs);
   }
   for (const id of targetIds(targets, "v021_desk_entry")) {
     addChanges(db.prepare(

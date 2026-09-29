@@ -9,6 +9,7 @@ import { projectThoughtInput } from "../../projection.js";
 
 // Fixture calibration: Growth V1 memory-formation guidance adds ~900 tokens to
 // the code-owned contract, so caller envelopes below carry a 1_000-token allowance.
+// The afterglow guidance adds ~150 more; the envelopes that overflowed carry +500.
 
 describe("MAT-II C2 allocator integration", () => {
   it("projects the orientation kernel and domain pointers through the existing allocator", () => {
@@ -95,7 +96,7 @@ describe("MAT-II C2 allocator integration", () => {
 
       const allocated = allocateThoughtProjection({
         thoughtInput: input,
-        semanticBudgetTokens: 10_500,
+        semanticBudgetTokens: 11_000,
         requestId: "c2-uniqueness-request",
       });
       const visible = JSON.parse(allocated.messages[1]?.content ?? "{}") as Record<string, unknown>;

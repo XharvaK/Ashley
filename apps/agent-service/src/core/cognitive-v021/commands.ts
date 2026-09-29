@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
+import { getThreadStory, listRecentEpisodes } from "./memory/episodes.js";
 import {
   applyForgetTargets,
   requireEntityUuid,
@@ -80,6 +81,8 @@ export type V021MemoryFact = {
 export type V021MemorySummary = {
   facts: V021MemoryFact[];
   narrative: string | null;
+  /** Recent episodes Ashley wrote in her afterglows, newest first. */
+  episodes: Array<{ summary: string; endedAt: string }>;
   lastUpdated: string;
   threadId: string;
 };
@@ -268,13 +271,21 @@ export function getV021MemorySummary(
     includeOlderVersions: false,
   }).filter((row) => row.text !== null && (row.role !== "ashley" || row.delivered));
   const recent = evidence.slice(-8);
-  const narrative = recent.length === 0
+  // Ashley's own thread story is where we left off; before her first
+  // afterglow, the last few messages stand in for it.
+  const story = getThreadStory(sidecar, threadId);
+  const narrative = story?.story ?? (recent.length === 0
     ? null
-    : recent.map((row) => `${narrativeLabel(row.role)}: ${row.text ?? ""}`).join("\n");
+    : recent.map((row) => `${narrativeLabel(row.role)}: ${row.text ?? ""}`).join("\n"));
+  const episodes = listRecentEpisodes(sidecar, 5)
+    .filter((episode) => episode.dataClassification !== "secret"
+      && (includePrivate || episode.dataClassification !== "sensitive"))
+    .map((episode) => ({ summary: episode.summary, endedAt: new Date(episode.endedAtMs).toISOString() }));
   const lastUpdatedMs = evidence.at(-1)?.createdAtMs ?? 0;
   return {
     facts,
     narrative,
+    episodes,
     lastUpdated: new Date(lastUpdatedMs).toISOString(),
     threadId,
   };

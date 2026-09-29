@@ -1,4 +1,5 @@
 import type { AgentManager } from "./agent.js";
+import { AFTERGLOW_POLL_MS } from "./core/cognitive-v021/initiative/afterglow.js";
 import { env } from "./env.js";
 import { createServer, listen } from "./server.js";
 import { completeChat } from "./mistral-client.js";
@@ -578,6 +579,23 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
     } catch (error) {
       console.warn("[cognitive-v021] worker_queue_startup_deferred", error);
     }
+    // Growth V1 afterglow: single flight, polled from consumer maintenance.
+    let afterglowRunning = false;
+    let afterglowLastPollMs = 0;
+    const pollAfterglow = (nowMs: number): void => {
+      if (!env.afterglowEnabled || afterglowRunning || manager.isPaused()) return;
+      if (nowMs - afterglowLastPollMs < AFTERGLOW_POLL_MS) return;
+      afterglowRunning = true;
+      afterglowLastPollMs = nowMs;
+      void manager.tickCognitiveAfterglow(ownerId, nowMs)
+        .then((result) => {
+          if (result.outcome === "ran" || result.outcome === "abandoned") {
+            console.log(`[cognitive-v021] afterglow ${result.outcome} mode=${result.mode ?? "?"} rows=${result.coveredRows ?? 0} reason=${result.thought?.reason ?? "none"}`);
+          }
+        })
+        .catch((error) => console.warn("[cognitive-v021] afterglow deferred", error))
+        .finally(() => { afterglowRunning = false; });
+    };
     cognitiveConsumer = startInboxConsumer(sidecar, {
       workerId: `agent-service:${process.pid}`,
       handler: createAgentInboxConsumerHandler(manager),
@@ -654,6 +672,7 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
           console.warn("[perception] artifact retention maintenance deferred", error);
         }
         if (observabilityDb) purgeThoughtDebugCaptures(observabilityDb, nowMs);
+        pollAfterglow(nowMs);
       },
       onError: (error, event) => console.error(`[cognitive-v021] event failed id=${event?.id ?? "?"}`, error),
     });
