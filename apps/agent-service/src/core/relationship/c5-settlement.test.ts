@@ -149,7 +149,7 @@ describe("C5 local settlement witness", () => {
   it("recomputes the current projection through the C1 correction fan-out seam", () => {
     const db = openNuclearDb(new DatabaseSync(":memory:"));
     try {
-      const ownerAssertion = assertion(db, "owner_model", "Doc enjoys careful correction work.");
+      const ownerAssertion = assertion(db, "owner_model", "Alex enjoys careful correction work.");
       assertion(db, "ashley_side", "Ashley enjoys careful correction work.");
       recomputeSharedCulture(db, OWNER, { at: new Date("2026-08-20T12:00:00.000Z") });
       const threadId = resolveActiveThread(db, OWNER, "discord");
@@ -201,7 +201,7 @@ describe("C5 local settlement witness", () => {
         text: "Ashley values careful compiler work.",
         source: "manual",
       });
-      assertion(db, "owner_model", "Doc values careful compiler work.");
+      assertion(db, "owner_model", "Alex values careful compiler work.");
       const before = recomputeSharedCulture(db, OWNER);
       expect(before.sourceBindings.ashleyIdentityEntryIds).toContain(oldIdentityId);
 
@@ -254,7 +254,7 @@ describe("C5 local settlement witness", () => {
       activateRelationshipCapabilities(db);
       allowMutualRelationship(db);
 
-      const ownerAssertion = assertion(db, "owner_model", "Doc enjoys careful repair work.");
+      const ownerAssertion = assertion(db, "owner_model", "Alex enjoys careful repair work.");
       assertion(db, "ashley_side", "Ashley enjoys careful repair work.");
       const firstProjection = recomputeSharedCulture(db, OWNER, {
         at: new Date("2026-08-20T12:00:00.000Z"),

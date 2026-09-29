@@ -24,9 +24,10 @@ against them.
 
 When trade-offs arise, these principles take precedence over convenience.
 
-The 13 Principles of Ashley
+## The 13 Principles of Ashley
 
 These principles are the highest-level design constraints of the project.
+Other documents cite them by numeral as `P-I` … `P-XIII`.
 
 Every future prompt, subsystem, architectural decision, feature and
 implementation should reinforce these principles.

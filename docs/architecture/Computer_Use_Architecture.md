@@ -608,7 +608,7 @@ Composition rules:
 - a general Computer Use grant cannot commit, push, deploy, publish, operate
   Mint, or mutate live source;
 - an M7 execution grant cannot browse arbitrary applications, reuse arbitrary
-  credentials, communicate, purchase, or represent Doc;
+  credentials, communicate, purchase, or represent Alex;
 - Sandbox isolation may prepare artifacts. It does not grant external UI,
   network, credential, or commit authority;
 - evidence from one profile does not qualify or promote the other.

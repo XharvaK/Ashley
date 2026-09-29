@@ -375,6 +375,6 @@ export function buildOpinionsBlock(db: DatabaseSync, ownerId: string): string {
       (opinion) =>
         `- ${opinion.topic}: ${opinion.stance} (${Math.round(opinion.confidence * 100)}% confidence)`,
     ),
-    "Opinions are hers, not facts about Doc. Disagreement is allowed.",
+    "Opinions are hers, not facts about Alex. Disagreement is allowed.",
   ].join("\n");
 }

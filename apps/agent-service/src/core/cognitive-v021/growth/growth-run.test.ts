@@ -78,8 +78,8 @@ describe("Growth V1 G4 through the kernel", () => {
         speech: { mode: "draft", surfaceDraft: "Good luck with the interview." },
         commitments: { conversational: ["acknowledge"] },
         growth: {
-          appraisal: { note: "Doc trusting me with the interview nerves moved me.", valence: 0.5, openness: 0.2 },
-          expectations: ["Doc will tell me how the interview went on Friday."],
+          appraisal: { note: "Alex trusting me with the interview nerves moved me.", valence: 0.5, openness: 0.2 },
+          expectations: ["Alex will tell me how the interview went on Friday."],
           revisions: [{ layer: "opinion", topic: "music history", text: "Music history is the best way into a genre.", rationale: "It keeps being what I reach for.", evidenceRefs: ["self:g1", "self:g2"] }],
         },
       })),
@@ -95,8 +95,8 @@ describe("Growth V1 G4 through the kernel", () => {
       // She sees her revisable identity by entry id, from the live nuclear store.
       expect(request).toContain("comfortable with uncertainty");
 
-      expect(readMood(sidecar, NOW)).toMatchObject({ valence: 0.3, openness: 0.7, reason: "Doc trusting me with the interview nerves moved me." });
-      expect(listOpenExpectations(sidecar, NOW).map((item) => item.statement)).toEqual(["Doc will tell me how the interview went on Friday."]);
+      expect(readMood(sidecar, NOW)).toMatchObject({ valence: 0.3, openness: 0.7, reason: "Alex trusting me with the interview nerves moved me." });
+      expect(listOpenExpectations(sidecar, NOW).map((item) => item.statement)).toEqual(["Alex will tell me how the interview went on Friday."]);
       expect(listCurrentOpinions(sidecar).map((item) => item.proposedText)).toEqual(["Music history is the best way into a genre."]);
     } finally {
       sidecar.close();

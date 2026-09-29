@@ -103,7 +103,7 @@ describe("C5 characterization and closing witnesses", () => {
   it("persists one current shared-culture row and keeps the prior snapshot historical", () => {
     const db = openNuclearDb(new DatabaseSync(":memory:"));
     try {
-      const owner = assertion(db, "owner_model", "Doc enjoys compiler design.");
+      const owner = assertion(db, "owner_model", "Alex enjoys compiler design.");
       const ashley = assertion(db, "ashley_side", "Ashley enjoys compiler design.");
       const first = recomputeSharedCulture(db, OWNER, {
         at: new Date("2026-08-20T12:00:00.000Z"),

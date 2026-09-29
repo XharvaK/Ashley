@@ -73,7 +73,7 @@ The review read the following in the mandated authority order:
 
 The controlling rules are: architecture before prompting; ownership belongs to
 the module making the decision; move a decision exactly once; do not reconstruct
-Thought downstream; framework authentication is not Doc's consent; external
+Thought downstream; framework authentication is not Alex's consent; external
 content is untrusted; wave acceptance is not release qualification or
 deployment.
 
@@ -563,7 +563,7 @@ Agent Plugins package bytes (untrusted packaging)
   not trust.
 - **Transport:** MCP negotiates and carries tool/resource messages. Connectivity
   is not authorization.
-- **Authorization:** Ashley capability contracts, Doc's exact consent, secret
+- **Authorization:** Ashley capability contracts, Alex's exact consent, secret
   policy, and tool scope remain local. OAuth authenticates an MCP resource; it
   does not express Ashley's permission to act.
 - **Execution:** read-only network tools stay bounded; host mutation goes only

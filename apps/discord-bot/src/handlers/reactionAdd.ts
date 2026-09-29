@@ -28,7 +28,7 @@ export function registerForgetPending(
 
 /**
  * A reaction on her own message is a signal she should know about. Reactions on
- * Doc's own messages are his business and are not reported.
+ * Alex's own messages are his business and are not reported.
  */
 async function reportOwnMessageReaction(
   reaction: MessageReaction | PartialMessageReaction,

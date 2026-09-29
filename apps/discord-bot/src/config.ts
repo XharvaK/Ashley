@@ -158,7 +158,7 @@ export const config = {
   giphyApiKey: process.env.GIPHY_API_KEY ?? "",
   tenorApiKey: process.env.TENOR_API_KEY ?? "",
   gifEnabled: process.env.GIF_ENABLED !== "false",
-  // Slightly under the old 120s default — GIFs were too rare (Doc 2026-08-01).
+  // Slightly under the old 120s default — GIFs were too rare (Alex 2026-08-01).
   gifCooldownSec: numericEnv("GIF_COOLDOWN_SEC", 90, 0, 86_400),
   // Default on for the 3–10s bubble pacing ship; set DISCORD_PACE_ENABLED=false to disable.
   paceEnabled: process.env.DISCORD_PACE_ENABLED !== "false",

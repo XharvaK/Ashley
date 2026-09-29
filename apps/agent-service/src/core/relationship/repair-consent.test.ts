@@ -52,7 +52,7 @@ function decision(db: DatabaseSync, kind: "speak" | "challenge" = "speak"): numb
 }
 
 describe("C5 consent and repair evidence", () => {
-  it("keeps Doc and Ashley consent party-specific and append-only", () => {
+  it("keeps Alex and Ashley consent party-specific and append-only", () => {
     const db = openNuclearDb(new DatabaseSync(":memory:"));
     try {
       const doc = recordConsentEvent(db, {

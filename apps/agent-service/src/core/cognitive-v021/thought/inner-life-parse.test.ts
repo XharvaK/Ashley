@@ -8,8 +8,8 @@ function parse(fields: Record<string, unknown>) {
 
 describe("inner-life fields in a settlement", () => {
   it("accepts a journal entry and lived interests in Ashley's words", () => {
-    expect(parse({ journal: { activity: "think", entry: "Turned over Doc's question about free will." } }).ok).toBe(true);
-    expect(parse({ interests: [{ root: "Philosophy", branch: "compatibilism", note: "Doc's question stuck with me." }] }).ok).toBe(true);
+    expect(parse({ journal: { activity: "think", entry: "Turned over Alex's question about free will." } }).ok).toBe(true);
+    expect(parse({ interests: [{ root: "Philosophy", branch: "compatibilism", note: "Alex's question stuck with me." }] }).ok).toBe(true);
     expect(parse({ interests: [{ root: "Electronic music", branch: "dub techno" }] }).ok).toBe(true);
   });
 

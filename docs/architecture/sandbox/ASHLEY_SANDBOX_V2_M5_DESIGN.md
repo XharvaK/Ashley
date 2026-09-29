@@ -240,7 +240,7 @@ Binary or non-UTF-8 files contribute hashes only. They do not inline bytes.
 | `quarantineReason` | `secret_detected` when applicable |
 
 There is no `approved`, `applied`, `committed`, or `deployed` state in M5.
-Doc decision columns are omitted so approval cannot be stored as if it were
+Alex decision columns are omitted so approval cannot be stored as if it were
 effect.
 
 ### 6.5 Audit events
@@ -589,7 +589,7 @@ Even after future M5 `PRODUCTION ACCEPTED`:
 
 1. Revise / rebase / supersede / abandon as admitted operations
 2. Canonical (non-provisional) tree hash
-3. Binding Doc review decisions (still must not apply)
+3. Binding Alex review decisions (still must not apply)
 4. Retention / forget policy beyond control-plane classification
 5. Whether a later slice needs a detached credential-free Git projection
 6. Owner HTTP diagnostics for change-sets (audit exists in SQLite without it)

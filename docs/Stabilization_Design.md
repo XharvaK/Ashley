@@ -127,7 +127,7 @@ scripts/stabilization/verify-status.mjs --check
 It compares discovered facts with the reviewed
 `docs/stabilization/status-baseline.json` and exits non-zero on drift. It never
 rewrites the baseline during `--check`; baseline regeneration is a separate,
-Doc-visible action.
+Alex-visible action.
 
 Discovery uses machine-readable exports or registries, never narrative prose
 regexes:

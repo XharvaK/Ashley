@@ -98,14 +98,14 @@ describe("Growth V1 grounded automatic admission", () => {
     const { db, ownerRowId } = fixture();
     try {
       publish(db, [nomination("owner_preference", {
-        statement: "Doc dislikes cilantro; it tastes like soap to him.",
+        statement: "Alex dislikes cilantro; it tastes like soap to him.",
         supportRefs: [span(ownerRowId, OWNER_TEXT, "I can't stand cilantro")],
       })]);
 
       const result = runGovernedAdmissionCatchup(db, { nowMs: 3 });
 
       expect(result.admitted).toBe(1);
-      expect(liveStatements(db)).toEqual(["Doc dislikes cilantro; it tastes like soap to him."]);
+      expect(liveStatements(db)).toEqual(["Alex dislikes cilantro; it tastes like soap to him."]);
     } finally {
       db.close();
     }
@@ -165,8 +165,8 @@ describe("Growth V1 grounded automatic admission", () => {
     const { db } = fixture();
     try {
       publish(db, [
-        nomination("ashley_interpretation", { statement: "Doc's food opinions come with sensory detail." }),
-        nomination("open_question", { statement: "Is the soap taste genetic for Doc?" }),
+        nomination("ashley_interpretation", { statement: "Alex's food opinions come with sensory detail." }),
+        nomination("open_question", { statement: "Is the soap taste genetic for Alex?" }),
       ]);
 
       const result = runGovernedAdmissionCatchup(db, { nowMs: 3 });

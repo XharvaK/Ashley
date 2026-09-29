@@ -191,7 +191,7 @@ describe("C5 rollback, withdrawal, and non-revival", () => {
   it("keeps historical shared culture while the current projection drops corrected owner state", () => {
     const db = openNuclearDb(new DatabaseSync(":memory:"));
     try {
-      const ownerAssertion = addAssertion(db, "owner_model", "Doc enjoys careful repair work.");
+      const ownerAssertion = addAssertion(db, "owner_model", "Alex enjoys careful repair work.");
       addAssertion(db, "ashley_side", "Ashley enjoys careful repair work.");
       recomputeSharedCulture(db, OWNER, { at: new Date("2026-08-20T12:00:00.000Z") });
       db.prepare(

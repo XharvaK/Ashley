@@ -31,8 +31,8 @@ describe("episodes", () => {
     const db = openTestSidecar();
     try {
       episode(db, "cycle-1", "let's plan Kyoto", "We started planning a spring trip to Kyoto.", 1_000);
-      episode(db, "cycle-2", "the synth arrived", "Doc's new synthesizer arrived; we talked patches.", 2_000, "I like modular sound design.");
-      const rough = episode(db, "cycle-3", "bad day at work", "Doc had a rough day at work.", 3_000);
+      episode(db, "cycle-2", "the synth arrived", "Alex's new synthesizer arrived; we talked patches.", 2_000, "I like modular sound design.");
+      const rough = episode(db, "cycle-3", "bad day at work", "Alex had a rough day at work.", 3_000);
       // A replayed completion of the same reflection writes nothing new.
       recordEpisode(db, {
         conversationId: CONVERSATION,
@@ -43,16 +43,16 @@ describe("episodes", () => {
       });
 
       expect(listRecentEpisodes(db, 10).map((item) => item.summary)).toEqual([
-        "Doc had a rough day at work.",
-        "Doc's new synthesizer arrived; we talked patches.",
+        "Alex had a rough day at work.",
+        "Alex's new synthesizer arrived; we talked patches.",
         "We started planning a spring trip to Kyoto.",
       ]);
       expect(searchEpisodes(db, ["modular"], 5).map((item) => item.summary))
-        .toEqual(["Doc's new synthesizer arrived; we talked patches."]);
+        .toEqual(["Alex's new synthesizer arrived; we talked patches."]);
       // Thought sees the most recent ones plus what the moment brings to mind, oldest first.
       expect(episodesForThought(db, ["Kyoto"], { recent: 1, matched: 1 }).map((item) => item.summary)).toEqual([
         "We started planning a spring trip to Kyoto.",
-        "Doc had a rough day at work.",
+        "Alex had a rough day at work.",
       ]);
     } finally {
       db.close();
@@ -63,11 +63,11 @@ describe("episodes", () => {
     const db = openTestSidecar();
     try {
       episode(db, "cycle-1", "let's plan Kyoto", "We started planning a spring trip to Kyoto.", 1_000);
-      const synth = episode(db, "cycle-2", "the synth arrived", "Doc's new instrument arrived.", 2_000);
-      writeThreadStory(db, { conversationId: CONVERSATION, story: "Doc and I plan trips and talk music.", throughRowId: synth.row.rowId, cycleId: "cycle-2", dataClassification: "ordinary", nowMs: 2_000 });
+      const synth = episode(db, "cycle-2", "the synth arrived", "Alex's new instrument arrived.", 2_000);
+      writeThreadStory(db, { conversationId: CONVERSATION, story: "Alex and I plan trips and talk music.", throughRowId: synth.row.rowId, cycleId: "cycle-2", dataClassification: "ordinary", nowMs: 2_000 });
 
       applyV021Forget(db, { topic: "kyoto", nowMs: 5_000 });
-      expect(listRecentEpisodes(db, 10).map((item) => item.summary)).toEqual(["Doc's new instrument arrived."]);
+      expect(listRecentEpisodes(db, 10).map((item) => item.summary)).toEqual(["Alex's new instrument arrived."]);
       expect(searchEpisodes(db, ["spring"], 5)).toEqual([]);
       // The Kyoto row was redacted, and the story retells the whole conversation.
       expect(getThreadStory(db, CONVERSATION)).toBeNull();

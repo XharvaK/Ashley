@@ -1,5 +1,5 @@
 /**
- * Doc types in fragments. Three lines in five seconds are one turn, not three,
+ * Alex types in fragments. Three lines in five seconds are one turn, not three,
  * and answering each separately is what makes a bot feel like a form handler.
  *
  * Fragments are merged rather than dropped: a dropped line never reaches the

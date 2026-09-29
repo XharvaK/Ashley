@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Replay persona probes against an isolated agent and dump raw replies.
 // Never point this at the live agent on 3710: every probe archives the active
-// thread, which would cut Doc's real conversation in half.
+// thread, which would cut Alex's real conversation in half.
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { OUT_ROOT, envValue, loadProbes, stamp } from "./lib.mjs";
@@ -168,7 +168,7 @@ async function main() {
     md.push(`## ${r.id}${args.seeds > 1 ? ` (seed ${r.seed})` : ""}`);
     md.push(`tags: ${r.tags.join(", ")} | lang: ${r.lang}`, "");
     for (const t of r.turns) {
-      md.push(`**Doc:** ${t.user}`, "");
+      md.push(`**Alex:** ${t.user}`, "");
       md.push(`**Ashley** (${t.latencyMs}ms):`, "");
       md.push(t.reply ? t.reply.split("\n").map((l) => `> ${l}`).join("\n") : "> (no reply)");
       md.push("");

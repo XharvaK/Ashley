@@ -30,11 +30,11 @@ describe("Growth V1 G5 night consolidation", () => {
     const db = openTestSidecar();
     const nuclear = openNuclearDb(new DatabaseSync(":memory:"));
     try {
-      memory(db, "m:a", "Doc prefers short careful answers in the morning.", "ashley_interpretation", NOW - 2 * HOUR);
-      memory(db, "m:b", "Doc prefers short careful answers.", "ashley_interpretation", NOW - 10 * DAY);
+      memory(db, "m:a", "Alex prefers short careful answers in the morning.", "ashley_interpretation", NOW - 2 * HOUR);
+      memory(db, "m:b", "Alex prefers short careful answers.", "ashley_interpretation", NOW - 10 * DAY);
       memory(db, "m:self", "I enjoyed the Basic Channel deep dive.", "learned_self_evidence", NOW - 3 * HOUR);
       memory(db, "m:q-old", "Why does dub techno feel like weather?", "open_question", NOW - 20 * DAY);
-      memory(db, "m:q-new", "What is Doc's interview about?", "open_question", NOW - HOUR);
+      memory(db, "m:q-new", "What is Alex's interview about?", "open_question", NOW - HOUR);
       recordInterestTouches(db, [{ root: "Cognitive biases", branch: "base-rate neglect", note: "kept coming back" }], NOW - 2 * DAY);
 
       const agenda = buildNightAgenda(db, { pass: pass(), identityStore: { nuclear, ownerId: "doc" }, nowMs: NOW });
@@ -53,20 +53,20 @@ describe("Growth V1 G5 night consolidation", () => {
   });
 
   it("measures word overlap mechanically", () => {
-    expect(wordOverlap("Doc likes tea", "Doc likes tea")).toBe(1);
-    expect(wordOverlap("Doc likes tea", "Ashley reads essays")).toBe(0);
+    expect(wordOverlap("Alex likes tea", "Alex likes tea")).toBe(1);
+    expect(wordOverlap("Alex likes tea", "Ashley reads essays")).toBe(0);
   });
 
   it("records the diary, re-scored salience, closed questions, and a narrative only on a weekly night", () => {
     const db = openTestSidecar();
     try {
-      memory(db, "m:keep", "Doc's sister is called Lena.", "ashley_interpretation", NOW - DAY);
+      memory(db, "m:keep", "Alex's sister is called Lena.", "ashley_interpretation", NOW - DAY);
       memory(db, "m:q", "Why does dub techno feel like weather?", "open_question", NOW - 20 * DAY);
       memory(db, "m:self", "I like being asked hard questions.", "learned_self_evidence", NOW - DAY);
       const daily = recordNight(db, {
         cycleId: "night-1", pass: pass(), timeZone: ZONE, dataClassification: "ordinary", nowMs: NOW,
         claim: {
-          diary: "A slow day. I kept thinking about Doc's interview.",
+          diary: "A slow day. I kept thinking about Alex's interview.",
           salience: [{ key: "m:keep", salience: 0.9 }, { key: "m:missing", salience: 0.1 }],
           closeQuestions: ["m:q", "m:self"],
           narrative: "Not a weekly night, so this is not kept.",
@@ -77,7 +77,7 @@ describe("Growth V1 G5 night consolidation", () => {
       // Closing leaves recall but keeps her words; only open questions close.
       expect(getMemoryAssertion(db, "m:q")).toMatchObject({ live: false, statement: "Why does dub techno feel like weather?" });
       expect(getMemoryAssertion(db, "m:self")).toMatchObject({ live: true });
-      expect(listDiary(db)).toEqual([expect.objectContaining({ day: "2026-10-09", text: "A slow day. I kept thinking about Doc's interview." })]);
+      expect(listDiary(db)).toEqual([expect.objectContaining({ day: "2026-10-09", text: "A slow day. I kept thinking about Alex's interview." })]);
       expect(latestNarrative(db)).toBeNull();
 
       recordNight(db, {

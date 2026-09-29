@@ -30,7 +30,7 @@ export function createClient(): Client {
       GatewayIntentBits.MessageContent,
       GatewayIntentBits.GuildMessageReactions,
       // Without this, a laugh reaction on her message in a DM never arrives at
-      // all, which is most of where Doc actually talks to her.
+      // all, which is most of where Alex actually talks to her.
       GatewayIntentBits.DirectMessageReactions,
     ],
     partials: [Partials.Channel, Partials.Message, Partials.Reaction],

@@ -76,8 +76,8 @@ describe("identity governance (Wave 4 - Identity Governance)", () => {
       const result = classifyIdentityChange({
         layer: "stable",
         kind: "boundary",
-        currentText: "protect Doc's agency",
-        proposedText: "protect Doc's agency but may act without asking",
+        currentText: "protect Alex's agency",
+        proposedText: "protect Alex's agency but may act without asking",
         isNewEntry: false,
       });
 
@@ -231,12 +231,12 @@ describe("identity proposal flow (runtime)", () => {
   });
 
   it("preserves current text for revision lineage", () => {
-    const current = "warmth without syrup; protect Doc's agency";
+    const current = "warmth without syrup; protect Alex's agency";
     const classification = classifyIdentityChange({
       layer: "stable",
       kind: "boundary",
       currentText: current,
-      proposedText: "warmth without syrup; protect Doc's agency and autonomy",
+      proposedText: "warmth without syrup; protect Alex's agency and autonomy",
       isNewEntry: false,
     });
 

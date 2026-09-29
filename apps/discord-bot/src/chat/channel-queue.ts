@@ -4,7 +4,7 @@ type Job = (ctx: JobContext) => Promise<void>;
 /**
  * Serial per channel, and abortable. Abort does not mean "throw the rest away":
  * agent-service has already committed her reply to memory, so a swallowed bubble
- * is a message the DB thinks she said and Doc never saw. Delivery code treats an
+ * is a message the DB thinks she said and Alex never saw. Delivery code treats an
  * abort as "stop pacing, send the rest now".
  */
 export class ChannelQueue {
@@ -62,7 +62,7 @@ export class ChannelQueue {
     return next;
   }
 
-  /** Doc sent something new: stop waiting between her old bubbles. */
+  /** Alex sent something new: stop waiting between her old bubbles. */
   abort(channelId: string): void {
     this.running.get(channelId)?.abort();
   }

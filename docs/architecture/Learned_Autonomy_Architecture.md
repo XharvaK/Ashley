@@ -35,7 +35,7 @@ or operator preference into semantic authority.
 ## 2. Vision and principle basis
 
 This phase serves the Vision requirement that Ashley may develop interests
-unrelated to Doc, disagree, refuse, withdraw, remain silent, and grow through
+unrelated to Alex, disagree, refuse, withdraw, remain silent, and grow through
 attention, memory, shared history, and freedom. *(C3-closing:)* Shared
 cognitive ancestry may supply inherited seeds.
 Inheritance is origin, not identity authority. Divergence is not a defect.

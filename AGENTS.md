@@ -122,7 +122,7 @@ the freeze and domain contracts; resolve live state from source, not prose):
 
 ```
 Discord → POST /chat/ingress → inbox → wake/cycle → runLiveCognitiveTurn → Thought → settlement → speech outbox → delivery projector/pump → receipt/finalize
-Periodic: scheduler → POST /initiative/idle → schedule/inquiry gate → wake only when admitted → Thought → normal settlement/delivery
+Inner life: inbox-consumer maintenance poll → one pass at a time (afterglow first, then NIGHT, then AWAKE; Alex's messages pre-empt) → Thought → normal settlement/delivery. Afterglow is switched by its own env flag; PERIODIC_COGNITION_ENABLED switches AWAKE and NIGHT. The old periodic POST /initiative/idle schedule is retired.
 Engineering: Thought-visible typed project operations are capability-bound; the generic M6 Thought offer remains hard false
 ```
 
@@ -228,8 +228,8 @@ npm run eval:full -- -Baseline baseline-w0 -Label wave5
 |---------|--------|
 | `/remember` | Pin fact |
 | `/memory` | Show memory |
-| `/forget` | Forget by topic |
-| `/proactive` | Initiative status / pause / resume |
+| `/forget` | Forget by topic (retires when semantic, Alex-only forgetting lands) |
+| `/proactive` | Initiative status / pause / resume (admin: Alex only) |
 | `/identity` | Owner-only foundational review / approve / reject / defer |
 | `/commitments` | Relationship summary (owner-only, ephemeral) |
 | `/continuity` | Continuity lineage snapshot |

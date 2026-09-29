@@ -110,7 +110,7 @@ behavioral influence. `apply` is the master ceiling; release-scoped capability
 states, dependencies, evaluation qualification, live-shadow thresholds, and
 rollback still govern the full loop. Gated `own_time_report` (deps: `thought`,
 `curiosity_consolidation`) can share ≤3 owner-scoped grounded takes from a
-completed own-time window when Doc asks and the capability may influence.
+completed own-time window when Alex asks and the capability may influence.
 
 Reactive refusal is a distinct Thought decision. It is valid only when the
 selected evidence contains the current user message and a persisted stable
@@ -195,13 +195,13 @@ Owner-authenticated POST endpoints are control or effect paths, not telemetry.
 - `GET /nuclear/cognition?owner_id=` → affect, urgency, jobs, and runs
 - `GET /nuclear/capabilities?owner_id=` → release gates, evidence, and rollback
 - `GET /nuclear/revisions?owner_id=` → proposed/applied identity and opinion growth
-- `GET /nuclear/identity/reviews?owner_id=` → separate Ashley and Doc positions
+- `GET /nuclear/identity/reviews?owner_id=` → separate Ashley and Alex positions
 
 Control paths, not diagnostics:
 
 - `POST /nuclear/revisions/revert` → restore the prior value for one applied revision
 - `POST /nuclear/identity/reviews/ashley` → evidence-grounded Ashley position
-- `POST /nuclear/identity/reviews/doc` → owner-authorized Doc decision
+- `POST /nuclear/identity/reviews/doc` → owner-authorized Alex decision
 
 ## Review
 

@@ -750,7 +750,7 @@ MODEL PROPOSAL
   != ASHLEY SEMANTIC INTERPRETATION
 ```
 
-## Open questions for Doc/GPT
+## Open questions for Alex/GPT
 
 The first-slice decisions above are resolved. Remaining implementation-time questions are:
 

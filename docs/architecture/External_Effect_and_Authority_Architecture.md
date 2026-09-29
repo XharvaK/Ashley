@@ -135,7 +135,7 @@ Ownership is compositional. No mechanism receives all rows in this table.
 | Owner approval | Owner-approval domain | Approval surface | Approval is scoped evidence. It is not execution or effect. |
 | Credentials | Credential Authority | Vault or platform credential service | Secret custody and use are separate from action authority. |
 | Authenticated sessions | Session Broker | Connector, API adapter, or Computer Use adapter | A lease provides bounded authentication mechanics only. |
-| Representation | Agency plus Representation Authority | Selected communication mechanism | Account access or send authority does not imply authority to represent Doc. |
+| Representation | Agency plus Representation Authority | Selected communication mechanism | Account access or send authority does not imply authority to represent Alex. |
 | Commitments | The applicable relationship, legal, financial, or owner authority | Selected effect mechanism | Communication authority does not imply commitment authority. |
 | Preparation | Selected mechanism under the effect contract | Connector, API, procedure, Computer Use, or Sandbox M7 | Preparation creates an immutable candidate. It does not commit. |
 | Revalidation | External Effect admission boundary plus all semantic owners | Deterministic policy enforcement | Every required authority must still hold for the exact prepared candidate. |
@@ -261,7 +261,7 @@ in-process cognitive state. Examples include:
 - creating, updating, deleting, moving, or sharing a remote object;
 - changing account, permission, subscription, or credential state;
 - purchasing, accepting terms, creating an obligation, or making a commitment;
-- representing Ashley or Doc to another person or system;
+- representing Ashley or Alex to another person or system;
 - committing Git state, publishing an artifact, or deploying software;
 - triggering a remote job whose execution may continue after the request.
 
@@ -331,12 +331,12 @@ Representation and commitment are independent authority dimensions.
 `RepresentationScope` states:
 
 - who is speaking or acting;
-- whether Ashley speaks as herself, relays Doc's exact content, or is authorized
-  to represent Doc in a bounded subject and audience;
+- whether Ashley speaks as herself, relays Alex's exact content, or is authorized
+  to represent Alex in a bounded subject and audience;
 - allowed claims, negotiation limits, and prohibited implications;
 - expiry and revocation.
 
-Ashley MUST NOT imply that Doc approved, promised, agreed, purchased, accepted,
+Ashley MUST NOT imply that Alex approved, promised, agreed, purchased, accepted,
 waived, or endorsed something unless the exact authority exists.
 
 `CommitmentScope` states:
@@ -350,8 +350,8 @@ waived, or endorsed something unless the exact authority exists.
 
 Ordinary communication permission does not include commitment permission.
 Ashley making a bounded commitment for herself still requires Agency and the
-applicable relationship or policy authority. A commitment for Doc requires
-Doc's explicit, exact scope. High-impact legal, financial, account-lifecycle,
+applicable relationship or policy authority. A commitment for Alex requires
+Alex's explicit, exact scope. High-impact legal, financial, account-lifecycle,
 or irreversible commitments are denied by default unless a higher current
 contract explicitly authorizes them.
 

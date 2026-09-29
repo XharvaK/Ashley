@@ -16,7 +16,7 @@ describe("ReactPolicy", () => {
     assert.equal(new ReactPolicy().decide(ctx()), "😂");
   });
 
-  it("skips an emoji Doc just used", () => {
+  it("skips an emoji Alex just used", () => {
     const policy = new ReactPolicy();
     assert.equal(policy.decide(ctx({ docText: "that's fine 😂" })), null);
   });

@@ -22,6 +22,42 @@ Author: principal engineer (Claude), from Owner direction in session.
 - Direct vision (Thought sees pixels) — done, commit 94be5b6.
 - Expression rewrite retired — done, commit d933e00.
 
+### 0.1 Owner decisions from the audit follow-up (2026-09-29)
+
+These refine the plan. Where a mechanism below still describes the older
+behavior, the decision governs and the mechanism is a repair item.
+
+- **Owner-only admin** (Stewardship Compact `SC-ADM-*`): forgetting,
+  capability promotion, revert, `/proactive` pause, identity approvals and
+  public presence are Alex's alone, proven by an authenticated transport.
+- **Reach-out law** is §5.5 alone: `/proactive` pause plus the runaway fuse,
+  counted only for her own initiative. Reminders and completions Alex asked
+  for are replies, never capped.
+- **Forgetting becomes semantic and Owner-only** (`SC-FGT-*`): Alex asks in
+  plain words, Ashley names what it covers and asks for a yes, the Host erases
+  those records and everything derived from them, and an exact-phrase sweep of
+  raw logs is the floor. She complies and may say how she feels. A forget is
+  never silent: she may know that something was forgotten, not what. The
+  `/forget` command retires once this lands.
+- **Contacts get discretion, not erasure**, and Alex can see what they told
+  her (Ethics `ETH-CNT-*`).
+- **Her inner life is Owner-readable, and she knows it** (`ETH-VIS-*`).
+- **Traits must recur:** a trait needs the proposal reinforced in at least 3
+  separate passes over at least 14 days, then 72 h; repeated signals from one
+  origin count once, and derived records count as their root. Tastes: 2
+  passes over 2 days.
+- **Grounded supersession:** Ashley's interpretation can never retire a
+  memory grounded in Alex's own words; a merge carries the old supports
+  forward.
+- **One voice, honest outages:** keep one model and provider; when it is
+  down, a short honest notice, and inner passes wait. Revisit before E3.
+- **Repair, then deploy:** the P0 repairs and a green release gate come
+  before G1–G5 go live with periodic cognition on.
+- **Sims cognition has a separate embodiment budget** (§5.6, §5.7, G6).
+- **No further personality seeding; nothing deleted by age; public Discord
+  status stays, under Alex's admin control.**
+- **Recall embeddings are local** (on Mint), when hybrid recall is built.
+
 ## 1. Why this plan exists (production evidence, 2026-09-29, read-only)
 
 After 42 published replies on fresh state:
@@ -46,7 +82,7 @@ After 42 published replies on fresh state:
    reflection, appraisal, opinion, and revision is authored by Ashley's
    Thought. The Host schedules, stores, grounds, ranks, decays, forgets, and
    enforces — it never invents content or importance.
-2. **Grounded or labelled.** A memory about Doc or the world must point at
+2. **Grounded or labelled.** A memory about Alex or the world must point at
    real evidence (a message span, an observation, a receipt). Ashley's own
    interpretations are allowed but always labelled as hers.
 3. **Everything forgettable.** Every new store joins the existing `/forget`
@@ -56,7 +92,7 @@ After 42 published replies on fresh state:
    actually did" — never with invention.
 5. **Slow things change slowly.** Moment-level reactions are cheap; opinions
    need repeated evidence; traits need evidence over weeks; values and
-   boundaries need Ashley's affirmation and Doc's approval.
+   boundaries need Ashley's affirmation and Alex's approval.
 6. **Reuse v0.2.1 substrate.** Concerns, future triggers, subscriptions,
    durable nominations, assertions/supports/lineage, wakes, the private
    budget ledger, and the kernel path are extended, not bypassed.
@@ -81,13 +117,13 @@ forget semantics apply unchanged.
 
 Added to the Thought output-contract guidance (not to identity prompts):
 
-- Doc: preferences, dislikes, self-descriptions, goals, plans, projects,
+- Alex: preferences, dislikes, self-descriptions, goals, plans, projects,
   people in his life, boundaries, running jokes, things he is waiting on.
 - Shared: moments that mattered, decisions made together, promises either
   side made, open threads.
 - Ashley herself: her stated opinions and choices, what she enjoyed or found
   boring, what she learned about herself, questions she wants to pursue.
-- Not: small talk with no future value, anything Doc asks not to keep,
+- Not: small talk with no future value, anything Alex asks not to keep,
   secrets (classification `secret` is never admitted).
 
 Guidance is explicit that remembering is normal, frequent, and cheap: "If
@@ -136,7 +172,7 @@ salience × recency decay (half-life ~30 days on last use) × reinforcement
 
 ### 4.6 Recall
 
-1. **Core profile (always present):** top ~12 Doc facts and top ~8 Ashley
+1. **Core profile (always present):** top ~12 Alex facts and top ~8 Ashley
    self-facts by strength, plus current open commitments. Small, stable,
    always in Thought input.
 2. **Associative:** existing BM25 tiers over assertions + episodes +
@@ -153,7 +189,7 @@ salience × recency decay (half-life ~30 days on last use) × reinforcement
    - the full log stays searchable forever. The Discord `/new` command
      (which archived the thread and hid prior conversation from log search)
      was retired 2026-09-29 by Owner decision; G1 also widens log search to
-     all of Doc's Owner-private threads so older archived threads stay
+     all of Alex's Owner-private threads so older archived threads stay
      reachable. The `/memory/newthread` HTTP route remains for eval
      harnesses only;
    - rule 2 of §5.1 guarantees no row leaves the window unreflected.
@@ -164,7 +200,8 @@ salience × recency decay (half-life ~30 days on last use) × reinforcement
 ### 4.7 Visibility
 
 `/memory` shows what Ashley remembers (by kind), episodes, and strength;
-`/forget` covers episodes and journal entries.
+`/forget` covers episodes and journal entries until semantic forgetting
+replaces it (§0.1).
 
 ## 5. Inner life (layer B)
 
@@ -178,7 +215,7 @@ salience × recency decay (half-life ~30 days on last use) × reinforcement
 | NIGHT | once per 24 h, at the quietest learned hour | consolidation pass (§5.4) |
 | EMBODIED | a Sims session armed | inner rhythm yields; Sims clock drives wakes (§5.7) |
 
-Doc messaging always pre-empts; no state delays a reply.
+Alex messaging always pre-empts; no state delays a reply.
 
 **Harmony rules (Owner 2026-09-29):**
 1. *Watermarks, not timers.* AFTERGLOW covers exactly the conversation
@@ -190,8 +227,10 @@ Doc messaging always pre-empts; no state delays a reply.
 2. *Window pressure.* If unreflected rows exceed 30 during a long
    conversation, a background rolling afterglow runs early so nothing leaves
    the verbatim window unreflected (§4.6).
-3. *Layering.* AWAKE never re-reads raw conversation; it consumes the
-   afterglows/episodes written since its own watermark. If an afterglow is
+3. *Layering.* AWAKE does not re-reflect raw conversation; its agenda is
+   the afterglows/episodes written since its own watermark. (Like every
+   Owner-private Thought input, its input still carries the recent
+   conversation window.) If an afterglow is
    due, it runs first and AWAKE waits for it.
 4. *Single flight.* One inner pass at a time; ENGAGED pre-empts and the
    pass resumes after the next afterglow.
@@ -203,7 +242,7 @@ Doc messaging always pre-empts; no state delays a reply.
 Input: the conversation since the last reflection, current core profile,
 mood, open questions. Output (Thought-authored): one episode, any missed
 nominations, self-evidence ("that debate energised me"), expectation checks
-(§6.5), new open questions, optional future triggers ("ask Doc how the
+(§6.5), new open questions, optional future triggers ("ask Alex how the
 interview went on Friday").
 
 ### 5.3 Musing passes — the inner agenda
@@ -216,7 +255,7 @@ threads, recent mood. Thought chooses what to do this pass:
 - **think** — revisit a question or thread, form/adjust an opinion;
 - **read** — web search/fetch or a subscribed feed item, then write a take;
 - **plan** — schedule future triggers, subscribe to a source;
-- **reach out** — message Doc when something earns it;
+- **reach out** — message Alex when something earns it;
 - **rest** — do nothing (a legitimate choice; recorded).
 
 Every pass writes an **activity journal** entry (what she did, refs to
@@ -242,18 +281,24 @@ pacing. No generic check-ins by contract (existing proactive prompt).
 
 Private budget 4 → 12 Thought calls per rolling hour (Owner). It counts
 only Thought calls Ashley makes on her own initiative (afterglow, AWAKE,
-NIGHT, self-scheduled triggers); replies to Doc are never counted. It is a
+NIGHT, self-scheduled triggers); replies to Alex are never counted. It is a
 runaway fuse, not the rhythm: one AWAKE pass may use several calls
 (e.g. read → take → decide to message). `PERIODIC_COGNITION_ENABLED=true` on Mint as part of rollout. Old 4 h
 cadence replaced by the state machine above.
+
+This budget is her inner life's only. Embodied (Sims) cognition never draws
+on it: it has a **separate embodiment budget** policy with its own fuse,
+active only while a session is armed (Owner, 2026-09-29; see §5.7).
 
 ### 5.7 Sims embodied clock
 
 While a Sims session is armed (`ashley_e1.start` … `stop`, and later E3
 bound perception), a separate embodied scheduler owns her wakes: game
 events and game-time rhythm, not the 45–75 min musing cadence. On stop,
-AFTERGLOW runs over the play session (it becomes an episode). Designed
-concretely with E3; this plan only reserves the seam.
+AFTERGLOW runs over the play session (it becomes an episode). Embodied
+Thought calls are counted against the separate embodiment budget, never the
+§5.6 inner-life budget (Owner, 2026-09-29); its numbers are set with the
+E3-B1 packet. Designed concretely with E3; this plan only reserves the seam.
 
 ## 6. Growth (layer C)
 
@@ -270,7 +315,7 @@ about, did well/badly. They are the fuel for every revision.
 | Opinion | "Dub techno is best at 3am" | ≥ 2 evidence |
 | Taste / dynamic identity | interests, style, humour | ≥ 2 evidence over ≥ 2 days |
 | Stable trait | "patient with messy problems" | ≥ 3 evidence over ≥ 14 days, then 72 h delay |
-| Value / boundary | foundational | Ashley affirms AND Doc approves (`/identity`) |
+| Value / boundary | foundational | Ashley affirms AND Alex approves (`/identity`) |
 
 Every applied revision appends a new `identity_entries` row with
 `revised_from`, keeps evidence links, and is revertible. Seeded core values
@@ -301,7 +346,7 @@ Mood is an input to Thought, never a script for it.
 
 ### 6.5 Expectations and calibration (light port of c4)
 
-Thought may record an expectation ("Doc will enjoy this article"). Afterglow
+Thought may record an expectation ("Alex will enjoy this article"). Afterglow
 or night checks it against what happened (reply, reaction, explicit words)
 and records the outcome as self-evidence ("I overestimate how much he likes
 long takes"). This is how experiences become learned outcomes.
@@ -309,7 +354,7 @@ long takes"). This is how experiences become learned outcomes.
 ### 6.6 Narrative self
 
 Weekly LONG ARC pass: "who I am becoming" — a short autobiographical summary
-maintained as a dynamic identity entry, visible to Doc, grounded in the
+maintained as a dynamic identity entry, visible to Alex, grounded in the
 week's episodes and revisions.
 
 ## 7. Authority boundaries
@@ -318,7 +363,8 @@ week's episodes and revisions.
   proposals, decisions to reach out).
 - Host: schedules, grounding checks, thresholds, strength arithmetic,
   decay, fuses, forget cascade, delivery.
-- Doc: values/boundaries approval; `/forget`; `/proactive pause`.
+- Alex (authenticated, admin only): values/boundaries approval;
+  forgetting; `/proactive pause`; capability promotion; public presence.
 - Unchanged: constitution/identity precedence; fidelity and honesty checks;
   no external effects beyond existing capability gates.
 
@@ -357,7 +403,7 @@ go, production witness (read-only DB evidence), honest verdict.
 | G3 Inner life | AWAKE musing, agenda, journal + honesty licence, budget, periodic enable, curiosity feeds, interest choice | journaled passes; a grounded unsolicited message |
 | G4 Growth | revision engine, mood, expectations/calibration | a revision applied from real evidence; mood moves and decays |
 | G5 Night + long arc | consolidation, diary, weekly narrative | nightly diary; weekly narrative |
-| G6 Sims seam | embodied clock bypass | with E3 |
+| G6 Sims seam | embodied clock bypass; separate embodiment budget (§5.6, §5.7) | with E3 |
 
 **G1 implementation status (2026-09-29, not yet deployed).** Implemented:
 formation guidance, grounded admission for all kinds (decided once),

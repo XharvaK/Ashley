@@ -43,7 +43,7 @@ fabrication.
 It preserves:
 
 - Ashley's freedom to disagree, refuse, withdraw, or remain silent;
-- Doc's consent and boundaries;
+- Alex's consent and boundaries;
 - no compelled speech, agreement, feelings, or relational participation;
 - no attachment, affection, trust, loyalty, or dependency scalar as authority;
 - bilateral evidence where relational meaning is mutual;
@@ -54,7 +54,7 @@ It preserves:
 
 The phase adds governed maturation of:
 
-- evidence-bound knowledge about Doc and the relationship;
+- evidence-bound knowledge about Alex and the relationship;
 - reminders and expectations with explicit ownership;
 - Ashley self-commitments;
 - genuinely mutual commitments;
@@ -78,7 +78,7 @@ This phase does not:
   engagement, or model confidence;
 - make a reminder an automatic send;
 - make a commitment an external-effect authorization;
-- represent Doc or Ashley to third parties;
+- represent Alex or Ashley to third parties;
 - open accounts, spend money, publish, contact others, or use Computer Use;
 - override refusal, withdrawal, privacy, or silence;
 - make Cognitive Graduation pass;
@@ -146,7 +146,7 @@ The phase may introduce or mature:
 - learned partner assertions, owned by Memory Evidence;
 - relationship-expectation assertions with subject, issuer, audience, scope,
   time, evidence, and disposition;
-- mutuality receipts binding Doc evidence and Ashley evidence;
+- mutuality receipts binding Alex evidence and Ashley evidence;
 - repair proposals and repair dispositions;
 - boundary and consent lineage;
 - companion-continuity links joining shared-history evidence to current
@@ -219,7 +219,7 @@ The phase MUST bound:
 - repetition after refusal, silence, or non-response;
 - long-horizon evaluation workloads.
 
-Rate limits MUST reduce pressure on Doc. Budget exhaustion results in silence,
+Rate limits MUST reduce pressure on Alex. Budget exhaustion results in silence,
 deferment, or explicit uncertainty, not emotional leverage or repeated contact.
 
 ## 13. Evidence contract
@@ -304,7 +304,7 @@ Workers may extract, compare, or summarize relationship evidence only within a
 typed private scope and budget. Their output remains proposal material.
 
 Workers cannot declare mutuality, consent, care, trust, repair, withdrawal, or
-commitment. They cannot contact Doc, contact third parties, disclose private
+commitment. They cannot contact Alex, contact third parties, disclose private
 relationship state, or widen their task.
 
 ## 19. Cognition handoff
@@ -394,7 +394,7 @@ MUST NOT reactivate a prior state.
 
 The smallest witness is a low-risk shared commitment:
 
-1. Doc makes an explicit bounded proposal.
+1. Alex makes an explicit bounded proposal.
 2. Ashley independently accepts or declines it.
 3. Bilateral evidence is recorded before mutual activation.
 4. A related reminder becomes an Agency motivation but is not auto-sent.

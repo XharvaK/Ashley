@@ -5,7 +5,7 @@ import type { DataClassification } from "../../privacy/classification.js";
 /**
  * Growth V1 §6.5: expectations and calibration (a light port of c4).
  *
- * Ashley may record what she expects ("Doc will enjoy this article"). A
+ * Ashley may record what she expects ("Alex will enjoy this article"). A
  * later pass, usually an afterglow or an awake pass, checks it against
  * what actually happened and says what she learned. A checked expectation
  * is self-evidence: it can ground a revision, so experience becomes a

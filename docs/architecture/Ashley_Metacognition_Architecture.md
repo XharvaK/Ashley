@@ -728,7 +728,7 @@ Current Ashley (`CONFIRMED FROM ASHLEY SOURCE` at this planning SHA):
   `explicit_user` replacements.
 - **Cannot yet (architecture exists, implementation FUTURE DESIGN):**
   general `valid_from`/`valid_to` on derived owner-pattern hypotheses;
-  as-of reconstruction of "what Ashley believed about Doc in T1"; a typed
+  as-of reconstruction of "what Ashley believed about Alex in T1"; a typed
   "owner corrected this interpretation" object with the four correction
   classes; influence classes I0–I4; per-seed inherited-lineage states.
 - **Where a stale "anxious attachment" inference would live today**
@@ -743,7 +743,7 @@ Current Ashley (`CONFIRMED FROM ASHLEY SOURCE` at this planning SHA):
      usually fail); manual pin can still stand forever; non-`explicit_user`
      facts **overwrite in place** (history loss, the opposite Mika failure).
   5. **`learning_revisions` → `dynamic_identity`** — auto-apply with ≥2
-     live evidence links and **no** Doc identity-review (`value.*` /
+     live evidence links and **no** Alex identity-review (`value.*` /
      `boundary.*` on stable only). Unlikely if prompts stay on Ashley
      `interest.*`/`taste.*`; not schema-impossible. This is Ashley Identity,
      not the owner model.
@@ -793,7 +793,7 @@ goals and moods are not inherited as Identity.
 
 Dyadic interaction contracts and shared-culture state live here.
 Non-manipulation and no scores as authority remain. Recurring "how we work"
-is not a clinical trait of Doc.
+is not a clinical trait of Alex.
 
 ### 16.5 Curiosity / Agency / Authority
 

@@ -94,7 +94,7 @@ describe("describeIntake", () => {
       }),
     );
     assert.match(intake.text, /^look at this/);
-    assert.match(intake.text, /Doc sent an image attachment/);
+    assert.match(intake.text, /Alex sent an image attachment/);
   });
 
   it("is honest about a voice note", () => {
@@ -142,7 +142,7 @@ describe("describeIntake", () => {
 
   it("treats a sticker as a message", () => {
     const intake = describeIntake(fakeMessage({ stickers: ["thumbs up"] }));
-    assert.equal(intake.text, '(Doc sent the "thumbs up" sticker.)');
+    assert.equal(intake.text, '(Alex sent the "thumbs up" sticker.)');
     assert.equal(intake.hasMedia, true);
   });
 

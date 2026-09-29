@@ -27,11 +27,11 @@ describe("memory command", () => {
 
   it("lists Ashley's recent episodes as recent moments", () => {
     const rendered = renderMemorySummary({
-      narrative: "Doc and I are planning a spring trip to Kyoto.",
+      narrative: "Alex and I are planning a spring trip to Kyoto.",
       facts: [],
       episodes: [{ summary: "We picked cherry-blossom season.", endedAt: "2026-09-29T11:00:00.000Z" }],
     });
-    assert.match(rendered, /Where we left off:\nDoc and I are planning a spring trip to Kyoto\./);
+    assert.match(rendered, /Where we left off:\nAlex and I are planning a spring trip to Kyoto\./);
     assert.match(rendered, /Recent moments:\n• 2026-09-29: We picked cherry-blossom season\./);
   });
 

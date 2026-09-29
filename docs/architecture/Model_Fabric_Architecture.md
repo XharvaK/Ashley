@@ -16,6 +16,22 @@ PROMOTED CANDIDATE
 RUNNING PRODUCTION
 ```
 
+## Routing change governance
+
+Moved from the Constitution's former "Model" section on 2026-09-29; model
+choice and routing are architecture, not constitutional identity.
+
+- Ashley uses a multi-provider Model Fabric. Logical roles are bound to
+  versioned route policy, not to a single vendor model.
+- Live routing may include owner-authorized fallback and same-model transport
+  failover. Unqualified substitution is forbidden.
+- Changing model family or production routing requires explicit governed
+  change: qualification, Stewardship Compact `SC-CON-04` consultation where it
+  applies, a distinct owner approval, and a distinct activation record.
+- Model quality, benchmark scores, provider availability, or a document
+  amendment do not authorize a routing change by themselves.
+- Exact current occupants are routing facts, not identity.
+
 Exact SHAs own snapshot identity. Branch names such as `master` are not
 semantic evidence.
 
@@ -1589,7 +1605,7 @@ Still deferred / out of this program:
 | Frozen fields / F1-obs spec | [`Model_Fabric_01_Contract_Draft.md`](Model_Fabric_01_Contract_Draft.md) | `SUPPORTING`; delivery order superseded |
 | Current routes | [`docs/Routing_Status.md`](../Routing_Status.md) | `SUPPORTING / LIVING SOURCE STATUS` — live facts; **not** the §12.9 target table |
 | Post-MF-M1 target occupants | This file §12.9 | `OWNER CLOSED` as target policy only |
-| Constitution `## Model` | [`../Ashley_Constitution.md`](../Ashley_Constitution.md) | Amended 2026-08-25 to multi-provider Fabric governance |
+| Routing change governance | This file, "Routing change governance" | Moved here 2026-09-29 from the Constitution's former `## Model` section (amended 2026-08-25); model and routing are not constitutional |
 | SC-CON-04 consultation | `../governance/SC-CON-04_2026-08-25_Constitution_Model.md` | Constitution-text consultation; not family-cutover consultation |
 | F1-obs mechanism spike | [`Model_Fabric_01_Implementation_Spike.md`](Model_Fabric_01_Implementation_Spike.md) | `SUPPORTING / DEFERRED` |
 | Historical reconnaissance | [`Model_Fabric_01_Codebase_Reconnaissance.md`](Model_Fabric_01_Codebase_Reconnaissance.md) | `HISTORICAL SOURCE SNAPSHOT` |

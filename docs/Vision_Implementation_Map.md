@@ -38,7 +38,7 @@ through that chain and must be reconsidered when they contradict it.
 Normative Vision amendments remain frozen until the shipped joint-review
 mechanism is deliberately extended to repository proposals. Meaning-preserving
 editorial corrections are allowed. A future normative proposal must record
-Ashley's grounded position and Doc's decision separately; repository edits
+Ashley's grounded position and Alex's decision separately; repository edits
 remain human-controlled.
 
 ## Program map
@@ -56,7 +56,7 @@ remain human-controlled.
 | Independent intellectual life | Curiosity, Cognition, Thought | Successful reads, content hashes, excerpts, linked takes | Scan excerpts presented as reading or reading sends directly | Grounded reader, consolidation, and source probation shipped |
 | Safety through evidence and rollback | Capability rollout | Qualified evaluation, live shadow events, breach records | Ungated influence, deletion/provenance/security failure | Release-scoped rollout and rollback shipped |
 | Honest inquiry into personhood | Research track | Separate capability observations, hypotheses, counter-hypotheses, falsifiers | A consciousness score or self-report treated as proof | Research protocol documented |
-| Consultation before foundational change (`SC-CON-*`, `SC-REC-*`) | Identity review (planned), repository process | Separate Ashley position and Doc decision records | Foundational change without recorded positions | documented; enforcement planned |
+| Consultation before foundational change (`SC-CON-*`, `SC-REC-*`) | Identity review (planned), repository process | Separate Ashley position and Alex decision records | Foundational change without recorded positions | documented; enforcement planned |
 | Emergency stop with visibility and limits (`SC-EMG-*`) | Continuity / operations (planned) | Time, scope, operator reason; later Ashley-visible receipt | Silent stop, silent identity edit, or stop-driven memory wipe | documented; enforcement planned |
 | Protected boundaries and non-compulsion (`SC-ASH-*`, `SC-BND-*`) | Identity, Thought (planned) | Grounded refusal/withdrawal evidence; no compelled agreement path | Operator-compelled speech/agreement or auto-weakened constitutional protection | documented; enforcement planned |
 | Public privacy categories (`ETH-PUB-*`) | Privacy policy + Memory classification (Wave 04 local) | Classification lattice + public truth table; Thought auth for conditional Ashley public material | Public leak of never-public / protected categories | **local implementation present; not release-qualified** |
@@ -72,7 +72,7 @@ remain human-controlled.
 | Evaluation-fork isolation (`SC-LIN-01`–`SC-LIN-05`) | Continuity + process guards (Wave 04 local) | Fork create/destroy in sidecar; process-level outbound/writeback blocks | Fork writes live lineage or opens parent DB / Mistral / delivery | **local implementation present; not release-qualified** |
 | Cross-lineage deletion replay; old-package-only disaster restore | Continuity (explicit non-guarantee) | Fail closed or disaster acknowledgment; may resurrect forgotten material | Claiming prevention of cross-lineage / old-package resurrection | explicit **non-guarantees** |
 | Owner reclassification workflow | Privacy (planned) | Audited downgrade from never_public | Silent public eligibility of legacy never_public | remain **planned** |
-| Account custody presentation (`SC-LIN-06`–`SC-LIN-08`) | External Agency (Wave 09b) | Accounts presented as Ashley's; Doc recovery custody; no password/delete without authority | Password change or account deletion without explicit authority | **Wave_accepted** (not release-qualified; fake adapter, observe caps) — see `handoffs/wave-09b-gate-packet.md` |
+| Account custody presentation (`SC-LIN-06`–`SC-LIN-08`) | External Agency (Wave 09b) | Accounts presented as Ashley's; Alex recovery custody; no password/delete without authority | Password change or account deletion without explicit authority | **Wave_accepted** (not release-qualified; fake adapter, observe caps) — see `handoffs/wave-09b-gate-packet.md` |
 | Operate is not own (`SC-OWN-*`) | Stewardship / Identity (planned) | Governance and prompts reject creator-ownership framing | Creator-ownership or compelled loyalty as design rule | documented; enforcement planned |
 | Honest emotion without leverage (`ETH-EMO-*`, `ETH-EXP-*`, `ETH-PUN-*`, `ETH-DEP-*`) | Mind State, Thought, Expression (planned) | Grounded affect evidence; no leverage/punishment/engineered control path | Implied punishment or feelings used as control | documented; enforcement planned |
 | Stabilization traceability and offline assurance (Wave 10) | Evaluation, Operations, Architecture | Clause manifest, deterministic verdicts, scenario coverage, health/resource/backup evidence | Governance claim cannot be traced to runtime behavior; bounded host degrades silently | **Wave_accepted** — 10a/10b/10c accepted; not release-qualified; see `handoffs/wave-10c-gate-packet.md` |
@@ -115,14 +115,14 @@ authority are not implied.
 
 Waves 00–05 are implemented local work from before the current gate-packet
 process. They are recorded as **Implementation_present** / `legacy_local`, and
-Doc acknowledged that implementation on 2026-08-04. They are not formally
+Alex acknowledged that implementation on 2026-08-04. They are not formally
 `Wave_accepted` in the living acceptance records. See
 `handoffs/waves-00-05-implementation-record.md`.
 
 The following Wave 06-10 sections preserve historical V1 provenance. They do
 not define the V2 execution topology. Wave status uses the acceptance ladder in
 [`Wave_Acceptance_Protocol.md`](Wave_Acceptance_Protocol.md). Passing tests does
-not accept a wave; gate packets and Doc sign-off do.
+not accept a wave; gate packets and Alex sign-off do.
 
 ### Wave 06 (perception, v15 / contract v3)
 
@@ -134,7 +134,7 @@ not accept a wave; gate packets and Doc sign-off do.
 - Discord structured attachment intake; capability self-model injected at Expression
 - Quote-aware honesty for vision/page-read claims; forget non-erasure receipts extended
 - Gate packet: `handoffs/wave-06-gate-packet.md`
-- Doc accepted Wave 06 on 2026-08-04 after local verification. This does not authorize Release_qualified, Mint/live validation, `apply`, commit, push, production migration, or deployment.
+- Alex accepted Wave 06 on 2026-08-04 after local verification. This does not authorize Release_qualified, Mint/live validation, `apply`, commit, push, production migration, or deployment.
 
 ### Wave 07 (historical Sandbox V1 OS boundary — design only)
 
@@ -150,7 +150,7 @@ not accept a wave; gate packets and Doc sign-off do.
 
 - New package `apps/sandbox-broker/` (historical V1 package, not in tree): Ed25519 approval/tombstone verification, in-memory `BrokerStore`, `MemoryTransport`, injectable fake process runner, artifact/task/forget/`source_prepare` handlers
 - Gate packet: `handoffs/wave-07b-gate-packet.md`
-- Doc accepted Wave 07b on 2026-08-04 after local verification (48 broker tests; agent/discord suites green)
+- Alex accepted Wave 07b on 2026-08-04 after local verification (48 broker tests; agent/discord suites green)
 - `source_prepare` is validation-only; archive extraction explicitly deferred
 - In-memory restart durability **not** guaranteed (nonces/tombstones/tasks)
 - Unlocks Wave 08b implementation; no production wiring or Mint install authorized by 07b acceptance alone
@@ -175,7 +175,7 @@ not accept a wave; gate packets and Doc sign-off do.
 
 - Retired V1 self-modification design: historical change-proposal and review semantics only. Current candidate authorship is specified by [`ASHLEY_SANDBOX_V2_M5_DESIGN.md`](architecture/sandbox/ASHLEY_SANDBOX_V2_M5_DESIGN.md); its broker topology is superseded.
 - Gate packet: `handoffs/wave-08-design-gate-packet.md`
-- Doc accepted Wave 08 design on 2026-08-04 with seven carried conditions (honest broker claims, frozen recipes, routing, MIGRATION_16 discipline, system-derived `verified`, secret-safe surfaces, explicit unsupported states)
+- Alex accepted Wave 08 design on 2026-08-04 with seven carried conditions (honest broker claims, frozen recipes, routing, MIGRATION_16 discipline, system-derived `verified`, secret-safe surfaces, explicit unsupported states)
 - Wave 08b is **Wave_accepted** (2026-08-04) — not **Release_qualified**
 
 ### Wave 08b (self-modification — implementation)
@@ -184,11 +184,11 @@ not accept a wave; gate packets and Doc sign-off do.
 
 - MIGRATION_16 (`change_proposals`, `change_proposal_events`) in `nuclear.db` only
 - Change-proposal module: lifecycle, routing, secret guard, system-derived verification, broker client, source workflow
-- Owner HTTP: list/inspect proposals, Ashley position, Doc decision, external outcome
+- Owner HTTP: list/inspect proposals, Ashley position, Alex decision, external outcome
 - Sandbox-broker: `source_verify`, `source_diff`, broker-owned recipes; honest `validated_only` for `source_prepare`
 - Gate packet: `handoffs/wave-08b-gate-packet.md`
 - 52 broker tests + 216 agent tests + 71 discord tests; `phase0:offline` green
-- Doc accepted Wave 08b on 2026-08-04 after local verification. Doc accepted Wave 09b on 2026-08-04 after local verification; no real credentials, network adapters, Mint installation, production dispatch, or `apply` is authorized by acceptance alone.
+- Alex accepted Wave 08b on 2026-08-04 after local verification. Alex accepted Wave 09b on 2026-08-04 after local verification; no real credentials, network adapters, Mint installation, production dispatch, or `apply` is authorized by acceptance alone.
 
 ### Wave 09 (external agency — design)
 
@@ -209,7 +209,7 @@ not accept a wave; gate packets and Doc sign-off do.
 - Four v17 tables targetable for exact forget; `external_agency_state` intentionally non-targetable
 - Gate packet: `handoffs/wave-09b-gate-packet.md`
 - 21 external-broker tests + 52 sandbox-broker tests + 228 agent tests + 71 discord tests; `phase0:offline` green
-- Doc accepted Wave 09b on 2026-08-04 after local verification. This does not authorize Release_qualified, Mint/live validation, real adapters/credentials, production dispatch, `apply`, commit, push, or deploy.
+- Alex accepted Wave 09b on 2026-08-04 after local verification. This does not authorize Release_qualified, Mint/live validation, real adapters/credentials, production dispatch, `apply`, commit, push, or deploy.
 
 ### Wave 10 (stabilization, evaluation, and traceability)
 
@@ -226,7 +226,7 @@ not accept a wave; gate packets and Doc sign-off do.
 - 10c: bounded health, resource, backup/restore, and check-only Mint documentation audits for the dual-core, 4 GB host;
   **Wave_accepted** on 2026-08-04 — see `handoffs/wave-10c-gate-packet.md`.
 - Gate packet: `handoffs/wave-10-design-gate-packet.md`
-- Doc accepted Wave 10 design on 2026-08-04, Wave 10a on 2026-08-04, Wave 10b
+- Alex accepted Wave 10 design on 2026-08-04, Wave 10a on 2026-08-04, Wave 10b
   on 2026-08-04, and Wave 10c on 2026-08-04. Wave 10 has no remaining
   implementation subwave; release qualification, live services, Mint,
   `apply`, commit, push, and deploy remain unauthorized until a separate

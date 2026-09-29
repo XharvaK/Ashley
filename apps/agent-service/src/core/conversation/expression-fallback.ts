@@ -162,7 +162,7 @@ export function minimalExpressionContext(
             urgency: decision.urgency,
           }).trim()}`
       : "",
-    "Write only the message Doc will see.",
+    "Write only the message Alex will see.",
     "Minimal identity profile applies; do not invent or fabricate.",
     `Current user message follows once:`,
     current,

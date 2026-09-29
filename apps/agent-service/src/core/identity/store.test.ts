@@ -89,6 +89,22 @@ describe("nuclear identity", () => {
     expect(block).not.toContain("does not need false closure");
   });
 
+  it("renames the Owner in the seeded value in place", () => {
+    const db = openNuclearDb(new DatabaseSync(":memory:"));
+    const now = new Date().toISOString();
+    db.prepare(
+      `INSERT INTO identity_entries
+         (owner_id, layer, kind, text, source, revised_from, created_at, updated_at)
+       VALUES (?, 'stable', 'value', ?, 'seeded', NULL, ?, ?)`,
+    ).run("doc", "warmth without syrup; protect Doc's agency", now, now);
+    db.prepare(`INSERT INTO kv (key, value) VALUES (?, ?)`).run("nuclear.identity.seed.doc", "5");
+    seedIdentity(db, "doc");
+    const texts = (db.prepare(
+      `SELECT text FROM identity_entries WHERE owner_id = 'doc' AND text LIKE 'warmth without syrup%'`,
+    ).all() as Array<{ text: string }>).map((row) => row.text);
+    expect(texts).toEqual(["warmth without syrup; protect Alex's agency"]);
+  });
+
   it("keeps the newest opinion after a revision", () => {
     const db = openNuclearDb(new DatabaseSync(":memory:"));
     reviseOpinion(db, {

@@ -649,7 +649,7 @@ effect meaning, admission, credential references, approvals, prepare,
 revalidation, commit, receipts, witnesses, reconciliation, and human handoff.
 
 Computer Use is one mechanism consumer. Sandbox M7 is an engineering-specific
-authority domain. When an engineering effect also represents Doc externally,
+authority domain. When an engineering effect also represents Alex externally,
 both authority systems must admit it. Neither grant implies the other.
 
 ## 8. Framework and OSS disposition

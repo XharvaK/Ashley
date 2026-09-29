@@ -90,7 +90,7 @@ describe("Growth V1 G4 mood", () => {
 
 describe("Growth V1 G4 expectations", () => {
   it("records, checks in a later cycle, and expires after two weeks", () => withStores((sidecar) => {
-    const [first, second] = recordExpectations(sidecar, { cycleId: "c1", statements: ["Doc will like the long take", "Doc will reply tonight"], dataClassification: "ordinary", nowMs: T0 });
+    const [first, second] = recordExpectations(sidecar, { cycleId: "c1", statements: ["Alex will like the long take", "Alex will reply tonight"], dataClassification: "ordinary", nowMs: T0 });
     // Not in the cycle that made it: nothing has happened yet.
     expect(checkExpectations(sidecar, { cycleId: "c1", checks: [{ expectationId: first!, outcome: "missed", lesson: "x" }], nowMs: T0 })).toEqual([]);
     expect(checkExpectations(sidecar, { cycleId: "c2", checks: [{ expectationId: first!, outcome: "missed", lesson: "I overestimate how much he likes long takes" }], nowMs: T0 + HOUR }))
@@ -211,9 +211,9 @@ describe("Growth V1 G4 revision engine", () => {
   }));
 
   it("counts a checked expectation as self-evidence", () => withStores((sidecar) => {
-    const [id] = recordExpectations(sidecar, { cycleId: "c1", statements: ["Doc will enjoy the Basic Channel piece"], dataClassification: "ordinary", nowMs: T0 });
+    const [id] = recordExpectations(sidecar, { cycleId: "c1", statements: ["Alex will enjoy the Basic Channel piece"], dataClassification: "ordinary", nowMs: T0 });
     const self = selfEvidence(sidecar, "self:x", "I get excited sharing music history.", T0);
-    const proposal = { layer: "opinion" as const, topic: "sharing music history", text: "Doc likes music history", rationale: "r", evidenceRefs: [id!, self] };
+    const proposal = { layer: "opinion" as const, topic: "sharing music history", text: "Alex likes music history", rationale: "r", evidenceRefs: [id!, self] };
     const open = propose(sidecar, null, "c2", proposal, T0) as { revisionId: number };
     // An unchecked expectation proves nothing yet: only the self-evidence counts.
     expect(evaluateRevisions(sidecar, null, T0).applied).toEqual([]);
@@ -229,8 +229,8 @@ describe("Growth V1 G4 recordGrowth and the forget cascade", () => {
     const result = recordGrowth(sidecar, {
       cycleId: "c1",
       claim: {
-        appraisal: { note: "Doc's news about the interview made me glad", valence: 0.4, energy: 0.2 },
-        expectations: ["Doc will tell me how the interview went on Friday"],
+        appraisal: { note: "Alex's news about the interview made me glad", valence: 0.4, energy: 0.2 },
+        expectations: ["Alex will tell me how the interview went on Friday"],
       },
       identityStore: store,
       dataClassification: "ordinary",
@@ -238,8 +238,8 @@ describe("Growth V1 G4 recordGrowth and the forget cascade", () => {
     });
     expect(result).toMatchObject({ appraised: true, expectations: [expect.stringMatching(/^expectation:/)] });
     const growth = growthForThought(sidecar, store, T0);
-    expect(growth.mood).toMatchObject({ valence: 0.3, energy: 0.7, reason: "Doc's news about the interview made me glad" });
-    expect(growth.expectations).toEqual([expect.objectContaining({ statement: "Doc will tell me how the interview went on Friday" })]);
+    expect(growth.mood).toMatchObject({ valence: 0.3, energy: 0.7, reason: "Alex's news about the interview made me glad" });
+    expect(growth.expectations).toEqual([expect.objectContaining({ statement: "Alex will tell me how the interview went on Friday" })]);
     expect(growth.self?.map((entry) => entry.kind).sort()).toEqual(["boundary", "boundary", "taste", "taste", "trait", "value", "value", "value"]);
   }));
 
@@ -249,7 +249,7 @@ describe("Growth V1 G4 recordGrowth and the forget cascade", () => {
     const b = selfEvidence(sidecar, "self:k2", "Still happy about the trip.", T0 + HOUR);
     const { revisionId } = propose(sidecar, nuclear, "c1", { layer: "trait", topic: "travel", text: "loves planning trips to Kyoto", rationale: "Kyoto again", evidenceRefs: [a, b] }, T0) as { revisionId: number };
     recordAppraisal(sidecar, { cycleId: "c1", appraisal: { note: "Kyoto!", valence: 0.2 }, dataClassification: "ordinary", nowMs: T0 });
-    recordExpectations(sidecar, { cycleId: "c1", statements: ["Doc will book Kyoto"], dataClassification: "ordinary", nowMs: T0 });
+    recordExpectations(sidecar, { cycleId: "c1", statements: ["Alex will book Kyoto"], dataClassification: "ordinary", nowMs: T0 });
 
     // Pretend the revision applied, then check the identity cleanup the confirm path runs.
     sidecar.prepare("UPDATE growth_revisions SET status = 'applied' WHERE revision_id = ?").run(revisionId);

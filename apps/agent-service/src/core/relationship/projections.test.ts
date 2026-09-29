@@ -41,7 +41,7 @@ describe("C5 shared-culture projections", () => {
   it("keeps source truth unchanged while observe and dark-apply projections vary only by mode provenance", () => {
     const db = openNuclearDb(new DatabaseSync(":memory:"));
     try {
-      const ownerAssertion = addAssertion(db, "owner_model", "Doc enjoys modular synthesis.");
+      const ownerAssertion = addAssertion(db, "owner_model", "Alex enjoys modular synthesis.");
       const ashleyAssertion = addAssertion(db, "ashley_side", "Ashley enjoys modular synthesis.");
       const before = db.prepare(
         `SELECT id, termination_reason, authority_from, authority_to, claim_text
@@ -73,7 +73,7 @@ describe("C5 shared-culture projections", () => {
   it("keeps secret sources out and reports private Thought versus owner commitments policy separately", () => {
     const db = openNuclearDb(new DatabaseSync(":memory:"));
     try {
-      addAssertion(db, "owner_model", "Doc enjoys private signal design.");
+      addAssertion(db, "owner_model", "Alex enjoys private signal design.");
       addAssertion(db, "ashley_side", "Ashley enjoys private signal design.", "secret");
       const projection = recomputeSharedCulture(db, OWNER, {
         at: new Date("2026-08-20T12:00:00.000Z"),
@@ -99,7 +99,7 @@ describe("C5 shared-culture projections", () => {
         text: "Ashley enjoys modular synthesis.",
         source: "manual",
       });
-      const ownerAssertion = addAssertion(db, "owner_model", "Doc enjoys modular synthesis.");
+      const ownerAssertion = addAssertion(db, "owner_model", "Alex enjoys modular synthesis.");
       recomputeSharedCulture(db, OWNER, { at: new Date("2026-08-20T12:00:00.000Z") });
       const identityBefore = listIdentity(db, OWNER).map((entry) => ({
         id: entry.id,

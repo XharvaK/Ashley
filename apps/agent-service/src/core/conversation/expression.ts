@@ -217,7 +217,7 @@ export async function expressSpeak(
 
   const userContentParts = [
     turn.decisionPrompt,
-    "Write only the message Doc will see.",
+    "Write only the message Alex will see.",
     "Use Decision metadata as intent, not as text to repeat.",
     "Current user message follows once:",
     current,

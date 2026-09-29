@@ -48,7 +48,7 @@ export type AttachmentRef = {
 };
 
 export type Intake = {
-  /** What the agent sees as Doc's turn. */
+  /** What the agent sees as Alex's turn. */
   text: string;
   /** Structured attachment refs for agent-service perception intake. */
   attachments: AttachmentRef[];
@@ -252,7 +252,7 @@ export function describeIntake(message: Message): Intake {
     parts.push(`(shared ${imageCount} image(s))`);
   }
   if (notes.length > 0) {
-    parts.push(`(Doc sent ${notes.join(", ")}.)`);
+    parts.push(`(Alex sent ${notes.join(", ")}.)`);
   }
 
   const result: Intake = {

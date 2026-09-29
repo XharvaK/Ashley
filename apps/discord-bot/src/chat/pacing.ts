@@ -3,7 +3,7 @@
  * Mistral already spends 1 to 5 seconds there and a human would have been typing
  * through it.
  *
- * Target band: 3–10s by next-bubble length (Doc locked 2026-08-01).
+ * Target band: 3–10s by next-bubble length (Alex locked 2026-08-01).
  */
 export const PACE_BUDGET_MS = 20_000;
 
@@ -11,7 +11,7 @@ const MIN_MS = 3_000;
 const MAX_MS = 10_000;
 
 /**
- * `tempoGapMs` is how long Doc took to send this message after his previous one.
+ * `tempoGapMs` is how long Alex took to send this message after his previous one.
  * Char length dominates; rapid-fire from him slightly shortens the band.
  */
 export function bubbleDelayMs(params: {
@@ -50,7 +50,7 @@ export function sleepAbortable(ms: number, signal: AbortSignal): Promise<void> {
   });
 }
 
-/** Per-channel record of how fast Doc is going. */
+/** Per-channel record of how fast Alex is going. */
 export class TempoTracker {
   private readonly last = new Map<string, number>();
   private readonly gaps = new Map<string, number | null>();

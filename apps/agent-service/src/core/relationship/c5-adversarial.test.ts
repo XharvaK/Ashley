@@ -35,7 +35,7 @@ describe("C5 adversarial boundaries", () => {
         derivationKind: "observed",
         supportState: "supported",
         influenceClass: "I1",
-        claimText: "Doc is interested in careful compilers.",
+        claimText: "Alex is interested in careful compilers.",
         sourceKind: "c5_adversarial_fixture",
         recordedAt: "2026-08-20T10:00:00.000Z",
         authorityFrom: "2026-08-20T10:00:00.000Z",

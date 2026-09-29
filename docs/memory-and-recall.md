@@ -128,6 +128,23 @@ Evidence a forget removes stops counting toward any revision, and a
 growth claim on a settlement a forget already redacted is not recorded. Diary entries and narratives that mention the topic lose
 their words.
 
+Only the afterglow checks for a forget that lands mid-pass today; a Thought
+already in flight elsewhere can still publish what it saw (repair R2 in the
+2026-09-29 improvement pack).
+
+**Decided direction (Owner, 2026-09-29; not yet built).** Forgetting becomes
+semantic and Alex-only (Stewardship Compact `SC-FGT-*`, `SC-ADM-*`): Alex asks
+in plain words; Ashley names what the request covers and asks for a yes; the
+Host erases those records and everything derived from them, with an
+exact-phrase sweep of raw logs as the floor; anything in flight that saw them
+is refused and re-runs. She complies and may say how she feels. A forget is
+never silent: she may know that something was forgotten, not what. `/forget`
+retires when this lands. Nothing leaves her records by age alone.
+
+**Who can read what.** Alex can read her memories, diary, activity journal,
+mood and "who I am becoming", and Ashley knows this (Ethics `ETH-VIS-*`).
+Contacts, once they exist, see none of it.
+
 ## Legacy nuclear memory (pre-v0.2.1)
 
 The sections below describe the retired nuclear runtime and are kept for

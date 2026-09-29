@@ -1,6 +1,6 @@
 /**
  * Reactions are the loudest cheap signal she has, and cheap is the problem: an
- * emoji echoing the one Doc just used reads as mirroring, not as a person
+ * emoji echoing the one Alex just used reads as mirroring, not as a person
  * responding. The model is asked to be sparing; this enforces it.
  */
 import { reportEmojiWeight } from "../agent-client.js";

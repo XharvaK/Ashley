@@ -401,8 +401,8 @@ describe("v0.2.1 Thought run", () => {
     appendOwnerUtterance(sidecar, { conversationId, text: "we should plan the Kyoto trip", nowMs: NOW - 45 * MINUTE, audienceAtCapture: "owner_private" });
     appendAshleyEvidence(sidecar, { conversationId, text: "spring or autumn?", nowMs: NOW - 44 * MINUTE, delivered: true, audienceAtCapture: "owner_private" });
     const reflection = {
-      episode: { summary: "Doc and I started planning a spring trip to Kyoto.", salience: 0.8, tone: "excited", unresolvedThreads: ["which month"] },
-      threadStory: "Doc and I talk most days. Right now we are planning a spring trip to Kyoto.",
+      episode: { summary: "Alex and I started planning a spring trip to Kyoto.", salience: 0.8, tone: "excited", unresolvedThreads: ["which month"] },
+      threadStory: "Alex and I talk most days. Right now we are planning a spring trip to Kyoto.",
     };
     let calls = 0;
     const completeChat = vi.fn<KernelDeps["completeChat"]>(async () => ({
@@ -551,7 +551,7 @@ describe("v0.2.1 Thought run", () => {
           appendAshleyEvidence(sidecar, { conversationId, text: `earlier note ${index}`, nowMs: NOW - 60_000 + index, producingCycleId: earlier.cycleId, delivered: true, audienceAtCapture: "owner_private" });
         }
         const completeChat = vi.fn<KernelDeps["completeChat"]>(async () => ({
-          text: JSON.stringify(makeSemanticSettlement({ interactionIntent: "initiate", journal: { activity: "reach_out", entry: "Told Doc hello." } })),
+          text: JSON.stringify(makeSemanticSettlement({ interactionIntent: "initiate", journal: { activity: "reach_out", entry: "Told Alex hello." } })),
           model: "fake", modelAlias: "thought", resolvedModelId: null,
         }));
         let outboxId: number | null | undefined;
@@ -575,14 +575,14 @@ describe("v0.2.1 Thought run", () => {
     }
   });
 
-  it("keeps Doc's strongest memories in view and strengthens the ones Thought uses", async () => {
+  it("keeps Alex's strongest memories in view and strengthens the ones Thought uses", async () => {
     const sidecar = openTestSidecar();
     const attentionDb = openTestSidecar();
     const nuclear = openNuclearDb(new DatabaseSync(":memory:"));
     const conversationId = "thread-core-profile";
     upsertMemoryAssertion(sidecar, {
       assertionKey: "memory-cilantro",
-      statement: "Doc can't stand cilantro; it tastes like soap to him.",
+      statement: "Alex can't stand cilantro; it tastes like soap to him.",
       memoryKind: "owner_preference",
       dimensions: { source: "owner_utterance", status: "asserted", time: "unknown_freshness", reliability: "owner_supplied" },
       dataClassification: "ordinary",

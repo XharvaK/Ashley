@@ -2,7 +2,7 @@
   "name": "project-ashley",
   "private": true,
   "version": "0.2.0",
-  "description": "Project Ashley — Discord companion (Mistral + nuclear local memory)",
+  "description": "Project Ashley — a persistent Discord companion on the v0.2.1 cognitive kernel",
   "scripts": {
     "dev": "powershell -ExecutionPolicy Bypass -File scripts/dev.ps1",
     "dev:discord": "powershell -ExecutionPolicy Bypass -File scripts/dev.ps1 -Discord",

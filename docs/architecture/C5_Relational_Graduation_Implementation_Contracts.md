@@ -101,7 +101,7 @@ after current overlap ends.
 
 Fixture, `relational_graduation` unpromoted, dark-apply:
 
-1. Doc makes an explicit bounded proposal.
+1. Alex makes an explicit bounded proposal.
 2. Ashley independently accepts or declines (Agency). Identity not
    auto-edited.
 3. Bilateral evidence is recorded before mutual activation
@@ -182,7 +182,7 @@ timestamps.
 
 | State | Owner |
 |---|---|
-| Owner-side assertions (about Doc) | Memory / Evidence `owner_model` |
+| Owner-side assertions (about Alex) | Memory / Evidence `owner_model` |
 | Ashley-side values/boundaries | Identity |
 | Ashley self-commitments | `ashley_self_commitments` (Relationship) |
 | Owner reminders | `doc_reminders` |
@@ -380,7 +380,7 @@ revocation, expiry, and supersession evidence with:
 - supersession;
 - derived eligibility.
 
-Consent from Doc and consent from Ashley remain party-specific. One
+Consent from Alex and consent from Ashley remain party-specific. One
 must not stand in for the other.
 
 Consent must not be inferred from time, silence, continued use,
@@ -480,7 +480,7 @@ Append-only events plus derived view. Event row: `id`,
 (`grant` \| `revoke` \| `expire` \| `supersede`),
 `supersedes_consent_id` nullable. `current_eligible` is computed from
 open intervals and later revoke/expire/supersede events. Not a stored
-authority flag. Doc consent and Ashley consent are distinct grantors.
+authority flag. Alex consent and Ashley consent are distinct grantors.
 
 ### 10.4 Repair
 

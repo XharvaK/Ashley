@@ -1,6 +1,6 @@
 /**
  * The em dash ban is a prompt rule the model breaks a few percent of the time,
- * and once is enough for Doc to hear the assistant underneath. Same for smart
+ * and once is enough for Alex to hear the assistant underneath. Same for smart
  * quotes: no messenger types them. So the prompt asks and this enforces.
  */
 function sanitizeSegment(text: string): string {

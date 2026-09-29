@@ -110,20 +110,20 @@ describe("afterglow pass", () => {
         cycleId: input.cycle.cycleId,
         pass: pass!,
         reflection: {
-          episode: { summary: "Doc and I started planning a spring trip to Kyoto.", salience: 0.8, tone: "excited", takeaway: "He lights up about travel." },
-          threadStory: "Doc and I are planning a spring trip to Kyoto.",
+          episode: { summary: "Alex and I started planning a spring trip to Kyoto.", salience: 0.8, tone: "excited", takeaway: "He lights up about travel." },
+          threadStory: "Alex and I are planning a spring trip to Kyoto.",
         },
         nowMs: T0 + 40 * MINUTE,
       })).toBe("reflected");
 
       const [episode] = listRecentEpisodes(db, 5);
-      expect(episode).toMatchObject({ summary: "Doc and I started planning a spring trip to Kyoto.", salience: 0.8 });
+      expect(episode).toMatchObject({ summary: "Alex and I started planning a spring trip to Kyoto.", salience: 0.8 });
       expect(episode?.evidenceRowIds).toEqual([first.rowId, second.rowId]);
-      expect(getThreadStory(db, CONVERSATION)?.story).toBe("Doc and I are planning a spring trip to Kyoto.");
+      expect(getThreadStory(db, CONVERSATION)?.story).toBe("Alex and I are planning a spring trip to Kyoto.");
       expect(listUnreflectedRows(db, CONVERSATION, 10).map((row) => row.rowId)).toEqual([later.rowId]);
 
       // Completion is idempotent: a replay writes nothing twice.
-      completeAfterglow(db, { conversationId: CONVERSATION, cycleId: input.cycle.cycleId, pass: pass!, reflection: { episode: { summary: "Doc and I started planning a spring trip to Kyoto.", salience: 0.8 } }, nowMs: T0 + 41 * MINUTE });
+      completeAfterglow(db, { conversationId: CONVERSATION, cycleId: input.cycle.cycleId, pass: pass!, reflection: { episode: { summary: "Alex and I started planning a spring trip to Kyoto.", salience: 0.8 } }, nowMs: T0 + 41 * MINUTE });
       expect(listRecentEpisodes(db, 5)).toHaveLength(1);
     } finally {
       db.close();
@@ -203,7 +203,7 @@ describe("afterglow pass", () => {
         conversationId: CONVERSATION,
         cycleId: input.cycle.cycleId,
         pass: afterglowPassFromPayload(input.event?.payload)!,
-        reflection: { episode: { summary: "Doc told me his password hint.", salience: 0.4 }, threadStory: "Doc shared his password hint." },
+        reflection: { episode: { summary: "Alex told me his password hint.", salience: 0.4 }, threadStory: "Alex shared his password hint." },
         nowMs: T0 + 41 * MINUTE,
       })).toBe("forget_race");
       expect(listRecentEpisodes(db, 5)).toEqual([]);

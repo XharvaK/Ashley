@@ -2,12 +2,14 @@
  * Authoritative sandbox authorization.
  *
  * Flow contract: the language model never authorizes or signs an operation.
- * Model output is an untrusted proposal. This module computes the decision
- * for a request that is assumed to be (or to become) properly signed by the
- * identified signer: agent-service uses it for preliminary validation and
- * policy precheck; the broker recomputes it independently and is the final
- * authority. Signature verification, signer mapping and trusted-key
- * configuration are broker-integration concerns outside this module.
+ * Model output is an untrusted proposal.
+ *
+ * This function was written for the Sandbox V1 broker flow. Sandbox V2 has
+ * no broker, and in current source nothing outside tests calls
+ * authorizeSandboxOperation: the V2 executors in apps/sandbox-v2 enforce
+ * their own typed contracts and use this package's other exports (canonical
+ * paths, project-root registry validation). Do not read this module as the
+ * live authorization path.
  *
  * The owner may not override an absolute denial, and identity proposal
  * approval never authorizes sandbox execution.

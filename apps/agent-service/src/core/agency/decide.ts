@@ -228,7 +228,7 @@ function makeDecision(
     };
     if (ownTime.status === "reportable_takes") {
       finalKind = "share";
-      finalReason = "Share what stood out while Doc was away.";
+      finalReason = "Share what stood out while Alex was away.";
       for (const takeId of ownTime.selectedTakeIds) {
         evidenceRefs.push({ type: "take", id: takeId });
       }
@@ -239,7 +239,7 @@ function makeDecision(
       };
     } else {
       finalKind = "speak";
-      finalReason = "Answer Doc's ask about what happened while they were away.";
+      finalReason = "Answer Alex's ask about what happened while they were away.";
     }
   }
 

@@ -1576,7 +1576,7 @@ export function createServer(
         typeof reviewId !== "number" ||
         !decision || !["approve", "reject", "defer"].includes(decision)
       ) {
-        throw new AppError("message_required", "Doc review fields required", 400);
+        throw new AppError("message_required", "Alex review fields required", 400);
       }
       res.json(manager.core.recordDocIdentityDecision({
         ownerId, reviewId, decision, rationale,
@@ -1750,7 +1750,7 @@ export function createServer(
         !decision ||
         !["approve", "reject", "defer"].includes(decision)
       ) {
-        throw new AppError("message_required", "Doc decision fields required", 400);
+        throw new AppError("message_required", "Alex decision fields required", 400);
       }
       res.json(
         manager.core.recordChangeProposalDocDecision({ ownerId, entityUuid, decision }),

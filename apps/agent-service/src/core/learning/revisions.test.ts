@@ -183,7 +183,7 @@ describe("bounded identity growth", () => {
     db.close();
   });
 
-  it("keeps foundational values in joint review until Ashley affirms and Doc approves", () => {
+  it("keeps foundational values in joint review until Ashley affirms and Alex approves", () => {
     const db = openNuclearDb(new DatabaseSync(":memory:"));
     const episodeId = seedLiveEpisode(db, "doc");
     const revisionId = proposeRevision(db, {

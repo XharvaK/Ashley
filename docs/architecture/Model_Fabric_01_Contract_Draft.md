@@ -1345,7 +1345,7 @@ Any later engineering-model migration MUST begin from current source and the
 accepted Sandbox boundary. It must re-audit the live `ThinkingModel` and
 `EngineeringExecutionPort` contracts before changing their semantics.
 
-## Open questions for Doc/GPT
+## Open questions for Alex/GPT
 
 The MF-M1 contract choices are resolved. Remaining implementation or
 environment questions are:

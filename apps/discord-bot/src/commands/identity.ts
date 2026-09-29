@@ -4,7 +4,7 @@ import { decideIdentityReview, identityReviews } from "../agent-client.js";
 export function renderReview(review: Awaited<ReturnType<typeof identityReviews>>["reviews"][number]): string {
   const status = review.appliedAt
     ? "applied"
-    : `Ashley: ${review.ashleyPosition ?? "pending"}; Doc: ${review.docDecision ?? "pending"}`;
+    : `Ashley: ${review.ashleyPosition ?? "pending"}; Alex: ${review.docDecision ?? "pending"}`;
   const lines = [`#${review.id} ${review.targetKind}: ${review.targetKey}`];
   if (review.previousValue) lines.push(`was: ${review.previousValue}`);
   lines.push(review.proposedValue);
@@ -35,7 +35,7 @@ export async function execute(
   const result = await decideIdentityReview(reviewId, decision, rationale);
   await interaction.editReply(
     result.recorded
-      ? `Recorded Doc's ${decision} decision for identity review #${reviewId}.${result.applied ? " Ashley had affirmed it, so it is now part of her identity." : ""}`
+      ? `Recorded Alex's ${decision} decision for identity review #${reviewId}.${result.applied ? " Ashley had affirmed it, so it is now part of her identity." : ""}`
       : `Identity review #${reviewId} was not found or is no longer open.`,
   );
 }

@@ -10,7 +10,7 @@ describe("afterglow reflection in a settlement", () => {
   it("accepts an episode and a thread story in Ashley's words", () => {
     expect(parse({
       episode: { summary: "We planned Kyoto.", salience: 0.7, tone: "warm", unresolvedThreads: ["which month"], takeaway: "Travel lights him up." },
-      threadStory: "Doc and I are planning a spring trip.",
+      threadStory: "Alex and I are planning a spring trip.",
     }).ok).toBe(true);
     expect(parse({ threadStory: "Only the story changed." }).ok).toBe(true);
   });

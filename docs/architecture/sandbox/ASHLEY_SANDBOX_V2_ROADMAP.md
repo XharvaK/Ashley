@@ -790,7 +790,7 @@ packages, releases, and named engineering services. It does not own:
 - arbitrary external service actions.
 
 Those belong to External Effect and Authority and Computer Use. If an engineering effect
-also creates an external commitment or represents Doc, both contracts apply.
+also creates an external commitment or represents Alex, both contracts apply.
 Sandbox authority alone is insufficient.
 
 Canonical later-phase names omit `-01`. Mentions of `MODEL-FABRIC-01` and similar
@@ -880,7 +880,7 @@ acceptance without the acceptance decision.
 `Release-qualified`, and `release-qualified` spellings refer to the same
 `RELEASE_QUALIFIED` stage and do not add authority.
 
-Historical `Wave_accepted` means Doc accepted the named Wave gate packet. It
+Historical `Wave_accepted` means Alex accepted the named Wave gate packet. It
 does not automatically mean independently reviewed, physically qualified,
 release-qualified, deployed, promoted, witnessed, or production accepted. Future
 M-series work uses this ladder. Historical Wave labels remain unchanged as

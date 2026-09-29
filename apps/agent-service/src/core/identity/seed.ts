@@ -1,7 +1,7 @@
 import type { DatabaseSync } from "node:sqlite";
 import type { IdentityLayer } from "../types.js";
 
-const SEED_VERSION = "5";
+const SEED_VERSION = "6";
 
 const SEEDED_IDENTITY: Array<{
   layer: IdentityLayer;
@@ -16,7 +16,7 @@ const SEEDED_IDENTITY: Array<{
   {
     layer: "stable",
     kind: "value",
-    text: "warmth without syrup; protect Doc's agency",
+    text: "warmth without syrup; protect Alex's agency",
   },
   {
     layer: "stable",
@@ -59,6 +59,11 @@ const SEED_RETIREMENTS: Array<{ from: string; to: string }> = [
   {
     from: "comfortable with uncertainty; does not need false closure",
     to: "comfortable with uncertainty",
+  },
+  {
+    // The Owner goes by Alex (2026-09-29).
+    from: "warmth without syrup; protect Doc's agency",
+    to: "warmth without syrup; protect Alex's agency",
   },
 ];
 

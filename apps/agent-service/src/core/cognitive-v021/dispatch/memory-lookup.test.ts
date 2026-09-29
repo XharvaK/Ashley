@@ -51,9 +51,9 @@ function setup() {
     authorityEpoch: 1,
     nowMs: 1,
   });
-  remember(sidecar, "cilantro", "owner_preference", "Doc can't stand cilantro.", 0.4);
-  remember(sidecar, "cilantro-soap", "owner_preference", "To Doc cilantro tastes like soap.", 0.9);
-  remember(sidecar, "trip", "owner_goal", "Doc plans a trip to Kyoto in spring.", 0.8);
+  remember(sidecar, "cilantro", "owner_preference", "Alex can't stand cilantro.", 0.4);
+  remember(sidecar, "cilantro-soap", "owner_preference", "To Alex cilantro tastes like soap.", 0.9);
+  remember(sidecar, "trip", "owner_goal", "Alex plans a trip to Kyoto in spring.", 0.8);
   remember(sidecar, "forgotten", "owner_preference", REDACTED_MEMORY_STATEMENT, 1);
   const executor = createV021LiveOperationExecutors({ nuclear, sidecar, ownerId: OWNER });
   return { sidecar, nuclear, executor };
@@ -73,7 +73,7 @@ describe("memory.lookup", () => {
       kind: "observation_intent",
       operationKind: "memory.lookup",
       request: value,
-      purpose: "remember what Doc said about food",
+      purpose: "remember what Alex said about food",
       evidenceNeed: "my own memories",
       existingRefs: [],
     });
@@ -106,12 +106,12 @@ describe("memory.lookup", () => {
         conversationId: "thread-lookup",
         cycleId: "cycle-episode",
         rows: [{ rowId: row.rowId, createdAtMs: 5, dataClassification: "ordinary" }],
-        reflection: { summary: "Doc groaned about cilantro on his tacos.", salience: 0.5 },
+        reflection: { summary: "Alex groaned about cilantro on his tacos.", salience: 0.5 },
         nowMs: 6,
       });
       const observation = await executor.executeObservation(request({ query: "cilantro" }));
       expect((observation.payload as { episodes?: Array<{ summary: string }> }).episodes?.map((episode) => episode.summary))
-        .toEqual(["Doc groaned about cilantro on his tacos."]);
+        .toEqual(["Alex groaned about cilantro on his tacos."]);
       const goals = await executor.executeObservation(request({ query: "cilantro", kinds: ["owner_goal"] }));
       expect((goals.payload as { episodes?: unknown }).episodes).toBeUndefined();
     } finally {
@@ -123,13 +123,13 @@ describe("memory.lookup", () => {
   it("narrows by kind and pages with a scoped cursor", async () => {
     const { sidecar, nuclear, executor } = setup();
     try {
-      const goals = await executor.executeObservation(request({ query: "Doc", kinds: ["owner_goal"] }));
+      const goals = await executor.executeObservation(request({ query: "Alex", kinds: ["owner_goal"] }));
       expect((goals.payload as { memories: Array<{ key: string }> }).memories.map((memory) => memory.key)).toEqual(["trip"]);
 
-      const first = await executor.executeObservation(request({ query: "Doc", limit: 1 }));
+      const first = await executor.executeObservation(request({ query: "Alex", limit: 1 }));
       const cursor = (first.payload as { nextCursor: string }).nextCursor;
       expect(cursor).toMatch(/^v1\./);
-      const second = await executor.executeObservation(request({ query: "Doc", limit: 1, cursor }));
+      const second = await executor.executeObservation(request({ query: "Alex", limit: 1, cursor }));
       expect((second.payload as { memories: Array<{ key: string }> }).memories).toHaveLength(1);
       await expect(executor.executeObservation(request({ query: "trip", limit: 1, cursor }))).rejects.toThrow(/cursor/);
     } finally {

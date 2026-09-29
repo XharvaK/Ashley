@@ -34,7 +34,7 @@ describe("episodic memory", () => {
     const episode = createEpisode(db, {
       ownerId: "doc",
       threadId,
-      summary: "Doc has a modular synth performance next Friday and Ashley wants to revisit it.",
+      summary: "Alex has a modular synth performance next Friday and Ashley wants to revisit it.",
       entities: ["modular synth", "performance"],
       messageIds: [first, second],
       salience: 0.9,
@@ -106,7 +106,7 @@ describe("episodic memory", () => {
     const retained = createEpisode(db, {
       ownerId: "doc",
       threadId,
-      summary: "Doc repeated the project codename Orchid.",
+      summary: "Alex repeated the project codename Orchid.",
       messageIds: [secondMessage, secondReply],
     })!;
     const factId = upsertFact(db, {

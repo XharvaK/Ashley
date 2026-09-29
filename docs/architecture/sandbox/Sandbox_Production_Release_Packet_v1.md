@@ -92,10 +92,10 @@ and docs/Wave_Acceptance_Protocol.md:12-21, 104-132.
 The required order is:
 
 1. Natural Recall canary passes and is recorded by the owner.
-2. Doc explicitly authorizes sandbox release qualification.
+2. Alex explicitly authorizes sandbox release qualification.
 3. Mint host, policy, key custody, peer boundary, namespace isolation,
    execution, receipt, negative, and rollback evidence is collected.
-4. Doc makes the separate keep, disable, or release decision.
+4. Alex makes the separate keep, disable, or release decision.
 
 No step below changes that order.
 
@@ -346,8 +346,8 @@ remain open:
 
 Before any future qualification action:
 
-- Doc has recorded the natural Recall canary as PASS.
-- Doc has separately authorized SBX-REL-01 Mint release qualification.
+- Alex has recorded the natural Recall canary as PASS.
+- Alex has separately authorized SBX-REL-01 Mint release qualification.
 - The exact source SHA, package lock state, built artifact hashes, and target
   host checkout are frozen and recorded.
 - No private key, passphrase, .env value, production database, or provider
@@ -376,7 +376,7 @@ network, key, service, broker, or delegated-execution authority.
 
 PRECONDITION
 
-- Ashley's natural Recall canary is complete and Doc has recorded PASS.
+- Ashley's natural Recall canary is complete and Alex has recorded PASS.
 
 READ-ONLY CHECKS
 
@@ -386,7 +386,7 @@ READ-ONLY CHECKS
 
 AUTHORIZED ACTION — FUTURE ONLY
 
-- None. Doc may authorize the next phase separately.
+- None. Alex may authorize the next phase separately.
 
 EXPECTED STATE
 
@@ -674,7 +674,7 @@ ROLLBACK CONDITION
 
 PRECONDITION
 
-- Phases 0–7 PASS or have explicit documented exceptions accepted by Doc.
+- Phases 0–7 PASS or have explicit documented exceptions accepted by Alex.
 
 READ-ONLY CHECKS
 
@@ -687,7 +687,7 @@ READ-ONLY CHECKS
 
 AUTHORIZED ACTION — FUTURE ONLY
 
-- Doc chooses HOLD, DISABLE, or a separately documented Release_qualified
+- Alex chooses HOLD, DISABLE, or a separately documented Release_qualified
   decision. This packet does not make that decision.
 
 EXPECTED STATE
@@ -858,7 +858,7 @@ The following remain unknown because no live host was contacted:
 - R5B active-probe result and namespace-scoped /proc/net/dev evidence.
 - Production agent adapter/runtime wiring, if a future scope expects more than
   the standalone one-shot qualification driver.
-- The human-recorded natural Recall canary result and final Doc release
+- The human-recorded natural Recall canary result and final Alex release
   decision.
 
 ## Human release decision
@@ -867,7 +867,7 @@ Current decision: HOLD.
 
 Preparation is PASS. Production release is BLOCKED.
 
-Doc must explicitly choose one of:
+Alex must explicitly choose one of:
 
 - HOLD — retain disabled state and gather the missing evidence.
 - DISABLE — reject this release attempt and preserve the evidence packet.

@@ -15,7 +15,7 @@ export type ActivityLicenseInput = {
 };
 
 const EMPTY_NOTE =
-  "There is no reading-claim license for this turn. Claim nothing about reading, browsing, skimming, looking something up, or naming a piece. If Doc asks directly, answer plainly that you have not read or checked it; do not turn that into a blanket claim that browsing or opening links is impossible. This note licenses claims only: it is not an execution license, never grants a capability, and never blocks a capability attempt — repository inspection and other actions are governed by the capability self-model and runtime authority, not by this note. Never mention notes, licenses, or authorization.";
+  "There is no reading-claim license for this turn. Claim nothing about reading, browsing, skimming, looking something up, or naming a piece. If Alex asks directly, answer plainly that you have not read or checked it; do not turn that into a blanket claim that browsing or opening links is impossible. This note licenses claims only: it is not an execution license, never grants a capability, and never blocks a capability attempt — repository inspection and other actions are governed by the capability self-model and runtime authority, not by this note. Never mention notes, licenses, or authorization.";
 
 function refsFromText(value: string): string[] {
   return value

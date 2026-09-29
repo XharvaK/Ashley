@@ -23,7 +23,7 @@ describe("identity command", () => {
       "was: comfortable with uncertainty",
       "comfortable with uncertainty, and says so plainly",
       "Ashley: I keep hedging less and it lands better.",
-      "Ashley: affirm; Doc: pending; evidence: 3",
+      "Ashley: affirm; Alex: pending; evidence: 3",
     ].join("\n"));
   });
 });

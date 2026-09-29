@@ -751,7 +751,15 @@ Source fact (`ASHLEY_SOURCE_VERIFIED`): `PRIVATE_THOUGHT_MAX_CALLS_PER_HOUR
 subscription, and future-trigger wakes. A Sims wake modelled on those paths
 would share the 4/hour ceiling. Reservations carry a `policyId`, so a
 separate embodiment budget is mechanically representable — setting one is
-Owner resource policy. All numeric cadences remain `UNQUALIFIED` until
+Owner resource policy.
+
+> **Update 2026-09-29.** The private budget in source is now 12 calls per
+> rolling hour (`PRIVATE_THOUGHT_MAX_CALLS_PER_HOUR`, Growth V1 §5.6); the
+> figure of 4 above is the value verified when this section was written.
+> **Owner decision:** Sims cognition uses a **separate embodiment budget**
+> policy with its own fuse, active only while a session is armed. It never
+> draws on the inner-life budget, and the inner-life budget is untouched by
+> it. Its numbers are set with E3-B1 and E3-B2 from the CA-03 packet. All numeric cadences remain `UNQUALIFIED` until
 measured (E1 + the CA-03 runtime packet: Thought latency, call usage, cost,
 practical cadence). Do not extrapolate a final Sims Thought budget
 automatically. Product warning (frozen): four decisions an hour would make
@@ -1766,7 +1774,7 @@ compatibility on 1.128 is qualified at first connection — not claimed here.
 | E2-P | trial | Pause/resume runtime qualification on the Owner client? | solo deliberation hold | lived trial | E2 |
 | E2-L | trial | Lineage mechanism runtime qualification? | current-world adoption | lived trial | E2 |
 | E3-M | inspection+trial | Memory/sourceRef provenance carriage adequate for Sims scope? | bound perception without laundering | inspection + focused test | before E3 |
-| E3-B1 | policy | Bounded observation cadence: Owner-authorized wake/heartbeat policy adequate to run E3 bound perception truthfully (exhaustion/budget behavior defined)? | E3 bound perception | Owner choice + CA-03 packet | before E3 |
+| E3-B1 | policy | Bounded observation cadence: Owner-authorized wake/heartbeat policy adequate to run E3 bound perception truthfully (exhaustion/budget behavior defined)? **Owner 2026-09-29: a separate embodiment budget with its own fuse (§9); numbers still open.** | E3 bound perception | Owner choice + CA-03 packet | before E3 |
 | E3-B2 | policy | Product co-play cadence: Owner-authorized, empirically informed cognition cadence capable of credible simultaneous co-play? The 4/hr ceiling is NOT accepted as sufficient merely because available. `PRODUCT_CRITICAL_FOR_E6`. | E6 acceptance (never before E3 — "E3 worked, therefore E6 cadence is good" is forbidden) | Owner choice + CA-03 packet | before E6 acceptance |
 | E4-CA01 | gate | Remote lifecycle compatibility incl. multi-cycle continuation? | first remote actuation | inspection + trial | before E4 |
 | E5-AUT | trial | Autonomy category control / standing-delegation fit on 1.128? | envelope activation | lived trial | E5 |
@@ -1877,7 +1885,10 @@ E1 execution directly from this master):**
 5. **CA-03 runtime packet, in parallel where appropriate** — from Mint:
    Thought turn latency (p50/p95), call usage, per-turn cost, and
    practical cadence over recent turns. Read-only; no source mutation.
-   Informs E3-B1 and E3-B2 (§20).
+   Informs E3-B1 and E3-B2 (§20). **Owner 2026-09-29:** the packet also
+   benchmarks latency and decision quality at each reasoning-effort level,
+   so the effort for in-world decisions (E4 onward) is chosen from
+   measurement, not in advance.
 
 ```text
 E1_READY_FOR_IMPLEMENTATION_PLANNING = YES

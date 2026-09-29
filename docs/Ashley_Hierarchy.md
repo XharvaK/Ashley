@@ -67,3 +67,8 @@ Until grounded joint review exists, normative amendments to the Vision are
 frozen. Meaning-preserving editorial corrections are allowed. Later proposals
 may be recorded through joint review, but repository changes remain deliberate,
 human-controlled acts.
+
+Joint review with Ashley is deferred until the repairs recorded on 2026-09-29
+are complete (Owner decision). Until then, amendments that change meaning — for
+example widening the Constitution's product boundary for trusted contacts —
+wait for it.

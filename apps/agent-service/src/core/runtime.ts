@@ -1002,7 +1002,7 @@ export class AshleyCore {
   /**
    * Exact-item shadow authorization: the owner just acted on one review, so
    * only that review's revision may cross the shadow -> behavioral boundary,
-   * and only if the joint review state (Ashley affirm + Doc approve) is
+   * and only if the joint review state (Ashley affirm + Alex approve) is
    * complete. No other shadow revision is ever eligible.
    */
   private applyReviewedRevisionIfComplete(ownerId: string, reviewId: number): void {
@@ -1128,7 +1128,7 @@ export class AshleyCore {
     // For foundational_identity, the change-proposal lifecycle requires:
     // proposed -> awaiting_ashley_position -> awaiting_doc_decision -> approved
     // For ordinary_identity: proposed -> approved (via routeToRevisions)
-    // We simulate the owner approval as the Doc decision
+    // We simulate the owner approval as the Alex decision
     const { transitionProposal } = require("./change-proposal/lifecycle.js");
     
     let result;

@@ -7,7 +7,7 @@ deployment. It complements [`Vision_Implementation_Map.md`](Vision_Implementatio
 and [`Architecture_Review_Protocol.md`](Architecture_Review_Protocol.md).
 
 **Critical rule:** Passing tests does not accept a wave. Each wave advances only
-via a gate packet plus Doc's explicit sign-off phrase. Acceptance never implies
+via a gate packet plus Alex's explicit sign-off phrase. Acceptance never implies
 `apply`, **RELEASE_QUALIFIED**, or **Deployed**.
 
 ---
@@ -31,14 +31,14 @@ flowchart TD
 
 | Stage | Meaning | Who advances |
 |-------|---------|--------------|
-| **Design accepted** | Plan/docs and authority boundaries complete | Doc says e.g. "Accept Wave 07 design" |
+| **Design accepted** | Plan/docs and authority boundaries complete | Alex says e.g. "Accept Wave 07 design" |
 | **Implementation present** | Code exists; not yet trusted | Engineering reports completion |
 | **Locally verified** | Builds, migrations, security/offline checks, targeted tests pass | Agent produces gate packet with command output |
-| **Wave accepted** | Doc explicitly accepts completion report | Doc says e.g. "Accept Wave 06" |
-| **RELEASE_QUALIFIED** | Separate Mint/live validation authorized | Doc authorizes explicitly |
-| **Deployed** | Separate deploy authorization | Doc authorizes explicitly |
+| **Wave accepted** | Alex explicitly accepts completion report | Alex says e.g. "Accept Wave 06" |
+| **RELEASE_QUALIFIED** | Separate Mint/live validation authorized | Alex authorizes explicitly |
+| **Deployed** | Separate deploy authorization | Alex authorizes explicitly |
 
-Design waves (07, 08, 09, 10) use **Design_complete** while awaiting Doc review, then
+Design waves (07, 08, 09, 10) use **Design_complete** while awaiting Alex review, then
 **Design_accepted** after explicit design sign-off. Implementation waves use the
 full ladder from **Implementation_present** onward.
 
@@ -171,9 +171,9 @@ IMPLEMENTED != ACTIVATED != PHI-READY
 
 | Gate | Meaning | Who advances |
 |------|---------|--------------|
-| **Implementation contract complete** | All 25 Phase-A packets landed. Search, page fetch, vision, PDF, and attachments may be proven only with test doubles or with an honest unavailable provider. Social delegation may be proven with temporary rows and no production grant. | Doc accepts the Phase-A closure report |
-| **Faculty activated** | Doc completed Phase C for that faculty: snapshot, deploy of an accepted candidate, migration, and the existing release, env switch, or Owner grant. | Doc authorizes explicitly |
-| **Phi-ready** | Phase D real end-to-end witnesses and the Phase E ordinary-use interval have been run by Doc. | Doc authorizes explicitly |
+| **Implementation contract complete** | All 25 Phase-A packets landed. Search, page fetch, vision, PDF, and attachments may be proven only with test doubles or with an honest unavailable provider. Social delegation may be proven with temporary rows and no production grant. | Alex accepts the Phase-A closure report |
+| **Faculty activated** | Alex completed Phase C for that faculty: snapshot, deploy of an accepted candidate, migration, and the existing release, env switch, or Owner grant. | Alex authorizes explicitly |
+| **Phi-ready** | Phase D real end-to-end witnesses and the Phase E ordinary-use interval have been run by Alex. | Alex authorizes explicitly |
 
 A faculty that exists only as a test double is **not** a real capability. An
 unavailable search provider is an acceptable Phase-A implementation result and
@@ -212,7 +212,7 @@ fails.
 
 ### Ordinary-use interval
 
-The seven-day ordinary-use window is a Doc-run review interval that follows
+The seven-day ordinary-use window is an Alex-run review interval that follows
 integration, including a restart. It is not extended until a perfect streak
 appears. If one invariant fails, repair that invariant and take a bounded
 replacement witness. If a required path was never exercised, take a targeted
@@ -221,7 +221,7 @@ tasks can run without the infrastructure confounds recorded in the source
 review memo.
 
 Running a live behavioral session, a model comparison, or a Phi invitation is
-Doc-reserved. None is authorized by reaching any gate above.
+Alex-reserved. None is authorized by reaching any gate above.
 
 ---
 
@@ -230,7 +230,7 @@ Doc-reserved. None is authorized by reaching any gate above.
 | Allowed before predecessor implementation acceptance | Blocked before predecessor implementation acceptance |
 |------------------------------------------------------|------------------------------------------------------|
 | Design-only docs (Waves 07, 08, 09, 10 design) | Implementation code, broker use, runtime wiring |
-| Design gate packets awaiting Doc design sign-off | `apply`, Mint install/user creation, release qualification, deploy |
+| Design gate packets awaiting Alex design sign-off | `apply`, Mint install/user creation, release qualification, deploy |
 
 - **Design-only work** may precede predecessor **implementation** acceptance when
   explicitly labeled design-only.
@@ -276,9 +276,9 @@ Each attributable gate packet must include:
 8. **Evidence matrix** — claim → verified file/test paths only
 9. **Open risks / follow-ups**
 10. **Status** — current ladder stage
-11. **Recommended sign-off** — exact phrase Doc should use to advance
+11. **Recommended sign-off** — exact phrase Alex should use to advance
 
-Never mark **Wave_accepted** until Doc explicitly signs off.
+Never mark **Wave_accepted** until Alex explicitly signs off.
 
 ---
 
@@ -289,7 +289,7 @@ Per-wave gate-packet records for Waves 00–10 belong to pre-publication history
 below summarize that history; they authorize nothing current.
 
 Waves 00–05 are now recorded as **Implementation_present** / `legacy_local`:
-Doc acknowledged the existing local implementation on 2026-08-04. They remain
+Alex acknowledged the existing local implementation on 2026-08-04. They remain
 outside the formal **Wave_accepted** ladder until separately verified and
 accepted.
 

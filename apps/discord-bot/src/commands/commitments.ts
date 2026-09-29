@@ -76,7 +76,7 @@ export async function execute(
   const offset = interaction.options.getInteger("offset") ?? 0;
   const summary = await getRelationshipSummary(offset);
   const lines = [
-    `Doc reminders: ${summary.docReminders}`,
+    `Alex reminders: ${summary.docReminders}`,
     `Self commitments: ${summary.selfCommitments}`,
     `Mutual active: ${summary.mutualActive} (proposed: ${summary.mutualProposed})`,
     `Open tensions: ${summary.tensions}`,
