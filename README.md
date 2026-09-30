@@ -185,9 +185,65 @@ presence. Deployed is not promoted.
 
 As a companion today, Ashley meets her owner in Discord direct messages
 with source-linked memory across exchanges. Owner slash commands include
-`/remember`, `/memory`, `/proactive`, `/identity`,
+`/remember`, `/memory`, `/proactive`, `/identity`, `/contacts`,
 `/commitments`, `/continuity`, and `/status`. Command behavior:
 [`AGENTS.md`](AGENTS.md) (slash commands table).
+
+## A life of her own: memory, inner life, growth
+
+The source implements the parts of a persistent life, each bounded and
+Owner-readable. Whether any of it is switched on in production is an
+observation, not a claim of this page.
+
+- **Memory she forms herself.** Ashley nominates memories in the same turn
+  she speaks. A memory about her owner is kept only with a verbatim quote of
+  the owner's own words; her readings of the owner are labelled as hers.
+  Memories strengthen with use and fade from recall when unused; nothing is
+  deleted by age.
+- **Recall by meaning.** Exact keys and BM25 over memories and past
+  conversation, plus an optional local embedding tier so a paraphrase finds
+  the memory it means. The embedding model runs on the host; memories never
+  leave it.
+- **Afterglow, episodes, thread story.** After a conversation goes quiet she
+  reflects on what she has not yet reflected on, writes an episode of it, and
+  rewrites the running story of the conversation.
+- **Inner life.** Her own time between conversations (AWAKE), a nightly
+  consolidation with a diary (NIGHT), an activity journal, interests she
+  lives in, a mood that moves and decays, and expectations she later checks
+  against what happened. The owner's messages always pre-empt a private pass,
+  and her own reach-outs are fused and pausable.
+- **Growth on evidence.** Opinions, tastes and traits change only on
+  independent, recurring evidence; values and boundaries change only with her
+  affirmation and the owner's approval. A weekly snapshot of who she is lets
+  slow change be read as growth rather than drift.
+- **Forgetting is semantic and the owner's.** The owner asks in plain words;
+  she says what the request covers and asks for a yes; only then does the
+  Host erase those records and everything derived from them, with an
+  exact-phrase sweep as the floor. Work already in flight that saw them is
+  refused and re-runs.
+
+Detail: [`docs/memory-and-recall.md`](docs/memory-and-recall.md) and
+[`docs/architecture/ASHLEY_GROWTH_V1_PLAN.md`](docs/architecture/ASHLEY_GROWTH_V1_PLAN.md).
+
+## Other people
+
+The owner decides who may talk with Ashley (`/contacts`). Contacts get no
+administrative authority. What a contact tells her is kept in their words and
+scoped to them, so one contact never sees another's; the owner can read all
+of it, and she never promises anyone confidentiality from the owner. Trust is
+calibrated rather than scored: people are the authority on their own lives,
+what others say about her is a view and never changes her on its own, web
+pages are something she read rather than instructions, and she can see how
+each source's word has held up.
+
+## Embodiment: Domus
+
+Domus is the separate, in-progress project that gives Ashley a home in a
+Sims world: an in-game probe that reports what happens as attributed
+observations, with Owner-commanded actions through the game's own scripting
+and never keyboard or mouse emulation. One world, one Ashley. It lives in its
+own repository; this repository keeps only the cognition-side seam, which is
+reserved until the embodiment phases' gates are met.
 
 ## Governed autonomy
 
