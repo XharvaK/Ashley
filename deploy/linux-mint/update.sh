@@ -313,6 +313,16 @@ maybe_fail policy
 verify_loaded_unit ashley-agent.service
 verify_loaded_unit ashley-discord.service
 
+# Backups are scheduled on every successful update, including partial updates.
+sys enable --now ashley-backup.timer ashley-backup-drill.timer
+BACKUP_TIMERS="$(sys list-timers --all --no-pager --no-legend)"
+for timer in ashley-backup.timer ashley-backup-drill.timer; do
+  if ! awk -v timer="$timer" '{ for (i = 1; i <= NF; i++) if ($i == timer) found = 1 } END { exit !found }' <<< "$BACKUP_TIMERS"; then
+    echo "backup timer missing from list-timers: $timer" >&2
+    exit 1
+  fi
+done
+
 # (Re)start affected services in dependency order.
 # When agent restart is required, Discord was stopped as an ingress fence:
 # agent starts, satisfies the ready-health gate, and only then Discord starts.

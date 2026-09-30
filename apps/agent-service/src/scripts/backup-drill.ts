@@ -51,15 +51,14 @@ export function runBackupDrill(options: DrillOptions = {}): number {
   const log = options.log ?? ((line) => console.error(line));
   const now = options.now ?? new Date();
   const plane = createProductionDataPlane(options.dataDir ? { dataDir: options.dataDir } : undefined);
+  const paths = backupPathsFromPlane(plane);
   if (options.loadEnv !== false) {
     try {
       loadEnvFile(plane.envPath);
     } catch {
-      log("backup_env_unreadable");
-      return 1;
+      return finish(paths.statusPath, { drill_error: "env_unreadable" }, log, "env_unreadable");
     }
   }
-  const paths = backupPathsFromPlane(plane);
   let key: string;
   try {
     const fromEnv = options.env ? options.env.ASHLEY_BACKUP_TRANSFER_KEY : process.env.ASHLEY_BACKUP_TRANSFER_KEY;

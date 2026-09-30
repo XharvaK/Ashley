@@ -1,5 +1,5 @@
 // Her continuity must survive the loss of this machine: snapshot, seal, verify, and keep a copy off it.
-import { renameSync, readdirSync } from "node:fs";
+import { linkSync, unlinkSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { createProductionDataPlane } from "../core/data-plane.js";
@@ -60,14 +60,14 @@ export function runDailyBackup(options: DailyBackupOptions = {}): number {
   const log = options.log ?? ((line) => console.error(line));
   const now = options.now ?? new Date();
   const plane = createProductionDataPlane(options.dataDir ? { dataDir: options.dataDir } : undefined);
+  const paths = backupPathsFromPlane(plane);
   if (options.loadEnv !== false) {
     try {
       loadEnvFile(plane.envPath);
     } catch {
-      return fail(null, "backup_env_unreadable", log);
+      return fail(paths.statusPath, "env_unreadable", log);
     }
   }
-  const paths = backupPathsFromPlane(plane);
   let key: string;
   try {
     const fromEnv = options.env ? options.env.ASHLEY_BACKUP_TRANSFER_KEY : process.env.ASHLEY_BACKUP_TRANSFER_KEY;
@@ -106,7 +106,17 @@ export function runDailyBackup(options: DailyBackupOptions = {}): number {
       sidecarSchemaVersion: versions.sidecar,
     });
     const stamped = join(paths.packageDir, `${packageStamp(now)}.ashleybak`);
-    renameSync(created.packagePath, stamped);
+    // Atomic publication: link fails with EEXIST even if another run wins the race.
+    try {
+      linkSync(created.packagePath, stamped);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+        unlinkSync(created.packagePath);
+        return fail(paths.statusPath, "package_exists", log);
+      }
+      throw error;
+    }
+    unlinkSync(created.packagePath);
     packagePath = stamped;
     verifyBackupPackage({ packagePath, transferKeyHex: key });
   } catch (error) {

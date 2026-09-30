@@ -166,3 +166,47 @@ it("checks only the uploaded member when older local packages are absent remotel
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+
+it("records env_unreadable and preserves the previous daily success", async () => {
+  const { runDailyBackup } = await import("./backup-daily.js");
+  const dir = mkdtempSync(join(tmpdir(), "ashley-daily-env-"));
+  try {
+    const statusPath = join(dir, "backups", "status.json");
+    mkdirSync(join(dir, ".env")); // Reading a directory fails even when tests run as root.
+    writeBackupStatusAtomic(statusPath, { ...emptyStatus(), last_ok_ms: 123 });
+    const log = vi.fn();
+    expect(runDailyBackup({ dataDir: dir, log })).toBe(1);
+    expect(readBackupStatus(statusPath)).toMatchObject({ last_ok_ms: 123, last_error: "env_unreadable" });
+    expect(log).toHaveBeenCalledWith("env_unreadable");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+it("fails with package_exists without replacing an existing stamped package", async () => {
+  const { DatabaseSync } = await import("node:sqlite");
+  const { runDailyBackup } = await import("./backup-daily.js");
+  const dir = mkdtempSync(join(tmpdir(), "ashley-package-exists-"));
+  try {
+    const paths = backupPathsFromPlane(createIsolatedDataPlane(dir));
+    mkdirSync(join(dir, "conversations"), { recursive: true });
+    for (const path of [paths.nuclearDbPath, paths.continuityDbPath, paths.sidecarDbPath]) {
+      const db = new DatabaseSync(path);
+      if (path === paths.sidecarDbPath) db.exec("CREATE TABLE cognitive_sidecar_meta (id INTEGER, schema_version INTEGER); INSERT INTO cognitive_sidecar_meta VALUES (1, 1)");
+      db.close();
+    }
+    mkdirSync(paths.packageDir, { recursive: true });
+    const stamped = join(paths.packageDir, "20261002T050000Z.ashleybak");
+    writeFileSync(stamped, "original package");
+    writeBackupStatusAtomic(paths.statusPath, { ...emptyStatus(), last_ok_ms: 123 });
+    const log = vi.fn();
+    expect(runDailyBackup({ dataDir: dir, loadEnv: false, now: new Date("2026-10-02T05:00:00Z"),
+      env: { ASHLEY_BACKUP_TRANSFER_KEY: "ab".repeat(32) }, log })).toBe(1);
+    expect(readFileSync(stamped, "utf8")).toBe("original package");
+    expect(readBackupStatus(paths.statusPath)).toMatchObject({ last_ok_ms: 123, last_error: "package_exists" });
+    expect(log).toHaveBeenCalledWith("package_exists");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

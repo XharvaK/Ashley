@@ -64,3 +64,19 @@ it("records drill_error after corrupt-package verification throws, preserving th
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+
+it("records env_unreadable and preserves the previous drill success", () => {
+  const dir = mkdtempSync(join(tmpdir(), "ashley-drill-env-"));
+  try {
+    const statusPath = join(dir, "backups", "status.json");
+    mkdirSync(join(dir, ".env"));
+    writeBackupStatusAtomic(statusPath, { ...emptyBackupStatus(), drill_ok_ms: 123 });
+    const logs: string[] = [];
+    expect(runBackupDrill({ dataDir: dir, log: (line) => logs.push(line) })).toBe(1);
+    expect(readBackupStatus(statusPath)).toMatchObject({ drill_ok_ms: 123, drill_error: "env_unreadable" });
+    expect(logs).toEqual(["env_unreadable"]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
