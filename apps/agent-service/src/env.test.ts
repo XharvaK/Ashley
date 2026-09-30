@@ -11,12 +11,6 @@ const TOUCHED_VARS = [
   "ASHLEY_CLOUDFLARE_THOUGHT_AFFINITY_ID",
   "ASHLEY_SANDBOX_ENGINEERING_LIFECYCLE_ENABLED",
   "ASHLEY_SANDBOX_PROJECT_REGISTRY",
-  "ASHLEY_OPENCODE_WORKER_ENABLED",
-  "ASHLEY_OPENCODE_BIN",
-  "ASHLEY_OPENCODE_PINNED_VERSION",
-  "ASHLEY_OPENCODE_HOME",
-  "ASHLEY_OPENCODE_QUOTA_STATE",
-  "ASHLEY_OPENCODE_CANDIDATE_DEVELOP_NVIDIA",
   "DISCORD_OWNER_ID",
   "DISCORD_BOT_TOKEN",
 ];
@@ -101,16 +95,6 @@ describe("Sandbox V2 environment", () => {
 
     expect(env.sandboxEngineeringLifecycleEnabled).toBe(true);
     expect(env.sandboxProjectRegistryPath).toBe("/tmp/ashley-project-roots.json");
-    expect(validateBoot().ok).toBe(true);
-  });
-});
-
-describe("OpenCode worker environment", () => {
-  it("defaults the worker dark and NVIDIA engineering flag off", async () => {
-    const { env, validateBoot } = await loadEnv();
-    expect(env.opencodeWorkerEnabled).toBe(false);
-    expect(env.opencodeCandidateDevelopAllowsNvidia).toBe(false);
-    expect(env.opencodePinnedVersion).toBe("1.18.30");
     expect(validateBoot().ok).toBe(true);
   });
 });
