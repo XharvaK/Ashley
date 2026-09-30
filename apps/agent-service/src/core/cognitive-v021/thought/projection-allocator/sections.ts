@@ -72,6 +72,7 @@ export const INNER_LIFE_SECTIONS = [
   { section: "activity_journal", field: "activityJournal", canonicalStore: "activity_journal" },
   { section: "growth", field: "growth", canonicalStore: "growth_revisions+mood_state+expectations+diary_entries" },
   { section: "inner_pass", field: "innerPass", canonicalStore: "inbox_events" },
+  { section: "pending_forget", field: "pendingForget", canonicalStore: "forget_proposals" },
 ] as const;
 
 export type InnerLifeSectionId = (typeof INNER_LIFE_SECTIONS)[number]["section"];
@@ -165,6 +166,7 @@ export function requirednessContractFor(
     case "activity_journal":
     case "growth":
     case "inner_pass":
+    case "pending_forget":
       return { owner: "inner_life_adapter", predicate: `${candidate.section}_present`, overflow: "fail_closed" };
     default:
       if (candidate.section.startsWith("working_context")) {

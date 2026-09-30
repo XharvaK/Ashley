@@ -25,6 +25,7 @@ import type {
 } from "../types.js";
 import { isMemoryKind } from "../memory/kinds.js";
 import { validateModeBRequest } from "../../sandbox/opencode/mode-b-request.js";
+import { isValidForgetClaim } from "../memory/semantic-forget.js";
 import {
   isEvidenceOperationKind,
   isValidEvidenceOperationRequest,
@@ -867,7 +868,7 @@ function validInterests(value: unknown): boolean {
 function parseSettlementSemantic(value: SemanticRecord, allowlist: ReadonlySet<string>): ThoughtSemanticParseResult {
   const unknown = Object.keys(value).find((key) => ![
     "kind", "interactionIntent", "speech", "initiativePreference", "interpretation", "commitments", "workingContextDeltas", "deskDeltas", "concernDeltas",
-    "occupancyDeltas", "futureTriggerDeltas", "subscriptionDeltas", "durableNominations", "reflection", "journal", "interests", "growth", "night", "evidenceUse",
+    "occupancyDeltas", "futureTriggerDeltas", "subscriptionDeltas", "durableNominations", "reflection", "journal", "interests", "growth", "night", "forget", "evidenceUse",
   ].includes(key));
   if (unknown) return semanticFailure("unknown_field", unknown);
   if (value.kind !== "settlement") return semanticFailure("wrong_kind", "kind");
@@ -923,6 +924,9 @@ function parseSettlementSemantic(value: SemanticRecord, allowlist: ReadonlySet<s
   }
   if (own(value, "night") && !isValidNightClaim(value.night)) {
     return semanticFailure("wrong_type", "night");
+  }
+  if (own(value, "forget") && !isValidForgetClaim(value.forget)) {
+    return semanticFailure("wrong_type", "forget");
   }
   result = validateEvidenceUse(value, allowlist);
   if (!result.ok) return semanticFailure(result.code, result.field);

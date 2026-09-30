@@ -138,6 +138,7 @@ export type BuildThoughtInputOptions = {
   innerPass?: ThoughtInnerPass;
   /** Growth V1 G4: mood, opinions, open revisions and expectations (kept only for Owner-private audiences). */
   growth?: import("../growth/growth.js").ThoughtGrowth;
+  pendingForget?: readonly import("../memory/semantic-forget.js").ThoughtPendingForget[];
   /** Fire-time commitment meaning and three-state evidence completeness. */
   commitmentDue?: CommitmentDueProjection;
   /** Active disclosure-license entity UUIDs already resolved by the Host. */
@@ -1189,6 +1190,7 @@ export function buildThoughtInput(options: BuildThoughtInputOptions): ThoughtInp
     ...(activityJournal.length === 0 ? {} : { activityJournal }),
     ...(options.innerPass && audience.kind === "owner_private" ? { innerPass: options.innerPass } : {}),
     ...(options.growth && audience.kind === "owner_private" ? { growth: options.growth } : {}),
+    ...(options.pendingForget && audience.kind === "owner_private" ? { pendingForget: options.pendingForget } : {}),
     ...(options.clock === undefined ? {} : {
       clock: buildThoughtClock({
         nowMs: options.clock.nowMs,

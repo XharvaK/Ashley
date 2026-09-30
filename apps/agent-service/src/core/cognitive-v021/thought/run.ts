@@ -171,6 +171,13 @@ import {
 import { awakePassFromPayload, nightPassFromPayload } from "../initiative/inner-pass.js";
 import { buildInnerAgenda } from "../initiative/agenda.js";
 import { recordSettlementAftermath, type AftermathContext } from "./aftermath.js";
+import {
+  applySemanticForget,
+  expireForgetProposals,
+  isOwnerPrivateConversation,
+  pendingForgetsForThought,
+  type ThoughtPendingForget,
+} from "../memory/semantic-forget.js";
 import { isUnsolicitedTriggerKind, unsolicitedFuseTripped } from "../initiative/reach-out.js";
 import { growthForThought, type IdentityStore } from "../growth/growth.js";
 import { buildNightAgenda } from "../growth/night.js";
@@ -1417,6 +1424,7 @@ function materializeSemanticSettlement(
   if (semantic.interests) result.interests = semantic.interests.map((touch) => ({ ...touch }));
   if (semantic.growth) result.growth = structuredClone(semantic.growth);
   if (semantic.night) result.night = structuredClone(semantic.night);
+  if (semantic.forget) result.forget = structuredClone(semantic.forget);
   return result as ThoughtSettlementDraft;
 }
 
@@ -1450,6 +1458,18 @@ function semanticReferencesForInput(input: ThoughtInput | ProjectedThoughtInput)
     ...journalReadRefs(input).map((read) => read.observationId),
     input.trigger.ref,
   ];
+}
+
+/** A2: the forgets she proposed and the Owner has not answered, on Owner chat turns only. */
+function pendingForgetInput(
+  sidecar: DatabaseSync,
+  conversationId: string,
+  options: { ownerTurn: boolean; nowMs: number },
+): { pendingForget?: readonly ThoughtPendingForget[] } {
+  if (!options.ownerTurn || !isOwnerPrivateConversation(conversationId)) return {};
+  expireForgetProposals(sidecar, options.nowMs);
+  const pending = pendingForgetsForThought(sidecar, conversationId, options.nowMs);
+  return pending.length > 0 ? { pendingForget: pending } : {};
 }
 
 function identityStoreFor(nuclear: DatabaseSync, deps: KernelDeps): IdentityStore | null {
@@ -3295,6 +3315,11 @@ export async function runCognitiveCycle(
       ...(effectiveThoughtAudience.kind === "owner_private" && !externalCycle
         ? { growth: growthForThought(sidecar, identityStoreFor(nuclear, deps), deps.nowMs()) }
         : {}),
+      ...pendingForgetInput(sidecar, cycle.conversationId, {
+        ownerTurn: effectiveThoughtAudience.kind === "owner_private" && !externalCycle
+          && !afterglowPass && !awakePass && !nightPass && triggerEvidence?.role === "owner",
+        nowMs: deps.nowMs(),
+      }),
       ...(settlementOnly ? { settlementOnly: true } : {}),
       ...(effectContinuationInput ? { effectContinuation: effectContinuationInput } : {}),
       ...(capacityWait ? { capacityWait } : {}),
@@ -4659,6 +4684,27 @@ export async function runCognitiveCycle(
       } catch {
         // Publication is authoritative. A transient admission failure is
         // recovered by the next bounded lifecycle catch-up.
+      }
+    }
+    if (settlement.forget && deps.origin !== "shadow" && publication.settlementId !== null) {
+      // A2: only an Owner chat turn in an Owner-private conversation can
+      // propose or answer a forget; applySemanticForget refuses the rest.
+      try {
+        const outcome = applySemanticForget({
+          sidecar,
+          nuclear,
+          continuity: getContinuityFor(nuclear),
+          ownerId: env.discordOwnerId,
+          ...(deps.identityOwnerId ? { identityOwnerId: deps.identityOwnerId } : {}),
+          conversationId: cycle.conversationId,
+          settlementId: publication.settlementId,
+          triggerCreatedAtMs: triggerEvidence?.role === "owner" ? triggerEvidence.createdAtMs : null,
+          ownerTurn: !externalCycle && !afterglowPass && !awakePass && !nightPass && triggerEvidence?.role === "owner",
+          nowMs: deps.nowMs(),
+        }, settlement.forget);
+        if (outcome.kind === "refused") console.warn(`[cognitive-v021] forget_refused reason=${outcome.reason}`);
+      } catch (error) {
+        console.warn("[cognitive-v021] forget_deferred", error);
       }
     }
     if (publication.outboxId !== null) await deps.projectOutbox(publication.outboxId);

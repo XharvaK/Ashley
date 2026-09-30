@@ -24,13 +24,6 @@ export function buildCommandDefinitions(): RESTPostAPIChatInputApplicationComman
       )
       .toJSON(),
     new SlashCommandBuilder()
-      .setName(commandSurface.forget)
-      .setDescription("Forget memories matching a topic")
-      .addStringOption((o) =>
-        o.setName("topic").setDescription("Topic to forget").setRequired(true),
-      )
-      .toJSON(),
-    new SlashCommandBuilder()
       .setName(commandSurface.proactive)
       .setDescription("Proactive outreach status and controls")
       .addStringOption((o) =>

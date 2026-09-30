@@ -3,7 +3,6 @@ import { agentErrorMessage } from "../chat/agent-errors.js";
 import { isOwner } from "../security/gate.js";
 import * as remember from "../commands/remember.js";
 import * as memory from "../commands/memory.js";
-import * as forget from "../commands/forget.js";
 import * as proactive from "../commands/proactive.js";
 import * as identity from "../commands/identity.js";
 import * as commitments from "../commands/commitments.js";
@@ -25,7 +24,6 @@ export async function handleSlash(
 
   const ephemeral =
     interaction.commandName === "memory" ||
-    interaction.commandName === "forget" ||
     interaction.commandName === "identity" ||
     interaction.commandName === "commitments" ||
     interaction.commandName === "continuity" ||
@@ -44,9 +42,6 @@ export async function handleSlash(
         break;
       case "memory":
         await memory.execute(interaction);
-        break;
-      case "forget":
-        await forget.execute(interaction);
         break;
       case "proactive":
         await proactive.execute(interaction);

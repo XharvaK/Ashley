@@ -152,7 +152,27 @@ week the same night is the long arc: she writes "who I am becoming",
 grounded in the week's episodes and applied changes. Thought sees her latest
 narrative and diary entry; `/memory` shows both.
 
-**Forgetting.** `/forget` reaches episodes whose words mention the topic and
+**Forgetting is semantic and Alex-only** (decision 4; Stewardship Compact
+`SC-FGT-*`, `SC-ADM-*`). Alex asks in plain words in their private
+conversation. Ashley settles with a `forget` proposal naming the exact
+phrases that identify it and the records she can see that it covers (memory
+keys, episode ids, conversation row ids), says what it covers, and asks for a
+yes. The Host builds a continuity preview of every target and records the
+proposal (sidecar `forget_proposals`); nothing is erased yet. On Alex's next
+message Thought sees the proposal in `pendingForget`; only a clear yes in a
+message Alex sent after she asked lets her confirm, and a no cancels. On
+confirm the Host applies the preview (tombstone, sidecar and legacy records,
+any identity entry a covered revision applied), then sweeps raw logs for the
+exact phrases as the floor, which also catches her own reply naming it that
+arrived after the plan. A proposal waits a day; its phrases are held only
+until Alex answers or it lapses. Rooms and contacts can never propose or
+confirm a forget. She complies and may say how she feels; her reaction is her
+own words and is itself erasable. `/forget` is retired; the agent's
+`/memory/forget` routes remain as Owner-only admin routes for operator use.
+Code: `apps/agent-service/src/core/cognitive-v021/memory/semantic-forget.ts`.
+Nothing leaves her records by age alone.
+
+**What a forget reaches.** A forget reaches episodes whose words mention the topic and
 any episode built from a message it redacts. A thread story is retired when
 it mentions the topic or when any of its conversation's messages is
 redacted; the next afterglow writes a fresh one. A forget that lands during
@@ -168,23 +188,14 @@ their words.
 Every erase bumps a forget epoch in the sidecar. A Thought records the epoch
 when its input is assembled, and publication refuses a settlement whose epoch
 has moved, so work already in flight never republishes what a forget removed;
-an Owner turn refused this way is re-run by unanswered-Owner recovery. Rows
-written between a `/forget` preview and its confirmation are not re-scanned
-(the preview keeps only a fingerprint of the topic); semantic forgetting
-replaces preview and confirm.
-
-**Decided direction (Owner, 2026-09-29; not yet built).** Forgetting becomes
-semantic and Alex-only (Stewardship Compact `SC-FGT-*`, `SC-ADM-*`): Alex asks
-in plain words; Ashley names what the request covers and asks for a yes; the
-Host erases those records and everything derived from them, with an
-exact-phrase sweep of raw logs as the floor; anything in flight that saw them
-is refused and re-runs. She complies and may say how she feels. A forget is
-never silent: she may know that something was forgotten, not what. `/forget`
-retires when this lands. Nothing leaves her records by age alone.
+an Owner turn refused this way is re-run by unanswered-Owner recovery. A
+forget is never silent: she may know that something was forgotten, not what.
 
 **Who can read what.** Alex can read her memories, diary, activity journal,
-mood and "who I am becoming", and Ashley knows this (Ethics `ETH-VIS-*`).
-Contacts, once they exist, see none of it.
+mood, expectations, "who I am becoming", and what contacts tell her. Her
+contract says so in every Owner-private turn, and social turns tell her never
+to promise anyone confidentiality from Alex (Ethics `ETH-VIS-*`). Contacts see
+none of her inner life.
 
 ## Legacy nuclear memory (pre-v0.2.1)
 
@@ -200,7 +211,7 @@ evidence. Episodes never replace their source messages.
 
 - Pins: Discord `/remember`, or chat `remember:` / `bunu hatırla:`
 - List: `/memory`
-- Forget: `/forget`
+- Forget: by asking Ashley (the legacy `/forget` is retired)
 
 Facts categories: `project`, `preference`, `person`, `ongoing`, `pinned`.
 

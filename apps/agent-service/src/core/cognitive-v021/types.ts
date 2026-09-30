@@ -29,7 +29,7 @@ export type { SourceSupportRef } from "./evidence/interpretation-envelope.js";
 export const ARCHITECTURE_EPOCH = "v0.2.1" as const;
 export const IMPLEMENTATION_SPEC_VERSION = "0.2.1.r6" as const;
 export const THOUGHT_CONTRACT_VERSION = 2 as const;
-export const COGNITIVE_SIDECAR_SCHEMA_VERSION = 42 as const;
+export const COGNITIVE_SIDECAR_SCHEMA_VERSION = 43 as const;
 
 /**
  * Hard bound on cognition-facing concern discovery windows and pages. The
@@ -1051,6 +1051,8 @@ export type SettlementSemanticOutput = {
   growth?: import("./growth/claim.js").GrowthClaim;
   /** NIGHT pass only: diary, re-scored salience, closed questions, weekly narrative. */
   night?: import("./growth/night.js").NightClaim;
+  /** Owner-private chat only: a forget she proposes, or the Owner's answer to one (A2). */
+  forget?: import("./memory/semantic-forget.js").ForgetClaim;
   evidenceUse?: ThoughtEvidenceUse;
 };
 
@@ -1329,6 +1331,8 @@ export type ThoughtSettlementDraft = {
   growth?: import("./growth/claim.js").GrowthClaim;
   /** NIGHT pass only; stored by the Host after publication (growth/night.ts). */
   night?: import("./growth/night.js").NightClaim;
+  /** Applied by the Host after publication (memory/semantic-forget.ts). */
+  forget?: import("./memory/semantic-forget.js").ForgetClaim;
   operations: {
     observationsConsumed: string[];
     /** Authored retrieval reliance preserved for post-publication audit. */
@@ -1722,6 +1726,8 @@ export type ThoughtInput = {
   activityJournal?: readonly import("./initiative/journal.js").ThoughtJournalEntry[];
   /** Mood, opinions, open revisions and expectations (Owner-private only). */
   growth?: import("./growth/growth.js").ThoughtGrowth;
+  /** Forgets she proposed that the Owner has not answered (Owner-private chat only). */
+  pendingForget?: readonly import("./memory/semantic-forget.js").ThoughtPendingForget[];
   /** Present only during an afterglow or AWAKE pass. */
   innerPass?: ThoughtInnerPass;
   /** Present only for an autonomous idle-opportunity Thought. */

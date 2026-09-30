@@ -117,8 +117,7 @@ const botServiceHeaders = (): HeadersInit => ({
 
 /**
  * Admin acts are Alex's alone (SC-ADM-01). Only call sites reached after the
- * bot's own Owner check may send this: slash commands (handleSlash) and
- * Owner-authored forget confirmations.
+ * bot's own Owner check may send this: slash commands (handleSlash).
  */
 const ownerActorHeaders = (): HeadersInit => ({
   "X-Ashley-Actor": config.ownerId,
@@ -627,102 +626,6 @@ export async function memorySummary(includePrivate = false) {
   }>(`/memory/summary?${q}`);
 }
 
-
-export async function forgetTopic(topic: string, confirmed: boolean) {
-  return agentFetch<{
-    preview: string[];
-    deleted: number;
-    receiptId: string | null;
-    previewId?: string | null;
-    expiresAt?: string | null;
-    categoryCounts?: Record<string, number>;
-    honesty?: {
-      local: string;
-      discord: string;
-      mistral: string;
-      oldBackups: string;
-    };
-    counts: {
-      messagesRedacted: number;
-      episodesForgotten: number;
-      factsReconciled: number;
-      revisionsReconciled: number;
-      stateReconciled: number;
-      evidenceRemoved: number;
-      runsRedacted: number;
-    };
-  }>("/memory/forget", {
-    headers: ownerActorHeaders(),
-    method: "POST",
-    body: JSON.stringify({
-      userId: config.ownerId,
-      topic,
-      confirmed,
-    }),
-  });
-}
-
-export async function bindForgetConfirmation(
-  previewId: string,
-  confirmationDiscordMessageId: string,
-) {
-  return agentFetch<{ ok: boolean }>("/memory/forget/bind", {
-    headers: ownerActorHeaders(),
-    method: "POST",
-    body: JSON.stringify({
-      userId: config.ownerId,
-      previewId,
-      confirmationDiscordMessageId,
-    }),
-  });
-}
-
-export async function resolveForgetPreview(
-  confirmationDiscordMessageId: string,
-) {
-  return agentFetch<{ previewId: string | null }>("/memory/forget/resolve", {
-    headers: ownerActorHeaders(),
-    method: "POST",
-    body: JSON.stringify({
-      userId: config.ownerId,
-      confirmationDiscordMessageId,
-    }),
-  });
-}
-
-export async function confirmForgetPreview(previewId: string) {
-  return agentFetch<{
-    preview: string[];
-    deleted: number;
-    receiptId: string | null;
-    honesty?: {
-      local: string;
-      discord: string;
-      mistral: string;
-      oldBackups: string;
-    };
-  }>("/memory/forget", {
-    headers: ownerActorHeaders(),
-    method: "POST",
-    body: JSON.stringify({
-      userId: config.ownerId,
-      previewId,
-      confirmed: true,
-    }),
-  });
-}
-
-export async function cancelForgetPreview(previewId: string) {
-  return agentFetch<{ previewId?: string | null }>("/memory/forget", {
-    headers: ownerActorHeaders(),
-    method: "POST",
-    body: JSON.stringify({
-      userId: config.ownerId,
-      previewId,
-      cancel: true,
-    }),
-  });
-}
 
 export async function checkHealth(): Promise<boolean> {
   try {

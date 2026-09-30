@@ -404,7 +404,7 @@ function forgetFingerprint(ownerId: string, topic: string): string {
     .slice(0, 32);
 }
 
-function buildForgetPlan(
+export function buildForgetPlan(
   sidecar: DatabaseSync,
   nuclear: DatabaseSync,
   ownerId: string,

@@ -185,7 +185,7 @@ presence. Deployed is not promoted.
 
 As a companion today, Ashley meets her owner in Discord direct messages
 with source-linked memory across exchanges. Owner slash commands include
-`/remember`, `/memory`, `/forget`, `/proactive`, `/identity`,
+`/remember`, `/memory`, `/proactive`, `/identity`,
 `/commitments`, `/continuity`, and `/status`. Command behavior:
 [`AGENTS.md`](AGENTS.md) (slash commands table).
 

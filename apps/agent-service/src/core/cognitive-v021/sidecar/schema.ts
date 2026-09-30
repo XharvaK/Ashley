@@ -1650,3 +1650,27 @@ CREATE INDEX IF NOT EXISTS idx_settlement_aftermath_pending
   ON settlement_aftermath (created_at_ms) WHERE status = 'pending';
 UPDATE cognitive_sidecar_meta SET schema_version = 42, projection_state = 'reconciling' WHERE id = 1;
 `;
+
+/**
+ * A2 semantic forgetting: a forget Ashley proposed on the Owner's request and
+ * the Owner has not yet answered. The proposal id is the continuity preview
+ * id and targets live in continuity. The phrases are held only until the
+ * Owner answers or the proposal expires, for the exact-phrase floor.
+ */
+export const COGNITIVE_SIDECAR_SCHEMA_V43 = String.raw`
+CREATE TABLE IF NOT EXISTS forget_proposals (
+  proposal_id TEXT PRIMARY KEY,
+  settlement_id TEXT NOT NULL UNIQUE,
+  conversation_id TEXT NOT NULL,
+  category_counts_json TEXT NOT NULL,
+  phrases_json TEXT,
+  status TEXT NOT NULL CHECK (status IN ('pending', 'confirmed', 'cancelled')),
+  created_at_ms INTEGER NOT NULL,
+  expires_at_ms INTEGER NOT NULL,
+  resolved_at_ms INTEGER,
+  resolved_settlement_id TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_forget_proposals_pending
+  ON forget_proposals (conversation_id, created_at_ms) WHERE status = 'pending';
+UPDATE cognitive_sidecar_meta SET schema_version = 43, projection_state = 'reconciling' WHERE id = 1;
+`;

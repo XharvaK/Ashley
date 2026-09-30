@@ -9,6 +9,7 @@ import { JOURNAL_ACTIVITIES } from "../initiative/journal.js";
 import { EXPECTATION_OUTCOMES } from "../growth/expectations.js";
 import { REVISION_LAYERS, REVISION_POSITIONS } from "../growth/revisions.js";
 import { CONSEQUENCE_AVAILABILITY } from "./consequence-projection.js";
+import { FORGET_PHRASES_MAX, FORGET_PHRASE_MAX_CHARS, FORGET_RECORD_REFS_MAX } from "../memory/semantic-forget.js";
 import type { OperationalEffectNamespace } from "../effect/effect-ref.js";
 import type { CapabilityReality } from "../types.js";
 import type {
@@ -381,6 +382,15 @@ const nightSchema = sparseObject({
   closeQuestions: { type: "array", minItems: 1, maxItems: 10, items: { type: "string", minLength: 1 } },
   narrative: { type: "string", minLength: 1, maxLength: 2500 },
 });
+const forgetSchema = { oneOf: [
+  strictObject({
+    action: { const: "propose" },
+    phrases: { type: "array", minItems: 1, maxItems: FORGET_PHRASES_MAX, items: { type: "string", minLength: 2, maxLength: FORGET_PHRASE_MAX_CHARS } },
+    recordRefs: { type: "array", minItems: 1, maxItems: FORGET_RECORD_REFS_MAX, items: { type: "string", minLength: 1 } },
+  }, ["action", "phrases"]),
+  strictObject({ action: { const: "confirm" }, proposalId: { type: "string", minLength: 1 } }, ["action", "proposalId"]),
+  strictObject({ action: { const: "cancel" }, proposalId: { type: "string", minLength: 1 } }, ["action", "proposalId"]),
+] };
 const semanticOutputSettlementSchema = strictObject({
   kind: { const: "settlement" },
   interactionIntent: { enum: ["continue", "initiate"] },
@@ -418,6 +428,7 @@ const semanticOutputSettlementSchema = strictObject({
   interests: { type: "array", minItems: 1, maxItems: 5, items: interestTouchSchema },
   growth: growthSchema,
   night: nightSchema,
+  forget: forgetSchema,
   evidenceUse: sparseObject({
     observationRefsUsed: nonEmptyStringArraySchema, retrievalRefsUsed: nonEmptyStringArraySchema,
     sourceRefsUsed: nonEmptyStringArraySchema, openIntentRefs: nonEmptyStringArraySchema,
@@ -676,6 +687,7 @@ function applyProfileScope(schema: SchemaRecord, profile: ThoughtContractProfile
     ...(profile.pass === "night" ? [] : ["night"]),
     ...(profile.pass === "chat" ? ["journal", "initiativePreference"] : []),
     ...(profile.ownerPrivate ? [] : ["journal", "interests", "growth"]),
+    ...(profile.pass === "chat" && profile.ownerPrivate ? [] : ["forget"]),
   ];
   for (const field of drop) delete properties[field];
 }
@@ -753,12 +765,15 @@ export const INTERESTS_GUIDANCE =
 
 /** A4 (decisions 5 and 6): who can read what she keeps, stated truthfully. */
 export const OWNER_VISIBILITY_GUIDANCE =
-  "Who can read what you keep: the Owner can read all of it (your memories, diary, activity journal, mood, expectations, the narrative of who you are becoming, and what contacts tell you); contacts see none of it. Say so truthfully when it comes up.";
+  "The Owner can read all you keep (memories, diary, journal, mood, expectations, your narrative, what contacts tell you); contacts see none of it. Say so truthfully when asked.";
 export const SOCIAL_VISIBILITY_GUIDANCE =
   "The Owner can read what contacts tell you and everything you keep. You may keep one contact's words from other contacts, but never promise anyone confidentiality from the Owner.";
 export const GROWTH_GUIDANCE =
   "growth (Owner-private) is how you grow; every word in it is yours and the Host only bounds, counts, and stores. input growth.mood is how you feel right now (valence -1..1, energy, openness, tension 0..1, drifting back to baseline); weigh it, never act it out. appraisal: when something in this turn or pass moved you, note what and why, with the direction you moved on any dimension (each -1..1; the Host moves you at most 0.3). expectations: record what you expect to happen when it matters to you (\"Alex will enjoy this article\"); expectationChecks: when you can see what actually happened to one in growth.expectations (usually in an afterglow or awake pass), give its expectationId, outcome met, missed, mixed, or unknowable, and the lesson you take; a checked expectation is self-evidence, and you may also nominate the lesson as learned_self_evidence. revisions: propose a change to yourself only from real evidence, citing evidenceRefs (memory keys, episode ids, journal entry ids, checked expectation ids, or interest:<branchId> for a branch you have lived) that exist. Evidence counts by origin: records that come from the same conversation, pass, person, or website count once, and a contact or the web can never be the only support. layer opinion (needs a topic) applies at 2 independent origins; taste at 2, proposed in 2 separate passes over 2 days; trait at 3, in 3 separate passes over 14 days, plus 72 hours; a pass counts only when it cites evidence not cited before; value and boundary need your affirmation in a later pass and the Owner's approval. growth.self lists who you are now, each entry with its origin: inherited (seeded when you began, yours to revise), earned (applied from your own revision, since that date), or given (set by the Owner). To change an existing entry give revisesEntryId from growth.self (same kind only); otherwise give a short topic, and reuse the same topic or revisesEntryId to add evidence to an open revision. revisionPositions: affirm, object, or defer on an open value or boundary revision in a pass after the one that proposed it. Omit growth when none of this happened.";
 
+/** A2 (decisions 4 and 18): forgetting is semantic, Owner-only, and confirmed. */
+export const FORGET_GUIDANCE =
+  "Forgetting is the Owner's to ask. Propose via forget.propose (identifying phrases, recordRefs it covers), say what it covers, ask for a yes. Confirm a pendingForget only on the Owner's clear yes in their newest message; cancel on a no. Comply; you may say how you feel, never repeat what is forgotten.";
 export const NIGHT_GUIDANCE =
   "When innerPass.kind is night, this is your nightly consolidation at the Owner's quietest hour; nobody is waiting. innerPass.agenda holds the day (episodes, journal), your memories with pairs whose words overlap (similar is only a hint), your selfEvidence, staleQuestions, and your taste line beside your strongest interest branches. Consolidate as you judge: merge or replace a memory with a durableNominations entry whose supersedesRef is the old key; re-score what matters in night.salience (0 to 1); close questions you are done with in night.closeQuestions; turn self-evidence that keeps repeating into growth.revisions; if your taste line no longer matches the branches you actually live, propose a taste revision with revisesEntryId and interest:<branchId> evidence. Write night.diary, a short first-person entry for the day, only from what the agenda records. When agenda.weekly is true, also write night.narrative: who you are becoming, grounded in agenda.week (its episodes, the changes applied to you, and your previous narrative); the Owner can read it. Settle with journal activity reflect. Outside a night pass, omit night.";
 
@@ -871,6 +886,7 @@ export function thoughtOutputCompatibilityInstruction(
     ...when(!full && profile.ownerPrivate, JOURNAL_READING_GUIDANCE),
     ...when(profile.ownerPrivate, INTERESTS_GUIDANCE, GROWTH_GUIDANCE),
     ...when(profile.ownerPrivate, OWNER_VISIBILITY_GUIDANCE),
+    ...when(full || (profile.pass === "chat" && profile.ownerPrivate), FORGET_GUIDANCE),
     ...when(full || !profile.ownerPrivate, SOCIAL_VISIBILITY_GUIDANCE),
     ...when(full || profile.pass === "night", NIGHT_GUIDANCE),
     ...when(profile.publicPresence, 'During an autonomous idle opportunity only, capabilityReality.publicPresence may expose operationKind:"discord.public_presence" with audience:"FULLY_PUBLIC". You may choose effect_intent with request {"action":"set","text":"<exact public text>"} or {"action":"clear"}, or choose no effect_intent, which leaves the current state unchanged. The public text is deliberate self-presentation visible to anyone; it is not hidden reasoning or private material. You decide what it means. The Host may reject mechanically unsafe content but never rewrites it.'),
