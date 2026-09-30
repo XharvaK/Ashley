@@ -81,6 +81,18 @@ journal, growth, inner pass) are required allocator sections: each is
 byte-bounded, fails closed past its bound, and is counted on the allocation
 receipt as `inner_life_tokens`.
 
+Thought's code-owned instruction is composed by turn profile
+(`thoughtContractProfile` in `thought/output-contract.ts`): a chat turn carries
+memory, journal-reading and growth guidance but no pass guidance; an
+afterglow, AWAKE or NIGHT pass carries only its own; engineering law
+(project, workspace, inquiry, patch export) appears only when an engineering
+capability is offered, and the public-presence rule only when that
+affordance is. The provider schema drops the settlement fields a profile
+cannot use; the Host validator is unchanged. Each profile is byte-stable, and
+the allocation receipt names it (`thought_contract_profile`). Her identity
+(`orientationKernel`) is the first field of the input, ahead of the
+conversation.
+
 Interests (`memory/interests.ts`) are 50 fixed roots with branches that grow
 only when a settlement says she lived them, and fade over a 30-day
 half-life otherwise.
@@ -115,7 +127,10 @@ count, open expectations, and recent lessons. A settlement may carry a
   (a new wording clears both). An applied identity revision appends a
   `nuclear.db:identity_entries` row that revises the old one; the Thought
   identity slice is read fresh each cycle, so the change is seen at once.
-  The Owner can revert one (`POST /growth/revisions/revert`).
+  The Owner can revert one (`POST /growth/revisions/revert`). `growth.self`
+  shows each identity entry's origin: inherited (seeded when she began),
+  earned (applied from her revision, with its date) or given (set by the
+  Owner).
 `/memory` shows her mood, the opinions she holds, and recent identity
 changes.
 

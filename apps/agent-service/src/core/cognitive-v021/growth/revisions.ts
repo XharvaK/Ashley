@@ -172,13 +172,38 @@ export function getRevision(db: DatabaseSync, revisionId: number): RevisionRecor
 }
 
 /** One live identity entry Ashley may revise. */
-export type RevisableIdentityEntry = { entryId: number; kind: "taste" | "trait" | "value" | "boundary"; text: string };
+/**
+ * H4: where an entry came from. inherited: seeded when she began, hers to
+ * revise; earned: applied from her own revision; given: set by the Owner.
+ */
+export type IdentityOrigin = "inherited" | "earned" | "given";
+
+export type RevisableIdentityEntry = {
+  entryId: number;
+  kind: "taste" | "trait" | "value" | "boundary";
+  text: string;
+  origin: IdentityOrigin;
+  /** The date an earned or given entry was set (YYYY-MM-DD). */
+  since?: string;
+};
+
+const ORIGIN_BY_SOURCE: Record<string, IdentityOrigin> = { seeded: "inherited", organic: "earned", manual: "given" };
 
 /** The current (unrevised) identity entries of the kinds the engine may touch. */
 export function revisableIdentityEntries(nuclear: DatabaseSync, ownerId: string): RevisableIdentityEntry[] {
   return listIdentity(nuclear, ownerId, { layer: "stable", limit: 100 })
     .filter((entry) => IDENTITY_LAYERS.has(entry.kind))
-    .map((entry) => ({ entryId: entry.id, kind: entry.kind as RevisableIdentityEntry["kind"], text: entry.text }));
+    .map((entry) => {
+      const origin = ORIGIN_BY_SOURCE[entry.source] ?? "given";
+      const since = entry.createdAt.slice(0, 10);
+      return {
+        entryId: entry.id,
+        kind: entry.kind as RevisableIdentityEntry["kind"],
+        text: entry.text,
+        origin,
+        ...(origin !== "inherited" && /^\d{4}-\d{2}-\d{2}$/.test(since) ? { since } : {}),
+      };
+    });
 }
 
 type ResolvedEvidence = { ref: string; atMs: number; dataClassification: DataClassification };

@@ -61,6 +61,8 @@ export type AllocationDiagnostics = {
   thoughtMessagesForProjection_call_count: number;
   /** W4 request-local memoization witnesses; absent on pre-W4 receipts. */
   thoughtOutputCompatibilityInstruction_call_count?: number;
+  /** I1: the contract profile this dispatch carried (e.g. chat+owner). */
+  thought_contract_profile?: string;
   formatThoughtStructuralFeedback_call_count?: number;
   formatThoughtStructuralCorrectionData_call_count?: number;
   inFlightEffectRefMap_call_count?: number;

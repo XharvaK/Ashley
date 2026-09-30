@@ -331,6 +331,23 @@ describe("Growth V1 G4 recordGrowth and the forget cascade", () => {
     expect(growth.self?.map((entry) => entry.kind).sort()).toEqual(["boundary", "boundary", "taste", "taste", "trait", "value", "value", "value"]);
   }));
 
+  it("H4 shows where each part of her came from", () => withStores((sidecar, nuclear) => {
+    const store = { nuclear, ownerId: OWNER };
+    const seeded = growthForThought(sidecar, store, T0).self ?? [];
+    expect(seeded.length).toBeGreaterThan(0);
+    for (const entry of seeded) expect(entry).toMatchObject({ origin: "inherited" });
+    expect(seeded.some((entry) => "since" in entry)).toBe(false);
+    const insert = nuclear.prepare(
+      `INSERT INTO identity_entries (owner_id, layer, kind, text, source, revised_from, created_at, updated_at)
+       VALUES (?, 'stable', ?, ?, ?, NULL, ?, ?)`,
+    );
+    insert.run(OWNER, "taste", "late-night radio dramas", "organic", "2026-10-02T21:00:00.000Z", "2026-10-02T21:00:00.000Z");
+    insert.run(OWNER, "boundary", "no pranks on Alex's family", "manual", "2026-10-03T09:00:00.000Z", "2026-10-03T09:00:00.000Z");
+    const self = growthForThought(sidecar, store, T0).self ?? [];
+    expect(self.find((entry) => entry.text === "late-night radio dramas")).toMatchObject({ kind: "taste", origin: "earned", since: "2026-10-02" });
+    expect(self.find((entry) => entry.text === "no pranks on Alex's family")).toMatchObject({ kind: "boundary", origin: "given", since: "2026-10-03" });
+  }));
+
   it("joins all three forget paths and removes an identity entry a forgotten revision applied", () => withStores((sidecar, nuclear) => {
     const store = { nuclear, ownerId: OWNER };
     const a = selfEvidence(sidecar, "self:k1", "Kyoto planning made me happy.", T0);

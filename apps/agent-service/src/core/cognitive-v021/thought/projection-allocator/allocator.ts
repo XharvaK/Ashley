@@ -19,7 +19,12 @@ import {
   type CompactRetrievalEvidence,
   type ProjectedThoughtInput,
 } from "../projection.js";
-import { thoughtOutputCompatibilityInstruction } from "../output-contract.js";
+import {
+  thoughtContractProfile,
+  thoughtContractProfileKey,
+  thoughtOutputCompatibilityInstruction,
+  type ThoughtContractProfile,
+} from "../output-contract.js";
 import {
   BYTES_PER_TOKEN,
   deriveThoughtBudget,
@@ -109,7 +114,7 @@ export function thoughtMessagesForProjection(
   structuralFeedback?: StructuralFeedbackInput,
   messageMemo?: ThoughtProjectionMessageMemo,
 ): ChatMessage[] {
-  const memo = messageMemo ?? buildThoughtProjectionMessageMemo(structuralFeedback);
+  const memo = messageMemo ?? buildThoughtProjectionMessageMemo(structuralFeedback, thoughtContractProfile(projected));
   // E2a conditional guidance: appended only when the projected Thought input
   // truthfully carries a recency omission. Complete-view cycles keep a
   // byte-identical system message. Thought owns all interpretation of the
@@ -201,7 +206,8 @@ export const WC_OPTIONAL_OMISSION_GUIDANCE =
   "workingContextSelection.optionalAllocatorOmittedCount counts allocator-eligible optional Working Context items omitted by allocator bounds. Required Working Context items are excluded from this count, and the count reveals and licenses no omitted content.";
 
 function buildThoughtProjectionMessageMemo(
-  structuralFeedback?: StructuralFeedbackInput,
+  structuralFeedback: StructuralFeedbackInput | undefined,
+  profile: ThoughtContractProfile,
 ): ThoughtProjectionMessageMemo {
   const feedback = formatThoughtStructuralFeedback(structuralFeedback);
   const correctionData = formatThoughtStructuralCorrectionData(structuralFeedback);
@@ -209,7 +215,7 @@ function buildThoughtProjectionMessageMemo(
     systemContent: [
       "You are Ashley's Thought layer.",
       "Return exactly one JSON semantic Thought output.",
-      thoughtOutputCompatibilityInstruction(),
+      thoughtOutputCompatibilityInstruction(profile),
       "Code validates identity, authority, speech licensing, and publication.",
       "Do not return finalLicensedText, settlementId, delivery, outbox, reservation, or workspace state.",
       ...(feedback ? [feedback] : []),
@@ -552,7 +558,8 @@ export function allocateThoughtProjection(
     c3Experiences?: C3ExperienceAdapterResult;
     conversationSelection?: ThoughtInput["conversationSelection"];
   };
-  const messageMemo = buildThoughtProjectionMessageMemo(opts.structuralFeedback);
+  const contractProfile = thoughtContractProfile(input);
+  const messageMemo = buildThoughtProjectionMessageMemo(opts.structuralFeedback, contractProfile);
   const projectedInFlight = boundedRequiredSectionData.inFlight.map((item) =>
     projectInFlightConsequence(item, input.cycleId, input.generation, input.audience));
   const operationalNamespace = buildOperationalEffectNamespace(
@@ -1174,6 +1181,7 @@ export function allocateThoughtProjection(
     renderTentative_call_count: renderTentativeCallCount,
     thoughtMessagesForProjection_call_count: thoughtMessagesForProjectionCallCount,
     thoughtOutputCompatibilityInstruction_call_count: 1,
+    thought_contract_profile: thoughtContractProfileKey(contractProfile),
     formatThoughtStructuralFeedback_call_count: 1,
     formatThoughtStructuralCorrectionData_call_count: 1,
     inFlightEffectRefMap_call_count: 1,

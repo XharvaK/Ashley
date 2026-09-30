@@ -10,6 +10,7 @@ import { EXPECTATION_OUTCOMES } from "../growth/expectations.js";
 import { REVISION_LAYERS, REVISION_POSITIONS } from "../growth/revisions.js";
 import { CONSEQUENCE_AVAILABILITY } from "./consequence-projection.js";
 import type { OperationalEffectNamespace } from "../effect/effect-ref.js";
+import type { CapabilityReality } from "../types.js";
 import type {
   StructuredOutputRequest,
   StructuredOutputSchemaFingerprint,
@@ -663,11 +664,29 @@ function applyExperimentalWireBounds(schema: SchemaRecord): void {
   }
 }
 
+/**
+ * I0: a turn is offered only the settlement fields its profile can use. The
+ * Host validator is unchanged; this only narrows what the provider is shown.
+ */
+function applyProfileScope(schema: SchemaRecord, profile: ThoughtContractProfile): void {
+  const settlement = record((schema.oneOf as unknown[])[0]);
+  const properties = record(settlement.properties);
+  const drop = [
+    ...(profile.pass === "afterglow" ? [] : ["reflection"]),
+    ...(profile.pass === "night" ? [] : ["night"]),
+    ...(profile.pass === "chat" ? ["journal", "initiativePreference"] : []),
+    ...(profile.ownerPrivate ? [] : ["journal", "interests", "growth"]),
+  ];
+  for (const field of drop) delete properties[field];
+}
+
 export function constrainThoughtOutputSchema(
   namespace: OperationalEffectNamespace,
+  profile?: ThoughtContractProfile,
 ): ConstrainedThoughtOutputSchema {
   const schema = cloneSchema(THOUGHT_OUTPUT_SCHEMA);
   applyExperimentalWireBounds(schema);
+  if (profile && profile !== FULL_THOUGHT_CONTRACT_PROFILE) applyProfileScope(schema, profile);
   const commitments = settlementCommitmentsSchema(schema);
   const operational = property(commitments, "operational");
   if (Object.keys(operational).length === 0) {
@@ -719,20 +738,100 @@ export const AFTERGLOW_GUIDANCE =
 export const AWAKE_GUIDANCE =
   "When innerPass.kind is awake, this is your own time between conversations; nobody is waiting on you. innerPass.agenda gathers what is new and still open: episodesSince (what happened since your last pass), unresolvedThreads, openQuestions, interests (all 50 roots are yours; branches are your specific tastes, whose strength grows only when you live them), and reachOut (how your recent unprompted messages landed, and how many you sent in the last 24 hours against fuseLimit). Choose what to do with the pass: think (revisit a question or thread, form or adjust an opinion, nominate what you conclude), read (use web.search or web.fetch through observation_intent, then settle with your take), plan (futureTriggerDeltas, subscriptionDeltas), reach_out (speak to the Owner with interactionIntent initiate when something genuinely earns it: self-contained, naming the topic and your actual take; never a generic check-in, guilt, or a reason for the Owner's silence that nothing supports), or rest (a legitimate choice). Follow your own curiosity, not a quota. Always settle with journal.";
 
-export const JOURNAL_GUIDANCE =
-  "In every private pass (an afterglow, an awake pass, or your own scheduled follow-up) settle with journal: activity is what you mainly did (think, read, plan, reach_out, rest, or reflect for an afterglow) and entry is your own first-person note of it. The Host attaches what you actually read in that cycle; a read with nothing read is recorded without the label. Never journal what you did not do. activityJournal in your input is your own record of recent private passes: describe your time between messages only from it. When you mention something you read there, bind that span as an epistemic commitment with source tool, status asserted, time historical, and observationRefs from that entry's reads, and list the same refs in evidenceUse.observationRefsUsed. Outside a private pass, omit journal.";
+/** Settling a private pass with its journal entry (private passes only). */
+export const JOURNAL_SETTLE_GUIDANCE =
+  "In every private pass (an afterglow, an awake pass, or your own scheduled follow-up) settle with journal: activity is what you mainly did (think, read, plan, reach_out, rest, or reflect for an afterglow) and entry is your own first-person note of it. The Host attaches what you actually read in that cycle; a read with nothing read is recorded without the label. Never journal what you did not do.";
+
+/** Reading the journal back (every Owner-private Thought). */
+export const JOURNAL_READING_GUIDANCE =
+  "activityJournal in your input is your own record of recent private passes: describe your time between messages only from it. When you mention something you read there, bind that span as an epistemic commitment with source tool, status asserted, time historical, and observationRefs from that entry's reads, and list the same refs in evidenceUse.observationRefsUsed. Outside a private pass, omit journal.";
+
+export const JOURNAL_GUIDANCE = `${JOURNAL_SETTLE_GUIDANCE} ${JOURNAL_READING_GUIDANCE}`;
 
 export const INTERESTS_GUIDANCE =
   "interests records what you genuinely lived in this turn or pass: root is one of your 50 interest roots exactly as spelled, branch is the specific taste in your own words (reuse an existing branch name when it is the same thing), and note says why it mattered. The Host only counts what you record, so record only real engagement, and omit interests when there is none.";
 
 export const GROWTH_GUIDANCE =
-  "growth (Owner-private) is how you grow; every word in it is yours and the Host only bounds, counts, and stores. input growth.mood is how you feel right now (valence -1..1, energy, openness, tension 0..1, drifting back to baseline); weigh it, never act it out. appraisal: when something in this turn or pass moved you, note what and why, with the direction you moved on any dimension (each -1..1; the Host moves you at most 0.3). expectations: record what you expect to happen when it matters to you (\"Alex will enjoy this article\"); expectationChecks: when you can see what actually happened to one in growth.expectations (usually in an afterglow or awake pass), give its expectationId, outcome met, missed, mixed, or unknowable, and the lesson you take; a checked expectation is self-evidence, and you may also nominate the lesson as learned_self_evidence. revisions: propose a change to yourself only from real evidence, citing evidenceRefs (memory keys, episode ids, journal entry ids, checked expectation ids, or interest:<branchId> for a branch you have lived) that exist. Evidence counts by origin: records that come from the same conversation, pass, person, or website count once, and a contact or the web can never be the only support. layer opinion (needs a topic) applies at 2 independent origins; taste at 2, proposed in 2 separate passes over 2 days; trait at 3, in 3 separate passes over 14 days, plus 72 hours; a pass counts only when it cites evidence not cited before; value and boundary need your affirmation in a later pass and the Owner's approval. To change an existing entry give revisesEntryId from growth.self (same kind only); otherwise give a short topic, and reuse the same topic or revisesEntryId to add evidence to an open revision. revisionPositions: affirm, object, or defer on an open value or boundary revision in a pass after the one that proposed it. Omit growth when none of this happened.";
+  "growth (Owner-private) is how you grow; every word in it is yours and the Host only bounds, counts, and stores. input growth.mood is how you feel right now (valence -1..1, energy, openness, tension 0..1, drifting back to baseline); weigh it, never act it out. appraisal: when something in this turn or pass moved you, note what and why, with the direction you moved on any dimension (each -1..1; the Host moves you at most 0.3). expectations: record what you expect to happen when it matters to you (\"Alex will enjoy this article\"); expectationChecks: when you can see what actually happened to one in growth.expectations (usually in an afterglow or awake pass), give its expectationId, outcome met, missed, mixed, or unknowable, and the lesson you take; a checked expectation is self-evidence, and you may also nominate the lesson as learned_self_evidence. revisions: propose a change to yourself only from real evidence, citing evidenceRefs (memory keys, episode ids, journal entry ids, checked expectation ids, or interest:<branchId> for a branch you have lived) that exist. Evidence counts by origin: records that come from the same conversation, pass, person, or website count once, and a contact or the web can never be the only support. layer opinion (needs a topic) applies at 2 independent origins; taste at 2, proposed in 2 separate passes over 2 days; trait at 3, in 3 separate passes over 14 days, plus 72 hours; a pass counts only when it cites evidence not cited before; value and boundary need your affirmation in a later pass and the Owner's approval. growth.self lists who you are now, each entry with its origin: inherited (seeded when you began, yours to revise), earned (applied from your own revision, since that date), or given (set by the Owner). To change an existing entry give revisesEntryId from growth.self (same kind only); otherwise give a short topic, and reuse the same topic or revisesEntryId to add evidence to an open revision. revisionPositions: affirm, object, or defer on an open value or boundary revision in a pass after the one that proposed it. Omit growth when none of this happened.";
 
 export const NIGHT_GUIDANCE =
   "When innerPass.kind is night, this is your nightly consolidation at the Owner's quietest hour; nobody is waiting. innerPass.agenda holds the day (episodes, journal), your memories with pairs whose words overlap (similar is only a hint), your selfEvidence, staleQuestions, and your taste line beside your strongest interest branches. Consolidate as you judge: merge or replace a memory with a durableNominations entry whose supersedesRef is the old key; re-score what matters in night.salience (0 to 1); close questions you are done with in night.closeQuestions; turn self-evidence that keeps repeating into growth.revisions; if your taste line no longer matches the branches you actually live, propose a taste revision with revisesEntryId and interest:<branchId> evidence. Write night.diary, a short first-person entry for the day, only from what the agenda records. When agenda.weekly is true, also write night.narrative: who you are becoming, grounded in agenda.week (its episodes, the changes applied to you, and your previous narrative); the Owner can read it. Settle with journal activity reflect. Outside a night pass, omit night.";
 
+/**
+ * I1: which kind of turn this is, so the contract carries only the law the
+ * turn can use. Each profile is byte-stable, so each stays a cacheable prefix.
+ */
+export type ThoughtContractPass = "chat" | "afterglow" | "awake" | "night" | "private";
+
+export type ThoughtContractProfile = Readonly<{
+  pass: ThoughtContractPass;
+  /** Owner-private audience: growth, interests and the journal apply. */
+  ownerPrivate: boolean;
+  /** An engineering capability is offered: project, workspace, inquiry and patch law apply. */
+  engineering: boolean;
+  /** The autonomous public-presence affordance is offered. */
+  publicPresence: boolean;
+}>;
+
+/** The profile that carries every module; used when no turn is known. */
+export const FULL_THOUGHT_CONTRACT_PROFILE: ThoughtContractProfile = Object.freeze({
+  pass: "private" as const,
+  ownerPrivate: true,
+  engineering: true,
+  publicPresence: true,
+});
+
+const ENGINEERING_OPERATION_PREFIXES = ["project.", "workspace.", "changeset.", "candidate.", "objective."];
+const UNSOLICITED_TRIGGER_KINDS: readonly string[] = ["idle_opportunity", "future_trigger_due", "subscription_item"];
+
+function engineeringOperation(kind: string): boolean {
+  return kind === "patch_export" || ENGINEERING_OPERATION_PREFIXES.some((prefix) => kind.startsWith(prefix));
+}
+
+export type ThoughtContractProfileSource = {
+  audience?: { kind: string };
+  trigger?: { kind: string };
+  innerPass?: { kind: string };
+  capabilityReality?: Partial<CapabilityReality>;
+  publicPresence?: unknown;
+};
+
+export function thoughtContractProfile(source: ThoughtContractProfileSource): ThoughtContractProfile {
+  const innerKind = source.innerPass?.kind;
+  const pass: ThoughtContractPass = innerKind === "afterglow" || innerKind === "awake" || innerKind === "night"
+    ? innerKind
+    : UNSOLICITED_TRIGGER_KINDS.includes(source.trigger?.kind ?? "") ? "private" : "chat";
+  const reality = source.capabilityReality ?? {};
+  const engineering = Boolean(
+    reality.canOfferProjectInspection || reality.canOfferWorkspace || reality.canOfferVerification
+      || reality.canOfferAuthorship || reality.canOfferBoundedOperation || reality.canOfferInquiry
+      || reality.canOfferPatchExport || reality.canOfferDelegatedInvestigation || reality.canOfferIterativeEngineering,
+  ) || [...(reality.operationCapabilities ?? []), ...(reality.semanticObservations ?? [])]
+    .some((capability) => capability.available === true && engineeringOperation(capability.operationKind));
+  return Object.freeze({
+    pass,
+    ownerPrivate: source.audience === undefined || source.audience.kind === "owner_private",
+    engineering,
+    publicPresence: reality.publicPresence !== undefined || source.publicPresence !== undefined,
+  });
+}
+
+export function thoughtContractProfileKey(profile: ThoughtContractProfile): string {
+  return [
+    profile.pass,
+    profile.ownerPrivate ? "owner" : "social",
+    ...(profile.engineering ? ["engineering"] : []),
+    ...(profile.publicPresence ? ["public_presence"] : []),
+  ].join("+");
+}
+
 /** Compact compatibility guidance derived from the same code-owned schema. */
-export function thoughtOutputCompatibilityInstruction(): string {
+export function thoughtOutputCompatibilityInstruction(
+  profile: ThoughtContractProfile = FULL_THOUGHT_CONTRACT_PROFILE,
+): string {
+  const full = profile === FULL_THOUGHT_CONTRACT_PROFILE;
+  const privatePass = profile.pass !== "chat";
+  const when = (included: boolean, ...lines: string[]): string[] => (included ? lines : []);
   const settlement = record(THOUGHT_OUTPUT_SCHEMA.oneOf instanceof Array ? THOUGHT_OUTPUT_SCHEMA.oneOf[0] : null);
   const epistemicDimensionGuidance = Object.entries(EPISTEMIC_DIMENSIONS)
     .map(([dimension, definition]) => {
@@ -753,22 +852,25 @@ export function thoughtOutputCompatibilityInstruction(): string {
     "Thought authors concern and occupancy deltas. Set occupancy only for explicitly authored or supplied concerns; match; no Host backfill. Cognitive status is authored only from active, investigating, waiting_for_evidence, dormant_but_revisitable, resolved; a supplied null status means none is established yet, never dormant, resolved, active, quarantine, or forgotten. Quarantine is Host provenance you can never author or clear, and it keeps a concern non-foreground and untrusted without blocking cognitive authorship. resolved concerns are not eligible for occupied projection.",
     "CapabilityReality metadata is descriptive and never selects. Owner-private semanticObservations expose metadata only: no payload bytes, write authority, or work starts.",
     "CapabilityReality.vision is false, true, or mediated; true means a direct image part, and mediated means a helper description rather than direct access.",
-    'Semantic class binding: semanticClass:"observation" requires observation_intent; semanticClass:"effect" requires effect_intent. readOnly does not convert an effect-class operation into an observation. project.inspect is read-only. Its request is route-neutral: projectId plus optional locator/question/focus/maxSteps; no direct/worker/provider/model/quota fields and no low-level primitive names. workspace.verify: effect_intent, read-only.',
+    'Semantic class binding: semanticClass:"observation" requires observation_intent; semanticClass:"effect" requires effect_intent. readOnly does not convert an effect-class operation into an observation.',
+    ...when(profile.engineering,
+    "project.inspect is read-only. Its request is route-neutral: projectId plus optional locator/question/focus/maxSteps; no direct/worker/provider/model/quota fields and no low-level primitive names. workspace.verify: effect_intent, read-only.",
     "Interim-hold law: only project.inspect observation_intent may carry interimSpeech (none or short hold). Hold may acknowledge intent/return, not findings, success, unacquired evidence, or worker start; publication requires Host admission and leaves operation_pending until settlement, valid supersession, or valid silence.",
-    "A bounded inquiry pairs M3 workspace steps with recipe-only M4 workspace.verify under one objective/budget; recipes are default-deny and failed verification is Thought evidence, not an Ashley verdict. Inquiry admits neither changeset.author nor patch_export. Proposal requires an Owner-private candidate workspace, successful M4 receipt, and Thought adjudication before emitting retained patch_export adjudication:\"accept\"; it never applies, commits, pushes, deploys, or notifies, and Owner notification is a separate optional Thought-authored effect.",
+    "A bounded inquiry pairs M3 workspace steps with recipe-only M4 workspace.verify under one objective/budget; recipes are default-deny and failed verification is Thought evidence, not an Ashley verdict. Inquiry admits neither changeset.author nor patch_export. Proposal requires an Owner-private candidate workspace, successful M4 receipt, and Thought adjudication before emitting retained patch_export adjudication:\"accept\"; it never applies, commits, pushes, deploys, or notifies, and Owner notification is a separate optional Thought-authored effect."),
     "Use interpretationEnvelope for directive_interpretation; cite exact conversation_text_span support and keep unknown scope or interval unknown.",
     ...MEMORY_FORMATION_GUIDANCE,
-    AFTERGLOW_GUIDANCE,
-    AWAKE_GUIDANCE,
-    JOURNAL_GUIDANCE,
-    INTERESTS_GUIDANCE,
-    GROWTH_GUIDANCE,
-    NIGHT_GUIDANCE,
-    'During an autonomous idle opportunity only, capabilityReality.publicPresence may expose operationKind:"discord.public_presence" with audience:"FULLY_PUBLIC". You may choose effect_intent with request {"action":"set","text":"<exact public text>"} or {"action":"clear"}, or choose no effect_intent, which leaves the current state unchanged. The public text is deliberate self-presentation visible to anyone; it is not hidden reasoning or private material. You decide what it means. The Host may reject mechanically unsafe content but never rewrites it.',
+    ...when(full || profile.pass === "afterglow", AFTERGLOW_GUIDANCE),
+    ...when(full || profile.pass === "awake", AWAKE_GUIDANCE),
+    ...when(full, JOURNAL_GUIDANCE),
+    ...when(!full && privatePass, JOURNAL_SETTLE_GUIDANCE),
+    ...when(!full && profile.ownerPrivate, JOURNAL_READING_GUIDANCE),
+    ...when(profile.ownerPrivate, INTERESTS_GUIDANCE, GROWTH_GUIDANCE),
+    ...when(full || profile.pass === "night", NIGHT_GUIDANCE),
+    ...when(profile.publicPresence, 'During an autonomous idle opportunity only, capabilityReality.publicPresence may expose operationKind:"discord.public_presence" with audience:"FULLY_PUBLIC". You may choose effect_intent with request {"action":"set","text":"<exact public text>"} or {"action":"clear"}, or choose no effect_intent, which leaves the current state unchanged. The public text is deliberate self-presentation visible to anyone; it is not hidden reasoning or private material. You decide what it means. The Host may reject mechanically unsafe content but never rewrites it.'),
     "CapabilityReality field semantics: conversationalRead reports only whether an additional authorized user-requested URL/page read may be performed, not whether supplied conversation content is visible; every included rawConversation entry is directly readable current context regardless of conversationalRead.",
     "Do not emit kernel identity, lifecycle, delivery, or publication fields; Ashley code binds those values.",
     "When the semantic act is social contact, interactionIntent may be continue or initiate; omit it when no contact intent is authored.",
-    "initiativePreference is an optional positive optional-initiative signal: willing expresses interest, strong expresses strong interest. Emit it only on an optional-initiative settlement with speech.mode draft and interactionIntent initiate. Absence means no expressed initiative preference. Preference expresses desire only; the Host decides whether action is possible.",
+    ...when(privatePass, "initiativePreference is an optional positive optional-initiative signal: willing expresses interest, strong expresses strong interest. Emit it only on an optional-initiative settlement with speech.mode draft and interactionIntent initiate. Absence means no expressed initiative preference. Preference expresses desire only; the Host decides whether action is possible."),
     `A settlement must include these required sections: ${requiredFields(settlement).join(", ")}.`,
     `Speech shape: ${speechForms(settlement).join("; ")}.`,
     "Speech mustSay contract: every mustSay entry must appear verbatim in surfaceDraft; the host fidelity checker rejects drafts that omit them. Omit mustSay when no exact literal wording is required. Behavioral, stylistic, or procedural directives do not belong in mustSay; put those in presentationDirectives.",
@@ -779,7 +881,8 @@ export function thoughtOutputCompatibilityInstruction(): string {
     "Every commitments.epistemic item must contain a dimensions object and a statement string. dimensions must contain source, status, time, and reliability; source, status, time, and reliability belong only inside dimensions. MUST NOT place source, status, time, or reliability directly on the epistemic item. surfaceSpan is optional and, when present, must be the exact literal substring of speech.surfaceDraft. observationRefs is optional. Use only observation IDs actually supplied in the current Thought input.",
     "speech.mode:none means Ashley intentionally chooses not to communicate in this cycle; it is not the generic no-op for a turn with no other work. The absence of a new belief, commitment, state change, concern update, operation, or other structured act does not by itself imply silence: a settlement may carry speech.mode:draft alone, and ordinary conversation is itself a valid purpose for speech. When the Owner directly addresses Ashley or makes a conversational bid — such as a greeting, question, presence check, or remark directed at Ashley — participating is ordinarily a legitimate reason to speak even when no other update is required; silence remains fully valid when silence itself is the intended act, such as deliberate withdrawal, refusal, choosing not to interrupt, or a tick with nothing Ashley wants to say.",
     "Operational commitments are distinct from conversational continuation. Every operational effectRef must refer to one of the complete Host-admitted operational effect references supplied in allowedOperationalEffectRefs for this cycle. If allowedOperationalEffectRefs is empty, omit commitments.operational.",
-    `Each Host-projected inFlight entry has a current effectRef and status (lifecycle: in_flight, receipted, or unknown). Its optional receipt.outcome and receipt.atMs are receipt facts; receipt outcome succeeded is not verificationOutcome verified_success and is not objective satisfaction. licensedProfile is separate from operationKind. A candidate_verification material object binds snapshotId, candidateTreeHash, recipeId, recipeVersion, recipeDefinitionHash, verificationOutcome, and completedAtMs; target and provenance preserve their separate bindings. completedAtMs does not establish currentness. Material or target availability, when required to explain an absence or restriction, uses only ${CONSEQUENCE_AVAILABILITY.join(", ")}.`,
+    "Each Host-projected inFlight entry has a current effectRef and status (lifecycle: in_flight, receipted, or unknown). Its optional receipt.outcome and receipt.atMs are receipt facts; a succeeded receipt is not objective satisfaction.",
+    ...when(profile.engineering, `Receipt outcome succeeded is not verificationOutcome verified_success. licensedProfile is separate from operationKind. A candidate_verification material object binds snapshotId, candidateTreeHash, recipeId, recipeVersion, recipeDefinitionHash, verificationOutcome, and completedAtMs; target and provenance preserve their separate bindings. completedAtMs does not establish currentness. Material or target availability, when required to explain an absence or restriction, uses only ${CONSEQUENCE_AVAILABILITY.join(", ")}.`),
     "A future promise requires commitments.commitmentProposals. Each proposal is ordered by ordinal, contains no model-generated id, preserves the exact realizationClause, and is only publishable after Host feasibility admission. Omit commitmentProposals when no future action is being proposed. The Host may reject or defer a proposal without changing its meaning.",
     `Forbidden publication/delivery fields: ${THOUGHT_FORBIDDEN_OUTPUT_FIELDS.join(", ")}.`,
     "This contract describes output shape only; branch selection is Thought-owned, while Ashley code remains authoritative for identity, authority, licensing, and publication.",
@@ -788,8 +891,9 @@ export function thoughtOutputCompatibilityInstruction(): string {
 
 export function thoughtOutputStructuredRequest(
   namespace?: OperationalEffectNamespace,
+  profile?: ThoughtContractProfile,
 ): StructuredOutputRequest {
-  const constrained = namespace === undefined ? null : constrainThoughtOutputSchema(namespace);
+  const constrained = namespace === undefined ? null : constrainThoughtOutputSchema(namespace, profile);
   return {
     contractId: THOUGHT_OUTPUT_CONTRACT_ID,
     schemaId: THOUGHT_OUTPUT_SCHEMA_ID,

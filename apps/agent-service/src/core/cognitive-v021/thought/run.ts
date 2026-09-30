@@ -129,6 +129,7 @@ import { CapabilityUnavailableError } from "./typed-inspection.js";
 import { routeProjectInspectionRequest } from "../operation/project-inspection-route.js";
 import {
   thoughtOutputStructuredRequest,
+  thoughtContractProfile,
 } from "./output-contract.js";
 import {
   ProjectionCache,
@@ -1541,7 +1542,7 @@ export async function runThoughtModel(
     attentionDb: deps.attentionDb,
     route: "thought",
     responseFormat: "json_schema",
-    structuredOutput: thoughtOutputStructuredRequest(operationalNamespace),
+    structuredOutput: thoughtOutputStructuredRequest(operationalNamespace, thoughtContractProfile(input)),
     purpose: "thought",
     directCommandCodeThought: true,
     lane: "urgent_grounded",
