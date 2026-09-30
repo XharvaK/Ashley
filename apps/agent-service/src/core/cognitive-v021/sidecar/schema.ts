@@ -1629,3 +1629,24 @@ CREATE TABLE IF NOT EXISTS forget_epoch (
 INSERT OR IGNORE INTO forget_epoch (id, epoch, updated_at_ms) VALUES (1, 0, NULL);
 UPDATE cognitive_sidecar_meta SET schema_version = 41, projection_state = 'reconciling' WHERE id = 1;
 `;
+
+/**
+ * R13 settlement aftermath (schema v42). Publication records a pending row
+ * in its own transaction for every settlement whose inner-life records
+ * (journal, interests, growth, night) still have to be written; the
+ * aftermath step writes them in one transaction and marks the row recorded.
+ * A crash in between leaves the row pending, and recovery replays it.
+ */
+export const COGNITIVE_SIDECAR_SCHEMA_V42 = String.raw`
+CREATE TABLE IF NOT EXISTS settlement_aftermath (
+  settlement_id TEXT PRIMARY KEY,
+  cycle_id TEXT NOT NULL,
+  context_json TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('pending', 'recorded')),
+  created_at_ms INTEGER NOT NULL,
+  recorded_at_ms INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_settlement_aftermath_pending
+  ON settlement_aftermath (created_at_ms) WHERE status = 'pending';
+UPDATE cognitive_sidecar_meta SET schema_version = 42, projection_state = 'reconciling' WHERE id = 1;
+`;

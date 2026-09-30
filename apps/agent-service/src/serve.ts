@@ -8,6 +8,8 @@ import { checkAuthority } from "./core/cognitive-v021/authority/check.js";
 import { loadAuthorityPacks } from "./core/cognitive-v021/authority/packs.js";
 import { getCapabilityReality } from "./core/cognitive-v021/thought/capability-reality.js";
 import { readIdentitySlice } from "./core/cognitive-v021/identity/constitution.js";
+import { recoverSettlementAftermath } from "./core/cognitive-v021/thought/aftermath.js";
+import { DEFAULT_OWNER_TIME_ZONE } from "./core/cognitive-v021/thought/clock.js";
 import { runPerceptionBeforeThought } from "./core/cognitive-v021/perception/adapter.js";
 import { createCommandCodeDirectVisionTransport } from "./core/cognitive-v021/perception/command-code-vision.js";
 import { sweepExpiredArtifacts } from "./core/perception/artifact-store.js";
@@ -678,6 +680,17 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
           sweepExpiredArtifacts(nuclear, { nowMs, limit: 50 });
         } catch (error) {
           console.warn("[perception] artifact retention maintenance deferred", error);
+        }
+        // R13: replay inner-life records a crash left owed after publication.
+        try {
+          recoverSettlementAftermath(sidecar, {
+            identityStore: { nuclear, ownerId },
+            timeZone: env.ownerTimeZone || DEFAULT_OWNER_TIME_ZONE,
+            nowMs,
+            limit: 10,
+          });
+        } catch (error) {
+          console.warn("[cognitive-v021] aftermath recovery deferred", error);
         }
         if (observabilityDb) purgeThoughtDebugCaptures(observabilityDb, nowMs);
         pollInnerLife(nowMs);

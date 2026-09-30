@@ -169,11 +169,10 @@ import {
 } from "../initiative/afterglow.js";
 import { awakePassFromPayload, nightPassFromPayload } from "../initiative/inner-pass.js";
 import { buildInnerAgenda } from "../initiative/agenda.js";
-import { recordJournalEntry, type JournalPassKind } from "../initiative/journal.js";
+import { recordSettlementAftermath, type AftermathContext } from "./aftermath.js";
 import { isUnsolicitedTriggerKind, unsolicitedFuseTripped } from "../initiative/reach-out.js";
-import { recordInterestTouches } from "../memory/interests.js";
-import { growthForThought, recordGrowth, type IdentityStore } from "../growth/growth.js";
-import { buildNightAgenda, recordNight } from "../growth/night.js";
+import { growthForThought, type IdentityStore } from "../growth/growth.js";
+import { buildNightAgenda } from "../growth/night.js";
 import { DEFAULT_OWNER_TIME_ZONE } from "./clock.js";
 import {
   c1V021ProviderBoundBasisFromProjection,
@@ -1452,18 +1451,6 @@ function semanticReferencesForInput(input: ThoughtInput | ProjectedThoughtInput)
   ];
 }
 
-function settlementRedacted(sidecar: DatabaseSync, settlementId: string): boolean {
-  const row = sidecar.prepare("SELECT payload_json FROM settlements WHERE settlement_id = ?").get(settlementId) as
-    { payload_json?: unknown } | undefined;
-  if (!row || typeof row.payload_json !== "string") return false;
-  try {
-    return (JSON.parse(row.payload_json) as { redacted?: unknown }).redacted === true;
-  } catch {
-    return false;
-  }
-}
-
-/** The nuclear identity store the revision engine may write, when the deployment names its owner. */
 function identityStoreFor(nuclear: DatabaseSync, deps: KernelDeps): IdentityStore | null {
   return deps.identityOwnerId ? { nuclear, ownerId: deps.identityOwnerId } : null;
 }
@@ -4472,7 +4459,23 @@ export async function runCognitiveCycle(
         makeThoughtTerminal("budget_exhausted", { codes: ["unsolicited_fuse"], stage: "reach_out_fuse" }),
       );
     }
+    // R13: the inner-life records of an Owner-private settlement are owed from
+    // the moment it publishes, so publication itself records them as pending.
+    const aftermathContext: AftermathContext | null = deps.origin !== "shadow" && !externalCycle
+      && effectiveThoughtAudience.kind === "owner_private"
+      ? {
+          conversationId: cycle.conversationId,
+          passKind: afterglowPass ? "afterglow"
+            : awakePass ? "awake"
+            : nightPass ? "night"
+            : isUnsolicitedTriggerKind(cycle.triggerKind)
+              ? cycle.triggerKind === "future_trigger_due" ? "future_trigger" : "private"
+              : null,
+          nightPass: nightPass ?? null,
+        }
+      : null;
     const publication = publishSemanticTransaction(sidecar, settlement, {
+      ...(aftermathContext ? { aftermath: aftermathContext } : {}),
       nowMs: deps.nowMs(),
       triggerKind: cycle.triggerKind,
       fidelity: validation.draft.speech.mode === "draft" ? "passed" : "skipped",
@@ -4609,55 +4612,17 @@ export async function runCognitiveCycle(
         console.warn("[cognitive-v021] afterglow_completion_deferred", error);
       }
     }
-    if (deps.origin !== "shadow" && publication.settlementId !== null && !externalCycle
-      && effectiveThoughtAudience.kind === "owner_private") {
+    if (aftermathContext && publication.settlementId !== null) {
       try {
-        const nowMs = deps.nowMs();
-        const interests = settlement.interests ?? [];
-        if (interests.length > 0) recordInterestTouches(sidecar, interests, nowMs);
-        if (afterglowPass || awakePass || nightPass || isUnsolicitedTriggerKind(cycle.triggerKind)) {
-          const passKind: JournalPassKind = afterglowPass ? "afterglow"
-            : awakePass ? "awake"
-            : nightPass ? "night"
-              : cycle.triggerKind === "future_trigger_due" ? "future_trigger" : "private";
-          recordJournalEntry(sidecar, {
-            conversationId: cycle.conversationId,
-            cycleId: cycle.cycleId,
-            passKind,
-            ...(settlement.journal ? { claim: settlement.journal } : {}),
-            interests,
-            spoke: publication.outboxId !== null,
-            nowMs,
-          });
-        }
-      } catch (error) {
-        // Publication is authoritative; the journal and interests are records of it.
-        console.warn("[cognitive-v021] inner_life_record_deferred", error);
-      }
-      try {
-        // Growth V1 G4. A forget that redacted this settlement first wins:
-        // its growth claim is not recorded. Open revisions are still checked,
-        // so a wait that ran out applies without a new claim.
-        const standing = !settlementRedacted(sidecar, publication.settlementId);
-        recordGrowth(sidecar, {
-          cycleId: cycle.cycleId,
-          ...(standing && settlement.growth ? { claim: settlement.growth } : {}),
+        recordSettlementAftermath(sidecar, publication.settlementId, {
           identityStore: identityStoreFor(nuclear, deps),
-          dataClassification: "ordinary",
+          timeZone: env.ownerTimeZone || DEFAULT_OWNER_TIME_ZONE,
           nowMs: deps.nowMs(),
         });
-        if (nightPass && standing) {
-          recordNight(sidecar, {
-            cycleId: cycle.cycleId,
-            pass: nightPass,
-            ...(settlement.night ? { claim: settlement.night } : {}),
-            timeZone: env.ownerTimeZone || DEFAULT_OWNER_TIME_ZONE,
-            dataClassification: "ordinary",
-            nowMs: deps.nowMs(),
-          });
-        }
       } catch (error) {
-        console.warn("[cognitive-v021] growth_record_deferred", error);
+        // Publication is authoritative and recorded the aftermath as pending;
+        // recovery replays it from the stored settlement.
+        console.warn("[cognitive-v021] aftermath_deferred", error);
       }
     }
     if (deps.origin !== "shadow" && (settlement.durableNominations ?? []).length > 0) {

@@ -1,4 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
+import { recordAftermathPending, type AftermathContext } from "../thought/aftermath.js";
 import { readAuthorityBarrier, requireCurrentAuthorityBinding } from "../authority/barrier.js";
 import { getSpeechOutbox, insertOutboxPending } from "../speech/outbox.js";
 import { getSystemNotice } from "../speech/infrastructure-notice.js";
@@ -75,6 +76,8 @@ export type PublicationOptions = {
   semanticPass?: number;
   /** Allow only the exact live-claim completion-queue exception. */
   allowQueuedDetachedCompletion?: boolean;
+  /** R13: record the settlement's inner-life aftermath as pending in this transaction. */
+  aftermath?: AftermathContext;
 };
 
 export type PublicationResult = {
@@ -548,6 +551,9 @@ export function publishSemanticTransaction(
       `INSERT INTO settlements (settlement_id, cycle_id, generation, wake_id, semantic_pass, payload_json)
        VALUES (?, ?, ?, ?, ?, ?)`,
     ).run(settlement.settlementId, settlement.cycleId, settlement.generation, wakeId, semanticPass, json({ ...settlement, wakeId, currentnessWitness }));
+    if (options.aftermath) {
+      recordAftermathPending(db, { settlementId: settlement.settlementId, cycleId: settlement.cycleId, context: options.aftermath, nowMs });
+    }
 
     let outboxId: number | null = null;
     if (settlement.speech.mode === "draft") {
