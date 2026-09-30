@@ -1,3 +1,4 @@
+import { vectorNeighbors, type QueryVector } from "./vectors.js";
 import type { DatabaseSync } from "node:sqlite";
 import { DEFAULT_SALIENCE, strengthScores } from "../memory/strength.js";
 import type {
@@ -47,6 +48,8 @@ export type RetrieveCandidatesOptions = {
   ownerId?: string;
   /** Clock for memory-strength decay; defaults to the wall clock. */
   nowMs?: number;
+  /** A5: the Host-embedded query for the local vector tier (never model-visible). */
+  queryVector?: QueryVector;
 };
 
 export function tokenizeForDiscovery(text: string): string[] {
@@ -398,6 +401,40 @@ export function retrieveCandidates(
     }];
   });
 
+  // A5 vector tier: semantic neighbours of the query among live memories,
+  // offered beside the Working-Context tier and fenced by audience like the rest.
+  const vectorHits: RetrievalHit[] = options.queryVector
+    ? vectorNeighbors(derivedStore, options.queryVector).flatMap(({ assertionKey, similarity }) => {
+        const assertion = getMemoryAssertion(sidecarDb, assertionKey);
+        if (!assertion?.live || assertion.dataClassification === "secret") return [];
+        const metadata = {
+          audienceScope: assertion.audienceScope ?? { kind: "owner_private" } as SocialAudience,
+          protectionStatus: assertion.protectionStatus ?? null,
+          licenseRefs: assertion.licenseRefs ?? [],
+          dataClassification: assertion.dataClassification,
+        };
+        if (!retrievalHitEligible(metadata, audience, licenses)) return [];
+        return [{
+          kind: "vector" as const,
+          sourceStore: "live_memory" as const,
+          ref: assertionKey,
+          snippet: assertion.statement.slice(0, 500),
+          score: -10 * similarity,
+          assertionKey,
+          memoryKind: assertion.memoryKind,
+          dimensions: assertion.dimensions,
+          dataClassification: assertion.dataClassification,
+          live: true,
+          supportRefs: modelVisibleSupportRefs(sidecarDb, assertionKey),
+          source: assertion.sourcePrincipal ?? null,
+          subject: assertion.subject ?? null,
+          audienceScope: metadata.audienceScope,
+          licenseRefs: metadata.licenseRefs,
+          protectionStatus: metadata.protectionStatus,
+        }];
+      })
+    : [];
+
   // Tier 4: Historical conversation-log BM25 over conversation_fts
   let logHits: RetrievalHit[] = [];
   if (request.includeLogSearch) {
@@ -469,7 +506,7 @@ export function retrieveCandidates(
   const ranked = rankCandidates({
     exactKeyHits,
     rawTriggerFtsHits: strengthen(rawTriggerHits),
-    concernFtsHits: strengthen(concernHits),
+    concernFtsHits: strengthen([...concernHits, ...vectorHits]),
     logHits,
   });
 

@@ -37,6 +37,12 @@ last use x (1 + ln(1 + uses)). It orders recall and never deletes.
 - associative retrieval: exact keys, then BM25 over memories (re-ranked by
   strength) and over the conversation log of every Owner-private thread
   and trusted room, within a 32-hit / 24 KB fuse;
+- when local embeddings are on (`ASHLEY_LOCAL_EMBEDDINGS_ENABLED` and a local
+  model in `ASHLEY_LOCAL_EMBEDDING_MODEL`), a vector tier: the Owner's message
+  is embedded on the host and the nearest live memories by meaning join the
+  candidates, re-ranked by strength and fenced by audience like every other
+  hit, so "my sibling" finds the memory that names her sister. The model runs
+  locally (decision 17); vectors live in the rebuildable derived index;
 - the thread story and her most recent and most relevant episodes (below);
 - `memory.lookup`, a read-only Owner-private observation Ashley can choose
   to search her own memories and episodes deliberately.

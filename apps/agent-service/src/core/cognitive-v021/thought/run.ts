@@ -3287,6 +3287,10 @@ export async function runCognitiveCycle(
     });
     inFlight = listInFlightForThoughtCycle(sidecar, cycle.cycleId);
     const invocationCapabilityReality = currentCapabilityReality();
+    // A5: the vector recall tier needs the query embedded locally first.
+    const queryVector = deps.embedQuery && typeof ownerMessage === "string" && ownerMessage.trim()
+      ? await deps.embedQuery(ownerMessage).catch(() => null)
+      : null;
     const thoughtInputOptions = {
       sidecar,
       cycle,
@@ -3327,6 +3331,7 @@ export async function runCognitiveCycle(
       observations: observationsForThought,
       inFlight,
       runtimeCondition: { thoughtUnavailable: false },
+      ...(queryVector ? { queryVector } : {}),
       rememberDirective: directive,
       authorityObjections,
       derivedStore: deps.derivedStore,

@@ -2158,6 +2158,8 @@ export type KernelDeps = {
   readConstitution?: () => IdentitySlice;
   /** The nuclear identity owner the revision engine writes for (Growth V1 G4). */
   identityOwnerId?: string;
+  /** A5: embed the query locally for the vector recall tier; null when unavailable. */
+  embedQuery?: (text: string) => Promise<import("./retrieval/vectors.js").QueryVector | null>;
   capabilityReality: CapabilityReality;
   /** Refreshes volatile capability and release facts before each Thought call. */
   refreshCapabilityReality?: (input: {

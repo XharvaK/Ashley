@@ -17,10 +17,15 @@
     "dev": "tsx watch src/index.ts",
 
     "test": "vitest run",
+
     "test:current": "vitest run --config vitest.current.config.ts",
+
     "test:cognitive-v021": "vitest run src/core/cognitive-v021",
+
     "test:scale": "vitest run src/core/cognitive-v021/acceptance/scale.test.ts",
+
     "test:offline": "vitest run --config vitest.offline.config.ts",
+
     "test:watch": "vitest"
 
   },
@@ -65,6 +70,13 @@
 
     "esbuild": "0.28.1"
 
+  },
+
+  "optionalDependencies": {
+
+    "@huggingface/transformers": "^3.8.1"
+
   }
 
 }
+

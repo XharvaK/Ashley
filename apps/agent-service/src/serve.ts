@@ -9,6 +9,7 @@ import { loadAuthorityPacks } from "./core/cognitive-v021/authority/packs.js";
 import { getCapabilityReality } from "./core/cognitive-v021/thought/capability-reality.js";
 import { readIdentitySlice } from "./core/cognitive-v021/identity/constitution.js";
 import { recoverSettlementAftermath } from "./core/cognitive-v021/thought/aftermath.js";
+import { loadLocalEmbedder, refreshMemoryVectors, type Embedder } from "./core/cognitive-v021/retrieval/vectors.js";
 import { DEFAULT_OWNER_TIME_ZONE } from "./core/cognitive-v021/thought/clock.js";
 import { runPerceptionBeforeThought } from "./core/cognitive-v021/perception/adapter.js";
 import { createCommandCodeDirectVisionTransport } from "./core/cognitive-v021/perception/command-code-vision.js";
@@ -192,6 +193,20 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
   let cognitiveConsumer: InboxConsumerHandle | null = null;
   let frontierCoordinator: FrontierCoordinatorHandle | null = null;
   let derivedStore: DerivedStore | null = null;
+  // A5: the local embedder loads once, on first use; null when disabled or unavailable.
+  let embedderPromise: Promise<Embedder | null> | null = null;
+  let vectorRefreshRunning = false;
+  const localEmbedder = (): Promise<Embedder | null> => {
+    if (!env.localEmbeddingsEnabled || !env.localEmbeddingModel) return Promise.resolve(null);
+    embedderPromise ??= loadLocalEmbedder({
+      model: env.localEmbeddingModel,
+      cacheDir: join(dirname(defaultDerivedIndexDbPath()), "models"),
+    }).catch((error) => {
+      console.warn("[cognitive-v021] local embedder unavailable", error instanceof Error ? error.message : "unknown");
+      return null;
+    });
+    return embedderPromise;
+  };
   let observabilityDb: DatabaseSync | null = null;
   let projectSystemNotice: ((noticeId: number) => Promise<void>) | undefined;
   try {
@@ -404,6 +419,16 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
       constitution: readIdentitySlice(nuclear, ownerId),
       readConstitution: () => readIdentitySlice(nuclear, ownerId),
       identityOwnerId: ownerId,
+      embedQuery: async (text) => {
+        const embedder = await localEmbedder();
+        if (!embedder) return null;
+        // A slow model never holds up a turn: recall falls back to lexical.
+        const vector = await Promise.race([
+          embedder.embed([text.slice(0, 2_000)]).then(([value]) => value ?? null),
+          new Promise<null>((resolve) => setTimeout(() => resolve(null), 5_000)),
+        ]);
+        return vector ? { model: embedder.model, vector } : null;
+      },
       capabilityReality,
       visionTransport,
       refreshCapabilityReality: ({ audience, licenses, nowMs }) => getCapabilityReality(nuclear, {
@@ -655,6 +680,15 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
           }
         } catch (error) {
           console.warn("[cognitive-v021] delivery reconciliation maintenance deferred", error);
+        }
+        // A5: keep the local vector index in step with live memory, one refresh at a time.
+        if (derivedStore && !vectorRefreshRunning && env.localEmbeddingsEnabled && env.localEmbeddingModel) {
+          vectorRefreshRunning = true;
+          const store = derivedStore;
+          void localEmbedder()
+            .then((embedder) => embedder ? refreshMemoryVectors(store, sidecar, embedder, { nowMs }) : null)
+            .catch((error) => console.warn("[cognitive-v021] vector refresh deferred", error))
+            .finally(() => { vectorRefreshRunning = false; });
         }
         // R1 steady-state opportunity: newly terminalized eligible obligations
         // materialize a repair here; the pass is bounded and idempotent.

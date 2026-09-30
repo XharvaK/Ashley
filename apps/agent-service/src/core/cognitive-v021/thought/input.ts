@@ -125,6 +125,8 @@ export type BuildThoughtInputOptions = {
    * receive a cross-surface scope.
    */
   crossSurfaceConversationIds?: readonly string[];
+  /** A5: the Host-embedded query for the vector recall tier. */
+  queryVector?: import("../retrieval/vectors.js").QueryVector;
   /** Authenticated Owner identity remains authoritative in a room audience. */
   authenticatedOwner?: boolean;
   /** Current permitted destination facts. Thought may choose; Host does not fan out. */
@@ -1117,6 +1119,7 @@ export function buildThoughtInput(options: BuildThoughtInputOptions): ThoughtInp
       licenses,
       ownerId: options.cycle.occupantId,
       ...(options.clock ? { nowMs: options.clock.nowMs } : {}),
+      ...(options.queryVector ? { queryVector: options.queryVector } : {}),
     },
   );
   // Memories are Owner-private: the core profile never enters another audience.
