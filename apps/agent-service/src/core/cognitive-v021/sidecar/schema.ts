@@ -1688,3 +1688,12 @@ CREATE TABLE IF NOT EXISTS expectation_basis (
 CREATE INDEX IF NOT EXISTS idx_expectation_basis_source ON expectation_basis (source);
 UPDATE cognitive_sidecar_meta SET schema_version = 44, projection_state = 'reconciling' WHERE id = 1;
 `;
+
+/** A8 longitudinal witness: a weekly copy of who Ashley is, for growth-versus-drift review. */
+export const COGNITIVE_SIDECAR_SCHEMA_V45 = String.raw`
+CREATE TABLE IF NOT EXISTS persona_snapshots (
+  taken_at_ms INTEGER PRIMARY KEY,
+  snapshot_json TEXT NOT NULL
+);
+UPDATE cognitive_sidecar_meta SET schema_version = 45, projection_state = 'reconciling' WHERE id = 1;
+`;

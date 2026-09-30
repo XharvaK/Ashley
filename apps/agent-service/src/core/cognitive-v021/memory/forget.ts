@@ -14,6 +14,7 @@ import { forgetRevision, revisionIdsForForget } from "../growth/revisions.js";
 import { forgetMoodEvent, moodEventIdsForForget } from "../growth/mood.js";
 import { expectationIdsForForget, forgetExpectation } from "../growth/expectations.js";
 import { diaryEntryIdsForForget, forgetDiaryEntry, forgetNarrative, narrativeIdsForForget } from "../growth/night.js";
+import { forgetSnapshot, snapshotIdsForForget } from "../growth/snapshots.js";
 
 type Row = Record<string, unknown>;
 
@@ -31,6 +32,7 @@ export const V021_FORGET_TARGET_MATRIX = {
   expectations: { behavior: "none", content: "redact" },
   diary_entries: { behavior: "none", content: "redact" },
   self_narratives: { behavior: "none", content: "redact" },
+  persona_snapshots: { behavior: "none", content: "redact" },
   concerns: { behavior: "resolve", content: "redact" },
   mind_occupancy: { behavior: "detach", content: "none" },
   future_triggers: { behavior: "cancel", content: "redact" },
@@ -418,6 +420,10 @@ export function applyV021Forget(
       changedRows += forgetNarrative(db, id, nowMs);
       addTarget(targets, "v021_self_narrative", id);
     }
+    for (const id of snapshotIdsForForget(db, topic)) {
+      changedRows += forgetSnapshot(db, id);
+      addTarget(targets, "v021_persona_snapshot", id);
+    }
 
     // A redacted nomination must not be admitted on a later worker tick.
     void safePayload;
@@ -577,6 +583,7 @@ export function planV021Forget(
   for (const id of expectationIdsForForget(db, topic)) add("v021_expectation", id);
   for (const id of diaryEntryIdsForForget(db, topic)) add("v021_diary_entry", id);
   for (const id of narrativeIdsForForget(db, topic)) add("v021_self_narrative", id);
+  for (const id of snapshotIdsForForget(db, topic)) add("v021_persona_snapshot", id);
   return {
     topic,
     targets,
@@ -719,6 +726,9 @@ function applyV021ForgetTargetsInTransaction(
   }
   for (const id of targetIds(targets, "v021_self_narrative")) {
     changed.value += forgetNarrative(db, id, nowMs);
+  }
+  for (const id of targetIds(targets, "v021_persona_snapshot")) {
+    changed.value += forgetSnapshot(db, id);
   }
   for (const id of targetIds(targets, "v021_desk_entry")) {
     addChanges(db.prepare(

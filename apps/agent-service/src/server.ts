@@ -1,3 +1,4 @@
+import { listPersonaSnapshots, personaChanges } from "./core/cognitive-v021/growth/snapshots.js";
 import express from "express";
 import cors from "cors";
 import type { Server } from "node:http";
@@ -2545,6 +2546,18 @@ export function createServer(
       requireOwner(String(req.query.owner_id ?? "") || undefined);
       const limit = Math.min(100, Number(req.query.limit ?? 50) || 50);
       res.json({ reviews: listFoundationalReviews(getCognitiveSidecar(), limit) });
+    } catch (err) {
+      const { status, body } = toErrorResponse(err);
+      res.status(status).json(body);
+    }
+  });
+
+  /** A8: weekly snapshots of who Ashley is, and what changed between them. */
+  app.get("/growth/snapshots", (req, res) => {
+    try {
+      requireOwner(String(req.query.owner_id ?? "") || undefined);
+      const snapshots = listPersonaSnapshots(getCognitiveSidecar());
+      res.json({ snapshots, changes: personaChanges(snapshots) });
     } catch (err) {
       const { status, body } = toErrorResponse(err);
       res.status(status).json(body);

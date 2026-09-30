@@ -9,6 +9,7 @@ import { loadAuthorityPacks } from "./core/cognitive-v021/authority/packs.js";
 import { getCapabilityReality } from "./core/cognitive-v021/thought/capability-reality.js";
 import { readIdentitySlice } from "./core/cognitive-v021/identity/constitution.js";
 import { recoverSettlementAftermath } from "./core/cognitive-v021/thought/aftermath.js";
+import { takePersonaSnapshotIfDue } from "./core/cognitive-v021/growth/snapshots.js";
 import { loadLocalEmbedder, refreshMemoryVectors, type Embedder } from "./core/cognitive-v021/retrieval/vectors.js";
 import { DEFAULT_OWNER_TIME_ZONE } from "./core/cognitive-v021/thought/clock.js";
 import { runPerceptionBeforeThought } from "./core/cognitive-v021/perception/adapter.js";
@@ -680,6 +681,12 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
           }
         } catch (error) {
           console.warn("[cognitive-v021] delivery reconciliation maintenance deferred", error);
+        }
+        // A8: once a week, record who she is for the growth-versus-drift witness.
+        try {
+          takePersonaSnapshotIfDue(sidecar, { nuclear, ownerId }, nowMs);
+        } catch (error) {
+          console.warn("[cognitive-v021] persona snapshot deferred", error);
         }
         // A5: keep the local vector index in step with live memory, one refresh at a time.
         if (derivedStore && !vectorRefreshRunning && env.localEmbeddingsEnabled && env.localEmbeddingModel) {

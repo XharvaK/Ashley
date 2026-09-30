@@ -178,6 +178,12 @@ own words and is itself erasable. `/forget` is retired; the agent's
 Code: `apps/agent-service/src/core/cognitive-v021/memory/semantic-forget.ts`.
 Nothing leaves her records by age alone.
 
+**Weekly witness (A8).** Once a week the Host copies who she is (identity
+entries, current opinions, latest narrative, mood) into `persona_snapshots`;
+`GET /growth/snapshots` returns the snapshots and what changed week over week,
+so slow change can be read as growth rather than drift. It is never fed back
+into Thought, and a forget reaches it like any other record.
+
 **Contacts (A3, A9; decisions 5 and 19).** Alex decides who may talk with
 Ashley (`/contacts`; permits in `social_permits`). What a contact tells her
 is kept as a `shared_episode` in their words, labelled as her interpretation
