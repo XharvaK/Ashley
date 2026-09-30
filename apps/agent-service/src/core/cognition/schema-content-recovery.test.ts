@@ -1,3 +1,4 @@
+import { restoreLegacyV53Objects } from "./__tests__/fixtures/legacy-v53.js";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import {
@@ -20,6 +21,7 @@ type Fixture = {
 function pendingV24Fixture(): Fixture {
   const continuity = openContinuityDb(new DatabaseSync(":memory:"));
   const nuclear = openNuclearDb(new DatabaseSync(":memory:"), { continuity });
+  restoreLegacyV53Objects(nuclear);
   const lineage = (
     nuclear
       .prepare("SELECT lineage_id FROM lineage_mirror WHERE id = 1")
@@ -55,6 +57,7 @@ function pendingV24Fixture(): Fixture {
 function sourceV23Fixture(): Fixture {
   const continuity = openContinuityDb(new DatabaseSync(":memory:"));
   const nuclear = openNuclearDb(new DatabaseSync(":memory:"), { continuity });
+  restoreLegacyV53Objects(nuclear);
   nuclear.exec(`
     ALTER TABLE attention_requests DROP COLUMN accepted_contract_id;
     ALTER TABLE attention_requests DROP COLUMN accepted_build_identity;

@@ -66,14 +66,6 @@ import { getAffectiveState } from "./state/affect.js";
 import {
   listActiveMindStateItems,
 } from "./state/mind-items.js";
-import {
-  applyEligibleRevisions,
-  listIdentityReviews,
-  listRevisions,
-  recordAshleyReviewPosition,
-  recordDocReviewDecision,
-  revertRevision,
-} from "./learning/revisions.js";
 import { classifyIdentityChange, requiresOwnerApproval } from "./identity/classification.js";
 import {
   createChangeProposal,
@@ -138,7 +130,6 @@ import {
   type StartC1EpochInput,
 } from "./rollout/memory-evidence-qualification-epoch.js";
 import { listRelationshipSummary } from "./relationship/store.js";
-import { recomputeSharedCulture } from "./relationship/projections.js";
 import {
   recordAshleySelfCommitment,
   type AshleySelfCommitmentInput,
@@ -984,63 +975,6 @@ export class AshleyCore {
     };
   }
 
-  getRevisions(ownerId: string, limit = 50) {
-    return {
-      mode: env.cognitionMode,
-      capabilities: this.capabilityStatuses(),
-      revisions: listRevisions(this.db, ownerId, limit),
-    };
-  }
-
-  getIdentityReviews(ownerId: string, limit = 50) {
-    return {
-      mode: env.cognitionMode,
-      reviews: listIdentityReviews(this.db, ownerId, limit),
-    };
-  }
-
-  /**
-   * Exact-item shadow authorization: the owner just acted on one review, so
-   * only that review's revision may cross the shadow -> behavioral boundary,
-   * and only if the joint review state (Ashley affirm + Alex approve) is
-   * complete. No other shadow revision is ever eligible.
-   */
-  private applyReviewedRevisionIfComplete(ownerId: string, reviewId: number): void {
-    const row = this.db.prepare(
-      `SELECT revision_id FROM identity_reviews WHERE id = ? AND owner_id = ?`,
-    ).get(reviewId, ownerId) as { revision_id?: number } | undefined;
-    if (!row?.revision_id) return;
-    const applied = applyEligibleRevisions(this.db, ownerId, env.cognitionMode, {
-      allowShadow: true,
-      revisionIds: [Number(row.revision_id)],
-    });
-    if (applied.length > 0) recomputeSharedCulture(this.db, ownerId);
-  }
-
-  recordAshleyIdentityPosition(input: {
-    ownerId: string;
-    reviewId: number;
-    position: "affirm" | "object" | "defer";
-    rationale: string;
-    evidenceType: string;
-    evidenceId: string | number;
-  }) {
-    const recorded = recordAshleyReviewPosition(this.db, input);
-    if (recorded) this.applyReviewedRevisionIfComplete(input.ownerId, input.reviewId);
-    return { recorded, reviews: listIdentityReviews(this.db, input.ownerId) };
-  }
-
-  recordDocIdentityDecision(input: {
-    ownerId: string;
-    reviewId: number;
-    decision: "approve" | "reject" | "defer";
-    rationale?: string;
-  }) {
-    const recorded = recordDocReviewDecision(this.db, input);
-    if (recorded) this.applyReviewedRevisionIfComplete(input.ownerId, input.reviewId);
-    return { recorded, reviews: listIdentityReviews(this.db, input.ownerId) };
-  }
-
   // Identity proposals (foundational change approval flow)
   getIdentityProposals(ownerId: string, limit = 50) {
     return {
@@ -1150,12 +1084,6 @@ export class AshleyCore {
       // ordinary_identity goes straight to approved
       result = transitionProposal(this.db, ownerId, entityUuid, "approved", "doc");
       if (!result.ok) throw new Error(result.errorCode);
-    }
-
-    // Apply the revision if this was linked to one
-    if (proposal.linkedRevisionEntityUuid) {
-      // The revision will be applied via applyEligibleRevisions when mode=apply
-      // For now, we return success
     }
 
     return { approved: true, proposal: getChangeProposalByEntityUuid(this.db, ownerId, entityUuid) };
@@ -1474,10 +1402,6 @@ export class AshleyCore {
     input: Parameters<typeof executeMemoryEvidenceCutoverRelease>[1],
   ): MemoryEvidenceCutoverResult {
     return executeMemoryEvidenceCutoverRelease(this.db, input);
-  }
-
-  revertRevision(ownerId: string, revisionId: number): boolean {
-    return revertRevision(this.db, ownerId, revisionId);
   }
 
   recordGifFeedback(

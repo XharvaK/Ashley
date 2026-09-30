@@ -193,18 +193,6 @@ const NON_LIVE: Record<string, NonLiveRule> = {
     cls: "CONTROL_PLANE",
     reason: "C1-C5 contract marker and activation ledger; not live behavioral state",
   },
-  context_budget_policies: {
-    cls: "SHADOW_ARTIFACT",
-    reason: "C2 bounded projection policy metadata; no durable semantic mutation",
-  },
-  context_allocation_receipts: {
-    cls: "SHADOW_ARTIFACT",
-    reason: "C2 allocation receipts and route metadata; prompt projection is not memory authority",
-  },
-  context_summary_projections: {
-    cls: "SHADOW_ARTIFACT",
-    reason: "C2 bounded summary artifacts; same persistent truth can produce different projections",
-  },
   learned_influences: {
     cls: "SHADOW_ARTIFACT",
     reason: "C3 learned bindings remain unpromoted shadow/fixture influence records",
@@ -224,10 +212,6 @@ const NON_LIVE: Record<string, NonLiveRule> = {
   episodes: { cls: "SHADOW_ARTIFACT", reason: "shadow episodes diverge pre-promotion; live subset compared in Track E/C" },
   episode_messages: { cls: "SHADOW_ARTIFACT", reason: "derived from episodes" },
   cognitive_runs: { cls: "SHADOW_ARTIFACT", reason: "shadow analysis run (shadow-only reader)" },
-  learning_revisions: {
-    cls: "SHADOW_ARTIFACT",
-    reason: "shadow revisions never auto-apply; live subset compared in Track P",
-  },
   cur_reads: { cls: "SHADOW_ARTIFACT", reason: "shadow reads inert pre-promotion; live subset exact" },
   cur_takes: { cls: "SHADOW_ARTIFACT", reason: "shadow takes inert pre-promotion; live subset exact" },
   cur_source_candidates: { cls: "SHADOW_ARTIFACT", reason: "shadow source candidates inert pre-promotion; live subset exact" },
@@ -270,10 +254,6 @@ const NON_LIVE: Record<string, NonLiveRule> = {
   attention_dispatch_counter: { cls: "CONTROL_PLANE", reason: "Track M — attention dispatch side effects" },
   change_proposals: { cls: "CONTROL_PLANE", reason: "design-only; not written by shadow" },
   change_proposal_events: { cls: "CONTROL_PLANE", reason: "design-only; not written by shadow" },
-  identity_reviews: {
-    cls: "CONTROL_PLANE",
-    reason: "Track R — review state for foundational revisions; never reaches live behavior; requires dual owner approval to apply",
-  },
   lineage_mirror: { cls: "CONTROL_PLANE", reason: "continuity lineage ledger; not written by shadow; in-memory sidecar in tests" },
   authority_transition_barrier: {
     cls: "CONTROL_PLANE",

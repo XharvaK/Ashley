@@ -1,5 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
+import { restoreLegacyV53Objects } from "./cognition/__tests__/fixtures/legacy-v53.js";
 import { NUCLEAR_SUPPORTED_VERSION, openNuclearDb } from "./db.js";
 
 function schemaVersion(db: DatabaseSync): number {
@@ -14,15 +15,21 @@ describe("nuclear database migrations", () => {
     const db = openNuclearDb(new DatabaseSync(":memory:"));
 
     expect(schemaVersion(db)).toBe(NUCLEAR_SUPPORTED_VERSION);
+    expect(db.prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name IN (
+      'identity_reviews', 'learning_revisions', 'context_budget_policies',
+      'context_allocation_receipts', 'context_summary_projections'
+    )`).all()).toEqual([]);
+    expect(db.prepare("PRAGMA foreign_key_list(lived_experience_links)").all())
+      .not.toEqual(expect.arrayContaining([expect.objectContaining({ table: "learning_revisions" })]));
     const tables = db
       .prepare(
         `SELECT name FROM sqlite_master
          WHERE type = 'table' AND name IN (
            'reflection_events', 'initiative_learning', 'episodes',
            'mind_state_items', 'affective_state', 'cognitive_jobs',
-           'learning_revisions', 'cur_reads', 'forget_receipts',
+           'cur_reads', 'forget_receipts',
            'capability_releases', 'capability_events', 'cur_source_candidates',
-           'identity_reviews', 'own_time_sessions',
+           'own_time_sessions',
            'delivery_reservations', 'delivery_inbound_messages',
            'delivery_bubbles', 'delivery_auxiliary_messages',
            'attention_requests', 'attention_daily_usage',
@@ -60,9 +67,7 @@ describe("nuclear database migrations", () => {
       "external_agency_state",
       "external_entity_notes",
       "forget_receipts",
-      "identity_reviews",
       "initiative_learning",
-      "learning_revisions",
       "mind_state_items",
       "model_continuity_events",
       "model_continuity_state",
@@ -220,6 +225,7 @@ describe("nuclear database migrations", () => {
       INSERT INTO mem_facts VALUES
         (1, 'doc', 'project', 'name', 'Ashley', 1, 80, NULL, NULL,
          '2026-01-01T00:00:00.000Z');
+      CREATE TABLE evidence_links (id INTEGER PRIMARY KEY AUTOINCREMENT, owner_id TEXT NOT NULL, target_type TEXT NOT NULL, target_id TEXT NOT NULL, source_type TEXT NOT NULL, source_id TEXT NOT NULL, created_at TEXT NOT NULL, UNIQUE(owner_id, target_type, target_id, source_type, source_id));
       PRAGMA user_version = 3;
     `);
 
@@ -273,6 +279,7 @@ describe("nuclear database migrations", () => {
       INSERT INTO cur_items(id, source_id) VALUES (1, 1);
       INSERT INTO cur_takes(id, item_id, interest, take, created_at)
       VALUES (1, 1, 'systems', 'feed excerpt', '2026-01-01T00:00:00.000Z');
+      CREATE TABLE evidence_links (id INTEGER PRIMARY KEY AUTOINCREMENT, owner_id TEXT NOT NULL, target_type TEXT NOT NULL, target_id TEXT NOT NULL, source_type TEXT NOT NULL, source_id TEXT NOT NULL, created_at TEXT NOT NULL, UNIQUE(owner_id, target_type, target_id, source_type, source_id));
       PRAGMA user_version = 4;
     `);
 
@@ -307,6 +314,7 @@ describe("nuclear database migrations", () => {
          (owner_id, decision_id, text, thread_id, angle, reason, created_at)
        VALUES ('doc', ?, 'hello', 'thread', 'opinion', 'existing', ?)`,
     ).run(decisionId, now);
+    restoreLegacyV53Objects(db);
     db.exec("PRAGMA user_version = 6");
     db.exec(`
       DROP INDEX IF EXISTS idx_candidate_changesets_origin_child;
@@ -349,6 +357,7 @@ describe("nuclear database migrations", () => {
     // Minimal v9-shaped state: sticky focus without own_time_sessions.
     openNuclearDb(db);
     expect(schemaVersion(db)).toBe(NUCLEAR_SUPPORTED_VERSION);
+    restoreLegacyV53Objects(db);
     db.exec("PRAGMA user_version = 9");
     db.exec(`
       DROP INDEX IF EXISTS idx_candidate_changesets_origin_child;

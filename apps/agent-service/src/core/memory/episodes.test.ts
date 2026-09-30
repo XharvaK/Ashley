@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import { openNuclearDb } from "../db.js";
 import { AshleyCore } from "../runtime.js";
 import { recordIdentityEntry, listIdentity } from "../identity/store.js";
-import { applyEligibleRevisions, proposeRevision } from "../learning/revisions.js";
 import { applyAffectiveEvent, getAffectiveState } from "../state/affect.js";
 import { listActiveMindStateItems, upsertMindStateItem } from "../state/mind-items.js";
 import { listActiveFacts, upsertFact } from "./facts.js";
@@ -211,18 +210,6 @@ describe("episodic memory", () => {
       text: "manual baseline",
       source: "manual",
     });
-    const revisionBase = {
-      ownerId: "doc",
-      targetLayer: "dynamic_identity" as const,
-      targetKey: "interest.launches",
-      proposedValue: "careful with private launches",
-      rationale: "Repeated evidence.",
-      evidenceType: "episode",
-      provenance: "live" as const,
-    };
-    const revisionId = proposeRevision(db, { ...revisionBase, evidenceId: first.id });
-    proposeRevision(db, { ...revisionBase, evidenceId: second.id });
-    expect(applyEligibleRevisions(db, "doc", "apply")).toEqual([revisionId]);
     const job = db.prepare(
       `INSERT INTO cognitive_jobs
          (owner_id, kind, source_key, payload_json, status, attempts,
@@ -242,6 +229,7 @@ describe("episodic memory", () => {
     expect(preview.previewId).toBeTruthy();
     core.forget("doc", "", true, { previewId: preview.previewId });
 
+    expect(db.prepare("SELECT COUNT(*) AS count FROM evidence_links WHERE owner_id = 'doc' AND target_type = 'fact' AND target_id = ?").get(String(factId))).toEqual({ count: 0 });
     expect(listActiveFacts(db, "doc").map((fact) => fact.key)).toEqual([
       "manual_safeguard",
     ]);
@@ -254,9 +242,6 @@ describe("episodic memory", () => {
         source: "manual",
       })]),
     );
-    expect(db.prepare(
-      "SELECT status FROM learning_revisions WHERE id = ?",
-    ).get(revisionId)).toMatchObject({ status: "reverted" });
     expect(db.prepare(
       "SELECT output_json FROM cognitive_runs WHERE episode_id = ?",
     ).get(first.id)).toMatchObject({ output_json: "{}" });

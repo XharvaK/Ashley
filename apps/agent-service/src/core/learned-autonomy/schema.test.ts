@@ -1,3 +1,4 @@
+import { restoreLegacyV53Objects } from "../cognition/__tests__/fixtures/legacy-v53.js";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import { openNuclearDb, NUCLEAR_SUPPORTED_VERSION } from "../db.js";
@@ -6,6 +7,7 @@ import { C3_INDEXES, C3_TABLES } from "./migration-37.js";
 import { MIGRATION_30_CANDIDATE_CHANGESET_DDL } from "../sandbox/migration-30.js";
 
 function resetCandidateTablesToV48(db: DatabaseSync): void {
+  restoreLegacyV53Objects(db);
   db.exec(`
     DROP INDEX IF EXISTS idx_candidate_changesets_origin_child;
     DROP INDEX IF EXISTS idx_candidate_changesets_entity_uuid;
@@ -28,7 +30,7 @@ describe("C3 additive schema", () => {
     try {
       // The historical C3 packet recorded v42. Current source also includes
       // W4 migrations v43 through v47; db.ts is the live schema authority.
-      expect(NUCLEAR_SUPPORTED_VERSION).toBe(53);
+      expect(NUCLEAR_SUPPORTED_VERSION).toBe(54);
       expect(db.prepare("PRAGMA user_version").get()).toEqual({
         user_version: NUCLEAR_SUPPORTED_VERSION,
       });

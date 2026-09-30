@@ -1,5 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 import { maxClassification, type DataClassification } from "../../privacy/classification.js";
+import { recomputeSharedCulture } from "../../relationship/projections.js";
 import { listIdentity } from "../../identity/store.js";
 import { getMemoryAssertion, REDACTED_MEMORY_STATEMENT } from "../memory/assertions.js";
 import { getEpisode } from "../memory/episodes.js";
@@ -8,8 +9,7 @@ import { getConversationEvidence } from "../evidence/conversation-log.js";
 import { getExpectation } from "./expectations.js";
 
 /**
- * Growth V1 §6.2: the revision engine (v0.2.1 port of the stale
- * `learning/revisions.ts`).
+ * Growth V1 §6.2: the v0.2.1 revision engine.
  *
  * Slow things change slowly. Ashley's Thought proposes every revision and
  * cites the evidence for it; the Host only resolves that evidence, counts
@@ -621,6 +621,7 @@ export function evaluateRevisions(
       continue;
     }
     applyToIdentity(db, identityStore.nuclear, identityStore.ownerId, revision, nowMs);
+    recomputeSharedCulture(identityStore.nuclear, identityStore.ownerId);
     result.applied.push(revision.revisionId);
   }
   return result;
@@ -647,6 +648,7 @@ export function revertRevision(
   } else {
     if (!identityStore || revision.appliedEntryId === null) return false;
     if (!removeOrganicIdentityEntry(identityStore.nuclear, identityStore.ownerId, revision.appliedEntryId)) return false;
+    recomputeSharedCulture(identityStore.nuclear, identityStore.ownerId);
   }
   db.prepare("UPDATE growth_revisions SET status = 'reverted', updated_at_ms = ? WHERE revision_id = ?").run(nowMs, revisionId);
   return true;

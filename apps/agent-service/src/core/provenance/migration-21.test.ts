@@ -19,7 +19,6 @@ const PROVENANCE_TABLES = [
   "cur_takes",
   "cur_reads",
   "episodes",
-  "learning_revisions",
   "cur_source_candidates",
 ];
 
@@ -30,7 +29,7 @@ function columnsOf(db: DatabaseSync, table: string): Array<{ name?: string }> {
 describe("migration-21 provenance (Wave 2 time-shift isolation)", () => {
   it("opens the current schema with the v21 provenance columns", () => {
     const db = openMigratedDb();
-    expect(NUCLEAR_SUPPORTED_VERSION).toBe(53);
+    expect(NUCLEAR_SUPPORTED_VERSION).toBe(54);
     for (const table of PROVENANCE_TABLES) {
       const names = new Set(columnsOf(db, table).map((column) => column.name));
       expect(names.has("provenance")).toBe(true);
@@ -102,7 +101,7 @@ describe("migration-21 provenance (Wave 2 time-shift isolation)", () => {
                'proposed', '2026-08-08T00:00:00.000Z', '2026-08-08T00:00:00.000Z',
                '2026-08-08T00:00:00.000Z')`);
     db.exec(MIGRATION_21_PROVENANCE_DDL);
-    for (const table of PROVENANCE_TABLES) {
+    for (const table of [...PROVENANCE_TABLES, "learning_revisions"]) {
       const rows = db.prepare(
         `SELECT provenance, COUNT(*) AS count FROM ${table} GROUP BY provenance`,
       ).all() as Array<{ provenance: string; count: number }>;
