@@ -14,6 +14,8 @@ import {
   JOURNAL_SETTLE_GUIDANCE,
   MEMORY_FORMATION_GUIDANCE,
   NIGHT_GUIDANCE,
+  OWNER_VISIBILITY_GUIDANCE,
+  SOCIAL_VISIBILITY_GUIDANCE,
   constrainThoughtOutputSchema,
   thoughtContractProfile,
   thoughtContractProfileKey,
@@ -91,6 +93,19 @@ describe("I1 profile-scoped Thought contract", () => {
     const room = thoughtOutputCompatibilityInstruction(thoughtContractProfile({ ...chat, audience: { kind: "room" } }));
     expect(room).not.toContain(GROWTH_GUIDANCE);
     expect(room).not.toContain(JOURNAL_READING_GUIDANCE);
+  });
+
+  it("tells her truthfully who can read what she keeps (A4)", () => {
+    for (const source of [chat, pass("afterglow"), pass("awake"), pass("night")]) {
+      const text = thoughtOutputCompatibilityInstruction(thoughtContractProfile(source));
+      expect(text).toContain(OWNER_VISIBILITY_GUIDANCE);
+      expect(text).not.toContain(SOCIAL_VISIBILITY_GUIDANCE);
+    }
+    const room = thoughtOutputCompatibilityInstruction(thoughtContractProfile({ ...chat, audience: { kind: "room" } }));
+    expect(room).toContain(SOCIAL_VISIBILITY_GUIDANCE);
+    expect(room).not.toContain(OWNER_VISIBILITY_GUIDANCE);
+    expect(OWNER_VISIBILITY_GUIDANCE).toMatch(/diary/);
+    expect(SOCIAL_VISIBILITY_GUIDANCE).toMatch(/never promise/i);
   });
 
   it("keeps every module in the full contract", () => {
