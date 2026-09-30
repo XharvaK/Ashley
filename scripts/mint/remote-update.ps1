@@ -78,6 +78,12 @@ $activate = @(
   'echo "CANDIDATE_SHA=$CANDIDATE_SHA"',
   "export ASHLEY_EXPECTED_SHA=$localSha",
   "export ASHLEY_EXPECTED_TREE=$localTree",
+  '# Break-glass package replaces ad-hoc ~/ashley-backup-* copies. Do not copy live databases there.',
+  '# tsc emits JavaScript only. The sealed backup runs before update.sh stops or restarts services.',
+  'cd apps/agent-service',
+  'npx tsc -p tsconfig.json --pretty false',
+  'node dist/scripts/backup-daily.js',
+  "cd $RepoDir",
   'exec bash deploy/linux-mint/update.sh'
 )
 

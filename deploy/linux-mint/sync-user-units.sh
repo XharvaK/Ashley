@@ -11,7 +11,14 @@ UNIT_DIR="${ASHLEY_UNIT_DIR:-${HOME}/.config/systemd/user}"
 if [[ $# -gt 0 ]]; then
   UNITS=("$@")
 else
-  UNITS=(ashley-agent.service ashley-discord.service)
+  UNITS=(
+    ashley-agent.service
+    ashley-discord.service
+    ashley-backup.service
+    ashley-backup.timer
+    ashley-backup-drill.service
+    ashley-backup-drill.timer
+  )
 fi
 
 mkdir -p "$UNIT_DIR"

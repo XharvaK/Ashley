@@ -1,0 +1,14 @@
+[Unit]
+Description=Ashley weekly backup drill
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/project-ashley/apps/agent-service
+EnvironmentFile=%h/.composer-assistant/.env
+ExecStart=/usr/bin/node dist/scripts/backup-drill.js
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=default.target

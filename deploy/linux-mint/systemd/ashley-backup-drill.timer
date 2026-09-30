@@ -1,0 +1,11 @@
+[Unit]
+Description=Ashley weekly backup drill
+
+[Timer]
+OnCalendar=Sun *-*-* 06:30:00 Europe/Istanbul
+RandomizedDelaySec=30min
+Persistent=true
+Unit=ashley-backup-drill.service
+
+[Install]
+WantedBy=timers.target

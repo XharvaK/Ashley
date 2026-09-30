@@ -447,6 +447,47 @@ export function createDualBackupPackage(input: {
   }
 }
 
+/** Write the verified package members into tempDir. Does not replace live databases. */
+export function materializeVerifiedBackupMembers(input: {
+  packagePath: string;
+  transferKeyHex?: string;
+  tempDir: string;
+}): {
+  manifest: BackupManifest;
+  nuclearDbPath: string;
+  continuityDbPath: string;
+  sidecarDbPath: string;
+} {
+  const verified = restoreVerifyPackage({
+    packagePath: input.packagePath,
+    transferKeyHex: input.transferKeyHex,
+    tempDir: input.tempDir,
+  });
+  if (!verified.ready) {
+    throw new Error(verified.note);
+  }
+  const data = decryptBackupPackage({
+    packagePath: input.packagePath,
+    transferKeyHex: input.transferKeyHex,
+  });
+  if (data.nuclear == null || data.continuity == null || data.sidecar == null) {
+    throw new Error("backup_package_member_missing");
+  }
+  mkdirSync(input.tempDir, { recursive: true });
+  const nuclearDbPath = join(input.tempDir, "nuclear.db");
+  const continuityDbPath = join(input.tempDir, "continuity.db");
+  const sidecarDbPath = join(input.tempDir, "cognitive-v021.db");
+  writeFileSync(nuclearDbPath, data.nuclear, { mode: 0o600 });
+  writeFileSync(continuityDbPath, data.continuity, { mode: 0o600 });
+  writeFileSync(sidecarDbPath, data.sidecar, { mode: 0o600 });
+  return {
+    manifest: verified.manifest,
+    nuclearDbPath,
+    continuityDbPath,
+    sidecarDbPath,
+  };
+}
+
 export function verifyBackupPackage(input: {
   packagePath: string;
   transferKeyHex?: string;

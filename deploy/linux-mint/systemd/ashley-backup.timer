@@ -1,0 +1,11 @@
+[Unit]
+Description=Ashley daily break-glass backup (after the usual NIGHT hour)
+
+[Timer]
+OnCalendar=*-*-* 05:00:00 Europe/Istanbul
+RandomizedDelaySec=30min
+Persistent=true
+Unit=ashley-backup.service
+
+[Install]
+WantedBy=timers.target
