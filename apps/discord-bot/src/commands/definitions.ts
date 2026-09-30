@@ -157,5 +157,27 @@ export function buildCommandDefinitions(): RESTPostAPIChatInputApplicationComman
           .setDescription("Expected current version")
           .setMinValue(1)))
       .toJSON(),
+    new SlashCommandBuilder()
+      .setName(commandSurface.contacts)
+      .setDescription("Who may talk with Ashley (trusted contacts)")
+      .addSubcommand((subcommand) => subcommand
+        .setName("add")
+        .setDescription("Let a person talk with Ashley")
+        .addUserOption((o) => o.setName("user").setDescription("The person").setRequired(true))
+        .addStringOption((o) => o
+          .setName("scope")
+          .setDescription("Where they may talk with her")
+          .addChoices(
+            { name: "DMs only", value: "dm_only" },
+            { name: "DMs and trusted rooms", value: "person_wide" },
+          )))
+      .addSubcommand((subcommand) => subcommand
+        .setName("remove")
+        .setDescription("Stop a person talking with Ashley")
+        .addUserOption((o) => o.setName("user").setDescription("The person").setRequired(true)))
+      .addSubcommand((subcommand) => subcommand
+        .setName("list")
+        .setDescription("List trusted contacts"))
+      .toJSON(),
   ];
 }

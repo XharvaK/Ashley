@@ -233,3 +233,4 @@ npm run eval:full -- -Baseline baseline-w0 -Label wave5
 | `/commitments` | Relationship summary (owner-only, ephemeral) |
 | `/continuity` | Continuity lineage snapshot |
 | `/status` | Nuclear health + initiative + relationship_state |
+| `/contacts` | Owner-only: add, remove or list trusted contacts (who may talk with Ashley) |

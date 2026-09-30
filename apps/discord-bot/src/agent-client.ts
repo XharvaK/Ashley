@@ -627,6 +627,29 @@ export async function memorySummary(includePrivate = false) {
 }
 
 
+export type TrustedContact = { principalId: string; scope: "dm_only" | "person_wide"; grantedAt: string; expiresAt: string | null };
+
+/** A3: the Owner's trusted contacts. Writes are admin acts (Owner actor). */
+export async function listContacts() {
+  return agentFetch<{ contacts: TrustedContact[] }>("/social/contacts");
+}
+
+export async function addContact(principalId: string, scope: TrustedContact["scope"]) {
+  return agentFetch<{ contact: Pick<TrustedContact, "principalId" | "scope" | "grantedAt"> }>("/social/contacts", {
+    headers: ownerActorHeaders(),
+    method: "POST",
+    body: JSON.stringify({ userId: config.ownerId, principalId, scope }),
+  });
+}
+
+export async function removeContact(principalId: string) {
+  return agentFetch<{ revoked: number }>("/social/contacts/revoke", {
+    headers: ownerActorHeaders(),
+    method: "POST",
+    body: JSON.stringify({ userId: config.ownerId, principalId }),
+  });
+}
+
 export async function checkHealth(): Promise<boolean> {
   try {
     const res = await fetch(`${config.agentUrl}/health`, {
