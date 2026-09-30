@@ -4626,19 +4626,9 @@ export async function runCognitiveCycle(
         console.warn("[cognitive-v021] aftermath_deferred", error);
       }
     }
-    if (deps.origin !== "shadow" && (settlement.durableNominations ?? []).length > 0) {
-      try {
-        runGovernedAdmissionCatchup(sidecar, {
-          nowMs: deps.nowMs(),
-          nominationIds: (settlement.durableNominations ?? []).map((nomination) => nomination.nominationId),
-          limit: (settlement.durableNominations ?? []).length,
-        });
-      } catch {
-        // Publication is authoritative. A transient admission failure is
-        // recovered by the next bounded lifecycle catch-up.
-      }
-    }
-    if (publication.outboxId !== null) await deps.projectOutbox(publication.outboxId);
+    // A /remember directive decides its settlement's nominations; the grounded
+    // catch-up decides only the rest, so each nomination logs one decision.
+    let directiveDecided = false;
     if (directive && deps.origin !== "shadow") {
       const currentnessEntitled = hasStructuredCurrentnessEntitlement(
         settlement,
@@ -4646,6 +4636,7 @@ export async function runCognitiveCycle(
       );
       const evidence = getConversationEvidence(sidecar, directive.evidenceRowId);
       if (evidence && evidence.lineageId === directive.evidenceLineageId) {
+        directiveDecided = true;
         for (const nomination of (settlement.durableNominations ?? [])) {
           admitOwnerSuppliedClaim(sidecar, {
             settlementId: settlement.settlementId,
@@ -4658,6 +4649,19 @@ export async function runCognitiveCycle(
         }
       }
     }
+    if (!directiveDecided && deps.origin !== "shadow" && (settlement.durableNominations ?? []).length > 0) {
+      try {
+        runGovernedAdmissionCatchup(sidecar, {
+          nowMs: deps.nowMs(),
+          nominationIds: (settlement.durableNominations ?? []).map((nomination) => nomination.nominationId),
+          limit: (settlement.durableNominations ?? []).length,
+        });
+      } catch {
+        // Publication is authoritative. A transient admission failure is
+        // recovered by the next bounded lifecycle catch-up.
+      }
+    }
+    if (publication.outboxId !== null) await deps.projectOutbox(publication.outboxId);
     const activeFrontier = getActiveDeferredFrontier(sidecar, cycle.conversationId);
     if (activeFrontier) {
       resolveDeferredFrontier(sidecar, activeFrontier.frontierId, deps.nowMs());
