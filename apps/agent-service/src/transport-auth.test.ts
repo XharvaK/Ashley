@@ -93,6 +93,9 @@ describe("bot → agent transport authentication", () => {
     expect(isAdminRoute("POST", "/nuclear/identity/proposals/abc-123/withdraw")).toBe(false);
     expect(isAdminRoute("GET", "/memory/forget")).toBe(false);
     expect(isAdminRoute("POST", "/memory/forget/")).toBe(true);
+    // A3: only the Owner grants or revokes a trusted contact.
+    expect(isAdminRoute("POST", "/social/contacts")).toBe(true);
+    expect(isAdminRoute("POST", "/social/contacts/revoke")).toBe(true);
   });
 
   it("names only routes the agent actually serves", () => {

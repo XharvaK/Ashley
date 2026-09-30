@@ -442,6 +442,15 @@ export function grantPerson(
   });
 }
 
+/** Active permits (not revoked, not expired): the Owner's trusted contacts (A3). */
+export function listActiveSocialPermits(db: DatabaseSync, nowMs?: number): SocialPermit[] {
+  return db.prepare(
+    `SELECT * FROM social_permits
+      WHERE revoked_at IS NULL AND (expires_at IS NULL OR expires_at > ?)
+      ORDER BY granted_at, entity_uuid`,
+  ).all(isoTime(nowMs)).map((value) => permit(value as Row));
+}
+
 export function revokePerson(
   db: DatabaseSync,
   input: { entityUuid: string; expectedVersion?: number; revokedAt?: string; nowMs?: number },

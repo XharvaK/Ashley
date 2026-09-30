@@ -37,7 +37,7 @@ import {
 } from "../private-budget/ledger.js";
 import { getDeferredFrontier } from "../frontier/ledger.js";
 import { getFutureTrigger } from "../initiative/future-triggers.js";
-import { externalDmPrincipal, isExternalDmCognitionEnabled } from "../social/dm-activation.js";
+import { externalDmPrincipalAllowed, isExternalDmCognitionEnabled } from "../social/dm-activation.js";
 import { getConversationEvidence } from "../evidence/conversation-log.js";
 import {
   recheckSocialOperationDelegation,
@@ -252,7 +252,7 @@ export async function runLiveCognitiveTurn(
   if (externalCycle) {
     if (!isExternalDmCognitionEnabled()) throw new Error("external_cognition_disabled");
     if (destinationRecord?.kind === "external_dm") {
-      if (typeof destinationRecord.principalId !== "string" || destinationRecord.principalId !== externalDmPrincipal()) {
+      if (typeof destinationRecord.principalId !== "string" || !externalDmPrincipalAllowed(destinationRecord.principalId)) {
         throw new Error("external_principal_mismatch");
       }
     } else if (destinationRecord?.kind === "room") {

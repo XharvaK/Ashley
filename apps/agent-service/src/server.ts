@@ -111,6 +111,9 @@ import {
   classifyEligibility,
   configuredBotDmPrincipal,
   grantSocialOperationDelegation,
+  grantPerson,
+  listActiveSocialPermits,
+  revokePerson,
   inspectSocialOperationDelegation,
   listSocialOperationDelegations,
   readEligibilityBundle,
@@ -704,6 +707,58 @@ export function createServer(
         },
       );
       res.json({ ok: true, ownerId, delegation });
+    } catch (err) {
+      const { status, body } = toErrorResponse(err);
+      res.status(status).json(body);
+    }
+  });
+
+  /**
+   * A3 trusted contacts: the Owner grants or revokes who may talk with Ashley
+   * in DMs (dm_only) or DMs and rooms (person_wide). Contacts get no admin.
+   */
+  app.get("/social/contacts", (_req, res) => {
+    try {
+      const contacts = listActiveSocialPermits(manager.core.getDatabase(), Date.now())
+        .map((item) => ({ principalId: item.principalId, scope: item.scope, grantedAt: item.grantedAt, expiresAt: item.expiresAt }));
+      res.json({ ok: true, contacts });
+    } catch (err) {
+      const { status, body } = toErrorResponse(err);
+      res.status(status).json(body);
+    }
+  });
+
+  app.post("/social/contacts", (req, res) => {
+    try {
+      const body = c1Body(req);
+      const ownerId = requireOwner(typeof body.userId === "string" ? body.userId : undefined);
+      const principalId = c1RequiredString(body, "principalId", 300);
+      if (principalId === ownerId) throw new AppError("message_required", "the Owner is not a contact", 400);
+      const scope = body.scope === "person_wide" ? "person_wide" : "dm_only";
+      const permit = grantPerson(manager.core.getDatabase(), {
+        ownerId,
+        principalId,
+        scope,
+        sourceSpan: { kind: "owner_control", route: "/social/contacts", ownerId },
+        nowMs: Date.now(),
+      });
+      res.json({ ok: true, contact: { principalId: permit.principalId, scope: permit.scope, grantedAt: permit.grantedAt } });
+    } catch (err) {
+      const { status, body } = toErrorResponse(err);
+      res.status(status).json(body);
+    }
+  });
+
+  app.post("/social/contacts/revoke", (req, res) => {
+    try {
+      const body = c1Body(req);
+      requireOwner(typeof body.userId === "string" ? body.userId : undefined);
+      const principalId = c1RequiredString(body, "principalId", 300);
+      const db = manager.core.getDatabase();
+      const revoked = listActiveSocialPermits(db, Date.now())
+        .filter((item) => item.principalId === principalId)
+        .map((item) => revokePerson(db, { entityUuid: item.entityUuid, nowMs: Date.now() }));
+      res.json({ ok: true, revoked: revoked.length });
     } catch (err) {
       const { status, body } = toErrorResponse(err);
       res.status(status).json(body);

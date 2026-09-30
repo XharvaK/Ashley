@@ -36,6 +36,8 @@ export const ADMIN_ROUTES: ReadonlyArray<readonly ["POST", string]> = [
   ["POST", "/nuclear/change-proposals/doc-decision"],
   ["POST", "/nuclear/social-operation-delegations"],
   ["POST", "/nuclear/social-operation-delegations/revoke"],
+  ["POST", "/social/contacts"],
+  ["POST", "/social/contacts/revoke"],
   ["POST", "/nuclear/external/actions/:entityUuid/cancel"],
   ["POST", "/nuclear/external/credentials/:credentialRef/revoke"],
   ["POST", "/nuclear/external/emergency-stop"],

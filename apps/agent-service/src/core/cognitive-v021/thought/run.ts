@@ -250,7 +250,7 @@ import {
 } from "../../relationship/control-admission.js";
 import {
   buildExternalDmAuthorityBinding,
-  externalDmPrincipal,
+  externalDmPrincipalAllowed,
   isExternalDmCognitionEnabled,
   isExternalDmPublicationEnabled,
 } from "../social/dm-activation.js";
@@ -4416,12 +4416,10 @@ export async function runCognitiveCycle(
       };
       const dmDestination = externalDestination?.kind === "external_dm" ? externalDestination : null;
       const roomDestination = externalDestination?.kind === "room" ? externalDestination : null;
-      const configuredPrincipal = externalDmPrincipal();
       const dmClosed = !dmDestination
         || !isExternalDmCognitionEnabled()
         || !isExternalDmPublicationEnabled()
-        || !configuredPrincipal
-        || dmDestination.principalId !== configuredPrincipal;
+        || !externalDmPrincipalAllowed(dmDestination.principalId);
       const roomClosed = !roomDestination
         || !isRoomPublicationEnabled(process.env, roomDestination.channelId);
       if ((dmDestination ? dmClosed : roomClosed) || !externalDestination || settlement.speech.mode !== "draft") {

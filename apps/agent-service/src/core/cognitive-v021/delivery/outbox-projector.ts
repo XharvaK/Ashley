@@ -21,7 +21,7 @@ import {
   admitExternalPublication,
   type ExternalPublicationCandidate,
 } from "../settlement/publish.js";
-import { externalDmPrincipal } from "../social/dm-activation.js";
+import { externalDmPrincipalAllowed } from "../social/dm-activation.js";
 import { isRoomPublicationEnabled } from "../social/room-activation.js";
 import {
   getSystemNotice,
@@ -684,7 +684,7 @@ export class OutboxDeliveryProjector implements OutboxDeliveryProjectorContract 
         nowMs: this.options.nowMs?.() ?? Date.now(),
       };
       const admission = external.destination.kind === "external_dm"
-        ? externalDmPrincipal() === external.destination.principalId
+        ? externalDmPrincipalAllowed(external.destination.principalId)
           ? admitExternalPublication(this.nuclear, this.nuclear, candidate)
           : { admitted: false, quarantined: true, reason: "external_principal_mismatch", reservationId }
         : isRoomPublicationEnabled(process.env, external.destination.channelId)

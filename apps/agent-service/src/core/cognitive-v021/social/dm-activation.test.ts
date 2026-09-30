@@ -138,6 +138,35 @@ describe("RA-P15 external DM activation", () => {
     }
   });
 
+  it("with no pinned principal, promotes every Owner-granted contact and no one else (A3)", () => {
+    const sidecar = openTestSidecar();
+    const nuclear = openNuclearDb(new DatabaseSync(":memory:"));
+    try {
+      const { permit } = seedPermitAndLicense(nuclear);
+      const granted = admitExternalCapture(sidecar, nuclear, captureInput("dm-contact-1"), { nowMs });
+      admitExternalBatch(sidecar, nuclear, { captureRefs: [granted.captureRef], conversationKey: granted.conversationKey }, { nowMs, ownerId });
+      const stranger = admitExternalCapture(sidecar, nuclear, captureInput("dm-stranger-1", "person-9"), { nowMs });
+      admitExternalBatch(sidecar, nuclear, { captureRefs: [stranger.captureRef], conversationKey: stranger.conversationKey }, { nowMs, ownerId });
+
+      const result = withEnv({ RA_DM_PRINCIPAL: undefined, RA_DM_COGNITION: "true" }, () =>
+        promoteEligiblePending(sidecar, nuclear, { nowMs, ownerId }));
+      expect(result.promoted).toBe(1);
+      expect(count(sidecar, "cycle_records")).toBe(1);
+      expect(sidecar.prepare("SELECT conversation_id FROM cycle_records").get())
+        .toMatchObject({ conversation_id: expect.stringContaining(principalId) });
+
+      revokePerson(nuclear, { entityUuid: permit.entityUuid, nowMs: nowMs + 1 });
+      const later = admitExternalCapture(sidecar, nuclear, captureInput("dm-contact-2"), { nowMs: nowMs + 2 });
+      admitExternalBatch(sidecar, nuclear, { captureRefs: [later.captureRef], conversationKey: later.conversationKey }, { nowMs: nowMs + 2, ownerId });
+      const afterRevoke = withEnv({ RA_DM_PRINCIPAL: undefined, RA_DM_COGNITION: "true" }, () =>
+        promoteEligiblePending(sidecar, nuclear, { nowMs: nowMs + 3, ownerId }));
+      expect(afterRevoke.promoted).toBe(0);
+    } finally {
+      nuclear.close();
+      sidecar.close();
+    }
+  });
+
   it("does not promote a pending knock for a different configured principal", () => {
     const sidecar = openTestSidecar();
     const nuclear = openNuclearDb(new DatabaseSync(":memory:"));

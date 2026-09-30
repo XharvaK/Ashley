@@ -36,22 +36,31 @@ export function externalDmPrincipal(env: RaEnvironment = process.env): string | 
   return getRaEffectiveConfig(env).dmPrincipal;
 }
 
+/**
+ * A3 trusted contacts: whether a person may talk with Ashley is the Owner's
+ * permit (social_permits), checked at promotion and again at publication. A
+ * pinned RA_DM_PRINCIPAL narrows DMs to that one person; unpinned, every
+ * Owner-granted contact qualifies.
+ */
+export function externalDmPrincipalAllowed(principalId: string, env: RaEnvironment = process.env): boolean {
+  const pinned = getRaEffectiveConfig(env).dmPrincipal;
+  return pinned === null || pinned === principalId;
+}
+
 export function isExternalDmCognitionEnabled(env: RaEnvironment = process.env): boolean {
-  const config = getRaEffectiveConfig(env);
-  return config.dmCognitionEnabled && config.dmPrincipal !== null;
+  return getRaEffectiveConfig(env).dmCognitionEnabled;
 }
 
 export function isExternalDmPublicationEnabled(env: RaEnvironment = process.env): boolean {
-  const config = getRaEffectiveConfig(env);
-  return config.dmPublicationEnabled && config.dmPrincipal !== null;
+  return getRaEffectiveConfig(env).dmPublicationEnabled;
 }
 
 export function readExternalDmActivation(env: RaEnvironment = process.env): ExternalDmActivation {
   const config = getRaEffectiveConfig(env);
   return {
     principalId: config.dmPrincipal,
-    cognitionEnabled: config.dmCognitionEnabled && config.dmPrincipal !== null,
-    publicationEnabled: config.dmPublicationEnabled && config.dmPrincipal !== null,
+    cognitionEnabled: config.dmCognitionEnabled,
+    publicationEnabled: config.dmPublicationEnabled,
   };
 }
 
@@ -127,8 +136,9 @@ function activeDmEligibility(
 }
 
 /**
- * Promote only the exact configured DM principal. Capture and eligibility
- * markers remain durable when the activation gate is absent or partial.
+ * Promote knocks from Owner-granted contacts (narrowed to the pinned principal
+ * when one is configured). Capture and eligibility markers remain durable
+ * when the activation gate is absent or partial.
  * This is the sole P15 constructor for an external cognitive wake/cycle.
  */
 export function promoteEligiblePending(
@@ -142,7 +152,7 @@ export function promoteEligiblePending(
   } = {},
 ): ExternalDmPromotionResult {
   const activation = readExternalDmActivation(options.env);
-  if (!activation.cognitionEnabled || !activation.principalId) {
+  if (!activation.cognitionEnabled) {
     return { promoted: 0, waiting: 0, rejected: 0, cycleIds: [], eventIds: [] };
   }
 
@@ -164,7 +174,7 @@ export function promoteEligiblePending(
     }
     const evidence = getEvidenceByRowId(sidecar, evidenceRowId);
     const location = evidence ? externalDmLocation(evidence) : null;
-    if (!evidence || !location || location.principalId !== activation.principalId) {
+    if (!evidence || !location || !externalDmPrincipalAllowed(location.principalId, options.env)) {
       waiting += 1;
       continue;
     }
