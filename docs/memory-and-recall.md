@@ -66,10 +66,20 @@ unprompted messages landed. She chooses to think, read (her own
 
 Every private pass leaves an activity-journal entry
 (`initiative/journal.ts`): the Host records what she read in that cycle and
-whether she spoke, and she writes the entry. The journal is in every
+whether she spoke (only once her message was delivered), and she writes the
+entry. The journal is in every
 Owner-private Thought input, and she may describe her time between messages
 only from it. A reading claim may cite a journal read, and fidelity checks
 it against the real observation.
+
+A settlement's inner-life records (journal entry, interest touches, growth,
+night) are its aftermath (`thought/aftermath.ts`): publication records them
+as owed in its own transaction (`settlement_aftermath`), one transaction
+writes them all, and the maintenance poll replays any a crash left owed. The
+inner-life input sections (clock, core profile, thread story, episodes,
+journal, growth, inner pass) are required allocator sections: each is
+byte-bounded, fails closed past its bound, and is counted on the allocation
+receipt as `inner_life_tokens`.
 
 Interests (`memory/interests.ts`) are 50 fixed roots with branches that grow
 only when a settlement says she lived them, and fade over a 30-day

@@ -60,7 +60,25 @@ export type AllocationSectionId =
   | "c3_terminal_experiences"
   | "in_flight_receipt"
   | "authority_objections"
-  | "remember_directive";
+  | "remember_directive"
+  | InnerLifeSectionId;
+
+/** Growth V1 inner-life sections, each a required, byte-bounded pass-through (R15). */
+export const INNER_LIFE_SECTIONS = [
+  { section: "clock", field: "clock", canonicalStore: "host_clock" },
+  { section: "core_profile", field: "coreProfile", canonicalStore: "sidecar_memory_assertions+memory_strength" },
+  { section: "thread_story", field: "threadStory", canonicalStore: "thread_stories" },
+  { section: "episodes", field: "episodes", canonicalStore: "episodes_v2" },
+  { section: "activity_journal", field: "activityJournal", canonicalStore: "activity_journal" },
+  { section: "growth", field: "growth", canonicalStore: "growth_revisions+mood_state+expectations+diary_entries" },
+  { section: "inner_pass", field: "innerPass", canonicalStore: "inbox_events" },
+] as const;
+
+export type InnerLifeSectionId = (typeof INNER_LIFE_SECTIONS)[number]["section"];
+
+function isInnerLifeSection(section: AllocationSectionId): section is InnerLifeSectionId {
+  return INNER_LIFE_SECTIONS.some((entry) => entry.section === section);
+}
 
 export type AllocationCandidate = {
   id: string;
@@ -140,6 +158,14 @@ export function requirednessContractFor(
       return { owner: "retrieval_adapter", predicate: "bounded_hit_eligible", overflow: "shed_optional" };
     case "c3_terminal_experiences":
       return { owner: "c3_experience_adapter", predicate: "terminal_experience_candidate_eligible", overflow: "shed_optional" };
+    case "clock":
+    case "core_profile":
+    case "thread_story":
+    case "episodes":
+    case "activity_journal":
+    case "growth":
+    case "inner_pass":
+      return { owner: "inner_life_adapter", predicate: `${candidate.section}_present`, overflow: "fail_closed" };
     default:
       if (candidate.section.startsWith("working_context")) {
         return candidate.required
@@ -161,6 +187,7 @@ export type AllocationTokenComponent =
   | "retrieval_tokens"
   | "observations_tokens"
   | "in_flight_effect_tokens"
+  | "inner_life_tokens"
   | "authority_revision_feedback_tokens";
 
 /** Maps allocator sections to the receipt's stable token-economy vocabulary. */
@@ -182,6 +209,7 @@ export function allocationTokenComponent(
   if (section === "c3_terminal_experiences") return "domain_pointer_tokens";
   if (section === "observations") return "observations_tokens";
   if (section === "in_flight_receipt") return "in_flight_effect_tokens";
+  if (isInnerLifeSection(section)) return "inner_life_tokens";
   return "authority_revision_feedback_tokens";
 }
 
@@ -414,6 +442,14 @@ export function buildAllocationCandidates(
     priority: 6,
     data: requiredSectionBounds.learnedSelfSlice ?? input.learnedSelfSlice,
   });
+
+  // 5b. Growth V1 inner life (required when present; rendered as given, and
+  // counted here so receipts show their cost and required overflow applies).
+  for (const entry of INNER_LIFE_SECTIONS) {
+    const data = (input as ThoughtInput & Record<string, unknown>)[entry.field];
+    if (data === undefined) continue;
+    candidates.push({ id: entry.section, section: entry.section, required: true, priority: 6, data });
+  }
 
   // 6. Observations (required if non-empty)
   if (input.observations && input.observations.length > 0) {
@@ -721,6 +757,8 @@ function canonicalStoreFor(section: AllocationSectionId): string {
   if (section === "observations") return "observation_artifacts";
   if (section === "c3_terminal_experiences") return "cognitive-v021.db:c3_terminal_experiences";
   if (section === "in_flight_receipt") return "effect_receipts";
+  const innerLife = INNER_LIFE_SECTIONS.find((entry) => entry.section === section);
+  if (innerLife) return innerLife.canonicalStore;
   return "authority_revision_feedback";
 }
 

@@ -762,6 +762,32 @@ describe("Whole-Thought Projection Allocator", () => {
     expect(allocated.receipt.tokenBreakdown.required_overflow_count).toBe(0);
   });
 
+  it("counts the inner-life sections on the receipt and fails closed past their bound (R15)", () => {
+    const innerLife = {
+      clock: { nowMs: 1, iso: "2026-10-01T12:00:00Z" },
+      episodes: [{ episodeId: "episode:1", summary: "We planned the Kyoto trip.", endedAtMs: 1 }],
+      activityJournal: [{ entryId: "journal:1", atMs: 1, pass: "awake", entry: "Thought about Kyoto." }],
+    } as unknown as Partial<ThoughtInput>;
+    const allocated = allocateThoughtProjection({
+      thoughtInput: makeThoughtInput(innerLife),
+      quotaBucket: "groq:openai/gpt-oss-20b",
+      semanticProjectionEnvelope: { id: "test-envelope", version: 1, maxInputTokens: 13_000 },
+      requestId: "req-inner-life",
+    });
+    expect(allocated.receipt.tokenBreakdown.inner_life_tokens).toBeGreaterThan(0);
+    expect(allocated.receipt.decision.included.map((candidate) => candidate.section))
+      .toEqual(expect.arrayContaining(["clock", "episodes", "activity_journal"]));
+    expect(allocated.projected.episodes).toEqual((innerLife as { episodes: unknown }).episodes);
+
+    const oversized = { activityJournal: [{ entryId: "journal:big", atMs: 1, pass: "awake", entry: "x".repeat(70 * 1024) }] } as unknown as Partial<ThoughtInput>;
+    expect(() => allocateThoughtProjection({
+      thoughtInput: makeThoughtInput(oversized),
+      quotaBucket: "groq:openai/gpt-oss-20b",
+      semanticProjectionEnvelope: { id: "test-envelope", version: 1, maxInputTokens: 200_000 },
+      requestId: "req-inner-life-big",
+    })).toThrow(/activity_journal section exceeds the local byte bound/);
+  });
+
   it("bounds available social destinations inside the projection allocator", () => {
     const availableDestinations = Array.from({ length: 12 }, (_, index) => ({
       audience: { kind: "dm" as const, principalId: `person-${index}` },

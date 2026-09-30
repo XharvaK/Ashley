@@ -36,7 +36,7 @@ describe("Thought Diagnostics & Observability DB", () => {
         tokenBreakdown: {
           static_contract_tokens: 0, conversation_tokens: 0, working_context_tokens: 0,
           identity_kernel_tokens: 0, domain_pointer_tokens: 0, learned_self_tokens: 0,
-          retrieval_tokens: 0, observations_tokens: 0, in_flight_effect_tokens: 0,
+          retrieval_tokens: 0, observations_tokens: 0, in_flight_effect_tokens: 0, inner_life_tokens: 0,
           authority_revision_feedback_tokens: 0, omitted_for_budget_tokens: 0,
           omitted_for_budget_count: 0, required_overflow_count: 0,
         },
@@ -141,7 +141,7 @@ describe("Thought Diagnostics & Observability DB", () => {
         tokenBreakdown: {
           static_contract_tokens: 0, conversation_tokens: 0, working_context_tokens: 0,
           identity_kernel_tokens: 0, domain_pointer_tokens: 0, learned_self_tokens: 0,
-          retrieval_tokens: 0, observations_tokens: 0, in_flight_effect_tokens: 0,
+          retrieval_tokens: 0, observations_tokens: 0, in_flight_effect_tokens: 0, inner_life_tokens: 0,
           authority_revision_feedback_tokens: 0, omitted_for_budget_tokens: 0,
           omitted_for_budget_count: 0, required_overflow_count: 0,
         },
@@ -404,7 +404,7 @@ describe("Thought Diagnostics & Observability DB", () => {
         tokenBreakdown: {
           static_contract_tokens: 0, conversation_tokens: 0, working_context_tokens: 0,
           identity_kernel_tokens: 0, domain_pointer_tokens: 0, learned_self_tokens: 0,
-          retrieval_tokens: 0, observations_tokens: 0, in_flight_effect_tokens: 0,
+          retrieval_tokens: 0, observations_tokens: 0, in_flight_effect_tokens: 0, inner_life_tokens: 0,
           authority_revision_feedback_tokens: 0, omitted_for_budget_tokens: 0,
           omitted_for_budget_count: 0, required_overflow_count: 0,
         },

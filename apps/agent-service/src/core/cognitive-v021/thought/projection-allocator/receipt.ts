@@ -33,6 +33,8 @@ export type AllocationTokenBreakdown = {
   retrieval_tokens: number;
   observations_tokens: number;
   in_flight_effect_tokens: number;
+  /** Growth V1 inner life: clock, core profile, thread story, episodes, journal, growth, inner pass. */
+  inner_life_tokens: number;
   authority_revision_feedback_tokens: number;
   omitted_for_budget_tokens: number;
   omitted_for_budget_count: number;

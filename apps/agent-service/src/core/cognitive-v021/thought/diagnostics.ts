@@ -376,6 +376,7 @@ function emptyTokenBreakdown(): AllocationTokenBreakdown {
     retrieval_tokens: 0,
     observations_tokens: 0,
     in_flight_effect_tokens: 0,
+    inner_life_tokens: 0,
     authority_revision_feedback_tokens: 0,
     omitted_for_budget_tokens: 0,
     omitted_for_budget_count: 0,

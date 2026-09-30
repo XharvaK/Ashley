@@ -34,6 +34,7 @@ import {
   boundRequiredSectionData,
   buildAllocationCandidates,
   type AllocationCandidate,
+  INNER_LIFE_SECTIONS,
 } from "./sections.js";
 import type {
   AllocationFailureDiagnostic,
@@ -47,6 +48,7 @@ import {
   type CoverageManifest,
 } from "../coverage-manifest.js";
 import {
+  REQUIRED_INNER_LIFE_SECTION_BYTES,
   REQUIRED_LEARNED_SELF_BYTES,
   REQUIRED_OBSERVATION_COUNT,
   REQUIRED_WC_ITEM_BYTES,
@@ -391,6 +393,28 @@ export function allocateThoughtProjection(
         },
       },
     );
+  }
+  for (const entry of INNER_LIFE_SECTIONS) {
+    const value = (input as ThoughtInput & Record<string, unknown>)[entry.field];
+    if (value === undefined) continue;
+    const bytes = utf8JsonBytes(value);
+    if (bytes > REQUIRED_INNER_LIFE_SECTION_BYTES) {
+      throw new RequiredOverflowError(
+        `Required ${entry.section} section exceeds the local byte bound (bytes: ${bytes}, limit: ${REQUIRED_INNER_LIFE_SECTION_BYTES})`,
+        {
+          section: entry.section,
+          failure: {
+            kind: "required_set_packing",
+            constraint: "required_inner_life_byte_bound",
+            measuredValue: bytes,
+            unit: "bytes",
+            limit: REQUIRED_INNER_LIFE_SECTION_BYTES,
+            stage: "required_set_validation",
+            measurementBasis: "exact",
+          },
+        },
+      );
+    }
   }
   const boundedLearnedSelfSlice = requiredSectionBounds.learnedSelfSlice;
   const canonicalObservations = requiredSectionBounds.observations.map(modelVisibleObservation);
@@ -1068,6 +1092,7 @@ export function allocateThoughtProjection(
     retrieval_tokens: componentTokens.retrieval_tokens ?? 0,
     observations_tokens: componentTokens.observations_tokens ?? 0,
     in_flight_effect_tokens: componentTokens.in_flight_effect_tokens ?? 0,
+    inner_life_tokens: componentTokens.inner_life_tokens ?? 0,
     authority_revision_feedback_tokens: componentTokens.authority_revision_feedback_tokens ?? 0,
     omitted_for_budget_tokens: omittedCandidateData.reduce(
       (total, candidate) => total + structuralTokens(candidate.data),

@@ -16,6 +16,10 @@ export const REQUIRED_WC_ITEM_BYTES = 640;
  * logical semantic envelope; they keep individual model-visible sections
  * mechanically bounded before the envelope allocator runs. */
 export const REQUIRED_LEARNED_SELF_BYTES = REQUIRED_WC_ITEM_BYTES;
+/** Each Growth V1 inner-life section (clock, core profile, thread story,
+ * episodes, journal, growth, inner pass). Their producers bound them far
+ * below this; the allocator fails closed rather than trust that silently. */
+export const REQUIRED_INNER_LIFE_SECTION_BYTES = 64 * 1024;
 export const REQUIRED_OBSERVATION_COUNT = 8;
 /** Bounded concern.inspect representation only; not an allocator admission limit. */
 export const REQUIRED_OBSERVATION_ITEM_BYTES = 640;
