@@ -8,6 +8,7 @@ import {
   expireStaleExpectations,
   listOpenExpectations,
   listRecentLessons,
+  listSourceRecords,
   recordExpectations,
   type ExpectationOutcome,
 } from "./expectations.js";
@@ -58,6 +59,8 @@ export type ThoughtGrowth = {
   }>;
   /** Expectations she recorded and has not checked yet. */
   expectations?: Array<{ expectationId: string; statement: string; atMs: number }>;
+  /** A9: how what each contact or site told her has held up (expectations by outcome). */
+  sources?: Array<{ source: string; met: number; missed: number; mixed: number; open: number }>;
   /** What recent checks taught her. */
   lessons?: Array<{ expectationId: string; statement: string; outcome: ExpectationOutcome; lesson: string; atMs: number }>;
   /** Her latest weekly "who I am becoming" narrative. */
@@ -112,6 +115,7 @@ export function growthForThought(db: DatabaseSync, identityStore: IdentityStore 
     lesson: item.lesson ?? "",
     atMs: item.checkedAtMs ?? item.createdAtMs,
   }));
+  const sources = listSourceRecords(db);
   const becoming = latestNarrative(db);
   const [diary] = listDiary(db, 1);
   return {
@@ -129,6 +133,7 @@ export function growthForThought(db: DatabaseSync, identityStore: IdentityStore 
     ...(revisions.length === 0 ? {} : { revisions }),
     ...(expectations.length === 0 ? {} : { expectations }),
     ...(lessons.length === 0 ? {} : { lessons }),
+    ...(sources.length === 0 ? {} : { sources }),
     ...(becoming ? { becoming: { text: becoming.text, writtenAtMs: becoming.createdAtMs } } : {}),
     ...(diary ? { diary: { day: diary.day, text: diary.text } } : {}),
   };

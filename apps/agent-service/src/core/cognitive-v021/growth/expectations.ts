@@ -1,6 +1,9 @@
 import { createHash } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import type { DataClassification } from "../../privacy/classification.js";
+import { getConversationEvidence } from "../evidence/conversation-log.js";
+import { getMemoryAssertion } from "../memory/assertions.js";
+import { listMemorySupports } from "../memory/supports.js";
 
 /**
  * Growth V1 §6.5: expectations and calibration (a light port of c4).
@@ -27,6 +30,10 @@ export const EXPECTATIONS_THOUGHT_LIMIT = 8;
 export const LESSONS_THOUGHT_LIMIT = 5;
 
 export type ExpectationCheck = { expectationId: string; outcome: ExpectationOutcome; lesson: string };
+/** An expectation, optionally naming the records whose word it rests on (A9). */
+export type ExpectationClaim = string | { statement: string; basisRefs: string[] };
+export const EXPECTATION_BASIS_REFS_MAX = 5;
+export const SOURCE_RECORDS_THOUGHT_LIMIT = 8;
 
 export type ExpectationRecord = {
   expectationId: string;
@@ -69,13 +76,62 @@ export function expectationIdFor(cycleId: string, index: number): string {
   return `expectation:${createHash("sha256").update(`${cycleId}\n${index}`).digest("hex").slice(0, 32)}`;
 }
 
+function hostnameOf(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  try { return new URL(value).hostname.toLowerCase(); } catch { return null; }
+}
+
+function rowSource(db: DatabaseSync, rowId: string): string | null {
+  const evidence = getConversationEvidence(db, rowId);
+  return evidence?.role === "external_dialog" && evidence.speakerPrincipalId ? `contact:${evidence.speakerPrincipalId}` : null;
+}
+
+function observationSource(db: DatabaseSync, observationId: string): string | null {
+  const row = db.prepare("SELECT payload_json FROM observations WHERE observation_id = ?").get(observationId) as Row | undefined;
+  try {
+    const payload = typeof row?.payload_json === "string" ? JSON.parse(row.payload_json) as Row : null;
+    for (const key of ["finalUrl", "requestedUrl", "url"]) {
+      const host = hostnameOf(payload?.[key]);
+      if (host) return `web:${host}`;
+    }
+  } catch { /* unreadable payload names no source */ }
+  return null;
+}
+
+/**
+ * The contacts and websites a cited record rests on. Records of the Owner's
+ * or her own name no outside source; unknown refs name nothing.
+ */
+export function sourcesForRef(db: DatabaseSync, ref: string): string[] {
+  const fromRow = rowSource(db, ref);
+  if (fromRow) return [fromRow];
+  const fromObservation = observationSource(db, ref);
+  if (fromObservation) return [fromObservation];
+  const assertion = getMemoryAssertion(db, ref);
+  if (!assertion) return [];
+  const sources = new Set<string>();
+  if (assertion.sourcePrincipal && assertion.audienceScope && assertion.audienceScope.kind !== "owner_private") {
+    sources.add(`contact:${assertion.sourcePrincipal}`);
+  }
+  for (const support of listMemorySupports(db, ref)) {
+    const supportRef = support.supportRef;
+    const source = supportRef?.kind === "conversation_text_span" ? rowSource(db, supportRef.evidenceRowId)
+      : supportRef?.kind === "observation_ref" ? observationSource(db, supportRef.observationId)
+      : null;
+    if (source) sources.add(source);
+  }
+  return [...sources];
+}
+
 /** Record what Ashley expects. Idempotent per cycle and position. */
 export function recordExpectations(
   db: DatabaseSync,
-  input: { cycleId: string; statements: readonly string[]; dataClassification: DataClassification; nowMs: number },
+  input: { cycleId: string; statements: readonly ExpectationClaim[]; dataClassification: DataClassification; nowMs: number },
 ): string[] {
   const ids: string[] = [];
-  input.statements.slice(0, EXPECTATIONS_PER_SETTLEMENT).forEach((raw, index) => {
+  input.statements.slice(0, EXPECTATIONS_PER_SETTLEMENT).forEach((claim, index) => {
+    const raw = typeof claim === "string" ? claim : claim.statement;
+    const basisRefs = typeof claim === "string" ? [] : claim.basisRefs.slice(0, EXPECTATION_BASIS_REFS_MAX);
     const statement = raw.trim().slice(0, EXPECTATION_STATEMENT_MAX_CHARS);
     if (!statement) return;
     const expectationId = expectationIdFor(input.cycleId, index);
@@ -84,6 +140,9 @@ export function recordExpectations(
          (expectation_id, cycle_id, statement, status, data_classification, created_at_ms)
        VALUES (?, ?, ?, 'open', ?, ?)`,
     ).run(expectationId, input.cycleId, statement, input.dataClassification, input.nowMs);
+    for (const source of new Set(basisRefs.flatMap((ref) => sourcesForRef(db, ref)))) {
+      db.prepare("INSERT OR IGNORE INTO expectation_basis (expectation_id, source) VALUES (?, ?)").run(expectationId, source);
+    }
     ids.push(expectationId);
   });
   return ids;
@@ -140,6 +199,35 @@ export function listRecentLessons(db: DatabaseSync, limit = LESSONS_THOUGHT_LIMI
         AND forgotten_at_ms IS NULL AND data_classification != 'secret'
       ORDER BY checked_at_ms DESC, expectation_id DESC LIMIT ?`,
   ).all(Math.max(1, limit)) as Row[]).map(mapExpectation);
+}
+
+export type SourceRecord = { source: string; met: number; missed: number; mixed: number; open: number };
+
+/**
+ * How what each source told her has held up: the expectations resting on a
+ * contact's or a site's word, by outcome. Shown to Thought, never used to
+ * rank anyone; she forms her own sense of whom to rely on, about what.
+ */
+export function listSourceRecords(db: DatabaseSync, limit = SOURCE_RECORDS_THOUGHT_LIMIT): SourceRecord[] {
+  return (db.prepare(
+    `SELECT b.source,
+            SUM(CASE WHEN e.status = 'met' THEN 1 ELSE 0 END) AS met,
+            SUM(CASE WHEN e.status = 'missed' THEN 1 ELSE 0 END) AS missed,
+            SUM(CASE WHEN e.status = 'mixed' THEN 1 ELSE 0 END) AS mixed,
+            SUM(CASE WHEN e.status = 'open' THEN 1 ELSE 0 END) AS open,
+            MAX(COALESCE(e.checked_at_ms, e.created_at_ms)) AS last_ms
+       FROM expectation_basis b JOIN expectations e ON e.expectation_id = b.expectation_id
+      WHERE e.forgotten_at_ms IS NULL
+      GROUP BY b.source
+      ORDER BY last_ms DESC, b.source ASC
+      LIMIT ?`,
+  ).all(Math.max(1, limit)) as Row[]).map((row) => ({
+    source: String(row.source),
+    met: Number(row.met ?? 0),
+    missed: Number(row.missed ?? 0),
+    mixed: Number(row.mixed ?? 0),
+    open: Number(row.open ?? 0),
+  }));
 }
 
 /** Expectations whose words mention a forgotten topic. */

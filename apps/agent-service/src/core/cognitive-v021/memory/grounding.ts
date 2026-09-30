@@ -101,6 +101,7 @@ export function isGroundedForKind(
   kind: MemoryKind,
   refs: readonly SourceSupportRef[],
   resolved: readonly ResolvedPrincipal[],
+  options: { socialConversation?: boolean } = {},
 ): boolean {
   const ownerQuote = ownerQuotedRowIds(refs, resolved).length > 0;
   switch (AUTOMATIC_ADMISSION_GROUNDING[kind]) {
@@ -109,9 +110,13 @@ export function isGroundedForKind(
     case "owner_quote_or_observation":
       return ownerQuote || refs.some((ref) => OBSERVATION_REF_KINDS.has(ref.kind));
     case "conversation_quote":
+      // A3/A9: in a contact's own conversation, what the contact said grounds
+      // a shared memory attributed to them (people are the authority on
+      // themselves). A contact never grounds a memory about the Owner.
       return refs.some((ref, index) =>
         ref.kind === "conversation_text_span"
-        && (resolved[index]?.principalKind === "owner" || resolved[index]?.principalKind === "ashley"));
+        && (resolved[index]?.principalKind === "owner" || resolved[index]?.principalKind === "ashley"
+          || (options.socialConversation === true && resolved[index]?.principalKind === "external_human")));
     case "ashley_authored":
       return true;
     default:

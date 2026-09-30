@@ -445,7 +445,9 @@ function admitOne(
   const supportConversationIds = [...typed.conversationIds, ...inherited.conversationIds];
 
   if (options.requireGrounding
-    && !isGroundedForKind(nomination.memoryKind, typedSupportRefs, resolvedTypedSupport)) {
+    && !isGroundedForKind(nomination.memoryKind, typedSupportRefs, resolvedTypedSupport, {
+      socialConversation: isSocialConversationId(current.conversationId),
+    })) {
     const result = noAssertion("admission_skipped_provenance");
     logAdmission(db, result, nowMs);
     return result;
@@ -497,7 +499,13 @@ function admitOne(
   // same audience/protection fence as the direct revision writer. Owner-path
   // nominations retain their existing admission behavior.
   let socialAdmission: PreparedExternalSocialRevision | null = null;
-  const externalSourceCount = sourceRefs.reduce((count, ref) => {
+  // A contact quoted through typed support counts as external evidence too.
+  const externalQuotedRowIds = typedSupportRefs.flatMap((ref, index) =>
+    ref.kind === "conversation_text_span" && resolvedTypedSupport[index]?.principalKind === "external_human"
+      ? [ref.evidenceRowId]
+      : []);
+  const socialSourceRefs = [...new Set([...sourceRefs, ...externalQuotedRowIds])];
+  const externalSourceCount = socialSourceRefs.reduce((count, ref) => {
     const row = db.prepare(
       `SELECT 1 FROM conversation_evidence_log
         WHERE role = 'external_dialog' AND (row_id = ? OR lineage_id = ?)
@@ -517,7 +525,7 @@ function admitOne(
       memoryKind: nomination.memoryKind,
       dimensions: nomination.dimensions,
       dataClassification: nomination.dataClassification,
-      sourceRefs,
+      sourceRefs: socialSourceRefs,
       lineageParentKey: nomination.supersedesAssertionKey,
     });
     if (!prepared.ok) {

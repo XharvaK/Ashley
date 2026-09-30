@@ -5,9 +5,11 @@ import { listIdentity } from "../../identity/store.js";
 import { openTestSidecar } from "../test-support.js";
 import { upsertMemoryAssertion } from "../memory/assertions.js";
 import { recordMemoryFormation } from "../memory/strength.js";
+import { appendMemorySupport } from "../memory/supports.js";
+import { appendExternalUtteranceInTransaction } from "../evidence/conversation-log.js";
 import { applyV021Forget, applyV021ForgetTargets, planV021Forget } from "../memory/forget.js";
 import { MOOD_BASELINE, readMood, recordAppraisal } from "./mood.js";
-import { checkExpectations, expireStaleExpectations, listOpenExpectations, recordExpectations } from "./expectations.js";
+import { checkExpectations, expireStaleExpectations, listOpenExpectations, listSourceRecords, recordExpectations } from "./expectations.js";
 import {
   appliedEntryIdsForRevisions,
   evaluateRevisions,
@@ -288,6 +290,60 @@ describe("R10 independent, recurring evidence", () => {
     const own = selfEvidence(sidecar, "self:priors", "I keep reasoning from priors myself.", T0 + 3 * HOUR);
     propose(sidecar, null, "c3", { layer: "opinion", topic: "priors", text: "Priors matter.", rationale: "r", evidenceRefs: [own] }, T0 + 3 * HOUR);
     expect(evaluateRevisions(sidecar, null, T0 + 3 * HOUR).applied).toEqual([revisionId]);
+  }));
+});
+
+describe("A9 what others say about her", () => {
+  function contactSaid(db: DatabaseSync, contact: string, key: string, text: string, atMs: number): string {
+    const row = appendExternalUtteranceInTransaction(db, {
+      conversationId: `dm:${contact}`, text, discordMessageIds: [`msg-${key}`],
+      speakerPrincipalId: contact, speakerKind: "external_human", audienceAtCapture: "dm",
+      location: { kind: "external_dm", principalId: contact, channelId: `ch-${contact}` }, nowMs: atMs,
+    }).evidence;
+    upsertMemoryAssertion(db, {
+      assertionKey: key, statement: `${contact} told me: ${text}`, memoryKind: "shared_episode", dimensions,
+      dataClassification: "ordinary", lineageParentKey: null, admittedGeneration: 1, live: true,
+    });
+    appendMemorySupport(db, {
+      supportId: `support:${key}`, assertionKey: key, source: "ashley_interpretation", provenance: "native",
+      sourceArchitectureEpoch: "v0.2.1", sourceRef: row.rowId, settlementId: null, evidenceLineageId: null,
+      observationId: null, receiptId: null, dimensions, dataClassification: "ordinary",
+      supportRef: { kind: "conversation_text_span", evidenceRowId: row.rowId, start: 0, end: text.length, quote: text },
+      conversationId: `dm:${contact}`,
+      createdAtMs: atMs,
+    });
+    recordMemoryFormation(db, { assertionKey: key, salience: 0.6, nowMs: atMs });
+    return key;
+  }
+
+  it("shows how each contact's word has held up, without ranking anyone (A9 track record)", () => withStores((sidecar) => {
+    const said = contactSaid(sidecar, "contact-a", "said:a-train", "The 9:10 train is always on time.", T0);
+    const [first, second] = recordExpectations(sidecar, {
+      cycleId: "c-expect",
+      statements: [
+        { statement: "The 9:10 train will be on time tomorrow.", basisRefs: [said] },
+        "Alex will like the new cafe.",
+      ],
+      dataClassification: "ordinary",
+      nowMs: T0,
+    });
+    expect(listSourceRecords(sidecar)).toEqual([{ source: "contact:contact-a", met: 0, missed: 0, mixed: 0, open: 1 }]);
+    checkExpectations(sidecar, { cycleId: "c-check", checks: [{ expectationId: first!, outcome: "missed", lesson: "It was late." }], nowMs: T0 + DAY });
+    expect(listSourceRecords(sidecar)).toEqual([{ source: "contact:contact-a", met: 0, missed: 1, mixed: 0, open: 0 }]);
+    // An expectation resting on nobody's word names no source.
+    expect(second).toBeDefined();
+    expect(growthForThought(sidecar, null, T0 + DAY).sources).toEqual([{ source: "contact:contact-a", met: 0, missed: 1, mixed: 0, open: 0 }]);
+  }));
+
+  it("never lets contacts alone change who she is, however many say it", () => withStores((sidecar) => {
+    const a = contactSaid(sidecar, "contact-a", "said:a", "You are really patient.", T0);
+    const b = contactSaid(sidecar, "contact-b", "said:b", "You are so patient with people.", T0 + HOUR);
+    const { revisionId } = propose(sidecar, null, "c1", { layer: "opinion", topic: "patience", text: "I am patient.", rationale: "r", evidenceRefs: [a, b] }, T0 + HOUR) as { revisionId: number };
+    // Two people are two origins, but both are contacts.
+    expect(evaluateRevisions(sidecar, null, T0 + HOUR).applied).toEqual([]);
+    const own = selfEvidence(sidecar, "self:patience", "I noticed I waited calmly again.", T0 + 2 * HOUR);
+    propose(sidecar, null, "c2", { layer: "opinion", topic: "patience", text: "I am patient.", rationale: "r", evidenceRefs: [own] }, T0 + 2 * HOUR);
+    expect(evaluateRevisions(sidecar, null, T0 + 2 * HOUR).applied).toEqual([revisionId]);
   }));
 });
 

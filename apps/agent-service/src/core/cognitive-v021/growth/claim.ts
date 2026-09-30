@@ -4,8 +4,10 @@ import {
   EXPECTATION_LESSON_MAX_CHARS,
   EXPECTATION_STATEMENT_MAX_CHARS,
   EXPECTATIONS_PER_SETTLEMENT,
+  EXPECTATION_BASIS_REFS_MAX,
   isExpectationOutcome,
   type ExpectationCheck,
+  type ExpectationClaim,
 } from "./expectations.js";
 import {
   REVISION_EVIDENCE_REFS_MAX,
@@ -33,7 +35,7 @@ import {
  */
 export type GrowthClaim = {
   appraisal?: MoodAppraisal;
-  expectations?: string[];
+  expectations?: ExpectationClaim[];
   expectationChecks?: ExpectationCheck[];
   revisions?: RevisionProposal[];
   revisionPositions?: RevisionPosition[];
@@ -64,6 +66,15 @@ function validAppraisal(value: unknown): boolean {
   return MOOD_DIMENSIONS.every((dimension) => appraisal[dimension] === undefined
     || (typeof appraisal[dimension] === "number" && Number.isFinite(appraisal[dimension])
       && Math.abs(appraisal[dimension] as number) <= 1));
+}
+
+function validExpectation(value: unknown): boolean {
+  if (typeof value === "string") return text(value, EXPECTATION_STATEMENT_MAX_CHARS);
+  const item = record(value);
+  return item !== null && onlyKeys(item, ["statement", "basisRefs"])
+    && text(item.statement, EXPECTATION_STATEMENT_MAX_CHARS)
+    && boundedArray(item.basisRefs, EXPECTATION_BASIS_REFS_MAX)
+    && item.basisRefs.every((ref) => text(ref, 200));
 }
 
 function validCheck(value: unknown): boolean {
@@ -97,7 +108,7 @@ export function isValidGrowthClaim(value: unknown): value is GrowthClaim {
   if (!onlyKeys(growth, ["appraisal", "expectations", "expectationChecks", "revisions", "revisionPositions"])) return false;
   if (growth.appraisal !== undefined && !validAppraisal(growth.appraisal)) return false;
   if (growth.expectations !== undefined && !(boundedArray(growth.expectations, EXPECTATIONS_PER_SETTLEMENT)
-    && growth.expectations.every((item) => text(item, EXPECTATION_STATEMENT_MAX_CHARS)))) return false;
+    && growth.expectations.every(validExpectation))) return false;
   if (growth.expectationChecks !== undefined && !(boundedArray(growth.expectationChecks, EXPECTATION_CHECKS_PER_SETTLEMENT)
     && growth.expectationChecks.every(validCheck))) return false;
   if (growth.revisions !== undefined && !(boundedArray(growth.revisions, REVISIONS_PER_SETTLEMENT)

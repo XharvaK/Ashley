@@ -172,6 +172,18 @@ own words and is itself erasable. `/forget` is retired; the agent's
 Code: `apps/agent-service/src/core/cognitive-v021/memory/semantic-forget.ts`.
 Nothing leaves her records by age alone.
 
+**Contacts (A3, A9; decisions 5 and 19).** Alex decides who may talk with
+Ashley (`/contacts`; permits in `social_permits`). What a contact tells her
+is kept as a `shared_episode` in their words, labelled as her interpretation
+and grounded by a quote of their message in their own conversation; it is
+scoped to that contact's audience, so other contacts never see it, while
+Alex can read everything. A contact never grounds a memory about Alex, and
+contacts or websites can never be the only support for a change to who she
+is. When an expectation rests on someone's word or a page, she may cite it
+(`basisRefs`); `growth.sources` then shows, per contact or site, how those
+expectations came out. The Host never ranks anyone; she forms her own sense
+of whom to rely on.
+
 **What a forget reaches.** A forget reaches episodes whose words mention the topic and
 any episode built from a message it redacts. A thread story is retired when
 it mentions the topic or when any of its conversation's messages is

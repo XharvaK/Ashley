@@ -1674,3 +1674,17 @@ CREATE INDEX IF NOT EXISTS idx_forget_proposals_pending
   ON forget_proposals (conversation_id, created_at_ms) WHERE status = 'pending';
 UPDATE cognitive_sidecar_meta SET schema_version = 43, projection_state = 'reconciling' WHERE id = 1;
 `;
+
+/**
+ * A9 track record: whose word an expectation rests on (a contact or a
+ * website). The Host resolves the refs Thought cited; it never ranks sources.
+ */
+export const COGNITIVE_SIDECAR_SCHEMA_V44 = String.raw`
+CREATE TABLE IF NOT EXISTS expectation_basis (
+  expectation_id TEXT NOT NULL,
+  source TEXT NOT NULL,
+  PRIMARY KEY (expectation_id, source)
+);
+CREATE INDEX IF NOT EXISTS idx_expectation_basis_source ON expectation_basis (source);
+UPDATE cognitive_sidecar_meta SET schema_version = 44, projection_state = 'reconciling' WHERE id = 1;
+`;
