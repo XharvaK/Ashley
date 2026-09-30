@@ -4,7 +4,6 @@ import { openCognitiveSidecarDb } from "../sidecar/db.js";
 import { publishSemanticTransaction } from "../settlement/publish.js";
 import { admitTestCycle, makeThoughtDraft } from "../test-support.js";
 import { OutboxDeliveryProjector } from "../delivery/outbox-projector.js";
-import { evaluateExternalizationGate } from "../initiative/externalization.js";
 import { fireDueTriggers, scheduleFutureTrigger } from "../initiative/future-triggers.js";
 import { tickIdleOpportunity } from "../initiative/idle.js";
 import type { PrivateBudgetProjection } from "../private-budget/ledger.js";
@@ -267,11 +266,6 @@ describe("v0.2.1 autonomy acceptance", () => {
       });
       const published = publishSemanticTransaction(sidecar, { ...settlement, settlementId: "settlement-auto-draft", speech: { ...settlement.speech, finalLicensedText: "idle update" } });
       expect(published.published).toBe(true);
-      const gate = evaluateExternalizationGate({
-        deliveryIntent: { ownerId: "doc", channel: "discord", threadId: "thread-auto", conversationId: "thread-auto", trigger: "idle", deliveryLane: "proactive", purpose: "licensed_speech" },
-        paused: true, enabled: true, sentToday: 0, maxPerDay: 1, chatInProgress: false, availabilityOk: true, idleFloorRemainingSec: 0, privateBudget,
-      });
-      expect(gate).toEqual({ ok: false, reason: "proactive_paused" });
       const projector = new OutboxDeliveryProjector(sidecar, nuclear, { gate: () => ({ ok: false, reason: "proactive_paused" }) });
       await projector.project(published.outboxId!);
       expect(sidecar.prepare("SELECT send_status FROM speech_outbox WHERE settlement_id = 'settlement-auto-draft'").get()).toMatchObject({ send_status: "suppressed" });

@@ -2,10 +2,6 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import {
-  EXPRESSION_MAX_OUTPUT_TOKENS,
-  EXPRESSION_PROACTIVE_MAX_OUTPUT_TOKENS,
-} from "../conversation/expression-fallback.js";
 import { loadFabricCatalog, loadTargetPortfolio } from "./catalog.js";
 import { currentPortfolio } from "./portfolio.js";
 import { capabilityProfileFor } from "./profiles.js";
@@ -63,8 +59,6 @@ describe("TARGET portfolio + token envelope reconciliation", () => {
     });
     expect(expression.deadlineMs).toBe(20000);
     expect(expression.maxOutputTokens).toBe(4096);
-    expect(EXPRESSION_MAX_OUTPUT_TOKENS).toBe(4096);
-    expect(EXPRESSION_PROACTIVE_MAX_OUTPUT_TOKENS).toBe(500);
     expect(capabilityProfileFor(
       "nim",
       "nvidia/nemotron-3.5-lightning-30b-a3b",

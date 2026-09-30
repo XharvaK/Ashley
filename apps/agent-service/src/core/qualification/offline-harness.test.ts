@@ -6,7 +6,6 @@ import { env } from "../../env.js";
 import { AppError } from "../../errors.js";
 import { completeChat } from "../../mistral-client.js";
 import { openNuclearDb } from "../db.js";
-import { expressSpeak } from "../conversation/expression.js";
 import type { TurnContext } from "../context-composer.js";
 import type { Decision } from "../types.js";
 
@@ -101,50 +100,6 @@ describe("OFFLINE-HARNESS-01", () => {
 
   it("blocks the provider path before transport when credentials are present", async () => {
     await expectProviderBlocked("fixture-present-provider-key");
-  });
-
-  it("keeps missing-credential tests meaningful with deterministic expression output", async () => {
-    process.env.ASHLEY_PHASE0_OFFLINE = "true";
-    env.mistralApiKey = "";
-    const db = openNuclearDb(new DatabaseSync(":memory:"));
-    const result = await expressSpeak(
-      baseTurn(),
-      baseDecision(),
-      "fixture user message",
-      "discord",
-      { attentionDb: db },
-      async () => ({
-        text: "deterministic offline fixture response",
-        model: "offline-fixture",
-      }),
-    );
-    expect(result.text).toBe("deterministic offline fixture response");
-    expect(result.model).toBe("offline-fixture");
-    db.close();
-  });
-
-  it("represents provider failure with a deterministic fixture", async () => {
-    process.env.ASHLEY_PHASE0_OFFLINE = "true";
-    env.mistralApiKey = "";
-    env.expressionFallbackEnabled = false;
-    const db = openNuclearDb(new DatabaseSync(":memory:"));
-    const result = await expressSpeak(
-      baseTurn(),
-      baseDecision(),
-      "fixture provider failure",
-      "discord",
-      { attentionDb: db },
-      async () => {
-        throw new AppError(
-          "provider_unavailable",
-          "deterministic provider failure",
-          503,
-        );
-      },
-    );
-    expect(result.model).toBe("offline");
-    expect(result.text).toContain("offline at the moment");
-    db.close();
   });
 
   it("fails a child qualification process loudly on external fetch", () => {

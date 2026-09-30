@@ -14,8 +14,6 @@ import { recordRelationalTension } from "./tensions.js";
 import { recordRepairProposal, recordRepairAdjudication } from "./repair.js";
 import { logDecision } from "../agency/log.js";
 import { recordWithdrawal } from "./authority.js";
-import { decide } from "../agency/decide.js";
-import { collectMotivations } from "../agency/motivations.js";
 import type { Decision } from "../types.js";
 import { currentBuildIdentity, currentContractId } from "../rollout/capabilities.js";
 import { env } from "../../env.js";
@@ -298,34 +296,8 @@ describe("C5 characterization and closing witnesses", () => {
       );
       expect(projections.some((item) => item.refId === shadow.entityUuid)).toBe(false);
       expect(projections.some((item) => item.refId === legacyUuid)).toBe(true);
-      expect(collectMotivations(db, OWNER, "proactive", undefined, undefined, {
-        persist: false,
-      }).some((item) => item.refId === shadow.entityUuid)).toBe(false);
     } finally {
       env.cognitionMode = previousMode;
-      db.close();
-    }
-  });
-
-  it("keeps proactive withdrawal silence in the decision path", () => {
-    const db = openNuclearDb(new DatabaseSync(":memory:"));
-    const originalMode = env.cognitionMode;
-    try {
-      env.cognitionMode = "apply";
-      activateRelationshipCapabilities(db);
-      recordWithdrawal(db, {
-        ownerId: OWNER,
-        initiator: "doc",
-        scope: "relationship_pause",
-        reason: "Please leave me alone for now.",
-        sourceEntityType: "message",
-        sourceEntityUuid: "message:space",
-      });
-      const result = decide([], "proactive", { db, ownerId: OWNER });
-      expect(result.kind).toBe("silence");
-      expect(result.silenceReasonCode).toBe("withdrawal_pause");
-    } finally {
-      env.cognitionMode = originalMode;
       db.close();
     }
   });

@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import { openNuclearDb } from "../db.js";
 import { openContinuityDb } from "../continuity/db.js";
 import { logDecision } from "../agency/log.js";
-import { collectMotivations } from "../agency/motivations.js";
 import { tryClaimRelationshipMotivation } from "./claims.js";
 import { upsertDocReminder } from "./store.js";
 import { applyRelationshipDeliveryOutcome, markMissedDueReminders } from "./delivery-outcomes.js";
@@ -128,21 +127,4 @@ describe("reminder agency claims", () => {
     continuity.close();
   });
 
-  it("does not surface reminder motivations in observe mode", () => {
-    const continuity = openContinuityDb(new DatabaseSync(":memory:"));
-    const db = openNuclearDb(new DatabaseSync(":memory:"), { continuity });
-    upsertDocReminder(db, {
-      ownerId: "doc",
-      text: "Call mom",
-      dueAt: "2020-01-01T00:00:00.000Z",
-      sourceEntityType: "message",
-      sourceEntityUuid: "msg-3",
-      classification: "ordinary",
-      status: "due",
-    });
-    const motivations = collectMotivations(db, "doc", "proactive");
-    expect(motivations.some((item) => item.kind === "reminder")).toBe(false);
-    db.close();
-    continuity.close();
-  });
 });

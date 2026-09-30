@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { sanitizeTypography } from "./typography.js";
+import { sanitizeTypography } from "./lib/typography.js";
 
 describe("sanitizeTypography", () => {
   it("turns a mid-sentence em dash into a comma", () => {

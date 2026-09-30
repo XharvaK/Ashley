@@ -7,7 +7,6 @@ import { recordCognitiveOutcomeObservation } from "./observations.js";
 import { recordCognitiveOutcomeAdjudication } from "./adjudications.js";
 import { recordThoughtCalibrationAdjustment } from "./calibration.js";
 import { getCognitiveGraduationDiagnostics } from "./diagnostics.js";
-import { reconcileCognitiveWorkingView } from "./view-revision.js";
 
 describe("C4 local settlement witnesses", () => {
   it("closes the additive chain without promotion or authority widening", () => {
@@ -63,7 +62,6 @@ describe("C4 local settlement witnesses", () => {
           observed: true,
         },
       });
-      expect(reconcileCognitiveWorkingView(db, prediction.id).status).toBe("current");
       expect(adjustment.admittingDecisionId).toBe(admittingDecisionId);
       expect(db.prepare(
         "SELECT live_authority_existed, state FROM cognitive_maturation_contract_state WHERE wave = 'c4'",

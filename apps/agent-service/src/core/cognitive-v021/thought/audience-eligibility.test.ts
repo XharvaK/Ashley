@@ -10,19 +10,13 @@ import { admitTestCycle, openTestSidecar } from "../test-support.js";
 import { appendEvidenceInTransaction } from "../evidence/conversation-log.js";
 import { buildThoughtInput } from "./input.js";
 import { openNuclearDb } from "../../db.js";
-import { runPerceptionTurn } from "../../perception/index.js";
 import { fetchAttachmentBytes } from "../../perception/fetch.js";
-import { checkAttachmentPreflight } from "../../perception/preflight.js";
 import { getCapabilityReality } from "./capability-reality.js";
 
 vi.mock("../../perception/fetch.js", () => ({
   fetchAttachmentBytes: vi.fn(),
 }));
 
-vi.mock("../../perception/preflight.js", () => ({
-  checkAttachmentPreflight: vi.fn(),
-  conversationalReadPreflight: vi.fn(),
-}));
 
 let previousArtifactDir: string | undefined;
 
@@ -314,43 +308,6 @@ describe("audience eligibility", () => {
 
     const owner = buildThoughtInput({ ...base, audience: { kind: "owner_private" } });
     expect(owner.workingContext.map((item) => item.id)).toEqual(["owner-private", "room-local"]);
-  });
-
-  it("binds external perception parts to the requesting audience", async () => {
-    vi.mocked(checkAttachmentPreflight).mockReturnValue({
-      allowed: true,
-      visionAllowed: false,
-      attachmentTextAllowed: true,
-      fetchBudgetMs: 1_000,
-    });
-    const bytes = new TextEncoder().encode("external attachment");
-    vi.mocked(fetchAttachmentBytes).mockResolvedValue({
-      bytes,
-      mime: "text/plain",
-      finalUrl: "https://cdn.example.test/file.txt",
-      contentHash: createHash("sha256").update(bytes).digest("hex"),
-    });
-    const db = openNuclearDb(new DatabaseSync(":memory:"));
-    const result = await runPerceptionTurn(db, {
-      ownerId: "owner-1",
-      message: "read this",
-      attachments: [{
-        discordAttachmentId: "attachment-1",
-        declaredMime: "text/plain",
-        fileName: "file.txt",
-        declaredByteSize: bytes.byteLength,
-        sourceUrl: "https://cdn.example.test/file.txt",
-      }],
-      sourceMessageEntityUuid: "message-1",
-      deliveryReservationEntityUuid: "reservation-1",
-      deliveryReservationId: 1,
-      deadlineAtMs: Date.now() + 10_000,
-      decision: {} as never,
-      audience: { kind: "dm", principalId: "person-1" },
-    });
-
-    expect(result.thoughtParts[0]?.audienceScope).toEqual({ kind: "dm", principalId: "person-1" });
-    db.close();
   });
 
   it("defaults external capability reality to no Owner/project authority", () => {

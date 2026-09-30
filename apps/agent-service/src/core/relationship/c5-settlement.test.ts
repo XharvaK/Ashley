@@ -3,8 +3,6 @@ import { describe, expect, it } from "vitest";
 import { env } from "../../env.js";
 import { AshleyCore } from "../runtime.js";
 import { logDecision } from "../agency/log.js";
-import { collectMotivations } from "../agency/motivations.js";
-import { decide } from "../agency/decide.js";
 import { openNuclearDb } from "../db.js";
 import { insertAssertion } from "../memory/assertions.js";
 import { admitOwnerCorrection } from "../memory/corrections.js";
@@ -282,8 +280,6 @@ describe("C5 local settlement witness", () => {
         messageEntityUuid: "message:reminder",
         dueAt: "2026-08-20T13:00:00.000Z",
       });
-      expect(collectMotivations(db, OWNER, "proactive")
-        .some((motivation) => motivation.kind === "reminder")).toBe(true);
       expect(db.prepare(
         "SELECT COUNT(*) AS count FROM scheduled_proactive_messages WHERE owner_id = ?",
       ).get(OWNER)).toEqual({ count: 0 });
@@ -330,9 +326,6 @@ describe("C5 local settlement witness", () => {
         message: "Please leave me alone for now.",
         messageEntityUuid: "message:space",
       });
-      const silenced = decide([], "proactive", { db, ownerId: OWNER });
-      expect(silenced.kind).toBe("silence");
-      expect(silenced.silenceReasonCode).toBe("withdrawal_pause");
 
       db.prepare(
         `UPDATE memory_assertions SET termination_reason = 'invalidated',

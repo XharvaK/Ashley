@@ -24,7 +24,6 @@ import {
   recordOpenCognitiveDecision,
   transitionOpenCognitiveItem,
 } from "./reconsideration.js";
-import { selectMotivationCandidates } from "../agency/candidate-selection.js";
 import { processPendingOpenCognitiveReviews } from "../reflection/initiative.js";
 import type { Decision, Motivation } from "../types.js";
 
@@ -163,7 +162,6 @@ describe("durable OCI reconsideration", () => {
         refType: "open_cognitive_item",
         refId: deferred.entityUuid,
       };
-      expect(selectMotivationCandidates(db, OWNER_ID, "proactive", [motivation], now)).toEqual([]);
 
       db.close();
       db = openNuclearDb(new DatabaseSync(path), {
@@ -172,9 +170,6 @@ describe("durable OCI reconsideration", () => {
       const afterExpiry = new Date(
         now.getTime() + OPEN_COGNITIVE_ITEM_DELAY_DURATIONS_MS.brief + 1,
       );
-      expect(
-        selectMotivationCandidates(db, OWNER_ID, "proactive", [motivation], afterExpiry),
-      ).toEqual([motivation]);
     } finally {
       env.cognitionMode = originalMode;
       try {

@@ -1,7 +1,27 @@
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import { logDecision } from "../agency/log.js";
-import { decide } from "../agency/decide.js";
+import type { Decision, Trigger } from "../types.js";
+
+// The legacy decider is retired; these tests exercise the attach step on a
+// fixed baseline decision.
+function baselineDecision(trigger: Trigger, kind: Decision["kind"]): Decision {
+  return {
+    trigger,
+    kind,
+    motivationIds: [],
+    score: 100,
+    reason: "baseline",
+    evidenceRefs: [],
+    uncertainty: 0,
+    urgency: 0,
+    thoughtSource: "deterministic",
+    thoughtError: null,
+    affectLicense: { permitted: false, valence: 0, activation: 0.5, openness: 0.5, tension: 0, reason: "neutral baseline" },
+    cognitiveAllocation: { shouldSpeak: true, effort: "low", completion: "complete" },
+    authorizedClaims: { readingRecordIds: [], readingTitles: [], readingClaims: [] },
+  };
+}
 import { openNuclearDb } from "../db.js";
 import {
   beginAuthorityTransition,
@@ -217,10 +237,9 @@ describe("Reflection v1 initiative learning", () => {
       learningAuthorityClass: "MECHANICAL_CALIBRATION",
     });
     const decision = attachLearningSnapshot(
-      decide(applied, "proactive"),
+      { ...baselineDecision("proactive", "ask"), motivationIds: [applied[0]!.id!] },
       applied,
     );
-    expect(decision.kind).toBe("ask");
     expect(decision.learning).toMatchObject({
       subjectKind: "question",
       adjustment: 2,

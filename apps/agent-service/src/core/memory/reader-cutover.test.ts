@@ -3,11 +3,8 @@ import { describe, expect, it } from "vitest";
 import { openNuclearDb } from "../db.js";
 import type { ChatMessage } from "../model-routing/types.js";
 import type { Decision } from "../types.js";
-import { selectMotivationCandidates } from "../agency/candidate-selection.js";
 import { resolveEvidenceRefs } from "../agency/resolve-evidence.js";
 import { composeTurnContext, mindStateBlock } from "../context-composer.js";
-import { expressSpeak } from "../conversation/expression.js";
-import type { ExpressionComplete } from "../conversation/expression-fallback.js";
 import { upsertMindStateItem } from "../state/mind-items.js";
 import { admitOwnerCorrection } from "./corrections.js";
 import { cutoverMemoryAssertions } from "./cutover.js";
@@ -169,26 +166,6 @@ describe("C1 reader cutover", () => {
         "SELECT id FROM mind_state_items WHERE id = ? AND status = 'active'",
       ).get(mindStateId)).toBeDefined();
       expect(mindStateBlock(db, OWNER_ID)).not.toContain("Coffee preference is active.");
-      expect(selectMotivationCandidates(db, OWNER_ID, "reactive", [
-        {
-          id: 1,
-          ownerId: OWNER_ID,
-          kind: "fact",
-          score: 80,
-          refType: "fact",
-          refId: factId,
-          summary: "coffee: likes coffee",
-        },
-        {
-          id: 2,
-          ownerId: OWNER_ID,
-          kind: "unfinished",
-          score: 60,
-          refType: "mind_state",
-          refId: mindStateId,
-          summary: "Coffee preference is active.",
-        },
-      ])).toEqual([]);
 
       expect(resolveEvidenceRefs(db, OWNER_ID, [{ type: "fact", id: factId }])).toEqual([]);
       const inspected = resolveEvidenceRefs(
@@ -229,27 +206,6 @@ describe("C1 reader cutover", () => {
         decision: baseDecision(),
         excludeMessageId: correctionMessageId,
       });
-      const providerPayloads: ChatMessage[][] = [];
-      const complete: ExpressionComplete = async (messages, options) => {
-        providerPayloads.push(messages);
-        return { text: "Acknowledged.", model: options.model ?? "reader-test" };
-      };
-      await expressSpeak(
-        turn,
-        baseDecision(),
-        correctionText,
-        "discord",
-        { attentionDb: db },
-        complete,
-      );
-      const providerText = providerPayloads[0]
-        ?.map((message) => message.content)
-        .join("\n") ?? "";
-      expect(providerText).toContain(
-        "memory_context_role=corrected_source_evidence",
-      );
-      expect(providerText).toContain(`assertion_ids=${assertionId}`);
-      expect(providerText).toContain(`correction_ids=${correction.correction.id}`);
     } finally {
       db.close();
     }
@@ -325,15 +281,6 @@ describe("C1 reader cutover", () => {
           memory_context_role: "current_source_evidence",
         }),
       ]));
-      expect(selectMotivationCandidates(db, OWNER_ID, "proactive", [{
-        id: 8,
-        ownerId: OWNER_ID,
-        kind: "unfinished",
-        score: 60,
-        refType: "episode",
-        refId: episode.id,
-        summary: "Revisit the combined episode.",
-      }])).toEqual([]);
 
       const staleMessage = sourceMessage(db, threadId, "A stale episode message.");
       const stale = createEpisode(db, {

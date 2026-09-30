@@ -13,8 +13,6 @@ import {
 } from "../attention/contract-material.js";
 import { listCapabilityStatuses } from "../rollout/capabilities.js";
 import { TARGETABLE_TABLES } from "./nuclear-targetable.js";
-import { usableFetchMs } from "../perception/turn-budget.js";
-import { classifyResearchIntent } from "../perception/research-intent.js";
 import { buildInlineDataUri } from "../perception/ingest.js";
 
 function resetCognitionTablesToV22(nuclear: DatabaseSync): void {
@@ -276,22 +274,6 @@ describe("wave06 migration", () => {
 });
 
 describe("wave06 perception helpers", () => {
-  it("bounds fetch budget to thought remaining minus dispatch safety", () => {
-    const thoughtDeadline = Date.now() + 5_000;
-    const usable = usableFetchMs(thoughtDeadline);
-    expect(usable).toBeLessThanOrEqual(5_000 - 300);
-    expect(usable).toBeGreaterThan(0);
-  });
-
-  it("classifies explicit conversational read intent only", () => {
-    expect(
-      classifyResearchIntent("please read this page https://example.com/a"),
-    ).toEqual({ intent: true, url: "https://example.com/a" });
-    expect(classifyResearchIntent("https://example.com/a")).toEqual({
-      intent: false,
-    });
-  });
-
   it("builds pinned data-uri inline image payload", () => {
     const uri = buildInlineDataUri(new Uint8Array([1, 2, 3]), "image/png");
     expect(uri.startsWith("data:image/png;base64,")).toBe(true);

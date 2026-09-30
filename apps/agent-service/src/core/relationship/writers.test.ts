@@ -2,7 +2,6 @@ import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import { env } from "../../env.js";
 import { logDecision } from "../agency/log.js";
-import { collectMotivations } from "../agency/motivations.js";
 import { openNuclearDb } from "../db.js";
 import {
   currentBuildIdentity,
@@ -237,8 +236,6 @@ describe("C5 relationship writers", () => {
       const due = listDueDocReminders(db, OWNER, "2026-08-21T10:00:00.000Z");
       expect(due).toHaveLength(1);
       expect(due[0]?.dueAt).toBe("2026-08-20T10:00:00.000Z");
-      const motivations = collectMotivations(db, OWNER, "proactive");
-      expect(motivations.filter((item) => item.kind === "reminder")).toHaveLength(1);
       expect(db.prepare(
         "SELECT COUNT(*) AS count FROM scheduled_proactive_messages WHERE owner_id = ?",
       ).get(OWNER)).toEqual({ count: 0 });

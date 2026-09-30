@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MODE_B_HOST_MAX_STEPS } from "./catalog.js";
+import { MODE_B_HOST_MAX_STEPS } from "../worker/contracts.js";
 import { validateModeBRequest } from "./mode-b-request.js";
 
 describe("Mode-B request contract", () => {
