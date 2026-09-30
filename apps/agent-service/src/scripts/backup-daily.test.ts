@@ -1,7 +1,7 @@
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createIsolatedDataPlane } from "../core/data-plane.js";
 import {
   assertBackupTransferKey,
@@ -118,4 +118,51 @@ describe("data-plane backup paths", () => {
     expect(paths.sidecarDbPath.includes("/conversations/")).toBe(false);
     expect(paths.sidecarDbPath).not.toBe(join(plane.conversationsDir, "cognitive-v021.db"));
   });
+});
+
+
+vi.mock("../core/continuity/backup-package.js", () => ({
+  createDualBackupPackage: ({ outDir }: { outDir: string }) => {
+    mkdirSync(outDir, { recursive: true });
+    const packagePath = join(outDir, "created.ashleybak");
+    writeFileSync(packagePath, "fixture");
+    return { packagePath };
+  },
+  verifyBackupPackage: () => ({}),
+}));
+
+it("checks only the uploaded member when older local packages are absent remotely", async () => {
+  const { DatabaseSync } = await import("node:sqlite");
+  const { runDailyBackup } = await import("./backup-daily.js");
+  const dir = mkdtempSync(join(tmpdir(), "ashley-upload-scope-"));
+  try {
+    const paths = backupPathsFromPlane(createIsolatedDataPlane(dir));
+    mkdirSync(join(dir, "conversations"), { recursive: true });
+    for (const path of [paths.nuclearDbPath, paths.continuityDbPath, paths.sidecarDbPath]) {
+      const db = new DatabaseSync(path);
+      if (path === paths.sidecarDbPath) {
+        db.exec("CREATE TABLE cognitive_sidecar_meta (id INTEGER, schema_version INTEGER); INSERT INTO cognitive_sidecar_meta VALUES (1, 1)");
+      }
+      db.close();
+    }
+    mkdirSync(paths.packageDir, { recursive: true });
+    writeFileSync(join(paths.packageDir, "20260930T050000Z.ashleybak"), "older");
+    const newest = "20261002T050000Z.ashleybak";
+    const calls: string[][] = [];
+    const rc = runDailyBackup({ dataDir: dir, loadEnv: false, now: new Date("2026-10-02T05:00:00Z"),
+      env: { ASHLEY_BACKUP_TRANSFER_KEY: "ab".repeat(32), ASHLEY_BACKUP_RCLONE_REMOTE: "fixture:backups" },
+      log: () => {}, execRclone: (_file, args) => {
+        calls.push([...args]);
+        if (args[0] === "check" && !args.includes(newest)) throw new Error("older local package missing remotely");
+        return args[0] === "lsf" ? newest : "";
+      } });
+    expect(rc).toBe(0);
+    expect(calls.find((args) => args[0] === "check")).toEqual([
+      "check", "--one-way", "--include", newest, paths.packageDir, "fixture:backups/daily/",
+    ]);
+    expect(readBackupStatus(paths.statusPath)).toMatchObject({ last_upload_error: null,
+      last_upload_ok_ms: new Date("2026-10-02T05:00:00Z").getTime() });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

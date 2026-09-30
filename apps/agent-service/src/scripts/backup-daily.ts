@@ -140,7 +140,7 @@ export function runDailyBackup(options: DailyBackupOptions = {}): number {
       runRclone(rcloneMkdirArgs(dailyDir), exec);
       runRclone(rcloneMkdirArgs(monthlyDir), exec);
       runRclone(rcloneCopyArgs(packagePath, dailyDir), exec);
-      runRclone(rcloneCheckArgs(paths.packageDir, dailyDir), exec);
+      runRclone(rcloneCheckArgs(packagePath, dailyDir), exec);
       if (now.getUTCDate() === 1) {
         runRclone(rcloneCopyArgs(packagePath, monthlyDir), exec);
       }

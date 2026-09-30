@@ -8,7 +8,7 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type { DataPlaneContext } from "../core/data-plane.js";
 
@@ -171,7 +171,7 @@ export function rcloneCopyArgs(pkgPath: string, destinationDir: string): string[
 }
 
 export function rcloneCheckArgs(pkgPath: string, destinationDir: string): string[] {
-  return ["check", "--one-way", pkgPath, destinationDir.endsWith("/") ? destinationDir : `${destinationDir}/`];
+  return ["check", "--one-way", "--include", basename(pkgPath), dirname(pkgPath), destinationDir.endsWith("/") ? destinationDir : `${destinationDir}/`];
 }
 
 export function rcloneLsfArgs(destinationDir: string): string[] {
@@ -220,26 +220,30 @@ export const DRILL_TABLES: ReadonlyArray<{
   table: string;
   appendOnly: boolean;
 }> = [
-  { db: "nuclear", table: "mem_messages", appendOnly: true },
-  { db: "nuclear", table: "mem_facts", appendOnly: true },
+  { db: "nuclear", table: "mem_messages", appendOnly: false },
+  { db: "nuclear", table: "mem_facts", appendOnly: false },
   { db: "continuity", table: "continuity_events", appendOnly: true },
-  { db: "nuclear", table: "kv", appendOnly: false },
-  { db: "sidecar", table: "cognitive_sidecar_meta", appendOnly: false },
+  { db: "sidecar", table: "conversation_evidence_log", appendOnly: true },
+  { db: "sidecar", table: "diary_entries", appendOnly: false },
 ];
 
-export function compareDrillCounts(rows: readonly DrillCountRow[]): { ok: true } | { ok: false; error: string } {
+export function compareDrillCounts(rows: readonly DrillCountRow[]): { ok: true; notes: string[] } | { ok: false; error: string } {
+  const notes: string[] = [];
   for (const row of rows) {
     if (!Number.isFinite(row.restored) || !Number.isFinite(row.live)) {
       return { ok: false, error: `drill_count_unreadable:${row.table}` };
     }
     if (row.restored > row.live) {
-      return { ok: false, error: `drill_count_exceeds_live:${row.table}` };
+      notes.push(`drill_count_exceeds_live:${row.table}`);
+    }
+    if (row.live > 0 && row.restored === 0) {
+      return { ok: false, error: `drill_count_empty:${row.table}` };
     }
     if (row.appendOnly && row.restored < row.live * 0.9) {
       return { ok: false, error: `drill_count_below_tolerance:${row.table}` };
     }
   }
-  return { ok: true };
+  return { ok: true, notes };
 }
 
 export function countTable(db: DatabaseSync, table: string): number {

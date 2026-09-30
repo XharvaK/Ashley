@@ -163,6 +163,9 @@ export function runBackupDrill(options: DrillOptions = {}): number {
         live: countTable(liveDb[spec.db], spec.table),
       }));
       const compared = compareDrillCounts(rows);
+      if (compared.ok) {
+        for (const note of compared.notes) log(note);
+      }
       if (!compared.ok) {
         return finish(paths.statusPath, { drill_error: compared.error }, log, compared.error);
       }
@@ -171,6 +174,8 @@ export function runBackupDrill(options: DrillOptions = {}): number {
     }
 
     return finish(paths.statusPath, { drill_ok_ms: now.getTime(), drill_error: null }, log, null);
+  } catch {
+    return finish(paths.statusPath, { drill_error: "drill_failed" }, log, "drill_failed");
   } finally {
     rmSync(temp, { recursive: true, force: true });
   }
