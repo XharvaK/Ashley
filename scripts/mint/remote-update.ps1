@@ -6,12 +6,13 @@
 # Usage:
 #   powershell -File scripts\mint\remote-update.ps1
 #   powershell -File scripts\mint\remote-update.ps1 -PushFirst
-#   powershell -File scripts\mint\remote-update.ps1 -HostName 192.168.x.x -User xarvak
+#   powershell -File scripts\mint\remote-update.ps1 -HostName 192.168.x.x -User <mint-user>
 param(
   # Defaults match ~/.ssh/config Host mint (production Discord host).
   [string]$HostName = "mint",
 
-  [string]$User = "xarvak",
+  # Empty: ~/.ssh/config supplies the user for the host.
+  [string]$User = "",
 
   [int]$Port = 22,
 
@@ -47,7 +48,7 @@ if ($PushFirst) {
   Pop-Location
 }
 
-$target = "${User}@${HostName}"
+$target = if ($User) { "${User}@${HostName}" } else { $HostName }
 
 # Exact-candidate truth: pin the intended Windows HEAD (SHA + tree) and require
 # Mint to activate exactly that commit. PowerShell single quotes pass the
