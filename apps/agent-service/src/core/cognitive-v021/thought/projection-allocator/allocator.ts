@@ -1,3 +1,4 @@
+import { thoughtInputContainsSecret } from "../input.js";
 import type { DatabaseSync } from "node:sqlite";
 import type { ChatMessage } from "../../../model-routing/types.js";
 import type {
@@ -1017,6 +1018,12 @@ export function allocateThoughtProjection(
     final = unfitted;
   }
   const { projected: finalProjected, messages: finalMessages, estimate: finalEstimate } = final;
+  // the Host records only that secret evidence was present; it never reads or judges it.
+  const sawSecret = (input.audience === undefined || input.audience.kind === "owner_private")
+    && (thoughtInputContainsSecret(finalProjected)
+      || finalProjected.retrieval.hits.some((hit) => thoughtInputContainsSecret(provenance.get(hit.ref))));
+  Object.defineProperty(finalProjected, "sawSecret", { value: sawSecret, enumerable: false });
+
   // E2b+E2c disclosure-scoped caller-envelope gate: applies ONLY when a
   // loss disclosure is present on the FINAL wire. The fixed global byte gate
   // below is the 262144-token logical byte envelope; caller envelopes

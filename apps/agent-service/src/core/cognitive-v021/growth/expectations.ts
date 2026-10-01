@@ -155,7 +155,7 @@ export function recordExpectations(
  */
 export function checkExpectations(
   db: DatabaseSync,
-  input: { cycleId: string; checks: readonly ExpectationCheck[]; nowMs: number },
+  input: { cycleId: string; checks: readonly ExpectationCheck[]; dataClassification?: DataClassification; nowMs: number },
 ): string[] {
   const closed: string[] = [];
   for (const check of input.checks.slice(0, EXPECTATION_CHECKS_PER_SETTLEMENT)) {
@@ -164,9 +164,10 @@ export function checkExpectations(
     if (!lesson) continue;
     const result = db.prepare(
       `UPDATE expectations
-          SET status = ?, lesson = ?, checked_cycle_id = ?, checked_at_ms = ?
+          SET status = ?, lesson = ?, checked_cycle_id = ?, checked_at_ms = ?,
+              data_classification = CASE WHEN ? = 'never_public' AND data_classification != 'secret' THEN 'never_public' ELSE data_classification END
         WHERE expectation_id = ? AND status = 'open' AND cycle_id != ? AND forgotten_at_ms IS NULL`,
-    ).run(check.outcome, lesson, input.cycleId, input.nowMs, check.expectationId, input.cycleId);
+    ).run(check.outcome, lesson, input.cycleId, input.nowMs, input.dataClassification ?? "ordinary", check.expectationId, input.cycleId);
     if (Number(result.changes ?? 0) > 0) {
       closed.push(check.expectationId);
       if (check.outcome === "missed") recordHostFriction(db, "expectation_missed", check.expectationId, input.nowMs, input.cycleId);

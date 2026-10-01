@@ -92,6 +92,8 @@ export type ProjectedRetrievalResult = {
 };
 
 export type ProjectedThoughtInput = {
+  /** Host-only label of delivered input; never serialized to Thought. */
+  sawSecret?: boolean;
   /** Host-only disclosure scope, never serialized to Thought. */
   audience?: ThoughtInput["audience"];
   cycleId: CycleId;

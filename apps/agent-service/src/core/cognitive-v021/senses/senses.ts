@@ -1,3 +1,4 @@
+import type { DataClassification } from "../../privacy/classification.js";
 // A sense states the truth at proportionate volume and then stops; a reasoned no quiets it.
 import { join } from "node:path";
 import { detectCredentialShape } from "../../privacy/secrets.js";
@@ -11,7 +12,7 @@ export const SENSE_NAMES = ["friction", "expectations", "stale_concerns", "deliv
 export type SenseName = typeof SENSE_NAMES[number];
 export type SenseClaim = { decline: Array<{ sense: SenseName; rationale: string; untilMs?: number }> };
 export type ThoughtSenses = { lines: string[] };
-export type SenseOptions = { nowMs: number; conversationId: string; dataDir?: string };
+export type SenseOptions = { nowMs: number; conversationId: string; dataDir?: string; dataClassification?: DataClassification };
 export type SenseReading = { sense: SenseName; band: string; detail?: string };
 const DAY = 86400000;
 const DECLINE_MAX_MS = 7 * DAY;
@@ -62,7 +63,7 @@ export function senseBandsForDeclines(readings: readonly SenseReading[]): Partia
 export function sensesForThought(db: DatabaseSync, options: SenseOptions, readings = readSenseFacts(db, options)): ThoughtSenses {
   const lines: string[] = [];
   for (const reading of readings) {
-    const decline = db.prepare("SELECT declined_band, until_ms, reraised_at_ms FROM sense_declines WHERE sense = ?").get(reading.sense);
+    const decline = db.prepare("SELECT declined_band, until_ms, reraised_at_ms FROM sense_declines WHERE sense = ? AND data_classification != 'secret'").get(reading.sense);
     let suffix = "";
     if (decline) {
       if (decline.reraised_at_ms !== null) continue;
@@ -81,9 +82,9 @@ export function recordSenseDeclines(db: DatabaseSync, claim: SenseClaim, options
     const band = bands[decline.sense];
     if (band === undefined) continue;
     const until = Math.min(options.nowMs + DECLINE_MAX_MS, decline.untilMs ?? Infinity);
-    db.prepare(`INSERT INTO sense_declines (sense, rationale, declined_band, declined_at_ms, until_ms, reraised_at_ms)
-      VALUES (?, ?, ?, ?, ?, NULL) ON CONFLICT(sense) DO UPDATE SET rationale = excluded.rationale, declined_band = excluded.declined_band, declined_at_ms = excluded.declined_at_ms, until_ms = excluded.until_ms, reraised_at_ms = NULL`)
-      .run(decline.sense, detectCredentialShape(decline.rationale).hit ? "withheld:secret" : decline.rationale, band, options.nowMs, until);
+    db.prepare(`INSERT INTO sense_declines (sense, rationale, declined_band, declined_at_ms, until_ms, reraised_at_ms, data_classification)
+      VALUES (?, ?, ?, ?, ?, NULL, ?) ON CONFLICT(sense) DO UPDATE SET rationale = excluded.rationale, declined_band = excluded.declined_band, declined_at_ms = excluded.declined_at_ms, until_ms = excluded.until_ms, reraised_at_ms = NULL, data_classification = excluded.data_classification`)
+      .run(decline.sense, detectCredentialShape(decline.rationale).hit ? "withheld:secret" : decline.rationale, band, options.nowMs, until, options.dataClassification ?? "ordinary");
   }
 }
 export function isValidSenseClaim(value: unknown): value is SenseClaim {

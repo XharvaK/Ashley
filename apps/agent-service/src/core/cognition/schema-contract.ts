@@ -1535,6 +1535,7 @@ export function ensureNuclearV28Schema(db: DatabaseSync): void {
 
 /** Validate A3's cognitive sidecar additions independently of nuclear versions. */
 export function validateA3SidecarSchema(db: DatabaseSync, version: number): void {
+  if (version >= 49) requireColumns(db, version, "sense_declines", [{ name: "data_classification", notNull: true }]);
   if (version >= 48) requireColumns(db, version, "sense_declines", ["sense", "rationale", "declined_band", "declined_at_ms", "until_ms", "reraised_at_ms"].map(name => ({ name })));
   if (version >= 47) {
     const sql = String(db.prepare("SELECT sql FROM sqlite_master WHERE name = 'growth_revisions'").get()?.sql ?? "");

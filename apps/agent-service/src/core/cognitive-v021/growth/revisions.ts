@@ -437,6 +437,7 @@ export function proposeRevisions(
   input: {
     cycleId: string;
     proposals: readonly RevisionProposal[];
+    dataClassification?: DataClassification;
     identity: readonly RevisableIdentityEntry[] | null;
     nowMs: number;
   },
@@ -458,7 +459,7 @@ export function proposeRevisions(
     });
     if (evidence.length === 0) return { outcome: "no_evidence" };
     const rationale = proposal.rationale.trim().slice(0, REVISION_RATIONALE_MAX_CHARS) || null;
-    const dataClassification = maxClassification("ordinary", ...evidence.map((item) => item.dataClassification));
+    const dataClassification = maxClassification(input.dataClassification ?? "ordinary", ...evidence.map((item) => item.dataClassification));
     const open = db.prepare(
       `SELECT * FROM growth_revisions WHERE target_key = ? AND status IN ('proposed', 'ripe')
         ORDER BY revision_id DESC LIMIT 1`,
@@ -509,7 +510,7 @@ export function proposeRevisions(
  */
 export function recordRevisionPositions(
   db: DatabaseSync,
-  input: { cycleId: string; positions: readonly RevisionPosition[]; nowMs: number },
+  input: { cycleId: string; positions: readonly RevisionPosition[]; dataClassification?: DataClassification; nowMs: number },
 ): number[] {
   const recorded: number[] = [];
   for (const position of input.positions.slice(0, REVISION_POSITIONS_PER_SETTLEMENT)) {
@@ -518,9 +519,10 @@ export function recordRevisionPositions(
     if (!rationale) continue;
     const result = db.prepare(
       `UPDATE growth_revisions
-          SET ashley_position = ?, ashley_rationale = ?, ashley_cycle_id = ?, ashley_decided_at_ms = ?, updated_at_ms = ?
+          SET ashley_position = ?, ashley_rationale = ?, ashley_cycle_id = ?, ashley_decided_at_ms = ?, updated_at_ms = ?,
+              data_classification = CASE WHEN ? = 'never_public' AND data_classification != 'secret' THEN 'never_public' ELSE data_classification END
         WHERE revision_id = ? AND layer IN ('value', 'boundary', 'practice') AND status = 'proposed' AND proposed_cycle_id != ?`,
-    ).run(position.position, rationale, input.cycleId, input.nowMs, input.nowMs, position.revisionId, input.cycleId);
+    ).run(position.position, rationale, input.cycleId, input.nowMs, input.nowMs, input.dataClassification ?? "ordinary", position.revisionId, input.cycleId);
     if (Number(result.changes ?? 0) > 0) recorded.push(position.revisionId);
   }
   return recorded;

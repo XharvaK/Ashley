@@ -1725,3 +1725,10 @@ CREATE TABLE IF NOT EXISTS sense_declines (
 );
 UPDATE cognitive_sidecar_meta SET schema_version = 48 WHERE id = 1;
 `;
+
+/** GS1: classification follows the delivered Thought input's labels. */
+export const COGNITIVE_SIDECAR_SCHEMA_V49 = String.raw`
+ALTER TABLE sense_declines ADD COLUMN data_classification TEXT NOT NULL DEFAULT 'ordinary'
+  CHECK (data_classification IN ('ordinary', 'sensitive', 'never_public', 'secret'));
+UPDATE cognitive_sidecar_meta SET schema_version = 49 WHERE id = 1;
+`;

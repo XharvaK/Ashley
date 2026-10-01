@@ -108,7 +108,7 @@ import {
 import { registerActiveThought } from "../cycle/active.js";
 import { adaptPerception } from "../perception/adapter.js";
 import { resolveAttachmentObservations } from "../perception/attachments.js";
-import { buildThoughtInput, captureThoughtSourcePackage } from "./input.js";
+import { buildThoughtInput, captureThoughtSourcePackage, thoughtInputContainsSecret } from "./input.js";
 import { parseThoughtSemanticOutput, THOUGHT_SEMANTIC_PARSER_ID } from "./parse.js";
 import {
   concernDiscoverItemAuthorable,
@@ -981,6 +981,7 @@ function materializeSemanticSettlement(
   semantic: Extract<ThoughtSemanticOutput, { kind: "settlement" }>,
   input: ThoughtInput | ProjectedThoughtInput,
   receiptsByEffectId?: Readonly<Record<string, EffectReceipt>>,
+  sawSecret = true,
 ): ThoughtSettlementDraft {
   // Local semantic aliases are resolved to ordinary durable IDs in this
   // kernel projection. The aliases themselves never become a lookup namespace.
@@ -1423,6 +1424,7 @@ function materializeSemanticSettlement(
   if (semantic.reflection) result.reflection = semantic.reflection;
   if (semantic.journal) result.journal = { ...semantic.journal };
   if (semantic.interests) result.interests = semantic.interests.map((touch) => ({ ...touch }));
+  (result as ThoughtSettlementDraft).sawSecret = sawSecret;
   if (semantic.growth) result.growth = structuredClone(semantic.growth);
   if (semantic.senses) result.senses = structuredClone(semantic.senses);
   if (semantic.night) result.night = structuredClone(semantic.night);
@@ -1583,6 +1585,7 @@ export async function runThoughtModel(
   let completionInputTokens: number | undefined;
   let lastCompletion: Awaited<ReturnType<typeof completeChat>> | undefined;
   let dispatchStarted = false;
+  let sawSecret = false;
 
   try {
     if (
@@ -1602,9 +1605,14 @@ export async function runThoughtModel(
         structuralFeedback: options.structuralFeedback,
       });
       messages = allocated.messages;
+      sawSecret = allocated.projected.sawSecret === true;
       semanticProjectionHash = allocated.hashes.semanticProjectionHash;
       dispatchMessagesHash = allocated.hashes.dispatchMessagesHash;
     }
+
+    sawSecret = sawSecret || (input as ProjectedThoughtInput).sawSecret === true
+      || ((input.audience === undefined || input.audience.kind === "owner_private")
+        && "allowedOperationalEffectRefs" in input && thoughtInputContainsSecret(input));
 
     if (options.settlementRevisionFeedback) {
       // Authority revision data, not a structural retry or a host-authored settlement.
@@ -1815,6 +1823,7 @@ export async function runThoughtModel(
             semantic,
             input,
             deps?.loadAuthorityPacks ? deps.loadAuthorityPacks().receipt.receiptsByEffectId : undefined,
+            sawSecret,
           ),
         }
       : semantic.kind === "observation_intent"

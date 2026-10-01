@@ -131,6 +131,7 @@ export function recordJournalEntry(
     /** Speech was queued for delivery; stored for audit. Readers see "spoke" only once it is delivered. */
     spoke: boolean;
     nowMs: number;
+    dataClassification?: DataClassification;
   },
 ): { entryId: string; activity: JournalActivity | null; readRefs: number } {
   const reads = readsForCycle(db, input.cycleId);
@@ -152,7 +153,7 @@ export function recordJournalEntry(
     JSON.stringify(reads.map(({ dataClassification: _classification, ...read }) => read)),
     JSON.stringify((input.interests ?? []).map((touch) => `${touch.root} / ${touch.branch}`)),
     input.spoke ? 1 : 0,
-    maxClassification("ordinary", ...reads.map((read) => read.dataClassification)),
+    maxClassification(input.dataClassification ?? "ordinary", ...reads.map((read) => read.dataClassification)),
     input.nowMs,
   );
   return { entryId, activity, readRefs: reads.length };

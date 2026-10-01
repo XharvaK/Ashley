@@ -3339,3 +3339,35 @@ describe("W1-P2 legacy Working Context projection", () => {
     )).toBe(false);
   });
 });
+
+
+describe("GS1 delivered input labels", () => {
+  it.each([
+    ["secret evidence", "secret", false, true],
+    ["omitted secret", "ordinary", true, true],
+    ["ordinary evidence", "ordinary", false, false],
+  ] as const)("records %s without changing the wire", (_name, dataClassification, secretOmitted, expected) => {
+    const input = makeThoughtInput();
+    input.rawConversation[0] = { ...input.rawConversation[0]!, dataClassification, secretOmitted };
+    const allocated = allocateThoughtProjection({ thoughtInput: input, requestId: "gs1" });
+    expect(allocated.projected.sawSecret).toBe(expected);
+    expect(JSON.stringify(allocated.projected)).not.toContain('"sawSecret"');
+    expect(thoughtMessagesForProjection(allocated.projected)).toEqual(allocated.messages);
+  });
+});
+
+
+describe("GS1 structured and compact labels", () => {
+  it("taints on an included structured value", () => {
+    const input = makeThoughtInput();
+    Object.assign(input.workingContext[0]!, { dataClassification: "secret" });
+    expect(allocateThoughtProjection({ thoughtInput: input, requestId: "gs1-structured" }).projected.sawSecret).toBe(true);
+  });
+  it("retains secret labels from included compact retrieval provenance", () => {
+    const input = makeThoughtInput();
+    input.retrieval.hits[0] = { ...input.retrieval.hits[0]!, dataClassification: "secret" };
+    const allocated = allocateThoughtProjection({ thoughtInput: input, requestId: "gs1-retrieval" });
+    expect(allocated.projected.retrieval.hits.length).toBeGreaterThan(0);
+    expect(allocated.projected.sawSecret).toBe(true);
+  });
+});

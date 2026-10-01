@@ -63,6 +63,7 @@ import {
   COGNITIVE_SIDECAR_SCHEMA_V45,
   COGNITIVE_SIDECAR_SCHEMA_V46,
   COGNITIVE_SIDECAR_SCHEMA_V48,
+  COGNITIVE_SIDECAR_SCHEMA_V49,
 } from "./schema.js";
 import { recoverCognitiveSidecar } from "./recovery.js";
 import { cycleIdFor, occurrenceIdFor, wakeIdFor } from "../wake/identity.js";
@@ -183,6 +184,14 @@ function migrateLegacyWorkingContextToV27(existing: DatabaseSync): void {
 function hasColumn(existing: DatabaseSync, table: string, column: string): boolean {
   return (existing.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name?: unknown }>)
     .some((row) => row.name === column);
+}
+
+function migrateSidecarToV49(existing: DatabaseSync): void {
+  if (!hasColumn(existing, "sense_declines", "data_classification")) {
+    existing.exec(COGNITIVE_SIDECAR_SCHEMA_V49);
+  } else {
+    existing.exec("UPDATE cognitive_sidecar_meta SET schema_version = 49 WHERE id = 1");
+  }
 }
 
 function hasTable(existing: DatabaseSync, table: string): boolean {
@@ -807,6 +816,7 @@ export function openCognitiveSidecarDb(
       existing.exec(COGNITIVE_SIDECAR_SCHEMA_V46);
       migrateGrowthRevisionsToV47(existing);
       existing.exec(COGNITIVE_SIDECAR_SCHEMA_V48);
+      migrateSidecarToV49(existing);
       existing.exec(`PRAGMA user_version = ${COGNITIVE_SIDECAR_SCHEMA_VERSION}`);
       existing.exec("COMMIT");
     } catch (error) {
@@ -867,6 +877,7 @@ export function openCognitiveSidecarDb(
       if (version < 46) existing.exec(COGNITIVE_SIDECAR_SCHEMA_V46);
       if (version < 47) migrateGrowthRevisionsToV47(existing);
       if (version < 48) existing.exec(COGNITIVE_SIDECAR_SCHEMA_V48);
+      if (version < 49) migrateSidecarToV49(existing);
       existing.exec(`PRAGMA user_version = ${COGNITIVE_SIDECAR_SCHEMA_VERSION}`);
       ensureMeta(existing);
       existing.exec("COMMIT");
