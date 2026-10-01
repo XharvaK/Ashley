@@ -108,6 +108,11 @@ Owner-selected `apply` admits a later-pass calibration path. Source presence doe
 not establish deployed mode or production acceptance. Historic nuclear graduation
 DDL remains in `core/cognition/` for migration only.
 
+Interest-touch receipts and the ported influence stores belong to
+[`cognitive-v021/influences/`](../apps/agent-service/src/core/cognitive-v021/influences/README.md).
+The aftermath records only grown branch IDs per cycle, atomically and without backfill.
+Storage presence does not establish an agenda consumer or influence activation.
+
 Current supported nuclear schema is declared in
 [`apps/agent-service/src/core/db.ts`](../apps/agent-service/src/core/db.ts)
 (`NUCLEAR_SUPPORTED_VERSION`). Do not copy the integer here.

@@ -88,7 +88,13 @@ export function recordSettlementAftermath(
     // Legacy or malformed flags fail closed on both publication and recovery.
     const dataClassification = settlement.sawSecret === false ? "ordinary" : "never_public";
     const interests = standing ? settlement.interests ?? [] : [];
-    if (interests.length > 0) recordInterestTouches(db, interests, options.nowMs);
+    if (interests.length > 0) {
+      const grown = recordInterestTouches(db, interests, options.nowMs);
+      for (const branchId of grown) {
+        db.prepare("INSERT OR IGNORE INTO interest_touches (branch_key,cycle_id,touched_at_ms) VALUES (?,?,?)")
+          .run(branchId, cycleId, options.nowMs);
+      }
+    }
     if (context.passKind) {
       recordJournalEntry(db, {
         conversationId: context.conversationId,
