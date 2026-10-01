@@ -37,7 +37,7 @@ import { getExpectation } from "./expectations.js";
  * seeded entries stay until revised. Opinions live here.
  */
 
-export const REVISION_LAYERS = ["opinion", "taste", "trait", "value", "boundary"] as const;
+export const REVISION_LAYERS = ["opinion", "practice", "taste", "trait", "value", "boundary"] as const;
 export type RevisionLayer = (typeof REVISION_LAYERS)[number];
 export const REVISION_POSITIONS = ["affirm", "object", "defer"] as const;
 export type RevisionPositionKind = (typeof REVISION_POSITIONS)[number];
@@ -53,8 +53,9 @@ export const REVISION_POSITIONS_PER_SETTLEMENT = 3;
 
 const DAY_MS = 24 * 60 * 60_000;
 /** evidence: independent origins; passes: separate proposing passes; spanMs: between the first and last of those passes. */
-export const REVISION_THRESHOLDS: Readonly<Record<"opinion" | "taste" | "trait", { evidence: number; passes: number; spanMs: number; delayMs: number }>> = Object.freeze({
+export const REVISION_THRESHOLDS: Readonly<Record<"opinion" | "practice" | "taste" | "trait", { evidence: number; passes: number; spanMs: number; delayMs: number }>> = Object.freeze({
   opinion: { evidence: 2, passes: 1, spanMs: 0, delayMs: 0 },
+  practice: { evidence: 2, passes: 1, spanMs: 0, delayMs: 0 },
   taste: { evidence: 2, passes: 2, spanMs: 2 * DAY_MS, delayMs: 0 },
   trait: { evidence: 3, passes: 3, spanMs: 14 * DAY_MS, delayMs: 72 * 60 * 60_000 },
 });
@@ -88,6 +89,7 @@ export type RevisionRecord = {
   appliedAtMs: number | null;
   appliedEntryId: number | null;
   ashleyPosition: RevisionPositionKind | null;
+  ashleyCycleId: string | null;
   ownerDecision: OwnerRevisionDecision | null;
   proposedCycleId: string;
   dataClassification: DataClassification;
@@ -158,6 +160,7 @@ function mapRevision(row: Row): RevisionRecord {
     appliedAtMs: nullableNumber(row.applied_at_ms),
     appliedEntryId: nullableNumber(row.applied_entry_id),
     ashleyPosition: isRevisionPosition(position) ? position : null,
+    ashleyCycleId: typeof row.ashley_cycle_id === "string" ? row.ashley_cycle_id : null,
     ownerDecision: decision === "approve" || decision === "reject" || decision === "defer" ? decision : null,
     proposedCycleId: String(row.proposed_cycle_id ?? ""),
     dataClassification: classification(row.data_classification),
@@ -217,6 +220,10 @@ type ResolvedEvidence = { ref: string; atMs: number; dataClassification: DataCla
 export function resolveRevisionEvidence(db: DatabaseSync, ref: string): ResolvedEvidence | null {
   const value = ref.trim();
   if (!value) return null;
+  if (value.startsWith("friction:")) {
+    const row = db.prepare("SELECT occurred_at_ms, data_classification FROM friction_events WHERE friction_id = ? AND data_classification <> 'secret'").get(value.slice(9)) as Row | undefined;
+    return row ? { ref: value, atMs: Number(row.occurred_at_ms), dataClassification: classification(row.data_classification) } : null;
+  }
   if (value.startsWith("expectation:")) {
     const expectation = getExpectation(db, value);
     if (!expectation || expectation.checkedAtMs === null || !["met", "missed", "mixed"].includes(expectation.status)) return null;
@@ -300,6 +307,10 @@ function combine(ref: string, groundings: readonly (Grounding | null)[], links: 
  * they came from, so a chain of derivations resolves to one origin.
  */
 function evidenceOrigin(db: DatabaseSync, ref: string): EvidenceOrigin {
+  if (ref.startsWith("friction:")) {
+    const row = db.prepare("SELECT cycle_id, kind, subject_id FROM friction_events WHERE friction_id = ?").get(ref.slice(9)) as Row | undefined;
+    return combine(ref, [], row?.subject_id != null ? [`friction-host:${String(row.kind)}:${String(row.subject_id)}`] : row?.cycle_id ? [`cycle:${String(row.cycle_id)}`] : [`friction:${ref}`]);
+  }
   if (ref.startsWith("expectation:")) {
     const row = db.prepare("SELECT checked_cycle_id FROM expectations WHERE expectation_id = ?").get(ref) as Row | undefined;
     return combine(ref, [], typeof row?.checked_cycle_id === "string" ? [`cycle:${row.checked_cycle_id}`] : []);
@@ -399,9 +410,9 @@ function targetFor(
   identity: readonly RevisableIdentityEntry[] | null,
 ): { targetKey: string; topic: string | null; revisesEntryId: number | null; previousText: string | null } | "bad_target" | "identity_unavailable" {
   const topic = proposal.topic?.trim().slice(0, REVISION_TOPIC_MAX_CHARS) || null;
-  if (proposal.layer === "opinion") {
+  if (proposal.layer === "opinion" || proposal.layer === "practice") {
     if (!topic || !slug(topic)) return "bad_target";
-    return { targetKey: `opinion:${slug(topic)}`, topic, revisesEntryId: null, previousText: null };
+    return { targetKey: `${proposal.layer}:${slug(topic)}`, topic, revisesEntryId: null, previousText: null };
   }
   if (proposal.revisesEntryId !== undefined) {
     if (!identity) return "identity_unavailable";
@@ -508,7 +519,7 @@ export function recordRevisionPositions(
     const result = db.prepare(
       `UPDATE growth_revisions
           SET ashley_position = ?, ashley_rationale = ?, ashley_cycle_id = ?, ashley_decided_at_ms = ?, updated_at_ms = ?
-        WHERE revision_id = ? AND layer IN ('value', 'boundary') AND status = 'proposed' AND proposed_cycle_id != ?`,
+        WHERE revision_id = ? AND layer IN ('value', 'boundary', 'practice') AND status = 'proposed' AND proposed_cycle_id != ?`,
     ).run(position.position, rationale, input.cycleId, input.nowMs, input.nowMs, position.revisionId, input.cycleId);
     if (Number(result.changes ?? 0) > 0) recorded.push(position.revisionId);
   }
@@ -592,7 +603,7 @@ export function evaluateRevisions(
       due = stats.ownOrigins >= 1 && revision.ashleyPosition === "affirm" && revision.ownerDecision === "approve";
     } else {
       const threshold = REVISION_THRESHOLDS[revision.layer];
-      const met = stats.count >= threshold.evidence && stats.ownOrigins >= 1
+      const met = (stats.count >= threshold.evidence || (revision.layer === "practice" && stats.count >= 1 && revision.ashleyPosition === "affirm" && revision.ashleyCycleId !== revision.proposedCycleId)) && stats.ownOrigins >= 1
         && stats.passes >= threshold.passes && stats.spanMs >= threshold.spanMs;
       if (!met) {
         if (revision.status === "ripe") {
@@ -611,7 +622,7 @@ export function evaluateRevisions(
       }
     }
     if (!due) continue;
-    if (revision.layer === "opinion") {
+    if (revision.layer === "opinion" || revision.layer === "practice") {
       applyOpinion(db, revision, nowMs);
       result.applied.push(revision.revisionId);
       continue;
@@ -640,7 +651,7 @@ export function revertRevision(
 ): boolean {
   const revision = getRevision(db, revisionId);
   if (!revision || revision.status !== "applied") return false;
-  if (revision.layer === "opinion") {
+  if (revision.layer === "opinion" || revision.layer === "practice") {
     const previous = db.prepare(
       "SELECT revision_id FROM growth_revisions WHERE target_key = ? AND status = 'superseded' ORDER BY applied_at_ms DESC, revision_id DESC LIMIT 1",
     ).get(revision.targetKey) as Row | undefined;
@@ -767,4 +778,9 @@ export function appliedEntryIdsForRevisions(db: DatabaseSync, revisionIds: Itera
     if (row) ids.push(Number(row.applied_entry_id));
   }
   return ids;
+}
+
+/** Practices are her own procedural notes, earned from evidence, cheap to revert. */
+export function listCurrentPractices(db: DatabaseSync, limit = 12): RevisionRecord[] {
+  return (db.prepare("SELECT * FROM growth_revisions WHERE layer = 'practice' AND status = 'applied' AND data_classification <> 'secret' ORDER BY applied_at_ms DESC, revision_id DESC LIMIT ?").all(Math.max(1, Math.min(100, limit))) as Row[]).map(mapRevision);
 }

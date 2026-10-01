@@ -17,7 +17,7 @@ export function recordHostFriction(db: DatabaseSync, kind: FrictionKind, subject
 export function frictionForThought(db: DatabaseSync, nowMs: number) {
   const last7d = Object.fromEntries(FRICTION_KINDS.map(kind => [kind, 0])) as Record<FrictionKind, number>;
   for (const row of db.prepare("SELECT kind, count(*) AS n FROM friction_events WHERE occurred_at_ms >= ? AND occurred_at_ms <= ? GROUP BY kind").all(nowMs - 7 * 86400000, nowMs)) last7d[row.kind as FrictionKind] = Number(row.n);
-  const recent = db.prepare("SELECT kind, note, occurred_at_ms FROM friction_events WHERE data_classification <> 'secret' AND occurred_at_ms <= ? ORDER BY occurred_at_ms DESC, friction_id DESC LIMIT 5").all(nowMs)
-    .map(row => ({ kind: row.kind as FrictionKind, note: row.note as string | null, atMs: Number(row.occurred_at_ms) }));
+  const recent = db.prepare("SELECT friction_id, kind, note, occurred_at_ms FROM friction_events WHERE data_classification <> 'secret' AND occurred_at_ms <= ? ORDER BY occurred_at_ms DESC, friction_id DESC LIMIT 5").all(nowMs)
+    .map(row => ({ frictionId: String(row.friction_id), kind: row.kind as FrictionKind, note: row.note as string | null, atMs: Number(row.occurred_at_ms) }));
   return { last7d, recent };
 }

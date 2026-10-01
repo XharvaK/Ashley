@@ -48,6 +48,7 @@ export function buildCommandDefinitions(): RESTPostAPIChatInputApplicationComman
           .setRequired(true)
           .addChoices(
             { name: "review", value: "review" },
+            { name: "practices", value: "practices" },
             { name: "approve", value: "approve" },
             { name: "reject", value: "reject" },
             { name: "defer", value: "defer" },

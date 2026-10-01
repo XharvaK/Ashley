@@ -1535,6 +1535,10 @@ export function ensureNuclearV28Schema(db: DatabaseSync): void {
 
 /** Validate A3's cognitive sidecar additions independently of nuclear versions. */
 export function validateA3SidecarSchema(db: DatabaseSync, version: number): void {
+  if (version >= 47) {
+    const sql = String(db.prepare("SELECT sql FROM sqlite_master WHERE name = 'growth_revisions'").get()?.sql ?? "");
+    if (!sql.includes("'practice'")) throw new Error("sidecar_practice_check_missing");
+  }
   if (version >= 46) {
     requireColumns(db, version, "friction_events", ["friction_id", "kind", "subject_id", "occurred_at_ms", "evidence_refs_json", "note", "cycle_id", "data_classification"].map(name => ({ name })));
     requireIndex(db, version, { name: "idx_friction_kind_time", table: "friction_events", columns: ["kind", "occurred_at_ms"] });

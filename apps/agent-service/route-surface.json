@@ -44,6 +44,7 @@
     { "method": "POST", "path": "/nuclear/capabilities/memory-evidence/cutover", "ownerScope": "owner_required", "lifecycle": "active" },
     { "method": "GET", "path": "/growth/identity/reviews", "ownerScope": "owner_required", "lifecycle": "active" },
     { "method": "GET", "path": "/growth/snapshots", "ownerScope": "owner_required", "lifecycle": "active" },
+    { "method": "GET", "path": "/growth/practices", "ownerScope": "owner_required", "lifecycle": "active" },
     { "method": "POST", "path": "/growth/identity/reviews/doc", "ownerScope": "owner_required", "lifecycle": "active" },
     { "method": "POST", "path": "/growth/revisions/revert", "ownerScope": "owner_required", "lifecycle": "active" },
     { "method": "GET", "path": "/nuclear/identity/proposals", "ownerScope": "owner_required", "lifecycle": "active" },

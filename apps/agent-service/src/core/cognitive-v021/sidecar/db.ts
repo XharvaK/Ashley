@@ -696,6 +696,25 @@ function classifyLegacySidecarRows(db: DatabaseSync): void {
  * Open an already-created SQLite handle on the explicitly selected data
  * plane. Sidecar schema application is isolated from nuclear migrations.
  */
+/** Preserve the exact existing table law except for adding the practice layer. */
+export function migrateGrowthRevisionsToV47(existing: DatabaseSync): void {
+  const row = existing.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'growth_revisions'").get() as { sql: string };
+  const oldCheck = "CHECK (layer IN ('opinion', 'taste', 'trait', 'value', 'boundary'))";
+  if (row?.sql.includes("CHECK (layer IN ('opinion', 'practice', 'taste', 'trait', 'value', 'boundary'))")) {
+    existing.exec("UPDATE cognitive_sidecar_meta SET schema_version = 47 WHERE id = 1");
+    return;
+  }
+  if (!row?.sql.includes(oldCheck)) throw new Error("growth_revisions_check_unreproducible");
+  const indexes = existing.prepare("SELECT sql FROM sqlite_master WHERE type = 'index' AND tbl_name = 'growth_revisions' AND sql IS NOT NULL").all() as Array<{ sql: string }>;
+  const sequence = Number(existing.prepare("SELECT seq FROM sqlite_sequence WHERE name = 'growth_revisions'").get()?.seq ?? 0);
+  const ddl = row.sql.replace(/CREATE TABLE(?: IF NOT EXISTS)? growth_revisions/, "CREATE TABLE growth_revisions_v47").replace(oldCheck, "CHECK (layer IN ('opinion', 'practice', 'taste', 'trait', 'value', 'boundary'))");
+  existing.exec(ddl);
+  existing.exec("INSERT INTO growth_revisions_v47 SELECT * FROM growth_revisions; DROP TABLE growth_revisions; ALTER TABLE growth_revisions_v47 RENAME TO growth_revisions;");
+  for (const index of indexes) existing.exec(index.sql);
+  existing.prepare("UPDATE sqlite_sequence SET seq = MAX(seq, ?) WHERE name = 'growth_revisions'").run(sequence);
+  existing.exec("UPDATE cognitive_sidecar_meta SET schema_version = 47 WHERE id = 1");
+}
+
 export function openCognitiveSidecarDb(
   existing: DatabaseSync,
   options: CognitiveSidecarDbOptions,
@@ -785,6 +804,7 @@ export function openCognitiveSidecarDb(
       existing.exec(COGNITIVE_SIDECAR_SCHEMA_V44);
       existing.exec(COGNITIVE_SIDECAR_SCHEMA_V45);
       existing.exec(COGNITIVE_SIDECAR_SCHEMA_V46);
+      migrateGrowthRevisionsToV47(existing);
       existing.exec(`PRAGMA user_version = ${COGNITIVE_SIDECAR_SCHEMA_VERSION}`);
       existing.exec("COMMIT");
     } catch (error) {
@@ -843,6 +863,7 @@ export function openCognitiveSidecarDb(
       if (version < 44) existing.exec(COGNITIVE_SIDECAR_SCHEMA_V44);
       if (version < 45) existing.exec(COGNITIVE_SIDECAR_SCHEMA_V45);
       if (version < 46) existing.exec(COGNITIVE_SIDECAR_SCHEMA_V46);
+      if (version < 47) migrateGrowthRevisionsToV47(existing);
       existing.exec(`PRAGMA user_version = ${COGNITIVE_SIDECAR_SCHEMA_VERSION}`);
       ensureMeta(existing);
       existing.exec("COMMIT");

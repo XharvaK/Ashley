@@ -951,3 +951,15 @@ export async function revokeSocialOperationDelegation(input: {
     },
   );
 }
+
+export type Practice = { revisionId: number; text: string; heldSinceMs: number };
+export async function currentPractices() {
+  const query = new URLSearchParams({ owner_id: config.ownerId });
+  return agentFetch<{ practices: Practice[] }>(`/growth/practices?${query}`);
+}
+export async function revertPractice(revisionId: number) {
+  return agentFetch<{ reverted: boolean }>("/growth/revisions/revert", {
+    headers: ownerActorHeaders(), method: "POST",
+    body: JSON.stringify({ userId: config.ownerId, revisionId }),
+  });
+}
