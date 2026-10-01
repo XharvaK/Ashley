@@ -154,6 +154,18 @@ export type BuildThoughtInputOptions = {
   concernAuthorableTargetAppend?: readonly string[];
 };
 
+/** Inspect classification labels only; scalar content never participates. */
+export function thoughtInputContainsSecret(value: unknown): boolean {
+  if (!value || typeof value !== "object") return false;
+  if (Array.isArray(value)) return value.some(thoughtInputContainsSecret);
+  const record = value as Record<string, unknown>;
+  if (record.dataClassification === "secret" || record.secretOmitted === true) return true;
+  return Object.keys(record).some((key) => {
+    const child = record[key];
+    return child !== null && typeof child === "object" && thoughtInputContainsSecret(child);
+  });
+}
+
 export type ThoughtInputWithC2 = ThoughtInput & {
   orientationKernel: IdentityOrientationKernel;
   domainPointers: DomainPointersSection;

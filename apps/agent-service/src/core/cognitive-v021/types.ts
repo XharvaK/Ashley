@@ -1289,6 +1289,8 @@ export type AuthorityVerdict =
   | { ok: false; codes: AuthorityCode[] };
 
 export type ThoughtSettlementDraft = {
+  /** Host-only delivered-input taint, persisted for aftermath recovery. */
+  sawSecret?: boolean;
   schemaVersion: SettlementSchemaVersion;
   cycleId: CycleId;
   generation: Generation;

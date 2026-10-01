@@ -3339,3 +3339,19 @@ describe("W1-P2 legacy Working Context projection", () => {
     )).toBe(false);
   });
 });
+
+
+describe("GS1 delivered input labels", () => {
+  it.each([
+    ["secret evidence", "secret", false, true],
+    ["omitted secret", "ordinary", true, true],
+    ["ordinary evidence", "ordinary", false, false],
+  ] as const)("records %s without changing the wire", (_name, dataClassification, secretOmitted, expected) => {
+    const input = makeThoughtInput();
+    input.rawConversation[0] = { ...input.rawConversation[0]!, dataClassification, secretOmitted };
+    const allocated = allocateThoughtProjection({ thoughtInput: input, requestId: "gs1" });
+    expect(allocated.projected.sawSecret).toBe(expected);
+    expect(JSON.stringify(allocated.projected)).not.toContain('"sawSecret"');
+    expect(thoughtMessagesForProjection(allocated.projected)).toEqual(allocated.messages);
+  });
+});
