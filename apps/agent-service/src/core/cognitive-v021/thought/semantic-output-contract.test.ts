@@ -726,11 +726,11 @@ describe("Thought semantic output contract", () => {
     // the A2 forget field, and A9 expectation basisRefs;
     // parser identity remains the v2 semantic parser.
     expect(THOUGHT_SEMANTIC_SCHEMA_FINGERPRINT).toBe(
-      "sha256:6f51ce50d07a6990c0c322c26810ee733b14599edb674492616b00f17f5b47b6",
+      "sha256:817c019726d43e694ff02322b46990058efd48c5d9a4a4c05f9f8d63de47812f",
     );
     const zeroOp = constrainThoughtOutputSchema(buildOperationalEffectNamespaceFromRefs([]));
     expect(zeroOp.wireSchemaFingerprint).toBe(
-      "sha256:89f9b8d9252cf8e602a0d88a8ef763dc7fe68816af7dde2a7109cae335fa58ac",
+      "sha256:db04d6498c6f975cfcefeca29cf256d9c691a6da3ab145196ae79fbbceb70e40",
     );
     expect(zeroOp.namespaceConstraintFingerprint).toBe(
       "sha256:d277b3804b25361994107886d1f33f779a7501298b01fe483ebe7c795b6e19c6",
@@ -774,5 +774,14 @@ describe("Thought semantic output contract", () => {
       expect.stringContaining("governed mechanical effect"),
       expect.stringContaining("required evidence, capability, or an admissible basis is absent"),
     ]);
+  });
+});
+
+describe("A3c decline semantic output", () => {
+  it("accepts bounded decline authorship and rejects malformed claims", () => {
+    const senses = { decline: [{ sense: "backup", rationale: "I considered this", untilMs: 100 }] };
+    expect(parseThoughtSemanticOutput({ ...settlement, senses }, refs)).toMatchObject({ ok: true, value: { senses } });
+    expect(parseThoughtSemanticOutput({ ...settlement, senses: { decline: [{ sense: "backup", rationale: "x".repeat(201) }] } }, refs)).toMatchObject({ ok: false, field: "senses" });
+    expect(parseThoughtSemanticOutput({ ...settlement, senses: { decline: [{ sense: "bad", rationale: "why" }] } }, refs)).toMatchObject({ ok: false, field: "senses" });
   });
 });

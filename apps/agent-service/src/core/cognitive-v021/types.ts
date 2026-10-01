@@ -29,7 +29,7 @@ export type { SourceSupportRef } from "./evidence/interpretation-envelope.js";
 export const ARCHITECTURE_EPOCH = "v0.2.1" as const;
 export const IMPLEMENTATION_SPEC_VERSION = "0.2.1.r6" as const;
 export const THOUGHT_CONTRACT_VERSION = 2 as const;
-export const COGNITIVE_SIDECAR_SCHEMA_VERSION = 47 as const;
+export const COGNITIVE_SIDECAR_SCHEMA_VERSION = 48 as const;
 
 /**
  * Hard bound on cognition-facing concern discovery windows and pages. The
@@ -1049,6 +1049,7 @@ export type SettlementSemanticOutput = {
   interests?: readonly import("./memory/interests.js").InterestTouch[];
   /** Growth V1 G4: appraisal, expectations, revisions (Owner-private). */
   growth?: import("./growth/claim.js").GrowthClaim;
+  senses?: import("./senses/senses.js").SenseClaim;
   /** NIGHT pass only: diary, re-scored salience, closed questions, weekly narrative. */
   night?: import("./growth/night.js").NightClaim;
   /** Owner-private chat only: a forget she proposes, or the Owner's answer to one (A2). */
@@ -1329,6 +1330,7 @@ export type ThoughtSettlementDraft = {
   interests?: import("./memory/interests.js").InterestTouch[];
   /** Stored by the Host after publication (growth/growth.ts). */
   growth?: import("./growth/claim.js").GrowthClaim;
+  senses?: import("./senses/senses.js").SenseClaim;
   /** NIGHT pass only; stored by the Host after publication (growth/night.ts). */
   night?: import("./growth/night.js").NightClaim;
   /** Applied by the Host after publication (memory/semantic-forget.ts). */
@@ -1726,6 +1728,7 @@ export type ThoughtInput = {
   activityJournal?: readonly import("./initiative/journal.js").ThoughtJournalEntry[];
   /** Mood, opinions, open revisions and expectations (Owner-private only). */
   growth?: import("./growth/growth.js").ThoughtGrowth;
+  senses?: import("./senses/senses.js").ThoughtSenses;
   /** Forgets she proposed that the Owner has not answered (Owner-private chat only). */
   pendingForget?: readonly import("./memory/semantic-forget.js").ThoughtPendingForget[];
   /** Present only during an afterglow or AWAKE pass. */
@@ -2088,6 +2091,8 @@ export type PublicationRejectionReason =
   | "future_trigger_snapshot_conflict";
 
 export type KernelDeps = {
+  /** Effective storage owner for the backup-status sense; no fallback to production paths. */
+  dataDir?: string;
   nowMs: () => number;
   attentionDb: DatabaseSync;
   completeChat: typeof completeChat;

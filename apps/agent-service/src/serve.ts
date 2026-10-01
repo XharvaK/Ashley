@@ -387,6 +387,7 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
 
     const deps: KernelDeps = {
       nowMs: () => Date.now(),
+      dataDir: manager.dataPlane.dataDir,
       attentionDb: nuclear,
       completeChat,
       // Thought's surfaceDraft is Ashley's own voice. The separate Expression
@@ -722,6 +723,7 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
         try {
           recoverSettlementAftermath(sidecar, {
             identityStore: { nuclear, ownerId },
+            dataDir: manager.dataPlane.dataDir,
             timeZone: env.ownerTimeZone || DEFAULT_OWNER_TIME_ZONE,
             nowMs,
             limit: 10,

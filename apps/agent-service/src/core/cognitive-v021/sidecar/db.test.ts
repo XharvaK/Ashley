@@ -69,8 +69,8 @@ describe("cognitive v0.2.1 sidecar database", () => {
       // v42: settlement_aftermath.
       // v43: forget_proposals.
       // v44: expectation_basis.
-      // v45: persona_snapshots.
-      expect(tables).toHaveLength(77);
+      // v45: persona_snapshots; v46: friction_events; v48: sense_declines.
+      expect(tables).toHaveLength(78);
     expect(tables).toContain("forget_epoch");
     expect(tables).toContain("settlement_aftermath");
     expect(tables).toContain("forget_proposals");

@@ -1713,3 +1713,15 @@ CREATE INDEX IF NOT EXISTS idx_friction_kind_time ON friction_events (kind, occu
 CREATE UNIQUE INDEX IF NOT EXISTS idx_friction_subject ON friction_events (kind, subject_id) WHERE subject_id IS NOT NULL;
 UPDATE cognitive_sidecar_meta SET schema_version = 46 WHERE id = 1;
 `;
+
+export const COGNITIVE_SIDECAR_SCHEMA_V48 = String.raw`
+CREATE TABLE IF NOT EXISTS sense_declines (
+  sense TEXT PRIMARY KEY CHECK (sense IN ('friction','expectations','stale_concerns','delivery_backlog','private_budget','backup')),
+  rationale TEXT NOT NULL CHECK (length(rationale) BETWEEN 1 AND 200),
+  declined_band TEXT NOT NULL,
+  declined_at_ms INTEGER NOT NULL,
+  until_ms INTEGER NOT NULL,
+  reraised_at_ms INTEGER
+);
+UPDATE cognitive_sidecar_meta SET schema_version = 48 WHERE id = 1;
+`;
