@@ -1,3 +1,4 @@
+import { recordDelivered, recordOwnerReply } from "../graduation/recorders.js";
 import { recordHostFriction } from "../growth/friction.js";
 import type { DatabaseSync } from "node:sqlite";
 import { planContentBubbles } from "../../delivery/bubble-plan.js";
@@ -189,6 +190,7 @@ function markTerminalFromDestination(
   nuclear: DatabaseSync,
   row: ProjectableRow,
   destination: Row,
+  graduationNowMs = Date.now(),
 ): ReceiptAssessment {
   const state = text(destination.state);
   const reservationId = number(destination.id);
@@ -202,6 +204,7 @@ function markTerminalFromDestination(
     const finalizationReason = terminal.finalizationReason ?? (text(destination.finalization_reason) || null);
     if ("outboxId" in row) {
       updateSpeechReconciliation(sidecar, row, terminal.status, assessment, reservationId, finalizationReason);
+      recordDelivered(sidecar, nuclear, graduationNowMs, { cycleId: row.cycleId });
     } else if ("noticeId" in row) {
       updateSystemReconciliation(sidecar, row, terminal.status, assessment, reservationId);
     } else {
@@ -369,6 +372,7 @@ function reconcileProjectedDeliveryInternal(
   sidecar: DatabaseSync,
   nuclear: DatabaseSync,
   reservationId: number,
+  graduationNowMs = Date.now(),
 ): ReconciliationOutcome {
   const row = projectedRow(sidecar, nuclear, reservationId);
   if (!row) return { ok: false, conflict: false };
@@ -376,7 +380,7 @@ function reconcileProjectedDeliveryInternal(
     "SELECT * FROM delivery_reservations WHERE id = ?",
   ).get(reservationId) as Row | undefined;
   if (!destination) return { ok: false, conflict: false };
-  const assessment = markTerminalFromDestination(sidecar, nuclear, row, destination);
+  const assessment = markTerminalFromDestination(sidecar, nuclear, row, destination, graduationNowMs);
   const destinationState = text(destination.state);
   const terminalState = ["committed", "aborted", "cancelled", "expired", "partially_delivered"].includes(destinationState);
   const conflict = terminalState && terminalReconciliation(destinationState, assessment).finalizationReason === "reconciliation_conflict";
@@ -522,7 +526,7 @@ function sweepReservationIds(
 export function reconcileProjectedDeliverySweep(
   sidecar: DatabaseSync,
   nuclear: DatabaseSync,
-  options: { limit?: number } = {},
+  options: { limit?: number; nowMs?: number } = {},
 ): DeliveryReconciliationSweep {
   const limit = Math.max(1, Math.min(50, Math.floor(options.limit ?? 25)));
   const page = sweepReservationIds(sidecar, nuclear, limit);
@@ -532,13 +536,16 @@ export function reconcileProjectedDeliverySweep(
   for (const item of rows) {
     const reservationId = number(item.id);
     if (reservationId <= 0) continue;
-    const outcome = reconcileProjectedDeliveryInternal(sidecar, nuclear, reservationId);
+    const outcome = reconcileProjectedDeliveryInternal(sidecar, nuclear, reservationId, options.nowMs ?? Date.now());
     if (!outcome.ok) continue;
     reconciled += 1;
     if (outcome.conflict) conflicts += 1;
   }
   if (page.nextCursor == null) reconciliationCursorByNuclearOwner.delete(nuclear);
   else reconciliationCursorByNuclearOwner.set(nuclear, page.nextCursor);
+  const graduationNowMs = options.nowMs ?? Date.now();
+  recordOwnerReply(sidecar, graduationNowMs, { dueOnly: true, limit });
+  recordDelivered(sidecar, nuclear, graduationNowMs, { dueOnly: true, limit });
   return { scanned: rows.length, reconciled, conflicts };
 }
 
@@ -587,7 +594,7 @@ export class OutboxDeliveryProjector implements OutboxDeliveryProjectorContract 
     const key = row.projectionKey;
     const existing = projectionReservation(this.nuclear, key);
     if (existing) {
-      markTerminalFromDestination(this.sidecar, this.nuclear, row, existing);
+      markTerminalFromDestination(this.sidecar, this.nuclear, row, existing, this.options.nowMs?.() ?? Date.now());
       return number(existing.id);
     }
 
@@ -650,7 +657,7 @@ export class OutboxDeliveryProjector implements OutboxDeliveryProjectorContract 
       try { this.nuclear.exec("ROLLBACK"); } catch { /* preserve insert error */ }
       const reconciled = projectionReservation(this.nuclear, key);
       if (reconciled) {
-        markTerminalFromDestination(this.sidecar, this.nuclear, row, reconciled);
+        markTerminalFromDestination(this.sidecar, this.nuclear, row, reconciled, this.options.nowMs?.() ?? Date.now());
         return number(reconciled.id);
       }
       throw error;
@@ -717,7 +724,7 @@ export class OutboxDeliveryProjector implements OutboxDeliveryProjectorContract 
     }
     const destination = projectionReservation(this.nuclear, row.projectionKey);
     if (destination) {
-      markTerminalFromDestination(this.sidecar, this.nuclear, row, destination);
+      markTerminalFromDestination(this.sidecar, this.nuclear, row, destination, this.options.nowMs?.() ?? Date.now());
     } else if ("outboxId" in row) {
       updateOutboxStatus(this.sidecar, row.outboxId, "projected", { nuclearReservationId: reservationId, finalizationReason: null });
     } else if ("noticeId" in row) {

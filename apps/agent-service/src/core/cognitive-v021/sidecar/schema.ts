@@ -1739,7 +1739,8 @@ CREATE TABLE graduation_contract_state (
   mode TEXT NOT NULL CHECK (mode IN ('observe','dark_apply','apply')),
   actor TEXT NOT NULL,
   at_ms INTEGER NOT NULL,
-  dark_would_show INTEGER NOT NULL DEFAULT 0
+  dark_would_show INTEGER NOT NULL DEFAULT 0,
+  record_failures INTEGER NOT NULL DEFAULT 0
 );
 INSERT INTO graduation_contract_state (id, mode, actor, at_ms) VALUES (1,'observe','migration',0);
 CREATE TABLE graduation_observations (
