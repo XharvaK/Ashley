@@ -110,6 +110,7 @@ export function recordSettlementAftermath(
     if (standing && settlement.senses) recordSenseDeclines(db, settlement.senses, { nowMs: Number(pending.created_at_ms), conversationId: context.conversationId, dataDir: options.dataDir, dataClassification }, context.senseBands);
     recordGrowth(db, {
       cycleId,
+      allowInfluenceProposal: standing,
       ...(standing && settlement.growth ? { claim: settlement.growth } : {}),
       identityStore: options.identityStore,
       dataClassification,

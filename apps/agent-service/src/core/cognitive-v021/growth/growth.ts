@@ -1,4 +1,5 @@
 import { frictionForThought, recordFriction } from "./friction.js";
+import { proposeInfluences } from "../influences/proposals.js";
 import { graduationForThought, proposeCalibration, recordCalibrationPositions, type CalibrationLine, type CalibrationProposal } from "../graduation/calibration.js";
 import type { DatabaseSync } from "node:sqlite";
 import type { DataClassification } from "../../privacy/classification.js";
@@ -173,6 +174,7 @@ export function recordGrowth(
     identityStore: IdentityStore | null;
     dataClassification: DataClassification;
     nowMs: number;
+    allowInfluenceProposal?: boolean;
   },
 ): GrowthRecordResult {
   const { claim, nowMs } = input;
@@ -205,5 +207,8 @@ export function recordGrowth(
   const calibrationPositions = claim?.calibrationPositions
     ? recordCalibrationPositions(db, { cycleId: input.cycleId, positions: claim.calibrationPositions, nowMs, dataClassification: input.dataClassification }) : undefined;
   proposeCalibration(db, { cycleId: input.cycleId, nowMs, dataClassification: input.dataClassification });
+  if (input.identityStore && input.allowInfluenceProposal !== false) {
+    proposeInfluences(db, { cycleId: input.cycleId, ownerId: input.identityStore.ownerId, nowMs, dataClassification: input.dataClassification });
+  }
   return { appraised, expectations, checked, proposals, positions, evaluation, ...(calibrationPositions ? { calibrationPositions } : {}) };
 }

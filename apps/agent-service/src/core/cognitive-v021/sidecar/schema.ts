@@ -1944,3 +1944,29 @@ CREATE TABLE influence_contract_state (
 INSERT INTO influence_contract_state (id) VALUES(1);
 UPDATE cognitive_sidecar_meta SET schema_version=51 WHERE id=1;
 `;
+
+/** Counted branch returns are evidence; a later Thought pass owns adoption. */
+export const COGNITIVE_SIDECAR_SCHEMA_V52 = String.raw`
+ALTER TABLE learned_influences ADD COLUMN branch_key TEXT REFERENCES interest_branches(branch_id) ON DELETE CASCADE;
+ALTER TABLE learned_influences ADD COLUMN proposed_cycle_id TEXT REFERENCES cycle_records(cycle_id);
+ALTER TABLE learned_influences ADD COLUMN admitting_cycle_id TEXT REFERENCES cycle_records(cycle_id);
+ALTER TABLE learned_influences ADD COLUMN position_rationale TEXT;
+CREATE UNIQUE INDEX idx_learned_influences_branch ON learned_influences(owner_id,branch_key) WHERE branch_key IS NOT NULL;
+CREATE TABLE learned_influence_branch_evidence (
+  learned_id INTEGER NOT NULL REFERENCES learned_influences(id) ON DELETE CASCADE,
+  branch_key TEXT NOT NULL,
+  cycle_id TEXT NOT NULL,
+  PRIMARY KEY(learned_id,branch_key,cycle_id),
+  FOREIGN KEY(branch_key,cycle_id) REFERENCES interest_touches(branch_key,cycle_id) ON DELETE CASCADE
+);
+CREATE TRIGGER learned_influence_delete_children BEFORE DELETE ON learned_influences BEGIN
+  DELETE FROM learned_choice_receipts WHERE learned_id=OLD.id;
+  DELETE FROM learned_influence_evidence WHERE learned_influence_id=OLD.id;
+END;
+ALTER TABLE learned_choice_receipts ADD COLUMN cycle_id TEXT REFERENCES cycle_records(cycle_id);
+ALTER TABLE learned_choice_receipts ADD COLUMN counterfactual_ids_json TEXT CHECK(counterfactual_ids_json IS NULL OR json_valid(counterfactual_ids_json));
+CREATE UNIQUE INDEX idx_learned_choice_receipts_cycle ON learned_choice_receipts(learned_id,cycle_id) WHERE cycle_id IS NOT NULL;
+ALTER TABLE influence_contract_state ADD COLUMN mode_set_by TEXT;
+ALTER TABLE influence_contract_state ADD COLUMN mode_set_at_ms INTEGER;
+UPDATE cognitive_sidecar_meta SET schema_version=52 WHERE id=1;
+`;
