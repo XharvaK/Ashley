@@ -167,7 +167,7 @@ export function rcloneMkdirArgs(destinationDir: string): string[] {
 }
 
 export function rcloneCopyArgs(pkgPath: string, destinationDir: string): string[] {
-  return ["copy", pkgPath, destinationDir.endsWith("/") ? destinationDir : `${destinationDir}/`];
+  return ["copy", pkgPath, "--immutable", destinationDir.endsWith("/") ? destinationDir : `${destinationDir}/`];
 }
 
 export function rcloneCheckArgs(pkgPath: string, destinationDir: string): string[] {

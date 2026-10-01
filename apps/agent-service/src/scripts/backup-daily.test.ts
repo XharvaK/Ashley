@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync, rmSync } from "node:fs";
+import { linkSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -206,6 +206,103 @@ it("fails with package_exists without replacing an existing stamped package", as
     expect(readFileSync(stamped, "utf8")).toBe("original package");
     expect(readBackupStatus(paths.statusPath)).toMatchObject({ last_ok_ms: 123, last_error: "package_exists" });
     expect(log).toHaveBeenCalledWith("package_exists");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// Keep filesystem behavior real except for the explicitly injected publication failure.
+vi.mock("node:fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs")>();
+  return { ...actual, linkSync: vi.fn(actual.linkSync) };
+});
+
+async function dailyFixture(prefix: string) {
+  const { DatabaseSync } = await import("node:sqlite");
+  const dir = mkdtempSync(join(tmpdir(), prefix));
+  const paths = backupPathsFromPlane(createIsolatedDataPlane(dir));
+  mkdirSync(join(dir, "conversations"), { recursive: true });
+  for (const path of [paths.nuclearDbPath, paths.continuityDbPath, paths.sidecarDbPath]) {
+    const db = new DatabaseSync(path);
+    if (path === paths.sidecarDbPath) db.exec("CREATE TABLE cognitive_sidecar_meta (id INTEGER, schema_version INTEGER); INSERT INTO cognitive_sidecar_meta VALUES (1, 1)");
+    db.close();
+  }
+  return { dir, paths };
+}
+
+it.each(["daily", "monthly", "identical"])("remote no-clobber: %s same-name object", async (collision) => {
+  const { runDailyBackup } = await import("./backup-daily.js");
+  const { dir, paths } = await dailyFixture("ashley-remote-immutable-");
+  try {
+    const name = "20261001T050000Z.ashleybak";
+    const daily = "fixture:backups/daily/";
+    const monthly = "fixture:backups/monthly/";
+    const objects = new Map<string, string>();
+    if (collision === "identical") {
+      objects.set(daily + name, "fixture");
+      objects.set(monthly + name, "fixture");
+    } else {
+      objects.set((collision === "daily" ? daily : monthly) + name, "original remote object");
+    }
+    writeBackupStatusAtomic(paths.statusPath, { ...emptyStatus(), last_upload_ok_ms: 123 });
+    const calls: string[][] = [];
+    const log = vi.fn();
+    const rc = runDailyBackup({ dataDir: dir, loadEnv: false, now: new Date("2026-10-01T05:00:00Z"),
+      env: { ASHLEY_BACKUP_TRANSFER_KEY: "ab".repeat(32), ASHLEY_BACKUP_RCLONE_REMOTE: "fixture:backups" },
+      log, execRclone: (_file, args) => {
+        calls.push([...args]);
+        if (args[0] === "copy") {
+          const positional = args.slice(1).filter((arg) => !arg.startsWith("--"));
+          const bytes = readFileSync(positional[0]!, "utf8");
+          const key = positional[1]! + name;
+          if (args.includes("--immutable") && objects.has(key) && objects.get(key) !== bytes) {
+            throw new Error("different remote bytes");
+          }
+          objects.set(key, bytes);
+        }
+        return args[0] === "lsf" ? name : "";
+      } });
+    const copies = calls.filter((args) => args[0] === "copy");
+    expect(copies).toHaveLength(collision === "daily" ? 1 : 2);
+    for (const args of copies) expect(args).toContain("--immutable");
+    expect(copies[0]).toContain(daily);
+    if (collision !== "daily") expect(copies[1]).toContain(monthly);
+    expect(readFileSync(join(paths.packageDir, name), "utf8")).toBe("fixture");
+    if (collision === "identical") {
+      expect(rc).toBe(0);
+      expect(objects.get(daily + name)).toBe("fixture");
+      expect(objects.get(monthly + name)).toBe("fixture");
+      expect(readBackupStatus(paths.statusPath)).toMatchObject({ last_upload_error: null,
+        last_upload_ok_ms: new Date("2026-10-01T05:00:00Z").getTime() });
+    } else {
+      expect(rc).toBe(1);
+      expect(objects.get((collision === "daily" ? daily : monthly) + name)).toBe("original remote object");
+      expect(readBackupStatus(paths.statusPath)).toMatchObject({ last_upload_error: "rclone_failed", last_upload_ok_ms: 123 });
+      expect(log).toHaveBeenCalledWith("rclone_failed");
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+it("removes the generated source and records package_publish_failed on link EPERM", async () => {
+  const { runDailyBackup } = await import("./backup-daily.js");
+  const { dir, paths } = await dailyFixture("ashley-link-eperm-");
+  try {
+    writeBackupStatusAtomic(paths.statusPath, { ...emptyStatus(), last_ok_ms: 123 });
+    vi.mocked(linkSync).mockImplementationOnce(() => {
+      throw Object.assign(new Error("simulated publication denial"), { code: "EPERM" });
+    });
+    const log = vi.fn();
+    const execRclone = vi.fn();
+    expect(runDailyBackup({ dataDir: dir, loadEnv: false, now: new Date("2026-10-01T05:00:00Z"),
+      env: { ASHLEY_BACKUP_TRANSFER_KEY: "ab".repeat(32), ASHLEY_BACKUP_RCLONE_REMOTE: "fixture:backups" },
+      log, execRclone })).toBe(1);
+    expect(readBackupStatus(paths.statusPath)).toMatchObject({ last_error: "package_publish_failed", last_ok_ms: 123 });
+    expect(existsSync(join(paths.packageDir, "created.ashleybak"))).toBe(false);
+    expect(existsSync(join(paths.packageDir, "20261001T050000Z.ashleybak"))).toBe(false);
+    expect(log).toHaveBeenCalledWith("package_publish_failed");
+    expect(execRclone).not.toHaveBeenCalled();
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

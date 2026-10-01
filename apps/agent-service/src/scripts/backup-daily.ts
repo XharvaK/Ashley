@@ -110,11 +110,11 @@ export function runDailyBackup(options: DailyBackupOptions = {}): number {
     try {
       linkSync(created.packagePath, stamped);
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "EEXIST") {
-        unlinkSync(created.packagePath);
-        return fail(paths.statusPath, "package_exists", log);
-      }
-      throw error;
+      unlinkSync(created.packagePath);
+      const code = (error as NodeJS.ErrnoException).code === "EEXIST"
+        ? "package_exists"
+        : "package_publish_failed";
+      return fail(paths.statusPath, code, log);
     }
     unlinkSync(created.packagePath);
     packagePath = stamped;
