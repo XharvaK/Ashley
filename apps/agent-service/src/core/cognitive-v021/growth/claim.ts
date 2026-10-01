@@ -1,5 +1,6 @@
 import { APPRAISAL_NOTE_MAX_CHARS, MOOD_DIMENSIONS, type MoodAppraisal } from "./mood.js";
 import type { CalibrationPosition } from "../graduation/calibration.js";
+import { INFLUENCE_POSITIONS_MAX, INFLUENCE_RATIONALE_MAX_CHARS, type InfluencePosition } from "../influences/positions.js";
 import {
   EXPECTATION_CHECKS_PER_SETTLEMENT,
   EXPECTATION_LESSON_MAX_CHARS,
@@ -42,6 +43,7 @@ export type GrowthClaim = {
   revisions?: RevisionProposal[];
   revisionPositions?: RevisionPosition[];
   calibrationPositions?: CalibrationPosition[];
+  influencePositions?: InfluencePosition[];
 };
 
 type Row = Record<string, unknown>;
@@ -112,7 +114,13 @@ function validPosition(value: unknown): boolean {
 export function isValidGrowthClaim(value: unknown): value is GrowthClaim {
   const growth = record(value);
   if (!growth || Object.keys(growth).length === 0) return false;
-  if (!onlyKeys(growth, ["friction", "appraisal", "expectations", "expectationChecks", "revisions", "revisionPositions", "calibrationPositions"])) return false;
+  if (!onlyKeys(growth, ["friction", "appraisal", "expectations", "expectationChecks", "revisions", "revisionPositions", "calibrationPositions", "influencePositions"])) return false;
+  if (growth.influencePositions !== undefined && !(boundedArray(growth.influencePositions, INFLUENCE_POSITIONS_MAX) && growth.influencePositions.every(value => {
+    const item = record(value);
+    return item && onlyKeys(item, ["influenceId", "position", "rationale"]) && Number.isSafeInteger(item.influenceId)
+      && Number(item.influenceId) > 0 && (item.position === "admit" || item.position === "decline")
+      && text(item.rationale, INFLUENCE_RATIONALE_MAX_CHARS);
+  }))) return false;
   if (growth.calibrationPositions !== undefined && !(boundedArray(growth.calibrationPositions, 3) && growth.calibrationPositions.every(value => {
     const item = record(value);
     return item && onlyKeys(item, ["calibrationId", "position", "rationale"]) && text(item.calibrationId, 200)

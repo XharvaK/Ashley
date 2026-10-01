@@ -84,6 +84,7 @@ import {
   listActiveLearnedInfluences,
 } from "./core/learned-autonomy/index.js";
 import { getCognitiveGraduationDiagnostics, setGraduationMode } from "./core/cognitive-v021/graduation/diagnostics.js";
+import { setInfluenceMode } from "./core/cognitive-v021/influences/contract-state.js";
 import { rollbackCognitiveGraduation } from "./core/cognitive-v021/graduation/calibration.js";
 import { CORRECTION_CLASSES, DISPOSITIONS, latestAdjudication, recordAdjudication, type AdjudicationInput } from "./core/cognitive-v021/graduation/adjudications.js";
 import {
@@ -2488,6 +2489,18 @@ export function createServer(
       const sidecar = getCognitiveSidecar();
       setGraduationMode(sidecar, selectedMode, actor, Date.now());
       res.json(getCognitiveGraduationDiagnostics(sidecar));
+    } catch (err) {
+      const { status, body } = toErrorResponse(err); res.status(status).json(body);
+    }
+  });
+  app.post("/growth/influences/mode", (req, res) => {
+    try {
+      const actor = requireOwner(req.body.userId);
+      const selectedMode = req.body.mode;
+      if (!["observe", "dark_apply", "apply"].includes(selectedMode)) throw new AppError("message_required", "Valid influence mode required", 400);
+      const atMs = Date.now();
+      setInfluenceMode(getCognitiveSidecar(), selectedMode, actor, atMs);
+      res.json({ mode: selectedMode, actor, atMs });
     } catch (err) {
       const { status, body } = toErrorResponse(err); res.status(status).json(body);
     }

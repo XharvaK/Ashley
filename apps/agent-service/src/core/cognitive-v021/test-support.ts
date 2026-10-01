@@ -15,6 +15,17 @@ export function openTestSidecar(): DatabaseSync {
 /** Rewind an in-memory current sidecar to a structurally valid historical fixture version. */
 export function setTestSidecarVersion(db: DatabaseSync, version: number): void {
   if (!Number.isSafeInteger(version) || version < 0) throw new Error("test_sidecar_version_invalid");
+  if (version < 52) {
+    db.exec("DROP TRIGGER IF EXISTS learned_influence_delete_children; DROP TABLE IF EXISTS learned_influence_branch_evidence; DROP INDEX IF EXISTS idx_learned_influences_branch; DROP INDEX IF EXISTS idx_learned_choice_receipts_cycle;");
+    for (const [table, names] of [
+      ["learned_influences", ["branch_key", "proposed_cycle_id", "admitting_cycle_id", "position_rationale"]],
+      ["learned_choice_receipts", ["cycle_id", "counterfactual_ids_json"]],
+      ["influence_contract_state", ["mode_set_by", "mode_set_at_ms"]],
+    ] as const) {
+      const columns = new Set(db.prepare(`PRAGMA table_info(${table})`).all().map(row => row.name));
+      for (const name of names) if (columns.has(name)) db.exec(`ALTER TABLE ${table} DROP COLUMN ${name}`);
+    }
+  }
   if (version < 51) {
     for (const table of ["learned_choice_receipts", "learned_influence_evidence", "learned_influences", "interest_touches", "influence_contract_state"]) db.exec(`DROP TABLE IF EXISTS ${table}`);
   }

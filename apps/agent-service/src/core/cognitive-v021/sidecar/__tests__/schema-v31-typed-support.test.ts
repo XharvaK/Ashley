@@ -7,6 +7,7 @@ describe("cognitive sidecar Schema V31 typed support refs", () => {
   it("adds nullable memory support refs and additive JSON arrays to concerns and desk entries", () => {
     const db = openTestSidecar();
     try {
+      setTestSidecarVersion(db, 51);
       // Preserve a real typed influence fixture while rewinding unrelated v31 support columns.
       const influenceDDL = String(db.prepare("SELECT sql FROM sqlite_master WHERE name='learned_influences'").get()!.sql);
       const insertInfluence = () => db.exec(`INSERT INTO learned_influences
@@ -53,10 +54,10 @@ describe("cognitive sidecar Schema V31 typed support refs", () => {
       expect((db.prepare("SELECT COUNT(*) AS count FROM learned_influences").get() as { count: number }).count)
         .toBe(learnedInfluenceCountBefore);
 
-      expect(COGNITIVE_SIDECAR_SCHEMA_VERSION).toBe(51);
-      expect(db.prepare("PRAGMA user_version").get()).toMatchObject({ user_version: 51 });
+      expect(COGNITIVE_SIDECAR_SCHEMA_VERSION).toBe(52);
+      expect(db.prepare("PRAGMA user_version").get()).toMatchObject({ user_version: 52 });
       expect(db.prepare("SELECT schema_version FROM cognitive_sidecar_meta WHERE id = 1").get())
-        .toMatchObject({ schema_version: 51 });
+        .toMatchObject({ schema_version: 52 });
       expect(db.prepare("SELECT support_ref_json FROM sidecar_memory_supports WHERE support_id = 'support:legacy-v30'").get())
         .toEqual({ support_ref_json: null });
       expect(db.prepare("SELECT source_refs_json, support_refs_json FROM concerns WHERE concern_id = 'concern:legacy-v30'").get())

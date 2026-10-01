@@ -27,3 +27,14 @@ export function influenceMode(db: DatabaseSync): InfluenceMode {
   }
   return value;
 }
+
+/** Caller supplies authenticated Owner authority; selecting a mode does not adjudicate a proposal. */
+export function setInfluenceMode(db: DatabaseSync, selected: InfluenceMode, ownerId: string, nowMs: number): void {
+  assertInfluenceContractCompatible(db);
+  if (!["observe", "dark_apply", "apply"].includes(selected) || !ownerId.trim() || !Number.isFinite(nowMs)) {
+    throw new Error("learned_autonomy_contract_mode_invalid");
+  }
+  db.prepare(`UPDATE influence_contract_state SET state=?,mode_set_by=?,mode_set_at_ms=?,
+    live_authority_existed=CASE WHEN ?='apply' THEN 1 ELSE live_authority_existed END WHERE id=1`)
+    .run(selected, ownerId, nowMs, selected);
+}

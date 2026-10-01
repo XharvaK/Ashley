@@ -45,6 +45,7 @@
     { "method": "GET", "path": "/growth/identity/reviews", "ownerScope": "owner_required", "lifecycle": "active" },
     { "method": "GET", "path": "/growth/graduation", "ownerScope": "owner_required", "lifecycle": "active" },
     { "method": "POST", "path": "/growth/graduation/mode", "ownerScope": "owner_required", "lifecycle": "active" },
+    { "method": "POST", "path": "/growth/influences/mode", "ownerScope": "owner_required", "lifecycle": "active" },
     { "method": "POST", "path": "/growth/graduation/adjudicate", "ownerScope": "owner_required", "lifecycle": "active" },
     { "method": "POST", "path": "/growth/calibration/rollback", "ownerScope": "owner_required", "lifecycle": "active" },
     { "method": "GET", "path": "/growth/snapshots", "ownerScope": "owner_required", "lifecycle": "active" },

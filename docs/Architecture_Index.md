@@ -111,7 +111,10 @@ DDL remains in `core/cognition/` for migration only.
 Interest-touch receipts and the ported influence stores belong to
 [`cognitive-v021/influences/`](../apps/agent-service/src/core/cognitive-v021/influences/README.md).
 The aftermath records only grown branch IDs per cycle, atomically and without backfill.
-Storage presence does not establish an agenda consumer or influence activation.
+Counted branch returns may produce pending proposals; a later Thought settlement decides admission.
+Only a later own-time agenda consumes current admitted bindings. Observe modes record comparisons
+without reordering; the authenticated Owner controls apply mode. Source presence does not establish
+deployed influence activation.
 
 Current supported nuclear schema is declared in
 [`apps/agent-service/src/core/db.ts`](../apps/agent-service/src/core/db.ts)
