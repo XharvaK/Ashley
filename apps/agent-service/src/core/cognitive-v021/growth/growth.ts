@@ -176,7 +176,7 @@ export function recordGrowth(
   }
   expireStaleExpectations(db, nowMs);
   const checked = claim?.expectationChecks
-    ? checkExpectations(db, { cycleId: input.cycleId, checks: claim.expectationChecks, nowMs })
+    ? checkExpectations(db, { cycleId: input.cycleId, checks: claim.expectationChecks, dataClassification: input.dataClassification, nowMs })
     : [];
   const expectations = claim?.expectations
     ? recordExpectations(db, { cycleId: input.cycleId, statements: claim.expectations, dataClassification: input.dataClassification, nowMs })
@@ -185,12 +185,13 @@ export function recordGrowth(
     ? recordAppraisal(db, { cycleId: input.cycleId, appraisal: claim.appraisal, dataClassification: input.dataClassification, nowMs }).applied !== null
     : false;
   const positions = claim?.revisionPositions
-    ? recordRevisionPositions(db, { cycleId: input.cycleId, positions: claim.revisionPositions, nowMs })
+    ? recordRevisionPositions(db, { cycleId: input.cycleId, positions: claim.revisionPositions, dataClassification: input.dataClassification, nowMs })
     : [];
   const proposals = claim?.revisions
     ? proposeRevisions(db, {
         cycleId: input.cycleId,
         proposals: claim.revisions,
+        dataClassification: input.dataClassification,
         identity: input.identityStore ? revisableIdentityEntries(input.identityStore.nuclear, input.identityStore.ownerId) : null,
         nowMs,
       })

@@ -93,3 +93,37 @@ describe("A3c decline aftermath", () => {
     } finally { db.close(); }
   });
 });
+
+
+describe("GS1 aftermath classification", () => {
+  it.each([true, false, undefined])("labels all writes with sawSecret=%s on live and recovery paths", (sawSecret) => {
+    for (const recovery of [false, true]) {
+      const db = openTestSidecar();
+      try {
+        publishAwakePass(db);
+        db.prepare("INSERT INTO friction_events (friction_id, kind, occurred_at_ms, evidence_refs_json, data_classification) VALUES ('basis', 'self_reported', ?, '[]', 'ordinary')").run(NOW);
+        const row = db.prepare("SELECT payload_json FROM settlements").get()!;
+        const payload = JSON.parse(String(row.payload_json));
+        if (sawSecret !== undefined) payload.sawSecret = sawSecret;
+        payload.growth = {
+          appraisal: { note: "calm", valence: 0.1 },
+          expectations: ["a quiet day"],
+          friction: [{ kind: "self_reported", note: "a recurring difficulty", refs: [] }],
+          revisions: [{ layer: "practice", topic: "pausing", text: "Pause before replying", rationale: "helps", evidenceRefs: ["friction:basis"] }],
+        };
+        payload.night = { diary: "a quiet day", narrative: "learning patience" };
+        payload.senses = { decline: [{ sense: "backup", rationale: "considered" }] };
+        db.prepare("UPDATE settlements SET payload_json = ?").run(JSON.stringify(payload));
+        db.prepare("UPDATE settlement_aftermath SET context_json = ?").run(JSON.stringify({ conversationId: "thread", passKind: "night", nightPass: { kind: "night", slot: 7, sinceMs: NOW - 86400000, weekly: true, weekSinceMs: NOW - 7*86400000 }, senseBands: { backup: "aging" } }));
+        if (recovery) expect(recoverSettlementAftermath(db, options)).toEqual({ recorded: 1, failed: 0 });
+        else expect(recordSettlementAftermath(db, "settlement-awake", options)).toBe("recorded");
+        const expected = sawSecret === false ? "ordinary" : "never_public";
+        for (const table of ["mood_events", "expectations", "growth_revisions", "diary_entries", "self_narratives", "activity_journal", "sense_declines"]) {
+          expect(db.prepare(`SELECT data_classification FROM ${table}`).all(), table).toEqual([{ data_classification: expected }]);
+        }
+        expect(db.prepare("SELECT data_classification FROM friction_events WHERE friction_id = 'basis'").get()).toEqual({ data_classification: "ordinary" });
+        expect(db.prepare("SELECT data_classification FROM friction_events WHERE cycle_id = 'cycle-awake'").get()).toEqual({ data_classification: expected });
+      } finally { db.close(); }
+    }
+  });
+});

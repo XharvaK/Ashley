@@ -32,6 +32,7 @@ export type AftermathOptions = {
 type Row = Record<string, unknown>;
 
 type StoredSettlement = {
+  sawSecret?: boolean;
   redacted?: unknown;
   interests?: InterestTouch[];
   journal?: JournalClaim;
@@ -84,6 +85,8 @@ export function recordSettlementAftermath(
     // A forget that redacted this settlement first wins: its claims are not
     // recorded. Open revisions are still checked, so a wait that ran out applies.
     const standing = settlement.redacted !== true;
+    // Legacy or malformed flags fail closed on both publication and recovery.
+    const dataClassification = settlement.sawSecret === false ? "ordinary" : "never_public";
     const interests = standing ? settlement.interests ?? [] : [];
     if (interests.length > 0) recordInterestTouches(db, interests, options.nowMs);
     if (context.passKind) {
@@ -94,15 +97,16 @@ export function recordSettlementAftermath(
         ...(standing && settlement.journal ? { claim: settlement.journal } : {}),
         interests,
         spoke: Number(pending.queued_speech) === 1,
+        dataClassification,
         nowMs: options.nowMs,
       });
     }
-    if (standing && settlement.senses) recordSenseDeclines(db, settlement.senses, { nowMs: Number(pending.created_at_ms), conversationId: context.conversationId, dataDir: options.dataDir }, context.senseBands);
+    if (standing && settlement.senses) recordSenseDeclines(db, settlement.senses, { nowMs: Number(pending.created_at_ms), conversationId: context.conversationId, dataDir: options.dataDir, dataClassification }, context.senseBands);
     recordGrowth(db, {
       cycleId,
       ...(standing && settlement.growth ? { claim: settlement.growth } : {}),
       identityStore: options.identityStore,
-      dataClassification: "ordinary",
+      dataClassification,
       nowMs: options.nowMs,
     });
     if (context.nightPass && standing) {
@@ -111,7 +115,7 @@ export function recordSettlementAftermath(
         pass: context.nightPass,
         ...(settlement.night ? { claim: settlement.night } : {}),
         timeZone: options.timeZone,
-        dataClassification: "ordinary",
+        dataClassification,
         nowMs: options.nowMs,
       });
     }
