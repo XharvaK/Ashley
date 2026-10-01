@@ -34,6 +34,7 @@ import {
  * part is optional and every word is hers; the Host bounds and stores it.
  */
 export type GrowthClaim = {
+  friction?: import("./friction.js").ThoughtFriction[];
   appraisal?: MoodAppraisal;
   expectations?: ExpectationClaim[];
   expectationChecks?: ExpectationCheck[];
@@ -105,7 +106,11 @@ function validPosition(value: unknown): boolean {
 export function isValidGrowthClaim(value: unknown): value is GrowthClaim {
   const growth = record(value);
   if (!growth || Object.keys(growth).length === 0) return false;
-  if (!onlyKeys(growth, ["appraisal", "expectations", "expectationChecks", "revisions", "revisionPositions"])) return false;
+  if (!onlyKeys(growth, ["friction", "appraisal", "expectations", "expectationChecks", "revisions", "revisionPositions"])) return false;
+  if (growth.friction !== undefined && !(boundedArray(growth.friction, 2) && growth.friction.every(value => {
+    const item = record(value);
+    return item && onlyKeys(item, ["kind", "note", "refs"]) && ["owner_correction", "self_reported"].includes(String(item.kind)) && text(item.note, 300) && Array.isArray(item.refs) && item.refs.length <= 8 && item.refs.every(ref => text(ref, 200));
+  }))) return false;
   if (growth.appraisal !== undefined && !validAppraisal(growth.appraisal)) return false;
   if (growth.expectations !== undefined && !(boundedArray(growth.expectations, EXPECTATIONS_PER_SETTLEMENT)
     && growth.expectations.every(validExpectation))) return false;

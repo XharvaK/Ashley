@@ -1532,3 +1532,12 @@ export function ensureOpenCognitiveV25Schema(db: DatabaseSync): void {
 export function ensureNuclearV28Schema(db: DatabaseSync): void {
   addColumnIfMissing(db, "decision_log", "thought_validation_json", "TEXT");
 }
+
+/** Validate A3's cognitive sidecar additions independently of nuclear versions. */
+export function validateA3SidecarSchema(db: DatabaseSync, version: number): void {
+  if (version >= 46) {
+    requireColumns(db, version, "friction_events", ["friction_id", "kind", "subject_id", "occurred_at_ms", "evidence_refs_json", "note", "cycle_id", "data_classification"].map(name => ({ name })));
+    requireIndex(db, version, { name: "idx_friction_kind_time", table: "friction_events", columns: ["kind", "occurred_at_ms"] });
+    requireIndex(db, version, { name: "idx_friction_subject", table: "friction_events", columns: ["kind", "subject_id"], unique: true, partial: true, sqlFragment: "where subject_id is not null" });
+  }
+}

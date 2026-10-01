@@ -355,3 +355,19 @@ try {
     }
   });
 });
+
+describe("A3a budget friction", () => {
+  it.each([false, true])("records refusal once, preserves outcome under recorder failure (%s)", (fault) => {
+    const sidecar = db();
+    try {
+      expect(sidecar.prepare("SELECT name FROM sqlite_master WHERE name = 'friction_events'").get(), "friction ledger exists").toBeDefined();
+      establishEpoch(sidecar);
+      for (let n = 0; n < DEFAULT_PRIVATE_THOUGHT_POLICY.limit; n++) reserve(sidecar, `a3-${n}`);
+      expect(sidecar.prepare("SELECT count(*) AS n FROM friction_events WHERE kind = 'budget_refused'").get()!.n).toBe(0);
+      if (fault) sidecar.exec("CREATE TRIGGER friction_fault BEFORE INSERT ON friction_events BEGIN SELECT RAISE(ABORT, 'fault'); END");
+      expect(reserve(sidecar, "a3-refused")).toMatchObject({ kind: "refused", reason: "capacity_exhausted" });
+      expect(reserve(sidecar, "a3-refused")).toMatchObject({ kind: "refused", reason: "capacity_exhausted" });
+      expect(sidecar.prepare("SELECT count(*) AS n FROM friction_events WHERE kind = 'budget_refused'").get()!.n).toBe(fault ? 0 : 1);
+    } finally { sidecar.close(); }
+  });
+});

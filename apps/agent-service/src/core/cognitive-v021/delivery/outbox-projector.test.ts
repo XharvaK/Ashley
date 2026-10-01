@@ -529,3 +529,24 @@ describe("v0.2.1 cross-database outbox projection", () => {
     }
   });
 });
+
+describe("A3a delivery friction", () => {
+  it.each([["aborted", false], ["committed", false], ["aborted", true]] as const)("records only failed terminal reconciliation once (%s, fault=%s)", async (state, fault) => {
+    const sidecar = openTestSidecar();
+    const nuclear = openNuclearDb(new DatabaseSync(":memory:"));
+    try {
+      expect(sidecar.prepare("SELECT name FROM sqlite_master WHERE name = 'friction_events'").get(), "friction ledger exists").toBeDefined();
+      const speech = insertOutboxPending(sidecar, { settlementId: "a3", cycleId: "a3", generation: 1, conversationId: "thread-a3", licensedText: "CONTENT_SECRET" });
+      const projector = new OutboxDeliveryProjector(sidecar, nuclear, { nowMs: () => 1000 });
+      await projector.project(speech.outboxId);
+      const id = Number(sidecar.prepare("SELECT nuclear_reservation_id AS id FROM speech_outbox WHERE outbox_id = ?").get(speech.outboxId)!.id);
+      nuclear.prepare("UPDATE delivery_reservations SET state = ?, finalized_at = '2026-10-01T00:00:00Z' WHERE id = ?").run(state, id);
+      if (state === "committed") nuclear.prepare("UPDATE delivery_bubbles SET discord_message_id = 'a3', sent_at = '2026-10-01T00:00:00Z' WHERE reservation_id = ?").run(id);
+      if (fault) sidecar.exec("CREATE TRIGGER friction_fault BEFORE INSERT ON friction_events BEGIN SELECT RAISE(ABORT, 'fault'); END");
+      reconcileProjectedDeliverySweep(sidecar, nuclear);
+      reconcileProjectedDeliverySweep(sidecar, nuclear);
+      expect(sidecar.prepare("SELECT count(*) AS n FROM friction_events WHERE kind = 'delivery_failed'").get()!.n).toBe(state === "aborted" && !fault ? 1 : 0);
+      expect(JSON.stringify(sidecar.prepare("SELECT note FROM friction_events").all())).not.toContain("CONTENT_SECRET");
+    } finally { sidecar.close(); nuclear.close(); }
+  });
+});

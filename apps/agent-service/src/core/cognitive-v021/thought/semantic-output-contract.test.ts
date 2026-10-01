@@ -726,11 +726,11 @@ describe("Thought semantic output contract", () => {
     // the A2 forget field, and A9 expectation basisRefs;
     // parser identity remains the v2 semantic parser.
     expect(THOUGHT_SEMANTIC_SCHEMA_FINGERPRINT).toBe(
-      "sha256:5553114e1e3cff22a7933d549a3f613bc58b936c3574895103418a568a90ac37",
+      "sha256:bb9562e7b7f87bf94b230c9c3606c0abc626efe5ed8d4e01f5bd2c8e45e59764",
     );
     const zeroOp = constrainThoughtOutputSchema(buildOperationalEffectNamespaceFromRefs([]));
     expect(zeroOp.wireSchemaFingerprint).toBe(
-      "sha256:5df476800fa550a55d45dd9dcab037480686c582b2fa1293361192f2e94b1a11",
+      "sha256:77829d8c2c0849b7337949a739376d608b44f9f48fe25bb5c274c27cf275a0d3",
     );
     expect(zeroOp.namespaceConstraintFingerprint).toBe(
       "sha256:d277b3804b25361994107886d1f33f779a7501298b01fe483ebe7c795b6e19c6",

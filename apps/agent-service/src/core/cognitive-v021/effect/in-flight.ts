@@ -1,3 +1,4 @@
+import { recordHostFriction } from "../growth/friction.js";
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import type { InFlightRecord } from "../types.js";
@@ -171,6 +172,7 @@ export function markInFlightUnknown(db: DatabaseSync, effectId: string, _atMs = 
   db.prepare("UPDATE in_flight_effects SET state = 'unknown' WHERE effect_id = ? AND state = 'in_flight'").run(effectId);
   const row = getInFlightByEffectId(db, effectId);
   if (!row) throw new Error("in_flight_missing");
+  if (row.status === "unknown") recordHostFriction(db, "outcome_unknown", effectId, _atMs, row.cycleId);
   return row;
 }
 
@@ -379,6 +381,9 @@ function effectStateForReceipt(receipt: EffectReceipt): InFlightRecord["status"]
 function updateInFlightOccupancyFromReceipt(db: DatabaseSync, receipt: EffectReceipt): void {
   db.prepare("UPDATE in_flight_effects SET state = ? WHERE effect_id = ?")
     .run(effectStateForReceipt(receipt), receipt.effectId);
+  const cycleId = getInFlightByEffectId(db, receipt.effectId)?.cycleId;
+  if (effectStateForReceipt(receipt) === "unknown") recordHostFriction(db, "outcome_unknown", receipt.effectId, receipt.atMs, cycleId);
+  if (receipt.outcome === "failed") recordHostFriction(db, "effect_failed", receipt.effectId, receipt.atMs, cycleId);
 }
 
 const VALID_RECEIPT_OUTCOMES = new Set<string>([

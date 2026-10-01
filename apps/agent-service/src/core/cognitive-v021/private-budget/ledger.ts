@@ -1,3 +1,4 @@
+import { recordHostFriction } from "../growth/friction.js";
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import {
@@ -241,6 +242,7 @@ export function reservePrivateThought(
     expireInTransaction(db, input.policyId, policyTime.policyTimeMs);
     const used = consumingCount(db, input.policyId, policyTime.policyTimeMs);
     if (used >= DEFAULT_PRIVATE_THOUGHT_POLICY.limit) {
+      recordHostFriction(db, "budget_refused", input.admissionId, wallClockNowMs);
       return { kind: "refused", reason: "capacity_exhausted", remaining: 0 };
     }
 

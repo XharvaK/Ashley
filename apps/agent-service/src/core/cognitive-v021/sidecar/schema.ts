@@ -1697,3 +1697,19 @@ CREATE TABLE IF NOT EXISTS persona_snapshots (
 );
 UPDATE cognitive_sidecar_meta SET schema_version = 45, projection_state = 'reconciling' WHERE id = 1;
 `;
+
+export const COGNITIVE_SIDECAR_SCHEMA_V46 = String.raw`
+CREATE TABLE IF NOT EXISTS friction_events (
+  friction_id TEXT PRIMARY KEY,
+  kind TEXT NOT NULL CHECK (kind IN ('owner_correction','effect_failed','outcome_unknown','expectation_missed','budget_refused','delivery_failed','self_reported')),
+  subject_id TEXT,
+  occurred_at_ms INTEGER NOT NULL,
+  evidence_refs_json TEXT NOT NULL DEFAULT '[]',
+  note TEXT CHECK (note IS NULL OR length(note) <= 300),
+  cycle_id TEXT,
+  data_classification TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_friction_kind_time ON friction_events (kind, occurred_at_ms);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_friction_subject ON friction_events (kind, subject_id) WHERE subject_id IS NOT NULL;
+UPDATE cognitive_sidecar_meta SET schema_version = 46 WHERE id = 1;
+`;

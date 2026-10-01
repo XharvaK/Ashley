@@ -1,3 +1,4 @@
+import { recordHostFriction } from "../growth/friction.js";
 import { createHash } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import type { DataClassification } from "../../privacy/classification.js";
@@ -166,7 +167,10 @@ export function checkExpectations(
           SET status = ?, lesson = ?, checked_cycle_id = ?, checked_at_ms = ?
         WHERE expectation_id = ? AND status = 'open' AND cycle_id != ? AND forgotten_at_ms IS NULL`,
     ).run(check.outcome, lesson, input.cycleId, input.nowMs, check.expectationId, input.cycleId);
-    if (Number(result.changes ?? 0) > 0) closed.push(check.expectationId);
+    if (Number(result.changes ?? 0) > 0) {
+      closed.push(check.expectationId);
+      if (check.outcome === "missed") recordHostFriction(db, "expectation_missed", check.expectationId, input.nowMs, input.cycleId);
+    }
   }
   return closed;
 }

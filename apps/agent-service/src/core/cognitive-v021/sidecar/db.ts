@@ -1,3 +1,4 @@
+import { validateA3SidecarSchema } from "../../cognition/schema-contract.js";
 import { DatabaseSync } from "node:sqlite";
 import {
   isReservedProductionStoragePath,
@@ -60,6 +61,7 @@ import {
   COGNITIVE_SIDECAR_SCHEMA_V43,
   COGNITIVE_SIDECAR_SCHEMA_V44,
   COGNITIVE_SIDECAR_SCHEMA_V45,
+  COGNITIVE_SIDECAR_SCHEMA_V46,
 } from "./schema.js";
 import { recoverCognitiveSidecar } from "./recovery.js";
 import { cycleIdFor, occurrenceIdFor, wakeIdFor } from "../wake/identity.js";
@@ -782,6 +784,7 @@ export function openCognitiveSidecarDb(
       existing.exec(COGNITIVE_SIDECAR_SCHEMA_V43);
       existing.exec(COGNITIVE_SIDECAR_SCHEMA_V44);
       existing.exec(COGNITIVE_SIDECAR_SCHEMA_V45);
+      existing.exec(COGNITIVE_SIDECAR_SCHEMA_V46);
       existing.exec(`PRAGMA user_version = ${COGNITIVE_SIDECAR_SCHEMA_VERSION}`);
       existing.exec("COMMIT");
     } catch (error) {
@@ -839,6 +842,7 @@ export function openCognitiveSidecarDb(
       if (version < 43) existing.exec(COGNITIVE_SIDECAR_SCHEMA_V43);
       if (version < 44) existing.exec(COGNITIVE_SIDECAR_SCHEMA_V44);
       if (version < 45) existing.exec(COGNITIVE_SIDECAR_SCHEMA_V45);
+      if (version < 46) existing.exec(COGNITIVE_SIDECAR_SCHEMA_V46);
       existing.exec(`PRAGMA user_version = ${COGNITIVE_SIDECAR_SCHEMA_VERSION}`);
       ensureMeta(existing);
       existing.exec("COMMIT");
@@ -848,6 +852,7 @@ export function openCognitiveSidecarDb(
     }
   }
   ensureMeta(existing);
+  validateA3SidecarSchema(existing, COGNITIVE_SIDECAR_SCHEMA_VERSION);
   recoverCognitiveSidecar(existing);
   return existing;
 }
