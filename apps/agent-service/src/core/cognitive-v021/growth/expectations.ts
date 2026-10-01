@@ -5,6 +5,8 @@ import type { DataClassification } from "../../privacy/classification.js";
 import { getConversationEvidence } from "../evidence/conversation-log.js";
 import { getMemoryAssertion } from "../memory/assertions.js";
 import { listMemorySupports } from "../memory/supports.js";
+import { recordThoughtCheck } from "../graduation/settlement.js";
+import { detectCredentialShape } from "../../privacy/secrets.js";
 
 /**
  * Growth V1 §6.5: expectations and calibration (a light port of c4).
@@ -144,6 +146,8 @@ export function recordExpectations(
   const ids: string[] = [];
   input.statements.slice(0, EXPECTATIONS_PER_SETTLEMENT).forEach((claim, index) => {
     const raw = typeof claim === "string" ? claim : claim.statement;
+    const authored = typeof claim === "string" ? [claim] : [claim.statement, claim.judgmentClass, claim.observable].filter((value): value is string => typeof value === "string");
+    if (authored.some(value => detectCredentialShape(value).hit)) return;
     const basisRefs = typeof claim === "string" ? [] : (claim.basisRefs ?? []).slice(0, EXPECTATION_BASIS_REFS_MAX);
     const statement = raw.trim().slice(0, EXPECTATION_STATEMENT_MAX_CHARS);
     if (!statement) return;
@@ -177,6 +181,7 @@ export function checkExpectations(
   const closed: string[] = [];
   for (const check of input.checks.slice(0, EXPECTATION_CHECKS_PER_SETTLEMENT)) {
     if (!isExpectationOutcome(check.outcome)) continue;
+    if (detectCredentialShape(check.lesson).hit) continue;
     const lesson = check.lesson.trim().slice(0, EXPECTATION_LESSON_MAX_CHARS);
     if (!lesson) continue;
     const result = db.prepare(
@@ -187,6 +192,7 @@ export function checkExpectations(
     ).run(check.outcome, lesson, input.cycleId, input.nowMs, input.dataClassification ?? "ordinary", check.expectationId, input.cycleId);
     if (Number(result.changes ?? 0) > 0) {
       closed.push(check.expectationId);
+      recordThoughtCheck(db, { cycleId: input.cycleId, check, nowMs: input.nowMs, dataClassification: input.dataClassification });
       if (check.outcome === "missed") recordHostFriction(db, "expectation_missed", check.expectationId, input.nowMs, input.cycleId);
     }
   }

@@ -1732,6 +1732,7 @@ ALTER TABLE expectations ADD COLUMN judgment_class TEXT CHECK (judgment_class IS
 ALTER TABLE expectations ADD COLUMN observable TEXT CHECK (observable IS NULL OR length(trim(observable)) BETWEEN 1 AND 200);
 ALTER TABLE expectations ADD COLUMN horizon_hours REAL CHECK (horizon_hours IS NULL OR horizon_hours BETWEEN 1 AND 720);
 ALTER TABLE expectations ADD COLUMN check_kind TEXT CHECK (check_kind IS NULL OR check_kind IN ('owner_reply', 'delivered'));
+ALTER TABLE expectations ADD COLUMN graduation_lifecycle TEXT NOT NULL DEFAULT 'selected' CHECK (graduation_lifecycle IN ('selected','awaiting_observation','observation_available','closed','abandoned'));
 CREATE TABLE graduation_contract_state (
   id INTEGER PRIMARY KEY CHECK (id=1),
   highest_contract_version INTEGER NOT NULL DEFAULT 1,
@@ -1753,6 +1754,7 @@ CREATE TABLE graduation_observations (
   observation_kind TEXT NOT NULL CHECK (observation_kind IN ('receipt_backed','missing','outcome_unknown')),
   data_classification TEXT NOT NULL CHECK (data_classification IN ('ordinary','sensitive','never_public','secret')),
   observed_at_ms INTEGER NOT NULL,
+  provenance TEXT NOT NULL CHECK (provenance IN ('live','shadow')),
   CHECK (observed_value_typed IS NOT NULL OR (observation_evidence_ref IS NOT NULL AND observation_content_binding IS NOT NULL) OR observation_kind IN ('missing','outcome_unknown'))
 );
 CREATE TABLE graduation_adjudications (

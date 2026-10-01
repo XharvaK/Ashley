@@ -1537,7 +1537,7 @@ export function ensureNuclearV28Schema(db: DatabaseSync): void {
 export function validateA3SidecarSchema(db: DatabaseSync, version: number): void {
   if (version >= 50) {
     for (const [table, columns] of [
-      ["expectations", ["judgment_class", "observable", "horizon_hours", "check_kind"]],
+      ["expectations", ["judgment_class", "observable", "horizon_hours", "check_kind", "graduation_lifecycle"]],
       ["graduation_contract_state", ["id", "highest_contract_version", "mode", "actor", "at_ms", "dark_would_show"]],
       ["graduation_observations", ["observation_id", "expectation_id", "observable_kind", "observed_value_typed", "observation_kind", "operational_receipt_type", "operational_receipt_id", "data_classification", "observed_at_ms"]],
       ["graduation_adjudications", ["adjudication_id", "expectation_id", "observation_id", "disposition", "adjudication_authority", "supersedes_adjudication_id", "correction_class", "data_classification", "created_at_ms"]],
