@@ -14,7 +14,7 @@ describe("cognitive sidecar schema v44", () => {
 
       expect(COGNITIVE_SIDECAR_SCHEMA_VERSION).toBe(48);
       expect((db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(48);
-      expect(db.prepare("SELECT schema_version FROM cognitive_sidecar_meta WHERE id = 1").get()).toEqual({ schema_version: 45 });
+      expect(db.prepare("SELECT schema_version FROM cognitive_sidecar_meta WHERE id = 1").get()).toEqual({ schema_version: 48 });
       expect(db.prepare("SELECT name FROM sqlite_master WHERE name = 'expectation_basis'").get()).toBeTruthy();
     } finally {
       db.close();
