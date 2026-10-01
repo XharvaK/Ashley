@@ -5,6 +5,7 @@ import { listRecentEpisodes, toThoughtEpisode } from "../memory/episodes.js";
 import { INTEREST_ROOTS, listInterestBranches } from "../memory/interests.js";
 import { UNSOLICITED_FUSE_LIMIT, countUnsolicited, recentUnsolicited } from "./reach-out.js";
 import type { AwakePass } from "./inner-pass.js";
+import { recordInfluencedAgendaOrder, type InfluenceAgendaContext } from "../influences/agenda.js";
 
 /**
  * Growth V1 §5.3: the inner agenda for an AWAKE pass.
@@ -20,7 +21,7 @@ export const AGENDA_QUESTIONS_LIMIT = 10;
 export const AGENDA_BRANCHES_LIMIT = 16;
 const OPEN_THREADS_WINDOW_MS = 7 * 24 * 60 * 60_000;
 
-export function buildInnerAgenda(db: DatabaseSync, pass: AwakePass, nowMs: number): ThoughtInnerAgenda {
+export function buildInnerAgenda(db: DatabaseSync, pass: AwakePass, nowMs: number, influenceContext?: InfluenceAgendaContext): ThoughtInnerAgenda {
   const episodes = listRecentEpisodes(db, 40).filter((episode) => episode.dataClassification !== "secret");
   const episodesSince = episodes
     .filter((episode) => episode.endedAtMs > pass.sinceMs)
@@ -37,7 +38,9 @@ export function buildInnerAgenda(db: DatabaseSync, pass: AwakePass, nowMs: numbe
       && (!assertion.audienceScope || assertion.audienceScope.kind === "owner_private"))
     .slice(0, AGENDA_QUESTIONS_LIMIT)
     .map((assertion) => ({ key: assertion.assertionKey, statement: assertion.statement }));
-  const branches = listInterestBranches(db, nowMs, AGENDA_BRANCHES_LIMIT).map((branch) => ({
+  const originalBranches = listInterestBranches(db, nowMs, AGENDA_BRANCHES_LIMIT);
+  const orderedBranches = influenceContext ? recordInfluencedAgendaOrder(db, originalBranches, influenceContext, nowMs) : originalBranches;
+  const branches = orderedBranches.map((branch) => ({
     root: branch.root,
     branch: branch.label,
     strength: branch.strength,

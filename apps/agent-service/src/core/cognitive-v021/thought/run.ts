@@ -3323,7 +3323,9 @@ export async function runCognitiveCycle(
         currentRowIds: cycleOwnerRowIds(sidecar, payload, cycle),
       },
       ...(afterglowPass ? { innerPass: afterglowInnerPass(sidecar, afterglowPass) } : {}),
-      ...(awakePass ? { innerPass: { kind: "awake" as const, agenda: buildInnerAgenda(sidecar, awakePass, deps.nowMs()) } } : {}),
+      ...(awakePass ? { innerPass: { kind: "awake" as const, agenda: buildInnerAgenda(sidecar, awakePass, deps.nowMs(),
+        effectiveThoughtAudience.kind === "owner_private" && !externalCycle && deps.origin !== "shadow" && deps.identityOwnerId
+          ? { cycleId: cycle.cycleId, ownerId: deps.identityOwnerId } : undefined) } } : {}),
       ...(nightPass ? {
         innerPass: {
           kind: "night" as const,
