@@ -72,10 +72,14 @@ function validAppraisal(value: unknown): boolean {
 function validExpectation(value: unknown): boolean {
   if (typeof value === "string") return text(value, EXPECTATION_STATEMENT_MAX_CHARS);
   const item = record(value);
-  return item !== null && onlyKeys(item, ["statement", "basisRefs"])
+  return item !== null && onlyKeys(item, ["statement", "basisRefs", "judgmentClass", "observable", "horizonHours", "check"])
     && text(item.statement, EXPECTATION_STATEMENT_MAX_CHARS)
-    && boundedArray(item.basisRefs, EXPECTATION_BASIS_REFS_MAX)
-    && item.basisRefs.every((ref) => text(ref, 200));
+    && (item.basisRefs === undefined || (boundedArray(item.basisRefs, EXPECTATION_BASIS_REFS_MAX)
+      && item.basisRefs.every((ref) => text(ref, 200))))
+    && (item.judgmentClass === undefined || text(item.judgmentClass, 40))
+    && (item.observable === undefined || text(item.observable, 200))
+    && (item.horizonHours === undefined || (typeof item.horizonHours === "number" && Number.isFinite(item.horizonHours) && item.horizonHours >= 1 && item.horizonHours <= 720))
+    && (item.check === undefined || item.check === "owner_reply" || item.check === "delivered");
 }
 
 function validCheck(value: unknown): boolean {

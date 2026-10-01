@@ -1727,6 +1727,80 @@ UPDATE cognitive_sidecar_meta SET schema_version = 48 WHERE id = 1;
 `;
 
 /** GS1: classification follows the delivered Thought input's labels. */
+export const COGNITIVE_SIDECAR_SCHEMA_V50 = String.raw`
+ALTER TABLE expectations ADD COLUMN judgment_class TEXT CHECK (judgment_class IS NULL OR length(trim(judgment_class)) BETWEEN 1 AND 40);
+ALTER TABLE expectations ADD COLUMN observable TEXT CHECK (observable IS NULL OR length(trim(observable)) BETWEEN 1 AND 200);
+ALTER TABLE expectations ADD COLUMN horizon_hours REAL CHECK (horizon_hours IS NULL OR horizon_hours BETWEEN 1 AND 720);
+ALTER TABLE expectations ADD COLUMN check_kind TEXT CHECK (check_kind IS NULL OR check_kind IN ('owner_reply', 'delivered'));
+CREATE TABLE graduation_contract_state (
+  id INTEGER PRIMARY KEY CHECK (id=1),
+  highest_contract_version INTEGER NOT NULL DEFAULT 1,
+  mode TEXT NOT NULL CHECK (mode IN ('observe','dark_apply','apply')),
+  actor TEXT NOT NULL,
+  at_ms INTEGER NOT NULL,
+  dark_would_show INTEGER NOT NULL DEFAULT 0
+);
+INSERT INTO graduation_contract_state (id, mode, actor, at_ms) VALUES (1,'observe','migration',0);
+CREATE TABLE graduation_observations (
+  observation_id TEXT PRIMARY KEY,
+  expectation_id TEXT NOT NULL REFERENCES expectations(expectation_id),
+  observable_kind TEXT NOT NULL CHECK (length(trim(observable_kind)) BETWEEN 1 AND 64),
+  observed_value_typed TEXT CHECK (observed_value_typed IS NULL OR json_valid(observed_value_typed)),
+  observation_evidence_ref TEXT,
+  observation_content_binding TEXT,
+  operational_receipt_type TEXT,
+  operational_receipt_id TEXT,
+  observation_kind TEXT NOT NULL CHECK (observation_kind IN ('receipt_backed','missing','outcome_unknown')),
+  data_classification TEXT NOT NULL CHECK (data_classification IN ('ordinary','sensitive','never_public','secret')),
+  observed_at_ms INTEGER NOT NULL,
+  CHECK (observed_value_typed IS NOT NULL OR (observation_evidence_ref IS NOT NULL AND observation_content_binding IS NOT NULL) OR observation_kind IN ('missing','outcome_unknown'))
+);
+CREATE TABLE graduation_adjudications (
+  adjudication_id TEXT PRIMARY KEY,
+  expectation_id TEXT NOT NULL REFERENCES expectations(expectation_id),
+  observation_id TEXT REFERENCES graduation_observations(observation_id),
+  disposition TEXT NOT NULL CHECK (disposition IN ('confirmed','contradicted','partial_support','unresolved')),
+  proposal_origin TEXT NOT NULL CHECK (proposal_origin IN ('model','worker','deterministic_extractor','owner')),
+  host_validation_ok INTEGER NOT NULL CHECK (host_validation_ok=1),
+  adjudication_authority TEXT NOT NULL CHECK (adjudication_authority IN ('deterministic_compare','ashley_thought_reflection','owner_confirmed')),
+  adjudicating_cycle_id TEXT,
+  comparator_policy_version TEXT,
+  supersedes_adjudication_id TEXT REFERENCES graduation_adjudications(adjudication_id),
+  correction_class TEXT CHECK (correction_class IS NULL OR correction_class IN ('TEMPORAL_SUPERSESSION','INTERPRETATION_INVALIDATION','PROVENANCE_CORRECTION','SCOPE_REFINEMENT','unclassified')),
+  data_classification TEXT NOT NULL CHECK (data_classification IN ('ordinary','sensitive','never_public','secret')),
+  created_at_ms INTEGER NOT NULL,
+  CHECK ((adjudication_authority='deterministic_compare' AND adjudicating_cycle_id IS NULL AND comparator_policy_version IS NOT NULL) OR (adjudication_authority<>'deterministic_compare' AND adjudicating_cycle_id IS NOT NULL AND comparator_policy_version IS NULL))
+);
+CREATE INDEX idx_graduation_adjudications_expectation ON graduation_adjudications(expectation_id,created_at_ms);
+CREATE TABLE graduation_calibration (
+  calibration_id TEXT PRIMARY KEY,
+  judgment_class TEXT NOT NULL,
+  adjustment TEXT NOT NULL CHECK (adjustment IN ('increase_caution','decrease_caution','narrow_scope','request_more_evidence','hold_for_review')),
+  lifecycle_state TEXT NOT NULL CHECK (lifecycle_state IN ('proposed','admitted','eligible_for_future_thought','demoted','expired','contradicted','rolled_back')),
+  proposed_cycle_id TEXT NOT NULL,
+  admitting_cycle_id TEXT,
+  position TEXT CHECK (position IS NULL OR position IN ('admit','decline')),
+  rationale TEXT CHECK (rationale IS NULL OR length(rationale)<=200),
+  data_classification TEXT NOT NULL CHECK (data_classification IN ('ordinary','sensitive','never_public','secret')),
+  created_at_ms INTEGER NOT NULL,
+  since_ms INTEGER,
+  expires_at_ms INTEGER NOT NULL
+);
+CREATE UNIQUE INDEX idx_graduation_open_proposal ON graduation_calibration(judgment_class) WHERE lifecycle_state='proposed';
+CREATE TABLE graduation_recorder_keys (
+  expectation_id TEXT NOT NULL REFERENCES expectations(expectation_id),
+  kind TEXT NOT NULL CHECK (kind IN ('owner_reply','delivered')),
+  observation_id TEXT NOT NULL REFERENCES graduation_observations(observation_id),
+  adjudication_id TEXT NOT NULL REFERENCES graduation_adjudications(adjudication_id),
+  PRIMARY KEY(expectation_id,kind)
+);
+CREATE TRIGGER graduation_observation_no_update BEFORE UPDATE ON graduation_observations BEGIN SELECT RAISE(ABORT,'cognitive_observation_append_only'); END;
+CREATE TRIGGER graduation_observation_no_delete BEFORE DELETE ON graduation_observations BEGIN SELECT RAISE(ABORT,'cognitive_observation_append_only'); END;
+CREATE TRIGGER graduation_adjudication_no_update BEFORE UPDATE ON graduation_adjudications BEGIN SELECT RAISE(ABORT,'cognitive_adjudication_append_only'); END;
+CREATE TRIGGER graduation_adjudication_no_delete BEFORE DELETE ON graduation_adjudications BEGIN SELECT RAISE(ABORT,'cognitive_adjudication_append_only'); END;
+UPDATE cognitive_sidecar_meta SET schema_version = 50 WHERE id = 1;
+`;
+
 export const COGNITIVE_SIDECAR_SCHEMA_V49 = String.raw`
 ALTER TABLE sense_declines ADD COLUMN data_classification TEXT NOT NULL DEFAULT 'ordinary'
   CHECK (data_classification IN ('ordinary', 'sensitive', 'never_public', 'secret'));
