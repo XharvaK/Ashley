@@ -8,6 +8,8 @@
     "core/cognitive-v021/test/fixtures/quality-corpus.ts": "test support: quality corpus fixture",
     "core/cognitive-v021/speech/send.ts": "test support: delivery simulator used by command and forget tests",
     "core/learned-autonomy/test-fixtures.ts": "test support",
+    "core/cognitive-v021/influences/eligibility.ts": "A5a staged library: pure eligibility and explicit refresh; agenda consumer belongs to A5b",
+    "core/cognitive-v021/influences/contract-state.ts": "A5a staged contract state: default observe; mode/agenda consumer belongs to A5b",
     "core/qualification/mistral-client-mock-state.ts": "test support",
     "core/qualification/mistral-client-mock.ts": "test support",
     "core/qualification/offline-network-guard.ts": "test support: vitest.offline setup file",
