@@ -1,3 +1,4 @@
+// Historical C3/C4 migration ladder only; runtime graduation lives in cognitive-v021.
 import type { DatabaseSync } from "node:sqlite";
 
 export const C4_CONTRACT_VERSION = 1;

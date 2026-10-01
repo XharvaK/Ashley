@@ -7,9 +7,9 @@ import { createEpisode } from "../memory/episodes.js";
 import { insertMessage, resolveActiveThread } from "../memory/threads.js";
 
 const dropped = ["identity_reviews", "learning_revisions", "context_budget_policies", "context_allocation_receipts", "context_summary_projections"];
-function assertV54(db: DatabaseSync): void {
-  expect(NUCLEAR_SUPPORTED_VERSION).toBe(54);
-  expect(db.prepare("PRAGMA user_version").get()).toEqual({ user_version: 54 });
+function assertV54(db: DatabaseSync, version: 54 | 55 = 54): void {
+  expect(NUCLEAR_SUPPORTED_VERSION).toBe(55);
+  expect(db.prepare("PRAGMA user_version").get()).toEqual({ user_version: version });
   for (const name of dropped) expect(db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get(name)).toBeUndefined();
   for (const name of ["evidence_links", "cognitive_maturation_contract_state"]) expect(db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get(name)).toEqual({ name });
   expect(db.prepare("PRAGMA foreign_key_list(lived_experience_links)").all()).not.toEqual(expect.arrayContaining([expect.objectContaining({ table: "learning_revisions" })]));
@@ -18,9 +18,9 @@ function assertV54(db: DatabaseSync): void {
 }
 
 describe("nuclear migration 54 legacy removal", () => {
-  it("upgrades a fresh database from 0 to 54 while preserving the kept organs", () => {
+  it("passes migration 54 in a fresh database while preserving the kept organs", () => {
     const db = openNuclearDb(new DatabaseSync(":memory:"));
-    try { assertV54(db); } finally { db.close(); }
+    try { assertV54(db, 55); } finally { db.close(); }
   });
 
   it("upgrades v53, preserves lived experience rows and columns, and removes only the revision FK", () => {
@@ -43,7 +43,8 @@ describe("nuclear migration 54 legacy removal", () => {
       const evidence = db.prepare("SELECT * FROM evidence_links").all();
       const kept = db.prepare("SELECT * FROM cognitive_maturation_contract_state ORDER BY wave").all();
       expect(before).toHaveLength(1);
-      openNuclearDb(db);
+      // V54 must preserve this row; the following V55 migration correctly refuses it.
+      expect(() => openNuclearDb(db)).toThrow("c4_rows_present:lived_experience_links:1");
       assertV54(db);
       expect(db.prepare("SELECT * FROM lived_experience_links").all()).toEqual(before);
       expect(db.prepare("PRAGMA table_info(lived_experience_links)").all()).toEqual(columns);

@@ -11,8 +11,8 @@ describe("nuclear migration 46 social authority", () => {
   it("lands the seven authority tables and separate partial indexes", () => {
     const db = openNuclearDb(new DatabaseSync(":memory:"));
     try {
-      expect(NUCLEAR_SUPPORTED_VERSION).toBe(54);
-      expect((db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(54);
+      expect(NUCLEAR_SUPPORTED_VERSION).toBe(55);
+      expect((db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(55);
       validateNuclearV46Schema(db);
 
       for (const table of SOCIAL_AUTHORITY_TABLES) {

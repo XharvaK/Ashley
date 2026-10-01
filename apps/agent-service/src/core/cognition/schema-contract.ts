@@ -1,3 +1,4 @@
+import { validateNuclearV55Schema } from "./migration-55.js";
 import { validateNuclearV54Schema } from "./migration-54.js";
 import type { DatabaseSync } from "node:sqlite";
 import { MIGRATION_24_OPEN_COGNITIVE_WAKE_CURSOR_DDL } from "./migration-24.js";
@@ -21,7 +22,7 @@ import {
   C4_INDEXES,
   C4_TABLES,
   validateNuclearV39Schema,
-} from "../cognitive-graduation/migration-38.js";
+} from "./legacy-graduation-migration-38.js";
 import {
   C5_INDEXES,
   C5_EXISTING_TABLE_COLUMNS,
@@ -1190,7 +1191,7 @@ function requireNoV49Content(db: DatabaseSync, version: number): void {
 
 export function validateNuclearSchemaContent(
   db: DatabaseSync,
-  version: 22 | 23 | 24 | 25 | 26 | 27 | 28 | 29 | 30 | 31 | 32 | 33 | 34 | 35 | 36 | 37 | 38 | 39 | 40 | 41 | 42 | 43 | 44 | 45 | 46 | 47 | 48 | 49 | 50 | 51 | 52 | 53 | 54,
+  version: 22 | 23 | 24 | 25 | 26 | 27 | 28 | 29 | 30 | 31 | 32 | 33 | 34 | 35 | 36 | 37 | 38 | 39 | 40 | 41 | 42 | 43 | 44 | 45 | 46 | 47 | 48 | 49 | 50 | 51 | 52 | 53 | 54 | 55,
   options: { rejectNewerContent?: boolean } = {},
 ): void {
   if (version === 22) {
@@ -1369,7 +1370,7 @@ export function validateNuclearSchemaContent(
     return;
   }
   if (version === 38) return;
-  validateNuclearV39Schema(db, version);
+  if (version < 55) validateNuclearV39Schema(db, version);
   if (version === 39 && options.rejectNewerContent === true) {
     requireNoV40Objects(db, version);
     return;
@@ -1452,6 +1453,7 @@ export function validateNuclearSchemaContent(
   if (version === 52) return;
   validateNuclearV53Schema(db, version);
   if (version >= 54) validateNuclearV54Schema(db);
+  if (version >= 55) validateNuclearV55Schema(db);
 }
 
 function addColumnIfMissing(
