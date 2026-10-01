@@ -1,3 +1,4 @@
+import { validateNuclearV54Schema } from "./migration-54.js";
 import type { DatabaseSync } from "node:sqlite";
 import { MIGRATION_24_OPEN_COGNITIVE_WAKE_CURSOR_DDL } from "./migration-24.js";
 import {
@@ -6,10 +7,11 @@ import {
   validateNuclearV36Schema,
 } from "../memory/migration.js";
 import {
+  C2_CONTRACT_VERSION,
   C2_INDEXES,
   C2_TABLES,
   validateNuclearV37Schema,
-} from "../context-allocation/migration-36.js";
+} from "./migration-36.js";
 import {
   C3_INDEXES,
   C3_TABLES,
@@ -1188,7 +1190,7 @@ function requireNoV49Content(db: DatabaseSync, version: number): void {
 
 export function validateNuclearSchemaContent(
   db: DatabaseSync,
-  version: 22 | 23 | 24 | 25 | 26 | 27 | 28 | 29 | 30 | 31 | 32 | 33 | 34 | 35 | 36 | 37 | 38 | 39 | 40 | 41 | 42 | 43 | 44 | 45 | 46 | 47 | 48 | 49 | 50 | 51 | 52 | 53,
+  version: 22 | 23 | 24 | 25 | 26 | 27 | 28 | 29 | 30 | 31 | 32 | 33 | 34 | 35 | 36 | 37 | 38 | 39 | 40 | 41 | 42 | 43 | 44 | 45 | 46 | 47 | 48 | 49 | 50 | 51 | 52 | 53 | 54,
   options: { rejectNewerContent?: boolean } = {},
 ): void {
   if (version === 22) {
@@ -1346,7 +1348,16 @@ export function validateNuclearSchemaContent(
     return;
   }
   if (version === 36) return;
-  validateNuclearV37Schema(db, version);
+  if (version < 54) validateNuclearV37Schema(db, version);
+  else {
+    requireColumns(db, version, "cognitive_maturation_contract_state", [
+      { name: "wave" }, { name: "highest_contract_version" },
+      { name: "live_authority_existed" }, { name: "event_highwater" },
+      { name: "cutover_or_activation_state" },
+    ]);
+    requireIndex(db, version, { name: "idx_cognitive_maturation_contract_state_wave", table: "cognitive_maturation_contract_state", columns: ["wave"] });
+    if (!db.prepare("SELECT 1 FROM cognitive_maturation_contract_state WHERE wave = 'c2' AND highest_contract_version >= ?").get(C2_CONTRACT_VERSION)) fail(version, "missing_c2_marker_row");
+  }
   if (version === 37 && options.rejectNewerContent === true) {
     requireNoV38Objects(db, version);
     return;
@@ -1440,6 +1451,7 @@ export function validateNuclearSchemaContent(
   }
   if (version === 52) return;
   validateNuclearV53Schema(db, version);
+  if (version >= 54) validateNuclearV54Schema(db);
 }
 
 function addColumnIfMissing(

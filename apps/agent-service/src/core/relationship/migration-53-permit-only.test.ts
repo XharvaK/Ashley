@@ -1,3 +1,4 @@
+import { restoreLegacyV53Objects } from "../cognition/__tests__/fixtures/legacy-v53.js";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import { openNuclearDb } from "../db.js";
@@ -63,6 +64,7 @@ function seedPermits(db: DatabaseSync): void {
 }
 
 function rewindToPreV53PermitOnly(nuclear: DatabaseSync, continuity: DatabaseSync): void {
+  restoreLegacyV53Objects(nuclear);
   nuclear.exec("DROP TABLE IF EXISTS social_operation_delegations");
   nuclear.exec("DROP INDEX IF EXISTS idx_social_operation_delegations_live");
   nuclear.exec("DROP INDEX IF EXISTS idx_social_operation_delegations_lookup");
@@ -89,7 +91,7 @@ describe("R-2 permit-only pre-V53 database migrates to V53 without minting opera
       expect(readPermits(db)).toEqual(permitsBefore);
 
       openNuclearDb(db, { continuity });
-      expect(userVersion(db)).toBe(53);
+      expect(userVersion(db)).toBe(54);
       expect(delegationTableExists(db)).toBe(true);
       expect(db.prepare(
         "SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'idx_social_operation_delegations_live'",
@@ -107,7 +109,7 @@ describe("R-2 permit-only pre-V53 database migrates to V53 without minting opera
       ).all();
       expect(permitsMatchingADelegation).toEqual([]);
 
-      expect(() => validateNuclearSchemaContent(db, 53)).not.toThrow();
+      expect(() => validateNuclearSchemaContent(db, 54)).not.toThrow();
     } finally {
       db.close();
       continuity.close();

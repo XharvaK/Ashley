@@ -1,7 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 import { newEntityUuid } from "../continuity/entity-uuid.js";
 import { defaultUnclassifiedConversational } from "../privacy/classification.js";
-import { reconcileUnsupportedRevisions } from "../learning/revisions.js";
 import { literalLikePattern } from "./facts.js";
 import { insertAssertion } from "./assertions.js";
 import type { MemoryMessage } from "./threads.js";
@@ -491,10 +490,6 @@ function forgetEpisodesByIdsInTransaction(
     const item = row(value);
     return item ? [{ type: String(item.target_type), id: String(item.target_id) }] : [];
   });
-  const revisionIds = evidence
-    .filter((item) => item.type === "revision")
-    .map((item) => Number(item.id))
-    .filter(Number.isFinite);
   const factIds = evidence
     .filter((item) => item.type === "fact")
     .map((item) => Number(item.id))
@@ -641,7 +636,6 @@ function forgetEpisodesByIdsInTransaction(
       }
     }
   }
-  reconcileUnsupportedRevisions(db, ownerId, revisionIds);
   return matches.length;
 }
 
@@ -704,19 +698,6 @@ export function previewEpisodeForget(
     const item = row(value);
     return item ? [`fact: ${String(item.key)}: ${String(item.value)}`] : [];
   });
-  const revisions = db.prepare(
-    `SELECT DISTINCT r.target_layer, r.target_key, r.proposed_value
-     FROM evidence_links l
-     JOIN learning_revisions r ON r.id = CAST(l.target_id AS INTEGER)
-     WHERE l.owner_id = ? AND l.target_type = 'revision'
-       AND l.source_type = 'episode'
-       AND CAST(l.source_id AS INTEGER) IN (${placeholders})`,
-  ).all(ownerId, ...ids).flatMap((value) => {
-    const item = row(value);
-    return item
-      ? [`revision: ${String(item.target_layer)}/${String(item.target_key)} -> ${String(item.proposed_value)}`]
-      : [];
-  });
   const state = db.prepare(
     `SELECT text FROM mind_state_items
      WHERE owner_id = ? AND status = 'active' AND source_type = 'episode'
@@ -740,7 +721,6 @@ export function previewEpisodeForget(
   return [
     ...episodes.map((episode) => `episode: ${episode.summary}`),
     ...facts,
-    ...revisions,
     ...state,
     ...affect,
   ];

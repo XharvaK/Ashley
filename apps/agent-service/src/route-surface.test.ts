@@ -89,6 +89,23 @@ describe("route surface registry", () => {
     expect(() => createServer({} as AgentManager)).not.toThrow();
   });
 
+  it("returns 404 for every removed legacy revision/review route", async () => {
+    const manager = { getState: () => "ready", core: {} } as unknown as AgentManager;
+    const { server, url } = await startTestServer(createServer(manager));
+    try {
+      for (const [method, path] of [
+        ["GET", "/nuclear/revisions"],
+        ["POST", "/nuclear/revisions/revert"],
+        ["GET", "/nuclear/identity/reviews"],
+        ["POST", "/nuclear/identity/reviews/ashley"],
+        ["POST", "/nuclear/identity/reviews/doc"],
+      ]) {
+        const response = await fetch(`${url}${path}`, { method });
+        expect(response.status, `${method} ${path}`).toBe(404);
+      }
+    } finally { await stopTestServer(server); }
+  });
+
   it("keeps social operation delegation control owner-only and exact-id", async () => {
     const originalDiscordOwnerId = env.discordOwnerId;
     const ownerId = "delegation-route-owner";

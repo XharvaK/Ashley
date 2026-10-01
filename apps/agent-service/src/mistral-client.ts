@@ -134,7 +134,6 @@ import {
   THOUGHT_OUTPUT_CONTRACT_ID,
   THOUGHT_OUTPUT_SCHEMA_ID,
 } from "./core/cognitive-v021/thought/contract-identity.js";
-import type { ContextBudgetMode } from "./core/context-allocation/types.js";
 export type {
   ChatMessage,
   TokenUsage,
@@ -157,7 +156,6 @@ export type CognitiveDispatchOptions = CompletionOptions & {
   /** Optional C2 evidence refs for the minimal projection extension. */
   contextProjectionEvidenceRefs?: readonly EvidenceRef[];
   contextPolicyId?: string;
-  contextBudgetMode?: ContextBudgetMode;
   contextBudgetPolicyId?: string;
   contextBudgetMaxUtf8Bytes?: number;
   contextBudgetSectionBudgets?: Record<string, number>;

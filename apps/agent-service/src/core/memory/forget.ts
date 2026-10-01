@@ -11,7 +11,6 @@ import {
   type CategoryCounts,
   type ForgetTarget,
 } from "../continuity/forget-preview.js";
-import { reconcileUnsupportedRevisions } from "../learning/revisions.js";
 import {
   detachRelationshipMotivations,
   listRelationshipForgetTargets,
@@ -436,7 +435,6 @@ function buildTargetsForTopic(
   ];
   for (const link of linked) {
     if (link.type === "fact") push("mem_facts", link.id, "redact");
-    if (link.type === "revision") push("learning_revisions", link.id, "redact");
   }
 
   if (tableHasColumn(db, "delivery_reservations", "entity_uuid")) {
@@ -921,14 +919,12 @@ function resolveIdsFromTargets(
   messageIds: number[];
   episodeIds: number[];
   factIds: number[];
-  revisionIds: number[];
   questionIds: number[];
   takeIds: number[];
 } {
   const messageIds: number[] = [];
   const episodeIds: number[] = [];
   const factIds: number[] = [];
-  const revisionIds: number[] = [];
   const questionIds: number[] = [];
   const takeIds: number[] = [];
   for (const target of targets) {
@@ -955,9 +951,6 @@ function resolveIdsFromTargets(
       case "cur_takes":
         takeIds.push(id);
         break;
-      case "learning_revisions":
-        revisionIds.push(id);
-        break;
       case "delivery_reservations":
       case "delivery_bubbles":
         break;
@@ -969,7 +962,6 @@ function resolveIdsFromTargets(
     messageIds: [...new Set(messageIds)],
     episodeIds: [...new Set(episodeIds)],
     factIds: [...new Set(factIds)],
-    revisionIds: [...new Set(revisionIds)],
     questionIds: [...new Set(questionIds)],
     takeIds: [...new Set(takeIds)],
   };
@@ -1055,7 +1047,7 @@ function applyForgetTargetsInTransaction(
     ownerId,
     targets,
   );
-  const { messageIds, episodeIds, factIds, revisionIds, questionIds, takeIds } =
+  const { messageIds, episodeIds, factIds, questionIds, takeIds } =
     resolveIdsFromTargets(db, ownerId, effectiveTargets);
   const openCognitiveItemUuids = [
     ...new Set(
@@ -1175,30 +1167,11 @@ function applyForgetTargetsInTransaction(
       .map((target) => target.entityUuid),
   );
   const factChanges = reconcileFacts(db, ownerId, factIds);
-  const revisionChanges = reconcileUnsupportedRevisions(
-    db,
-    ownerId,
-    revisionIds,
-  );
-  if (revisionIds.length > 0) {
-    db.prepare(
-      `UPDATE learning_revisions
-       SET target_key = '[redacted]', previous_value = NULL,
-           proposed_value = '', rationale = '[redacted]', updated_at = ?
-       WHERE owner_id = ? AND id IN (${placeholders(revisionIds)})
-         AND NOT EXISTS (
-           SELECT 1 FROM evidence_links l
-           WHERE l.owner_id = learning_revisions.owner_id
-             AND l.target_type = 'revision'
-             AND l.target_id = CAST(learning_revisions.id AS TEXT)
-         )`,
-    ).run(new Date().toISOString(), ownerId, ...revisionIds);
-  }
   const counts: ForgetCounts = {
     messagesRedacted,
     episodesForgotten,
     factsReconciled: Math.max(factsForgotten, factChanges, factIds.length),
-    revisionsReconciled: Math.max(revisionChanges, revisionIds.length),
+    revisionsReconciled: 0,
     stateReconciled,
     evidenceRemoved: Math.max(evidenceBefore, messageEvidenceRemoved),
     runsRedacted,

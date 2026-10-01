@@ -18,7 +18,6 @@ export const TARGETABLE_TABLES: Array<{
   { table: "motivations", idColumn: "id", ownerColumn: "owner_id", needsClassification: true },
   { table: "mind_state_items", idColumn: "id", ownerColumn: "owner_id", needsClassification: true },
   { table: "decision_log", idColumn: "id", ownerColumn: "owner_id", needsClassification: true },
-  { table: "learning_revisions", idColumn: "id", ownerColumn: "owner_id", needsClassification: true },
   { table: "initiative_reservations", idColumn: "id", ownerColumn: "owner_id", needsClassification: true },
   { table: "cognitive_jobs", idColumn: "id", ownerColumn: "owner_id", needsClassification: true },
   { table: "cognitive_runs", idColumn: "id", ownerColumn: "owner_id", needsClassification: true },

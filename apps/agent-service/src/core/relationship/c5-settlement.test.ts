@@ -9,7 +9,13 @@ import { admitOwnerCorrection } from "../memory/corrections.js";
 import { fanoutCorrection } from "../memory/fanout.js";
 import { insertMessage, resolveActiveThread } from "../memory/threads.js";
 import { recordIdentityEntry } from "../identity/store.js";
-import { listIdentityReviews, proposeRevision } from "../learning/revisions.js";
+import { openTestSidecar } from "../cognitive-v021/test-support.js";
+import { upsertMemoryAssertion } from "../cognitive-v021/memory/assertions.js";
+import {
+  evaluateRevisions, getRevision, listFoundationalReviews, proposeRevisions,
+  recordOwnerRevisionDecision, recordRevisionPositions, revertRevision,
+  revisableIdentityEntries,
+} from "../cognitive-v021/growth/revisions.js";
 import { defaultUnclassifiedConversational } from "../privacy/classification.js";
 import {
   currentBuildIdentity,
@@ -186,63 +192,68 @@ describe("C5 local settlement witness", () => {
     }
   });
 
-  it("recomputes shared culture when an owner-authorized Ashley Identity revision applies", () => {
-    const db = openNuclearDb(new DatabaseSync(":memory:"));
-    const previousMode = env.cognitionMode;
-    try {
-      env.cognitionMode = "apply";
-      const core = new AshleyCore(db);
-      const oldIdentityId = recordIdentityEntry(db, {
-        ownerId: OWNER,
-        layer: "stable",
-        kind: "value.honesty_over_comfort",
-        text: "Ashley values careful compiler work.",
-        source: "manual",
-      });
-      assertion(db, "owner_model", "Alex values careful compiler work.");
-      const before = recomputeSharedCulture(db, OWNER);
-      expect(before.sourceBindings.ashleyIdentityEntryIds).toContain(oldIdentityId);
-
-      const revisionId = proposeRevision(db, {
-        ownerId: OWNER,
-        targetLayer: "stable_identity",
-        targetKey: "value.honesty_over_comfort",
-        proposedValue: "Ashley values patient watercolor work.",
-        rationale: "Owner-authorized Identity review fixture.",
-        evidenceType: "message",
-        evidenceId: "message:identity-review",
-        provenance: "shadow",
-      });
-      const review = listIdentityReviews(db, OWNER).find((item) => item.revisionId === revisionId);
-      expect(review).toBeDefined();
-
-      expect(core.recordAshleyIdentityPosition({
-        ownerId: OWNER,
-        reviewId: review!.id,
-        position: "affirm",
-        rationale: "Ashley review evidence.",
-        evidenceType: "message",
-        evidenceId: "message:identity-review",
-      }).recorded).toBe(true);
-      expect(core.recordDocIdentityDecision({
-        ownerId: OWNER,
-        reviewId: review!.id,
-        decision: "approve",
-        rationale: "Owner approves the bounded revision.",
-      }).recorded).toBe(true);
-
-      const after = getCurrentSharedCulture(db, OWNER);
-      expect(after?.sourceBindings.ashleyIdentityEntryIds).toEqual([]);
-      expect(after?.sourceBindings.ownerAssertionIds).toEqual([]);
-      expect(relationshipProjectionDiagnostics(db, OWNER)).toMatchObject({
-        currentCount: 1,
-        historicalCount: 1,
-      });
-    } finally {
-      env.cognitionMode = previousMode;
-      db.close();
-    }
-  });
+  for (const reverting of [false, true]) {
+    it(reverting
+      ? "restores shared culture bindings when a foundational revision is reverted"
+      : "recomputes shared culture when an owner-authorized foundational revision applies", () => {
+      const db = openNuclearDb(new DatabaseSync(":memory:"));
+      const sidecar = openTestSidecar();
+      try {
+        const oldIdentityId = recordIdentityEntry(db, {
+          ownerId: OWNER, layer: "stable", kind: "value",
+          text: "Ashley values careful compiler work.", source: "manual",
+        });
+        assertion(db, "owner_model", "Alex values careful compiler work.");
+        // Both wordings overlap: the projection must replace the entry binding.
+        const text = "Ashley values careful compiler work!";
+        const before = recomputeSharedCulture(db, OWNER);
+        expect(before.sourceBindings.ashleyIdentityEntryIds).toContain(oldIdentityId);
+        const nowMs = Date.now();
+        upsertMemoryAssertion(sidecar, {
+          assertionKey: "self:c5", statement: "Patient debugging matters to me.",
+          memoryKind: "learned_self_evidence",
+          dimensions: { source: "ashley_interpretation", status: "interpreted", time: "current", reliability: "inferred" },
+          dataClassification: "ordinary", lineageParentKey: null, admittedGeneration: 1, live: true,
+        });
+        const proposed = proposeRevisions(sidecar, {
+          cycleId: "c5-proposal", identity: revisableIdentityEntries(db, OWNER), nowMs,
+          proposals: [{ layer: "value", revisesEntryId: oldIdentityId, text,
+            rationale: "Owner-authorized foundational review fixture.", evidenceRefs: ["self:c5"] }],
+        })[0];
+        expect(proposed?.outcome).toBe("proposed");
+        const revisionId = (proposed as { revisionId: number }).revisionId;
+        expect(recordRevisionPositions(sidecar, {
+          cycleId: "c5-affirm", positions: [{ revisionId, position: "affirm", rationale: "This wording is mine." }], nowMs: nowMs + 1,
+        })).toEqual([revisionId]);
+        expect(listFoundationalReviews(sidecar)).toEqual(expect.arrayContaining([
+          expect.objectContaining({ id: revisionId, proposedValue: text, ashleyPosition: "affirm" }),
+        ]));
+        expect(recordOwnerRevisionDecision(sidecar, { revisionId, decision: "approve", nowMs: nowMs + 2 })).toBe(true);
+        const store = { nuclear: db, ownerId: OWNER };
+        expect(evaluateRevisions(sidecar, store, nowMs + 2).applied).toEqual([revisionId]);
+        const newIdentityId = getRevision(sidecar, revisionId)!.appliedEntryId!;
+        if (reverting) {
+          // Establish the post-apply projection independently to isolate revert.
+          recomputeSharedCulture(db, OWNER);
+          expect(getCurrentSharedCulture(db, OWNER)?.sourceBindings.ashleyIdentityEntryIds).toContain(newIdentityId);
+          expect(revertRevision(sidecar, store, revisionId, nowMs + 3)).toBe(true);
+          const after = getCurrentSharedCulture(db, OWNER)!;
+          expect(after.sourceBindings.ashleyIdentityEntryIds).not.toContain(newIdentityId);
+          expect(after.sourceBindings.ashleyIdentityEntryIds).toContain(oldIdentityId);
+        } else {
+          const after = getCurrentSharedCulture(db, OWNER)!;
+          expect(after.sourceBindings.ashleyIdentityEntryIds).not.toContain(oldIdentityId);
+          expect(after.sourceBindings.ashleyIdentityEntryIds).toContain(newIdentityId);
+        }
+        expect(relationshipProjectionDiagnostics(db, OWNER)).toMatchObject({
+          currentCount: 1, historicalCount: reverting ? 2 : 1,
+        });
+      } finally {
+        sidecar.close();
+        db.close();
+      }
+    });
+  }
 
   it("proves bounded proposal, bilateral decision, reminder motivation, repair separation, withdrawal, and correction", () => {
     const db = openNuclearDb(new DatabaseSync(":memory:"));
