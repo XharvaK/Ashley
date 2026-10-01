@@ -14,6 +14,23 @@ async function api() {
   return import("./senses.js");
 }
 describe("A3c senses", () => {
+  it.each([`ghp_${"a".repeat(36)}`, "AKIA1234567890ABCDEF"])("withholds credential-shaped decline rationale (%s)", async rationale => {
+    const { recordSenseDeclines } = await api(); const db = openTestSidecar();
+    try {
+      recordSenseDeclines(db, { decline: [{ sense: "friction", rationale }] }, { nowMs: T, conversationId: "t" });
+      const row = db.prepare("SELECT * FROM sense_declines").get()!;
+      expect(row.rationale).toBe("withheld:secret");
+      expect(JSON.stringify(row)).not.toContain(rationale);
+    } finally { db.close(); }
+  });
+  it("preserves ordinary decline rationale", async () => {
+    const { recordSenseDeclines } = await api(); const db = openTestSidecar();
+    try {
+      const rationale = "we discussed API key rotation";
+      recordSenseDeclines(db, { decline: [{ sense: "friction", rationale }] }, { nowMs: T, conversationId: "t" });
+      expect(db.prepare("SELECT rationale FROM sense_declines").get()!.rationale).toBe(rationale);
+    } finally { db.close(); }
+  });
   it("crosses fixed bands at boundaries", async () => {
     const { senseBand } = await api();
     expect([0, 1, 3, 10].map(n => senseBand("friction", n))).toEqual(["none", "low", "moderate", "high"]);

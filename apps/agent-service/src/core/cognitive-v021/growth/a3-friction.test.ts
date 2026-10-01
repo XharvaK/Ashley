@@ -6,6 +6,7 @@ import { isValidGrowthClaim } from "./claim.js";
 import { recordGrowth, growthForThought } from "./growth.js";
 import { recordExpectations, checkExpectations } from "./expectations.js";
 import { putInFlight, markInFlightUnknown, recordEffectReceipt } from "../effect/in-flight.js";
+import { recordFriction } from "./friction.js";
 const T = 1000000;
 function ready(db: ReturnType<typeof openTestSidecar>) {
   expect(db.prepare("SELECT name FROM sqlite_master WHERE name = 'friction_events'").get(), "friction ledger exists").toBeDefined();
@@ -22,6 +23,17 @@ describe("A3a friction", () => {
       }
       ready(db);
       expect(db.prepare("PRAGMA table_info(friction_events)").all().map(r => r.name)).toContain("subject_id");
+    } finally { db.close(); }
+  });
+  it.each([
+    [`ghp_${"a".repeat(36)}`, null],
+    [`${"x".repeat(300)} ghp_${"a".repeat(36)}`, null],
+    ["we discussed API key rotation", "we discussed API key rotation"],
+  ])("stores ordinary-classified note safely (%s)", (note, expected) => {
+    const db = openTestSidecar();
+    try {
+      recordFriction(db, { kind: "self_reported", nowMs: T, dataClassification: "ordinary", note });
+      expect(db.prepare("SELECT note FROM friction_events").get()!.note).toBe(expected);
     } finally { db.close(); }
   });
   it("unknown transitions and later receipts deduplicate by effect", () => {

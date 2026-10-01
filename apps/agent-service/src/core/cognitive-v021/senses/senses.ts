@@ -1,5 +1,6 @@
 // A sense states the truth at proportionate volume and then stops; a reasoned no quiets it.
 import { join } from "node:path";
+import { detectCredentialShape } from "../../privacy/secrets.js";
 import type { DatabaseSync } from "node:sqlite";
 import { readBackupStatus } from "../../../scripts/backup-lib.js";
 import { frictionForThought, FRICTION_KINDS } from "../growth/friction.js";
@@ -82,7 +83,7 @@ export function recordSenseDeclines(db: DatabaseSync, claim: SenseClaim, options
     const until = Math.min(options.nowMs + DECLINE_MAX_MS, decline.untilMs ?? Infinity);
     db.prepare(`INSERT INTO sense_declines (sense, rationale, declined_band, declined_at_ms, until_ms, reraised_at_ms)
       VALUES (?, ?, ?, ?, ?, NULL) ON CONFLICT(sense) DO UPDATE SET rationale = excluded.rationale, declined_band = excluded.declined_band, declined_at_ms = excluded.declined_at_ms, until_ms = excluded.until_ms, reraised_at_ms = NULL`)
-      .run(decline.sense, decline.rationale, band, options.nowMs, until);
+      .run(decline.sense, detectCredentialShape(decline.rationale).hit ? "withheld:secret" : decline.rationale, band, options.nowMs, until);
   }
 }
 export function isValidSenseClaim(value: unknown): value is SenseClaim {
