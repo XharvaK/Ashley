@@ -27,3 +27,11 @@ describe("identity command", () => {
     ].join("\n"));
   });
 });
+
+describe("A3b practice view", () => {
+  it("renders earned practices with revision identifiers for reversion", async () => {
+    const identity = await import("./identity.js") as any;
+    assert.equal(typeof identity.renderPractices, "function", "practice renderer exists");
+    assert.match(identity.renderPractices([{ revisionId: 8, text: "Check evidence", heldSinceMs: 1 }]), /#8.*Check evidence/);
+  });
+});

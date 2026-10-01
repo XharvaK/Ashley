@@ -12,6 +12,7 @@ import {
   isOwner,
   ownerIngressRouteForMessage,
 } from "./security/gate.js";
+import { handlePracticeRevert } from "./commands/identity.js";
 import { handleSlash } from "./handlers/interactionCreate.js";
 import { handleMessage } from "./handlers/messageCreate.js";
 import { handleReaction } from "./handlers/reactionAdd.js";
@@ -56,7 +57,9 @@ export function createClient(): Client {
   });
 
   client.on(Events.InteractionCreate, (interaction) => {
-    if (interaction.isChatInputCommand()) {
+    if (interaction.isButton() && interaction.customId.startsWith("practice-revert:")) {
+      void handlePracticeRevert(interaction).catch(error => console.error("[discord-bot] practice revert failed", error));
+    } else if (interaction.isChatInputCommand()) {
       void handleSlash(interaction);
     }
   });

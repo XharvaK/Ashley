@@ -627,3 +627,30 @@ describe("route surface registry", () => {
     }
   });
 });
+
+describe("A3b practice owner routes", () => {
+  it("rejects a non-owner practice view", async () => {
+    const previousOwner = env.discordOwnerId; env.discordOwnerId = "a3-owner";
+    const manager = { core: {} } as unknown as AgentManager;
+    const { server, url } = await startTestServer(createServer(manager));
+    try { expect((await fetch(`${url}/growth/practices?owner_id=not-the-owner`)).status).toBe(403); }
+    finally { await stopTestServer(server); env.discordOwnerId = previousOwner; }
+  });
+  it("views practices and reuses the existing revert route", async () => {
+    const { REVISION_LAYERS } = await import("./core/cognitive-v021/growth/revisions.js");
+    expect(REVISION_LAYERS, "practice layer supported").toContain("practice");
+    const previousOwner = env.discordOwnerId; env.discordOwnerId = "a3-owner";
+    const sidecar = openTestSidecar();
+    const nuclear = openNuclearDb(new DatabaseSync(":memory:"));
+    const manager = { core: { getDatabase: () => nuclear } } as unknown as AgentManager;
+    const { server, url } = await startTestServer(createServer(manager, { cognitiveSidecar: sidecar }));
+    try {
+      const inserted = sidecar.prepare("INSERT INTO growth_revisions (layer, target_key, proposed_text, status, proposed_cycle_id, data_classification, created_at_ms, updated_at_ms, applied_at_ms) VALUES ('practice', 'practice:test', 'Check before answering', 'applied', 'c', 'ordinary', 1, 1, 1)").run();
+      const revisionId = Number(inserted.lastInsertRowid);
+      expect((await fetch(`${url}/growth/practices?owner_id=${env.discordOwnerId}`)).status).toBe(200);
+      const reverted = await fetch(`${url}/growth/revisions/revert`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ userId: env.discordOwnerId, revisionId }) });
+      expect(await reverted.json()).toEqual({ reverted: true });
+      expect(await (await fetch(`${url}/growth/practices?owner_id=${env.discordOwnerId}`)).json()).toEqual({ practices: [] });
+    } finally { await stopTestServer(server); sidecar.close(); nuclear.close(); env.discordOwnerId = previousOwner; }
+  });
+});

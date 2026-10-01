@@ -1,3 +1,4 @@
+import { frictionForThought, recordFriction } from "./friction.js";
 import type { DatabaseSync } from "node:sqlite";
 import type { DataClassification } from "../../privacy/classification.js";
 import type { GrowthClaim } from "./claim.js";
@@ -17,6 +18,7 @@ import {
   evaluateRevisions,
   isFoundationalLayer,
   listCurrentOpinions,
+  listCurrentPractices,
   listOpenRevisions,
   proposeRevisions,
   recordRevisionPositions,
@@ -37,6 +39,8 @@ import {
 export type IdentityStore = { nuclear: DatabaseSync; ownerId: string };
 
 export type ThoughtGrowth = {
+  friction: ReturnType<typeof frictionForThought>;
+  practices?: Array<{ revisionId: number; text: string; heldSinceMs: number }>;
   /** How she feels right now; an input to weigh, never a script to act out. */
   mood: MoodVector & { baseline: MoodVector; reason?: string; lastAppraisalAtMs?: number };
   /** Her current identity entries that a revision may target, by entry id. */
@@ -71,6 +75,7 @@ export type ThoughtGrowth = {
 
 function needsFor(layer: RevisionLayer): string {
   if (isFoundationalLayer(layer)) return "your affirmation in a later pass and the Owner's approval";
+  if (layer === "practice") return "2 independent origins, or 1 origin and your affirmation in a later pass";
   const threshold = REVISION_THRESHOLDS[layer];
   const days = Math.round(threshold.spanMs / 86_400_000);
   const passes = threshold.passes > 1 ? `, proposed in ${threshold.passes} separate passes over ${days} days` : "";
@@ -119,6 +124,8 @@ export function growthForThought(db: DatabaseSync, identityStore: IdentityStore 
   const becoming = latestNarrative(db);
   const [diary] = listDiary(db, 1);
   return {
+    friction: frictionForThought(db, nowMs),
+    practices: listCurrentPractices(db).map(revision => ({ revisionId: revision.revisionId, text: revision.proposedText, heldSinceMs: revision.appliedAtMs ?? revision.updatedAtMs })),
     mood: {
       valence: mood.valence,
       energy: mood.energy,
@@ -164,6 +171,9 @@ export function recordGrowth(
   },
 ): GrowthRecordResult {
   const { claim, nowMs } = input;
+  for (const [index, friction] of (claim?.friction ?? []).slice(0, 2).entries()) {
+    recordFriction(db, { frictionId: `thought-friction:${input.cycleId}:${index}`, kind: friction.kind, refs: friction.refs, note: friction.note, cycleId: input.cycleId, nowMs, dataClassification: input.dataClassification });
+  }
   expireStaleExpectations(db, nowMs);
   const checked = claim?.expectationChecks
     ? checkExpectations(db, { cycleId: input.cycleId, checks: claim.expectationChecks, nowMs })

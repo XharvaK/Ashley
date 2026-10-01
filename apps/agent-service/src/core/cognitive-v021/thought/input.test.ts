@@ -970,3 +970,16 @@ describe("E2a conversation recency loss honesty", () => {
   });
 });
 
+
+describe("A3c private senses input", () => {
+  it("includes the block only on Owner-private passes", () => {
+    const db = openTestSidecar();
+    try {
+      const cycle = admitTestCycle(db, { conversationId: "t", triggerKind: "owner_message", triggerRef: "e", occupantId: "doc", nowMs: 1 });
+      const senses = { lines: ["backup: unknown"] };
+      expect((makeInput(db, cycle, { senses, audience: { kind: "owner_private" } } as any) as any).senses).toEqual(senses);
+      expect(makeInput(db, cycle, { senses, audience: { kind: "dm", principalId: "contact" } } as any)).not.toHaveProperty("senses");
+      expect(makeInput(db, cycle, { senses, audience: { kind: "room", roomId: "room" } } as any)).not.toHaveProperty("senses");
+    } finally { db.close(); }
+  });
+});

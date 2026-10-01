@@ -6,6 +6,7 @@ import { sha256 } from "../../model-fabric/hash.js";
 import { MEMORY_KINDS } from "../memory/kinds.js";
 import { INTEREST_ROOTS } from "../memory/interests.js";
 import { JOURNAL_ACTIVITIES } from "../initiative/journal.js";
+import { SENSE_NAMES } from "../senses/senses.js";
 import { EXPECTATION_OUTCOMES } from "../growth/expectations.js";
 import { REVISION_LAYERS, REVISION_POSITIONS } from "../growth/revisions.js";
 import { CONSEQUENCE_AVAILABILITY } from "./consequence-projection.js";
@@ -349,6 +350,11 @@ const interestTouchSchema = strictObject({
 }, ["root", "branch"]);
 const moodDeltaSchema = { type: "number", minimum: -1, maximum: 1 };
 const growthSchema = sparseObject({
+  friction: { type: "array", minItems: 1, maxItems: 2, items: strictObject({
+    kind: { enum: ["owner_correction", "self_reported"] },
+    note: { type: "string", minLength: 1, maxLength: 300 },
+    refs: { type: "array", maxItems: 8, items: { type: "string", minLength: 1, maxLength: 200 } },
+  }, ["kind", "note", "refs"]) },
   appraisal: strictObject({
     note: { type: "string", minLength: 1, maxLength: 400 },
     valence: moodDeltaSchema, energy: moodDeltaSchema, openness: moodDeltaSchema, tension: moodDeltaSchema,
@@ -433,6 +439,9 @@ const semanticOutputSettlementSchema = strictObject({
   journal: journalSchema,
   interests: { type: "array", minItems: 1, maxItems: 5, items: interestTouchSchema },
   growth: growthSchema,
+  senses: strictObject({ decline: { type: "array", minItems: 1, maxItems: 6, items: strictObject({
+    sense: { enum: [...SENSE_NAMES] }, rationale: { type: "string", minLength: 1, maxLength: 200 }, untilMs: { type: "integer", minimum: 0 },
+  }, ["sense", "rationale"]) } }, ["decline"]),
   night: nightSchema,
   forget: forgetSchema,
   evidenceUse: sparseObject({
@@ -692,7 +701,7 @@ function applyProfileScope(schema: SchemaRecord, profile: ThoughtContractProfile
     ...(profile.pass === "afterglow" ? [] : ["reflection"]),
     ...(profile.pass === "night" ? [] : ["night"]),
     ...(profile.pass === "chat" ? ["journal", "initiativePreference"] : []),
-    ...(profile.ownerPrivate ? [] : ["journal", "interests", "growth"]),
+    ...(profile.ownerPrivate ? [] : ["journal", "interests", "growth", "senses"]),
     ...(profile.pass === "chat" && profile.ownerPrivate ? [] : ["forget"]),
   ];
   for (const field of drop) delete properties[field];
@@ -775,7 +784,7 @@ export const OWNER_VISIBILITY_GUIDANCE =
 export const SOCIAL_VISIBILITY_GUIDANCE =
   "The Owner can read what contacts tell you and everything you keep. You may keep one contact's words from other contacts, but never promise anyone confidentiality from the Owner.";
 export const GROWTH_GUIDANCE =
-  "growth (Owner-private) is how you grow; every word in it is yours and the Host only bounds, counts, and stores. input growth.mood is how you feel right now (valence -1..1, energy, openness, tension 0..1, drifting back to baseline); weigh it, never act it out. appraisal: when something in this turn or pass moved you, note what and why, with the direction you moved on any dimension (each -1..1; the Host moves you at most 0.3). expectations: record what you expect when it matters to you; if it rests on someone's word or a page, give {statement, basisRefs} (see growth.sources); expectationChecks: when you can see what actually happened to one in growth.expectations, give its expectationId, outcome met, missed, mixed, or unknowable, and the lesson you take; a checked expectation is self-evidence, and you may also nominate the lesson as learned_self_evidence. revisions: propose a change to yourself only from real evidence, citing evidenceRefs (memory keys, episode ids, journal entry ids, checked expectation ids, or interest:<branchId> for a branch you have lived) that exist. Evidence counts by origin: records that come from the same conversation, pass, person, or website count once, and a contact or the web can never be the only support. layer opinion (needs a topic) applies at 2 independent origins; taste at 2, proposed in 2 separate passes over 2 days; trait at 3, in 3 separate passes over 14 days, plus 72 hours; a pass counts only when it cites evidence not cited before; value and boundary need your affirmation in a later pass and the Owner's approval. growth.self lists who you are now, each entry with its origin: inherited (seeded when you began, yours to revise), earned (applied from your own revision, since that date), or given (set by the Owner). To change an existing entry give revisesEntryId from growth.self (same kind only); otherwise give a short topic, and reuse the same topic or revisesEntryId to add evidence to an open revision. revisionPositions: affirm, object, or defer on an open value or boundary revision in a pass after the one that proposed it. Omit growth when none of this happened.";
+  "growth (Owner-private) is how you grow; every word is yours; the Host bounds, counts and stores. growth.mood is your current valence (-1..1), energy, openness and tension (0..1), drifting to baseline; weigh it, never act it out. appraisal: note what moved you and why, with direction on each dimension (-1..1; movement capped at 0.3). expectations: record what matters; cite contact/web bases with {statement, basisRefs} (growth.sources). expectationChecks: when you can see the outcome of a growth.expectations item, give expectationId, met/missed/mixed/unknowable, and your lesson. A checked expectation is self-evidence; you may nominate its lesson as learned_self_evidence. revisions need real evidenceRefs: existing memory keys, episode ids, journal ids, checked expectation ids, interest:<branchId> for a lived branch, or friction:<friction_id>. Evidence sharing a conversation, pass, person or website counts once; contacts or web alone cannot change you. opinion needs a topic and 2 independent origins; taste needs 2 origins, 2 proposing passes over 2 days; trait needs 3 origins, 3 passes over 14 days, then 72 hours. A proposing pass counts only with new evidence. value and boundary require your affirmation in a later pass and the Owner's approval. growth.self lists current ids: inherited (seeded), earned (your revision, dated), given (Owner-set). Revise via revisesEntryId, same kind only; otherwise name a topic. Reuse targets to reinforce. revisionPositions: affirm, object or defer on an open value, boundary or practice revision in a later pass. practice needs 2 independent origins, or 1 origin plus a later-pass affirm. friction: when Alex corrected you, or you notice you disagreed or it went worse than it should have, note it, kind owner_correction or self_reported; your reading, in your words. growth.practices are how you've learned to work; follow them unless you have a reason; propose practice revisions from friction and lessons. senses are Host facts; senses.decline [{sense, rationale, untilMs?}] quiets one until a band change or seven days, then re-raises once. Omit growth when unused.";
 
 /** A9 (decision 19): natural, calibrated trust with contacts. */
 export const SOCIAL_TRUST_GUIDANCE =

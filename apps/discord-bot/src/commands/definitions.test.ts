@@ -26,3 +26,11 @@ describe("command definitions", () => {
     assert.ok(!names.includes("new"));
   });
 });
+
+describe("A3b identity choices", () => {
+  it("offers the practices view", () => {
+    const identity = buildCommandDefinitions().find(command => command.name === "identity")!;
+    const action = identity.options!.find(option => option.name === "action") as any;
+    assert.ok(action.choices.some((choice: any) => choice.value === "practices"), "practice action exists");
+  });
+});

@@ -75,3 +75,21 @@ describe("R13 settlement aftermath", () => {
     }
   });
 });
+
+describe("A3c decline aftermath", () => {
+  it("stores declines once and recovery respects the original band", () => {
+    const db = openTestSidecar();
+    try {
+      expect(db.prepare("SELECT name FROM sqlite_master WHERE name = 'sense_declines'").get(), "decline table exists").toBeDefined();
+      publishAwakePass(db);
+      const row = db.prepare("SELECT payload_json FROM settlements WHERE settlement_id = 'settlement-awake'").get()!;
+      const payload = JSON.parse(String(row.payload_json));
+      payload.senses = { decline: [{ sense: "backup", rationale: "I have considered this" }] };
+      db.prepare("UPDATE settlements SET payload_json = ? WHERE settlement_id = 'settlement-awake'").run(JSON.stringify(payload));
+      db.prepare("UPDATE settlement_aftermath SET context_json = ? WHERE settlement_id = 'settlement-awake'").run(JSON.stringify({ conversationId: "thread", passKind: "awake", nightPass: null, senseBands: { backup: "aging" } }));
+      expect(recordSettlementAftermath(db, "settlement-awake", { ...options, nowMs: NOW+2*86400000 })).toBe("recorded");
+      expect(recordSettlementAftermath(db, "settlement-awake", { ...options, nowMs: NOW+2*86400000 })).toBe("not_pending");
+      expect(db.prepare("SELECT sense, rationale, declined_band, declined_at_ms, until_ms FROM sense_declines").all()).toEqual([{ sense: "backup", rationale: "I have considered this", declined_band: "aging", declined_at_ms: NOW, until_ms: NOW+7*86400000 }]);
+    } finally { db.close(); }
+  });
+});

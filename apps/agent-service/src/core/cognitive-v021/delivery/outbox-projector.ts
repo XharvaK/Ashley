@@ -1,3 +1,4 @@
+import { recordHostFriction } from "../growth/friction.js";
 import type { DatabaseSync } from "node:sqlite";
 import { planContentBubbles } from "../../delivery/bubble-plan.js";
 import {
@@ -205,6 +206,10 @@ function markTerminalFromDestination(
       updateSystemReconciliation(sidecar, row, terminal.status, assessment, reservationId);
     } else {
       updateInterimReconciliation(sidecar, row, terminal.status, assessment, reservationId);
+    }
+    if (terminal.status === "send_failure" || terminal.status === "partially_delivered") {
+      const subject = "outboxId" in row ? `speech:${row.outboxId}` : "noticeId" in row ? `notice:${row.noticeId}` : `interim:${row.interimId}`;
+      recordHostFriction(sidecar, "delivery_failed", subject, Date.now(), row.cycleId);
     }
   } else if (state === "sending") {
     if ("outboxId" in row) {

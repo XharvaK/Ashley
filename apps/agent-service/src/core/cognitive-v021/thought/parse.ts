@@ -46,6 +46,7 @@ import { parseSourceSupportRef, parseWorkingContextInterpretationDraft } from ".
 import { isConcernObjectiveFacet } from "../concerns/objective.js";
 import { isInterestRoot } from "../memory/interests.js";
 import { isJournalActivity } from "../initiative/journal.js";
+import { isValidSenseClaim } from "../senses/senses.js";
 import { isValidGrowthClaim, isValidNightClaim } from "../growth/claim.js";
 
 export type ThoughtSemanticParseFailureCode =
@@ -868,7 +869,7 @@ function validInterests(value: unknown): boolean {
 function parseSettlementSemantic(value: SemanticRecord, allowlist: ReadonlySet<string>): ThoughtSemanticParseResult {
   const unknown = Object.keys(value).find((key) => ![
     "kind", "interactionIntent", "speech", "initiativePreference", "interpretation", "commitments", "workingContextDeltas", "deskDeltas", "concernDeltas",
-    "occupancyDeltas", "futureTriggerDeltas", "subscriptionDeltas", "durableNominations", "reflection", "journal", "interests", "growth", "night", "forget", "evidenceUse",
+    "occupancyDeltas", "futureTriggerDeltas", "subscriptionDeltas", "durableNominations", "reflection", "journal", "interests", "growth", "senses", "night", "forget", "evidenceUse",
   ].includes(key));
   if (unknown) return semanticFailure("unknown_field", unknown);
   if (value.kind !== "settlement") return semanticFailure("wrong_kind", "kind");
@@ -919,6 +920,7 @@ function parseSettlementSemantic(value: SemanticRecord, allowlist: ReadonlySet<s
   if (own(value, "interests") && !validInterests(value.interests)) {
     return semanticFailure("wrong_type", "interests");
   }
+  if (own(value, "senses") && !isValidSenseClaim(value.senses)) return semanticFailure("wrong_type", "senses");
   if (own(value, "growth") && !isValidGrowthClaim(value.growth)) {
     return semanticFailure("wrong_type", "growth");
   }

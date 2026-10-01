@@ -2,6 +2,7 @@ import type { DatabaseSync } from "node:sqlite";
 import { recordJournalEntry, type JournalClaim, type JournalPassKind } from "../initiative/journal.js";
 import type { NightPass } from "../initiative/inner-pass.js";
 import { recordInterestTouches, type InterestTouch } from "../memory/interests.js";
+import { recordSenseDeclines, type SenseClaim, type SenseName } from "../senses/senses.js";
 import { recordGrowth, type IdentityStore } from "../growth/growth.js";
 import type { GrowthClaim } from "../growth/claim.js";
 import { recordNight, type NightClaim } from "../growth/night.js";
@@ -18,10 +19,12 @@ export type AftermathContext = {
   /** Set for private passes: the journal entry to record. */
   passKind: JournalPassKind | null;
   nightPass: NightPass | null;
+  senseBands?: Partial<Record<SenseName, string>>;
 };
 
 export type AftermathOptions = {
   identityStore: IdentityStore | null;
+  dataDir?: string;
   timeZone: string;
   nowMs: number;
 };
@@ -33,6 +36,7 @@ type StoredSettlement = {
   interests?: InterestTouch[];
   journal?: JournalClaim;
   growth?: GrowthClaim;
+  senses?: SenseClaim;
   night?: NightClaim;
 };
 
@@ -65,7 +69,7 @@ export function recordSettlementAftermath(
   db.exec("BEGIN IMMEDIATE");
   try {
     const pending = db.prepare(
-      `SELECT a.cycle_id, a.context_json, s.payload_json,
+      `SELECT a.cycle_id, a.context_json, a.created_at_ms, s.payload_json,
               EXISTS (SELECT 1 FROM speech_outbox o WHERE o.settlement_id = a.settlement_id) AS queued_speech
          FROM settlement_aftermath a JOIN settlements s ON s.settlement_id = a.settlement_id
         WHERE a.settlement_id = ? AND a.status = 'pending'`,
@@ -93,6 +97,7 @@ export function recordSettlementAftermath(
         nowMs: options.nowMs,
       });
     }
+    if (standing && settlement.senses) recordSenseDeclines(db, settlement.senses, { nowMs: Number(pending.created_at_ms), conversationId: context.conversationId, dataDir: options.dataDir }, context.senseBands);
     recordGrowth(db, {
       cycleId,
       ...(standing && settlement.growth ? { claim: settlement.growth } : {}),

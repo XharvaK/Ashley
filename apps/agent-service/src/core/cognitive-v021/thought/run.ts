@@ -179,6 +179,7 @@ import {
   type ThoughtPendingForget,
 } from "../memory/semantic-forget.js";
 import { isUnsolicitedTriggerKind, unsolicitedFuseTripped } from "../initiative/reach-out.js";
+import { readSenseFacts, senseBandsForDeclines, sensesForThought } from "../senses/senses.js";
 import { growthForThought, type IdentityStore } from "../growth/growth.js";
 import { buildNightAgenda } from "../growth/night.js";
 import { DEFAULT_OWNER_TIME_ZONE } from "./clock.js";
@@ -1423,6 +1424,7 @@ function materializeSemanticSettlement(
   if (semantic.journal) result.journal = { ...semantic.journal };
   if (semantic.interests) result.interests = semantic.interests.map((touch) => ({ ...touch }));
   if (semantic.growth) result.growth = structuredClone(semantic.growth);
+  if (semantic.senses) result.senses = structuredClone(semantic.senses);
   if (semantic.night) result.night = structuredClone(semantic.night);
   if (semantic.forget) result.forget = structuredClone(semantic.forget);
   return result as ThoughtSettlementDraft;
@@ -3291,6 +3293,9 @@ export async function runCognitiveCycle(
     const queryVector = deps.embedQuery && typeof ownerMessage === "string" && ownerMessage.trim()
       ? await deps.embedQuery(ownerMessage).catch(() => null)
       : null;
+    const senseOptions = { nowMs: deps.nowMs(), conversationId: cycle.conversationId, dataDir: deps.dataDir };
+    const sensedFacts = effectiveThoughtAudience.kind === "owner_private" && !externalCycle ? readSenseFacts(sidecar, senseOptions) : [];
+    const senseBands = senseBandsForDeclines(sensedFacts);
     const thoughtInputOptions = {
       sidecar,
       cycle,
@@ -3317,7 +3322,7 @@ export async function runCognitiveCycle(
         },
       } : {}),
       ...(effectiveThoughtAudience.kind === "owner_private" && !externalCycle
-        ? { growth: growthForThought(sidecar, identityStoreFor(nuclear, deps), deps.nowMs()) }
+        ? { growth: growthForThought(sidecar, identityStoreFor(nuclear, deps), deps.nowMs()), senses: sensesForThought(sidecar, senseOptions, sensedFacts) }
         : {}),
       ...pendingForgetInput(sidecar, cycle.conversationId, {
         ownerTurn: effectiveThoughtAudience.kind === "owner_private" && !externalCycle
@@ -4501,6 +4506,7 @@ export async function runCognitiveCycle(
               ? cycle.triggerKind === "future_trigger_due" ? "future_trigger" : "private"
               : null,
           nightPass: nightPass ?? null,
+          senseBands,
         }
       : null;
     const publication = publishSemanticTransaction(sidecar, settlement, {
@@ -4646,6 +4652,7 @@ export async function runCognitiveCycle(
         recordSettlementAftermath(sidecar, publication.settlementId, {
           identityStore: identityStoreFor(nuclear, deps),
           timeZone: env.ownerTimeZone || DEFAULT_OWNER_TIME_ZONE,
+          dataDir: deps.dataDir,
           nowMs: deps.nowMs(),
         });
       } catch (error) {
