@@ -7,8 +7,16 @@ describe("cognitive sidecar Schema V31 typed support refs", () => {
   it("adds nullable memory support refs and additive JSON arrays to concerns and desk entries", () => {
     const db = openTestSidecar();
     try {
-      db.exec("CREATE TABLE learned_influences (id INTEGER PRIMARY KEY, kind TEXT NOT NULL)");
-      db.prepare("INSERT INTO learned_influences (id, kind) VALUES (1, ?)").run("interest");
+      // Preserve a real typed influence fixture while rewinding unrelated v31 support columns.
+      const influenceDDL = String(db.prepare("SELECT sql FROM sqlite_master WHERE name='learned_influences'").get()!.sql);
+      const insertInfluence = () => db.exec(`INSERT INTO learned_influences
+        (id,entity_uuid,owner_id,kind,subject_facet,semantic_owner,semantic_owner_ref,lineage_kind,
+         influence_class,text,content_hash,proposal_lifecycle,adjudication_state,provenance,
+         capability_mode_at_write,data_classification,classification_source,created_at,updated_at)
+        VALUES(1,'fixture:influence','fixture:owner','interest','ashley_side','memory_evidence',
+         'interest:fixture','ashley_native','I1','Fixture interest','sha256:fixture',
+         'proposed','pending','shadow','observe','never_public','copied','fixture','fixture')`);
+      insertInfluence();
       const learnedInfluenceCountBefore = (db.prepare("SELECT COUNT(*) AS count FROM learned_influences").get() as { count: number }).count;
       db.prepare(
         `INSERT INTO sidecar_memory_supports
@@ -33,6 +41,8 @@ describe("cognitive sidecar Schema V31 typed support refs", () => {
             '{"kind":"owner_private"}', 'active', NULL, 'cycle:legacy-v30', 1, 1, 1)`,
       ).run();
       setTestSidecarVersion(db, 30);
+      db.exec(influenceDDL);
+      insertInfluence();
 
       openCognitiveSidecarDb(db, { dataPlane: { kind: "isolated" } });
       const columnNames = (table: string) => (db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>).map((column) => column.name);
@@ -43,10 +53,10 @@ describe("cognitive sidecar Schema V31 typed support refs", () => {
       expect((db.prepare("SELECT COUNT(*) AS count FROM learned_influences").get() as { count: number }).count)
         .toBe(learnedInfluenceCountBefore);
 
-      expect(COGNITIVE_SIDECAR_SCHEMA_VERSION).toBe(50);
-      expect(db.prepare("PRAGMA user_version").get()).toMatchObject({ user_version: 50 });
+      expect(COGNITIVE_SIDECAR_SCHEMA_VERSION).toBe(51);
+      expect(db.prepare("PRAGMA user_version").get()).toMatchObject({ user_version: 51 });
       expect(db.prepare("SELECT schema_version FROM cognitive_sidecar_meta WHERE id = 1").get())
-        .toMatchObject({ schema_version: 50 });
+        .toMatchObject({ schema_version: 51 });
       expect(db.prepare("SELECT support_ref_json FROM sidecar_memory_supports WHERE support_id = 'support:legacy-v30'").get())
         .toEqual({ support_ref_json: null });
       expect(db.prepare("SELECT source_refs_json, support_refs_json FROM concerns WHERE concern_id = 'concern:legacy-v30'").get())

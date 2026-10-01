@@ -15,6 +15,9 @@ export function openTestSidecar(): DatabaseSync {
 /** Rewind an in-memory current sidecar to a structurally valid historical fixture version. */
 export function setTestSidecarVersion(db: DatabaseSync, version: number): void {
   if (!Number.isSafeInteger(version) || version < 0) throw new Error("test_sidecar_version_invalid");
+  if (version < 51) {
+    for (const table of ["learned_choice_receipts", "learned_influence_evidence", "learned_influences", "interest_touches", "influence_contract_state"]) db.exec(`DROP TABLE IF EXISTS ${table}`);
+  }
   if (version < 50) {
     for (const table of ["graduation_recorder_keys", "graduation_calibration", "graduation_adjudications", "graduation_observations", "graduation_contract_state"]) db.exec(`DROP TABLE IF EXISTS ${table}`);
     const columns = new Set(db.prepare("PRAGMA table_info(expectations)").all().map(row => row.name));

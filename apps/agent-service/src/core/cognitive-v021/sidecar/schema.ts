@@ -1810,3 +1810,137 @@ ALTER TABLE sense_declines ADD COLUMN data_classification TEXT NOT NULL DEFAULT 
   CHECK (data_classification IN ('ordinary', 'sensitive', 'never_public', 'secret'));
 UPDATE cognitive_sidecar_meta SET schema_version = 49 WHERE id = 1;
 `;
+
+/** Interests she keeps returning to may become influences; the Host counts returns, Thought decides. */
+export const COGNITIVE_SIDECAR_SCHEMA_V51 = String.raw`
+CREATE TABLE IF NOT EXISTS learned_influences (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  entity_uuid TEXT NOT NULL UNIQUE,
+  owner_id TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('interest')),
+  subject_facet TEXT NOT NULL CHECK (subject_facet IN (
+    'owner_model', 'external_verifiable', 'ashley_side', 'unknown'
+  )),
+  semantic_owner TEXT NOT NULL CHECK (semantic_owner IN (
+    'memory_evidence', 'identity', 'mind_state', 'thought', 'agency'
+  )),
+  semantic_owner_ref TEXT NOT NULL,
+  lineage_kind TEXT NOT NULL CHECK (lineage_kind IN (
+    'unknown', 'explicit_seed', 'owner_designated', 'observed_overlap',
+    'ashley_native'
+  )),
+  influence_class TEXT NOT NULL CHECK (influence_class IN ('I0', 'I1', 'I2', 'I3')),
+  text TEXT NOT NULL,
+  content_hash TEXT NOT NULL,
+  proposal_lifecycle TEXT NOT NULL CHECK (proposal_lifecycle IN (
+    'proposed', 'admitted_to_review', 'withdrawn', 'expired_as_proposal'
+  )),
+  adjudication_state TEXT NOT NULL CHECK (adjudication_state IN (
+    'pending', 'accepted', 'declined'
+  )),
+  adjudicator TEXT CHECK (adjudicator IS NULL OR adjudicator IN (
+    'thought', 'natural_owner'
+  )),
+  adjudication_decision_id TEXT,
+  qualified_at TEXT,
+  contradiction_state TEXT NOT NULL DEFAULT 'none' CHECK (contradiction_state IN (
+    'none', 'contradicted', 'superseded', 'demoted', 'expired',
+    'owner_corrected'
+  )),
+  contradiction_reason TEXT,
+  demoted_at TEXT,
+  provenance TEXT NOT NULL CHECK (provenance IN ('shadow', 'live')),
+  capability_mode_at_write TEXT NOT NULL CHECK (capability_mode_at_write IN (
+    'observe', 'dark_apply', 'apply'
+  )),
+  data_classification TEXT NOT NULL CHECK (data_classification IN (
+    'ordinary', 'sensitive', 'never_public', 'secret'
+  )),
+  classification_source TEXT NOT NULL CHECK (classification_source IN (
+    'copied', 'derived_most_restrictive'
+  )),
+  classification_invalidated_at TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  CHECK (subject_facet <> 'shared_projection'),
+  CHECK (adjudication_state <> 'accepted' OR qualified_at IS NOT NULL),
+  CHECK (adjudication_state <> 'accepted' OR adjudicator IS NOT NULL),
+  CHECK (adjudication_state <> 'accepted' OR adjudication_decision_id IS NOT NULL)
+);
+
+CREATE TABLE IF NOT EXISTS learned_influence_evidence (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  entity_uuid TEXT NOT NULL UNIQUE,
+  learned_influence_id INTEGER NOT NULL REFERENCES learned_influences(id),
+  owner_id TEXT NOT NULL,
+  evidence_type TEXT NOT NULL CHECK (evidence_type IN ('assertion')),
+  evidence_id TEXT NOT NULL,
+  assertion_id INTEGER NOT NULL,
+  observed_at TEXT NOT NULL,
+  provenance TEXT NOT NULL CHECK (provenance IN ('shadow', 'live')),
+  data_classification TEXT NOT NULL CHECK (data_classification IN (
+    'ordinary', 'sensitive', 'never_public', 'secret'
+  )),
+  source_content_hash TEXT,
+  created_at TEXT NOT NULL,
+  UNIQUE (learned_influence_id, evidence_type, evidence_id)
+);
+
+CREATE TABLE IF NOT EXISTS learned_choice_receipts (
+  receipt_id TEXT PRIMARY KEY,
+  owner_id TEXT NOT NULL,
+  learned_id INTEGER NOT NULL REFERENCES learned_influences(id),
+  choice_kind TEXT NOT NULL CHECK (choice_kind IN (
+    'agenda_order'
+  )),
+  candidate_ids_json TEXT NOT NULL CHECK (json_valid(candidate_ids_json)),
+  selected_ids_json TEXT NOT NULL CHECK (json_valid(selected_ids_json)),
+  rank_delta_json TEXT NOT NULL CHECK (json_valid(rank_delta_json)),
+  policy_binding TEXT NOT NULL,
+  reason_code TEXT NOT NULL,
+  input_content_hash TEXT NOT NULL,
+  output_content_hash TEXT NOT NULL,
+  eligible_input_affected_ranking INTEGER NOT NULL CHECK (
+    eligible_input_affected_ranking IN (0, 1)
+  ),
+  agency_made_final_choice INTEGER NOT NULL CHECK (
+    agency_made_final_choice IN (0, 1)
+  ),
+  data_classification TEXT NOT NULL CHECK (data_classification IN (
+    'ordinary', 'sensitive', 'never_public', 'secret'
+  )),
+  created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_learned_influences_owner_state
+  ON learned_influences (owner_id, adjudication_state, contradiction_state, updated_at DESC);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_learned_influences_entity_uuid
+  ON learned_influences (entity_uuid);
+
+CREATE INDEX IF NOT EXISTS idx_learned_influence_evidence_learned
+  ON learned_influence_evidence (learned_influence_id, observed_at, id);
+
+CREATE INDEX IF NOT EXISTS idx_learned_influence_evidence_assertion
+  ON learned_influence_evidence (assertion_id, learned_influence_id);
+
+CREATE INDEX IF NOT EXISTS idx_learned_choice_receipts_owner_created
+  ON learned_choice_receipts (owner_id, created_at DESC, receipt_id DESC);
+
+CREATE INDEX IF NOT EXISTS idx_learned_choice_receipts_learned_created
+  ON learned_choice_receipts (learned_id, created_at DESC, receipt_id DESC);
+CREATE TABLE interest_touches (
+  branch_key TEXT NOT NULL REFERENCES interest_branches(branch_id) ON DELETE CASCADE,
+  cycle_id TEXT NOT NULL REFERENCES cycle_records(cycle_id),
+  touched_at_ms INTEGER NOT NULL,
+  UNIQUE(branch_key,cycle_id)
+);
+CREATE TABLE influence_contract_state (
+  id INTEGER PRIMARY KEY CHECK(id=1),
+  highest_contract_version INTEGER NOT NULL DEFAULT 1,
+  live_authority_existed INTEGER NOT NULL DEFAULT 0 CHECK(live_authority_existed IN (0,1)),
+  state TEXT NOT NULL DEFAULT 'observe' CHECK(state IN ('observe','dark_apply','apply'))
+);
+INSERT INTO influence_contract_state (id) VALUES(1);
+UPDATE cognitive_sidecar_meta SET schema_version=51 WHERE id=1;
+`;

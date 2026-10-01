@@ -1537,6 +1537,15 @@ export function ensureNuclearV28Schema(db: DatabaseSync): void {
 
 /** Validate A3's cognitive sidecar additions independently of nuclear versions. */
 export function validateA3SidecarSchema(db: DatabaseSync, version: number): void {
+  if (version >= 51) {
+    for (const [table, columns] of [
+      ["learned_influences", ["id", "entity_uuid", "owner_id", "adjudication_state", "contradiction_state", "provenance", "data_classification"]],
+      ["learned_influence_evidence", ["id", "learned_influence_id", "owner_id", "assertion_id", "provenance", "data_classification"]],
+      ["learned_choice_receipts", ["receipt_id", "learned_id", "choice_kind", "candidate_ids_json", "selected_ids_json"]],
+      ["interest_touches", ["branch_key", "cycle_id", "touched_at_ms"]],
+      ["influence_contract_state", ["id", "highest_contract_version", "live_authority_existed", "state"]],
+    ] as const) requireColumns(db, version, table, columns.map(name => ({ name })));
+  }
   if (version >= 50) {
     for (const [table, columns] of [
       ["expectations", ["judgment_class", "observable", "horizon_hours", "check_kind", "graduation_lifecycle"]],
