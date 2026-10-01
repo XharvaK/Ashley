@@ -1,5 +1,6 @@
 import { frictionForThought, recordFriction } from "./friction.js";
 import { proposeInfluences } from "../influences/proposals.js";
+import { influenceProposalsForThought, recordInfluencePositions, type InfluenceProposal } from "../influences/positions.js";
 import { graduationForThought, proposeCalibration, recordCalibrationPositions, type CalibrationLine, type CalibrationProposal } from "../graduation/calibration.js";
 import type { DatabaseSync } from "node:sqlite";
 import type { DataClassification } from "../../privacy/classification.js";
@@ -41,6 +42,7 @@ import {
 export type IdentityStore = { nuclear: DatabaseSync; ownerId: string };
 
 export type ThoughtGrowth = {
+  influenceProposals?: InfluenceProposal[];
   calibrationProposals?: CalibrationProposal[];
   calibration?: CalibrationLine[];
   friction: ReturnType<typeof frictionForThought>;
@@ -127,7 +129,9 @@ export function growthForThought(db: DatabaseSync, identityStore: IdentityStore 
   const sources = listSourceRecords(db);
   const becoming = latestNarrative(db);
   const [diary] = listDiary(db, 1);
+  const influenceProposals = identityStore ? influenceProposalsForThought(db, identityStore.ownerId, nowMs) : [];
   return {
+    ...(influenceProposals.length ? { influenceProposals } : {}),
     ...graduationForThought(db, nowMs),
     friction: frictionForThought(db, nowMs),
     practices: listCurrentPractices(db).map(revision => ({ revisionId: revision.revisionId, text: revision.proposedText, heldSinceMs: revision.appliedAtMs ?? revision.updatedAtMs })),
@@ -152,6 +156,7 @@ export function growthForThought(db: DatabaseSync, identityStore: IdentityStore 
 }
 
 export type GrowthRecordResult = {
+  influencePositions?: Array<{ influenceId: number; code: string }>;
   calibrationPositions?: Array<{ calibrationId: string; code: string }>;
   appraised: boolean;
   expectations: string[];
@@ -207,8 +212,11 @@ export function recordGrowth(
   const calibrationPositions = claim?.calibrationPositions
     ? recordCalibrationPositions(db, { cycleId: input.cycleId, positions: claim.calibrationPositions, nowMs, dataClassification: input.dataClassification }) : undefined;
   proposeCalibration(db, { cycleId: input.cycleId, nowMs, dataClassification: input.dataClassification });
+  const influencePositions = input.identityStore && claim?.influencePositions
+    ? recordInfluencePositions(db, { cycleId: input.cycleId, ownerId: input.identityStore.ownerId,
+      positions: claim.influencePositions, nowMs, dataClassification: input.dataClassification }) : undefined;
   if (input.identityStore && input.allowInfluenceProposal !== false) {
     proposeInfluences(db, { cycleId: input.cycleId, ownerId: input.identityStore.ownerId, nowMs, dataClassification: input.dataClassification });
   }
-  return { appraised, expectations, checked, proposals, positions, evaluation, ...(calibrationPositions ? { calibrationPositions } : {}) };
+  return { appraised, expectations, checked, proposals, positions, evaluation, ...(calibrationPositions ? { calibrationPositions } : {}), ...(influencePositions ? { influencePositions } : {}) };
 }
