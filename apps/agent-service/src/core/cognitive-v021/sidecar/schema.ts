@@ -1786,7 +1786,8 @@ CREATE TABLE graduation_calibration (
   data_classification TEXT NOT NULL CHECK (data_classification IN ('ordinary','sensitive','never_public','secret')),
   created_at_ms INTEGER NOT NULL,
   since_ms INTEGER,
-  expires_at_ms INTEGER NOT NULL
+  expires_at_ms INTEGER,
+  basis_json TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(basis_json))
 );
 CREATE UNIQUE INDEX idx_graduation_open_proposal ON graduation_calibration(judgment_class) WHERE lifecycle_state='proposed';
 CREATE TABLE graduation_recorder_keys (

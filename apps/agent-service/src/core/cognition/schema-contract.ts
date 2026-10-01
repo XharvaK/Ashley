@@ -1541,7 +1541,7 @@ export function validateA3SidecarSchema(db: DatabaseSync, version: number): void
       ["graduation_contract_state", ["id", "highest_contract_version", "mode", "actor", "at_ms", "dark_would_show"]],
       ["graduation_observations", ["observation_id", "expectation_id", "observable_kind", "observed_value_typed", "observation_kind", "operational_receipt_type", "operational_receipt_id", "data_classification", "observed_at_ms"]],
       ["graduation_adjudications", ["adjudication_id", "expectation_id", "observation_id", "disposition", "adjudication_authority", "supersedes_adjudication_id", "correction_class", "data_classification", "created_at_ms"]],
-      ["graduation_calibration", ["calibration_id", "judgment_class", "adjustment", "lifecycle_state", "proposed_cycle_id", "admitting_cycle_id", "rationale", "data_classification", "since_ms", "expires_at_ms"]],
+      ["graduation_calibration", ["calibration_id", "judgment_class", "adjustment", "lifecycle_state", "proposed_cycle_id", "admitting_cycle_id", "rationale", "data_classification", "since_ms", "expires_at_ms", "basis_json"]],
       ["graduation_recorder_keys", ["expectation_id", "kind", "observation_id", "adjudication_id"]],
     ] as const) requireColumns(db, version, table, columns.map(name => ({ name })));
     for (const name of ["graduation_observation_no_update", "graduation_observation_no_delete", "graduation_adjudication_no_update", "graduation_adjudication_no_delete"]) {

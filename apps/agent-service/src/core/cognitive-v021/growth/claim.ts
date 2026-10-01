@@ -1,4 +1,5 @@
 import { APPRAISAL_NOTE_MAX_CHARS, MOOD_DIMENSIONS, type MoodAppraisal } from "./mood.js";
+import type { CalibrationPosition } from "../graduation/calibration.js";
 import {
   EXPECTATION_CHECKS_PER_SETTLEMENT,
   EXPECTATION_LESSON_MAX_CHARS,
@@ -40,6 +41,7 @@ export type GrowthClaim = {
   expectationChecks?: ExpectationCheck[];
   revisions?: RevisionProposal[];
   revisionPositions?: RevisionPosition[];
+  calibrationPositions?: CalibrationPosition[];
 };
 
 type Row = Record<string, unknown>;
@@ -110,7 +112,12 @@ function validPosition(value: unknown): boolean {
 export function isValidGrowthClaim(value: unknown): value is GrowthClaim {
   const growth = record(value);
   if (!growth || Object.keys(growth).length === 0) return false;
-  if (!onlyKeys(growth, ["friction", "appraisal", "expectations", "expectationChecks", "revisions", "revisionPositions"])) return false;
+  if (!onlyKeys(growth, ["friction", "appraisal", "expectations", "expectationChecks", "revisions", "revisionPositions", "calibrationPositions"])) return false;
+  if (growth.calibrationPositions !== undefined && !(boundedArray(growth.calibrationPositions, 3) && growth.calibrationPositions.every(value => {
+    const item = record(value);
+    return item && onlyKeys(item, ["calibrationId", "position", "rationale"]) && text(item.calibrationId, 200)
+      && (item.position === "admit" || item.position === "decline") && text(item.rationale, 200);
+  }))) return false;
   if (growth.friction !== undefined && !(boundedArray(growth.friction, 2) && growth.friction.every(value => {
     const item = record(value);
     return item && onlyKeys(item, ["kind", "note", "refs"]) && ["owner_correction", "self_reported"].includes(String(item.kind)) && text(item.note, 300) && Array.isArray(item.refs) && item.refs.length <= 8 && item.refs.every(ref => text(ref, 200));
