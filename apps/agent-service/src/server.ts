@@ -83,7 +83,9 @@ import {
   assertC3ContractCompatible,
   listActiveLearnedInfluences,
 } from "./core/learned-autonomy/index.js";
-import { getCognitiveGraduationDiagnostics } from "./core/cognitive-graduation/diagnostics.js";
+import { getCognitiveGraduationDiagnostics, setGraduationMode } from "./core/cognitive-v021/graduation/diagnostics.js";
+import { rollbackCognitiveGraduation } from "./core/cognitive-v021/graduation/calibration.js";
+import { CORRECTION_CLASSES, DISPOSITIONS, latestAdjudication, recordAdjudication, type AdjudicationInput } from "./core/cognitive-v021/graduation/adjudications.js";
 import {
   ObservabilityStore,
   RAW_DEBUG_RETENTION_MAX_MS,
@@ -1243,7 +1245,7 @@ export function createServer(
     try {
       const ownerId = String(req.query.owner_id ?? "");
       requireOwner(ownerId || undefined);
-      res.json(getCognitiveGraduationDiagnostics(manager.core.getDatabase(), ownerId));
+      res.json(getCognitiveGraduationDiagnostics(getCognitiveSidecar()));
     } catch (err) {
       const { status, body } = toErrorResponse(err);
       res.status(status).json(body);
@@ -2467,6 +2469,53 @@ export function createServer(
     } catch (err) {
       const { status, body } = toErrorResponse(err);
       res.status(status).json(body);
+    }
+  });
+
+  app.get("/growth/graduation", (req, res) => {
+    try {
+      requireOwner(String(req.query.owner_id ?? "") || undefined);
+      res.json(getCognitiveGraduationDiagnostics(getCognitiveSidecar()));
+    } catch (err) {
+      const { status, body } = toErrorResponse(err); res.status(status).json(body);
+    }
+  });
+  app.post("/growth/graduation/mode", (req, res) => {
+    try {
+      const actor = requireOwner(req.body.userId);
+      const selectedMode = req.body.mode;
+      if (!["observe", "dark_apply", "apply"].includes(selectedMode)) throw new AppError("message_required", "Valid graduation mode required", 400);
+      const sidecar = getCognitiveSidecar();
+      setGraduationMode(sidecar, selectedMode, actor, Date.now());
+      res.json(getCognitiveGraduationDiagnostics(sidecar));
+    } catch (err) {
+      const { status, body } = toErrorResponse(err); res.status(status).json(body);
+    }
+  });
+  app.post("/growth/calibration/rollback", (req, res) => {
+    try {
+      requireOwner(req.body.userId);
+      res.json({ rolledBack: rollbackCognitiveGraduation(getCognitiveSidecar()) });
+    } catch (err) {
+      const { status, body } = toErrorResponse(err); res.status(status).json(body);
+    }
+  });
+  app.post("/growth/graduation/adjudicate", (req, res) => {
+    try {
+      requireOwner(req.body.userId);
+      const { expectationId, observationId, disposition, adjudicatingCycleId, supersedesAdjudicationId, correctionClass } = req.body;
+      if (typeof expectationId !== "string" || typeof observationId !== "string" || typeof adjudicatingCycleId !== "string" || !DISPOSITIONS.includes(disposition)
+        || (supersedesAdjudicationId !== undefined && typeof supersedesAdjudicationId !== "string") || (correctionClass !== undefined && !CORRECTION_CLASSES.includes(correctionClass))) {
+        throw new AppError("message_required", "Valid explicit adjudication fields required", 400);
+      }
+      const sidecar = getCognitiveSidecar();
+      const prior = latestAdjudication(sidecar, expectationId);
+      const supersedes = supersedesAdjudicationId ?? prior?.adjudicationId;
+      const input: AdjudicationInput = { expectationId, observationId, disposition, adjudicatingCycleId, proposalOrigin: "owner", hostValidationOk: true,
+        adjudicationAuthority: "owner_confirmed", ...(supersedes ? { supersedesAdjudicationId: supersedes, correctionClass: correctionClass ?? "TEMPORAL_SUPERSESSION" } : {}), nowMs: Date.now() };
+      res.json(recordAdjudication(sidecar, input));
+    } catch (err) {
+      const { status, body } = toErrorResponse(err); res.status(status).json(body);
     }
   });
 
