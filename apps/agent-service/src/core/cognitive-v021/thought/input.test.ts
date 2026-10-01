@@ -983,3 +983,31 @@ describe("A3c private senses input", () => {
     } finally { db.close(); }
   });
 });
+
+
+describe("GS1 private projection re-entry", () => {
+  it("retains never_public growth, practices and senses only in owner-private input", async () => {
+    const { growthForThought } = await import("../growth/growth.js");
+    const { sensesForThought, recordSenseDeclines } = await import("../senses/senses.js");
+    const { recordExpectations } = await import("../growth/expectations.js");
+    const db = openTestSidecar();
+    try {
+      const cycle = admitTestCycle(db, { conversationId: "gs1-thread", occupantId: "doc", triggerKind: "owner_message", nowMs: 10 });
+      recordExpectations(db, { cycleId: "earlier", statements: ["a quiet day"], dataClassification: "never_public", nowMs: 9 });
+      db.prepare("INSERT INTO growth_revisions (layer, target_key, proposed_text, status, proposed_cycle_id, data_classification, created_at_ms, updated_at_ms, applied_at_ms) VALUES ('practice', 'practice:pause', 'Pause before replying', 'applied', 'earlier', 'never_public', 9, 9, 9)").run();
+      recordSenseDeclines(db, { decline: [{ sense: "backup", rationale: "considered" }] }, { conversationId: cycle.conversationId, nowMs: 9, dataClassification: "never_public" }, { backup: "unknown" });
+      const growth = growthForThought(db, null, 10);
+      const senses = sensesForThought(db, { conversationId: cycle.conversationId, nowMs: 10 });
+      const owner = makeInput(db, cycle, { growth, senses });
+      expect(owner.growth?.expectations?.[0]?.statement).toBe("a quiet day");
+      expect(owner.growth?.practices?.[0]?.text).toBe("Pause before replying");
+      expect(owner.senses?.lines).not.toContain("backup: unknown");
+      for (const audience of [{ kind: "owner_dm", threadId: "gs1-thread" }, { kind: "dm", principalId: "external" }, { kind: "room", roomId: "room:g:c" }] as const) {
+        const external = makeInput(db, cycle, { audience, growth, senses });
+        expect(external.growth).toBeUndefined();
+        expect(external.senses).toBeUndefined();
+        expect(external.activityJournal).toBeUndefined();
+      }
+    } finally { db.close(); }
+  });
+});

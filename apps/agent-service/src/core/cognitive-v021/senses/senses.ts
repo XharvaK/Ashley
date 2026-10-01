@@ -63,7 +63,7 @@ export function senseBandsForDeclines(readings: readonly SenseReading[]): Partia
 export function sensesForThought(db: DatabaseSync, options: SenseOptions, readings = readSenseFacts(db, options)): ThoughtSenses {
   const lines: string[] = [];
   for (const reading of readings) {
-    const decline = db.prepare("SELECT declined_band, until_ms, reraised_at_ms FROM sense_declines WHERE sense = ?").get(reading.sense);
+    const decline = db.prepare("SELECT declined_band, until_ms, reraised_at_ms FROM sense_declines WHERE sense = ? AND data_classification != 'secret'").get(reading.sense);
     let suffix = "";
     if (decline) {
       if (decline.reraised_at_ms !== null) continue;

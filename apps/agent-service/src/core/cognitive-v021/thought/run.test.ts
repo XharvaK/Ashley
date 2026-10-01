@@ -2790,3 +2790,26 @@ describe("Thought provider deadline truth and bounded usage telemetry", () => {
     }
   });
 });
+
+
+describe("GS1 live delivered-input carrier", () => {
+  it.each([
+    ["secret", false, true],
+    ["ordinary", true, true],
+    ["ordinary", false, false],
+  ] as const)("persists labels (%s, omitted=%s)", async (classification, omitted, expected) => {
+    const sidecar = openTestSidecar();
+    const attentionDb = openTestSidecar();
+    try {
+      const cycle = admitTestCycle(sidecar, { cycleId: "gs1-live", conversationId: "gs1-thread", triggerKind: "owner_message", triggerRef: "gs1-message", occupantId: "doc", authorityEpoch: 1, nowMs: 1 });
+      const evidence = appendOwnerUtterance(sidecar, { conversationId: cycle.conversationId, text: "a synthetic input", discordMessageIds: ["gs1-message"], nowMs: 2 });
+      sidecar.prepare("UPDATE conversation_evidence_log SET data_classification = ?, secret_omitted = ? WHERE row_id = ?").run(classification, omitted ? 1 : 0, evidence.rowId);
+      const event = appendInboxEvent(sidecar, { wakeId: cycle.wakeId, conversationId: cycle.conversationId, kind: "owner_message", payload: { cycleId: cycle.cycleId, evidenceRowId: evidence.rowId, ownerMessage: "a synthetic input" }, createdAtMs: 2 });
+      const result = await runCognitiveCycle(sidecar, attentionDb, event, deps({ attentionDb, completeChat: vi.fn(async () => ({ text: JSON.stringify(makeSemanticSettlement({ growth: { expectations: ["a quiet day"] }, senses: { decline: [{ sense: "backup", rationale: "considered" }] } })), model: "fake", modelAlias: "thought", resolvedModelId: null })) }));
+      expect(result.published).toBe(true);
+      const payload = JSON.parse(String(sidecar.prepare("SELECT payload_json FROM settlements").get()!.payload_json));
+      expect(payload.sawSecret).toBe(expected);
+      for (const table of ["expectations", "sense_declines"]) expect(sidecar.prepare(`SELECT data_classification FROM ${table}`).all()).toEqual([{ data_classification: expected ? "never_public" : "ordinary" }]);
+    } finally { sidecar.close(); attentionDb.close(); }
+  });
+});

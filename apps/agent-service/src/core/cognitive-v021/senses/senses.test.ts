@@ -94,3 +94,25 @@ describe("A3c senses", () => {
     expect(isValidSenseClaim({ decline: [{ sense: "backup", rationale: "x", untilMs: -1 }] })).toBe(false);
   });
 });
+
+
+describe("GS1 sense projection labels", () => {
+  it.each([T + 1, T + 8 * DAY])("secret declines neither suppress nor mutate at %s", async nowMs => {
+    const { sensesForThought, recordSenseDeclines } = await api();
+    const db = openTestSidecar();
+    try {
+      recordSenseDeclines(db, { decline: [{ sense: "backup", rationale: "considered" }] }, { nowMs: T, conversationId: "t", dataClassification: "secret" }, { backup: "unknown" });
+      const before = db.prepare("SELECT reraised_at_ms FROM sense_declines").get();
+      expect(sensesForThought(db, { nowMs, conversationId: "t" }).lines).toContain("backup: unknown");
+      expect(db.prepare("SELECT reraised_at_ms FROM sense_declines").get()).toEqual(before);
+    } finally { db.close(); }
+  });
+  it("owner-private projection still honors never_public declines", async () => {
+    const { sensesForThought, recordSenseDeclines } = await api();
+    const db = openTestSidecar();
+    try {
+      recordSenseDeclines(db, { decline: [{ sense: "backup", rationale: "considered" }] }, { nowMs: T, conversationId: "t", dataClassification: "never_public" }, { backup: "unknown" });
+      expect(sensesForThought(db, { nowMs: T+1, conversationId: "t" }).lines).not.toContain("backup: unknown");
+    } finally { db.close(); }
+  });
+});

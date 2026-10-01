@@ -3355,3 +3355,19 @@ describe("GS1 delivered input labels", () => {
     expect(thoughtMessagesForProjection(allocated.projected)).toEqual(allocated.messages);
   });
 });
+
+
+describe("GS1 structured and compact labels", () => {
+  it("taints on an included structured value", () => {
+    const input = makeThoughtInput();
+    Object.assign(input.workingContext[0]!, { dataClassification: "secret" });
+    expect(allocateThoughtProjection({ thoughtInput: input, requestId: "gs1-structured" }).projected.sawSecret).toBe(true);
+  });
+  it("retains secret labels from included compact retrieval provenance", () => {
+    const input = makeThoughtInput();
+    input.retrieval.hits[0] = { ...input.retrieval.hits[0]!, dataClassification: "secret" };
+    const allocated = allocateThoughtProjection({ thoughtInput: input, requestId: "gs1-retrieval" });
+    expect(allocated.projected.retrieval.hits.length).toBeGreaterThan(0);
+    expect(allocated.projected.sawSecret).toBe(true);
+  });
+});
