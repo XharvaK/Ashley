@@ -25,6 +25,33 @@ function settle(db: ReturnType<typeof openTestSidecar>, cycleId: string, nowMs: 
 function rows(db: ReturnType<typeof openTestSidecar>) { return db.prepare("SELECT * FROM graduation_calibration ORDER BY rowid").all(); }
 
 describe("graduation calibration", () => {
+  it("demotes a superseded open proposal and proposes from the latest adjudications", () => {
+    const db = openTestSidecar();
+    try {
+      seed(db, "changed", [false, false, false, true]);
+      settle(db, pass(db, "proposal-old", NOW), NOW);
+      const old = rows(db)[0]!;
+      const prediction = db.prepare("SELECT expectation_id FROM expectations WHERE cycle_id='changed:0'").get()!;
+      const obs = recordObservation(db, { expectationId: String(prediction.expectation_id), observableKind: "fixture", observationKind: "receipt_backed", observedValueTyped: { observed: true }, operationalReceiptType: "fixture", operationalReceiptId: "later", nowMs: NOW + 1 });
+      recordAdjudication(db, { expectationId: String(prediction.expectation_id), observationId: obs.observationId, disposition: "confirmed", proposalOrigin: "worker", hostValidationOk: true, adjudicationAuthority: "deterministic_compare", comparatorPolicyVersion: "typed-json-v1", nowMs: NOW + 1 });
+      settle(db, pass(db, "proposal-new", NOW + 2), NOW + 2);
+      expect(rows(db)).toHaveLength(2);
+      expect(db.prepare("SELECT lifecycle_state FROM graduation_calibration WHERE calibration_id=?").get(String(old.calibration_id))!.lifecycle_state).toBe("demoted");
+      expect(rows(db).filter(row => row.lifecycle_state === "proposed")).toHaveLength(1);
+    } finally { db.close(); }
+  });
+  it("demotes an open proposal whose forgotten basis leaves fewer than four outcomes", () => {
+    const db = openTestSidecar();
+    try {
+      seed(db, "forgotten", [false, false, true, true]);
+      settle(db, pass(db, "before-forget", NOW), NOW);
+      db.prepare("UPDATE expectations SET forgotten_at_ms=? WHERE cycle_id='forgotten:0'").run(NOW + 1);
+      settle(db, pass(db, "after-forget", NOW + 2), NOW + 2);
+      expect(rows(db)[0]!.lifecycle_state).toBe("demoted");
+      expect(rows(db).filter(row => row.lifecycle_state === "proposed")).toHaveLength(0);
+    } finally { db.close(); }
+  });
+
   it("requires four determinate adjudications and one open proposal per class", () => {
     const db = openTestSidecar();
     try {

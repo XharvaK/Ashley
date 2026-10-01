@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
-import { openTestSidecar } from "../test-support.js";
+import { openTestSidecar, setTestSidecarVersion } from "../test-support.js";
 import { openCognitiveSidecarDb } from "../sidecar/db.js";
 import { recordFriction } from "../growth/friction.js";
 import { recordExpectations } from "../growth/expectations.js";
@@ -82,7 +82,7 @@ describe("A3c senses", () => {
   it.each([false, true])("creates fresh/upgraded decline storage (%s)", async upgrade => {
     await api(); const db = openTestSidecar();
     try {
-      if (upgrade) { db.exec("DROP TABLE sense_declines; PRAGMA user_version = 47"); db.prepare("UPDATE cognitive_sidecar_meta SET schema_version = 47").run(); openCognitiveSidecarDb(db, { dataPlane: { kind: "isolated" } }); }
+      if (upgrade) { db.exec("DROP TABLE sense_declines"); setTestSidecarVersion(db, 47); openCognitiveSidecarDb(db, { dataPlane: { kind: "isolated" } }); }
       expect(db.prepare("PRAGMA table_info(sense_declines)").all().map(r => r.name)).toContain("declined_band");
     } finally { db.close(); }
   });

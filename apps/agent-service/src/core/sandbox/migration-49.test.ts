@@ -120,7 +120,7 @@ describe("Nuclear schema v49 verification failure", () => {
       db.exec("PRAGMA user_version = 56");
       expect(() => openNuclearDb(db, { continuity, migrate: true }))
         .toThrow("unsupported_nuclear_schema:56>55");
-      expect(schemaVersion(db)).toBe(55);
+      expect(schemaVersion(db)).toBe(56);
     } finally {
       db.close();
       continuity.close();

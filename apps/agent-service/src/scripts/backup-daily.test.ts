@@ -114,8 +114,8 @@ describe("data-plane backup paths", () => {
     expect(paths.nuclearDbPath).toBe(plane.nuclearDbPath);
     expect(paths.continuityDbPath).toBe(plane.continuityDbPath);
     expect(paths.sidecarDbPath).toBe(plane.cognitiveSidecarDbPath);
-    expect(paths.sidecarDbPath.endsWith("/cognitive-v021.db")).toBe(true);
-    expect(paths.sidecarDbPath.includes("/conversations/")).toBe(false);
+    expect(paths.sidecarDbPath.replaceAll("\\", "/").endsWith("/cognitive-v021.db")).toBe(true);
+    expect(paths.sidecarDbPath.replaceAll("\\", "/").includes("/conversations/")).toBe(false);
     expect(paths.sidecarDbPath).not.toBe(join(plane.conversationsDir, "cognitive-v021.db"));
   });
 });

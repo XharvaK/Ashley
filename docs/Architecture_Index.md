@@ -99,6 +99,15 @@ SQLite: `~/.composer-assistant/conversations/nuclear.db`.
 `apps/agent-service/src/core/` — identity, state, memory, cognition, learning,
 curiosity, agency, reflection, honesty, conversation, writers, runtime.
 
+Graduation's source owner is
+[`cognitive-v021/graduation/`](../apps/agent-service/src/core/cognitive-v021/graduation/README.md),
+with predictions in the existing growth expectations store. Observation and
+adjudication are separate. Only the two receipt recorders compare automatically.
+The default mode records evidence without supplying graduation fields to Thought;
+Owner-selected `apply` admits a later-pass calibration path. Source presence does
+not establish deployed mode or production acceptance. Historic nuclear graduation
+DDL remains in `core/cognition/` for migration only.
+
 Current supported nuclear schema is declared in
 [`apps/agent-service/src/core/db.ts`](../apps/agent-service/src/core/db.ts)
 (`NUCLEAR_SUPPORTED_VERSION`). Do not copy the integer here.

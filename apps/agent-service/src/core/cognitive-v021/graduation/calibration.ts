@@ -41,6 +41,10 @@ export function classEvidence(db: DatabaseSync, nowMs: number): Map<string, Row[
 export function proposeCalibration(db: DatabaseSync, input: { cycleId: string; nowMs: number; dataClassification: DataClassification }): string[] {
   assertCompatible(db);
   if (input.dataClassification === "secret") return [];
+  expireIntervals(db, input.nowMs);
+  for (const row of db.prepare("SELECT * FROM graduation_calibration WHERE lifecycle_state='proposed'").all()) {
+    if (!basisCurrent(db, row)) db.prepare("UPDATE graduation_calibration SET lifecycle_state='demoted' WHERE calibration_id=?").run(String(row.calibration_id));
+  }
   const ids: string[] = [];
   for (const [cls, evidence] of classEvidence(db, input.nowMs)) {
     if (evidence.length < CALIBRATION_MIN_ADJUDICATIONS) continue;
