@@ -1,4 +1,5 @@
 import { frictionForThought, recordFriction } from "./friction.js";
+import { graduationForThought, proposeCalibration, recordCalibrationPositions, type CalibrationLine, type CalibrationProposal } from "../graduation/calibration.js";
 import type { DatabaseSync } from "node:sqlite";
 import type { DataClassification } from "../../privacy/classification.js";
 import type { GrowthClaim } from "./claim.js";
@@ -39,6 +40,8 @@ import {
 export type IdentityStore = { nuclear: DatabaseSync; ownerId: string };
 
 export type ThoughtGrowth = {
+  calibrationProposals?: CalibrationProposal[];
+  calibration?: CalibrationLine[];
   friction: ReturnType<typeof frictionForThought>;
   practices?: Array<{ revisionId: number; text: string; heldSinceMs: number }>;
   /** How she feels right now; an input to weigh, never a script to act out. */
@@ -124,6 +127,7 @@ export function growthForThought(db: DatabaseSync, identityStore: IdentityStore 
   const becoming = latestNarrative(db);
   const [diary] = listDiary(db, 1);
   return {
+    ...graduationForThought(db, nowMs),
     friction: frictionForThought(db, nowMs),
     practices: listCurrentPractices(db).map(revision => ({ revisionId: revision.revisionId, text: revision.proposedText, heldSinceMs: revision.appliedAtMs ?? revision.updatedAtMs })),
     mood: {
@@ -147,6 +151,7 @@ export function growthForThought(db: DatabaseSync, identityStore: IdentityStore 
 }
 
 export type GrowthRecordResult = {
+  calibrationPositions?: Array<{ calibrationId: string; code: string }>;
   appraised: boolean;
   expectations: string[];
   checked: string[];
@@ -197,5 +202,8 @@ export function recordGrowth(
       })
     : [];
   const evaluation = evaluateRevisions(db, input.identityStore, nowMs);
-  return { appraised, expectations, checked, proposals, positions, evaluation };
+  const calibrationPositions = claim?.calibrationPositions
+    ? recordCalibrationPositions(db, { cycleId: input.cycleId, positions: claim.calibrationPositions, nowMs, dataClassification: input.dataClassification }) : undefined;
+  proposeCalibration(db, { cycleId: input.cycleId, nowMs, dataClassification: input.dataClassification });
+  return { appraised, expectations, checked, proposals, positions, evaluation, ...(calibrationPositions ? { calibrationPositions } : {}) };
 }

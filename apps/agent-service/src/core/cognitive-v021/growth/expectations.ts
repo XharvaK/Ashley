@@ -5,6 +5,8 @@ import type { DataClassification } from "../../privacy/classification.js";
 import { getConversationEvidence } from "../evidence/conversation-log.js";
 import { getMemoryAssertion } from "../memory/assertions.js";
 import { listMemorySupports } from "../memory/supports.js";
+import { recordThoughtCheck } from "../graduation/settlement.js";
+import { detectCredentialShape } from "../../privacy/secrets.js";
 
 /**
  * Growth V1 §6.5: expectations and calibration (a light port of c4).
@@ -32,7 +34,11 @@ export const LESSONS_THOUGHT_LIMIT = 5;
 
 export type ExpectationCheck = { expectationId: string; outcome: ExpectationOutcome; lesson: string };
 /** An expectation, optionally naming the records whose word it rests on (A9). */
-export type ExpectationClaim = string | { statement: string; basisRefs: string[] };
+export type ExpectationClaim = string | {
+  statement: string; basisRefs?: string[];
+  judgmentClass?: string; observable?: string; horizonHours?: number;
+  check?: "owner_reply" | "delivered";
+};
 export const EXPECTATION_BASIS_REFS_MAX = 5;
 export const SOURCE_RECORDS_THOUGHT_LIMIT = 8;
 
@@ -45,6 +51,10 @@ export type ExpectationRecord = {
   dataClassification: DataClassification;
   createdAtMs: number;
   checkedAtMs: number | null;
+  judgmentClass: string | null;
+  observable: string | null;
+  horizonHours: number | null;
+  check: "owner_reply" | "delivered" | null;
 };
 
 type Row = Record<string, unknown>;
@@ -70,6 +80,10 @@ function mapExpectation(row: Row): ExpectationRecord {
     dataClassification: classification(row.data_classification),
     createdAtMs: Number(row.created_at_ms ?? 0),
     checkedAtMs: row.checked_at_ms == null ? null : Number(row.checked_at_ms),
+    judgmentClass: typeof row.judgment_class === "string" ? row.judgment_class : null,
+    observable: typeof row.observable === "string" ? row.observable : null,
+    horizonHours: row.horizon_hours == null ? null : Number(row.horizon_hours),
+    check: row.check_kind === "owner_reply" || row.check_kind === "delivered" ? row.check_kind : null,
   };
 }
 
@@ -132,15 +146,22 @@ export function recordExpectations(
   const ids: string[] = [];
   input.statements.slice(0, EXPECTATIONS_PER_SETTLEMENT).forEach((claim, index) => {
     const raw = typeof claim === "string" ? claim : claim.statement;
-    const basisRefs = typeof claim === "string" ? [] : claim.basisRefs.slice(0, EXPECTATION_BASIS_REFS_MAX);
+    const authored = typeof claim === "string" ? [claim] : [claim.statement, claim.judgmentClass, claim.observable].filter((value): value is string => typeof value === "string");
+    if (authored.some(value => detectCredentialShape(value).hit)) return;
+    const basisRefs = typeof claim === "string" ? [] : (claim.basisRefs ?? []).slice(0, EXPECTATION_BASIS_REFS_MAX);
     const statement = raw.trim().slice(0, EXPECTATION_STATEMENT_MAX_CHARS);
     if (!statement) return;
     const expectationId = expectationIdFor(input.cycleId, index);
     db.prepare(
       `INSERT OR IGNORE INTO expectations
-         (expectation_id, cycle_id, statement, status, data_classification, created_at_ms)
-       VALUES (?, ?, ?, 'open', ?, ?)`,
-    ).run(expectationId, input.cycleId, statement, input.dataClassification, input.nowMs);
+         (expectation_id, cycle_id, statement, status, data_classification, created_at_ms,
+          judgment_class, observable, horizon_hours, check_kind)
+       VALUES (?, ?, ?, 'open', ?, ?, ?, ?, ?, ?)`,
+    ).run(expectationId, input.cycleId, statement, input.dataClassification, input.nowMs,
+      typeof claim === "string" ? null : claim.judgmentClass ?? null,
+      typeof claim === "string" ? null : claim.observable ?? null,
+      typeof claim === "string" ? null : claim.horizonHours ?? null,
+      typeof claim === "string" ? null : claim.check ?? null);
     for (const source of new Set(basisRefs.flatMap((ref) => sourcesForRef(db, ref)))) {
       db.prepare("INSERT OR IGNORE INTO expectation_basis (expectation_id, source) VALUES (?, ?)").run(expectationId, source);
     }
@@ -160,6 +181,7 @@ export function checkExpectations(
   const closed: string[] = [];
   for (const check of input.checks.slice(0, EXPECTATION_CHECKS_PER_SETTLEMENT)) {
     if (!isExpectationOutcome(check.outcome)) continue;
+    if (detectCredentialShape(check.lesson).hit) continue;
     const lesson = check.lesson.trim().slice(0, EXPECTATION_LESSON_MAX_CHARS);
     if (!lesson) continue;
     const result = db.prepare(
@@ -170,6 +192,7 @@ export function checkExpectations(
     ).run(check.outcome, lesson, input.cycleId, input.nowMs, input.dataClassification ?? "ordinary", check.expectationId, input.cycleId);
     if (Number(result.changes ?? 0) > 0) {
       closed.push(check.expectationId);
+      recordThoughtCheck(db, { cycleId: input.cycleId, check, nowMs: input.nowMs, dataClassification: input.dataClassification });
       if (check.outcome === "missed") recordHostFriction(db, "expectation_missed", check.expectationId, input.nowMs, input.cycleId);
     }
   }

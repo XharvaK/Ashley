@@ -1,17 +1,19 @@
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
-import { openNuclearDb } from "../db.js";
+import { openTestSidecar } from "../test-support.js";
+import { openNuclearDb } from "../../db.js";
 
 describe("C4 prediction/outcome characterization", () => {
   it("keeps the selected prediction pair separate from existing decision telemetry", () => {
     const db = openNuclearDb(new DatabaseSync(":memory:"));
+    const sidecar = openTestSidecar();
     try {
-      expect(db.prepare("SELECT COUNT(*) AS count FROM cognitive_predictions").get()).toEqual({ count: 0 });
+      expect(sidecar.prepare("SELECT COUNT(*) AS count FROM expectations").get()).toEqual({ count: 0 });
       const decisionColumns = db.prepare("PRAGMA table_info(decision_log)").all() as Array<{ name?: string }>;
       expect(decisionColumns.map((column) => column.name)).not.toContain("expected_observable_outcome");
       expect(decisionColumns.map((column) => column.name)).not.toContain("adjudication_id");
     } finally {
-      db.close();
+      db.close(); sidecar.close();
     }
   });
 

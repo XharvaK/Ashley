@@ -1,3 +1,4 @@
+import { validateNuclearV55Schema } from "./migration-55.js";
 import { validateNuclearV54Schema } from "./migration-54.js";
 import type { DatabaseSync } from "node:sqlite";
 import { MIGRATION_24_OPEN_COGNITIVE_WAKE_CURSOR_DDL } from "./migration-24.js";
@@ -21,7 +22,7 @@ import {
   C4_INDEXES,
   C4_TABLES,
   validateNuclearV39Schema,
-} from "../cognitive-graduation/migration-38.js";
+} from "./legacy-graduation-migration-38.js";
 import {
   C5_INDEXES,
   C5_EXISTING_TABLE_COLUMNS,
@@ -1190,7 +1191,7 @@ function requireNoV49Content(db: DatabaseSync, version: number): void {
 
 export function validateNuclearSchemaContent(
   db: DatabaseSync,
-  version: 22 | 23 | 24 | 25 | 26 | 27 | 28 | 29 | 30 | 31 | 32 | 33 | 34 | 35 | 36 | 37 | 38 | 39 | 40 | 41 | 42 | 43 | 44 | 45 | 46 | 47 | 48 | 49 | 50 | 51 | 52 | 53 | 54,
+  version: 22 | 23 | 24 | 25 | 26 | 27 | 28 | 29 | 30 | 31 | 32 | 33 | 34 | 35 | 36 | 37 | 38 | 39 | 40 | 41 | 42 | 43 | 44 | 45 | 46 | 47 | 48 | 49 | 50 | 51 | 52 | 53 | 54 | 55,
   options: { rejectNewerContent?: boolean } = {},
 ): void {
   if (version === 22) {
@@ -1369,7 +1370,7 @@ export function validateNuclearSchemaContent(
     return;
   }
   if (version === 38) return;
-  validateNuclearV39Schema(db, version);
+  if (version < 55) validateNuclearV39Schema(db, version);
   if (version === 39 && options.rejectNewerContent === true) {
     requireNoV40Objects(db, version);
     return;
@@ -1452,6 +1453,7 @@ export function validateNuclearSchemaContent(
   if (version === 52) return;
   validateNuclearV53Schema(db, version);
   if (version >= 54) validateNuclearV54Schema(db);
+  if (version >= 55) validateNuclearV55Schema(db);
 }
 
 function addColumnIfMissing(
@@ -1535,6 +1537,20 @@ export function ensureNuclearV28Schema(db: DatabaseSync): void {
 
 /** Validate A3's cognitive sidecar additions independently of nuclear versions. */
 export function validateA3SidecarSchema(db: DatabaseSync, version: number): void {
+  if (version >= 50) {
+    for (const [table, columns] of [
+      ["expectations", ["judgment_class", "observable", "horizon_hours", "check_kind", "graduation_lifecycle"]],
+      ["graduation_contract_state", ["id", "highest_contract_version", "mode", "actor", "at_ms", "dark_would_show", "record_failures"]],
+      ["graduation_observations", ["observation_id", "expectation_id", "observable_kind", "observed_value_typed", "observation_kind", "operational_receipt_type", "operational_receipt_id", "data_classification", "observed_at_ms"]],
+      ["graduation_adjudications", ["adjudication_id", "expectation_id", "observation_id", "disposition", "adjudication_authority", "supersedes_adjudication_id", "correction_class", "data_classification", "created_at_ms"]],
+      ["graduation_calibration", ["calibration_id", "judgment_class", "adjustment", "lifecycle_state", "proposed_cycle_id", "admitting_cycle_id", "rationale", "data_classification", "since_ms", "expires_at_ms", "basis_json"]],
+      ["graduation_recorder_keys", ["expectation_id", "kind", "observation_id", "adjudication_id"]],
+    ] as const) requireColumns(db, version, table, columns.map(name => ({ name })));
+    for (const name of ["graduation_observation_no_update", "graduation_observation_no_delete", "graduation_adjudication_no_update", "graduation_adjudication_no_delete"]) {
+      if (!db.prepare("SELECT 1 FROM sqlite_master WHERE type='trigger' AND name=?").get(name)) throw new Error(`sidecar_graduation_trigger_missing:${name}`);
+    }
+    requireIndex(db, version, { name: "idx_graduation_open_proposal", table: "graduation_calibration", columns: ["judgment_class"], unique: true, partial: true, sqlFragment: "where lifecycle_state='proposed'" });
+  }
   if (version >= 49) requireColumns(db, version, "sense_declines", [{ name: "data_classification", notNull: true }]);
   if (version >= 48) requireColumns(db, version, "sense_declines", ["sense", "rationale", "declined_band", "declined_at_ms", "until_ms", "reraised_at_ms"].map(name => ({ name })));
   if (version >= 47) {

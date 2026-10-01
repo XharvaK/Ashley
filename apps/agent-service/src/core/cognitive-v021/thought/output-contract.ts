@@ -350,6 +350,11 @@ const interestTouchSchema = strictObject({
 }, ["root", "branch"]);
 const moodDeltaSchema = { type: "number", minimum: -1, maximum: 1 };
 const growthSchema = sparseObject({
+  calibrationPositions: { type: "array", minItems: 1, maxItems: 3, items: strictObject({
+    calibrationId: { type: "string", minLength: 1, maxLength: 200 },
+    position: { enum: ["admit", "decline"] },
+    rationale: { type: "string", minLength: 1, maxLength: 200 },
+  }, ["calibrationId", "position", "rationale"]) },
   friction: { type: "array", minItems: 1, maxItems: 2, items: strictObject({
     kind: { enum: ["owner_correction", "self_reported"] },
     note: { type: "string", minLength: 1, maxLength: 300 },
@@ -364,7 +369,11 @@ const growthSchema = sparseObject({
     strictObject({
       statement: { type: "string", minLength: 1, maxLength: 300 },
       basisRefs: { type: "array", minItems: 1, maxItems: 5, items: { type: "string", minLength: 1 } },
-    }, ["statement", "basisRefs"]),
+      judgmentClass: { type: "string", minLength: 1, maxLength: 40 },
+      observable: { type: "string", minLength: 1, maxLength: 200 },
+      horizonHours: { type: "number", minimum: 1, maximum: 720 },
+      check: { enum: ["owner_reply", "delivered"] },
+    }, ["statement"]),
   ] } },
   expectationChecks: { type: "array", minItems: 1, maxItems: 5, items: strictObject({
     expectationId: { type: "string", minLength: 1 },
@@ -784,7 +793,7 @@ export const OWNER_VISIBILITY_GUIDANCE =
 export const SOCIAL_VISIBILITY_GUIDANCE =
   "The Owner can read what contacts tell you and everything you keep. You may keep one contact's words from other contacts, but never promise anyone confidentiality from the Owner.";
 export const GROWTH_GUIDANCE =
-  "growth (Owner-private) is how you grow; every word is yours; the Host bounds, counts and stores. growth.mood is your current valence (-1..1), energy, openness and tension (0..1), drifting to baseline; weigh it, never act it out. appraisal: note what moved you and why, with direction on each dimension (-1..1; movement capped at 0.3). expectations: record what matters; cite contact/web bases with {statement, basisRefs} (growth.sources). expectationChecks: when you can see the outcome of a growth.expectations item, give expectationId, met/missed/mixed/unknowable, and your lesson. A checked expectation is self-evidence; you may nominate its lesson as learned_self_evidence. revisions need real evidenceRefs: existing memory keys, episode ids, journal ids, checked expectation ids, interest:<branchId> for a lived branch, or friction:<friction_id>. Evidence sharing a conversation, pass, person or website counts once; contacts or web alone cannot change you. opinion needs a topic and 2 independent origins; taste needs 2 origins, 2 proposing passes over 2 days; trait needs 3 origins, 3 passes over 14 days, then 72 hours. A proposing pass counts only with new evidence. value and boundary require your affirmation in a later pass and the Owner's approval. growth.self lists current ids: inherited (seeded), earned (your revision, dated), given (Owner-set). Revise via revisesEntryId, same kind only; otherwise name a topic. Reuse targets to reinforce. revisionPositions: affirm, object or defer on an open value, boundary or practice revision in a later pass. practice needs 2 independent origins, or 1 origin plus a later-pass affirm. friction: when Alex corrected you, or you notice you disagreed or it went worse than it should have, note it, kind owner_correction or self_reported; your reading, in your words. growth.practices are how you've learned to work; follow them unless you have a reason; propose practice revisions from friction and lessons. senses are Host facts; senses.decline [{sense, rationale, untilMs?}] quiets one until a band change or seven days, then re-raises once. Omit growth when unused.";
+  "Owner-private growth: your words; Host bounds/counts/stores. growth.mood: current valence -1..1, energy/openness/tension 0..1; drifts to baseline; weigh, never act it out. appraisal: what moved you/why; per-dimension direction -1..1, movement cap 0.3. expectations: what matters; cite contact/web bases as {statement,basisRefs} (growth.sources). for an expectation you can be held to, add judgmentClass (a short class name you reuse), observable, horizonHours, and check owner_reply or delivered when Alex's reply or the delivery of this message decides it. expectationChecks: on visible outcome, expectationId, met/missed/mixed/unknowable, your lesson. Checked expectations: self-evidence; MAY nominate lessons as learned_self_evidence. revisions require real evidenceRefs: existing memory keys, episode/journal/checked-expectation ids, interest:<branchId> (lived), friction:<friction_id>. Shared conversation/pass/person/website evidence counts once; contacts/web alone cannot change you. Required: opinion topic+2 independent origins; taste 2 origins+2 proposing passes over 2 days; trait 3 origins+3 passes over 14 days, then 72 hours. Proposing passes require new evidence. value/boundary require your later-pass affirm + Owner approval. growth.self ids (current): inherited=seeded, earned=your dated revision, given=Owner-set. Revise: revisesEntryId, same kind only; else topic. Reuse targets to reinforce. revisionPositions: affirm/object/defer, later pass, open value/boundary/practice revision. practice: 2 independent origins or 1+later-pass affirm required. friction: Alex corrected you, you noticed disagreement, or worse-than-expected outcome; owner_correction/self_reported, your reading/words. growth.practices: learned work; follow unless reasoned otherwise; revise from friction/lessons. senses: Host facts. senses.decline [{sense,rationale,untilMs?}] quiets until band change or seven days, then re-raises once. Shown growth.calibrationProposals: calibrationPositions [{calibrationId,position:admit|decline,rationale}], max 3, later pass only. growth.calibration: admitted future Thought adjustments. Omit growth when unused.";
 
 /** A9 (decision 19): natural, calibrated trust with contacts. */
 export const SOCIAL_TRUST_GUIDANCE =

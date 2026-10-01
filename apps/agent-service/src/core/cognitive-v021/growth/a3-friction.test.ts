@@ -1,6 +1,6 @@
 // The Host records that friction happened; only Thought says what it means.
 import { describe, it, expect } from "vitest";
-import { openTestSidecar, admitTestCycle } from "../test-support.js";
+import { openTestSidecar, admitTestCycle, setTestSidecarVersion } from "../test-support.js";
 import { openCognitiveSidecarDb } from "../sidecar/db.js";
 import { isValidGrowthClaim } from "./claim.js";
 import { recordGrowth, growthForThought } from "./growth.js";
@@ -17,8 +17,8 @@ describe("A3a friction", () => {
     const db = openTestSidecar();
     try {
       if (upgrade) {
-        db.exec("DROP TABLE IF EXISTS friction_events; PRAGMA user_version = 45");
-        db.prepare("UPDATE cognitive_sidecar_meta SET schema_version = 45").run();
+        db.exec("DROP TABLE IF EXISTS friction_events");
+        setTestSidecarVersion(db, 45);
         openCognitiveSidecarDb(db, { dataPlane: { kind: "isolated" } });
       }
       ready(db);

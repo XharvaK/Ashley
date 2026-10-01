@@ -1,7 +1,6 @@
 {
   "$comment": "agent-service files unreachable from index.ts/isolated-index.ts that are kept on purpose. Test support stays while tests use it; review items name the phase that decides them.",
   "files": {
-    "core/cognitive-graduation/test-fixtures.ts": "test support",
     "core/cognitive-v021/acceptance/causal-harness.ts": "test support",
     "core/cognitive-v021/acceptance/continuity-fixtures.ts": "test support",
     "core/cognitive-v021/qualification/thought-capability-qualification.ts": "test support: qualification tooling used by Thought tests",

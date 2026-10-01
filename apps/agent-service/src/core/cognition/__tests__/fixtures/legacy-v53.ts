@@ -1,3 +1,4 @@
+import { restoreLegacyV54Objects } from "./legacy-v54.js";
 // Historical v53 objects captured at 5996032; test fixtures only.
 import type { DatabaseSync } from "node:sqlite";
 const objects = [
@@ -94,6 +95,7 @@ const objects = [
 ];
 
 export function restoreLegacyV53Objects(db: DatabaseSync): void {
+  if (!db.prepare("SELECT 1 FROM sqlite_master WHERE name='cognitive_predictions'").get()) restoreLegacyV54Objects(db);
   db.exec("PRAGMA foreign_keys = OFF");
   for (const object of objects) {
     if (object.tbl_name === "lived_experience_links" && object.type === "table") db.exec("DROP TABLE lived_experience_links");

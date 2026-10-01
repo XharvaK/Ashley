@@ -1,6 +1,6 @@
 // Practices are her own procedural notes, earned from evidence, cheap to revert.
 import { describe, it, expect } from "vitest";
-import { openTestSidecar } from "../test-support.js";
+import { openTestSidecar, setTestSidecarVersion } from "../test-support.js";
 import { openCognitiveSidecarDb } from "../sidecar/db.js";
 import { COGNITIVE_SIDECAR_SCHEMA_V39 } from "../sidecar/schema.js";
 import { REVISION_LAYERS, proposeRevisions, evaluateRevisions, recordRevisionPositions, getRevision, revertRevision, resolveRevisionEvidence, revisionEvidenceStats, isFoundationalLayer } from "./revisions.js";
@@ -63,7 +63,7 @@ describe("A3b practices", () => {
       db.exec(COGNITIVE_SIDECAR_SCHEMA_V39.slice(0, COGNITIVE_SIDECAR_SCHEMA_V39.indexOf("CREATE TABLE IF NOT EXISTS growth_revision_evidence")));
       for (const [n, layer] of ["opinion", "taste", "trait", "value", "boundary"].entries()) db.prepare("INSERT INTO growth_revisions (layer, target_key, proposed_text, rationale, status, proposed_cycle_id, data_classification, created_at_ms, updated_at_ms, previous_text, ashley_position, owner_decision) VALUES (?, ?, ?, 'rationale', 'reverted', 'old', 'sensitive', ?, ?, 'previous', 'affirm', 'approve')").run(layer, `target${n}`, `text${n}`, T+n, T+n);
       const before = db.prepare("SELECT * FROM growth_revisions ORDER BY revision_id").all();
-      db.exec("PRAGMA user_version = 46"); db.prepare("UPDATE cognitive_sidecar_meta SET schema_version = 46").run();
+      setTestSidecarVersion(db, 46);
       openCognitiveSidecarDb(db, { dataPlane: { kind: "isolated" } });
       expect(db.prepare("SELECT * FROM growth_revisions ORDER BY revision_id").all()).toEqual(before);
       expect(db.prepare("SELECT count(*) AS n FROM growth_revisions").get()!.n).toBe(before.length);
