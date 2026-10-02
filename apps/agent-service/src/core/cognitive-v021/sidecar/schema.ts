@@ -2003,3 +2003,47 @@ CREATE INDEX IF NOT EXISTS idx_night_gate_receipts_conversation
   ON night_gate_receipts(conversation_id, evaluated_at_ms);
 UPDATE cognitive_sidecar_meta SET schema_version=54 WHERE id=1;
 `;
+
+/** Preserve receipts while allowing distinct mechanical choice kinds per cycle. */
+export const COGNITIVE_SIDECAR_SCHEMA_V55 = String.raw`
+DROP TRIGGER learned_influence_delete_children;
+CREATE TABLE learned_choice_receipts_v55 (
+  receipt_id TEXT PRIMARY KEY,
+  owner_id TEXT NOT NULL,
+  learned_id INTEGER NOT NULL REFERENCES learned_influences(id),
+  choice_kind TEXT NOT NULL CHECK (choice_kind IN (
+    'agenda_order', 'curiosity_rank'
+  )),
+  candidate_ids_json TEXT NOT NULL CHECK (json_valid(candidate_ids_json)),
+  selected_ids_json TEXT NOT NULL CHECK (json_valid(selected_ids_json)),
+  rank_delta_json TEXT NOT NULL CHECK (json_valid(rank_delta_json)),
+  policy_binding TEXT NOT NULL,
+  reason_code TEXT NOT NULL,
+  input_content_hash TEXT NOT NULL,
+  output_content_hash TEXT NOT NULL,
+  eligible_input_affected_ranking INTEGER NOT NULL CHECK (
+    eligible_input_affected_ranking IN (0, 1)
+  ),
+  agency_made_final_choice INTEGER NOT NULL CHECK (
+    agency_made_final_choice IN (0, 1)
+  ),
+  data_classification TEXT NOT NULL CHECK (data_classification IN (
+    'ordinary', 'sensitive', 'never_public', 'secret'
+  )),
+  created_at TEXT NOT NULL,
+  cycle_id TEXT REFERENCES cycle_records(cycle_id),
+  counterfactual_ids_json TEXT CHECK(counterfactual_ids_json IS NULL OR json_valid(counterfactual_ids_json))
+);
+INSERT INTO learned_choice_receipts_v55 (receipt_id,owner_id,learned_id,choice_kind,candidate_ids_json,selected_ids_json,rank_delta_json,policy_binding,reason_code,input_content_hash,output_content_hash,eligible_input_affected_ranking,agency_made_final_choice,data_classification,created_at,cycle_id,counterfactual_ids_json)
+ SELECT receipt_id,owner_id,learned_id,choice_kind,candidate_ids_json,selected_ids_json,rank_delta_json,policy_binding,reason_code,input_content_hash,output_content_hash,eligible_input_affected_ranking,agency_made_final_choice,data_classification,created_at,cycle_id,counterfactual_ids_json FROM learned_choice_receipts;
+DROP TABLE learned_choice_receipts;
+ALTER TABLE learned_choice_receipts_v55 RENAME TO learned_choice_receipts;
+CREATE INDEX idx_learned_choice_receipts_owner_created ON learned_choice_receipts(owner_id,created_at DESC,receipt_id DESC);
+CREATE INDEX idx_learned_choice_receipts_learned_created ON learned_choice_receipts(learned_id,created_at DESC,receipt_id DESC);
+CREATE UNIQUE INDEX idx_learned_choice_receipts_cycle ON learned_choice_receipts(learned_id,cycle_id,choice_kind) WHERE cycle_id IS NOT NULL;
+CREATE TRIGGER learned_influence_delete_children BEFORE DELETE ON learned_influences BEGIN
+ DELETE FROM learned_choice_receipts WHERE learned_id=OLD.id;
+ DELETE FROM learned_influence_evidence WHERE learned_influence_id=OLD.id;
+END;
+UPDATE cognitive_sidecar_meta SET schema_version=55 WHERE id=1;
+`;

@@ -14,9 +14,9 @@ describe("GS1 sidecar v49", () => {
         openCognitiveSidecarDb(db, { dataPlane: { kind: "isolated" } });
         expect(db.prepare("SELECT data_classification FROM sense_declines").get()).toEqual({ data_classification: "ordinary" });
       }
-      expect(COGNITIVE_SIDECAR_SCHEMA_VERSION).toBe(54);
-      expect(db.prepare("PRAGMA user_version").get()).toEqual({ user_version: 54 });
-      expect(db.prepare("SELECT schema_version FROM cognitive_sidecar_meta").get()).toEqual({ schema_version: 54 });
+      expect(COGNITIVE_SIDECAR_SCHEMA_VERSION).toBe(55);
+      expect(db.prepare("PRAGMA user_version").get()).toEqual({ user_version: 55 });
+      expect(db.prepare("SELECT schema_version FROM cognitive_sidecar_meta").get()).toEqual({ schema_version: 55 });
       const column = db.prepare("PRAGMA table_info(sense_declines)").all().find(row => row.name === "data_classification");
       expect(column).toMatchObject({ notnull: 1, dflt_value: "'ordinary'" });
       for (const label of ["ordinary", "sensitive", "never_public", "secret"]) {
