@@ -1,3 +1,4 @@
+import { configurePrivateBudgetFixture } from "../private-budget/__tests__/configured-policy.js";
 import { describe, expect, it, vi } from "vitest";
 import { appendInboxEvent, getCycle, updateCycleState } from "./inbox.js";
 import { admitWake } from "../wake/ledger.js";
@@ -689,6 +690,7 @@ describe("P0 steady-state reconciliation (R7 §22.2)", () => {
     const db = openTestSidecar();
     try {
       const nowMs = 3_000_000;
+      configurePrivateBudgetFixture(db);
       reconcilePolicyClock(db, { policyId: "private-v1", wallClockNowMs: nowMs, authorizationRef: "owner:defer" });
       const admitted = admitWake(db, {
         occurrenceId: "occurrence:defer",
@@ -748,6 +750,7 @@ describe("P0 steady-state reconciliation (R7 §22.2)", () => {
     const db = openTestSidecar();
     try {
       const nowMs = 4_000_000;
+      configurePrivateBudgetFixture(db);
       reconcilePolicyClock(db, { policyId: "private-v1", wallClockNowMs: nowMs, authorizationRef: "owner:still-runs" });
       // Periodic row with uncertain spend truth: stays fenced.
       const admitted = admitWake(db, {

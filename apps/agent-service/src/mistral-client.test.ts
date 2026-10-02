@@ -1,3 +1,4 @@
+import { configurePrivateBudgetFixture } from "./core/cognitive-v021/private-budget/__tests__/configured-policy.js";
 import { describe, expect, it, vi, afterEach } from "vitest";
 import { createHash } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
@@ -358,6 +359,7 @@ describe("mapMistralError", () => {
     const attentionDb = openNuclearDb(new DatabaseSync(":memory:"));
     const sidecar = openCognitiveSidecarDb(new DatabaseSync(":memory:"), { dataPlane: { kind: "isolated" } });
     const nowMs = 4_000_000;
+    configurePrivateBudgetFixture(sidecar);
     reconcilePolicyClock(sidecar, { policyId: "private-v1", wallClockNowMs: nowMs, authorizationRef: "owner:w7-test-epoch" });
     const wake = admitWake(sidecar, {
       occurrenceId: "occurrence:w7-client",
@@ -403,6 +405,7 @@ describe("mapMistralError", () => {
     const attentionDb = openNuclearDb(new DatabaseSync(":memory:"));
     const sidecar = openCognitiveSidecarDb(new DatabaseSync(":memory:"), { dataPlane: { kind: "isolated" } });
     const nowMs = 4_000_000;
+    configurePrivateBudgetFixture(sidecar);
     reconcilePolicyClock(sidecar, { policyId: "private-v1", wallClockNowMs: nowMs, authorizationRef: "owner:child-provider-req-test" });
     const wake = admitWake(sidecar, {
       occurrenceId: "occurrence:child-req",
@@ -479,6 +482,7 @@ describe("mapMistralError", () => {
     const attentionDb = openNuclearDb(new DatabaseSync(":memory:"));
     const sidecar = openCognitiveSidecarDb(new DatabaseSync(":memory:"), { dataPlane: { kind: "isolated" } });
     const nowMs = 5_000_000;
+    configurePrivateBudgetFixture(sidecar);
     reconcilePolicyClock(sidecar, { policyId: "private-v1", wallClockNowMs: nowMs, authorizationRef: "owner:fail-closed-test" });
     const wake = admitWake(sidecar, {
       occurrenceId: "occurrence:fail-closed",
