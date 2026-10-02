@@ -8,7 +8,7 @@
     { "method": "GET", "path": "/nuclear/episodes", "ownerScope": "owner_required", "lifecycle": "active" },
     { "method": "GET", "path": "/nuclear/cognition", "ownerScope": "owner_required", "lifecycle": "active" },
     { "method": "GET", "path": "/nuclear/context-budget", "ownerScope": "owner_required", "lifecycle": "retired" },
-    { "method": "GET", "path": "/nuclear/learned-autonomy", "ownerScope": "owner_required", "lifecycle": "active" },
+    { "method": "GET", "path": "/nuclear/learned-autonomy", "ownerScope": "owner_required", "lifecycle": "retired" },
     { "method": "GET", "path": "/nuclear/cognitive-graduation", "ownerScope": "owner_required", "lifecycle": "active" },
     { "method": "GET", "path": "/nuclear/capabilities", "ownerScope": "owner_required", "lifecycle": "active" },
     { "method": "GET", "path": "/nuclear/attention", "ownerScope": "owner_required", "lifecycle": "active" },

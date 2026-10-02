@@ -1,3 +1,4 @@
+import { prepareLegacyNuclearRewind } from "../cognition/__tests__/fixtures/legacy-rewind.js";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import { NUCLEAR_SUPPORTED_VERSION, openNuclearDb } from "../db.js";
@@ -26,6 +27,7 @@ function schemaVersion(db: DatabaseSync): number {
 function sourceV30Fixture(): Fixture {
   const continuity = openContinuityDb(new DatabaseSync(":memory:"));
   const nuclear = openNuclearDb(new DatabaseSync(":memory:"), { continuity });
+  prepareLegacyNuclearRewind(nuclear);
   nuclear.exec(`
     DROP INDEX IF EXISTS idx_patch_export_records_changeset;
     DROP INDEX IF EXISTS idx_patch_export_records_entity_uuid;
@@ -57,7 +59,7 @@ describe("nuclear schema v31 bounded operations", () => {
   it("installs control-plane tables with zero rows", () => {
     const db = openNuclearDb(new DatabaseSync(":memory:"));
     try {
-      expect(NUCLEAR_SUPPORTED_VERSION).toBe(55);
+      expect(NUCLEAR_SUPPORTED_VERSION).toBe(56);
       expect(schemaVersion(db)).toBe(NUCLEAR_SUPPORTED_VERSION);
       expect(
         (db.prepare(`SELECT COUNT(*) AS c FROM bounded_operation_tasks`).get() as { c: number }).c,

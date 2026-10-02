@@ -1,3 +1,4 @@
+import { prepareLegacyNuclearRewind } from "../cognition/__tests__/fixtures/legacy-rewind.js";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import { openNuclearDb, migrate } from "../db.js";
@@ -175,6 +176,7 @@ function resetCandidateTablesToV48(db: DatabaseSync): void {
 }
 
 function removeC1Tables(db: DatabaseSync): void {
+  prepareLegacyNuclearRewind(db);
   db.exec("PRAGMA foreign_keys = OFF");
   for (const table of [...C1_TABLES].reverse()) {
     db.exec(`DROP TABLE IF EXISTS ${table}`);

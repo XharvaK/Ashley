@@ -1,3 +1,4 @@
+import { restoreLegacyV55Objects } from "./__tests__/fixtures/legacy-v55.js";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import { NUCLEAR_SUPPORTED_VERSION, openNuclearDb } from "../db.js";
@@ -20,7 +21,7 @@ describe("nuclear schema v24 cognition continuity", () => {
   it("adds host-owned model identity to OCI rows", () => {
     const db = openNuclearDb(new DatabaseSync(":memory:"));
 
-    expect(NUCLEAR_SUPPORTED_VERSION).toBe(55);
+    expect(NUCLEAR_SUPPORTED_VERSION).toBe(56);
     expect(schemaVersion(db)).toBe(NUCLEAR_SUPPORTED_VERSION);
     expect(
       (
@@ -38,6 +39,7 @@ describe("nuclear schema v24 cognition continuity", () => {
   it("recovers v24 after a post-nuclear-commit sidecar fault", () => {
     const continuity = openContinuityDb(new DatabaseSync(":memory:"));
     const db = openNuclearDb(new DatabaseSync(":memory:"), { continuity });
+  restoreLegacyV55Objects(db);
     db.exec(`
       ALTER TABLE attention_requests DROP COLUMN accepted_contract_id;
       ALTER TABLE attention_requests DROP COLUMN accepted_build_identity;

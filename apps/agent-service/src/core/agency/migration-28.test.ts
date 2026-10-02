@@ -1,3 +1,4 @@
+import { prepareLegacyNuclearRewind } from "../cognition/__tests__/fixtures/legacy-rewind.js";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import {
@@ -40,6 +41,7 @@ function columnExists(db: DatabaseSync, table: string, column: string): boolean 
 function sourceV27Fixture(): Fixture {
   const continuity = openContinuityDb(new DatabaseSync(":memory:"));
   const nuclear = openNuclearDb(new DatabaseSync(":memory:"), { continuity });
+  prepareLegacyNuclearRewind(nuclear);
   const lineageId = (
     nuclear
       .prepare("SELECT lineage_id FROM lineage_mirror WHERE id = 1")
@@ -135,7 +137,7 @@ describe("nuclear schema v28 thought validation telemetry", () => {
   it("openNuclearDb preserves v28 telemetry in the current schema", () => {
     const db = openNuclearDb(new DatabaseSync(":memory:"));
     try {
-      expect(NUCLEAR_SUPPORTED_VERSION).toBe(55);
+      expect(NUCLEAR_SUPPORTED_VERSION).toBe(56);
       expect(schemaVersion(db)).toBe(NUCLEAR_SUPPORTED_VERSION);
       expect(columnExists(db, "decision_log", "thought_validation_json")).toBe(true);
     } finally {

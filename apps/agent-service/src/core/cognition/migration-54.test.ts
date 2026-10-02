@@ -7,11 +7,11 @@ import { createEpisode } from "../memory/episodes.js";
 import { insertMessage, resolveActiveThread } from "../memory/threads.js";
 
 const dropped = ["identity_reviews", "learning_revisions", "context_budget_policies", "context_allocation_receipts", "context_summary_projections"];
-function assertV54(db: DatabaseSync, version: 54 | 55 = 54): void {
-  expect(NUCLEAR_SUPPORTED_VERSION).toBe(55);
+function assertV54(db: DatabaseSync, version: 54 | 56 = 54): void {
+  expect(NUCLEAR_SUPPORTED_VERSION).toBe(56);
   expect(db.prepare("PRAGMA user_version").get()).toEqual({ user_version: version });
   for (const name of dropped) expect(db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get(name)).toBeUndefined();
-  for (const name of ["evidence_links", "cognitive_maturation_contract_state"]) expect(db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get(name)).toEqual({ name });
+  for (const name of ["evidence_links", ...(version === 54 ? ["cognitive_maturation_contract_state"] : ["relationship_contract_state"])]) expect(db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get(name)).toEqual({ name });
   expect(db.prepare("PRAGMA foreign_key_list(lived_experience_links)").all()).not.toEqual(expect.arrayContaining([expect.objectContaining({ table: "learning_revisions" })]));
   expect(db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
   expect(db.prepare("PRAGMA foreign_keys").get()).toEqual({ foreign_keys: 1 });
@@ -20,7 +20,7 @@ function assertV54(db: DatabaseSync, version: 54 | 55 = 54): void {
 describe("nuclear migration 54 legacy removal", () => {
   it("passes migration 54 in a fresh database while preserving the kept organs", () => {
     const db = openNuclearDb(new DatabaseSync(":memory:"));
-    try { assertV54(db, 55); } finally { db.close(); }
+    try { assertV54(db, 56); } finally { db.close(); }
   });
 
   it("upgrades v53, preserves lived experience rows and columns, and removes only the revision FK", () => {

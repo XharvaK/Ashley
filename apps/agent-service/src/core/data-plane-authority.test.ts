@@ -1,3 +1,4 @@
+import { prepareLegacyNuclearRewind } from "./cognition/__tests__/fixtures/legacy-rewind.js";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, existsSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { dirname, join } from "node:path";
@@ -114,6 +115,7 @@ function seedSchema28File(nuclearPath: string, continuityPath: string): void {
     dataPlane: isolated,
     migrate: true,
   });
+  prepareLegacyNuclearRewind(nuclear);
   nuclear.exec(
     "ALTER TABLE delivery_reservations DROP COLUMN phase_lifecycle_json",
   );
@@ -194,7 +196,7 @@ describe("production data-plane authority", () => {
   });
 
   it("may migrate an explicit isolated qualification DB to the candidate schema", () => {
-    expect(NUCLEAR_SUPPORTED_VERSION).toBe(55);
+    expect(NUCLEAR_SUPPORTED_VERSION).toBe(56);
     const qualDir = tempDir("ashley-qual-plane-");
     const plane = createIsolatedDataPlane(qualDir);
     seedSchema28File(plane.nuclearDbPath, plane.continuityDbPath);

@@ -1,3 +1,4 @@
+import { prepareLegacyNuclearRewind } from "../cognition/__tests__/fixtures/legacy-rewind.js";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import {
@@ -28,6 +29,7 @@ function schemaVersion(db: DatabaseSync): number {
 }
 
 function resetCandidateTablesToV48(db: DatabaseSync): void {
+  prepareLegacyNuclearRewind(db);
   db.exec(`
     DROP INDEX IF EXISTS idx_candidate_changesets_origin_child;
     DROP INDEX IF EXISTS idx_candidate_changesets_entity_uuid;
@@ -61,7 +63,7 @@ describe("Nuclear Migration 35 (delivery lane separation and interrupted recover
   it("migrates a fresh DB directly to supported version 35 with delivery_lane column and index", () => {
     const db = openNuclearDb(new DatabaseSync(":memory:"));
     try {
-      expect(NUCLEAR_SUPPORTED_VERSION).toBe(55);
+      expect(NUCLEAR_SUPPORTED_VERSION).toBe(56);
       expect(schemaVersion(db)).toBe(NUCLEAR_SUPPORTED_VERSION);
 
       const columns = columnNames(db, "delivery_reservations");

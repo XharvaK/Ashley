@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { openNuclearDb } from "../db.js";
 import { insertItem, upsertSource } from "../curiosity/feed.js";
 import { performGroundedReads } from "../curiosity/reads.js";
-import { admitAndAccept, c1Assertion, evidence, OWNER_ID } from "./test-fixtures.js";
+import { admitAndAccept, c1Assertion, evidence, OWNER_ID } from "../cognitive-v021/influences/__tests__/fixtures/numeric-c1.js";
 
 function seed(db: DatabaseSync, withLearned: boolean): { firstItem: number; matchedItem: number } {
   const sourceId = upsertSource(db, {
@@ -40,8 +40,8 @@ function seed(db: DatabaseSync, withLearned: boolean): { firstItem: number; matc
   return { firstItem: high, matchedItem: matched };
 }
 
-describe("C3 Curiosity learned-interest ranking", () => {
-  it("changes a later ranking only in dark apply and records the learned id", async () => {
+describe("C3 retirement preserves grounded reads", () => {
+  it("keeps ordinary ranking and acquisition without legacy C3 boosts or receipts", async () => {
     const controlDb = openNuclearDb(new DatabaseSync(":memory:"));
     const learnedDb = openNuclearDb(new DatabaseSync(":memory:"));
     try {
@@ -54,19 +54,14 @@ describe("C3 Curiosity learned-interest ranking", () => {
       await performGroundedReads(controlDb, OWNER_ID, { fetcher }, new Date("2026-08-03T12:00:00.000Z"));
       await performGroundedReads(learnedDb, OWNER_ID, {
         fetcher,
-        learnedAutonomyMode: "dark_apply",
+        ...({ learnedAutonomyMode: "dark_apply" } as Record<string, unknown>),
       }, new Date("2026-08-03T12:00:00.000Z"));
       expect(controlDb.prepare("SELECT item_id FROM cur_reads ORDER BY id LIMIT 1").get())
         .toEqual({ item_id: control.firstItem });
       expect(learnedDb.prepare("SELECT item_id FROM cur_reads ORDER BY id LIMIT 1").get())
-        .toEqual({ item_id: learned.matchedItem });
-      expect(learnedDb.prepare(
-        "SELECT choice_kind, learned_id, eligible_input_affected_ranking, agency_made_final_choice FROM learned_choice_receipts",
-      ).get()).toMatchObject({
-        choice_kind: "curiosity_rank",
-        eligible_input_affected_ranking: 1,
-        agency_made_final_choice: 0,
-      });
+        .toEqual({ item_id: learned.firstItem });
+      expect(learnedDb.prepare("SELECT count(*) AS n FROM learned_choice_receipts").get()).toEqual({n:0});
+      expect(learnedDb.prepare("SELECT count(*) AS n FROM cur_reads").get()).toEqual({n:2});
     } finally {
       controlDb.close();
       learnedDb.close();

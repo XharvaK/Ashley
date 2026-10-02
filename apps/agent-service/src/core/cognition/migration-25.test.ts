@@ -1,3 +1,4 @@
+import { restoreLegacyV55Objects } from "./__tests__/fixtures/legacy-v55.js";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import {
@@ -48,6 +49,7 @@ function dropColumnIfPresent(
 function sourceV24Fixture(): Fixture {
   const continuity = openContinuityDb(new DatabaseSync(":memory:"));
   const nuclear = openNuclearDb(new DatabaseSync(":memory:"), { continuity });
+  restoreLegacyV55Objects(nuclear);
   dropColumnIfPresent(nuclear, "attention_requests", "accepted_contract_id");
   dropColumnIfPresent(nuclear, "attention_requests", "accepted_build_identity");
   dropColumnIfPresent(nuclear, "open_cognitive_items", "generation_order");
@@ -103,7 +105,7 @@ describe("nuclear schema v25 INIT-03 ordering metadata", () => {
   it("adds durable accepted-dispatch provenance and OCI generation order", () => {
     const db = openNuclearDb(new DatabaseSync(":memory:"));
     try {
-      expect(NUCLEAR_SUPPORTED_VERSION).toBe(55);
+      expect(NUCLEAR_SUPPORTED_VERSION).toBe(56);
       expect(schemaVersion(db)).toBe(NUCLEAR_SUPPORTED_VERSION);
       const attentionColumns = columnNames(db, "attention_requests");
       expect(attentionColumns.has("accepted_contract_id")).toBe(true);

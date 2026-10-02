@@ -6,7 +6,6 @@ import type { MotivationKind, Trigger } from "../types.js";
 import { env } from "../../env.js";
 import { listEligibleAssertions } from "../memory/eligibility.js";
 import { listIdentity } from "../identity/store.js";
-import { listActiveLearnedInfluences } from "../learned-autonomy/eligibility.js";
 import { maxClassification, type DataClassification } from "../privacy/classification.js";
 import {
   normalizeC5WriteMode,
@@ -27,7 +26,6 @@ export type SharedCultureSourceBindings = {
   ownerAssertionIds: number[];
   ashleyAssertionIds: number[];
   ashleyIdentityEntryIds: number[];
-  learnedInfluenceIds: number[];
   interactionContractIds: number[];
 };
 
@@ -348,6 +346,12 @@ function numberOrNull(value: unknown): number | null {
   return value == null ? null : Number(value);
 }
 
+// Retired C3 IDs stay in historical bytes, never in current projection bindings.
+function withoutRetiredC3<T extends object>(value: T): T {
+  const { learnedInfluenceIds: _retired, ...current } = value as Record<string, unknown>;
+  return current as T;
+}
+
 function mapProjection(row: unknown): RelationshipProjection | null {
   if (typeof row !== "object" || row === null) return null;
   const source = row as Record<string, unknown>;
@@ -360,14 +364,13 @@ function mapProjection(row: unknown): RelationshipProjection | null {
     kind,
     projectionPolicyId: String(source.projection_policy_id ?? ""),
     projectionPolicyVersion: Number(source.projection_policy_version ?? 0),
-    sourceBindings: parseJson<SharedCultureSourceBindings>(source.source_bindings_json, {
+    sourceBindings: withoutRetiredC3(parseJson<SharedCultureSourceBindings>(source.source_bindings_json, {
       ownerAssertionIds: [],
       ashleyAssertionIds: [],
       ashleyIdentityEntryIds: [],
-      learnedInfluenceIds: [],
       interactionContractIds: [],
-    }),
-    sourceWatermark: parseJson<Record<string, unknown>>(source.source_watermark_json, {}),
+    })),
+    sourceWatermark: withoutRetiredC3(parseJson<Record<string, unknown>>(source.source_watermark_json, {})),
     dataClassification: String(source.data_classification ?? "never_public") as DataClassification,
     provenance: String(source.provenance ?? "shadow") as C5Provenance,
     partySubjectScope: String(source.party_subject_scope ?? "owner"),
@@ -398,26 +401,6 @@ function currentRelationshipContractIds(
         (contract.effectiveTo === null || atIso < contract.effectiveTo),
       )
       .map((contract) => contract.id)
-      .filter((id) => Number.isSafeInteger(id) && id > 0);
-  } catch {
-    return [];
-  }
-}
-
-function currentLearnedInfluenceIds(
-  db: DatabaseSync,
-  ownerId: string,
-  mode: C5Mode,
-  at: Date,
-): number[] {
-  if (mode !== "dark_apply") return [];
-  try {
-    return listActiveLearnedInfluences(db, ownerId, {
-      mode: "dark_apply",
-      at,
-    })
-      .filter((influence) => influence.lineageKind === "ashley_native")
-      .map((influence) => influence.id)
       .filter((id) => Number.isSafeInteger(id) && id > 0);
   } catch {
     return [];
@@ -484,13 +467,11 @@ function currentSharedCultureBindings(
     }
   }
 
-  const learnedInfluenceIds = currentLearnedInfluenceIds(db, ownerId, mode, at);
   const interactionContractIds = currentRelationshipContractIds(db, ownerId, mode, at);
   const bindings: SharedCultureSourceBindings = {
     ownerAssertionIds: [...ownerAssertionIds].sort((a, b) => a - b),
     ashleyAssertionIds: [...ashleyAssertionIds].sort((a, b) => a - b),
     ashleyIdentityEntryIds: [...ashleyIdentityEntryIds].sort((a, b) => a - b),
-    learnedInfluenceIds,
     interactionContractIds,
   };
   const maxAssertionId = assertions.reduce((max, item) => Math.max(max, item.id), 0);
@@ -506,7 +487,6 @@ function currentSharedCultureBindings(
       evaluatedAt: at.toISOString(),
       maxEligibleAssertionId: maxAssertionId,
       maxCurrentIdentityUpdatedAt: maxIdentityUpdatedAt || null,
-      learnedInfluenceIds,
       interactionContractIds,
     },
   };

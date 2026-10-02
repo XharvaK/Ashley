@@ -1,3 +1,4 @@
+import { prepareLegacyNuclearRewind } from "../cognition/__tests__/fixtures/legacy-rewind.js";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import {
@@ -31,6 +32,7 @@ function schemaVersion(db: DatabaseSync): number {
 function sourceV25Fixture(): Fixture {
   const continuity = openContinuityDb(new DatabaseSync(":memory:"));
   const nuclear = openNuclearDb(new DatabaseSync(":memory:"), { continuity });
+  prepareLegacyNuclearRewind(nuclear);
   nuclear.exec(`
     DROP INDEX idx_sandbox_task_admissions_owner_status;
     DROP INDEX idx_sandbox_task_admissions_decision;
@@ -82,7 +84,7 @@ describe("nuclear schema v26 Recall qualification epochs", () => {
   it("installs the epoch registry with zero current epochs and no auto campaign", () => {
     const db = openNuclearDb(new DatabaseSync(":memory:"));
     try {
-      expect(NUCLEAR_SUPPORTED_VERSION).toBe(55);
+      expect(NUCLEAR_SUPPORTED_VERSION).toBe(56);
       expect(schemaVersion(db)).toBe(NUCLEAR_SUPPORTED_VERSION);
       expect(
         (

@@ -1,3 +1,4 @@
+import { prepareLegacyNuclearRewind } from "../cognition/__tests__/fixtures/legacy-rewind.js";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import { openNuclearDb, NUCLEAR_SUPPORTED_VERSION } from "../db.js";
@@ -53,7 +54,7 @@ describe("wave06 migration", () => {
   it("migrates fresh db to v16 with v3 contract and perception tables", () => {
     const continuity = openContinuityDb(new DatabaseSync(":memory:"));
     const nuclear = openNuclearDb(new DatabaseSync(":memory:"), { continuity });
-    expect(NUCLEAR_SUPPORTED_VERSION).toBe(55);
+    expect(NUCLEAR_SUPPORTED_VERSION).toBe(56);
     const version = (
       nuclear.prepare("PRAGMA user_version").get() as { user_version: number }
     ).user_version;
@@ -93,6 +94,7 @@ describe("wave06 migration", () => {
                'migration-preserved-question', 'never_public')`,
     ).run();
     resetCognitionTablesToV22(nuclear);
+    prepareLegacyNuclearRewind(nuclear);
     nuclear.exec("PRAGMA user_version = 22");
     continuity
       .prepare(
@@ -173,6 +175,7 @@ describe("wave06 migration", () => {
         .get() as { lineage_id: string }
     ).lineage_id;
     resetCognitionTablesToV22(nuclear);
+    prepareLegacyNuclearRewind(nuclear);
     nuclear.exec("PRAGMA user_version = 22");
     continuity
       .prepare(
@@ -195,6 +198,7 @@ describe("wave06 migration", () => {
     expect(getPendingNuclearMigration(continuity)).toMatchObject({
       phase: "pending",
     });
+    prepareLegacyNuclearRewind(nuclear);
     nuclear.exec("PRAGMA user_version = 22");
 
     openNuclearDb(nuclear, { continuity });

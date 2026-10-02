@@ -10,13 +10,13 @@ function legacy(db: DatabaseSync) {
 }
 function objects(db: DatabaseSync) { return db.prepare("SELECT type,name,tbl_name,sql FROM sqlite_master ORDER BY type,name").all(); }
 describe("nuclear v55 C4 retirement", () => {
-  it("upgrades a fresh database and keeps the c4 contract marker", () => {
+  it("upgrades a fresh database and reaches current retirement with a preserved C5 contract marker", () => {
     const db = openNuclearDb(new DatabaseSync(":memory:"));
     try {
-      expect(NUCLEAR_SUPPORTED_VERSION).toBe(55);
-      expect(db.prepare("PRAGMA user_version").get()).toEqual({ user_version: 55 });
+      expect(NUCLEAR_SUPPORTED_VERSION).toBe(56);
+      expect(db.prepare("PRAGMA user_version").get()).toEqual({ user_version: 56 });
       for (const table of tables) expect(db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get(table)).toBeUndefined();
-      expect(db.prepare("SELECT highest_contract_version,state FROM cognitive_maturation_contract_state WHERE wave='c4'").get()).toEqual({ highest_contract_version: 1, state: "observe" });
+      expect(db.prepare("SELECT highest_contract_version,state FROM relationship_contract_state WHERE wave='c5'").get()).toEqual({ highest_contract_version: 1, state: "observe" });
       expect(db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
     } finally { db.close(); }
   });
@@ -24,10 +24,10 @@ describe("nuclear v55 C4 retirement", () => {
     const db = openNuclearDb(new DatabaseSync(":memory:"));
     try {
       legacy(db);
-      const marker = db.prepare("SELECT * FROM cognitive_maturation_contract_state ORDER BY wave").all();
+      const marker = db.prepare("SELECT * FROM cognitive_maturation_contract_state WHERE wave='c5'").all();
       openNuclearDb(db);
-      expect(db.prepare("PRAGMA user_version").get()).toEqual({ user_version: 55 });
-      expect(db.prepare("SELECT * FROM cognitive_maturation_contract_state ORDER BY wave").all()).toEqual(marker);
+      expect(db.prepare("PRAGMA user_version").get()).toEqual({ user_version: 56 });
+      expect(db.prepare("SELECT * FROM relationship_contract_state ORDER BY wave").all()).toEqual(marker);
       for (const table of tables) expect(db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get(table)).toBeUndefined();
     } finally { db.close(); }
   });

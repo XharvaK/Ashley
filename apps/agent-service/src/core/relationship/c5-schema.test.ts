@@ -11,7 +11,7 @@ describe("C5 additive schema", () => {
     try {
       // The historical C5 packet recorded v42. Current source also includes
       // W4 migrations v43 through v47; db.ts is the live schema authority.
-      expect(NUCLEAR_SUPPORTED_VERSION).toBe(55);
+      expect(NUCLEAR_SUPPORTED_VERSION).toBe(56);
       expect(db.prepare("PRAGMA user_version").get()).toEqual({
         user_version: NUCLEAR_SUPPORTED_VERSION,
       });
@@ -23,7 +23,7 @@ describe("C5 additive schema", () => {
       }
       expect(db.prepare(
         `SELECT highest_contract_version, live_authority_existed, state
-         FROM cognitive_maturation_contract_state WHERE wave = 'c5'`,
+         FROM relationship_contract_state WHERE wave = 'c5'`,
       ).get()).toEqual({ highest_contract_version: 1, live_authority_existed: 0, state: "observe" });
       const consentColumns = (db.prepare(
         "PRAGMA table_info(consent_records)",
@@ -48,7 +48,7 @@ describe("C5 additive schema", () => {
     const db = openNuclearDb(new DatabaseSync(":memory:"));
     try {
       db.prepare(
-        `UPDATE cognitive_maturation_contract_state
+        `UPDATE relationship_contract_state
          SET highest_contract_version = 2 WHERE wave = 'c5'`,
       ).run();
       expect(() => assertC5ContractCompatible(db)).toThrow(

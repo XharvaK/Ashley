@@ -1,3 +1,4 @@
+import { assertC3TablesEmpty, ensureNuclearV56Schema } from "./cognition/migration-56.js";
 import { assertC4TablesEmpty, ensureNuclearV55Schema } from "./cognition/migration-55.js";
 import { existsSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -104,7 +105,7 @@ import {
 import {
   ensureNuclearV38Schema,
   MIGRATION_38_LEARNED_AUTONOMY_DDL,
-} from "./learned-autonomy/migration-37.js";
+} from "./cognition/legacy-learned-migration-37.js";
 import {
   ensureNuclearV39Schema,
   MIGRATION_39_COGNITIVE_GRADUATION_DDL,
@@ -168,7 +169,7 @@ import { currentBuildIdentity } from "./rollout/capabilities.js";
 export { reservedProductionNuclearDbPath as NUCLEAR_DB_PATH };
 
 const OBSERVED_NUCLEAR_BASELINE_VERSION = 54 as const;
-export const NUCLEAR_SUPPORTED_VERSION = OBSERVED_NUCLEAR_BASELINE_VERSION + 1;
+export const NUCLEAR_SUPPORTED_VERSION = OBSERVED_NUCLEAR_BASELINE_VERSION + 2;
 
 export type NuclearMigrationTestFault =
   | "before_pending"
@@ -1235,14 +1236,14 @@ function reconcilePendingNuclearMigration(
     buildIdentity: pending.buildIdentity,
   };
   if (actualVersion === pending.from) {
-    validateNuclearSchemaContent(db, pending.from as 22 | 23 | 24 | 25 | 26 | 27 | 28 | 29 | 30 | 31 | 32 | 33 | 34 | 35 | 36 | 37 | 38 | 39 | 40 | 41 | 42 | 43 | 44 | 45 | 46 | 47 | 48 | 49 | 50 | 51 | 52 | 53 | 54 | 55, {
+    validateNuclearSchemaContent(db, pending.from as 22 | 23 | 24 | 25 | 26 | 27 | 28 | 29 | 30 | 31 | 32 | 33 | 34 | 35 | 36 | 37 | 38 | 39 | 40 | 41 | 42 | 43 | 44 | 45 | 46 | 47 | 48 | 49 | 50 | 51 | 52 | 53 | 54 | 55 | 56, {
       rejectNewerContent: true,
     });
     rollbackNuclearMigration(continuity, descriptor);
     return;
   }
   if (actualVersion === pending.to) {
-    validateNuclearSchemaContent(db, pending.to as 22 | 23 | 24 | 25 | 26 | 27 | 28 | 29 | 30 | 31 | 32 | 33 | 34 | 35 | 36 | 37 | 38 | 39 | 40 | 41 | 42 | 43 | 44 | 45 | 46 | 47 | 48 | 49 | 50 | 51 | 52 | 53 | 54 | 55, {
+    validateNuclearSchemaContent(db, pending.to as 22 | 23 | 24 | 25 | 26 | 27 | 28 | 29 | 30 | 31 | 32 | 33 | 34 | 35 | 36 | 37 | 38 | 39 | 40 | 41 | 42 | 43 | 44 | 45 | 46 | 47 | 48 | 49 | 50 | 51 | 52 | 53 | 54 | 55 | 56, {
       rejectNewerContent: true,
     });
     finalizeNuclearMigration(continuity, descriptor, "recovered");
@@ -1393,6 +1394,8 @@ function migrateNuclearSchemaWithProtocol(input: {
       ensureNuclearV53Schema(db);
     } else if (targetVersion === 54) {
       ensureNuclearV54Schema(db);
+    } else if (targetVersion === 56) {
+      ensureNuclearV56Schema(db);
     } else if (targetVersion === 55) {
       ensureNuclearV55Schema(db);
     } else {
@@ -1401,7 +1404,7 @@ function migrateNuclearSchemaWithProtocol(input: {
     db.exec(`PRAGMA user_version = ${targetVersion}`);
     validateNuclearSchemaContent(
       db,
-      targetVersion as 23 | 24 | 25 | 26 | 27 | 28 | 29 | 30 | 31 | 32 | 33 | 34 | 35 | 36 | 37 | 38 | 39 | 40 | 41 | 42 | 43 | 44 | 45 | 46 | 47 | 48 | 49 | 50 | 51 | 52 | 53 | 54 | 55,
+      targetVersion as 23 | 24 | 25 | 26 | 27 | 28 | 29 | 30 | 31 | 32 | 33 | 34 | 35 | 36 | 37 | 38 | 39 | 40 | 41 | 42 | 43 | 44 | 45 | 46 | 47 | 48 | 49 | 50 | 51 | 52 | 53 | 54 | 55 | 56,
     );
     const fk = db.prepare("PRAGMA foreign_key_check").all();
     if (fk.length > 0) throw new Error("nuclear_fk_check_failed");
@@ -1505,7 +1508,7 @@ export function migrate(
       throw err;
     }
     if (version >= 25 && version <= NUCLEAR_SUPPORTED_VERSION) {
-      validateNuclearSchemaContent(db, version as 25 | 26 | 27 | 28 | 29 | 30 | 31 | 32 | 33 | 34 | 35 | 36 | 37 | 38 | 39 | 40 | 41 | 42 | 43 | 44 | 45 | 46 | 47 | 48 | 49 | 50 | 51 | 52 | 53 | 54 | 55);
+      validateNuclearSchemaContent(db, version as 25 | 26 | 27 | 28 | 29 | 30 | 31 | 32 | 33 | 34 | 35 | 36 | 37 | 38 | 39 | 40 | 41 | 42 | 43 | 44 | 45 | 46 | 47 | 48 | 49 | 50 | 51 | 52 | 53 | 54 | 55 | 56);
     }
     return;
   }
@@ -3508,10 +3511,23 @@ export function migrate(
       testFailAfterNuclearCommitBeforeContinuityFinalization: options.testFailAfterNuclearCommitBeforeContinuityFinalization,
     });
   }
+  if (userVersion(db) < 56) {
+    assertC3TablesEmpty(db);
+    const continuity = options.continuity;
+    const priorVersion = userVersion(db);
+    const lineageId = nuclearLineageMirrorId(db);
+    if (!continuity && !options.skipContinuityRequirement) throw new Error("continuity_unavailable");
+    migrateNuclearSchemaWithProtocol({
+      db, continuity: continuity && lineageId ? continuity : undefined, targetVersion: 56,
+      descriptor: continuity && lineageId ? { from: priorVersion, to: 56, lineageId, buildIdentity: currentBuildIdentity() } : undefined,
+      ddl: "", testMigrationFault: options.testMigrationFault,
+      testFailAfterNuclearCommitBeforeContinuityFinalization: options.testFailAfterNuclearCommitBeforeContinuityFinalization,
+    });
+  }
   if (userVersion(db) >= 25) {
     validateNuclearSchemaContent(
       db,
-      userVersion(db) as 25 | 26 | 27 | 28 | 29 | 30 | 31 | 32 | 33 | 34 | 35 | 36 | 37 | 38 | 39 | 40 | 41 | 42 | 43 | 44 | 45 | 46 | 47 | 48 | 49 | 50 | 51 | 52 | 53 | 54 | 55,
+      userVersion(db) as 25 | 26 | 27 | 28 | 29 | 30 | 31 | 32 | 33 | 34 | 35 | 36 | 37 | 38 | 39 | 40 | 41 | 42 | 43 | 44 | 45 | 46 | 47 | 48 | 49 | 50 | 51 | 52 | 53 | 54 | 55 | 56,
     );
   }
   if (!options.skipContinuityRequirement && userVersion(db) >= 15) {

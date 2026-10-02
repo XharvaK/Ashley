@@ -465,7 +465,7 @@ export function validateNuclearV40Schema(db: DatabaseSync, _version = 40): void 
   const marker = db.prepare(
     `SELECT highest_contract_version, live_authority_existed,
             cutover_or_activation_state, state
-     FROM cognitive_maturation_contract_state WHERE wave = 'c5'`,
+     FROM ${_version >= 56 ? 'relationship_contract_state' : 'cognitive_maturation_contract_state'} WHERE wave = 'c5'`,
   ).get() as {
     highest_contract_version?: number;
     live_authority_existed?: number;

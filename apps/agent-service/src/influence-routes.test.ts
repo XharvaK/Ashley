@@ -31,3 +31,9 @@ describe("Owner influence mode route",()=>{
   expect(db.prepare("SELECT * FROM learned_influences").all()).toEqual([]);
  }));
 });
+
+it("retires the nuclear influence diagnostic without reading removed tables",async()=>fixture(async(url)=>{
+ const headers={"X-Ashley-Bot-Service":"fixture-token","X-Ashley-Actor":"owner-test"};
+ expect((await fetch(url+"/nuclear/learned-autonomy?owner_id=owner-test",{headers})).status).toBe(410);
+ expect((await fetch(url+"/nuclear/learned-autonomy?owner_id=external",{headers})).status).toBe(403);
+}));
