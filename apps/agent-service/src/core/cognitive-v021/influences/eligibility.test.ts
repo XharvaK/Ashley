@@ -2,7 +2,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it, vi } from "vitest";
 import { openNuclearDb } from "../../db.js";
-import { admitAndAccept, c1Assertion, evidence, OWNER_ID } from "./test-fixtures.js";
+import { admitAndAccept, c1Assertion, evidence, OWNER_ID } from "./__tests__/fixtures/numeric-c1.js";
 import { openTestSidecar } from "../test-support.js";
 
 import { readEligibility as read, refreshEligibility as refresh } from "./eligibility.js";

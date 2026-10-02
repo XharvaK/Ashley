@@ -8,6 +8,7 @@ export function assertC3TablesEmpty(db:DatabaseSync):void {
  }
  const c5=db.prepare("SELECT * FROM cognitive_maturation_contract_state WHERE wave='c5'").get();
  if(!c5||Number(c5.highest_contract_version)!==1||Number(c5.live_authority_existed)!==0)throw new Error("c3_retirement_c5_contract_unsupported");
+ if(!["observe","dark_apply","apply"].includes(String(c5.state)))throw new Error("c3_retirement_c5_mode_invalid");
 }
 export function ensureNuclearV56Schema(db:DatabaseSync):void {
  assertC3TablesEmpty(db);

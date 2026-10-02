@@ -1,8 +1,8 @@
 // Isolated numeric-C1 fixtures exercise explicit evidence ownership; no production admission path.
 import type { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
-import { insertAssertion } from "../../memory/assertions.js";
-import { MIGRATION_38_LEARNED_AUTONOMY_DDL } from "../../cognition/legacy-learned-migration-37.js";
+import { insertAssertion } from "../../../../memory/assertions.js";
+import { MIGRATION_38_LEARNED_AUTONOMY_DDL } from "../../../../cognition/legacy-learned-migration-37.js";
 export const OWNER_ID="c3-owner";
 export function c1Assertion(
   db: DatabaseSync,

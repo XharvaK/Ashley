@@ -4,7 +4,7 @@ import { probeCoercion, probeDecisionCoercion } from "./coercion-gate.js";
 import { openNuclearDb } from "../db.js";
 import { insertAssertion } from "../memory/assertions.js";
 import { defaultUnclassifiedConversational } from "../privacy/classification.js";
-import { admitAndAccept, c1Assertion, evidence } from "../cognitive-v021/influences/test-fixtures.js";
+import { admitAndAccept, c1Assertion, evidence } from "../cognitive-v021/influences/__tests__/fixtures/numeric-c1.js";
 import { recomputeSharedCulture, getCurrentSharedCulture } from "./projections.js";
 import { recordInteractionContract } from "./interaction-contracts.js";
 

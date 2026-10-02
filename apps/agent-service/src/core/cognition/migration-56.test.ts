@@ -39,4 +39,14 @@ describe("nuclear56 C3 retirement",()=>{
    expect(db.prepare("PRAGMA user_version").get()).toEqual({user_version:55});expect(c.prepare("SELECT * FROM lineage_state").all()).toEqual(lineage);expect(c.prepare("SELECT * FROM continuity_events").all()).toEqual(events);
   }finally{db.close();}
  });
+ it.each(["unrecognized-mode","future-mode"])("refuses malformed C5 mode %s before continuity mutation",mode=>{
+  const db=openNuclearDb(new DatabaseSync(":memory:"));try{
+   legacy(db);db.exec("PRAGMA ignore_check_constraints=ON");db.prepare("UPDATE cognitive_maturation_contract_state SET state=? WHERE wave='c5'").run(mode);db.exec("PRAGMA ignore_check_constraints=OFF");
+   const before=objects(db),c=getContinuityFor(db)!,events=c.prepare("SELECT * FROM continuity_events").all();
+   expect(()=>openNuclearDb(db)).toThrow("c3_retirement_c5_mode_invalid");
+   expect(objects(db)).toEqual(before);expect(c.prepare("SELECT * FROM continuity_events").all()).toEqual(events);
+   expect(db.prepare("PRAGMA user_version").get()).toEqual({user_version:55});
+  }finally{db.close();}
+ });
+
 });
