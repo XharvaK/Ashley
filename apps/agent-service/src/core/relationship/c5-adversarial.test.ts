@@ -47,7 +47,7 @@ describe("C5 adversarial boundaries", () => {
         at: new Date("2026-08-22T10:00:00.000Z"),
         capabilityMode: "dark_apply",
       });
-      expect(projection.sourceBindings.learnedInfluenceIds).toContain(learned.id);
+      expect(projection.sourceBindings).not.toHaveProperty("learnedInfluenceIds");
       expect(projection.sourceBindings.ownerAssertionIds).toContain(ownerAssertion);
       expect(db.prepare(
         "SELECT COUNT(*) AS count FROM mutual_commitments WHERE owner_id = ?",

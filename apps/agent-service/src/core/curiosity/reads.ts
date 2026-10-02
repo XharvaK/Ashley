@@ -5,9 +5,6 @@ import { recordLiveShadowEvent } from "../rollout/capabilities.js";
 import { capabilityCanInfluence } from "../rollout/capabilities.js";
 import { listOpenQuestions } from "../state/questions.js";
 import type { EvidenceProvenance } from "../types.js";
-import { listActiveLearnedInfluences } from "../learned-autonomy/eligibility.js";
-import { recordChoiceReceipt } from "../learned-autonomy/receipts.js";
-import type { LearnedAutonomyMode, LearnedInfluence } from "../learned-autonomy/types.js";
 import {
   fetchValidatedResource,
   type FetchLike,
@@ -172,11 +169,6 @@ type Candidate = {
   excerpt: string;
 };
 
-type RankedCandidate = Candidate & {
-  learnedInfluenceIds: number[];
-  learnedBoost: number;
-};
-
 function utcDayStart(now: Date): string {
   return new Date(Date.UTC(
     now.getUTCFullYear(),
@@ -194,40 +186,12 @@ function evidenceExcerpts(cleaned: string): string[] {
   return source.map((part) => part.slice(0, 500)).filter(Boolean).slice(0, 6);
 }
 
-function learnedTokens(influence: LearnedInfluence): string[] {
-  return `${influence.semanticOwnerRef} ${influence.text}`
-    .toLowerCase()
-    .match(/[a-z0-9]{4,}/g) ?? [];
-}
-
-function learnedRankEffect(
-  candidate: Candidate,
-  learned: LearnedInfluence[],
-): { learnedInfluenceIds: number[]; learnedBoost: number } {
-  const candidateText = `${candidate.interest} ${candidate.title} ${candidate.excerpt}`.toLowerCase();
-  const matched = learned.filter((influence) => {
-    const tokens = learnedTokens(influence);
-    const directRef = influence.semanticOwnerRef.toLowerCase().split(":").pop() ?? "";
-    return (directRef.length >= 4 && candidateText.includes(directRef)) ||
-      tokens.filter((token) => candidateText.includes(token)).length >= 2;
-  });
-  return {
-    learnedInfluenceIds: matched.map((influence) => influence.id),
-    learnedBoost: Math.min(40, matched.length * 32),
-  };
-}
-
-function hashForChoice(value: unknown): string {
-  return `sha256:${createHash("sha256").update(JSON.stringify(value)).digest("hex")}`;
-}
-
 export async function performGroundedReads(
   db: DatabaseSync,
   ownerId: string,
   dependencies: {
     fetcher?: FetchLike;
     resolve?: ResolveHost;
-    learnedAutonomyMode?: LearnedAutonomyMode;
   } = {},
   now = new Date(),
 ): Promise<{ readsCreated: number; reads: ReadRecord[]; errors: string[] }> {
@@ -241,14 +205,7 @@ export async function performGroundedReads(
   let explorationBudget = Math.max(0, 2 - Number(counts?.exploration_count ?? 0));
   if (interestBudget + explorationBudget === 0) return { readsCreated: 0, reads: [], errors: [] };
 
-  const activeLearned = dependencies.learnedAutonomyMode === "dark_apply"
-    ? listActiveLearnedInfluences(db, ownerId, {
-      mode: dependencies.learnedAutonomyMode,
-      at: now,
-    })
-    : [];
-
-  const candidates: RankedCandidate[] = db.prepare(
+  const candidates: Candidate[] = db.prepare(
     `SELECT i.id, i.url, i.title, i.interest, i.score, i.excerpt
      FROM cur_items i
      LEFT JOIN cur_reads r ON r.item_id = i.id
@@ -265,24 +222,18 @@ export async function performGroundedReads(
       score: Number(value.score),
       excerpt: String(value.excerpt),
     } satisfies Candidate;
-    return {
-      ...candidate,
-      ...learnedRankEffect(
-        candidate,
-        activeLearned,
-      ),
-    } satisfies RankedCandidate;
+    return candidate;
   });
   const questionTokens = new Set(
     listOpenQuestions(db, ownerId, 12)
       .flatMap((question) => question.text.toLowerCase().match(/[a-z0-9]{4,}/g) ?? []),
   );
   candidates.sort((left, right) => {
-    const relevance = (candidate: RankedCandidate) => {
+    const relevance = (candidate: Candidate) => {
       const text = `${candidate.title} ${candidate.excerpt}`.toLowerCase();
       let overlap = 0;
       for (const token of questionTokens) if (text.includes(token)) overlap++;
-      return candidate.score + Math.min(50, overlap * 10) + candidate.learnedBoost;
+      return candidate.score + Math.min(50, overlap * 10);
     };
     return relevance(right) - relevance(left) || right.id - left.id;
   });
@@ -327,24 +278,6 @@ export async function performGroundedReads(
         provenance: liveAuthority ? "live" : "shadow",
       });
       if (!readId) throw new Error("read_record_rejected");
-      if (item.learnedInfluenceIds.length > 0) {
-        const inputCandidateIds = candidates.map((candidate) => candidate.id);
-        for (const learnedInfluenceId of item.learnedInfluenceIds) {
-          recordChoiceReceipt(db, {
-            learnedInfluenceId,
-            choiceKind: "curiosity_rank",
-            candidateIds: inputCandidateIds,
-            selectedIds: [item.id],
-            rankDelta: { [String(item.id)]: item.learnedBoost },
-            policyBinding: "c3-curiosity-rank-v1",
-            reasonCode: "qualified_learned_interest",
-            inputContentHash: hashForChoice(inputCandidateIds),
-            outputContentHash: hashForChoice({ selected: item.id, rank: item.learnedBoost }),
-            eligibleInputAffectedRanking: true,
-            agencyMadeFinalChoice: false,
-          });
-        }
-      }
       db.prepare("UPDATE cur_items SET status = 'read' WHERE id = ?").run(item.id);
       logProvenance(db, "read", `${ownerId}:read:${readId}:${resource.finalUrl}`, item.id);
       recordLiveShadowEvent(db, "reading", `read:${readId}`);

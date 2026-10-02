@@ -6,7 +6,6 @@ import type { MotivationKind, Trigger } from "../types.js";
 import { env } from "../../env.js";
 import { listEligibleAssertions } from "../memory/eligibility.js";
 import { listIdentity } from "../identity/store.js";
-import { listActiveLearnedInfluences } from "../learned-autonomy/eligibility.js";
 import { maxClassification, type DataClassification } from "../privacy/classification.js";
 import {
   normalizeC5WriteMode,
@@ -27,7 +26,6 @@ export type SharedCultureSourceBindings = {
   ownerAssertionIds: number[];
   ashleyAssertionIds: number[];
   ashleyIdentityEntryIds: number[];
-  learnedInfluenceIds: number[];
   interactionContractIds: number[];
 };
 
@@ -364,7 +362,6 @@ function mapProjection(row: unknown): RelationshipProjection | null {
       ownerAssertionIds: [],
       ashleyAssertionIds: [],
       ashleyIdentityEntryIds: [],
-      learnedInfluenceIds: [],
       interactionContractIds: [],
     }),
     sourceWatermark: parseJson<Record<string, unknown>>(source.source_watermark_json, {}),
@@ -398,26 +395,6 @@ function currentRelationshipContractIds(
         (contract.effectiveTo === null || atIso < contract.effectiveTo),
       )
       .map((contract) => contract.id)
-      .filter((id) => Number.isSafeInteger(id) && id > 0);
-  } catch {
-    return [];
-  }
-}
-
-function currentLearnedInfluenceIds(
-  db: DatabaseSync,
-  ownerId: string,
-  mode: C5Mode,
-  at: Date,
-): number[] {
-  if (mode !== "dark_apply") return [];
-  try {
-    return listActiveLearnedInfluences(db, ownerId, {
-      mode: "dark_apply",
-      at,
-    })
-      .filter((influence) => influence.lineageKind === "ashley_native")
-      .map((influence) => influence.id)
       .filter((id) => Number.isSafeInteger(id) && id > 0);
   } catch {
     return [];
@@ -484,13 +461,11 @@ function currentSharedCultureBindings(
     }
   }
 
-  const learnedInfluenceIds = currentLearnedInfluenceIds(db, ownerId, mode, at);
   const interactionContractIds = currentRelationshipContractIds(db, ownerId, mode, at);
   const bindings: SharedCultureSourceBindings = {
     ownerAssertionIds: [...ownerAssertionIds].sort((a, b) => a - b),
     ashleyAssertionIds: [...ashleyAssertionIds].sort((a, b) => a - b),
     ashleyIdentityEntryIds: [...ashleyIdentityEntryIds].sort((a, b) => a - b),
-    learnedInfluenceIds,
     interactionContractIds,
   };
   const maxAssertionId = assertions.reduce((max, item) => Math.max(max, item.id), 0);
@@ -506,7 +481,6 @@ function currentSharedCultureBindings(
       evaluatedAt: at.toISOString(),
       maxEligibleAssertionId: maxAssertionId,
       maxCurrentIdentityUpdatedAt: maxIdentityUpdatedAt || null,
-      learnedInfluenceIds,
       interactionContractIds,
     },
   };
