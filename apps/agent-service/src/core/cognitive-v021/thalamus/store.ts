@@ -1,7 +1,7 @@
 // Publication owns attention claims; this store keeps bounded private intent and mechanical timing receipts.
 import type { DatabaseSync } from "node:sqlite";
 import { isOwnerPrivateConversation } from "../memory/semantic-forget.js";
-import { arbitrate, type Decision, type ThalamusState, type Candidate } from "./core.js";
+import { arbitrate, type Decision, type ThalamusState, type Candidate, type ThalamusContext } from "./core.js";
 import { isValidAttentionClaim, watchExpired, type AttentionWatch, type AttentionFact } from "./attention.js";
 import { THALAMUS_PARAMETERS as P } from "./parameters.js";
 type Row = Record<string,unknown>;
@@ -96,15 +96,18 @@ export function saveThalamusCheckpoint(db:DatabaseSync,ownerId:string,state:Thal
 function mechanical(candidate:Candidate):Record<string,unknown>{
   return {eventId:candidate.eventId,observedAtMs:candidate.observedAtMs,source:candidate.source,salience:candidate.salience,
     class:candidate.class,coalesceKey:candidate.coalesceKey,passType:candidate.passType,
+    suppressed:candidate.suppressed ?? false,
     ...(candidate.deadlineMs===undefined?{}:{deadlineMs:candidate.deadlineMs})};
 }
 /** Timing receipt only: fire is a proposed pass, never execution, delivery or promotion. */
-export function recordThalamusDecision(db:DatabaseSync,decisionId:string,ownerId:string,decision:Decision,nowMs:number,cycleId:string|null=null):void {
+export function recordThalamusDecision(db:DatabaseSync,decisionId:string,ownerId:string,decision:Decision,nowMs:number,cycleId:string|null=null,
+  evaluation?:{stateBefore:ThalamusState;context:ThalamusContext;conversationExecutionHeld:boolean;input:readonly Candidate[]}):void {
   time(nowMs);if(!ownerId.trim() || !decisionId.trim())throw new Error("thalamus_invalid_decision_identity");
   db.exec("SAVEPOINT thalamus_decision");
   try {
     db.prepare("DELETE FROM thalamus_decisions WHERE owner_id=? AND evaluated_at_ms<=?").run(ownerId,nowMs-P.decisionRetentionMs.default);
-    const candidates={bundle:decision.kind==="fire"?decision.bundle.map(mechanical):[],pending:decision.pending.map(mechanical)};
+    const candidates={bundle:decision.kind==="fire"?decision.bundle.map(mechanical):[],pending:decision.pending.map(mechanical),
+      ...(evaluation ? {evaluation:{...evaluation,input:evaluation.input.map(mechanical)}} : {})};
     db.prepare(`INSERT INTO thalamus_decisions(decision_id,owner_id,cycle_id,evaluated_at_ms,decision_code,reason_code,pass_type,candidates_json)
       VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(decision_id) DO NOTHING`).run(decisionId,ownerId,cycleId,nowMs,decision.kind,decision.reason,decision.kind==="fire"?decision.passType:null,JSON.stringify(candidates));
     db.exec("RELEASE thalamus_decision");
