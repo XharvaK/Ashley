@@ -1,0 +1,60 @@
+{
+  "schemaVersion": 1,
+  "parameterRevision": 1,
+  "initialState": {
+    "lastNowMs": 0,
+    "families": {},
+    "lastSelectedAtMs": {}
+  },
+  "steps": [
+    {
+      "nowMs": 99,
+      "candidates": [
+        {
+          "eventId": "a",
+          "observedAtMs": 0,
+          "source": "prospective",
+          "salience": 0,
+          "class": "PRESSURE",
+          "coalesceKey": "feed",
+          "passType": "own_time",
+          "refs": [
+            "fixture:a"
+          ],
+          "deadlineMs": 100
+        }
+      ],
+      "context": {
+        "conversationClaimHeld": true
+      },
+      "expectedDecision": {
+        "kind": "none",
+        "reason": "conversation"
+      }
+    },
+    {
+      "nowMs": 100,
+      "candidates": [
+        {
+          "eventId": "a",
+          "observedAtMs": 0,
+          "source": "prospective",
+          "salience": 0,
+          "class": "PRESSURE",
+          "coalesceKey": "feed",
+          "passType": "own_time",
+          "refs": [
+            "fixture:a"
+          ],
+          "deadlineMs": 100
+        }
+      ],
+      "context": {
+        "conversationClaimHeld": true
+      },
+      "expectedDecision": {
+        "kind": "fire"
+      }
+    }
+  ]
+}

@@ -1,7 +1,7 @@
 # Attention parameter contract
 
 The Host controls wake timing. Thought owns semantic meaning. This directory
-currently declares parameters only. Nothing imports these defaults into runtime
+contains a parameter contract and a pure arbiter. Neither is wired into runtime
 scheduling. Existing ingress, budgets and pass executors retain their authority.
 
 `parameters.ts` is the numeric inventory for the pure core, nuclei, attention
@@ -39,3 +39,15 @@ rise are provisional. The numerical defaults are not transferred from the
 peripheral game attention system as if it were the central attention system.
 The central contract deliberately records its own source. Future implementation
 must use these entries rather than adding undocumented tuning constants.
+
+The pure core accepts immutable state, structural candidates, a supplied time
+and context. It returns a decision and a new checkpoint. `fire` is a proposal,
+not admission, delivery or completion. Budget-blocked mandatory obligations
+remain pending. Producer observation identities distinguish repeats from poll
+re-evaluations. Clock rollback never fabricates elapsed recovery. Owner ingress
+is prohibited here and retains its existing path. No I/O or clock is used.
+
+The current pure core includes threshold modulation, bounded gains, recovery,
+arousal, habituation, cross-nucleus dishabituation, refractory and compatible
+coalescing. Golden vectors specify timing and code conformance. Nuclei adapters,
+attention persistence and scheduler integration remain separate packets.

@@ -1,0 +1,209 @@
+{
+  "schemaVersion": 1,
+  "parameterRevision": 1,
+  "initialState": {
+    "lastNowMs": 0,
+    "families": {},
+    "lastSelectedAtMs": {}
+  },
+  "steps": [
+    {
+      "nowMs": 0,
+      "candidates": [
+        {
+          "eventId": "initial",
+          "observedAtMs": 0,
+          "source": "external",
+          "salience": 1,
+          "class": "PRESSURE",
+          "coalesceKey": "feed",
+          "passType": "own_time",
+          "refs": [
+            "fixture:initial"
+          ]
+        }
+      ],
+      "context": {
+        "budgetAvailable": false
+      },
+      "expectedDecision": {
+        "kind": "none",
+        "reason": "budget"
+      }
+    },
+    {
+      "nowMs": 0,
+      "candidates": [
+        {
+          "eventId": "repeat-1",
+          "observedAtMs": 0,
+          "source": "external",
+          "salience": 1,
+          "class": "PRESSURE",
+          "coalesceKey": "feed",
+          "passType": "own_time",
+          "refs": [
+            "fixture:repeat-1"
+          ]
+        }
+      ],
+      "context": {
+        "budgetAvailable": false
+      },
+      "expectedDecision": {
+        "kind": "none",
+        "reason": "budget"
+      },
+      "expectedFamilies": {
+        "external:feed": {
+          "response": 0.7
+        }
+      }
+    },
+    {
+      "nowMs": 0,
+      "candidates": [
+        {
+          "eventId": "repeat-2",
+          "observedAtMs": 0,
+          "source": "external",
+          "salience": 1,
+          "class": "PRESSURE",
+          "coalesceKey": "feed",
+          "passType": "own_time",
+          "refs": [
+            "fixture:repeat-2"
+          ]
+        }
+      ],
+      "context": {
+        "budgetAvailable": false
+      },
+      "expectedDecision": {
+        "kind": "none",
+        "reason": "budget"
+      },
+      "expectedFamilies": {
+        "external:feed": {
+          "response": 0.48999999999999994
+        }
+      }
+    },
+    {
+      "nowMs": 0,
+      "candidates": [
+        {
+          "eventId": "repeat-3",
+          "observedAtMs": 0,
+          "source": "external",
+          "salience": 1,
+          "class": "PRESSURE",
+          "coalesceKey": "feed",
+          "passType": "own_time",
+          "refs": [
+            "fixture:repeat-3"
+          ]
+        }
+      ],
+      "context": {
+        "budgetAvailable": false
+      },
+      "expectedDecision": {
+        "kind": "none",
+        "reason": "budget"
+      },
+      "expectedFamilies": {
+        "external:feed": {
+          "response": 0.3429999999999999
+        }
+      }
+    },
+    {
+      "nowMs": 0,
+      "candidates": [
+        {
+          "eventId": "repeat-4",
+          "observedAtMs": 0,
+          "source": "external",
+          "salience": 1,
+          "class": "PRESSURE",
+          "coalesceKey": "feed",
+          "passType": "own_time",
+          "refs": [
+            "fixture:repeat-4"
+          ]
+        }
+      ],
+      "context": {
+        "budgetAvailable": false
+      },
+      "expectedDecision": {
+        "kind": "none",
+        "reason": "budget"
+      },
+      "expectedFamilies": {
+        "external:feed": {
+          "response": 0.24009999999999995
+        }
+      }
+    },
+    {
+      "nowMs": 0,
+      "candidates": [
+        {
+          "eventId": "repeat-5",
+          "observedAtMs": 0,
+          "source": "external",
+          "salience": 1,
+          "class": "PRESSURE",
+          "coalesceKey": "feed",
+          "passType": "own_time",
+          "refs": [
+            "fixture:repeat-5"
+          ]
+        }
+      ],
+      "context": {
+        "budgetAvailable": false
+      },
+      "expectedDecision": {
+        "kind": "none",
+        "reason": "budget"
+      },
+      "expectedFamilies": {
+        "external:feed": {
+          "response": 0.16806999999999994
+        }
+      }
+    },
+    {
+      "nowMs": 0,
+      "candidates": [
+        {
+          "eventId": "social-new",
+          "observedAtMs": 0,
+          "source": "social",
+          "salience": 1,
+          "class": "PRESSURE",
+          "coalesceKey": "room",
+          "passType": "conversation",
+          "refs": [
+            "fixture:social-new"
+          ]
+        }
+      ],
+      "context": {
+        "budgetAvailable": false
+      },
+      "expectedDecision": {
+        "kind": "none",
+        "reason": "budget"
+      },
+      "expectedFamilies": {
+        "external:feed": {
+          "response": 0.584035
+        }
+      }
+    }
+  ]
+}

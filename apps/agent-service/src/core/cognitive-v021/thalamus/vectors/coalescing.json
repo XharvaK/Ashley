@@ -1,0 +1,70 @@
+{
+  "schemaVersion": 1,
+  "parameterRevision": 1,
+  "initialState": {
+    "lastNowMs": 0,
+    "families": {},
+    "lastSelectedAtMs": {}
+  },
+  "steps": [
+    {
+      "nowMs": 0,
+      "candidates": [
+        {
+          "eventId": "c",
+          "observedAtMs": 0,
+          "source": "sleep",
+          "salience": 0.7,
+          "class": "PRESSURE",
+          "coalesceKey": "feed",
+          "passType": "night",
+          "refs": [
+            "fixture:c"
+          ]
+        },
+        {
+          "eventId": "b",
+          "observedAtMs": 0,
+          "source": "external",
+          "salience": 0.5,
+          "class": "PRESSURE",
+          "coalesceKey": "other",
+          "passType": "own_time",
+          "refs": [
+            "fixture:b"
+          ]
+        },
+        {
+          "eventId": "a",
+          "observedAtMs": 0,
+          "source": "external",
+          "salience": 0.8,
+          "class": "PRESSURE",
+          "coalesceKey": "feed",
+          "passType": "own_time",
+          "refs": [
+            "fixture:a"
+          ]
+        }
+      ],
+      "context": {},
+      "expectedDecision": {
+        "kind": "fire",
+        "passType": "own_time",
+        "bundle": [
+          {
+            "eventId": "a"
+          },
+          {
+            "eventId": "b"
+          }
+        ],
+        "pending": [
+          {
+            "eventId": "c"
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,95 @@
+{
+  "schemaVersion": 1,
+  "parameterRevision": 1,
+  "initialState": {
+    "lastNowMs": 0,
+    "families": {},
+    "lastSelectedAtMs": {}
+  },
+  "steps": [
+    {
+      "nowMs": 100,
+      "candidates": [
+        {
+          "eventId": "new",
+          "observedAtMs": 100,
+          "source": "external",
+          "salience": 0.1,
+          "class": "PRESSURE",
+          "coalesceKey": "feed",
+          "passType": "own_time",
+          "refs": [
+            "fixture:new"
+          ]
+        }
+      ],
+      "context": {},
+      "expectedDecision": {
+        "kind": "none"
+      },
+      "expectedFamilies": {
+        "external:feed": {
+          "response": 1,
+          "arousal": 0.1,
+          "lastEventId": "new"
+        }
+      }
+    },
+    {
+      "nowMs": 100,
+      "candidates": [
+        {
+          "eventId": "new",
+          "observedAtMs": 100,
+          "source": "external",
+          "salience": 0.1,
+          "class": "PRESSURE",
+          "coalesceKey": "feed",
+          "passType": "own_time",
+          "refs": [
+            "fixture:new"
+          ]
+        }
+      ],
+      "context": {},
+      "expectedDecision": {
+        "kind": "none"
+      },
+      "expectedFamilies": {
+        "external:feed": {
+          "response": 1,
+          "arousal": 0.1,
+          "lastEventId": "new"
+        }
+      }
+    },
+    {
+      "nowMs": 100,
+      "candidates": [
+        {
+          "eventId": "old",
+          "observedAtMs": 99,
+          "source": "external",
+          "salience": 1,
+          "class": "PRESSURE",
+          "coalesceKey": "feed",
+          "passType": "own_time",
+          "refs": [
+            "fixture:old"
+          ]
+        }
+      ],
+      "context": {},
+      "expectedDecision": {
+        "kind": "none"
+      },
+      "expectedFamilies": {
+        "external:feed": {
+          "response": 1,
+          "arousal": 0.1,
+          "lastEventId": "new"
+        }
+      }
+    }
+  ]
+}

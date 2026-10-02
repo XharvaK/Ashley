@@ -1,0 +1,74 @@
+{
+  "schemaVersion": 1,
+  "parameterRevision": 1,
+  "initialState": {
+    "lastNowMs": 0,
+    "families": {},
+    "lastSelectedAtMs": {}
+  },
+  "steps": [
+    {
+      "nowMs": 0,
+      "candidates": [
+        {
+          "eventId": "a",
+          "observedAtMs": 0,
+          "source": "external",
+          "salience": 1,
+          "class": "PRESSURE",
+          "coalesceKey": "feed",
+          "passType": "own_time",
+          "refs": [
+            "fixture:a"
+          ]
+        }
+      ],
+      "context": {},
+      "expectedDecision": {
+        "kind": "fire"
+      }
+    },
+    {
+      "nowMs": 299999,
+      "candidates": [
+        {
+          "eventId": "a",
+          "observedAtMs": 0,
+          "source": "external",
+          "salience": 1,
+          "class": "PRESSURE",
+          "coalesceKey": "feed",
+          "passType": "own_time",
+          "refs": [
+            "fixture:a"
+          ]
+        }
+      ],
+      "context": {},
+      "expectedDecision": {
+        "kind": "none"
+      }
+    },
+    {
+      "nowMs": 300000,
+      "candidates": [
+        {
+          "eventId": "a",
+          "observedAtMs": 0,
+          "source": "external",
+          "salience": 1,
+          "class": "PRESSURE",
+          "coalesceKey": "feed",
+          "passType": "own_time",
+          "refs": [
+            "fixture:a"
+          ]
+        }
+      ],
+      "context": {},
+      "expectedDecision": {
+        "kind": "fire"
+      }
+    }
+  ]
+}

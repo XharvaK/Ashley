@@ -1,0 +1,63 @@
+{
+  "schemaVersion": 1,
+  "parameterRevision": 1,
+  "initialState": {
+    "lastNowMs": 0,
+    "families": {},
+    "lastSelectedAtMs": {}
+  },
+  "steps": [
+    {
+      "nowMs": 0,
+      "candidates": [
+        {
+          "eventId": "opportunistic",
+          "observedAtMs": 0,
+          "source": "external",
+          "salience": 1,
+          "class": "OPPORTUNISTIC",
+          "coalesceKey": "feed",
+          "passType": "own_time",
+          "refs": [
+            "fixture:opportunistic"
+          ]
+        }
+      ],
+      "context": {},
+      "expectedDecision": {
+        "kind": "none"
+      },
+      "expectedFamilies": {
+        "external:feed": {
+          "arousal": 0
+        }
+      }
+    },
+    {
+      "nowMs": 0,
+      "candidates": [
+        {
+          "eventId": "pressure",
+          "observedAtMs": 0,
+          "source": "external",
+          "salience": 0.1,
+          "class": "PRESSURE",
+          "coalesceKey": "feed",
+          "passType": "own_time",
+          "refs": [
+            "fixture:pressure"
+          ]
+        }
+      ],
+      "context": {},
+      "expectedDecision": {
+        "kind": "none"
+      },
+      "expectedFamilies": {
+        "external:feed": {
+          "arousal": 0.07
+        }
+      }
+    }
+  ]
+}

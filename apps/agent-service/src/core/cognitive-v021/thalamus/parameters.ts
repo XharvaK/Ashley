@@ -15,6 +15,10 @@ export const THALAMUS_RULES = {
 // Bounds describe the parameter contract, not permission to change live policy.
 // PROVISIONAL defaults remain subject to offline calibration before release.
 export const THALAMUS_PARAMETERS = {
+  parameterContractVersion: {
+    units: "version", default: 1, learningBound: { min: 1, max: 1 },
+    source: "parameter contract v1", status: "FIXED",
+  },
   theta0: {
     units: "normalized salience", default: 0.5, learningBound: { min: 0.25, max: 0.75 },
     source: "architect default", status: "PROVISIONAL",

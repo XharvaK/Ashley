@@ -7,7 +7,7 @@ export type Candidate = {
   coalesceKey: string; deadlineMs?: number; passType: "afterglow" | "night" | "own_time" | "conversation";
   refs: readonly string[]; suppressed?: boolean;
 };
-export type FamilyState = { response: number; arousal: number; lastObservedAtMs: number; lastEventId: string; lastEvaluatedAtMs: number };
+export type FamilyState = { source: Nucleus; response: number; arousal: number; lastObservedAtMs: number; lastEventId: string; lastEvaluatedAtMs: number };
 export type ThalamusState = {
   lastNowMs: number; families: Record<string, FamilyState>; lastSelectedAtMs: Partial<Record<Nucleus, number>>;
 };
@@ -18,7 +18,7 @@ export type ThalamusContext = {
 };
 export type Decision =
   | { kind: "none"; reason: "budget" | "conversation" | "no_candidate"; pending: Candidate[] }
-  | { kind: "fire"; passType: Candidate["passType"]; bundle: Candidate[]; pending: Candidate[] };
+  | { kind: "fire"; reason: "mandatory" | "threshold"; passType: Candidate["passType"]; bundle: Candidate[]; pending: Candidate[] };
 const clamp = (value: number, min: number, max: number): number => Math.max(min, Math.min(max, value));
 const orderText = (a: string, b: string): number => a < b ? -1 : a > b ? 1 : 0;
 const refractory: Record<Nucleus, number> = {
@@ -34,35 +34,74 @@ function threshold(source: Nucleus, context: ThalamusContext): number {
   return P.theta0.default * (1 + P.fatigueAmplitude.default * clamp(context.spentFraction, 0, 1) ** P.fatigueExponent.default)
     * (1 + P.circadianAmplitude.default * clamp(context.circadianPhase, -1, 1)) * mood;
 }
+function candidateFingerprint(candidate: Candidate): string {
+  return JSON.stringify([candidate.source, candidate.salience, candidate.class, candidate.coalesceKey,
+    candidate.deadlineMs, candidate.passType, candidate.refs, candidate.observedAtMs, candidate.suppressed ?? false]);
+}
 /** A fire result proposes timing. The existing kernel must still admit and execute the pass. */
 export function arbitrate(state: ThalamusState, candidates: readonly Candidate[], now: number, context: ThalamusContext): { decision: Decision; state: ThalamusState } {
   if (![now, state.lastNowMs, context.spentFraction, context.energy, context.tension, context.circadianPhase].every(Number.isFinite))
     throw new Error("thalamus_nonfinite_context");
   const effectiveNow = Math.max(now, state.lastNowMs);
   const next: ThalamusState = { lastNowMs: effectiveNow,
-    families: Object.assign(Object.create(null), state.families), lastSelectedAtMs: { ...state.lastSelectedAtMs } };
+    families: Object.create(null), lastSelectedAtMs: { ...state.lastSelectedAtMs } };
+  for (const [key, family] of Object.entries(state.families)) {
+    if (![family.response, family.arousal, family.lastObservedAtMs, family.lastEvaluatedAtMs].every(Number.isFinite)
+      || family.response < 0 || family.response > 1 || family.arousal < 0
+      || family.lastEvaluatedAtMs > state.lastNowMs || family.lastObservedAtMs > family.lastEvaluatedAtMs)
+      throw new Error("thalamus_invalid_checkpoint");
+    const elapsed = Math.max(0, effectiveNow - family.lastEvaluatedAtMs);
+    next.families[key] = { ...family, lastEvaluatedAtMs: effectiveNow,
+      response: elapsed === 0 ? family.response : clamp(1 - (1 - family.response) * Math.exp(-elapsed / P.habituationRecoveryMs.default), 0, 1),
+      arousal: Math.max(0, family.arousal * Math.exp(-elapsed / P.arousalLeakMs.default)) };
+  }
   const byEvent = new Map<string, Candidate>();
   for (const candidate of candidates) {
     if (String(candidate.source) === "owner") throw new Error("thalamus_owner_ingress_required");
     if (!(Object.hasOwn(refractory, candidate.source)) || !candidate.eventId || !candidate.coalesceKey
+      || !["ALWAYS_THROUGH", "PRESSURE", "OPPORTUNISTIC"].includes(candidate.class)
+      || !["afterglow", "night", "own_time", "conversation"].includes(candidate.passType)
+      || !Array.isArray(candidate.refs) || !candidate.refs.every(ref => typeof ref === "string")
       || !Number.isFinite(candidate.salience) || !Number.isFinite(candidate.observedAtMs)
       || (candidate.deadlineMs !== undefined && !Number.isFinite(candidate.deadlineMs)))
       throw new Error("thalamus_invalid_candidate");
     const previous = byEvent.get(candidate.eventId);
-    if (previous && JSON.stringify([previous.source, previous.salience, previous.class, previous.coalesceKey, previous.deadlineMs, previous.passType, previous.refs, previous.observedAtMs, previous.suppressed ?? false]) !== JSON.stringify([candidate.source, candidate.salience, candidate.class, candidate.coalesceKey, candidate.deadlineMs, candidate.passType, candidate.refs, candidate.observedAtMs, candidate.suppressed ?? false])) throw new Error("thalamus_event_conflict");
+    if (previous && candidateFingerprint(previous) !== candidateFingerprint(candidate)) throw new Error("thalamus_event_conflict");
     byEvent.set(candidate.eventId, candidate);
   }
   const pending = [...byEvent.values()].sort((a,b) => orderText(a.eventId,b.eventId));
+  const stale = new Set<string>();
+  for (const candidate of [...pending].sort((a,b) => a.observedAtMs - b.observedAtMs || orderText(a.eventId,b.eventId))) {
+    const key = `${candidate.source}:${candidate.coalesceKey}`;
+    const family = next.families[key];
+    if (candidate.observedAtMs > effectiveNow || (family && (candidate.observedAtMs < family.lastObservedAtMs
+      || (candidate.observedAtMs === family.lastObservedAtMs && orderText(candidate.eventId,family.lastEventId) < 0)))) {
+      stale.add(candidate.eventId); continue;
+    }
+    const duplicate = family?.lastEventId === candidate.eventId && family.lastObservedAtMs === candidate.observedAtMs;
+    if (duplicate) continue;
+    const response = family ? family.response * (1 - (candidate.source === "social"
+      ? P.socialHabituationAlpha.default : P.ambientHabituationAlpha.default)) : 1;
+    next.families[key] = { source: candidate.source, response, arousal: (family?.arousal ?? 0)
+      + (candidate.class === "OPPORTUNISTIC" ? 0 : clamp(candidate.salience, 0, 1) * response),
+      lastObservedAtMs: candidate.observedAtMs, lastEventId: candidate.eventId, lastEvaluatedAtMs: effectiveNow };
+    // A new strong observation from another nucleus restores attention mechanically once.
+    if (candidate.class !== "OPPORTUNISTIC" && candidate.salience >= P.theta0.default) for (const other of Object.values(next.families)) {
+      if (other.source !== candidate.source) other.response += (1 - other.response) * P.dishabituationRecoveryFraction.default;
+    }
+  }
   const ranked = pending.map(candidate => {
     const mandatory = candidate.class === "ALWAYS_THROUGH" || (candidate.deadlineMs !== undefined && candidate.deadlineMs <= effectiveNow);
     const gain = context.gains?.[candidate.source] ?? P.nucleusGain.default;
     const familyGain = context.familyGains?.[candidate.coalesceKey] ?? P.familyGain.default;
     if (!Number.isFinite(gain) || !Number.isFinite(familyGain)) throw new Error("thalamus_invalid_gain");
-    const score = clamp(candidate.salience, P.salienceMinimum.default, P.salienceMaximum.default)
+    const family = next.families[`${candidate.source}:${candidate.coalesceKey}`];
+    const score = Math.max(clamp(candidate.salience, P.salienceMinimum.default, P.salienceMaximum.default)
+      * (family?.response ?? 1), family?.arousal ?? 0)
       * clamp(gain, P.nucleusGain.learningBound.min, P.nucleusGain.learningBound.max)
       * clamp(familyGain, P.familyGain.learningBound.min, P.familyGain.learningBound.max);
     const selectedAt = state.lastSelectedAtMs[candidate.source];
-    const available = mandatory || (!candidate.suppressed && !context.conversationClaimHeld
+    const available = mandatory || (!stale.has(candidate.eventId) && !candidate.suppressed && !context.conversationClaimHeld
       && (selectedAt === undefined || effectiveNow - selectedAt >= refractory[candidate.source]));
     return { candidate, mandatory, score, available };
   });
@@ -76,8 +115,12 @@ export function arbitrate(state: ThalamusState, candidates: readonly Candidate[]
   if (!winner) return { decision: { kind: "none", reason: context.conversationClaimHeld ? "conversation" : "no_candidate", pending }, state: next };
   const bundle = [winner.candidate, ...ranked.filter(row => row.candidate.eventId !== winner.candidate.eventId
     && row.available && row.candidate.passType === winner.candidate.passType).map(row => row.candidate)];
-  for (const candidate of bundle) next.lastSelectedAtMs[candidate.source] = effectiveNow;
+  for (const candidate of bundle) {
+    next.lastSelectedAtMs[candidate.source] = effectiveNow;
+    const family = next.families[`${candidate.source}:${candidate.coalesceKey}`];
+    if (family) family.arousal *= P.arousalResetFraction.default;
+  }
   const selected = new Set(bundle.map(candidate => candidate.eventId));
-  return { decision: { kind: "fire", passType: winner.candidate.passType, bundle,
+  return { decision: { kind: "fire", reason: winner.mandatory ? "mandatory" : "threshold", passType: winner.candidate.passType, bundle,
     pending: pending.filter(candidate => !selected.has(candidate.eventId)) }, state: next };
 }
