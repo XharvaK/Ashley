@@ -2,24 +2,15 @@
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it, vi } from "vitest";
 import { openNuclearDb } from "../../db.js";
-import { isLearnedInfluenceEligible, refreshLearnedInfluenceEligibility } from "../../learned-autonomy/eligibility.js";
-import { admitAndAccept, c1Assertion, evidence, OWNER_ID } from "../../learned-autonomy/test-fixtures.js";
+import { admitAndAccept, c1Assertion, evidence, OWNER_ID } from "./test-fixtures.js";
 import { openTestSidecar } from "../test-support.js";
 
-// Parent replay uses the old implementation to falsify its implicit read mutation and store ownership.
-const port = await import("./" + "eligibility.js").catch(() => null);
-const read = port?.readEligibility ?? ((_:DatabaseSync,id:number,options:{evidenceDb:DatabaseSync;mode?:string;at?:Date}) => isLearnedInfluenceEligible(options.evidenceDb,id,options.mode as "dark_apply",options.at));
-const refresh = port?.refreshEligibility ?? ((_:DatabaseSync,id:number,options:{evidenceDb:DatabaseSync;at?:Date}) => refreshLearnedInfluenceEligibility(options.evidenceDb,id,options.at));
+import { readEligibility as read, refreshEligibility as refresh } from "./eligibility.js";
 function fixture(){
  const db=openTestSidecar(),nuclear=openNuclearDb(new DatabaseSync(":memory:"));
  const first=c1Assertion(nuclear,{text:"compilers",observedAt:"2026-08-01T00:00:00.000Z"});
  const second=c1Assertion(nuclear,{text:"toolchains",observedAt:"2026-08-02T00:00:00.000Z"});
- const learned=admitAndAccept(nuclear,[evidence(first,"2026-08-01T00:00:00.000Z"),evidence(second,"2026-08-02T00:00:00.000Z")]);
- for(const table of ["learned_influences","learned_influence_evidence"]){
-  for(const row of nuclear.prepare(`SELECT * FROM ${table}`).all()){
-   const columns=Object.keys(row);db.prepare(`INSERT INTO ${table} (${columns.join(",")}) VALUES (${columns.map(()=>"?").join(",")})`).run(...Object.values(row));
-  }
- }
+ const learned=admitAndAccept(db,[evidence(first,"2026-08-01T00:00:00.000Z"),evidence(second,"2026-08-02T00:00:00.000Z")]);
  const options={evidenceDb:nuclear,mode:"dark_apply" as const,at:new Date("2026-10-01T12:00:00Z")};
  return {db,nuclear,first,learned,options};
 }
@@ -41,7 +32,7 @@ describe("A5a pure C3 eligibility",()=>{
    expect(read(db,learned.id,options)).toBe(false);
    expect(writes).toEqual([]);
    expect(stored(db,learned.id)).toEqual({contradiction_state:"none"});
-   expect(stored(nuclear,learned.id)).toEqual({contradiction_state:"none"});
+   expect(nuclear.prepare("SELECT 1 FROM sqlite_master WHERE name='learned_influences'").get()).toBeUndefined();
   }finally{vi.restoreAllMocks();db.close();nuclear.close();}
  });
  it("records C1 correction only through explicit sidecar refresh",()=>{
@@ -50,7 +41,7 @@ describe("A5a pure C3 eligibility",()=>{
    nuclear.prepare("UPDATE memory_assertions SET termination_reason='invalidated' WHERE id=?").run(first);
    refresh(db,learned.id,options);
    expect(stored(db,learned.id)).toEqual({contradiction_state:"owner_corrected"});
-   expect(stored(nuclear,learned.id)).toEqual({contradiction_state:"none"});
+   expect(nuclear.prepare("SELECT 1 FROM sqlite_master WHERE name='learned_influences'").get()).toBeUndefined();
    expect(read(db,learned.id,options)).toBe(false);
   }finally{db.close();nuclear.close();}
  });

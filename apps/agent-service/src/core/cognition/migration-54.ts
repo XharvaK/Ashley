@@ -49,13 +49,13 @@ export function ensureNuclearV54Schema(db: DatabaseSync): void {
   validateNuclearV54Schema(db);
 }
 
-export function validateNuclearV54Schema(db: DatabaseSync): void {
+export function validateNuclearV54Schema(db: DatabaseSync, version = 54): void {
   for (const table of REMOVED_TABLES) {
     if (db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(table)) {
       throw new Error(`nuclear_schema_content_invalid:v54:removed_table:${table}`);
     }
   }
-  for (const table of ["evidence_links", "cognitive_maturation_contract_state"]) {
+  for (const table of ["evidence_links", ...(version < 56 ? ["cognitive_maturation_contract_state"] : [])]) {
     if (!db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(table)) {
       throw new Error(`nuclear_schema_content_invalid:v54:missing_table:${table}`);
     }

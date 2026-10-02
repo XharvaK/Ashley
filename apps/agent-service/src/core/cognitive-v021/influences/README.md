@@ -4,7 +4,7 @@ Interests she keeps returning to may become influences; the Host counts returns,
 
 The sidecar owns the ported influence, evidence and choice-receipt stores. Per-cycle `interest_touches` are recorded only for branch IDs returned by the existing interest-growth operation, inside the aftermath transaction. Replay is idempotent per branch and cycle; a failed receipt rolls back branch growth too. Counting starts at migration, with no historical backfill. Existing branch forget removes its receipt identifiers.
 
-Contract state defaults to `observe`. The Host proposes after three distinct branch-touch cycles, copying the stored branch label and preserving seed/native lineage. A proposal remains pending; it grants no agenda or effect authority. Legacy C3 consumers remain separate until their retirement packet. Nuclear C1 assertion IDs in evidence refer to that evidence owner; they are not sidecar assertion keys and have no cross-database SQLite foreign key.
+Contract state defaults to `observe`. The Host proposes after three distinct branch-touch cycles, copying the stored branch label and preserving seed/native lineage. A proposal remains pending; it grants no agenda or effect authority. Legacy nuclear C3 storage and consumer hooks are retired. Historical DDL remains only in the ordered migration owner; live curiosity acquisition and C5 relationship services remain. C5 has its own nuclear contract table. Nuclear C1 assertion IDs in evidence refer to that evidence owner; they are not sidecar assertion keys and have no cross-database SQLite foreign key.
 
 Sidecar schema ownership and supported version are declared in `../sidecar/` and `../types.ts`. Source and tests establish no production activation or mode promotion.
 

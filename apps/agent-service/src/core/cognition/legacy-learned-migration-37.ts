@@ -1,3 +1,4 @@
+// Historical C3 DDL remains only for ordered nuclear upgrades and fixtures.
 import type { DatabaseSync } from "node:sqlite";
 
 export const C3_CONTRACT_VERSION = 1;

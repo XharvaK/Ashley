@@ -346,6 +346,12 @@ function numberOrNull(value: unknown): number | null {
   return value == null ? null : Number(value);
 }
 
+// Retired C3 IDs stay in historical bytes, never in current projection bindings.
+function withoutRetiredC3<T extends object>(value: T): T {
+  const { learnedInfluenceIds: _retired, ...current } = value as Record<string, unknown>;
+  return current as T;
+}
+
 function mapProjection(row: unknown): RelationshipProjection | null {
   if (typeof row !== "object" || row === null) return null;
   const source = row as Record<string, unknown>;
@@ -358,13 +364,13 @@ function mapProjection(row: unknown): RelationshipProjection | null {
     kind,
     projectionPolicyId: String(source.projection_policy_id ?? ""),
     projectionPolicyVersion: Number(source.projection_policy_version ?? 0),
-    sourceBindings: parseJson<SharedCultureSourceBindings>(source.source_bindings_json, {
+    sourceBindings: withoutRetiredC3(parseJson<SharedCultureSourceBindings>(source.source_bindings_json, {
       ownerAssertionIds: [],
       ashleyAssertionIds: [],
       ashleyIdentityEntryIds: [],
       interactionContractIds: [],
-    }),
-    sourceWatermark: parseJson<Record<string, unknown>>(source.source_watermark_json, {}),
+    })),
+    sourceWatermark: withoutRetiredC3(parseJson<Record<string, unknown>>(source.source_watermark_json, {})),
     dataClassification: String(source.data_classification ?? "never_public") as DataClassification,
     provenance: String(source.provenance ?? "shadow") as C5Provenance,
     partySubjectScope: String(source.party_subject_scope ?? "owner"),

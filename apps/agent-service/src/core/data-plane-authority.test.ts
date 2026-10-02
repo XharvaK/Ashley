@@ -194,7 +194,7 @@ describe("production data-plane authority", () => {
   });
 
   it("may migrate an explicit isolated qualification DB to the candidate schema", () => {
-    expect(NUCLEAR_SUPPORTED_VERSION).toBe(55);
+    expect(NUCLEAR_SUPPORTED_VERSION).toBe(56);
     const qualDir = tempDir("ashley-qual-plane-");
     const plane = createIsolatedDataPlane(qualDir);
     seedSchema28File(plane.nuclearDbPath, plane.continuityDbPath);

@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { openNuclearDb } from "../db.js";
 import { insertItem, upsertSource } from "../curiosity/feed.js";
 import { performGroundedReads } from "../curiosity/reads.js";
-import { admitAndAccept, c1Assertion, evidence, OWNER_ID } from "../learned-autonomy/test-fixtures.js";
+import { admitAndAccept, c1Assertion, evidence, OWNER_ID } from "../cognitive-v021/influences/test-fixtures.js";
 
 function seed(db: DatabaseSync, withLearned: boolean): { firstItem: number; matchedItem: number } {
   const sourceId = upsertSource(db, {

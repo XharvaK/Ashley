@@ -7,7 +7,7 @@ export function c5ContractVersion(db: DatabaseSync): number | null {
   try {
     const row = db.prepare(
       `SELECT highest_contract_version
-       FROM cognitive_maturation_contract_state WHERE wave = 'c5'`,
+       FROM relationship_contract_state WHERE wave = 'c5'`,
     ).get() as { highest_contract_version?: number } | undefined;
     return row ? Number(row.highest_contract_version ?? 0) : null;
   } catch {
@@ -23,7 +23,7 @@ export function assertC5ContractCompatible(db: DatabaseSync): void {
   try {
     marker = db.prepare(
       `SELECT highest_contract_version, live_authority_existed
-       FROM cognitive_maturation_contract_state WHERE wave = 'c5'`,
+       FROM relationship_contract_state WHERE wave = 'c5'`,
     ).get() as {
       highest_contract_version?: number;
       live_authority_existed?: number;
@@ -78,7 +78,7 @@ export function provenanceForC5Mode(mode: C5Mode): C5Provenance {
 export function c5CapabilityState(db: DatabaseSync): C5Mode {
   try {
     const row = db.prepare(
-      `SELECT state FROM cognitive_maturation_contract_state WHERE wave = 'c5'`,
+      `SELECT state FROM relationship_contract_state WHERE wave = 'c5'`,
     ).get() as { state?: string } | undefined;
     return row?.state === "dark_apply" || row?.state === "apply"
       ? row.state

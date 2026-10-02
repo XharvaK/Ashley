@@ -4,8 +4,8 @@ import { probeCoercion, probeDecisionCoercion } from "./coercion-gate.js";
 import { openNuclearDb } from "../db.js";
 import { insertAssertion } from "../memory/assertions.js";
 import { defaultUnclassifiedConversational } from "../privacy/classification.js";
-import { admitAndAccept, c1Assertion, evidence } from "../learned-autonomy/test-fixtures.js";
-import { recomputeSharedCulture } from "./projections.js";
+import { admitAndAccept, c1Assertion, evidence } from "../cognitive-v021/influences/test-fixtures.js";
+import { recomputeSharedCulture, getCurrentSharedCulture } from "./projections.js";
 import { recordInteractionContract } from "./interaction-contracts.js";
 
 const OWNER = "c5-adversarial-owner";
@@ -90,4 +90,18 @@ describe("C5 adversarial boundaries", () => {
       db.close();
     }
   });
+  it("does not expose retired C3 IDs from a persisted relationship projection",()=>{
+    const db=openNuclearDb(new DatabaseSync(":memory:"));try{
+      const current=recomputeSharedCulture(db,OWNER);
+      db.prepare("UPDATE relationship_projections SET source_bindings_json=?,source_watermark_json=? WHERE id=?").run(
+        JSON.stringify({...current.sourceBindings,learnedInfluenceIds:[91]}),
+        JSON.stringify({...current.sourceWatermark,learnedInfluenceIds:[91],preservedField:"historical-fact"}),current.id);
+      const read=getCurrentSharedCulture(db,OWNER)!;
+      expect(read.sourceBindings).not.toHaveProperty("learnedInfluenceIds");
+      expect(read.sourceWatermark).not.toHaveProperty("learnedInfluenceIds");
+      expect(read.sourceWatermark.preservedField).toBe("historical-fact");
+      expect(db.prepare("SELECT source_bindings_json FROM relationship_projections WHERE id=?").get(current.id)!.source_bindings_json).toContain("learnedInfluenceIds");
+    }finally{db.close();}
+  });
+
 });

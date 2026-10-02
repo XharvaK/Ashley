@@ -223,3 +223,5 @@ Control paths, not diagnostics:
 ## Review
 
 - [Architecture Review Protocol](Architecture_Review_Protocol.md) — informational mirror; binding audit plan is normative
+
+Legacy nuclear C3 stores and consumer hooks are retired by the ordered nuclear migration. Curiosity acquisition and relationship inspection/recomputation remain. The relationship contract owner is `core/relationship/c5-contract-state.ts`, backed by `relationship_contract_state`; its existing version and authority refusals remain. Historical C3 DDL lives in `core/cognition/legacy-learned-migration-37.ts` for upgrades only.

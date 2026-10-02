@@ -1,3 +1,4 @@
+import { validateNuclearV56Schema } from "./migration-56.js";
 import { validateNuclearV55Schema } from "./migration-55.js";
 import { validateNuclearV54Schema } from "./migration-54.js";
 import type { DatabaseSync } from "node:sqlite";
@@ -17,7 +18,7 @@ import {
   C3_INDEXES,
   C3_TABLES,
   validateNuclearV38Schema,
-} from "../learned-autonomy/migration-37.js";
+} from "../cognition/legacy-learned-migration-37.js";
 import {
   C4_INDEXES,
   C4_TABLES,
@@ -1191,7 +1192,7 @@ function requireNoV49Content(db: DatabaseSync, version: number): void {
 
 export function validateNuclearSchemaContent(
   db: DatabaseSync,
-  version: 22 | 23 | 24 | 25 | 26 | 27 | 28 | 29 | 30 | 31 | 32 | 33 | 34 | 35 | 36 | 37 | 38 | 39 | 40 | 41 | 42 | 43 | 44 | 45 | 46 | 47 | 48 | 49 | 50 | 51 | 52 | 53 | 54 | 55,
+  version: 22 | 23 | 24 | 25 | 26 | 27 | 28 | 29 | 30 | 31 | 32 | 33 | 34 | 35 | 36 | 37 | 38 | 39 | 40 | 41 | 42 | 43 | 44 | 45 | 46 | 47 | 48 | 49 | 50 | 51 | 52 | 53 | 54 | 55 | 56,
   options: { rejectNewerContent?: boolean } = {},
 ): void {
   if (version === 22) {
@@ -1350,7 +1351,7 @@ export function validateNuclearSchemaContent(
   }
   if (version === 36) return;
   if (version < 54) validateNuclearV37Schema(db, version);
-  else {
+  else if (version < 56) {
     requireColumns(db, version, "cognitive_maturation_contract_state", [
       { name: "wave" }, { name: "highest_contract_version" },
       { name: "live_authority_existed" }, { name: "event_highwater" },
@@ -1364,7 +1365,7 @@ export function validateNuclearSchemaContent(
     return;
   }
   if (version === 37) return;
-  validateNuclearV38Schema(db, version);
+  if (version < 56) validateNuclearV38Schema(db, version);
   if (version === 38 && options.rejectNewerContent === true) {
     requireNoV39Objects(db, version);
     return;
@@ -1452,8 +1453,9 @@ export function validateNuclearSchemaContent(
   }
   if (version === 52) return;
   validateNuclearV53Schema(db, version);
-  if (version >= 54) validateNuclearV54Schema(db);
-  if (version >= 55) validateNuclearV55Schema(db);
+  if (version >= 54) validateNuclearV54Schema(db, version);
+  if (version >= 55) validateNuclearV55Schema(db, version);
+  if (version >= 56) validateNuclearV56Schema(db);
 }
 
 function addColumnIfMissing(

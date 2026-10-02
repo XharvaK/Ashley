@@ -189,6 +189,10 @@ const NON_LIVE: Record<string, NonLiveRule> = {
     cls: "SHADOW_ARTIFACT",
     reason: "C1 reconciliation requests are shadow repair metadata before promotion",
   },
+  relationship_contract_state: {
+    cls: "CONTROL_PLANE",
+    reason: "C5 contract marker and activation ledger; preserves relationship authority checks",
+  },
   cognitive_maturation_contract_state: {
     cls: "CONTROL_PLANE",
     reason: "C1-C5 contract marker and activation ledger; not live behavioral state",

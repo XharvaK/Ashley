@@ -1,3 +1,4 @@
+import { restoreLegacyV55Objects } from "./legacy-v55.js";
 // C4 objects captured from the A4 base nuclear v54. Test fixtures only.
 import type { DatabaseSync } from "node:sqlite";
 const objects = [
@@ -93,6 +94,7 @@ const objects = [
   }
 ];
 export function restoreLegacyV54Objects(db: DatabaseSync): void {
+  restoreLegacyV55Objects(db);
   db.exec("PRAGMA foreign_keys=OFF");
   try {
     for (const name of ["thought_calibration_adjustments","lived_experience_links","working_view_links","cognitive_outcome_adjudications","cognitive_outcome_observations","cognitive_predictions"]) db.exec(`DROP TABLE IF EXISTS ${name}`);
