@@ -12,9 +12,9 @@ describe("cognitive sidecar schema v43", () => {
 
       openCognitiveSidecarDb(db, { dataPlane: { kind: "isolated" } });
 
-      expect(COGNITIVE_SIDECAR_SCHEMA_VERSION).toBe(53);
-      expect((db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(53);
-      expect(db.prepare("SELECT schema_version FROM cognitive_sidecar_meta WHERE id = 1").get()).toEqual({ schema_version: 53 });
+      expect(COGNITIVE_SIDECAR_SCHEMA_VERSION).toBe(54);
+      expect((db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(54);
+      expect(db.prepare("SELECT schema_version FROM cognitive_sidecar_meta WHERE id = 1").get()).toEqual({ schema_version: 54 });
       expect(db.prepare("SELECT name FROM sqlite_master WHERE name = 'forget_proposals'").get()).toBeTruthy();
       // A proposal is pending, confirmed or cancelled; nothing else.
       expect(() => db.prepare(

@@ -1990,3 +1990,16 @@ ALTER TABLE private_budget_reservations ADD COLUMN policy_fingerprint TEXT;
 UPDATE private_budget_reservations SET policy_fingerprint='${DEFAULT_BUDGET_SNAPSHOT.fingerprint}' WHERE policy_id='${DEFAULT_BUDGET_SNAPSHOT.policyId}';
 UPDATE cognitive_sidecar_meta SET schema_version=53 WHERE id=1;
 `;
+
+export const COGNITIVE_SIDECAR_SCHEMA_V54 = String.raw`
+CREATE TABLE IF NOT EXISTS night_gate_receipts (
+  evaluation_id TEXT PRIMARY KEY NOT NULL,
+  conversation_id TEXT NOT NULL,
+  due_at_ms INTEGER NOT NULL,
+  evaluated_at_ms INTEGER NOT NULL,
+  gate_code TEXT NOT NULL CHECK (gate_code IN ('afterglow_first','engaged','busy','in_flight','budget','wake_closed','ran','error'))
+);
+CREATE INDEX IF NOT EXISTS idx_night_gate_receipts_conversation
+  ON night_gate_receipts(conversation_id, evaluated_at_ms);
+UPDATE cognitive_sidecar_meta SET schema_version=54 WHERE id=1;
+`;

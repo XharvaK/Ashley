@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+import { recordNightGateReceipt } from "./night-receipts.js";
 import type { DatabaseSync } from "node:sqlite";
 import { appendInboxEvent, getCurrentCycle, getCycle } from "../cycle/inbox.js";
 import { admitWake } from "../wake/ledger.js";
@@ -189,6 +191,23 @@ export async function tickNight(
   }
   if (nowMs < state.nextNightAtMs) return { outcome: "not_due", nextNightAtMs: state.nextNightAtMs };
 
+  const receipt = { evaluationId: randomUUID(), conversationId, dueAtMs: state.nextNightAtMs, evaluatedAtMs: nowMs };
+  let result: Awaited<ReturnType<typeof evaluateDueNight>>;
+  try {
+    result = await evaluateDueNight(db, options, state, nowMs);
+  } catch (error) {
+    // A diagnostic receipt must not replace the exception that stopped the evaluation.
+    try { recordNightGateReceipt(db, { ...receipt, gateCode: "error" }); }
+    finally { throw error; }
+  }
+  recordNightGateReceipt(db, { ...receipt, gateCode: result.outcome });
+  return result;
+}
+
+async function evaluateDueNight(
+  db: DatabaseSync, options: Parameters<typeof tickNight>[1], state: NightState, nowMs: number,
+): Promise<Omit<NightTickResult, "outcome"> & { outcome: Exclude<NightTickResult["outcome"], "scheduled" | "not_due"> }> {
+  const { conversationId, timeZone } = options;
   const afterglow = evaluateAfterglow(db, { conversationId, nowMs });
   if (afterglow.kind === "not_due") return { outcome: "engaged" };
   if (afterglow.kind === "due" && options.afterglowEnabled !== false) return { outcome: "afterglow_first" };
