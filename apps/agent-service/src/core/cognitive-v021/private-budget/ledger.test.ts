@@ -1,3 +1,4 @@
+import { configureBudgetPolicy,DEFAULT_PRIVATE_THOUGHT_POLICY } from "./policies.js";
 import { DatabaseSync } from "node:sqlite";
 import { spawn } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -7,7 +8,6 @@ import { describe, expect, it } from "vitest";
 import { openCognitiveSidecarDb } from "../sidecar/db.js";
 import { admitWake } from "../wake/ledger.js";
 import {
-  DEFAULT_PRIVATE_THOUGHT_POLICY,
   bindPrivateReservationInvocation,
   getPrivateBudgetProjection,
   getPrivateReservation,
@@ -20,7 +20,9 @@ import { PRIVATE_THOUGHT_MAX_CALLS_PER_HOUR } from "../types.js";
 const BASE = 1_000_000;
 
 function db(): DatabaseSync {
-  return openCognitiveSidecarDb(new DatabaseSync(":memory:"), { dataPlane: { kind: "isolated" } });
+  const sidecar=openCognitiveSidecarDb(new DatabaseSync(":memory:"), { dataPlane: { kind: "isolated" } });
+  configureBudgetPolicy(sidecar,{...DEFAULT_PRIVATE_THOUGHT_POLICY,policyId:"private-v1",version:1});
+  return sidecar;
 }
 
 function wake(sidecar: DatabaseSync, suffix: string, conversationId = "conversation:budget"): string {
@@ -37,6 +39,7 @@ function wake(sidecar: DatabaseSync, suffix: string, conversationId = "conversat
 }
 
 function establishEpoch(sidecar: DatabaseSync, policyId = "private-v1"): void {
+  configureBudgetPolicy(sidecar, { ...DEFAULT_PRIVATE_THOUGHT_POLICY, policyId, version: 1 });
   reconcilePolicyClock(sidecar, {
     policyId,
     wallClockNowMs: BASE,

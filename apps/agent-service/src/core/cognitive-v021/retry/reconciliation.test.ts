@@ -1,3 +1,4 @@
+import { configurePrivateBudgetFixture } from "../private-budget/__tests__/configured-policy.js";
 import { describe, expect, it, vi } from "vitest";
 import { recordEffectReceipt, putInFlight } from "../effect/in-flight.js";
 import { admitWake } from "../wake/ledger.js";
@@ -378,6 +379,7 @@ describe("P0 spend-aware outcome-unknown partition (R7 §22.2)", () => {
   it("PRIVATE_NOT_SPENT_SAME_LINEAGE_CONTINUES", () => {
     const db = openTestSidecar();
     try {
+      configurePrivateBudgetFixture(db);
       reconcilePolicyClock(db, { policyId: POLICY, wallClockNowMs: BASE, authorizationRef: "owner:part-b" });
       const { wakeId, conversationId } = seedPrivateStranded(db, "b");
       const reservation = reserve(db, wakeId, conversationId, "b");
@@ -407,6 +409,7 @@ describe("P0 spend-aware outcome-unknown partition (R7 §22.2)", () => {
   it("PERIODIC_COMMITTED_PUBLICATION_FAILURE_NO_RETHOUGHT", () => {
     const db = openTestSidecar();
     try {
+      configurePrivateBudgetFixture(db);
       reconcilePolicyClock(db, { policyId: POLICY, wallClockNowMs: BASE, authorizationRef: "owner:part-c" });
       const { wakeId, conversationId } = seedPrivateStranded(db, "c", { periodic: true });
       const reservation = reserve(db, wakeId, conversationId, "c");
@@ -456,6 +459,7 @@ describe("P0 spend-aware outcome-unknown partition (R7 §22.2)", () => {
   it("PRIVATE_SPENT_CHILD_ATTEMPT_NEVER_RETHOUGHT", () => {
     const db = openTestSidecar();
     try {
+      configurePrivateBudgetFixture(db);
       reconcilePolicyClock(db, { policyId: POLICY, wallClockNowMs: BASE, authorizationRef: "owner:part-child" });
       const { wakeId, conversationId } = seedPrivateStranded(db, "child");
       const reservation = reserve(db, wakeId, conversationId, "child");
@@ -511,6 +515,7 @@ describe("P0 spend-aware outcome-unknown partition (R7 §22.2)", () => {
     for (const tag of ["unknown", "released"] as const) {
       const db = openTestSidecar();
       try {
+        configurePrivateBudgetFixture(db);
         reconcilePolicyClock(db, { policyId: POLICY, wallClockNowMs: BASE, authorizationRef: `owner:part-d:${tag}` });
         const { wakeId, conversationId } = seedPrivateStranded(db, `d-${tag}`);
         const reservation = reserve(db, wakeId, conversationId, `d-${tag}`);
@@ -553,6 +558,7 @@ describe("P0 spend-aware outcome-unknown partition (R7 §22.2)", () => {
     vi.stubEnv("PERIODIC_COGNITION_ENABLED", "true");
     const db = openTestSidecar();
     try {
+      configurePrivateBudgetFixture(db);
       reconcilePolicyClock(db, { policyId: POLICY, wallClockNowMs: BASE, authorizationRef: "owner:part-enabled" });
       const { eventId, wakeId, conversationId } = seedPrivateStranded(db, "enabled", { periodic: true });
       const reservation = reserve(db, wakeId, conversationId, "enabled");
@@ -579,6 +585,7 @@ describe("P0 spend-aware outcome-unknown partition (R7 §22.2)", () => {
     vi.stubEnv("PERIODIC_COGNITION_ENABLED", "0");
     const db = openTestSidecar();
     try {
+      configurePrivateBudgetFixture(db);
       reconcilePolicyClock(db, { policyId: POLICY, wallClockNowMs: BASE, authorizationRef: "owner:part-orphan" });
       const { eventId, wakeId, conversationId } = seedPrivateStranded(db, "orphan", { periodic: true });
       const reservation = reserve(db, wakeId, conversationId, "orphan");
@@ -608,6 +615,7 @@ describe("P0 spend-aware outcome-unknown partition (R7 §22.2)", () => {
     vi.stubEnv("PERIODIC_COGNITION_ENABLED", "");
     const db = openTestSidecar();
     try {
+      configurePrivateBudgetFixture(db);
       reconcilePolicyClock(db, { policyId: POLICY, wallClockNowMs: BASE, authorizationRef: "owner:part-term" });
       const { eventId, wakeId, conversationId } = seedPrivateStranded(db, "term", { periodic: true });
       const reservation = reserve(db, wakeId, conversationId, "term");

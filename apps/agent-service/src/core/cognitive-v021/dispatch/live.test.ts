@@ -1,3 +1,4 @@
+import { configurePrivateBudgetFixture } from "../private-budget/__tests__/configured-policy.js";
 import { describe, expect, it, vi } from "vitest";
 import { appendInboxEvent, getInboxEvent, updateCycleState } from "../cycle/inbox.js";
 import { appendOwnerUtterance } from "../evidence/conversation-log.js";
@@ -230,6 +231,7 @@ describe("F1 Frontier & Dispatch Continuation Witnesses", () => {
     const sidecar = openTestSidecar();
     const nuclear = openTestSidecar();
     const attentionDb = openTestSidecar();
+    configurePrivateBudgetFixture(sidecar);
     reconcilePolicyClock(sidecar, { policyId: "private-v1", wallClockNowMs: BASE_TIME, authorizationRef: "owner:test" });
 
     const triggerKind = params?.triggerKind ?? "idle_opportunity";
@@ -942,6 +944,7 @@ describe("P0 periodic recovery dispatch fence (R7 §§22.2–22.3)", () => {
     const sidecar = openTestSidecar();
     const nuclear = openTestSidecar();
     const attentionDb = openTestSidecar();
+    configurePrivateBudgetFixture(sidecar);
     reconcilePolicyClock(sidecar, { policyId: "private-v1", wallClockNowMs: BASE_TIME, authorizationRef: `owner:${tag}` });
     const cycle = admitTestCycle(sidecar, {
       cycleId: `cycle:gate:${tag}`,
@@ -1088,6 +1091,7 @@ describe("P0 periodic recovery dispatch fence (R7 §§22.2–22.3)", () => {
     const nuclear = openTestSidecar();
     const attentionDb = openTestSidecar();
     try {
+      configurePrivateBudgetFixture(sidecar);
       reconcilePolicyClock(sidecar, { policyId: "private-v1", wallClockNowMs: BASE_TIME, authorizationRef: "owner:held-only" });
       const cycle = admitTestCycle(sidecar, {
         cycleId: "cycle:gate:held-only",

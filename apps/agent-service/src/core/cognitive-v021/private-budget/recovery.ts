@@ -1,6 +1,7 @@
 import type { DatabaseSync } from "node:sqlite";
 import { resolveDurableContinuationOwner } from "../cycle/inbox.js";
 import {
+  requireReservationBudgetPolicy,
   commitPrivateDispatch,
   expirePrivateReservations,
   getPrivateRepairBinding,
@@ -92,6 +93,8 @@ export function recoverPrivateBudget(
   for (const row of stranded) {
     const reservationId = text(row.reservation_id);
     if (!reservationId) continue;
+    try { requireReservationBudgetPolicy(db, reservationId); }
+    catch { result.reconciling += 1; continue; }
     const reservation = getPrivateReservation(db, reservationId);
     if (!reservation || (reservation.state !== "held" && reservation.state !== "reconcile_required")) continue;
 
@@ -222,6 +225,8 @@ export function recoverPrivateBudget(
     const reservationId = text(row.reservation_id);
     const invocationId = text(row.invocation_id);
     if (!reservationId || !invocationId) continue;
+    try { requireReservationBudgetPolicy(db, reservationId); }
+    catch { continue; }
     const binding = getPrivateRepairBinding(db, reservationId, invocationId);
     if (!binding || binding.releaseProofRef != null) continue;
 

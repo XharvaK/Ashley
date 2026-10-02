@@ -29,7 +29,7 @@ export type { SourceSupportRef } from "./evidence/interpretation-envelope.js";
 export const ARCHITECTURE_EPOCH = "v0.2.1" as const;
 export const IMPLEMENTATION_SPEC_VERSION = "0.2.1.r6" as const;
 export const THOUGHT_CONTRACT_VERSION = 2 as const;
-export const COGNITIVE_SIDECAR_SCHEMA_VERSION = 52 as const;
+export const COGNITIVE_SIDECAR_SCHEMA_VERSION = 53 as const;
 
 /**
  * Hard bound on cognition-facing concern discovery windows and pages. The
@@ -228,9 +228,9 @@ export type WakeRecord = Readonly<{
 export type PrivateBudgetReservationState = "held" | "committed" | "released" | "reconcile_required" | "expired";
 export type PrivateBudgetPolicy = Readonly<{
   policyId: string;
-  limit: typeof PRIVATE_THOUGHT_MAX_CALLS_PER_HOUR;
-  windowMs: 3_600_000;
-  clockDiscontinuityMs: 300_000;
+  limit: number;
+  windowMs: number;
+  clockDiscontinuityMs: number;
 }>;
 export type PrivateBudgetReservation = Readonly<{
   reservationId: string;

@@ -1,3 +1,4 @@
+import { configureBudgetPolicy } from "./policies.js";
 import { createHash } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it, vi } from "vitest";
@@ -56,7 +57,9 @@ const CONVERSATION = "conversation:repair";
 const POLICY = "private-v1";
 
 function db(): DatabaseSync {
-  return openCognitiveSidecarDb(new DatabaseSync(":memory:"), { dataPlane: { kind: "isolated" } });
+  const sidecar = openCognitiveSidecarDb(new DatabaseSync(":memory:"), { dataPlane: { kind: "isolated" } });
+  configureBudgetPolicy(sidecar, { ...DEFAULT_PRIVATE_THOUGHT_POLICY, policyId: "private-v1", version: 1 });
+  return sidecar;
 }
 
 function wake(sidecar: DatabaseSync, suffix: string, conversationId = CONVERSATION, nowMs = BASE): string {
