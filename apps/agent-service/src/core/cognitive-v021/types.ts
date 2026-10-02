@@ -1050,6 +1050,7 @@ export type SettlementSemanticOutput = {
   /** Growth V1 G4: appraisal, expectations, revisions (Owner-private). */
   growth?: import("./growth/claim.js").GrowthClaim;
   senses?: import("./senses/senses.js").SenseClaim;
+  attention?: import("./thalamus/attention.js").AttentionClaim;
   /** NIGHT pass only: diary, re-scored salience, closed questions, weekly narrative. */
   night?: import("./growth/night.js").NightClaim;
   /** Owner-private chat only: a forget she proposes, or the Owner's answer to one (A2). */
@@ -1333,6 +1334,7 @@ export type ThoughtSettlementDraft = {
   /** Stored by the Host after publication (growth/growth.ts). */
   growth?: import("./growth/claim.js").GrowthClaim;
   senses?: import("./senses/senses.js").SenseClaim;
+  attention?: import("./thalamus/attention.js").AttentionClaim;
   /** NIGHT pass only; stored by the Host after publication (growth/night.ts). */
   night?: import("./growth/night.js").NightClaim;
   /** Applied by the Host after publication (memory/semantic-forget.ts). */
@@ -1731,6 +1733,7 @@ export type ThoughtInput = {
   /** Mood, opinions, open revisions and expectations (Owner-private only). */
   growth?: import("./growth/growth.js").ThoughtGrowth;
   senses?: import("./senses/senses.js").ThoughtSenses;
+  attention?: import("./thalamus/attention.js").ThoughtAttention;
   /** Forgets she proposed that the Owner has not answered (Owner-private chat only). */
   pendingForget?: readonly import("./memory/semantic-forget.js").ThoughtPendingForget[];
   /** Present only during an afterglow or AWAKE pass. */
@@ -1898,6 +1901,7 @@ export type V021ForgetEntityType =
   | "v021_diary_entry"
   | "v021_self_narrative"
   | "v021_persona_snapshot"
+  | "v021_attention_watch"
   | "v021_concern"
   | "v021_occupancy"
   | "v021_future_trigger"

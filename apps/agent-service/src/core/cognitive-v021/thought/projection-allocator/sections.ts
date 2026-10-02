@@ -70,6 +70,7 @@ export const INNER_LIFE_SECTIONS = [
   { section: "thread_story", field: "threadStory", canonicalStore: "thread_stories" },
   { section: "episodes", field: "episodes", canonicalStore: "episodes_v2" },
   { section: "activity_journal", field: "activityJournal", canonicalStore: "activity_journal" },
+  { section: "attention", field: "attention", canonicalStore: "attention_watches+thalamus_decisions" },
   { section: "growth", field: "growth", canonicalStore: "growth_revisions+mood_state+expectations+diary_entries" },
   { section: "inner_pass", field: "innerPass", canonicalStore: "inbox_events" },
   { section: "pending_forget", field: "pendingForget", canonicalStore: "forget_proposals" },
@@ -164,6 +165,7 @@ export function requirednessContractFor(
     case "thread_story":
     case "episodes":
     case "activity_journal":
+    case "attention":
     case "growth":
     case "inner_pass":
     case "pending_forget":

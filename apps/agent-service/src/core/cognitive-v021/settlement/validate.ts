@@ -1,3 +1,4 @@
+import { isValidAttentionClaim } from "../thalamus/attention.js";
 import {
   ARCHITECTURE_EPOCH,
   MAX_AUTHORITY_REVISIONS,
@@ -334,6 +335,7 @@ export function validateThoughtSettlementDraft(
     return failure("malformed", "SCHEMA_VERSION_INVALID");
   }
 
+  if (draft.attention !== undefined && !isValidAttentionClaim(draft.attention)) return failure("malformed", "ATTENTION_INVALID");
   const identityFailure = validateIdentity(draft, active);
   if (identityFailure) return identityFailure;
   if (!isString(draft.triggerRef)) return failure("malformed", "TRIGGER_REF_MISSING");

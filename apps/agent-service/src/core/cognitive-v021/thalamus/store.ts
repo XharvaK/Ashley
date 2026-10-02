@@ -33,10 +33,13 @@ export function expireAttentionWatches(db:DatabaseSync,ownerId:string,nowMs:numb
 /** Used only after publication; delayed recovery keeps the original published/admitted timestamp. */
 export function recordPublishedAttention(db:DatabaseSync,settlementId:string,ownerId:string,nowMs:number):"recorded"|"ignored"|"live_limit" {
   time(nowMs);if(!ownerId.trim())return "ignored";
-  const row=db.prepare(`SELECT s.payload_json,s.cycle_id,c.conversation_id,c.admitted_at_ms,a.created_at_ms
+  const row=db.prepare(`SELECT s.payload_json,s.cycle_id,c.conversation_id,c.admitted_at_ms,a.created_at_ms,a.context_json
     FROM settlements s JOIN cycle_records c ON c.cycle_id=s.cycle_id
     LEFT JOIN settlement_aftermath a ON a.settlement_id=s.settlement_id WHERE s.settlement_id=?`).get(settlementId);
-  if(!row || !isOwnerPrivateConversation(String(row.conversation_id)))return "ignored";
+  if(!row)return "ignored";
+  const publicationContext=row.context_json == null ? null : JSON.parse(String(row.context_json)) as Row;
+  const ownerPrivate=publicationContext?.ownerPrivate ?? isOwnerPrivateConversation(String(row.conversation_id));
+  if(ownerPrivate!==true)return "ignored";
   const payload=JSON.parse(String(row.payload_json)) as Row;
   if(payload.redacted===true || payload.sawSecret!==false || !isValidAttentionClaim(payload.attention))return "ignored";
   const atMs=Number(row.created_at_ms ?? row.admitted_at_ms);time(atMs);
@@ -108,4 +111,34 @@ export function recordThalamusDecision(db:DatabaseSync,decisionId:string,ownerId
   } catch(error) {
     db.exec("ROLLBACK TO thalamus_decision; RELEASE thalamus_decision");throw error;
   }
+}
+
+/** Only the decision bound to this admitted cycle describes why this Thought woke. */
+export function readThoughtAttention(db:DatabaseSync,ownerId:string,cycleId:string,nowMs:number):import("./attention.js").ThoughtAttention {
+  const row=db.prepare("SELECT candidates_json FROM thalamus_decisions WHERE owner_id=? AND cycle_id=? AND decision_code='fire' ORDER BY evaluated_at_ms DESC,decision_id DESC LIMIT 1").get(ownerId,cycleId);
+  const bundle:Candidate[]=row ? (JSON.parse(String(row.candidates_json)).bundle as Candidate[]).map(candidate=>({...candidate,refs:[]})) : [];
+  return {watching:readAttentionWatches(db,ownerId,nowMs),wokeBecause:bundle.slice(0,1),alsoOnYourMind:bundle.slice(1)};
+}
+
+/** Exact phrase erasure is the Owner's existing forget mechanism, not watch interpretation. */
+export function attentionWatchIdsForForget(db:DatabaseSync,topic:string):string[]{
+  const needle=topic.toLocaleLowerCase();
+  return db.prepare("SELECT owner_id,watch_id,note,match_json,expires_json FROM attention_watches").all()
+    .filter(row=>[row.note,row.match_json,row.expires_json].some(value=>String(value).toLocaleLowerCase().includes(needle)))
+    .map(row=>JSON.stringify([String(row.owner_id),String(row.watch_id)]));
+}
+export function forgetAttentionWatch(db:DatabaseSync,key:string):number {
+  const [ownerId,watchId]=JSON.parse(key) as string[];
+  return Number(db.prepare("DELETE FROM attention_watches WHERE owner_id=? AND watch_id=?").run(ownerId,watchId).changes);
+}
+/** Detach derived attention when its published semantic source is erased. */
+export function forgetSettlementAttention(db:DatabaseSync,settlementId:string):number {
+  let changes=Number(db.prepare("UPDATE settlements SET payload_json=json_remove(payload_json,'$.attention') WHERE settlement_id=? AND json_type(payload_json,'$.attention') IS NOT NULL").run(settlementId).changes);
+  changes+=Number(db.prepare("DELETE FROM attention_watches WHERE cycle_id IN (SELECT cycle_id FROM settlements WHERE settlement_id=?)").run(settlementId).changes);
+  for(const row of db.prepare("SELECT owner_id,attention_json FROM thalamus_state").all()){
+    const flags=JSON.parse(String(row.attention_json)) as AttentionFlags;
+    if(flags.lastSettlementId!==settlementId)continue;
+    changes+=Number(db.prepare("UPDATE thalamus_state SET attention_json=? WHERE owner_id=?").run(JSON.stringify({lastClaimAtMs:flags.lastClaimAtMs,lastSettlementId:settlementId}),String(row.owner_id)).changes);
+  }
+  return changes;
 }

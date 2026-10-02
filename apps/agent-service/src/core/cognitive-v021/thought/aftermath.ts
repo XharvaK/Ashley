@@ -1,3 +1,5 @@
+import { recordPublishedAttention } from "../thalamus/store.js";
+import type { AttentionClaim } from "../thalamus/attention.js";
 import type { DatabaseSync } from "node:sqlite";
 import { recordJournalEntry, type JournalClaim, type JournalPassKind } from "../initiative/journal.js";
 import type { NightPass } from "../initiative/inner-pass.js";
@@ -16,6 +18,8 @@ import { recordNight, type NightClaim } from "../growth/night.js";
  */
 export type AftermathContext = {
   conversationId: string;
+  /** Effective audience captured at publication; transport IDs do not establish privacy. */
+  ownerPrivate?: boolean;
   /** Set for private passes: the journal entry to record. */
   passKind: JournalPassKind | null;
   nightPass: NightPass | null;
@@ -38,6 +42,7 @@ type StoredSettlement = {
   journal?: JournalClaim;
   growth?: GrowthClaim;
   senses?: SenseClaim;
+  attention?: AttentionClaim;
   night?: NightClaim;
 };
 
@@ -108,6 +113,7 @@ export function recordSettlementAftermath(
       });
     }
     if (standing && settlement.senses) recordSenseDeclines(db, settlement.senses, { nowMs: Number(pending.created_at_ms), conversationId: context.conversationId, dataDir: options.dataDir, dataClassification }, context.senseBands);
+    if (standing && settlement.attention && options.identityStore?.ownerId) recordPublishedAttention(db,settlementId,options.identityStore.ownerId,options.nowMs);
     recordGrowth(db, {
       cycleId,
       allowInfluenceProposal: standing,

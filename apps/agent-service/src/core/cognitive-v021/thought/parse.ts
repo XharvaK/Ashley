@@ -1,3 +1,4 @@
+import { isValidAttentionClaim } from "../thalamus/attention.js";
 import type {
   AbstainSemanticOutput,
   ConcernSemanticDelta,
@@ -869,7 +870,7 @@ function validInterests(value: unknown): boolean {
 function parseSettlementSemantic(value: SemanticRecord, allowlist: ReadonlySet<string>): ThoughtSemanticParseResult {
   const unknown = Object.keys(value).find((key) => ![
     "kind", "interactionIntent", "speech", "initiativePreference", "interpretation", "commitments", "workingContextDeltas", "deskDeltas", "concernDeltas",
-    "occupancyDeltas", "futureTriggerDeltas", "subscriptionDeltas", "durableNominations", "reflection", "journal", "interests", "growth", "senses", "night", "forget", "evidenceUse",
+    "occupancyDeltas", "futureTriggerDeltas", "subscriptionDeltas", "durableNominations", "reflection", "journal", "interests", "growth", "senses", "attention", "night", "forget", "evidenceUse",
   ].includes(key));
   if (unknown) return semanticFailure("unknown_field", unknown);
   if (value.kind !== "settlement") return semanticFailure("wrong_kind", "kind");
@@ -920,6 +921,7 @@ function parseSettlementSemantic(value: SemanticRecord, allowlist: ReadonlySet<s
   if (own(value, "interests") && !validInterests(value.interests)) {
     return semanticFailure("wrong_type", "interests");
   }
+  if (own(value, "attention") && !isValidAttentionClaim(value.attention)) return semanticFailure("wrong_type", "attention");
   if (own(value, "senses") && !isValidSenseClaim(value.senses)) return semanticFailure("wrong_type", "senses");
   if (own(value, "growth") && !isValidGrowthClaim(value.growth)) {
     return semanticFailure("wrong_type", "growth");

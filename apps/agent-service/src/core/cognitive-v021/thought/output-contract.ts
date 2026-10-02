@@ -1,3 +1,4 @@
+import { ATTENTION_CLAIM_SCHEMA, ATTENTION_GUIDANCE, ATTENTION_JSON_OBJECT_SHAPE_GUIDANCE } from "../thalamus/attention-schema.js";
 import {
   THOUGHT_OUTPUT_CONTRACT_ID,
   THOUGHT_OUTPUT_SCHEMA_ID,
@@ -453,6 +454,7 @@ const semanticOutputSettlementSchema = strictObject({
   journal: journalSchema,
   interests: { type: "array", minItems: 1, maxItems: 5, items: interestTouchSchema },
   growth: growthSchema,
+  attention: ATTENTION_CLAIM_SCHEMA,
   senses: strictObject({ decline: { type: "array", minItems: 1, maxItems: 6, items: strictObject({
     sense: { enum: [...SENSE_NAMES] }, rationale: { type: "string", minLength: 1, maxLength: 200 }, untilMs: { type: "integer", minimum: 0 },
   }, ["sense", "rationale"]) } }, ["decline"]),
@@ -604,6 +606,8 @@ const DEEPSEEK_JSON_OBJECT_PROTOCOL = [
   "Canonical branch fields and required fields, derived from the current Ashley semantic schema:",
   ...rootFieldForms(),
   "If kind=settlement, emit only the settlement fields listed above.",
+  ATTENTION_GUIDANCE,
+  ATTENTION_JSON_OBJECT_SHAPE_GUIDANCE,
   "For settlement, speech must match exactly one listed mode form. Each form's allowedFields set is exact; every unlisted speech field is forbidden.",
   `Speech mode forms: ${settlementSpeechForms().join("; ")}.`,
   "Put user-facing language in speech.surfaceDraft; speech.text is not a canonical field.",
@@ -715,7 +719,7 @@ function applyProfileScope(schema: SchemaRecord, profile: ThoughtContractProfile
     ...(profile.pass === "afterglow" ? [] : ["reflection"]),
     ...(profile.pass === "night" ? [] : ["night"]),
     ...(profile.pass === "chat" ? ["journal", "initiativePreference"] : []),
-    ...(profile.ownerPrivate ? [] : ["journal", "interests", "growth", "senses"]),
+    ...(profile.ownerPrivate ? [] : ["journal", "interests", "growth", "senses", "attention"]),
     ...(profile.pass === "chat" && profile.ownerPrivate ? [] : ["forget"]),
   ];
   for (const field of drop) delete properties[field];

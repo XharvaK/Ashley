@@ -1,3 +1,4 @@
+import { attentionWatchIdsForForget, forgetAttentionWatch, forgetSettlementAttention } from "../thalamus/store.js";
 import type { DatabaseSync } from "node:sqlite";
 import { bumpForgetEpoch } from "./forget-epoch.js";
 import type { V021ForgetTarget } from "../types.js";
@@ -33,6 +34,7 @@ export const V021_FORGET_TARGET_MATRIX = {
   diary_entries: { behavior: "none", content: "redact" },
   self_narratives: { behavior: "none", content: "redact" },
   persona_snapshots: { behavior: "none", content: "redact" },
+  attention_watches: { behavior: "detach", content: "redact" },
   concerns: { behavior: "resolve", content: "redact" },
   mind_occupancy: { behavior: "detach", content: "none" },
   future_triggers: { behavior: "cancel", content: "redact" },
@@ -296,6 +298,7 @@ export function applyV021Forget(
           : redactJson(row[column], topic);
         const result = db.prepare(`UPDATE ${descriptor.table} SET ${column} = ? WHERE ${descriptor.id} = ?`).run(replacement, id);
         changedRows += number(result.changes);
+        if (descriptor.target === "v021_settlement") changedRows += forgetSettlementAttention(db,id);
         if (descriptor.target === "v021_observation") forgottenSupportKeys.add(`observation:${id}`);
         if (descriptor.target === "v021_effect_receipt") forgottenSupportKeys.add(`receipt:${id}`);
         addTarget(targets, descriptor.target, id);
@@ -419,6 +422,10 @@ export function applyV021Forget(
     for (const id of narrativeIdsForForget(db, topic)) {
       changedRows += forgetNarrative(db, id, nowMs);
       addTarget(targets, "v021_self_narrative", id);
+    }
+    for (const id of attentionWatchIdsForForget(db, topic)) {
+      changedRows += forgetAttentionWatch(db,id);
+      addTarget(targets,"v021_attention_watch",id,"detach");
     }
     for (const id of snapshotIdsForForget(db, topic)) {
       changedRows += forgetSnapshot(db, id);
@@ -583,6 +590,7 @@ export function planV021Forget(
   for (const id of expectationIdsForForget(db, topic)) add("v021_expectation", id);
   for (const id of diaryEntryIdsForForget(db, topic)) add("v021_diary_entry", id);
   for (const id of narrativeIdsForForget(db, topic)) add("v021_self_narrative", id);
+  for (const id of attentionWatchIdsForForget(db, topic)) add("v021_attention_watch",id,"detach");
   for (const id of snapshotIdsForForget(db, topic)) add("v021_persona_snapshot", id);
   return {
     topic,
@@ -685,6 +693,7 @@ function applyV021ForgetTargetsInTransaction(
   }
   for (const id of targetIds(targets, "v021_settlement")) {
     addChanges(db.prepare("UPDATE settlements SET payload_json = ? WHERE settlement_id = ?").run(JSON.stringify({ redacted: true }), id), changed);
+    changed.value += forgetSettlementAttention(db,id);
   }
   for (const id of targetIds(targets, "v021_inbox_event")) {
     addChanges(db.prepare("UPDATE inbox_events SET payload_json = ? WHERE id = ?").run(JSON.stringify({ redacted: true }), id), changed);
@@ -727,6 +736,7 @@ function applyV021ForgetTargetsInTransaction(
   for (const id of targetIds(targets, "v021_self_narrative")) {
     changed.value += forgetNarrative(db, id, nowMs);
   }
+  for (const id of targetIds(targets,"v021_attention_watch")) changed.value += forgetAttentionWatch(db,id);
   for (const id of targetIds(targets, "v021_persona_snapshot")) {
     changed.value += forgetSnapshot(db, id);
   }

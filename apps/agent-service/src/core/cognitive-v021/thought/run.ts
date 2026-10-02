@@ -1,3 +1,4 @@
+import { readThoughtAttention } from "../thalamus/store.js";
 import { randomUUID } from "node:crypto";
 import { env } from "../../../env.js";
 import type { DatabaseSync } from "node:sqlite";
@@ -1427,6 +1428,7 @@ function materializeSemanticSettlement(
   (result as ThoughtSettlementDraft).sawSecret = sawSecret;
   if (semantic.growth) result.growth = structuredClone(semantic.growth);
   if (semantic.senses) result.senses = structuredClone(semantic.senses);
+  if (semantic.attention) result.attention = structuredClone(semantic.attention);
   if (semantic.night) result.night = structuredClone(semantic.night);
   if (semantic.forget) result.forget = structuredClone(semantic.forget);
   return result as ThoughtSettlementDraft;
@@ -3333,7 +3335,8 @@ export async function runCognitiveCycle(
         },
       } : {}),
       ...(effectiveThoughtAudience.kind === "owner_private" && !externalCycle
-        ? { growth: growthForThought(sidecar, identityStoreFor(nuclear, deps), deps.nowMs()), senses: sensesForThought(sidecar, senseOptions, sensedFacts) }
+        ? { growth: growthForThought(sidecar, identityStoreFor(nuclear, deps), deps.nowMs()), senses: sensesForThought(sidecar, senseOptions, sensedFacts),
+            ...(deps.identityOwnerId ? { attention: readThoughtAttention(sidecar,deps.identityOwnerId,cycle.cycleId,deps.nowMs()) } : {}) }
         : {}),
       ...pendingForgetInput(sidecar, cycle.conversationId, {
         ownerTurn: effectiveThoughtAudience.kind === "owner_private" && !externalCycle
@@ -4510,6 +4513,7 @@ export async function runCognitiveCycle(
       && effectiveThoughtAudience.kind === "owner_private"
       ? {
           conversationId: cycle.conversationId,
+          ownerPrivate: true,
           passKind: afterglowPass ? "afterglow"
             : awakePass ? "awake"
             : nightPass ? "night"

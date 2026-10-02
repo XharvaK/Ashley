@@ -141,6 +141,7 @@ export type BuildThoughtInputOptions = {
   /** Growth V1 G4: mood, opinions, open revisions and expectations (kept only for Owner-private audiences). */
   growth?: import("../growth/growth.js").ThoughtGrowth;
   senses?: import("../senses/senses.js").ThoughtSenses;
+  attention?: import("../thalamus/attention.js").ThoughtAttention;
   pendingForget?: readonly import("../memory/semantic-forget.js").ThoughtPendingForget[];
   /** Fire-time commitment meaning and three-state evidence completeness. */
   commitmentDue?: CommitmentDueProjection;
@@ -1207,6 +1208,7 @@ export function buildThoughtInput(options: BuildThoughtInputOptions): ThoughtInp
     ...(options.innerPass && audience.kind === "owner_private" ? { innerPass: options.innerPass } : {}),
     ...(options.growth && audience.kind === "owner_private" ? { growth: options.growth } : {}),
     ...(options.senses && audience.kind === "owner_private" ? { senses: options.senses } : {}),
+    ...(options.attention && audience.kind === "owner_private" ? { attention: options.attention } : {}),
     ...(options.pendingForget && audience.kind === "owner_private" ? { pendingForget: options.pendingForget } : {}),
     ...(options.clock === undefined ? {} : {
       clock: buildThoughtClock({
