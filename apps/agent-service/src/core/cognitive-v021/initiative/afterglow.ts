@@ -180,7 +180,7 @@ function lastActivityAtMs(db: DatabaseSync, conversationId: string): number {
 
 export function evaluateAfterglow(
   db: DatabaseSync,
-  input: { conversationId: string; nowMs: number },
+  input: { conversationId: string; nowMs: number; timing?: "thalamus" },
 ): AfterglowDecision {
   const rows = listUnreflectedRows(db, input.conversationId, AFTERGLOW_MAX_ROWS);
   // A stretch with no Owner message is not a conversation to reflect on yet.
@@ -189,6 +189,9 @@ export function evaluateAfterglow(
   if (silentForMs >= AFTERGLOW_SILENCE_MS) return { kind: "due", mode: "silence", rows };
   if (rows.length > AFTERGLOW_ROLLING_ROWS && silentForMs >= AFTERGLOW_ROLLING_QUIET_MS) {
     return { kind: "due", mode: "rolling", rows };
+  }
+  if(input.timing==="thalamus" && silentForMs>=AFTERGLOW_ROLLING_QUIET_MS) {
+    return {kind:"due",mode:rows.length>AFTERGLOW_ROLLING_ROWS?"rolling":"silence",rows};
   }
   return { kind: "not_due", unreflected: rows.length, silentForMs };
 }
@@ -225,11 +228,13 @@ export async function tickAfterglow(
     nowMs?: number;
     thought: IdleThoughtRunner;
     privateBudgetPolicyId?: string;
+    /** Thalamus selected pressure; row coverage, quiet pause and admission still apply. */
+    timing?: "thalamus";
   },
 ): Promise<AfterglowTickResult> {
   const nowMs = options.nowMs ?? Date.now();
   const { conversationId } = options;
-  const decision = evaluateAfterglow(db, { conversationId, nowMs });
+  const decision = evaluateAfterglow(db, { conversationId, nowMs, timing:options.timing });
   if (decision.kind === "nothing") return { outcome: "nothing" };
   if (decision.kind === "not_due") return { outcome: "not_due" };
   // The Owner always comes first: never reflect while a turn is in progress.

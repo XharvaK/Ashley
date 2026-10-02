@@ -175,21 +175,24 @@ export async function tickNight(
     nowMs?: number;
     thought: IdleThoughtRunner;
     afterglowEnabled?: boolean;
+    /** Internal timing choice replaces the clock gate only. */
+    timing?: "thalamus";
     privateBudgetPolicyId?: string;
   },
 ): Promise<NightTickResult> {
   const nowMs = options.nowMs ?? Date.now();
   const { conversationId, timeZone } = options;
-  const state = readNightState(db, conversationId);
+  let state = readNightState(db, conversationId);
   if (!state) {
     const quietHour = quietestHour(db, { nowMs, timeZone });
     const nextNightAtMs = nextLocalHour(nowMs, quietHour, timeZone);
-    writeNightState(db, conversationId, {
-      nextNightAtMs, lastNightAtMs: null, slot: 0, quietHour, rhythmStartedAtMs: nowMs, lastWeeklyAtMs: null, lastOutcome: "scheduled",
-    }, nowMs);
-    return { outcome: "scheduled", quietHour, nextNightAtMs };
+    state={nextNightAtMs,lastNightAtMs:null,slot:0,quietHour,rhythmStartedAtMs:nowMs,lastWeeklyAtMs:null,lastOutcome:"scheduled"};
+    if(options.timing!=="thalamus") {
+      writeNightState(db, conversationId, state, nowMs);
+      return { outcome: "scheduled", quietHour, nextNightAtMs };
+    }
   }
-  if (nowMs < state.nextNightAtMs) return { outcome: "not_due", nextNightAtMs: state.nextNightAtMs };
+  if (options.timing!=="thalamus" && nowMs < state.nextNightAtMs) return { outcome: "not_due", nextNightAtMs: state.nextNightAtMs };
 
   const receipt = { evaluationId: randomUUID(), conversationId, dueAtMs: state.nextNightAtMs, evaluatedAtMs: nowMs };
   let result: Awaited<ReturnType<typeof evaluateDueNight>>;

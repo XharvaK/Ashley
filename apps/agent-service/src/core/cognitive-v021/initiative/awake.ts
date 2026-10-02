@@ -118,18 +118,23 @@ export async function tickAwake(
     thought: IdleThoughtRunner;
     /** When afterglow is switched off, a due afterglow must not hold AWAKE back forever. */
     afterglowEnabled?: boolean;
+    /** Internal timing choice; admission, budget and pass payload remain executor-owned. */
+    timing?: "thalamus";
     privateBudgetPolicyId?: string;
   },
 ): Promise<AwakeTickResult> {
   const nowMs = options.nowMs ?? Date.now();
   const { conversationId } = options;
-  const state = readInnerState(db, conversationId);
+  let state = readInnerState(db, conversationId);
   if (!state) {
     const nextAwakeAtMs = nowMs + AWAKE_FIRST_DELAY_MS;
-    writeInnerState(db, conversationId, { nextAwakeAtMs, lastAwakeAtMs: null, slot: 0, lastOutcome: "scheduled" }, nowMs);
-    return { outcome: "scheduled", nextAwakeAtMs };
+    state={nextAwakeAtMs,lastAwakeAtMs:null,slot:0,lastOutcome:"scheduled"};
+    if(options.timing!=="thalamus") {
+      writeInnerState(db, conversationId, state, nowMs);
+      return { outcome: "scheduled", nextAwakeAtMs };
+    }
   }
-  if (nowMs < state.nextAwakeAtMs) return { outcome: "not_due", nextAwakeAtMs: state.nextAwakeAtMs };
+  if (options.timing!=="thalamus" && nowMs < state.nextAwakeAtMs) return { outcome: "not_due", nextAwakeAtMs: state.nextAwakeAtMs };
 
   const afterglow = evaluateAfterglow(db, { conversationId, nowMs });
   if (afterglow.kind === "not_due") return { outcome: "engaged" };
