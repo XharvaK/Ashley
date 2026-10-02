@@ -6,9 +6,11 @@ type Executor=(selected:SelectedPassExecution)=>Promise<unknown>;
 export type PassExecutors={afterglow:Executor;night:Executor;awake:Executor;
  idle:(selection:Selection,selected:SelectedPassExecution)=>Promise<unknown>};
 /** Dispatch one selected pass. Coalesced timing proposals do not mature extra obligations. */
-export function runThalamusPass(db:DatabaseSync,options:Omit<TickOptions,"execute"> & {executors:PassExecutors}){
+export function runThalamusPass(db:DatabaseSync,options:Omit<TickOptions,"execute"> & {executors:PassExecutors;
+ prepare?:(decision:Extract<import("./core.js").Decision,{kind:"fire"}>,selected:SelectedPassExecution)=>SelectedPassExecution}){
  return tick(db,{...options,execute:async(decision,bind)=>{
-  const selected={timing:"thalamus" as const,bind};
+  const initial={timing:"thalamus" as const,bind};
+  const selected=options.prepare?.(decision,initial) ?? initial;
   if(decision.passType==="afterglow")return options.executors.afterglow(selected);
   if(decision.passType==="night")return options.executors.night(selected);
   const first=decision.bundle[0]!;

@@ -774,6 +774,7 @@ async function pollOneExternalSubscription(
 }
 
 export type ExternalSubscriptionPollOptions = {
+  conversationId?: string;
   nowMs?: number;
   timeoutMs?: number;
   fetcher?: FetchLike;
@@ -786,7 +787,7 @@ export async function pollObservationSubscriptions(
   options: ExternalSubscriptionPollOptions = {},
 ): Promise<SubscriptionPollResult> {
   const result: SubscriptionPollResult = { items: [], outcomes: [] };
-  for (const subscription of listObservationSubscriptions(db)) {
+  for (const subscription of listObservationSubscriptions(db,options.conversationId)) {
     if (!subscription.externalSource) continue;
     const polled = await pollOneExternalSubscription(db, subscription, options);
     result.outcomes.push(polled.outcome);

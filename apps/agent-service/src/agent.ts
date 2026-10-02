@@ -26,7 +26,14 @@ import {
 import { tickAfterglow, type AfterglowTickResult } from "./core/cognitive-v021/initiative/afterglow.js";
 import { tickAwake, type AwakeTickResult } from "./core/cognitive-v021/initiative/awake.js";
 import { tickNight, type NightTickResult } from "./core/cognitive-v021/initiative/night.js";
-import {bindAdmittedCause,type SelectedPassExecution} from "./core/cognitive-v021/thalamus/execution.js";
+import {bindAdmittedCause,attachSelectedObservations,type SelectedPassExecution} from "./core/cognitive-v021/thalamus/execution.js";
+import {retainSubscriptionFacts} from "./core/cognitive-v021/thalamus/subscription-facts.js";
+import {pollObservationSubscriptions} from "./core/cognitive-v021/observation/subscriptions.js";
+import {getCurrentCycle} from "./core/cognitive-v021/cycle/inbox.js";
+import {getActiveDeferredFrontier} from "./core/cognitive-v021/frontier/ledger.js";
+import {isPrivateThoughtActive} from "./core/cognitive-v021/initiative/idle.js";
+import {recordInfluencedCuriosityRank} from "./core/cognitive-v021/influences/curiosity.js";
+import {PRIVATE_SUBSCRIPTION_ITEMS_PER_IDLE} from "./core/cognitive-v021/types.js";
 import {collectInnerFacts} from "./core/cognitive-v021/thalamus/current-facts.js";
 import {runThalamusPass} from "./core/cognitive-v021/thalamus/integration.js";
 import {isThalamusEnabled} from "./core/cognitive-v021/thalamus/scheduler.js";
@@ -210,6 +217,7 @@ export class AgentManager {
       // periodic schedule, and PERIODIC_COGNITION_ENABLED now switches AWAKE.
       periodicCognitionEnabled: false,
       curiosityObservationProvider: async () => {
+        if(selected?.observations?.length)return [...selected.observations];
         try { await scanConfiguredSources(nuclear); } catch { /* mechanical acquisition must not block Thought */ }
         try {
           const result = await performGroundedReads(nuclear, ownerId);
@@ -229,7 +237,7 @@ export class AgentManager {
           return [];
         }
       },
-      runThought: this.privateThoughtRunner(sidecar, ownerId,selected?.bind),
+      runThought: this.privateThoughtRunner(sidecar, ownerId,selected?.bind,selected?.observations),
     });
   }
 
@@ -240,10 +248,19 @@ export class AgentManager {
     const nuclear=this.core.getDatabase(),conversationId=resolveActiveThread(nuclear,ownerId,"discord");
     const current=collectInnerFacts(sidecar,{ownerId,conversationId,nowMs,timeZone:env.ownerTimeZone || DEFAULT_OWNER_TIME_ZONE,
       afterglowEnabled,dataDir:this.dataPlane?.dataDir});
+    const canAcquire=current.context.budgetAvailable && !getCurrentCycle(sidecar,conversationId)
+      && !isPrivateThoughtActive(conversationId) && !getActiveDeferredFrontier(sidecar,conversationId);
+    const polled=canAcquire?await pollObservationSubscriptions(sidecar,{conversationId,nowMs}):{items:[]};
+    const subscriptions=retainSubscriptionFacts(sidecar,{ownerId,conversationId,nowMs,items:polled.items});
+    current.candidates.push(...subscriptions.candidates);current.facts.push(...subscriptions.facts);
     const commitments=isCommitmentsEnabled()?listDueCommitmentOpportunities(nuclear,ownerId,nowMs):[];
     current.candidates.push(...prospective(commitments.map(item=>({eventId:`commitment:${item.commitmentId}`,observedAtMs:item.fireAtMs ?? nowMs,
       refs:[item.commitmentId],kind:"commitment" as const,dueAtMs:item.fireAtMs ?? nowMs})),nowMs));
-    return runThalamusPass(sidecar,{ownerId,conversationId,nowMs,enabled:true,...current,executors:{
+    return runThalamusPass(sidecar,{ownerId,conversationId,nowMs,enabled:true,...current,
+      prepare:(decision,selected)=>({...selected,
+        observations:decision.bundle.flatMap(candidate=>subscriptions.retained.get(candidate.eventId)?[subscriptions.retained.get(candidate.eventId)!]:[]).slice(0,PRIVATE_SUBSCRIPTION_ITEMS_PER_IDLE),
+        bind:cycleId=>{selected.bind(cycleId);recordInfluencedCuriosityRank(sidecar,subscriptions.curiosity,{cycleId,ownerId},nowMs);},
+      }),executors:{
       afterglow:selected=>this.tickCognitiveAfterglow(ownerId,nowMs,selected),
       night:selected=>this.tickCognitiveNight(ownerId,nowMs,afterglowEnabled,selected),
       awake:selected=>this.tickCognitiveAwake(ownerId,nowMs,afterglowEnabled,selected),
@@ -268,7 +285,7 @@ export class AgentManager {
       authorityEpoch: readCognitiveSidecarMeta(sidecar).authority_epoch,
       nowMs,
       timing:selected?.timing,
-      thought: this.privateThoughtRunner(sidecar, ownerId,selected?.bind),
+      thought: this.privateThoughtRunner(sidecar, ownerId,selected?.bind,selected?.observations),
     });
   }
 
@@ -289,7 +306,7 @@ export class AgentManager {
       nowMs,
       afterglowEnabled,
       timing:selected?.timing,
-      thought: this.privateThoughtRunner(sidecar, ownerId,selected?.bind),
+      thought: this.privateThoughtRunner(sidecar, ownerId,selected?.bind,selected?.observations),
     });
   }
 
@@ -311,13 +328,14 @@ export class AgentManager {
       nowMs,
       afterglowEnabled,
       timing:selected?.timing,
-      thought: this.privateThoughtRunner(sidecar, ownerId,selected?.bind),
+      thought: this.privateThoughtRunner(sidecar, ownerId,selected?.bind,selected?.observations),
     });
   }
 
   /** Runs one admitted private Thought through the durable inbox and kernel. */
-  private privateThoughtRunner(sidecar: DatabaseSync, ownerId: string, bind?:(cycleId:string)=>void): IdleThoughtRunner {
-    const runner:IdleThoughtRunner = async (input) => {
+  private privateThoughtRunner(sidecar: DatabaseSync, ownerId: string, bind?:(cycleId:string)=>void,extra:readonly IdleObservationDraft[]=[]): IdleThoughtRunner {
+    const runner:IdleThoughtRunner = async (original) => {
+        const input=attachSelectedObservations(sidecar,original,extra);
         const event = input.event ?? appendInboxEvent(sidecar, {
           id: `idle:${input.wakeId}`,
           wakeId: input.wakeId,
