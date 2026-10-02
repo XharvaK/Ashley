@@ -2,6 +2,7 @@
  * Frozen S1 composition bounds. These are logical serializer contracts, not
  * provider quotas and not permission to invent additional model-visible data.
  */
+import { nativeImagePayload } from "../../perception/images.js";
 import { MAX_LOGICAL_SERIALIZED_INPUT_BYTES } from "./budget.js";
 import type { AllocationFailureDiagnostic } from "./receipt.js";
 
@@ -47,6 +48,7 @@ export function inspectRequiredObservation(value: unknown): RequiredObservationI
   type Pending = { value: unknown; depth: number; exit?: object };
   const stack: Pending[] = [{ value, depth: 0 }];
   const active = new WeakSet<object>();
+  const hostImagePayload = nativeImagePayload(value)?.payload;
   let visitedNodes = 0;
   let rawStringAndKeyBytes = 0;
 
@@ -156,7 +158,8 @@ export function inspectRequiredObservation(value: unknown): RequiredObservationI
           measurementBasis: "exact",
         });
       }
-      if (Reflect.ownKeys(current).length !== keys.length) return malformed();
+      // Only the root image payload may carry the immutable Host pixel field.
+      if (Reflect.ownKeys(current).length !== keys.length + (current === hostImagePayload ? 1 : 0)) return malformed();
       for (let index = keys.length - 1; index >= 0; index -= 1) {
         const key = keys[index]!;
         rawStringAndKeyBytes += Buffer.byteLength(key, "utf8");

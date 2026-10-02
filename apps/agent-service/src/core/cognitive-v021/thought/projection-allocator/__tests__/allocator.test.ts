@@ -1,3 +1,8 @@
+import { attachDirectImage } from "../../../perception/attachments.js";
+import { env } from "../../../../../env.js";
+import { createCommandCodeAdapter } from "../../../../model-routing/adapters/command-code-adapter.js";
+import { COMMAND_CODE_POLICY } from "../../../../command-code/policy.js";
+import { thoughtOutputStructuredRequest } from "../../output-contract.js";
 import { describe, it, expect } from "vitest";
 import { DatabaseSync } from "node:sqlite";
 import type { ThoughtInput } from "../../../types.js";
@@ -3369,5 +3374,70 @@ describe("GS1 structured and compact labels", () => {
     const allocated = allocateThoughtProjection({ thoughtInput: input, requestId: "gs1-retrieval" });
     expect(allocated.projected.retrieval.hits.length).toBeGreaterThan(0);
     expect(allocated.projected.sawSecret).toBe(true);
+  });
+});
+
+
+// Native pixels must survive the real allocator, not only the message-builder shortcut.
+describe("Discord native vision through Thought allocation", () => {
+  const pixels = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aD5sAAAAASUVORK5CYII=", "base64");
+  const imageUrl = "data:image/png;base64," + pixels.toString("base64");
+  function inputWithImage() {
+    const payload = { artifactId: "image-artifact", fileName: "screenshot.png", format: "image", contentHash: "pixels", selectedModelId: "host-only-model" };
+    attachDirectImage(payload, pixels, "image/png");
+    return makeThoughtInput({ audience: { kind: "owner_private" }, observations: [{
+      observationId: "native-image", cycleId: "cycle-test-1", generation: 1, derived: false, replaySafe: true,
+      modality: "image", payload, provenance: "perception:image", dataClassification: "never_public", secretOmitted: false,
+      view: { parentArtifactId: "image-artifact", representationId: "image-representation", derivation: "retained_image", access: "direct_visual", requestedSelector: { kind: "image" }, returnedSelector: { kind: "image" }, completeness: "complete", omission: null, continuation: null, errors: [], contentHashBasis: "raw_bytes:pixels", inputTrust: "untrusted_evidence" },
+    }] });
+  }
+  it("preserves native pixels through canonical observation allocation without putting them in semantic JSON", () => {
+    const input = inputWithImage();
+    let allocated!: ReturnType<typeof allocateThoughtProjection>;
+    expect(() => { allocated = allocateThoughtProjection({ thoughtInput: input, semanticBudgetTokens: 32_768, requestId: "native-image-allocation" }); }).not.toThrow();
+    expect(allocated.messages[1]?.imageUrls).toEqual([imageUrl]);
+    expect(allocated.messages[1]?.content).not.toContain("imageDataUri");
+    expect(allocated.messages[1]?.content).not.toContain(pixels.toString("base64"));
+    expect(allocated.messages[1]?.content).not.toContain("host-only-model");
+    expect(thoughtMessagesForProjection(allocated.projected)[1]?.imageUrls).toEqual([imageUrl]);
+    expect((input.observations[0]!.payload as Record<string, unknown>).imageDataUri).toBe(imageUrl);
+  });
+  it("rejects unrelated hidden fields even beside a legitimate native image", () => {
+    const input = inputWithImage();
+    Object.defineProperty(input.observations[0]!.payload, "hidden", { value: "untrusted" });
+    expect(() => allocateThoughtProjection({ thoughtInput: input, requestId: "hidden-image-field" })).toThrow(/malformed_json_structure/);
+  });
+  it("rejects image accessors without invoking them", () => {
+    const input = inputWithImage();
+    let invoked = false;
+    const payload = { artifactId: "image-artifact" };
+    Object.defineProperty(payload, "imageDataUri", { get() { invoked = true; return imageUrl; } });
+    input.observations[0] = { ...input.observations[0]!, payload };
+    expect(() => allocateThoughtProjection({ thoughtInput: input, requestId: "image-accessor" })).toThrow(/malformed_json_structure/);
+    expect(invoked).toBe(false);
+  });
+  it("keeps native pixels out of non-Owner requests", () => {
+    const input = inputWithImage();
+    input.audience = { kind: "room", roomId: "external-room" };
+    const allocated = allocateThoughtProjection({ thoughtInput: input, requestId: "image-audience" });
+    expect(allocated.messages.every(message => !message.imageUrls?.length)).toBe(true);
+    expect(JSON.stringify(allocated.messages)).not.toContain(pixels.toString("base64"));
+  });
+  it("delivers allocated pixels to the actual CommandCode Thought request as native image parts", async () => {
+    const priorKey = env.commandCodeApiKey;
+    env.commandCodeApiKey = "test-native-vision-key";
+    try {
+      let wire: Record<string, unknown> | undefined;
+      const adapter = createCommandCodeAdapter(async (_url, init) => {
+        wire = JSON.parse(String(init?.body));
+        return new Response(JSON.stringify({ model: COMMAND_CODE_POLICY.modelId, choices: [{ message: { content: "{}" }, finish_reason: "stop" }], usage: { prompt_tokens: 1, completion_tokens: 1 } }), { status: 200 });
+      });
+      let allocated!: ReturnType<typeof allocateThoughtProjection>;
+      expect(() => { allocated = allocateThoughtProjection({ thoughtInput: inputWithImage(), semanticBudgetTokens: 32_768, requestId: "native-image-wire" }); }).not.toThrow();
+      await adapter.dispatch({ messages: allocated.messages, modelId: COMMAND_CODE_POLICY.modelId, options: { maxTokens: 65_536, reasoningEffort: COMMAND_CODE_POLICY.effort, structuredOutput: thoughtOutputStructuredRequest() } });
+      expect(wire).toMatchObject({ model: COMMAND_CODE_POLICY.modelId, reasoning_effort: COMMAND_CODE_POLICY.effort });
+      const messages = wire!.messages as Array<{ role: string; content: unknown }>;
+      expect(messages.find(message => message.role === "user")?.content).toEqual(expect.arrayContaining([{ type: "image_url", image_url: { url: imageUrl } }]));
+    } finally { env.commandCodeApiKey = priorKey; }
   });
 });

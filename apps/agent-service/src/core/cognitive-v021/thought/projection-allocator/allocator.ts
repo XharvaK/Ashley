@@ -1,3 +1,4 @@
+import { nativeImagePayload } from "../../perception/images.js";
 import { thoughtInputContainsSecret } from "../input.js";
 import type { DatabaseSync } from "node:sqlite";
 import type { ChatMessage } from "../../../model-routing/types.js";
@@ -452,7 +453,13 @@ export function allocateThoughtProjection(
   }
   const boundedRequiredSectionData = Object.freeze({
     ...requiredSectionBounds,
-    observations: canonicalObservations,
+    observations: canonicalObservations.map((observation, index) => {
+      const image = nativeImagePayload(requiredSectionBounds.observations[index]);
+      if (!image) return observation;
+      const payload = { ...(observation.payload as Record<string, unknown>) };
+      Object.defineProperty(payload, "imageDataUri", image.descriptor);
+      return { ...observation, payload };
+    }),
   });
 
   // Prepare full provenance and compact retrieval hits
