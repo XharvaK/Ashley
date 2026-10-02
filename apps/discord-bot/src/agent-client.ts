@@ -695,7 +695,15 @@ export async function resumeProactiveRemote() {
   });
 }
 
+export type ThalamusStatus = {
+  owner: "bot" | "thalamus";
+  contractVersion: number;
+  availability: "available" | "unavailable";
+  watchCount: number | null;
+  lastDecision: { atMs: number; code: string; reason: string; passType: string | null } | null;
+};
 export type InitiativeStatus = {
+  thalamus?: ThalamusStatus;
   statusAvailability: "available" | "unavailable";
   legacyProactiveEnabled: boolean;
   legacyPaused: boolean;
@@ -896,6 +904,7 @@ export async function getNuclearStatus() {
       lineageId: string | null;
     };
     relationshipState?: { state: string };
+    thalamus?: ThalamusStatus;
   }>(`/nuclear/status?owner_id=${encodeURIComponent(config.ownerId)}`);
 }
 

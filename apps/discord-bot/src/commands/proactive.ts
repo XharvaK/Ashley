@@ -1,5 +1,6 @@
 import type { ChatInputCommandInteraction } from "discord.js";
 import type { InitiativeStatus } from "../agent-client.js";
+import {renderThalamusStatus} from "./thalamus-status.js";
 import {
   getCognitiveIdleSchedulerStatus,
   getProactiveStatus,
@@ -37,6 +38,7 @@ export function renderProactiveStatus(
     `Periodic cognition: ${periodic}`,
     `Scheduler: ${schedulerState}; poll: ${status.periodicScheduleState}`,
     `Scheduler owner: ${scheduler.owner ?? "unknown"}`,
+    renderThalamusStatus(status.thalamus),
     `Cadence: ~${scheduler.cadenceMinutes} minutes`,
     `Next opportunity: ${at(status.nextEligibleAt)}`,
     `Last opportunity: ${occurrence}`,
