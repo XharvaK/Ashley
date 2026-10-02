@@ -34,13 +34,15 @@ export function configureBudgetPolicy(db: DatabaseSync, policy: VersionedBudgetP
     const fingerprint = budgetPolicyFingerprint(policy);
     if (policy.policyId === PRIVATE_THOUGHT_POLICY_ID && fingerprint !== DEFAULT_BUDGET_SNAPSHOT.fingerprint)
         throw new Error("private_budget_default_policy_immutable");
-    const current = db.prepare("SELECT * FROM private_budget_policies WHERE policy_id=? AND is_current=1").get(policy.policyId);
-    if (current?.fingerprint === fingerprint)
-        return snapshot(current);
-    if (current && policy.version <= Number(current.policy_version))
-        throw new Error("private_budget_policy_revision_invalid");
     db.exec("SAVEPOINT configure_budget_policy");
     try {
+        const current = db.prepare("SELECT * FROM private_budget_policies WHERE policy_id=? AND is_current=1").get(policy.policyId);
+        if (current?.fingerprint === fingerprint) {
+            db.exec("RELEASE configure_budget_policy");
+            return snapshot(current);
+        }
+        if (current && policy.version <= Number(current.policy_version))
+            throw new Error("private_budget_policy_revision_invalid");
         db.prepare("UPDATE private_budget_policies SET is_current=0 WHERE policy_id=?").run(policy.policyId);
         db.prepare("INSERT INTO private_budget_policies (policy_id,policy_version,capacity_limit,window_ms,clock_discontinuity_ms,fingerprint,is_current) VALUES (?,?,?,?,?,?,1)").run(policy.policyId, policy.version, policy.limit, policy.windowMs, policy.clockDiscontinuityMs, fingerprint);
         db.exec("RELEASE configure_budget_policy");

@@ -3,14 +3,12 @@ import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import {
   MAX_THOUGHT_MODEL_ATTEMPTS,
-  PRIVATE_THOUGHT_MAX_CALLS_PER_HOUR,
   type PrivateBudgetAdmission,
-  type PrivateBudgetPolicy,
   type PrivateBudgetReservation,
 } from "../types.js";
 import { advancePolicyClock } from "./policy-time-ledger.js";
 
-import { resolveBudgetPolicy,reservationBudgetPolicy,activeBudgetRows,assertCurrentBudgetPolicy,DEFAULT_PRIVATE_THOUGHT_POLICY,type BudgetPolicySnapshot } from "./policies.js";
+import { resolveBudgetPolicy,reservationBudgetPolicy,activeBudgetRows,assertCurrentBudgetPolicy } from "./policies.js";
 export { PRIVATE_THOUGHT_POLICY_ID,PRIVATE_THOUGHT_WINDOW_MS,PRIVATE_THOUGHT_CLOCK_DISCONTINUITY_MS,DEFAULT_PRIVATE_THOUGHT_POLICY } from "./policies.js";
 
 export type PrivateBudgetDispatchBinding = Readonly<{
@@ -103,7 +101,16 @@ export function getPrivateReservation(db: DatabaseSync, reservationId: string): 
   return row ? reservationFromRow(row) : null;
 }
 
+/** Validate frozen admission policy without changing historical dispatch/effect truth. */
+export function requireReservationBudgetPolicy(db: DatabaseSync, reservationId: string): void {
+  const row = reservationRow(db, reservationId);
+  if (!row) throw budgetError("reservation_missing");
+  resolveBudgetPolicy(db, String(row.policy_id));
+  reservationBudgetPolicy(db, row);
+}
+
 export function getPrivateReservationRequired(db: DatabaseSync, reservationId: string): PrivateBudgetReservation {
+  requireReservationBudgetPolicy(db, reservationId);
   return reservationRequired(db, requiredText(reservationId, "reservation_id_required"));
 }
 
@@ -165,8 +172,8 @@ export function reservePrivateThought(
   input: { admissionId: string; wakeId: string; conversationId: string; policyId: string; wallClockNowMs: number },
 ): PrivateBudgetAdmission {
   const wallClockNowMs = validateAdmission(input);
-  const policy = resolveBudgetPolicy(db,input.policyId);
   return transaction(db, () => {
+    const policy = resolveBudgetPolicy(db,input.policyId);
     const existingRow = db.prepare("SELECT * FROM private_budget_reservations WHERE admission_id = ?").get(input.admissionId) as ReservationRow | undefined;
     if (existingRow) {
       const existing = reservationFromRow(existingRow);
@@ -263,6 +270,7 @@ export function bindPrivateReservationInvocation(
   requiredText(input.invocationId, "invocation_id_required");
   requiredText(input.attemptId, "attempt_id_required");
   return transaction(db, () => {
+    requireReservationBudgetPolicy(db, input.reservationId);
     const current = reservationRequired(db, input.reservationId);
     if (current.state === "committed" && current.invocationId === input.invocationId && current.attemptId === input.attemptId) return current;
     if (current.state !== "held") throw budgetError("reservation_state_conflict");
@@ -632,6 +640,7 @@ export function bindPrivateRepairAttempt(
   const ordinal = Math.floor(Number(input.ordinal));
   if (!Number.isInteger(ordinal)) throw budgetError("repair_ordinal_invalid");
   return transaction(db, () => {
+    requireReservationBudgetPolicy(db, input.reservationId);
     const parent = reservationRequired(db, input.reservationId);
     const isCommittedParent = parent.state === "committed";
     const isContinuableHeldParent = parent.state === "held"
