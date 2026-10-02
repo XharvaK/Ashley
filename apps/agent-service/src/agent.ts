@@ -27,6 +27,11 @@ import { tickAfterglow, type AfterglowTickResult } from "./core/cognitive-v021/i
 import { tickAwake, type AwakeTickResult } from "./core/cognitive-v021/initiative/awake.js";
 import { tickNight, type NightTickResult } from "./core/cognitive-v021/initiative/night.js";
 import {bindAdmittedCause,type SelectedPassExecution} from "./core/cognitive-v021/thalamus/execution.js";
+import {collectInnerFacts} from "./core/cognitive-v021/thalamus/current-facts.js";
+import {runThalamusPass} from "./core/cognitive-v021/thalamus/integration.js";
+import {isThalamusEnabled} from "./core/cognitive-v021/thalamus/scheduler.js";
+import {prospective} from "./core/cognitive-v021/thalamus/nuclei/prospective.js";
+import {isCommitmentsEnabled,listDueCommitmentOpportunities,type CommitmentOpportunity} from "./core/relationship/commitment-admission.js";
 import { DEFAULT_OWNER_TIME_ZONE } from "./core/cognitive-v021/thought/clock.js";
 import { detectCredentialShape, CREDENTIAL_OMITTED_PLACEHOLDER } from "./core/privacy/secrets.js";
 import { scanConfiguredSources } from "./core/curiosity/sources.js";
@@ -186,7 +191,7 @@ export class AgentManager {
   }
 
   /** Run one private idle opportunity through the same durable inbox/kernel path. */
-  async tickCognitiveIdle(ownerId: string): Promise<IdleTickResult> {
+  async tickCognitiveIdle(ownerId: string, selected?:SelectedPassExecution & {nowMs:number;selection:{triggerId?:string;commitmentId?:string};commitment?:CommitmentOpportunity}): Promise<IdleTickResult> {
     const sidecar = this.openCognitiveSidecar();
     if (!sidecar || !this.cognitiveDeps) {
       throw new AppError("agent_not_ready", "Cognitive dispatcher unavailable", 503);
@@ -200,6 +205,7 @@ export class AgentManager {
       authorityEpoch,
       commitmentDb: nuclear,
       commitmentOwnerId: ownerId,
+      ...(selected?{nowMs:selected.nowMs,thalamusSelection:selected.selection,commitment:selected.commitment}:{}),
       // Growth V1: the AWAKE rhythm (tickCognitiveAwake) replaced the 4 h
       // periodic schedule, and PERIODIC_COGNITION_ENABLED now switches AWAKE.
       periodicCognitionEnabled: false,
@@ -223,8 +229,27 @@ export class AgentManager {
           return [];
         }
       },
-      runThought: this.privateThoughtRunner(sidecar, ownerId),
+      runThought: this.privateThoughtRunner(sidecar, ownerId,selected?.bind),
     });
+  }
+
+  async tickCognitiveThalamus(ownerId:string,nowMs=Date.now(),afterglowEnabled=true){
+    if(!isThalamusEnabled())return {kind:"disabled"} as const;
+    const sidecar=this.openCognitiveSidecar();
+    if(!sidecar || !this.cognitiveDeps)throw new AppError("agent_not_ready","Cognitive dispatcher unavailable",503);
+    const nuclear=this.core.getDatabase(),conversationId=resolveActiveThread(nuclear,ownerId,"discord");
+    const current=collectInnerFacts(sidecar,{ownerId,conversationId,nowMs,timeZone:env.ownerTimeZone || DEFAULT_OWNER_TIME_ZONE,
+      afterglowEnabled,dataDir:this.dataPlane?.dataDir});
+    const commitments=isCommitmentsEnabled()?listDueCommitmentOpportunities(nuclear,ownerId,nowMs):[];
+    current.candidates.push(...prospective(commitments.map(item=>({eventId:`commitment:${item.commitmentId}`,observedAtMs:item.fireAtMs ?? nowMs,
+      refs:[item.commitmentId],kind:"commitment" as const,dueAtMs:item.fireAtMs ?? nowMs})),nowMs));
+    return runThalamusPass(sidecar,{ownerId,conversationId,nowMs,enabled:true,...current,executors:{
+      afterglow:selected=>this.tickCognitiveAfterglow(ownerId,nowMs,selected),
+      night:selected=>this.tickCognitiveNight(ownerId,nowMs,afterglowEnabled,selected),
+      awake:selected=>this.tickCognitiveAwake(ownerId,nowMs,afterglowEnabled,selected),
+      idle:(selection,selected)=>this.tickCognitiveIdle(ownerId,{...selected,nowMs,selection,
+        commitment:commitments.find(item=>item.commitmentId===selection.commitmentId)}),
+    }});
   }
 
   /**

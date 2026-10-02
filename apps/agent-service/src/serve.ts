@@ -1,5 +1,7 @@
 import type { AgentManager } from "./agent.js";
 import { AFTERGLOW_POLL_MS } from "./core/cognitive-v021/initiative/afterglow.js";
+import {isThalamusEnabled} from "./core/cognitive-v021/thalamus/scheduler.js";
+import {THALAMUS_PARAMETERS} from "./core/cognitive-v021/thalamus/parameters.js";
 import { isPeriodicCognitionEnabled } from "./core/cognitive-v021/dispatch/live.js";
 import { env, nuclearIdentityOwnerId } from "./env.js";
 import { createServer, listen } from "./server.js";
@@ -604,11 +606,18 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
     let innerLastPollMs = 0;
     const pollInnerLife = (nowMs: number): void => {
       const awakeEnabled = isPeriodicCognitionEnabled();
+      const thalamusEnabled=isThalamusEnabled();
+      if(thalamusEnabled && !awakeEnabled)return;
       if ((!env.afterglowEnabled && !awakeEnabled) || innerRunning || manager.isPaused()) return;
-      if (nowMs - innerLastPollMs < AFTERGLOW_POLL_MS) return;
+      if (nowMs - innerLastPollMs < (thalamusEnabled?THALAMUS_PARAMETERS.schedulerPollMs.default:AFTERGLOW_POLL_MS)) return;
       innerRunning = true;
       innerLastPollMs = nowMs;
       void (async () => {
+        if(thalamusEnabled){
+          const result=await manager.tickCognitiveThalamus(ownerId,nowMs,env.afterglowEnabled);
+          if(result.kind==="evaluated")console.log(`[cognitive-v021] thalamus ${result.decision.kind} reason=${result.decision.reason}`);
+          return;
+        }
         if (env.afterglowEnabled) {
           const result = await manager.tickCognitiveAfterglow(ownerId, nowMs);
           if (result.outcome === "ran" || result.outcome === "abandoned") {
