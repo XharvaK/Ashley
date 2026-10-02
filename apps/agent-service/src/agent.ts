@@ -26,6 +26,7 @@ import {
 import { tickAfterglow, type AfterglowTickResult } from "./core/cognitive-v021/initiative/afterglow.js";
 import { tickAwake, type AwakeTickResult } from "./core/cognitive-v021/initiative/awake.js";
 import { tickNight, type NightTickResult } from "./core/cognitive-v021/initiative/night.js";
+import {bindAdmittedCause,type SelectedPassExecution} from "./core/cognitive-v021/thalamus/execution.js";
 import { DEFAULT_OWNER_TIME_ZONE } from "./core/cognitive-v021/thought/clock.js";
 import { detectCredentialShape, CREDENTIAL_OMITTED_PLACEHOLDER } from "./core/privacy/secrets.js";
 import { scanConfiguredSources } from "./core/curiosity/sources.js";
@@ -230,7 +231,7 @@ export class AgentManager {
    * Growth V1 afterglow: reflect on the Owner conversation once it has gone
    * quiet (or grown long), through the same private Thought path.
    */
-  async tickCognitiveAfterglow(ownerId: string, nowMs = Date.now()): Promise<AfterglowTickResult> {
+  async tickCognitiveAfterglow(ownerId: string, nowMs = Date.now(), selected?:SelectedPassExecution): Promise<AfterglowTickResult> {
     const sidecar = this.openCognitiveSidecar();
     if (!sidecar || !this.cognitiveDeps) {
       throw new AppError("agent_not_ready", "Cognitive dispatcher unavailable", 503);
@@ -241,7 +242,8 @@ export class AgentManager {
       occupantId: ownerId,
       authorityEpoch: readCognitiveSidecarMeta(sidecar).authority_epoch,
       nowMs,
-      thought: this.privateThoughtRunner(sidecar, ownerId),
+      timing:selected?.timing,
+      thought: this.privateThoughtRunner(sidecar, ownerId,selected?.bind),
     });
   }
 
@@ -249,7 +251,7 @@ export class AgentManager {
    * Growth V1 AWAKE: Ashley's own time every three hours, through the same
    * private Thought path. Waits for a due afterglow and for a live conversation.
    */
-  async tickCognitiveAwake(ownerId: string, nowMs = Date.now(), afterglowEnabled = true): Promise<AwakeTickResult> {
+  async tickCognitiveAwake(ownerId: string, nowMs = Date.now(), afterglowEnabled = true, selected?:SelectedPassExecution): Promise<AwakeTickResult> {
     const sidecar = this.openCognitiveSidecar();
     if (!sidecar || !this.cognitiveDeps) {
       throw new AppError("agent_not_ready", "Cognitive dispatcher unavailable", 503);
@@ -261,7 +263,8 @@ export class AgentManager {
       authorityEpoch: readCognitiveSidecarMeta(sidecar).authority_epoch,
       nowMs,
       afterglowEnabled,
-      thought: this.privateThoughtRunner(sidecar, ownerId),
+      timing:selected?.timing,
+      thought: this.privateThoughtRunner(sidecar, ownerId,selected?.bind),
     });
   }
 
@@ -269,7 +272,7 @@ export class AgentManager {
    * Growth V1 NIGHT: once a day at the Owner's quietest hour, consolidation
    * and the diary; every seventh night also the "who I am becoming" narrative.
    */
-  async tickCognitiveNight(ownerId: string, nowMs = Date.now(), afterglowEnabled = true): Promise<NightTickResult> {
+  async tickCognitiveNight(ownerId: string, nowMs = Date.now(), afterglowEnabled = true, selected?:SelectedPassExecution): Promise<NightTickResult> {
     const sidecar = this.openCognitiveSidecar();
     if (!sidecar || !this.cognitiveDeps) {
       throw new AppError("agent_not_ready", "Cognitive dispatcher unavailable", 503);
@@ -282,13 +285,14 @@ export class AgentManager {
       timeZone: env.ownerTimeZone || DEFAULT_OWNER_TIME_ZONE,
       nowMs,
       afterglowEnabled,
-      thought: this.privateThoughtRunner(sidecar, ownerId),
+      timing:selected?.timing,
+      thought: this.privateThoughtRunner(sidecar, ownerId,selected?.bind),
     });
   }
 
   /** Runs one admitted private Thought through the durable inbox and kernel. */
-  private privateThoughtRunner(sidecar: DatabaseSync, ownerId: string): IdleThoughtRunner {
-    return async (input) => {
+  private privateThoughtRunner(sidecar: DatabaseSync, ownerId: string, bind?:(cycleId:string)=>void): IdleThoughtRunner {
+    const runner:IdleThoughtRunner = async (input) => {
         const event = input.event ?? appendInboxEvent(sidecar, {
           id: `idle:${input.wakeId}`,
           wakeId: input.wakeId,
@@ -332,6 +336,7 @@ export class AgentManager {
           speechMode: dispatched === null || dispatched.outboxId == null ? "none" as const : "draft" as const,
         };
     };
+    return bind ? bindAdmittedCause(runner,bind) : runner;
   }
 
   /** Trusted host state used by guarded C1 currentness activation. */
