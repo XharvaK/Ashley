@@ -16,7 +16,7 @@ import { handlePracticeRevert } from "./commands/identity.js";
 import { handleSlash } from "./handlers/interactionCreate.js";
 import { handleMessage } from "./handlers/messageCreate.js";
 import { handleReaction } from "./handlers/reactionAdd.js";
-import { startCognitiveIdleScheduler } from "./initiative/scheduler.js";
+import { startSchedulerHandoff } from "./initiative/scheduler.js";
 import { startFulfillmentPump } from "./initiative/fulfillment-pump.js";
 import { reconcilePresence, startPresence } from "./presence.js";
 import { querySocialEligibility } from "./agent-client.js";
@@ -44,7 +44,7 @@ export function createClient(): Client {
     ownerTransportReady = ownerTransportReconciler.reconcile("ready").catch((error) => {
       console.error("[discord-bot] Owner transport startup reconciliation failed; live capture remains active", error);
     });
-    startCognitiveIdleScheduler();
+    startSchedulerHandoff();
     startFulfillmentPump(client);
     startPresence(client);
   });

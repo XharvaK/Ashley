@@ -742,6 +742,14 @@ export async function initiativeStatus(): Promise<InitiativeStatus> {
   return agentFetch<InitiativeStatus>(`/initiative/status?${q}`);
 }
 
+export type InitiativeSchedulerContract={owner:"bot"|"thalamus";contractVersion:number};
+export async function initiativeScheduler():Promise<InitiativeSchedulerContract>{
+  return agentFetch(`/initiative/scheduler?${new URLSearchParams({owner_id:config.ownerId})}`);
+}
+export async function acknowledgeInitiativeScheduler(contract:InitiativeSchedulerContract,active:boolean):Promise<void>{
+  await agentFetch("/initiative/scheduler/ack",{method:"POST",body:JSON.stringify({userId:config.ownerId,...contract,active})});
+}
+
 /** A foundational revision Ashley proposed (Growth V1 G4). */
 export type IdentityReview = {
   id: number;

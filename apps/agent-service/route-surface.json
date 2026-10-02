@@ -143,6 +143,8 @@
     { "method": "POST", "path": "/actions/resolve", "ownerScope": "internal", "lifecycle": "retired" },
     { "method": "POST", "path": "/pause", "ownerScope": "internal", "lifecycle": "active" },
     { "method": "POST", "path": "/resume", "ownerScope": "internal", "lifecycle": "active" },
-    { "method": "POST", "path": "/shutdown", "ownerScope": "internal", "lifecycle": "active" }
+    { "method": "POST", "path": "/shutdown", "ownerScope": "internal", "lifecycle": "active" },
+    {"method":"GET","path":"/initiative/scheduler","ownerScope":"owner_required","lifecycle":"active"},
+    {"method":"POST","path":"/initiative/scheduler/ack","ownerScope":"owner_required","lifecycle":"active"}
   ]
 }

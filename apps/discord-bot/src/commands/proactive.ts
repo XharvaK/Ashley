@@ -36,6 +36,7 @@ export function renderProactiveStatus(
     `Legacy proactive switch: ${status.legacyProactiveEnabled ? "on" : "off"}`,
     `Periodic cognition: ${periodic}`,
     `Scheduler: ${schedulerState}; poll: ${status.periodicScheduleState}`,
+    `Scheduler owner: ${scheduler.owner ?? "unknown"}`,
     `Cadence: ~${scheduler.cadenceMinutes} minutes`,
     `Next opportunity: ${at(status.nextEligibleAt)}`,
     `Last opportunity: ${occurrence}`,

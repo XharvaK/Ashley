@@ -5,10 +5,44 @@ import {
   resumeProactiveRemote,
   tickCognitiveIdle,
   checkHealth,
+  initiativeScheduler,
+  acknowledgeInitiativeScheduler,
+  type InitiativeSchedulerContract,
 } from "../agent-client.js";
 
 let cognitiveIdleTimer: ReturnType<typeof setInterval> | null = null;
 let cognitiveIdleRunning = false;
+let handoffTimer:ReturnType<typeof setInterval>|null=null;
+let handoffRunning=false;
+let schedulerOwner:"bot"|"thalamus"|"unknown"="unknown";
+let handoffGeneration=0;
+const SCHEDULER_CONTRACT_VERSION=1;
+const SCHEDULER_POLL_MS=60_000;
+
+/** Apply only a recognized host contract; network errors never guess a new owner. */
+export async function reconcileSchedulerOwnership(deps:{
+  read?:()=>Promise<InitiativeSchedulerContract>;start?:()=>void;stop?:()=>void;
+  active?:()=>boolean;ack?:(contract:InitiativeSchedulerContract,active:boolean)=>Promise<void>;
+  current?:()=>boolean;
+}={}):Promise<"bot"|"thalamus"|"unknown">{
+ try{
+  const contract=await (deps.read ?? initiativeScheduler)();
+  if(deps.current && !deps.current())return "unknown";
+  if(contract.contractVersion!==SCHEDULER_CONTRACT_VERSION || !["bot","thalamus"].includes(contract.owner))return "unknown";
+  if(contract.owner==="bot")(deps.start ?? startCognitiveIdleScheduler)();
+  else (deps.stop ?? stopCognitiveIdleScheduler)();
+  schedulerOwner=contract.owner;
+  await (deps.ack ?? acknowledgeInitiativeScheduler)(contract,(deps.active ?? (()=>cognitiveIdleTimer!==null))());
+  return contract.owner;
+ }catch{return "unknown";}
+}
+export function startSchedulerHandoff():void{
+ if(handoffTimer)return;
+ const generation=++handoffGeneration;
+ stopCognitiveIdleScheduler();
+ const poll=async()=>{if(handoffRunning)return;handoffRunning=true;try{await reconcileSchedulerOwnership({current:()=>generation===handoffGeneration});}finally{handoffRunning=false;}};
+ void poll();handoffTimer=setInterval(()=>{void poll();},SCHEDULER_POLL_MS);
+}
 
 export type CognitiveIdleSchedulerCycleResult = {
   outcome: "tick" | "not_ready" | "error";
@@ -51,16 +85,21 @@ export function startCognitiveIdleScheduler(): void {
   cognitiveIdleTimer = setInterval(() => { void tick(); }, intervalMs);
 }
 
-export function stopProactiveScheduler(): void {
+function stopCognitiveIdleScheduler(): void {
   if (cognitiveIdleTimer) clearInterval(cognitiveIdleTimer);
   cognitiveIdleTimer = null;
-  cognitiveIdleRunning = false;
+}
+export function stopProactiveScheduler():void{
+ handoffGeneration++;
+ if(handoffTimer)clearInterval(handoffTimer);handoffTimer=null;
+ stopCognitiveIdleScheduler();schedulerOwner="unknown";
 }
 
 export type CognitiveIdleSchedulerStatus = {
   active: boolean;
   running: boolean;
   cadenceMinutes: number;
+  owner?:"bot"|"thalamus"|"unknown";
 };
 
 export function getCognitiveIdleSchedulerStatus(): CognitiveIdleSchedulerStatus {
@@ -68,6 +107,7 @@ export function getCognitiveIdleSchedulerStatus(): CognitiveIdleSchedulerStatus 
     active: cognitiveIdleTimer !== null,
     running: cognitiveIdleRunning,
     cadenceMinutes: config.proactiveCheckIntervalMin,
+    owner:schedulerOwner,
   };
 }
 

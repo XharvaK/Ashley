@@ -9,6 +9,7 @@ import { toErrorResponse, AppError } from "./errors.js";
 import { listRecentDecisions } from "./core/agency/log.js";
 import { retrieveEpisodes } from "./core/memory/episodes.js";
 import { isAuthorizedOwnerId } from "./owner-auth.js";
+import {isThalamusEnabled,schedulerContract} from "./core/cognitive-v021/thalamus/scheduler.js";
 import { createTransportAuth } from "./transport-auth.js";
 import { assertRegisteredRoutes } from "./route-surface.js";
 import { openCognitiveSidecarDb } from "./core/cognitive-v021/sidecar/db.js";
@@ -2773,11 +2774,27 @@ export function createServer(
     }
   });
 
+  app.get("/initiative/scheduler", (req,res)=>{
+    const ownerId=(options.ownerId ?? env.discordOwnerId).trim();
+    if(!ownerId || req.query.owner_id !== ownerId) {res.status(403).json({code:"forbidden"});return;}
+    res.json(schedulerContract());
+  });
+  app.post("/initiative/scheduler/ack", (req,res)=>{
+    const contract=schedulerContract();
+    const ownerId=(options.ownerId ?? env.discordOwnerId).trim();
+    if(!ownerId || req.body?.userId !== ownerId) {res.status(403).json({code:"forbidden"});return;}
+    if(req.body?.owner!==contract.owner || req.body?.contractVersion!==contract.contractVersion
+      || req.body?.active!==(contract.owner==="bot")) {res.status(409).json({code:"scheduler_ack_mismatch"});return;}
+    // Acknowledgement observes the bot's local timer. It cannot select host ownership.
+    res.json({ok:true,...contract});
+  });
+
   app.post("/initiative/idle", async (req, res) => {
     try {
       requireReady();
       const { userId } = req.body as { userId?: string };
       const owner = requireOwner(userId);
+      if(isThalamusEnabled()) {res.json({reason:"scheduler_owned_by_thalamus"});return;}
       if (manager.isPaused()) {
         throw new AppError("agent_not_ready", "Agent not ready", 503);
       }
