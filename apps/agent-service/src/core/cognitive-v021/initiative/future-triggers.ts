@@ -20,6 +20,8 @@ export type ScheduleFutureTriggerInput = Omit<FutureTrigger, "status"> & {
 };
 
 export type FutureTriggerFireOptions = {
+  /** Internal timing selection; absence preserves the legacy all-due path. */
+  triggerIds?: readonly string[];
   conversationId?: string;
   nowMs?: number;
   onFire?: (input: { trigger: FutureTrigger; event: InboxEvent }) => Promise<{ thoughtModelAttempts?: number } | void> | { thoughtModelAttempts?: number } | void;
@@ -431,7 +433,8 @@ export async function fireDueTriggers(
   }
   const candidates = db.prepare(`SELECT * FROM future_triggers WHERE ${clauses.join(" AND ")} ORDER BY due_at_ms ASC, trigger_id ASC`).all(...args)
     .map(mapTrigger)
-    .filter((trigger): trigger is FutureTrigger => trigger !== null);
+    .filter((trigger): trigger is FutureTrigger => trigger !== null)
+    .filter(trigger=>options.triggerIds===undefined || options.triggerIds.includes(trigger.triggerId));
   const fired: FutureTrigger[] = [];
   const suppressedStale: FutureTrigger[] = [];
   const events: InboxEvent[] = [];

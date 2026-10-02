@@ -92,6 +92,8 @@ export type IdleObservationProvider = (input: {
 }) => Promise<IdleObservationDraft[]> | IdleObservationDraft[];
 
 export type IdleTickOptions = {
+  /** One selected obligation; current authority is still rechecked by its existing executor. */
+  thalamusSelection?: {triggerId?:string;commitmentId?:string};
   conversationId?: string;
   occupantId?: string;
   authorityEpoch?: number;
@@ -570,6 +572,7 @@ async function tickConversation(
     return emptyResult(conversationId, "occupancy_unreachable", [], suppressedTriggers.filter((trigger) => trigger.conversationId === conversationId));
   }
   const nowMs = options.nowMs ?? Date.now();
+
   const matched = collectSubscriptionObservations(db, conversationId, items, { nowMs: options.nowMs });
   const thought = runner(options);
   const commitment = options.commitment;
@@ -936,6 +939,8 @@ export async function tickIdleOpportunity(
   options: IdleTickOptions = {},
 ): Promise<IdleTickResult> {
   void options.learnedSelfSlice;
+  if(options.thalamusSelection && (!options.conversationId || (options.thalamusSelection.triggerId && options.thalamusSelection.commitmentId)
+    || (options.thalamusSelection.commitmentId && options.commitment?.commitmentId!==options.thalamusSelection.commitmentId)))throw new Error("thalamus_idle_selection_identity");
   const nowMs = options.nowMs ?? Date.now();
   if (options.conversationId && getActiveDeferredFrontier(db, options.conversationId)) {
     return emptyResult(options.conversationId, "active_frontier", [], []);
@@ -943,7 +948,8 @@ export async function tickIdleOpportunity(
 
   let due;
   try {
-    due = await fireDueTriggers(db, { conversationId: options.conversationId, nowMs });
+    due = await fireDueTriggers(db, { conversationId: options.conversationId, nowMs,
+      ...(options.thalamusSelection ? {triggerIds:options.thalamusSelection.triggerId?[options.thalamusSelection.triggerId]:[]} : {}) });
   } catch (error) {
     if (!isOccupancyUnreachable(error)) throw error;
     logOccupancyUnreachable(options.conversationId ?? null, error);
@@ -951,7 +957,7 @@ export async function tickIdleOpportunity(
   }
   let items = inputItems(options);
   let commitment: CommitmentOpportunity | undefined = options.commitment;
-  if (!commitment && options.commitmentDb && isCommitmentsEnabled()) {
+  if (!commitment && !options.thalamusSelection && options.commitmentDb && isCommitmentsEnabled()) {
     recoverCommitmentOpportunities(options.commitmentDb, {
       ownerId: options.commitmentOwnerId ?? options.occupantId ?? "owner",
       nowMs,
