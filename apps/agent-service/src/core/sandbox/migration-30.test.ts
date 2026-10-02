@@ -1,3 +1,4 @@
+import { prepareLegacyNuclearRewind } from "../cognition/__tests__/fixtures/legacy-rewind.js";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import { NUCLEAR_SUPPORTED_VERSION, openNuclearDb } from "../db.js";
@@ -25,6 +26,7 @@ function schemaVersion(db: DatabaseSync): number {
 function sourceV29Fixture(): Fixture {
   const continuity = openContinuityDb(new DatabaseSync(":memory:"));
   const nuclear = openNuclearDb(new DatabaseSync(":memory:"), { continuity });
+  prepareLegacyNuclearRewind(nuclear);
   nuclear.exec(`
     DROP INDEX IF EXISTS idx_patch_export_records_changeset;
     DROP INDEX IF EXISTS idx_patch_export_records_entity_uuid;

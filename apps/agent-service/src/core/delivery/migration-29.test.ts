@@ -1,3 +1,4 @@
+import { prepareLegacyNuclearRewind } from "../cognition/__tests__/fixtures/legacy-rewind.js";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import { openNuclearDb, NUCLEAR_SUPPORTED_VERSION } from "../db.js";
@@ -53,6 +54,7 @@ describe("nuclear schema v29 phase lifecycle telemetry", () => {
   it("migrates a schema-28 source without changing historical reservation meaning", () => {
     const continuity = openContinuityDb(new DatabaseSync(":memory:"));
     const nuclear = openNuclearDb(new DatabaseSync(":memory:"), { continuity });
+    prepareLegacyNuclearRewind(nuclear);
     try {
       const claim = claimReactiveDelivery(nuclear, {
         ownerId: "doc",

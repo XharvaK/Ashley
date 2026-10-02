@@ -1,3 +1,4 @@
+import { prepareLegacyNuclearRewind } from "../cognition/__tests__/fixtures/legacy-rewind.js";
 import { DatabaseSync } from "node:sqlite";
 import { mkdirSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -33,6 +34,7 @@ afterAll(() => {
 });
 
 function downgradeToV21(db: DatabaseSync): void {
+  prepareLegacyNuclearRewind(db);
   db.exec("PRAGMA foreign_keys = OFF");
   db.exec("BEGIN IMMEDIATE");
   db.exec(`

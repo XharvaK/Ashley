@@ -1,3 +1,4 @@
+import { prepareLegacyNuclearRewind } from "../cognition/__tests__/fixtures/legacy-rewind.js";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import {
@@ -40,6 +41,7 @@ function columnExists(db: DatabaseSync, table: string, column: string): boolean 
 function sourceV27Fixture(): Fixture {
   const continuity = openContinuityDb(new DatabaseSync(":memory:"));
   const nuclear = openNuclearDb(new DatabaseSync(":memory:"), { continuity });
+  prepareLegacyNuclearRewind(nuclear);
   const lineageId = (
     nuclear
       .prepare("SELECT lineage_id FROM lineage_mirror WHERE id = 1")

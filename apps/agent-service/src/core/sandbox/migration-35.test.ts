@@ -1,3 +1,4 @@
+import { prepareLegacyNuclearRewind } from "../cognition/__tests__/fixtures/legacy-rewind.js";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import {
@@ -28,6 +29,7 @@ function schemaVersion(db: DatabaseSync): number {
 }
 
 function resetCandidateTablesToV48(db: DatabaseSync): void {
+  prepareLegacyNuclearRewind(db);
   db.exec(`
     DROP INDEX IF EXISTS idx_candidate_changesets_origin_child;
     DROP INDEX IF EXISTS idx_candidate_changesets_entity_uuid;

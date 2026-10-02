@@ -1,3 +1,4 @@
+import { prepareLegacyNuclearRewind } from "../cognition/__tests__/fixtures/legacy-rewind.js";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import {
@@ -30,6 +31,7 @@ function schemaVersion(db: DatabaseSync): number {
 function sourceV26Fixture(): Fixture {
   const continuity = openContinuityDb(new DatabaseSync(":memory:"));
   const nuclear = openNuclearDb(new DatabaseSync(":memory:"), { continuity });
+  prepareLegacyNuclearRewind(nuclear);
   nuclear.exec(`
     DROP INDEX idx_sandbox_task_admissions_owner_status;
     DROP INDEX idx_sandbox_task_admissions_decision;
