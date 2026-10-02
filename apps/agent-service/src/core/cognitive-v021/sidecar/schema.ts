@@ -2047,3 +2047,33 @@ CREATE TRIGGER learned_influence_delete_children BEFORE DELETE ON learned_influe
 END;
 UPDATE cognitive_sidecar_meta SET schema_version=55 WHERE id=1;
 `;
+
+/** Structured attention and mechanical decision history carry no effect authority. */
+export const COGNITIVE_SIDECAR_SCHEMA_V56 = String.raw`
+CREATE TABLE attention_watches (
+ owner_id TEXT NOT NULL, watch_id TEXT NOT NULL,
+ cycle_id TEXT REFERENCES cycle_records(cycle_id) ON DELETE CASCADE,
+ match_json TEXT NOT NULL CHECK(json_valid(match_json)),
+ action TEXT NOT NULL CHECK(action IN ('wake','wake_urgent','suppress','quiet_until')),
+ expires_json TEXT NOT NULL CHECK(json_valid(expires_json)),
+ note TEXT NOT NULL CHECK(length(note)<=200), created_at_ms INTEGER NOT NULL,
+ PRIMARY KEY(owner_id,watch_id)
+);
+CREATE INDEX idx_attention_watches_cycle ON attention_watches(cycle_id);
+CREATE TABLE thalamus_state (
+ owner_id TEXT PRIMARY KEY NOT NULL, contract_version INTEGER NOT NULL CHECK(contract_version>=1),
+ state_json TEXT NOT NULL CHECK(json_valid(state_json)),
+ attention_json TEXT NOT NULL CHECK(json_valid(attention_json)), updated_at_ms INTEGER NOT NULL
+);
+CREATE TABLE thalamus_decisions (
+ decision_id TEXT PRIMARY KEY NOT NULL, owner_id TEXT NOT NULL,
+ cycle_id TEXT REFERENCES cycle_records(cycle_id) ON DELETE CASCADE,
+ evaluated_at_ms INTEGER NOT NULL,
+ decision_code TEXT NOT NULL CHECK(decision_code IN ('none','fire')),
+ reason_code TEXT NOT NULL CHECK(reason_code IN ('budget','conversation','no_candidate','mandatory','threshold')),
+ pass_type TEXT CHECK(pass_type IS NULL OR pass_type IN ('afterglow','night','own_time','conversation')),
+ candidates_json TEXT NOT NULL CHECK(json_valid(candidates_json))
+);
+CREATE INDEX idx_thalamus_decisions_owner_time ON thalamus_decisions(owner_id,evaluated_at_ms,decision_id);
+UPDATE cognitive_sidecar_meta SET schema_version=56 WHERE id=1;
+`;

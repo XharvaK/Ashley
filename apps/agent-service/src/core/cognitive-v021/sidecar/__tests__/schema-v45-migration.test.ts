@@ -12,9 +12,9 @@ describe("cognitive sidecar schema v45", () => {
 
       openCognitiveSidecarDb(db, { dataPlane: { kind: "isolated" } });
 
-      expect(COGNITIVE_SIDECAR_SCHEMA_VERSION).toBe(55);
-      expect((db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(55);
-      expect(db.prepare("SELECT schema_version FROM cognitive_sidecar_meta WHERE id = 1").get()).toEqual({ schema_version: 55 });
+      expect(COGNITIVE_SIDECAR_SCHEMA_VERSION).toBe(56);
+      expect((db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(56);
+      expect(db.prepare("SELECT schema_version FROM cognitive_sidecar_meta WHERE id = 1").get()).toEqual({ schema_version: 56 });
       expect(db.prepare("SELECT name FROM sqlite_master WHERE name = 'persona_snapshots'").get()).toBeTruthy();
     } finally {
       db.close();
