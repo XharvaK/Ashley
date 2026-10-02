@@ -135,6 +135,18 @@ function currentBackoffDelay(policy: ResourceFusePolicy, count: number): number 
  * fail-closed before a lifecycle is admitted to those owners.
  */
 export class ResourceFuse {
+  /** Read known scopes for a proposed new wake. The actual lifecycle still checks its chain and usage. */
+  projectWake(input:{conversationKey:string;botParticipantId?:string;roomId?:string;nowMs:number;paused?:boolean}):ResourceFuseDecision {
+    requiredText(input.conversationKey,"conversation_key_required");finiteNonNegative(input.nowMs,"resource_time_invalid");
+    if(input.paused)return {accepted:false,fact:{operational:"paused"}};
+    const keys=[`conversation:${input.conversationKey}`,...(input.botParticipantId?[`bot:${input.botParticipantId}`]:[]),...(input.roomId?[`room:${input.roomId}`]:[])];
+    const current=this.uses.filter(use=>use.atMs>=input.nowMs-this.policy.windowMs);
+    if(keys.some(key=>exceeds(current.filter(use=>use.scopeKeys.includes(key)).reduce((total,use)=>addUsage(total,use.usage),{computeMs:0,outputTokens:0,networkRequests:0}),{computeMs:0,outputTokens:0,networkRequests:0},this.policy)))return {accepted:false,fact:{operational:"budget_exhausted"}};
+    const prior=this.loops.get([input.conversationKey,input.botParticipantId ?? "",input.roomId ?? ""].join("\u001f"));
+    if(prior && input.nowMs-prior.lastAtMs<=(this.policy.rapidLoopWindowMs ?? DURABLE_RETRY_POLICY.maxRetryAgeMs)
+      && (input.nowMs<prior.backoffUntilMs || prior.count>=(this.policy.rapidLoopLimit ?? 1)))return {accepted:false,fact:{operational:"backing_off"}};
+    return {accepted:true};
+  }
   private readonly policy: ResourceFusePolicy;
   private readonly uses: RecordedUse[] = [];
   private readonly seenLifecycles = new Set<string>();

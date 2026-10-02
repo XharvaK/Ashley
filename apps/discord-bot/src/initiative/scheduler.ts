@@ -24,6 +24,7 @@ export async function reconcileSchedulerOwnership(deps:{
   read?:()=>Promise<InitiativeSchedulerContract>;start?:()=>void;stop?:()=>void;
   active?:()=>boolean;ack?:(contract:InitiativeSchedulerContract,active:boolean)=>Promise<void>;
   current?:()=>boolean;
+  botUserId?:string;
 }={}):Promise<"bot"|"thalamus"|"unknown">{
  try{
   const contract=await (deps.read ?? initiativeScheduler)();
@@ -32,15 +33,17 @@ export async function reconcileSchedulerOwnership(deps:{
   if(contract.owner==="bot")(deps.start ?? startCognitiveIdleScheduler)();
   else (deps.stop ?? stopCognitiveIdleScheduler)();
   schedulerOwner=contract.owner;
-  await (deps.ack ?? acknowledgeInitiativeScheduler)(contract,(deps.active ?? (()=>cognitiveIdleTimer!==null))());
+  const active=(deps.active ?? (()=>cognitiveIdleTimer!==null))();
+  if(deps.ack)await deps.ack(contract,active);
+  else await acknowledgeInitiativeScheduler(contract,active,deps.botUserId);
   return contract.owner;
  }catch{return "unknown";}
 }
-export function startSchedulerHandoff():void{
+export function startSchedulerHandoff(botUserId?:string):void{
  if(handoffTimer)return;
  const generation=++handoffGeneration;
  stopCognitiveIdleScheduler();
- const poll=async()=>{if(handoffRunning)return;handoffRunning=true;try{await reconcileSchedulerOwnership({current:()=>generation===handoffGeneration});}finally{handoffRunning=false;}};
+ const poll=async()=>{if(handoffRunning)return;handoffRunning=true;try{await reconcileSchedulerOwnership({current:()=>generation===handoffGeneration,botUserId});}finally{handoffRunning=false;}};
  void poll();handoffTimer=setInterval(()=>{void poll();},SCHEDULER_POLL_MS);
 }
 

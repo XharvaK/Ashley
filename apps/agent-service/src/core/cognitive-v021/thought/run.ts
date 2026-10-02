@@ -280,6 +280,10 @@ import type { QuotaBucket } from "../../model-routing/types.js";
 const SOCIAL_RESOURCE_FUSE = new ResourceFuse(
   resourceFusePolicyFromOwners(defaultQuotaBucket() as QuotaBucket),
 );
+/** Inspection only; provider admission keeps the existing chain, lifecycle and usage checks. */
+export function readSocialWakeResourceAvailability(input:Parameters<ResourceFuse["projectWake"]>[0]) {
+  return SOCIAL_RESOURCE_FUSE.projectWake(input);
+}
 
 export type ControlInterpretationPhaseInput = {
   sourceRef: string;

@@ -9,9 +9,10 @@ import {expireAttentionWatches,readAttentionWatches,readThalamusCheckpoint,saveT
 export type TickOptions={
  ownerId:string;conversationId:string;nowMs:number;enabled:boolean;
  candidates:readonly Candidate[];facts:readonly (AttentionFact & {eventId:string})[];context:ThalamusContext;
+ socialBinding?:boolean;
  execute:(decision:Extract<Decision,{kind:"fire"}>,bind:(cycleId:string)=>void)=>Promise<unknown>;
 };
-export async function tick(db:DatabaseSync,options:TickOptions){
+export function prepareTick(db:DatabaseSync,options:Omit<TickOptions,"execute">){
  if(!options.enabled)return {kind:"disabled"} as const;
  if(!options.ownerId.trim() || !options.conversationId.trim())throw new Error("thalamus_tick_identity");
  const {ownerId,conversationId,nowMs}=options;
@@ -46,11 +47,20 @@ export async function tick(db:DatabaseSync,options:TickOptions){
  }catch(error){db.exec("ROLLBACK TO thalamus_tick; RELEASE thalamus_tick");throw error;}
  const bind=(cycleId:string)=>{
   const cycle=db.prepare("SELECT conversation_id,occupant_id,trigger_kind FROM cycle_records WHERE cycle_id=?").get(cycleId);
-  if(!cycle || cycle.conversation_id!==conversationId || cycle.occupant_id!==ownerId
-   || !["idle_opportunity","commitment_due","subscription_item","future_trigger_due"].includes(String(cycle.trigger_kind)))throw new Error("thalamus_decision_cycle_identity");
+  const social=options.socialBinding===true && decision.kind==="fire" && decision.passType==="conversation"
+   && decision.bundle.every(candidate=>candidate.source==="social");
+  const identity=social ? cycle?.occupant_id===null && cycle.trigger_kind==="external_message"
+   && db.prepare("SELECT id FROM inbox_events WHERE conversation_id=? AND kind='external_utterance' AND json_valid(payload_json) AND json_extract(payload_json,'$.cycleId')=? AND json_extract(payload_json,'$.ownerId')=? LIMIT 1").get(conversationId,cycleId,ownerId)
+   : cycle?.occupant_id===ownerId && ["idle_opportunity","commitment_due","subscription_item","future_trigger_due"].includes(String(cycle?.trigger_kind));
+  if(!cycle || cycle.conversation_id!==conversationId || !identity)throw new Error("thalamus_decision_cycle_identity");
   const changed=db.prepare("UPDATE thalamus_decisions SET cycle_id=? WHERE decision_id=? AND owner_id=? AND (cycle_id IS NULL OR cycle_id=?)").run(cycleId,decisionId,ownerId,cycleId);
   if(Number(changed.changes)!==1)throw new Error("thalamus_decision_cycle_conflict");
  };
- const execution=decision.kind==="fire"?await options.execute(decision,bind):null;
- return {kind:"evaluated",decisionId,decision,execution} as const;
+ return {kind:"prepared",decisionId,decision,bind} as const;
+}
+export async function tick(db:DatabaseSync,options:TickOptions){
+ const prepared=prepareTick(db,options);
+ if(prepared.kind==="disabled")return prepared;
+ const execution=prepared.decision.kind==="fire"?await options.execute(prepared.decision,prepared.bind):null;
+ return {kind:"evaluated",decisionId:prepared.decisionId,decision:prepared.decision,execution} as const;
 }

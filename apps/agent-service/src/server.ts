@@ -9,7 +9,7 @@ import { toErrorResponse, AppError } from "./errors.js";
 import { listRecentDecisions } from "./core/agency/log.js";
 import { retrieveEpisodes } from "./core/memory/episodes.js";
 import { isAuthorizedOwnerId } from "./owner-auth.js";
-import {isThalamusEnabled,schedulerContract} from "./core/cognitive-v021/thalamus/scheduler.js";
+import {isThalamusEnabled,schedulerContract,observeGatewayUserId} from "./core/cognitive-v021/thalamus/scheduler.js";
 import {thalamusStatus} from "./core/cognitive-v021/thalamus/status.js";
 import { createTransportAuth } from "./transport-auth.js";
 import { assertRegisteredRoutes } from "./route-surface.js";
@@ -2788,6 +2788,7 @@ export function createServer(
     if(req.body?.owner!==contract.owner || req.body?.contractVersion!==contract.contractVersion
       || req.body?.active!==(contract.owner==="bot")) {res.status(409).json({code:"scheduler_ack_mismatch"});return;}
     // Acknowledgement observes the bot's local timer. It cannot select host ownership.
+    if(req.body.botUserId!==undefined && !observeGatewayUserId(req.body.botUserId)){res.status(400).json({code:"scheduler_gateway_identity_invalid"});return;}
     res.json({ok:true,...contract});
   });
 

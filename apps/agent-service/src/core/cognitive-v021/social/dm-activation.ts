@@ -1,3 +1,4 @@
+import type { SocialTimingHooks } from "../thalamus/social-timing.js";
 import type { DatabaseSync } from "node:sqlite";
 import {
   appendInboxEventInTransaction,
@@ -149,6 +150,7 @@ export function promoteEligiblePending(
     ownerId?: string;
     limit?: number;
     env?: NodeJS.ProcessEnv;
+    timing?: SocialTimingHooks;
   } = {},
 ): ExternalDmPromotionResult {
   const activation = readExternalDmActivation(options.env);
@@ -189,6 +191,12 @@ export function promoteEligiblePending(
     if (!eligibility) {
       // A revoke or restriction before promotion does not destroy the knock.
       // It remains pending for a later effective Owner grant.
+      waiting += 1;
+      continue;
+    }
+
+    const timingInput = { markerId, conversationId, evidence, kind: "dm" as const };
+    if (options.timing && !options.timing.beforePromotion(timingInput)) {
       waiting += 1;
       continue;
     }
@@ -248,6 +256,7 @@ export function promoteEligiblePending(
         sidecar.prepare("UPDATE inbox_events SET envelope_json = ? WHERE id = ?")
           .run(envelopeJson, event.id);
       }
+      options.timing?.afterPromotion({ ...timingInput, cycleId });
       markPromotionMarkerConsumed(sidecar, markerId, nowMs);
       sidecar.exec("COMMIT");
       promoted.push(cycleId);

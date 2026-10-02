@@ -44,7 +44,7 @@ export function createClient(): Client {
     ownerTransportReady = ownerTransportReconciler.reconcile("ready").catch((error) => {
       console.error("[discord-bot] Owner transport startup reconciliation failed; live capture remains active", error);
     });
-    startSchedulerHandoff();
+    startSchedulerHandoff(c.user.id);
     startFulfillmentPump(client);
     startPresence(client);
   });

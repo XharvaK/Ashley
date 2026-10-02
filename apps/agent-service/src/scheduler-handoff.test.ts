@@ -1,3 +1,4 @@
+import {currentGatewayUserId} from "./core/cognitive-v021/thalamus/scheduler.js";
 import {describe,expect,it} from "vitest";
 import type {AddressInfo} from "node:net";
 import {env} from "./env.js";
@@ -29,6 +30,13 @@ describe("T4 scheduler handoff",()=>{
   expect((await post("/initiative/scheduler/ack",{userId:"owner",owner:"thalamus",contractVersion:1,active:false})).status).toBe(200);
   expect((await post("/initiative/scheduler/ack",{userId:"owner",owner:"bot",contractVersion:1,active:true})).status).toBe(409);
   expect((await post("/initiative/scheduler/ack",{userId:"owner",owner:"thalamus",contractVersion:2,active:false})).status).toBe(409);
+  const before=currentGatewayUserId();
+  expect((await post("/initiative/scheduler/ack",{userId:"owner",owner:"bot",contractVersion:1,active:true,botUserId:"123456789012345678"})).status).toBe(409);
+  expect(currentGatewayUserId()).toBe(before);
+  expect((await post("/initiative/scheduler/ack",{userId:"owner",owner:"thalamus",contractVersion:1,active:false,botUserId:"invalid"})).status).toBe(400);
+  expect(currentGatewayUserId()).toBe(before);
+  expect((await post("/initiative/scheduler/ack",{userId:"owner",owner:"thalamus",contractVersion:1,active:false,botUserId:"123456789012345678"})).status).toBe(200);
+  expect(currentGatewayUserId()).toBe("123456789012345678");
   process.env.ASHLEY_THALAMUS_ENABLED="false";
   expect(await (await post("/initiative/idle",{userId:"owner"})).json()).toMatchObject({reason:"legacy"});expect(calls()).toBe(1);
  }));

@@ -1,3 +1,7 @@
+import { createSocialTimingHooks } from "./core/cognitive-v021/thalamus/social-timing.js";
+import { promoteEligiblePending } from "./core/cognitive-v021/social/dm-activation.js";
+import { promoteEligibleRoomPending } from "./core/cognitive-v021/social/room-activation.js";
+import { readSocialWakeResourceAvailability } from "./core/cognitive-v021/thought/run.js";
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { ConversationLogger } from "./conversation-logger.js";
@@ -248,6 +252,14 @@ export class AgentManager {
     const nuclear=this.core.getDatabase(),conversationId=resolveActiveThread(nuclear,ownerId,"discord");
     const current=collectInnerFacts(sidecar,{ownerId,conversationId,nowMs,timeZone:env.ownerTimeZone || DEFAULT_OWNER_TIME_ZONE,
       afterglowEnabled,dataDir:this.dataPlane?.dataDir});
+    const timing=createSocialTimingHooks(sidecar,{ownerId,ownerConversationId:conversationId,nowMs,context:current.context,
+      resourceAvailable:input=>input.evidence.speakerKind!=="external_bot" || readSocialWakeResourceAvailability({
+        conversationKey:input.conversationId,botParticipantId:input.evidence.speakerPrincipalId ?? undefined,
+        roomId:input.kind==="room"?input.conversationId:undefined,nowMs}).accepted});
+    const dm=promoteEligiblePending(sidecar,nuclear,{ownerId,nowMs,timing});
+    const room=promoteEligibleRoomPending(sidecar,nuclear,{ownerId,nowMs,timing});
+    if(dm.rejected || room.rejected)throw new Error("thalamus_social_promotion_deferred");
+    if(dm.promoted || room.promoted)return {kind:"social",promoted:dm.promoted+room.promoted} as const;
     const canAcquire=current.context.budgetAvailable && !getCurrentCycle(sidecar,conversationId)
       && !isPrivateThoughtActive(conversationId) && !getActiveDeferredFrontier(sidecar,conversationId);
     const polled=canAcquire?await pollObservationSubscriptions(sidecar,{conversationId,nowMs}):{items:[]};

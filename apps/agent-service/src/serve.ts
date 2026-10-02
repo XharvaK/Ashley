@@ -477,6 +477,7 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
         console.warn("[cognitive-v021] commitment recovery deferred", error);
       }
     }
+    if (!isThalamusEnabled()) {
     const dmPromotion = promoteEligiblePending(sidecar, nuclear, { ownerId });
     if (dmPromotion.rejected > 0) {
       console.warn(
@@ -488,6 +489,7 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
       console.warn(
         `[cognitive-v021] external room promotion deferred rows=${roomPromotion.rejected}`,
       );
+    }
     }
     const speechRecovery = await reconsiderPendingSpeechOutbox(
       sidecar,

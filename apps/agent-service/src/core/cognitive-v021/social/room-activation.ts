@@ -1,3 +1,4 @@
+import type { SocialTimingHooks } from "../thalamus/social-timing.js";
 import type { DatabaseSync } from "node:sqlite";
 import {
   appendInboxEventInTransaction,
@@ -161,6 +162,7 @@ export function promoteEligibleRoomPending(
     ownerId?: string;
     limit?: number;
     env?: NodeJS.ProcessEnv;
+    timing?: SocialTimingHooks;
   } = {},
 ): RoomPromotionResult {
   const env = options.env ?? process.env;
@@ -201,6 +203,12 @@ export function promoteEligibleRoomPending(
       continue;
     }
     if (!eligibility) {
+      waiting += 1;
+      continue;
+    }
+
+    const timingInput = { markerId, conversationId, evidence, kind: "room" as const };
+    if (options.timing && !options.timing.beforePromotion(timingInput)) {
       waiting += 1;
       continue;
     }
@@ -262,6 +270,7 @@ export function promoteEligibleRoomPending(
         sidecar.prepare("UPDATE inbox_events SET envelope_json = ? WHERE id = ?")
           .run(envelopeJson, event.id);
       }
+      options.timing?.afterPromotion({ ...timingInput, cycleId });
       markPromotionMarkerConsumed(sidecar, markerId, nowMs);
       sidecar.exec("COMMIT");
       promoted.push(cycleId);
