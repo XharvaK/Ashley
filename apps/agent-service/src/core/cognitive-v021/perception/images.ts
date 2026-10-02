@@ -117,3 +117,26 @@ export type VisionTransport =
       helperModelId: string;
       describeImage: (input: VisionDescribeInput) => Promise<string>;
     }>;
+
+/** Read only the immutable Host image field; never invoke observation getters. */
+export function nativeImagePayload(value: unknown): { payload: object; descriptor: PropertyDescriptor } | null {
+  const plain = (item: unknown): item is object => item !== null && typeof item === "object"
+    && (Object.getPrototypeOf(item) === Object.prototype || Object.getPrototypeOf(item) === null);
+  const ownValue = (item: object, key: string): unknown => {
+    const descriptor = Object.getOwnPropertyDescriptor(item, key);
+    return descriptor && "value" in descriptor ? descriptor.value : undefined;
+  };
+  try {
+    if (!plain(value) || ownValue(value, "modality") !== "image") return null;
+    const view = ownValue(value, "view");
+    const payload = ownValue(value, "payload");
+    if (!plain(view) || ownValue(view, "access") !== "direct_visual" || !plain(payload)) return null;
+    const descriptor = Object.getOwnPropertyDescriptor(payload, "imageDataUri");
+    if (!descriptor || !("value" in descriptor) || descriptor.enumerable
+      || descriptor.writable || descriptor.configurable || typeof descriptor.value !== "string"
+      || !/^data:image\/(?:png|jpeg|jpg|webp|gif|avif);base64,[A-Za-z0-9+/=]+$/.test(descriptor.value)) return null;
+    return { payload, descriptor };
+  } catch {
+    return null;
+  }
+}
