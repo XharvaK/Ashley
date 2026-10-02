@@ -1,8 +1,10 @@
 # Attention parameter contract
 
 The Host controls wake timing. Thought owns semantic meaning. This directory
-contains a parameter contract and a pure arbiter. Neither is wired into runtime
-scheduling. Existing ingress, budgets and pass executors retain their authority.
+contains the parameter contract, pure arbiter and durable timing integration.
+The service maintenance loop uses it when the scheduler switch is enabled.
+Existing ingress, budgets, eligibility, resource fuses and pass executors retain
+their authority; disabling the switch restores the legacy scheduler paths.
 
 `parameters.ts` is the numeric inventory for the pure core, nuclei, attention
 contract, scheduler handoff and bounded learning. Each entry declares units,
@@ -49,5 +51,17 @@ is prohibited here and retains its existing path. No I/O or clock is used.
 
 The current pure core includes threshold modulation, bounded gains, recovery,
 arousal, habituation, cross-nucleus dishabituation, refractory and compatible
-coalescing. Golden vectors specify timing and code conformance. Nuclei adapters consume supplied facts. Live fact readers, attention persistence
-and scheduler integration remain separate work.
+coalescing. Golden vectors specify timing and code conformance. Nuclei adapters consume
+supplied facts. Current metadata readers, subscription retention, eligible
+social admission hooks and the service loop supply those facts. Durable
+decisions distinguish proposals from actual admitted-cycle bindings.
+
+Published `attention.wakeWorth` updates nucleus/family gain and coalesce-family
+habituation through a bounded EMA. Only an actual admitted cycle bound to a
+fire receipt and a matching publication context can learn. One receipt learns
+once, including crash recovery. Mandatory obligations still bypass attenuation.
+Social profiles offer only `wakeWorth`; their timing-only aftermath cannot
+adopt private watches, resting, growth, senses, interests or journal claims.
+Private turns see stored sensitivity through the sense projection. Owner-only
+`/attention` reads the same values. These values grant no execution authority,
+change no budget policy and never promote the provisional threshold.

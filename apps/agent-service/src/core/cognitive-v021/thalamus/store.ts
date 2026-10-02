@@ -1,3 +1,4 @@
+import {learnPublishedWake} from "./learning.js";
 // Publication owns attention claims; this store keeps bounded private intent and mechanical timing receipts.
 import type { DatabaseSync } from "node:sqlite";
 import { isOwnerPrivateConversation } from "../memory/semantic-forget.js";
@@ -39,7 +40,13 @@ export function recordPublishedAttention(db:DatabaseSync,settlementId:string,own
   if(!row)return "ignored";
   const publicationContext=row.context_json == null ? null : JSON.parse(String(row.context_json)) as Row;
   const ownerPrivate=publicationContext?.ownerPrivate ?? isOwnerPrivateConversation(String(row.conversation_id));
-  if(ownerPrivate!==true)return "ignored";
+  if(ownerPrivate!==true){
+    const payload=JSON.parse(String(row.payload_json));
+    if(!payload.attention?.wakeWorth || !isValidAttentionClaim(payload.attention) || Object.keys(payload.attention).some(key=>key!=="wakeWorth"))return "ignored";
+    db.exec("SAVEPOINT social_wake_learning");
+    try{const learned=learnPublishedWake(db,settlementId,ownerId,payload.attention.wakeWorth,nowMs);db.exec("RELEASE social_wake_learning");return learned?"recorded":"ignored";}
+    catch(error){db.exec("ROLLBACK TO social_wake_learning; RELEASE social_wake_learning");throw error;}
+  }
   const payload=JSON.parse(String(row.payload_json)) as Row;
   if(payload.redacted===true || payload.sawSecret!==false || !isValidAttentionClaim(payload.attention))return "ignored";
   const atMs=Number(row.created_at_ms ?? row.admitted_at_ms);time(atMs);
@@ -74,6 +81,7 @@ export function recordPublishedAttention(db:DatabaseSync,settlementId:string,own
         updated_at_ms=MAX(thalamus_state.updated_at_ms,excluded.updated_at_ms)`)
         .run(ownerId,P.parameterContractVersion.default,JSON.stringify(empty()),JSON.stringify(next),nowMs);
     }
+    if(claim.wakeWorth)learnPublishedWake(db,settlementId,ownerId,claim.wakeWorth,nowMs);
     db.exec("RELEASE attention_claim");return "recorded";
   }catch(error){db.exec("ROLLBACK TO attention_claim; RELEASE attention_claim");throw error;}
 }
@@ -117,10 +125,10 @@ export function recordThalamusDecision(db:DatabaseSync,decisionId:string,ownerId
 }
 
 /** Only the decision bound to this admitted cycle describes why this Thought woke. */
-export function readThoughtAttention(db:DatabaseSync,ownerId:string,cycleId:string,nowMs:number):import("./attention.js").ThoughtAttention {
+export function readThoughtAttention(db:DatabaseSync,ownerId:string,cycleId:string,nowMs:number,includePrivateWatches=true):import("./attention.js").ThoughtAttention {
   const row=db.prepare("SELECT candidates_json FROM thalamus_decisions WHERE owner_id=? AND cycle_id=? AND decision_code='fire' ORDER BY evaluated_at_ms DESC,decision_id DESC LIMIT 1").get(ownerId,cycleId);
   const bundle:Candidate[]=row ? (JSON.parse(String(row.candidates_json)).bundle as Candidate[]).map(candidate=>({...candidate,refs:[]})) : [];
-  return {watching:readAttentionWatches(db,ownerId,nowMs),wokeBecause:bundle.slice(0,1),alsoOnYourMind:bundle.slice(1)};
+  return {watching:includePrivateWatches?readAttentionWatches(db,ownerId,nowMs):[],wokeBecause:bundle.slice(0,1),alsoOnYourMind:bundle.slice(1)};
 }
 
 /** Exact phrase erasure is the Owner's existing forget mechanism, not watch interpretation. */

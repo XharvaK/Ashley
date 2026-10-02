@@ -1,3 +1,4 @@
+import {readLearning} from "../thalamus/learning.js";
 import type { DataClassification } from "../../privacy/classification.js";
 // A sense states the truth at proportionate volume and then stops; a reasoned no quiets it.
 import { join } from "node:path";
@@ -12,7 +13,7 @@ export const SENSE_NAMES = ["friction", "expectations", "stale_concerns", "deliv
 export type SenseName = typeof SENSE_NAMES[number];
 export type SenseClaim = { decline: Array<{ sense: SenseName; rationale: string; untilMs?: number }> };
 export type ThoughtSenses = { lines: string[] };
-export type SenseOptions = { nowMs: number; conversationId: string; dataDir?: string; dataClassification?: DataClassification };
+export type SenseOptions = { nowMs: number; conversationId: string; ownerId?:string; dataDir?: string; dataClassification?: DataClassification };
 export type SenseReading = { sense: SenseName; band: string; detail?: string };
 const DAY = 86400000;
 const DECLINE_MAX_MS = 7 * DAY;
@@ -73,6 +74,10 @@ export function sensesForThought(db: DatabaseSync, options: SenseOptions, readin
       suffix = "; still declining?";
     }
     lines.push(`${reading.sense}: ${reading.band}${reading.detail ? `; ${reading.detail}` : ""}${suffix}`);
+  }
+  if(options.ownerId){
+    const learning=readLearning(db,options.ownerId);
+    lines.push(`attention sensitivity: nucleus gains=${JSON.stringify(learning.gains)}; family gains=${JSON.stringify(learning.familyGains)}; habituation=${JSON.stringify(learning.habituation)}`);
   }
   return { lines: lines.slice(0, 8) };
 }

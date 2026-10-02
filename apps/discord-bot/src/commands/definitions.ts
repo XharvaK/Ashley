@@ -6,6 +6,7 @@ import { commandSurface } from "../command-surface.js";
 
 export function buildCommandDefinitions(): RESTPostAPIChatInputApplicationCommandsJSONBody[] {
   return [
+    new SlashCommandBuilder().setName(commandSurface.attention).setDescription("Show attention timing sensitivity and calibration").toJSON(),
     new SlashCommandBuilder()
       .setName(commandSurface.remember)
       .setDescription("Pin something to long-term memory")

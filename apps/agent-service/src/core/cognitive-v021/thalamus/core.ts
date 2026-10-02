@@ -14,7 +14,7 @@ export type ThalamusState = {
 export type ThalamusContext = {
   budgetAvailable: boolean; conversationClaimHeld: boolean; spentFraction: number;
   energy: number; tension: number; circadianPhase: number;
-  gains?: Partial<Record<Nucleus, number>>; familyGains?: Record<string, number>;
+  gains?: Partial<Record<Nucleus, number>>; familyGains?: Record<string, number>; habituation?: Record<string,number>;
 };
 export type Decision =
   | { kind: "none"; reason: "budget" | "conversation" | "no_candidate"; pending: Candidate[] }
@@ -80,8 +80,10 @@ export function arbitrate(state: ThalamusState, candidates: readonly Candidate[]
     }
     const duplicate = family?.lastEventId === candidate.eventId && family.lastObservedAtMs === candidate.observedAtMs;
     if (duplicate) continue;
-    const response = family ? family.response * (1 - (candidate.source === "social"
-      ? P.socialHabituationAlpha.default : P.ambientHabituationAlpha.default)) : 1;
+    const parameter=candidate.source==="social"?P.socialHabituationAlpha:P.ambientHabituationAlpha;
+    const alpha=context.habituation?.[key] ?? parameter.default;
+    if(!Number.isFinite(alpha))throw new Error("thalamus_invalid_habituation");
+    const response=family?family.response*(1-clamp(alpha,parameter.learningBound.min,parameter.learningBound.max)):1;
     next.families[key] = { source: candidate.source, response, arousal: (family?.arousal ?? 0)
       + (candidate.class === "OPPORTUNISTIC" ? 0 : clamp(candidate.salience, 0, 1) * response),
       lastObservedAtMs: candidate.observedAtMs, lastEventId: candidate.eventId, lastEvaluatedAtMs: effectiveNow };
@@ -93,7 +95,7 @@ export function arbitrate(state: ThalamusState, candidates: readonly Candidate[]
   const ranked = pending.map(candidate => {
     const mandatory = candidate.class === "ALWAYS_THROUGH" || (candidate.deadlineMs !== undefined && candidate.deadlineMs <= effectiveNow);
     const gain = context.gains?.[candidate.source] ?? P.nucleusGain.default;
-    const familyGain = context.familyGains?.[candidate.coalesceKey] ?? P.familyGain.default;
+    const familyGain = context.familyGains?.[`${candidate.source}:${candidate.coalesceKey}`] ?? context.familyGains?.[candidate.coalesceKey] ?? P.familyGain.default;
     if (!Number.isFinite(gain) || !Number.isFinite(familyGain)) throw new Error("thalamus_invalid_gain");
     const family = next.families[`${candidate.source}:${candidate.coalesceKey}`];
     const score = Math.max(clamp(candidate.salience, P.salienceMinimum.default, P.salienceMaximum.default)

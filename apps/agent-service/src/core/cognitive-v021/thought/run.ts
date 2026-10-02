@@ -3339,9 +3339,10 @@ export async function runCognitiveCycle(
         },
       } : {}),
       ...(effectiveThoughtAudience.kind === "owner_private" && !externalCycle
-        ? { growth: growthForThought(sidecar, identityStoreFor(nuclear, deps), deps.nowMs()), senses: sensesForThought(sidecar, senseOptions, sensedFacts),
+        ? { growth: growthForThought(sidecar, identityStoreFor(nuclear, deps), deps.nowMs()), senses: sensesForThought(sidecar, {...senseOptions,ownerId:deps.identityOwnerId}, sensedFacts),
             ...(deps.identityOwnerId ? { attention: readThoughtAttention(sidecar,deps.identityOwnerId,cycle.cycleId,deps.nowMs()) } : {}) }
         : {}),
+      ...(externalCycle && deps.identityOwnerId ? {attention:readThoughtAttention(sidecar,deps.identityOwnerId,cycle.cycleId,deps.nowMs(),false)}:{}),
       ...pendingForgetInput(sidecar, cycle.conversationId, {
         ownerTurn: effectiveThoughtAudience.kind === "owner_private" && !externalCycle
           && !afterglowPass && !awakePass && !nightPass && triggerEvidence?.role === "owner",
@@ -4527,7 +4528,8 @@ export async function runCognitiveCycle(
           nightPass: nightPass ?? null,
           senseBands,
         }
-      : null;
+      : deps.origin!=="shadow" && externalCycle && settlement.attention?.wakeWorth
+        ? {conversationId:cycle.conversationId,ownerPrivate:false,timingOnly:true,passKind:null,nightPass:null} : null;
     const publication = publishSemanticTransaction(sidecar, settlement, {
       ...(aftermathContext ? { aftermath: aftermathContext } : {}),
       nowMs: deps.nowMs(),

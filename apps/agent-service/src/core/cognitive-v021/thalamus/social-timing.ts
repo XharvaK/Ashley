@@ -26,7 +26,7 @@ export function createSocialTimingHooks(db:DatabaseSync,options:{ownerId:string;
    // There is no current numeric relationship-strength owner. Keep its old admission amplitude neutral.
    const candidate=social({eventId:input.markerId,observedAtMs:input.evidence.createdAtMs,refs:[input.evidence.rowId],coalesceKey:input.conversationId,
     isOwner:false,eligible:true,fuseAvailable:options.resourceAvailable(input),relationshipBasis:P.nucleusGain.default,addressedToHer:addressed?1:0,novelty:1});
-   const context={...options.context,conversationClaimHeld:options.context.conversationClaimHeld
+   const context={...options.context,budgetAvailable:candidate!==null,conversationClaimHeld:options.context.conversationClaimHeld
     || getCurrentCycle(db,options.ownerConversationId)!==null || isPrivateThoughtActive(options.ownerConversationId)};
    const prepared=prepareTick(db,{ownerId:options.ownerId,conversationId:input.conversationId,nowMs:options.nowMs,enabled:true,socialBinding:true,
     candidates:candidate?[candidate]:[],facts:[{eventId:input.markerId,source:"social",kind:"message",subject:input.evidence.speakerPrincipalId ?? "unknown",object:input.conversationId}],context});

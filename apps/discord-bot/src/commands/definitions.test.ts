@@ -8,7 +8,8 @@ describe("command definitions", () => {
     const commands = buildCommandDefinitions();
     const names = commands.map((command) => command.name);
     assert.deepEqual([...names].sort(), [...commandNames].sort());
-    assert.equal(names.length, 9);
+    assert.equal(names.length, 10);
+    assert.ok(names.includes("attention"));
     assert.ok(names.includes("contacts"));
     assert.ok(names.includes("commitments"));
     assert.ok(names.includes("continuity"));

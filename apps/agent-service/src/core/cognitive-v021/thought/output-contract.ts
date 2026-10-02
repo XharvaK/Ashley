@@ -719,10 +719,12 @@ function applyProfileScope(schema: SchemaRecord, profile: ThoughtContractProfile
     ...(profile.pass === "afterglow" ? [] : ["reflection"]),
     ...(profile.pass === "night" ? [] : ["night"]),
     ...(profile.pass === "chat" ? ["journal", "initiativePreference"] : []),
-    ...(profile.ownerPrivate ? [] : ["journal", "interests", "growth", "senses", "attention"]),
+    ...(profile.ownerPrivate ? [] : ["journal", "interests", "growth", "senses"]),
     ...(profile.pass === "chat" && profile.ownerPrivate ? [] : ["forget"]),
   ];
   for (const field of drop) delete properties[field];
+  if(!profile.ownerPrivate)properties.attention={type:"object",additionalProperties:false,required:["wakeWorth"],
+    description:"Report only this wake's value. This does not grant permissions or change private watches or resting state.",properties:{wakeWorth:{enum:["yes","no","sooner","later"]}}};
 }
 
 export function constrainThoughtOutputSchema(
@@ -922,6 +924,7 @@ export function thoughtOutputCompatibilityInstruction(
     ...when(!full && profile.ownerPrivate, JOURNAL_READING_GUIDANCE),
     ...when(profile.ownerPrivate, INTERESTS_GUIDANCE, GROWTH_GUIDANCE),
     ...when(profile.ownerPrivate, OWNER_VISIBILITY_GUIDANCE),
+    ...when(!profile.ownerPrivate, 'If attention.wokeBecause identifies this social wake, report only attention:{wakeWorth:"yes"|"no"|"sooner"|"later"}. This calibrates timing only. Private watches, resting, growth and senses are unavailable in this profile.'),
     ...when(full || (profile.pass === "chat" && profile.ownerPrivate), FORGET_GUIDANCE),
     ...when(full || !profile.ownerPrivate, SOCIAL_VISIBILITY_GUIDANCE, SOCIAL_TRUST_GUIDANCE),
     ...when(full || profile.pass === "night", NIGHT_GUIDANCE),

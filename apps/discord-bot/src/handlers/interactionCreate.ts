@@ -1,3 +1,4 @@
+import * as attention from "../commands/attention.js";
 import type { ChatInputCommandInteraction } from "discord.js";
 import { agentErrorMessage } from "../chat/agent-errors.js";
 import { isOwner } from "../security/gate.js";
@@ -29,6 +30,7 @@ export async function handleSlash(
     interaction.commandName === "commitments" ||
     interaction.commandName === "continuity" ||
     interaction.commandName === "status" ||
+    interaction.commandName === "attention" ||
     interaction.commandName === "delegation" ||
     interaction.commandName === "contacts" ||
     (interaction.commandName === "proactive" &&
@@ -56,6 +58,9 @@ export async function handleSlash(
         break;
       case "continuity":
         await continuity.execute(interaction);
+        break;
+      case "attention":
+        await attention.execute(interaction);
         break;
       case "status":
         await status.execute(interaction);

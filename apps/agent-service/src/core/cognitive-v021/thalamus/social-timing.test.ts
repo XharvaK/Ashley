@@ -41,4 +41,11 @@ describe("social timing wraps existing admission",()=>{
   }finally{db.close();nuclear.close();}
  });
 
+ it("uses the social resource owner rather than borrowing private Thought budget permission",async()=>{
+  const {createSocialTimingHooks}=await import("./social-timing.js");const {db,nuclear}=fixture();try{
+   const timing=createSocialTimingHooks(db,{ownerId,ownerConversationId:"owner-private",nowMs:T,context:{budgetAvailable:false,conversationClaimHeld:false,spentFraction:1,energy:.5,tension:0,circadianPhase:0},resourceAvailable:()=>true});
+   expect(promoteEligiblePending(db,nuclear,{nowMs:T,ownerId,env,timing}).promoted).toBe(1);
+  }finally{db.close();nuclear.close();}
+ });
+
 });

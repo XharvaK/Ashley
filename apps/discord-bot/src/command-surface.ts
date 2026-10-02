@@ -15,6 +15,7 @@ const IMPLEMENTED = [
   "commitments",
   "continuity",
   "status",
+  "attention",
   "delegation",
   "contacts",
 ] as const;

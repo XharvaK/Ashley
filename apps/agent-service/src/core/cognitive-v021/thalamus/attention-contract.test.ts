@@ -64,12 +64,12 @@ describe("T3 attention contract wiring",()=>{
   expect(parse(attention)).toMatchObject({ok:true,value:{attention}});
   for(const invalid of [{resting:"true"},{wakeWorth:"maybe"},{watch:[{...watch,note:"x".repeat(201)}]},{watch:[...Array(5)].map((_,i)=>({...watch,id:String(i)}))}])expect(parse(invalid).ok).toBe(false);
  });
- it("offers structured attention in private provider schema and excludes it in social profiles",()=>{
+ it("offers private attention and only wake value in social profiles",()=>{
   const namespace={allowedOperationalEffectRefs:[],fingerprint:"sha256:fixture"} as unknown as OperationalEffectNamespace;
   const owner=thoughtContractProfile({trigger:{kind:"owner_message"}});
   const social=thoughtContractProfile({trigger:{kind:"external_message"},audience:{kind:"room"}});
   const fields=(profile:typeof owner)=>(constrainThoughtOutputSchema(namespace,profile).schema as any).oneOf[0].properties;
-  expect(fields(owner).attention).toBeDefined();expect(fields(social).attention).toBeUndefined();
+  expect(fields(owner).attention).toBeDefined();expect(Object.keys(fields(social).attention.properties)).toEqual(["wakeWorth"]);
   expect(fields(owner).attention.properties.watch.maxItems).toBe(4);
   expect(fields(owner).attention.description).toContain("attention is your private attention");
   expect(thoughtOutputDeepSeekJsonObjectInstruction()).toContain("attention is your private attention");

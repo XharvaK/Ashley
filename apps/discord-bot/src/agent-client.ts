@@ -696,6 +696,7 @@ export async function resumeProactiveRemote() {
 }
 
 export type ThalamusStatus = {
+  learning?:{gains:Record<string,number>;familyGains:Record<string,number>;habituation:Record<string,number>}|null;
   owner: "bot" | "thalamus";
   contractVersion: number;
   availability: "available" | "unavailable";

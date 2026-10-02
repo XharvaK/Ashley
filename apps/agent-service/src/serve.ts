@@ -609,14 +609,13 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
     const pollInnerLife = (nowMs: number): void => {
       const awakeEnabled = isPeriodicCognitionEnabled();
       const thalamusEnabled=isThalamusEnabled();
-      if(thalamusEnabled && !awakeEnabled)return;
-      if ((!env.afterglowEnabled && !awakeEnabled) || innerRunning || manager.isPaused()) return;
+      if ((!thalamusEnabled && !env.afterglowEnabled && !awakeEnabled) || innerRunning || manager.isPaused()) return;
       if (nowMs - innerLastPollMs < (thalamusEnabled?THALAMUS_PARAMETERS.schedulerPollMs.default:AFTERGLOW_POLL_MS)) return;
       innerRunning = true;
       innerLastPollMs = nowMs;
       void (async () => {
         if(thalamusEnabled){
-          const result=await manager.tickCognitiveThalamus(ownerId,nowMs,env.afterglowEnabled);
+          const result=await manager.tickCognitiveThalamus(ownerId,nowMs,env.afterglowEnabled,awakeEnabled);
           if(result.kind==="evaluated")console.log(`[cognitive-v021] thalamus ${result.decision.kind} reason=${result.decision.reason}`);
           return;
         }

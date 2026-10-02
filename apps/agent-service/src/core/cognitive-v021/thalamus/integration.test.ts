@@ -41,4 +41,16 @@ describe("one arbitration, one selected executor",()=>{
    expect(result).toMatchObject({kind:"disabled"});expect(calls).toBe(0);expect(db.prepare("SELECT count(*) AS n FROM thalamus_decisions").get()!.n).toBe(0);
   }finally{db.close();}
  });
+ it("keeps the periodic AWAKE gate distinct from independent timing families",async()=>{
+  const {AgentManager}=await import("../../../agent.js"),prior=process.env.ASHLEY_THALAMUS_ENABLED;process.env.ASHLEY_THALAMUS_ENABLED="true";
+  const db=openTestSidecar(),nuclear=new DatabaseSync(":memory:");try{
+   nuclear.exec("CREATE TABLE mem_threads(id TEXT,owner_id TEXT,status TEXT,channel TEXT,created_at TEXT,updated_at TEXT); INSERT INTO mem_threads VALUES('fixture:owner','owner','active','discord','a','a')");
+   db.prepare("INSERT INTO inner_state(conversation_id,next_awake_at_ms,last_awake_at_ms,awake_slot,updated_at_ms) VALUES('fixture:owner',0,1,0,1)").run();
+   const manager=Object.create(AgentManager.prototype) as any;manager.openCognitiveSidecar=()=>db;manager.cognitiveDeps={};manager.core={getDatabase:()=>nuclear};manager.dataPlane={};
+   let awake=0;manager.tickCognitiveAwake=async()=>{awake++;return {outcome:"ran"};};
+   const result=await manager.tickCognitiveThalamus("owner",14400001,false,false);
+   expect(awake).toBe(0);expect(result.decision.kind).toBe("none");
+  }finally{db.close();nuclear.close();if(prior===undefined)delete process.env.ASHLEY_THALAMUS_ENABLED;else process.env.ASHLEY_THALAMUS_ENABLED=prior;}
+ });
+
 });

@@ -20,6 +20,8 @@ export type AftermathContext = {
   conversationId: string;
   /** Effective audience captured at publication; transport IDs do not establish privacy. */
   ownerPrivate?: boolean;
+  /** Social wake value only; never record private inner-life claims. */
+  timingOnly?:boolean;
   /** Set for private passes: the journal entry to record. */
   passKind: JournalPassKind | null;
   nightPass: NightPass | null;
@@ -90,6 +92,12 @@ export function recordSettlementAftermath(
     // A forget that redacted this settlement first wins: its claims are not
     // recorded. Open revisions are still checked, so a wait that ran out applies.
     const standing = settlement.redacted !== true;
+    if(context.timingOnly===true){
+      if(context.ownerPrivate!==false)throw new Error("aftermath_timing_scope");
+      if(standing && settlement.attention && options.identityStore?.ownerId)recordPublishedAttention(db,settlementId,options.identityStore.ownerId,options.nowMs);
+      db.prepare("UPDATE settlement_aftermath SET status='recorded',recorded_at_ms=? WHERE settlement_id=?").run(options.nowMs,settlementId);
+      db.exec("COMMIT");return "recorded";
+    }
     // Legacy or malformed flags fail closed on both publication and recovery.
     const dataClassification = settlement.sawSecret === false ? "ordinary" : "never_public";
     const interests = standing ? settlement.interests ?? [] : [];

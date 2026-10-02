@@ -1,3 +1,4 @@
+import {readLearning} from "./learning.js";
 // Timing proposals are durable before execution; admitted cycles alone bind causes to Thought.
 import {randomUUID} from "node:crypto";
 import type {DatabaseSync} from "node:sqlite";
@@ -28,7 +29,7 @@ export function prepareTick(db:DatabaseSync,options:Omit<TickOptions,"execute">)
    for(const fact of options.facts.filter(f=>f.eventId===candidate.eventId && f.source===candidate.source))next=applyAttention(next,watches,fact,nowMs);
    return next;
   });
-  const context={...options.context,conversationClaimHeld:options.context.conversationClaimHeld
+  const context={...options.context,...readLearning(db,ownerId),conversationClaimHeld:options.context.conversationClaimHeld
    || getCurrentCycle(db,conversationId)!==null || isPrivateThoughtActive(conversationId)};
   // Mandatory work survives a conversation hold, but cannot take execution ownership.
   // Evaluate/recover observations without consuming selection/refractory state while held.
@@ -36,7 +37,7 @@ export function prepareTick(db:DatabaseSync,options:Omit<TickOptions,"execute">)
   const evaluationContext:ThalamusContext={budgetAvailable:context.budgetAvailable && !context.conversationClaimHeld,
    conversationClaimHeld:context.conversationClaimHeld,spentFraction:context.spentFraction,energy:context.energy,
    tension:context.tension,circadianPhase:context.circadianPhase,
-   ...(context.gains?{gains:context.gains}:{}),...(context.familyGains?{familyGains:context.familyGains}:{})};
+   ...(context.gains?{gains:context.gains}:{}),...(context.familyGains?{familyGains:context.familyGains}:{}),...(context.habituation?{habituation:context.habituation}:{})};
   const result=arbitrate(stateBefore,candidates,nowMs,evaluationContext);
   decision=context.conversationClaimHeld && context.budgetAvailable
    ? {kind:"none",reason:"conversation",pending:candidates} : result.decision;

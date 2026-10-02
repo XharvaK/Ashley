@@ -15,7 +15,7 @@ import { DatabaseSync } from "node:sqlite";
 import {
   openCognitiveSidecarDb,
 } from "./core/cognitive-v021/sidecar/db.js";
-import { runLiveCognitiveTurn } from "./core/cognitive-v021/dispatch/live.js";
+import { isPeriodicCognitionEnabled, runLiveCognitiveTurn } from "./core/cognitive-v021/dispatch/live.js";
 import { reconcileProjectedDelivery } from "./core/cognitive-v021/delivery/outbox-projector.js";
 import { readCognitiveSidecarMeta } from "./core/cognitive-v021/sidecar/db.js";
 import { appendInboxEvent, claimInboxEvent } from "./core/cognitive-v021/cycle/inbox.js";
@@ -245,7 +245,7 @@ export class AgentManager {
     });
   }
 
-  async tickCognitiveThalamus(ownerId:string,nowMs=Date.now(),afterglowEnabled=true){
+  async tickCognitiveThalamus(ownerId:string,nowMs=Date.now(),afterglowEnabled=true,periodicEnabled=isPeriodicCognitionEnabled()){
     if(!isThalamusEnabled())return {kind:"disabled"} as const;
     const sidecar=this.openCognitiveSidecar();
     if(!sidecar || !this.cognitiveDeps)throw new AppError("agent_not_ready","Cognitive dispatcher unavailable",503);
@@ -260,6 +260,8 @@ export class AgentManager {
     const room=promoteEligibleRoomPending(sidecar,nuclear,{ownerId,nowMs,timing});
     if(dm.rejected || room.rejected)throw new Error("thalamus_social_promotion_deferred");
     if(dm.promoted || room.promoted)return {kind:"social",promoted:dm.promoted+room.promoted} as const;
+    // The periodic master owns AWAKE/NIGHT, not independent social or prospective obligations.
+    if(!periodicEnabled)current.candidates=current.candidates.filter(candidate=>!["sleep","boredom","interoceptive"].includes(candidate.source));
     const canAcquire=current.context.budgetAvailable && !getCurrentCycle(sidecar,conversationId)
       && !isPrivateThoughtActive(conversationId) && !getActiveDeferredFrontier(sidecar,conversationId);
     const polled=canAcquire?await pollObservationSubscriptions(sidecar,{conversationId,nowMs}):{items:[]};
