@@ -15,6 +15,11 @@ export function openTestSidecar(): DatabaseSync {
 /** Rewind an in-memory current sidecar to a structurally valid historical fixture version. */
 export function setTestSidecarVersion(db: DatabaseSync, version: number): void {
   if (!Number.isSafeInteger(version) || version < 0) throw new Error("test_sidecar_version_invalid");
+  if (version < 53) {
+    db.exec("DROP TABLE IF EXISTS private_budget_policies");
+    const cols=new Set(db.prepare("PRAGMA table_info(private_budget_reservations)").all().map(row=>row.name));
+    if(cols.has("policy_fingerprint"))db.exec("ALTER TABLE private_budget_reservations DROP COLUMN policy_fingerprint");
+  }
   if (version < 52) {
     db.exec("DROP TRIGGER IF EXISTS learned_influence_delete_children; DROP TABLE IF EXISTS learned_influence_branch_evidence; DROP INDEX IF EXISTS idx_learned_influences_branch; DROP INDEX IF EXISTS idx_learned_choice_receipts_cycle;");
     for (const [table, names] of [

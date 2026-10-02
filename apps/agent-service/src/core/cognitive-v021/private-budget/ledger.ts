@@ -10,16 +10,8 @@ import {
 } from "../types.js";
 import { advancePolicyClock } from "./policy-time-ledger.js";
 
-export const PRIVATE_THOUGHT_POLICY_ID = "ashley.private_thought.v1" as const;
-export const PRIVATE_THOUGHT_WINDOW_MS = 3_600_000 as const;
-export const PRIVATE_THOUGHT_CLOCK_DISCONTINUITY_MS = 300_000 as const;
-
-export const DEFAULT_PRIVATE_THOUGHT_POLICY: PrivateBudgetPolicy = Object.freeze({
-  policyId: PRIVATE_THOUGHT_POLICY_ID,
-  limit: PRIVATE_THOUGHT_MAX_CALLS_PER_HOUR,
-  windowMs: PRIVATE_THOUGHT_WINDOW_MS,
-  clockDiscontinuityMs: PRIVATE_THOUGHT_CLOCK_DISCONTINUITY_MS,
-});
+import { resolveBudgetPolicy,reservationBudgetPolicy,activeBudgetRows,assertCurrentBudgetPolicy,DEFAULT_PRIVATE_THOUGHT_POLICY,type BudgetPolicySnapshot } from "./policies.js";
+export { PRIVATE_THOUGHT_POLICY_ID,PRIVATE_THOUGHT_WINDOW_MS,PRIVATE_THOUGHT_CLOCK_DISCONTINUITY_MS,DEFAULT_PRIVATE_THOUGHT_POLICY } from "./policies.js";
 
 export type PrivateBudgetDispatchBinding = Readonly<{
   sidecar: DatabaseSync;
@@ -140,30 +132,16 @@ function clockRow(db: DatabaseSync, policyId: string): ClockRow | undefined {
   ).get(policyId) as ClockRow | undefined;
 }
 
-function consumingCount(db: DatabaseSync, policyId: string, policyTimeMs: number): number {
-  // F0 (R7 §15.1): ONE_ASHLEY global scope. The conversation predicate is
-  // gone: every held|committed|reconcile_required row under the policy counts
-  // toward one rolling 1-hour ceiling. conversation_id remains on each row as
-  // execution-context evidence (admission identity), never as a scope key.
-  const row = db.prepare(
-    `SELECT COUNT(*) AS count
-       FROM private_budget_reservations
-      WHERE policy_id = ?
-        AND policy_time_ms > ?
-        AND state IN ('held', 'committed', 'reconcile_required')`,
-  ).get(policyId, policyTimeMs - DEFAULT_PRIVATE_THOUGHT_POLICY.windowMs) as { count?: number } | undefined;
-  return Number(row?.count ?? 0);
+function consumingCount(db:DatabaseSync,policyId:string,policyTimeMs:number):number {
+  return activeBudgetRows(db,policyId,policyTimeMs).length;
 }
-
-function expireInTransaction(db: DatabaseSync, policyId: string, policyTimeMs: number): number {
-  const result = db.prepare(
-    `UPDATE private_budget_reservations
-        SET state = 'expired', updated_at_ms = ?
-      WHERE policy_id = ?
-        AND policy_time_ms <= ?
-        AND state IN ('held', 'committed', 'reconcile_required')`,
-  ).run(policyTimeMs, policyId, policyTimeMs - DEFAULT_PRIVATE_THOUGHT_POLICY.windowMs);
-  return Number(result.changes ?? 0);
+function expireInTransaction(db:DatabaseSync,policyId:string,policyTimeMs:number):number {
+  let expired=0;
+  for(const row of db.prepare("SELECT * FROM private_budget_reservations WHERE policy_id=? AND state IN ('held','committed','reconcile_required')").all(policyId)) {
+    const policy=reservationBudgetPolicy(db,row);
+    if(Number(row.policy_time_ms)<=policyTimeMs-policy.windowMs)expired+=Number(db.prepare("UPDATE private_budget_reservations SET state='expired',updated_at_ms=? WHERE reservation_id=?").run(policyTimeMs,String(row.reservation_id)).changes);
+  }
+  return expired;
 }
 
 function verifyWakeForAdmission(db: DatabaseSync, input: { wakeId: string; conversationId: string }): void {
@@ -187,6 +165,7 @@ export function reservePrivateThought(
   input: { admissionId: string; wakeId: string; conversationId: string; policyId: string; wallClockNowMs: number },
 ): PrivateBudgetAdmission {
   const wallClockNowMs = validateAdmission(input);
+  const policy = resolveBudgetPolicy(db,input.policyId);
   return transaction(db, () => {
     const existingRow = db.prepare("SELECT * FROM private_budget_reservations WHERE admission_id = ?").get(input.admissionId) as ReservationRow | undefined;
     if (existingRow) {
@@ -198,7 +177,8 @@ export function reservePrivateThought(
       ) throw budgetError("admission_identity_conflict");
       const clock = clockRow(db, input.policyId);
       const projectionTime = Math.max(existing.policyTimeMs, Number(clock?.last_policy_now_ms ?? existing.policyTimeMs), wallClockNowMs);
-      const remaining = Math.max(0, DEFAULT_PRIVATE_THOUGHT_POLICY.limit - consumingCount(db, input.policyId, projectionTime));
+      const boundPolicy=reservationBudgetPolicy(db,existingRow);
+      const remaining = Math.max(0, boundPolicy.limit - consumingCount(db, input.policyId, projectionTime));
       return { kind: "existing", reservation: existing, remaining };
     }
 
@@ -230,7 +210,7 @@ export function reservePrivateThought(
       db,
       input.policyId,
       wallClockNowMs,
-      DEFAULT_PRIVATE_THOUGHT_POLICY.clockDiscontinuityMs,
+      policy.fingerprint,
     );
     // F0 latch-free exit: advancePolicyClock already persisted the CURRENT
     // observation, so the computed state alone decides. Stored reconciliation
@@ -239,9 +219,10 @@ export function reservePrivateThought(
       return { kind: "refused", reason: "clock_reconciliation", remaining: 0 };
     }
 
+    assertCurrentBudgetPolicy(db,policy,policyTime.policyTimeMs);
     expireInTransaction(db, input.policyId, policyTime.policyTimeMs);
     const used = consumingCount(db, input.policyId, policyTime.policyTimeMs);
-    if (used >= DEFAULT_PRIVATE_THOUGHT_POLICY.limit) {
+    if (used >= policy.limit) {
       recordHostFriction(db, "budget_refused", input.admissionId, wallClockNowMs);
       return { kind: "refused", reason: "capacity_exhausted", remaining: 0 };
     }
@@ -251,8 +232,8 @@ export function reservePrivateThought(
     db.prepare(
       `INSERT INTO private_budget_reservations
         (reservation_id, admission_id, wake_id, conversation_id, policy_id, state,
-         policy_time_ms, dispatch_truth, created_at_ms, updated_at_ms)
-       VALUES (?, ?, ?, ?, ?, 'held', ?, 'not_bound', ?, ?)`,
+         policy_time_ms, dispatch_truth, created_at_ms, updated_at_ms,policy_fingerprint)
+       VALUES (?, ?, ?, ?, ?, 'held', ?, 'not_bound', ?, ?,?)`,
     ).run(
       reservationId,
       input.admissionId,
@@ -262,11 +243,12 @@ export function reservePrivateThought(
       policyTime.policyTimeMs,
       timestamp,
       timestamp,
+      policy.fingerprint,
     );
     return {
       kind: "reserved",
       reservation: reservationRequired(db, reservationId),
-      remaining: DEFAULT_PRIVATE_THOUGHT_POLICY.limit - used - 1,
+      remaining: policy.limit - used - 1,
     };
   });
 }
@@ -464,24 +446,13 @@ export function markPrivateReservationUnknown(
 }
 
 /** Expire only reservations outside the rolling window; clock reconciliation never refills by lowering high-water. */
-export function expirePrivateReservations(
-  db: DatabaseSync,
-  input: { policyId: string; wallClockNowMs: number },
-): { policyTimeMs: number; expired: number } {
-  const wallClockNowMs = validTime(input.wallClockNowMs);
-  requiredText(input.policyId, "policy_id_required");
-  return transaction(db, () => {
-    const clock = clockRow(db, input.policyId);
-    if (!clock) return { policyTimeMs: wallClockNowMs, expired: 0 };
-    const policy = advancePolicyClock(db, input.policyId, wallClockNowMs, DEFAULT_PRIVATE_THOUGHT_POLICY.clockDiscontinuityMs);
-    const result = db.prepare(
-      `UPDATE private_budget_reservations
-          SET state = 'expired', updated_at_ms = ?
-        WHERE policy_id = ? AND policy_time_ms <= ?
-          AND state IN ('held', 'committed', 'reconcile_required')`,
-    ).run(policy.policyTimeMs, input.policyId, policy.policyTimeMs - DEFAULT_PRIVATE_THOUGHT_POLICY.windowMs);
-    return { policyTimeMs: policy.policyTimeMs, expired: Number(result.changes ?? 0) };
-  });
+export function expirePrivateReservations(db:DatabaseSync,input:{policyId:string;wallClockNowMs:number}):{policyTimeMs:number;expired:number} {
+ const wallClockNowMs=validTime(input.wallClockNowMs);requiredText(input.policyId,"policy_id_required");const policy=resolveBudgetPolicy(db,input.policyId);
+ return transaction(db,()=>{
+  const clock=clockRow(db,input.policyId);if(!clock)return {policyTimeMs:wallClockNowMs,expired:0};
+  const time=advancePolicyClock(db,input.policyId,wallClockNowMs,policy.fingerprint);
+  return {policyTimeMs:time.policyTimeMs,expired:expireInTransaction(db,input.policyId,time.policyTimeMs)};
+ });
 }
 
 /** Read-only authoritative budget projection for delivery gates and diagnostics. */
@@ -494,6 +465,7 @@ export function getPrivateBudgetProjection(
   // policy (PRIVATE_BUDGET_SCOPE_KEY=policy_id).
   requiredText(input.policyId, "policy_id_required");
   const wallClockNowMs = now(input.wallClockNowMs);
+  const policy=resolveBudgetPolicy(db,input.policyId);
   const clock = clockRow(db, input.policyId);
   const policyTimeMs = clock ? Math.max(Number(clock.last_policy_now_ms), wallClockNowMs) : null;
   const discrepancyMs = clock ? Math.abs(wallClockNowMs - Number(clock.last_policy_now_ms)) : null;
@@ -512,7 +484,7 @@ export function getPrivateBudgetProjection(
       "SELECT COUNT(*) AS count FROM private_budget_reservations WHERE policy_id = ?",
     ).get(input.policyId) as { count?: number } | undefined;
     clockState = Number(priorReservations?.count ?? 0) > 0 ? "clock_reconciliation" : "migration_epoch_required";
-  } else if (Number(clock.last_policy_now_ms) - wallClockNowMs > DEFAULT_PRIVATE_THOUGHT_POLICY.clockDiscontinuityMs) {
+  } else if (Number(clock.last_policy_now_ms) - wallClockNowMs > policy.clockDiscontinuityMs) {
     clockState = "clock_reconciliation";
   } else {
     clockState = "stable";
@@ -531,22 +503,23 @@ export function getPrivateBudgetProjection(
   for (const row of rows) {
     if (row.state && row.state in stateCounts) stateCounts[row.state as PrivateBudgetReservation["state"]] = Number(row.count ?? 0);
   }
+  if(policyTimeMs!=null)assertCurrentBudgetPolicy(db,policy,policyTimeMs);
   const consuming = policyTimeMs == null ? 0 : consumingCount(db, input.policyId, policyTimeMs);
   return {
     source: "private_budget_ledger",
     policyId: input.policyId,
-    limit: DEFAULT_PRIVATE_THOUGHT_POLICY.limit,
-    windowMs: DEFAULT_PRIVATE_THOUGHT_POLICY.windowMs,
+    limit: policy.limit,
+    windowMs: policy.windowMs,
     policyTimeMs,
-    lowerBoundMs: policyTimeMs == null ? null : policyTimeMs - DEFAULT_PRIVATE_THOUGHT_POLICY.windowMs,
+    lowerBoundMs: policyTimeMs == null ? null : policyTimeMs - policy.windowMs,
     clockState,
     discrepancyMs,
     consumingCount: consuming,
     remaining: clockState === "clock_reconciliation"
       ? 0
       : clockState === "migration_epoch_required"
-        ? DEFAULT_PRIVATE_THOUGHT_POLICY.limit
-        : Math.max(0, DEFAULT_PRIVATE_THOUGHT_POLICY.limit - consuming),
+        ? policy.limit
+        : Math.max(0, policy.limit - consuming),
     stateCounts,
   };
 }

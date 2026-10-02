@@ -1,3 +1,4 @@
+import { configureBudgetPolicy,DEFAULT_PRIVATE_THOUGHT_POLICY } from "./policies.js";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import { openCognitiveSidecarDb } from "../sidecar/db.js";
@@ -18,6 +19,7 @@ const BASE = 3_000_000;
 
 function sidecar(): DatabaseSync {
   const db = openCognitiveSidecarDb(new DatabaseSync(":memory:"), { dataPlane: { kind: "isolated" } });
+  configureBudgetPolicy(db,{...DEFAULT_PRIVATE_THOUGHT_POLICY,policyId:"private-v1",version:1});
   reconcilePolicyClock(db, { policyId: "private-v1", wallClockNowMs: BASE, authorizationRef: "owner:recovery-epoch" });
   return db;
 }

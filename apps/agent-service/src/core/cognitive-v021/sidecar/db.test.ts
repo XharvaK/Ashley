@@ -1,3 +1,4 @@
+import { configureBudgetPolicy, DEFAULT_PRIVATE_THOUGHT_POLICY } from "../private-budget/policies.js";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import { reservedProductionCognitiveSidecarDbPath } from "../../data-plane.js";
@@ -70,7 +71,7 @@ describe("cognitive v0.2.1 sidecar database", () => {
       // v43: forget_proposals.
       // v44: expectation_basis.
       // v45: persona_snapshots; v46: friction_events; v48: sense_declines.
-      expect(tables).toHaveLength(89);
+      expect(tables).toHaveLength(90);
     expect(tables).toContain("forget_epoch");
     expect(tables).toContain("settlement_aftermath");
     expect(tables).toContain("forget_proposals");
@@ -241,6 +242,7 @@ describe("cognitive v0.2.1 sidecar database", () => {
         capturedAuthorityRevision: 1,
         nowMs: 1_000,
       });
+      configureBudgetPolicy(db, { ...DEFAULT_PRIVATE_THOUGHT_POLICY, policyId: "private-v1", version: 1 });
       expect(reservePrivateThought(db, {
         admissionId: "admission:v8-index",
         wakeId: wake.wake.wakeId,

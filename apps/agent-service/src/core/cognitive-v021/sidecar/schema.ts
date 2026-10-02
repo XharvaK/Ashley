@@ -1,3 +1,4 @@
+import { DEFAULT_BUDGET_SNAPSHOT } from "../private-budget/policies.js";
 /** Complete sidecar schema v1. Keep this in sync with schema-v1.sql. */
 export const COGNITIVE_SIDECAR_SCHEMA_V1_VERSION = 1 as const;
 
@@ -1969,4 +1970,23 @@ CREATE UNIQUE INDEX idx_learned_choice_receipts_cycle ON learned_choice_receipts
 ALTER TABLE influence_contract_state ADD COLUMN mode_set_by TEXT;
 ALTER TABLE influence_contract_state ADD COLUMN mode_set_at_ms INTEGER;
 UPDATE cognitive_sidecar_meta SET schema_version=52 WHERE id=1;
+`;
+
+export const COGNITIVE_SIDECAR_SCHEMA_V53 = `
+CREATE TABLE private_budget_policies (
+ policy_id TEXT NOT NULL, policy_version INTEGER NOT NULL CHECK(policy_version>=1),
+ capacity_limit INTEGER NOT NULL CHECK(capacity_limit>=1), window_ms INTEGER NOT NULL CHECK(window_ms>=1),
+ clock_discontinuity_ms INTEGER NOT NULL CHECK(clock_discontinuity_ms>=0), fingerprint TEXT NOT NULL UNIQUE,
+ is_current INTEGER NOT NULL CHECK(is_current IN (0,1)), PRIMARY KEY(policy_id,policy_version)
+);
+CREATE UNIQUE INDEX idx_private_budget_current_policy ON private_budget_policies(policy_id) WHERE is_current=1;
+CREATE TRIGGER private_budget_policy_snapshot_immutable BEFORE UPDATE ON private_budget_policies
+ WHEN NEW.policy_id IS NOT OLD.policy_id OR NEW.policy_version IS NOT OLD.policy_version OR NEW.capacity_limit IS NOT OLD.capacity_limit OR NEW.window_ms IS NOT OLD.window_ms OR NEW.clock_discontinuity_ms IS NOT OLD.clock_discontinuity_ms OR NEW.fingerprint IS NOT OLD.fingerprint
+ BEGIN SELECT RAISE(ABORT,'private_budget_policy_snapshot_immutable'); END;
+CREATE TRIGGER private_budget_policy_snapshot_no_delete BEFORE DELETE ON private_budget_policies
+ BEGIN SELECT RAISE(ABORT,'private_budget_policy_snapshot_immutable'); END;
+INSERT INTO private_budget_policies VALUES ('${DEFAULT_BUDGET_SNAPSHOT.policyId}',1,${DEFAULT_BUDGET_SNAPSHOT.limit},${DEFAULT_BUDGET_SNAPSHOT.windowMs},${DEFAULT_BUDGET_SNAPSHOT.clockDiscontinuityMs},'${DEFAULT_BUDGET_SNAPSHOT.fingerprint}',1);
+ALTER TABLE private_budget_reservations ADD COLUMN policy_fingerprint TEXT;
+UPDATE private_budget_reservations SET policy_fingerprint='${DEFAULT_BUDGET_SNAPSHOT.fingerprint}' WHERE policy_id='${DEFAULT_BUDGET_SNAPSHOT.policyId}';
+UPDATE cognitive_sidecar_meta SET schema_version=53 WHERE id=1;
 `;
