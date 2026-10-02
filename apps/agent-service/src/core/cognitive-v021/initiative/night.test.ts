@@ -1,3 +1,4 @@
+import { recordNight } from "../growth/night.js";
 import { describe, expect, it, vi } from "vitest";
 import type { DatabaseSync } from "node:sqlite";
 import { appendOwnerUtterance } from "../evidence/conversation-log.js";
@@ -64,7 +65,14 @@ describe("NIGHT rhythm", () => {
   it("runs once a day at the quiet hour, carries the day it closes, and makes the night a full week in the long arc", async () => {
     const db = openTestSidecar();
     try {
-      const thought = publishedRunner();
+      const thought = vi.fn<IdleThoughtRunner>(input => {
+        const pass = nightPassFromPayload(input.event?.payload);
+        if (pass?.weekly) recordNight(db, {
+          cycleId: input.cycle.cycleId, pass, claim: { narrative: "I am becoming more patient." },
+          timeZone: ZONE, dataClassification: "ordinary", nowMs: Number(input.event!.createdAtMs),
+        });
+        return { published: true, acceptedSettlements: 1, thoughtModelAttempts: 1 };
+      });
       expect(await tick(db, T0, thought)).toMatchObject({ outcome: "scheduled", quietHour: 4, nextNightAtMs: FOUR_AM });
       expect(await tick(db, FOUR_AM - 1, thought)).toMatchObject({ outcome: "not_due" });
 

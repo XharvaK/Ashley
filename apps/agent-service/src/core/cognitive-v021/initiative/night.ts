@@ -39,8 +39,8 @@ export const NIGHT_MIN_SAMPLES = 20;
 export const NIGHT_LEARNING_WINDOW_MS = 28 * 24 * 60 * 60_000;
 /** After a pass, the next one is the quiet hour at least this far ahead: once per day. */
 export const NIGHT_MIN_GAP_MS = 12 * 60 * 60_000;
-/** The long arc: a weekly night, with half a day of slack for a moving quiet hour. */
-export const WEEKLY_NARRATIVE_INTERVAL_MS = 7 * 24 * 60 * 60_000 - NIGHT_MIN_GAP_MS;
+/** The long arc requires a full seven days since the last stored narrative. */
+export const WEEKLY_NARRATIVE_INTERVAL_MS = 7 * 24 * 60 * 60_000;
 
 export type NightState = {
   nextNightAtMs: number;
@@ -209,7 +209,7 @@ export async function tickNight(
     lastNightAtMs: nowMs,
     slot,
     quietHour,
-    lastWeeklyAtMs: weekly ? nowMs : state.lastWeeklyAtMs,
+    lastWeeklyAtMs: state.lastWeeklyAtMs,
     lastOutcome: "started",
   };
   // Move the rhythm before any durable work exists: a crash below costs one
@@ -284,6 +284,10 @@ export async function tickNight(
     nowMs,
     thought: options.thought,
   });
-  writeNightState(db, conversationId, { ...moved, lastOutcome: thought.reason ?? "ran" }, nowMs);
+  writeNightState(db, conversationId, {
+    ...moved,
+    lastWeeklyAtMs: readNightState(db, conversationId)?.lastWeeklyAtMs ?? state.lastWeeklyAtMs,
+    lastOutcome: thought.reason ?? "ran",
+  }, nowMs);
   return { outcome: "ran", slot, weekly, quietHour, nextNightAtMs, thought };
 }

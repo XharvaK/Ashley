@@ -239,11 +239,25 @@ export function recordNight(
   const narrative = claim.narrative?.trim().slice(0, NARRATIVE_MAX_CHARS);
   if (narrative && input.pass.weekly) {
     const narrativeId = idFor("narrative", input.cycleId);
-    db.prepare(
-      `INSERT OR IGNORE INTO self_narratives (narrative_id, cycle_id, week_since_ms, text, data_classification, created_at_ms)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-    ).run(narrativeId, input.cycleId, input.pass.weekSinceMs, narrative, input.dataClassification, nowMs);
-    result.narrativeId = narrativeId;
+    // The narrative and its weekly watermark share storage truth, including aftermath replay.
+    db.exec("SAVEPOINT weekly_narrative_closure");
+    try {
+      db.prepare(
+        `INSERT OR IGNORE INTO self_narratives (narrative_id, cycle_id, week_since_ms, text, data_classification, created_at_ms)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      ).run(narrativeId, input.cycleId, input.pass.weekSinceMs, narrative, input.dataClassification, nowMs);
+      const stored = db.prepare("SELECT created_at_ms FROM self_narratives WHERE narrative_id=? AND cycle_id=?").get(narrativeId, input.cycleId);
+      if (!stored) throw new Error("night_narrative_storage_missing");
+      db.prepare(`UPDATE night_state
+        SET last_weekly_at_ms = MAX(COALESCE(last_weekly_at_ms, 0), ?)
+        WHERE conversation_id = (SELECT conversation_id FROM cycle_records WHERE cycle_id=?)`)
+        .run(Number(stored.created_at_ms), input.cycleId);
+      db.exec("RELEASE weekly_narrative_closure");
+      result.narrativeId = narrativeId;
+    } catch (error) {
+      db.exec("ROLLBACK TO weekly_narrative_closure; RELEASE weekly_narrative_closure");
+      throw error;
+    }
   }
   return result;
 }
