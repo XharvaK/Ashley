@@ -10,6 +10,7 @@ import { listRecentDecisions } from "./core/agency/log.js";
 import { retrieveEpisodes } from "./core/memory/episodes.js";
 import { isAuthorizedOwnerId } from "./owner-auth.js";
 import {isThalamusEnabled,schedulerContract} from "./core/cognitive-v021/thalamus/scheduler.js";
+import {thalamusStatus} from "./core/cognitive-v021/thalamus/status.js";
 import { createTransportAuth } from "./transport-auth.js";
 import { assertRegisteredRoutes } from "./route-surface.js";
 import { openCognitiveSidecarDb } from "./core/cognitive-v021/sidecar/db.js";
@@ -1093,7 +1094,8 @@ export function createServer(
     try {
       const ownerId = String(req.query.owner_id ?? "");
       requireOwner(ownerId || undefined);
-      res.json(manager.core.nuclearStatusSnapshot(ownerId));
+      res.json({...manager.core.nuclearStatusSnapshot(ownerId),
+        thalamus:thalamusStatus(cognitiveSidecar,ownerId,Date.now())});
     } catch (err) {
       const { status, body } = toErrorResponse(err);
       res.status(status).json(body);
@@ -2928,6 +2930,7 @@ export function createServer(
       res.json({
         ...status,
         raEffectiveConfig: getRaEffectiveConfig(),
+        thalamus: thalamusStatus(cognitiveSidecar,ownerId,Date.now()),
       });
     } catch (err) {
       const { status, body } = toErrorResponse(err);
