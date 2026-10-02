@@ -49,5 +49,5 @@ is prohibited here and retains its existing path. No I/O or clock is used.
 
 The current pure core includes threshold modulation, bounded gains, recovery,
 arousal, habituation, cross-nucleus dishabituation, refractory and compatible
-coalescing. Golden vectors specify timing and code conformance. Nuclei adapters,
-attention persistence and scheduler integration remain separate packets.
+coalescing. Golden vectors specify timing and code conformance. Nuclei adapters consume supplied facts. Live fact readers, attention persistence
+and scheduler integration remain separate work.

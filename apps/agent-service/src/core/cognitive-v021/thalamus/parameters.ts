@@ -15,6 +15,14 @@ export const THALAMUS_RULES = {
 // Bounds describe the parameter contract, not permission to change live policy.
 // PROVISIONAL defaults remain subject to offline calibration before release.
 export const THALAMUS_PARAMETERS = {
+  hoursPerDay: {
+    units: "local clock hours", default: 24, learningBound: { min: 24, max: 24 },
+    source: "civil clock units", status: "FIXED",
+  },
+  curiosityInfluenceGain: {
+    units: "multiplier", default: 1.25, learningBound: { min: 1, max: 2 },
+    source: "architect default", status: "PROVISIONAL",
+  },
   parameterContractVersion: {
     units: "version", default: 1, learningBound: { min: 1, max: 1 },
     source: "parameter contract v1", status: "FIXED",
