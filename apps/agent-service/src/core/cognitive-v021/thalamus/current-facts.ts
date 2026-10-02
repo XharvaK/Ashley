@@ -1,3 +1,4 @@
+import {listInterestBranches} from "../memory/interests.js";
 import type {DatabaseSync} from "node:sqlite";
 import {readAfterglowState} from "../initiative/afterglow.js";
 import {readInnerState} from "../initiative/awake.js";
@@ -46,9 +47,16 @@ export function collectInnerFacts(db:DatabaseSync,options:Options){
   expectations:count("SELECT count(*) AS n FROM expectations WHERE status='open' AND forgotten_at_ms IS NULL AND data_classification!='secret' AND created_at_ms>? AND created_at_ms<=?",since,nowMs),
  };
  push(sleep({eventId:`sleep:${conversationId}:${since}:${Object.values(work).join(':')}`,observedAtMs:nowMs,refs:[],...work,quietHour,currentLocalHour:localHour}));
- const inner=readInnerState(db,conversationId),idleSinceMs=inner?.lastAwakeAtMs ?? null;
+ const inner=readInnerState(db,conversationId);
+ const ownPublication=db.prepare(`SELECT MAX(a.created_at_ms) AS at FROM thalamus_decisions d
+  JOIN cycle_records c ON c.cycle_id=d.cycle_id JOIN settlements s ON s.cycle_id=c.cycle_id
+  JOIN settlement_aftermath a ON a.settlement_id=s.settlement_id
+  WHERE d.owner_id=? AND d.decision_code='fire' AND d.pass_type='own_time' AND c.conversation_id=?
+  AND c.occupant_id=? AND a.created_at_ms<=?`).get(ownerId,conversationId,ownerId,nowMs);
+ const baselines=[inner?.lastAwakeAtMs,ownPublication?.at].filter((value):value is number=>typeof value==="number" && Number.isFinite(value) && value<=nowMs);
+ const idleSinceMs=baselines.length?Math.max(...baselines):null;
  const agenda=count("SELECT count(*) AS n FROM mind_occupancy WHERE conversation_id=? AND status!='resolved'",conversationId);
- push(boredom({eventId:`boredom:${conversationId}:${idleSinceMs}`,observedAtMs:nowMs,refs:[],idleSinceMs,energy:mood.energy,openness:mood.openness,agendaPressure:Math.min(1,agenda),resting:flags.resting===true},nowMs));
+ push(boredom({eventId:`boredom:${conversationId}:${idleSinceMs}`,observedAtMs:nowMs,refs:[],idleSinceMs,energy:mood.energy,openness:mood.openness,agendaPressure:Math.min(1,agenda+Math.max(0,...listInterestBranches(db,nowMs).map(branch=>branch.strength))),resting:flags.resting===true},nowMs));
  for(const reading of readSenseFacts(db,{nowMs,conversationId,dataDir:options.dataDir})){
   const eventId=`sense:${reading.sense}:${reading.band}`;
   const family=state.families[`interoceptive:sense:${reading.sense}`];

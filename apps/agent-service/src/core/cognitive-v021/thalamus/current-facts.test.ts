@@ -1,5 +1,8 @@
+import {recordInterestTouches} from "../memory/interests.js";
+import {recordAftermathPending} from "../thought/aftermath.js";
+import {recordThalamusDecision} from "./store.js";
 import {describe,it,expect} from "vitest";
-import {openTestSidecar} from "../test-support.js";
+import {openTestSidecar,admitTestCycle} from "../test-support.js";
 import {appendOwnerUtterance} from "../evidence/conversation-log.js";
 async function collect(db:ReturnType<typeof openTestSidecar>,nowMs:number){
  const module=await import("./current-facts.js").catch(()=>null);
@@ -27,5 +30,28 @@ describe("current mechanical nucleus facts",()=>{
    expect((await collect(db,1000000))?.candidates.some(c=>c.source==="reflective")).toBe(false);
   }finally{db.close();}
  });
+ it("includes authored interest pressure without exposing labels or notes",async()=>{
+  const db=openTestSidecar();try{
+   db.prepare("INSERT INTO inner_state(conversation_id,next_awake_at_ms,last_awake_at_ms,awake_slot,updated_at_ms) VALUES('fixture:owner',0,1,0,1)").run();
+   db.exec("DELETE FROM interest_branches");
+   const before=(await collect(db,3600001))!.candidates.find(c=>c.source==="boredom")!.salience;
+   recordInterestTouches(db,[{root:"Technology",branch:"private branch",note:"private note"}],3600001);
+   const result=await collect(db,3600001);
+   expect(result!.candidates.find(c=>c.source==="boredom")!.salience).toBeGreaterThan(before);
+   expect(JSON.stringify(result)).not.toContain("private branch");
+  }finally{db.close();}
+ });
+ it("uses a published admitted own-time pass rather than an unexecuted timing selection",async()=>{
+  const db=openTestSidecar();try{
+   db.prepare("INSERT INTO inner_state(conversation_id,next_awake_at_ms,last_awake_at_ms,awake_slot,updated_at_ms) VALUES('fixture:owner',0,1,0,1)").run();
+   admitTestCycle(db,{cycleId:"own",occupantId:"owner",conversationId:"fixture:owner",generation:1,triggerKind:"idle_opportunity",triggerRef:"own",nowMs:3600000});
+   recordThalamusDecision(db,"receipt","owner",{kind:"fire",reason:"threshold",passType:"own_time",bundle:[],pending:[]},3600000,"own");
+   expect((await collect(db,3600001))!.candidates.some(c=>c.source==="boredom")).toBe(true);
+   db.prepare("INSERT INTO settlements(settlement_id,cycle_id,generation,payload_json) VALUES('published','own',1,'{}')").run();
+   recordAftermathPending(db,{settlementId:"published",cycleId:"own",context:{conversationId:"fixture:owner",ownerPrivate:true,passKind:null,nightPass:null},nowMs:3600001});
+   expect((await collect(db,3600001))!.candidates.some(c=>c.source==="boredom")).toBe(false);
+  }finally{db.close();}
+ });
+
 });
 
