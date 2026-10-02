@@ -31,6 +31,8 @@ export type PersistedChangeSet = {
   patchSha256: string | null;
 };
 
+export type SealedGitProvenance = { baseCommit: string; sourceGitTree: string; baseGitTree: string; candidateGitTree: string };
+
 function nowIso(): string {
   return new Date().toISOString();
 }
@@ -67,6 +69,7 @@ export function persistProposedChangeSet(
     patchBytes: number;
     artifactRef: string;
     originChildTaskId?: string | null;
+    gitProvenance?: SealedGitProvenance;
   },
 ): PersistedChangeSet {
   const createdAt = nowIso();
@@ -127,6 +130,7 @@ export function persistProposedChangeSet(
       candidateTreeHash: input.candidateTreeHash,
       baseTreeHash: input.baseTreeHash,
       patchSha256: input.patchSha256,
+      ...(input.gitProvenance ? { gitProvenance: input.gitProvenance } : {}),
       pathCount: Array.isArray(input.changedPaths) ? input.changedPaths.length : 0,
     },
   });
@@ -246,12 +250,17 @@ export function getChangeSet(
   owner_id: string;
   project_id: string;
   workspace_id: string;
+  rationale: string;
+  base_commit: string | null;
+  base_tree_hash: string | null;
+  source_snapshot_id: string;
 } | null {
   return (
     (db
       .prepare(
         `SELECT status, review_status, artifact_ref, patch_sha256, patch_bytes,
-                candidate_tree_hash, quarantine_reason, evidence_refs_json, owner_id, project_id, workspace_id
+                candidate_tree_hash, quarantine_reason, evidence_refs_json, owner_id, project_id, workspace_id,
+                rationale, base_commit, base_tree_hash, source_snapshot_id
            FROM candidate_changesets WHERE changeset_id = ?`,
       )
       .get(changesetId) as {
@@ -266,8 +275,29 @@ export function getChangeSet(
       owner_id: string;
       project_id: string;
       workspace_id: string;
+      rationale: string;
+      base_commit: string | null;
+      base_tree_hash: string | null;
+      source_snapshot_id: string;
     } | undefined) ?? null
   );
+}
+
+/** Only the unique original seal for this Owner and exact patch/candidate can bind Git export facts. */
+export function getSealedGitProvenance(db: DatabaseSync, input: {
+  ownerId: string; changesetId: string; patchSha256: string; candidateTreeHash: string; baseTreeHash: string; baseCommit: string;
+}): SealedGitProvenance | null {
+  const rows = db.prepare("SELECT metadata_json FROM candidate_changeset_events WHERE owner_id=? AND changeset_id=? AND event_type='sealed' LIMIT 2")
+    .all(input.ownerId, input.changesetId);
+  if (rows.length !== 1) return null;
+  try {
+    const seal = JSON.parse(String(rows[0]!.metadata_json));
+    const git = seal.gitProvenance;
+    if (seal.patchSha256 !== input.patchSha256 || seal.candidateTreeHash !== input.candidateTreeHash || seal.baseTreeHash !== input.baseTreeHash
+      || !git || git.baseCommit !== input.baseCommit || ![git.baseCommit, git.sourceGitTree, git.baseGitTree, git.candidateGitTree]
+        .every(value => typeof value === "string" && /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(value))) return null;
+    return { baseCommit: git.baseCommit, sourceGitTree: git.sourceGitTree, baseGitTree: git.baseGitTree, candidateGitTree: git.candidateGitTree };
+  } catch { return null; }
 }
 
 export function getChangeSetForVerification(

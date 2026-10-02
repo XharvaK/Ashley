@@ -212,6 +212,8 @@ export type SandboxV2PatchExportRequest = {
   artifactRef: string;
   expectedSha256: string;
   destinationRoot: string;
+  manifestUtf8: string;
+  expectedManifestSha256: string;
 };
 
 export type SandboxV2ChangedPath = {
@@ -411,6 +413,10 @@ export type SandboxV2OperationResult =
       candidateTreeHash: string;
       baseTreeHash: string;
       baseCommit: string | null;
+      /** Native Git identities are separate from historical provisional M4 content hashes. */
+      baseGitTree?: string;
+      sourceGitTree?: string;
+      candidateGitTree?: string;
       sourceCleanliness: SandboxV2SourceCleanliness;
       treeHashAlgorithm: string;
       changedPaths: SandboxV2ChangedPath[];
@@ -431,6 +437,9 @@ export type SandboxV2OperationResult =
       destinationPath: string;
       patchSha256: string;
       witnessedSha256: string;
+      manifestDestinationPath?: string;
+      manifestSha256?: string;
+      witnessedManifestSha256?: string;
       bytesWritten: number;
       liveUnwritten: true;
       gitUnwritten: true;
@@ -1017,6 +1026,9 @@ export function isChangesetAuthorResult(
   }
   if (typeof value.baseTreeHash !== "string" || value.baseTreeHash.length !== 64) return false;
   if (value.baseCommit !== null && typeof value.baseCommit !== "string") return false;
+  if ([value.baseGitTree, value.sourceGitTree, value.candidateGitTree].some(field => field !== undefined)
+    && ![value.baseCommit, value.baseGitTree, value.sourceGitTree, value.candidateGitTree]
+      .every(field => typeof field === "string" && /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(field))) return false;
   if (typeof value.sourceCleanliness !== "string" || !CLEANLINESS.has(value.sourceCleanliness)) {
     return false;
   }
@@ -1046,6 +1058,10 @@ export function isPatchExportResult(
   value: unknown,
 ): value is Extract<SandboxV2OperationResult, { kind: "patch_export" }> {
   if (!isRecord(value)) return false;
+  if ([value.manifestDestinationPath, value.manifestSha256, value.witnessedManifestSha256].some(field => field !== undefined)
+    && (typeof value.manifestDestinationPath !== "string" || !value.manifestDestinationPath.endsWith(".manifest.json")
+      || typeof value.manifestSha256 !== "string" || !/^[a-f0-9]{64}$/.test(value.manifestSha256)
+      || value.witnessedManifestSha256 !== value.manifestSha256)) return false;
   return (
     value.kind === "patch_export" &&
     typeof value.projectId === "string" &&

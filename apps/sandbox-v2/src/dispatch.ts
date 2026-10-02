@@ -212,7 +212,6 @@ export class SandboxV2Dispatcher {
         protectedRoots,
         workspaceManager: this.env.workspaceManager,
         managedWorkspaceRoot: this.env.managedWorkspaceRoot,
-        viewBuilder: this.env.viewBuilder,
         settlementDeadlineAtMs: this.env.settlementDeadlineAtMs,
         clock: this.env.clock,
       });

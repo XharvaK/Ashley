@@ -274,33 +274,10 @@ describe("P-W4-01 proposal-only candidate improvement loop", () => {
         dispatcher,
         envOverrides: { sandboxEngineeringLifecycleEnabled: true },
       });
-      expect(exported.license.state).toBe("succeeded");
-      expect(exported.license.patchExportClaimEffect).toMatchObject({
-        applied: false,
-        liveUnwritten: true,
-        gitUnwritten: true,
-      });
-      expect(JSON.stringify(exported.license)).not.toContain("notification");
-      expect((db.prepare("SELECT status FROM patch_export_records WHERE changeset_id = ?").get(candidate.changesetId) as { status: string }).status)
-        .toBe("succeeded");
-
-      const retried = await executePatchExportV2({
-        request: patchRequest(candidate.changesetId, "accept") as never,
-        ownerId: OWNER_ID,
-        db,
-        masterMode: "apply",
-        registry: registry(),
-        dispatcher,
-        envOverrides: { sandboxEngineeringLifecycleEnabled: true },
-      });
-      expect(retried.license.state).toBe("succeeded");
-      expect(retried.license.taskId).toBe(exported.license.taskId);
-      expect(retried.license.taskId).toBe(`v2-export:${candidate.changesetId}:${candidate.patchSha256}`);
-      const logicalTaskId = exported.license.taskId;
-      if (!logicalTaskId) throw new Error("patch_export_task_id_missing");
-      expect((db.prepare("SELECT COUNT(*) AS count FROM patch_export_records WHERE task_id = ?").get(logicalTaskId) as { count: number }).count)
-        .toBe(1);
-      expect(dispatches).toBe(2);
+      // Historical M5 fixture has no immutable Git base. A real M4 receipt cannot supply it.
+      expect(exported.license).toMatchObject({ state: "none", error: "sealed_git_provenance_required" });
+      expect(dispatches).toBe(0);
+      expect((db.prepare("SELECT COUNT(*) AS count FROM patch_export_records WHERE changeset_id = ?").get(candidate.changesetId) as { count: number }).count).toBe(0);
     } finally {
       db.close();
       if (existsSync(root)) rmSync(root, { recursive: true, force: true });

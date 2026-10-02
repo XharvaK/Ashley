@@ -26,6 +26,7 @@ import {
 import { homedir } from "node:os";
 import { isAbsolute, join, normalize, relative, resolve } from "node:path";
 import { V2_LIMITS } from "../limits.js";
+import { captureRecordedGitBase, readSourceGitIdentity, type RecordedGitBase } from "../authorship/native-git.js";
 import {
   buildSanitizedProjectView,
   removeProjectView,
@@ -39,6 +40,8 @@ export type WorkspaceManifest = {
   createdAt: string;
   lastUsedAt: string;
   sourceSnapshotId: string;
+  /** Controller provenance only; missing legacy/non-Git bases cannot authorize S0 authorship. */
+  gitBase?: RecordedGitBase;
   /** Recovery provenance only. Grants no authority. */
   originChildTaskId?: string;
   /** Existing manifests without this field are legacy candidate workspaces. */
@@ -531,6 +534,7 @@ export class WorkspaceManager {
 
     try {
       mkdirSync(stagingTree, { recursive: true, mode: 0o700 });
+      const sourceGitBefore = readSourceGitIdentity(context.canonicalRoot);
 
       // 1. Build disposable sanitized project source view (M2 exclusion pipeline)
       const viewResult = await buildSanitizedProjectView({
@@ -560,6 +564,8 @@ export class WorkspaceManager {
 
         // 3. Compute opaque sourceSnapshotId digest (provenance of sanitized source projection)
         const sourceSnapshotId = `snap_${randomBytes(12).toString("hex")}`;
+        const gitBase = captureRecordedGitBase({ sourceRoot: context.canonicalRoot, sanitizedRoot: stagingTree,
+          workspaceRoot: stagingDir, expectedSource: sourceGitBefore, workspaceId, projectId: context.projectId, sourceSnapshotId });
 
         // 4. Write manifest.json in staging dir (outside tree)
         const manifest: WorkspaceManifest = {
@@ -569,6 +575,7 @@ export class WorkspaceManager {
           createdAt: new Date().toISOString(),
           lastUsedAt: new Date().toISOString(),
           sourceSnapshotId,
+          ...(gitBase ? { gitBase } : {}),
           ...(originChildTaskId ? { originChildTaskId } : {}),
           workspaceKind: metadata.workspaceKind,
           ...(metadata.lifecycle ? { lifecycle: metadata.lifecycle } : {}),

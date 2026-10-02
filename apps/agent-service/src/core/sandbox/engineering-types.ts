@@ -207,6 +207,10 @@ export type PatchExportClaimEffect = {
   destinationRelativeName: string;
   patchSha256: string;
   witnessedSha256: string;
+  /** Present for S0 paired exports; absent on historical patch-only witnesses. */
+  manifestSha256?: string;
+  witnessedManifestSha256?: string;
+  manifestRelativeName?: string;
   bytesWritten: number;
   applied: false;
   liveUnwritten: true;
@@ -221,6 +225,11 @@ export function isVerifiedPatchExportClaimEffect(
 ): value is PatchExportClaimEffect {
   if (!value || typeof value !== "object") return false;
   const e = value as Partial<PatchExportClaimEffect>;
+  if (e.manifestSha256 !== undefined || e.witnessedManifestSha256 !== undefined || e.manifestRelativeName !== undefined) {
+    if (typeof e.manifestSha256 !== "string" || !/^[a-f0-9]{64}$/.test(e.manifestSha256)
+      || e.witnessedManifestSha256 !== e.manifestSha256 || typeof e.manifestRelativeName !== "string"
+      || e.manifestRelativeName !== `${e.changesetId}.manifest.json`) return false;
+  }
   return (
     e.verified === true &&
     e.applied === false &&

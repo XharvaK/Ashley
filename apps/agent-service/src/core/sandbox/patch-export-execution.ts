@@ -8,9 +8,13 @@ import { isPatchExportAllowed } from "@composer-assistant/sandbox-policy";
 import {
   isPatchExportResult,
   SandboxV2Dispatcher,
+  WorkspaceManager,
+  validateRecordedGitBase,
   type SandboxV2Result,
 } from "@composer-assistant/sandbox-v2";
 import type { DatabaseSync } from "node:sqlite";
+import { createHash } from "node:crypto";
+import { join } from "node:path";
 import { env } from "../../env.js";
 import { capabilityCanInfluence } from "../rollout/capabilities.js";
 import type { CognitionMode, CognitionPatchExportRequest } from "../types.js";
@@ -19,7 +23,7 @@ import {
   type OperationalClaimLicense,
 } from "./engineering-types.js";
 import { persistPatchExportRecord } from "./patch-export-store.js";
-import { getChangeSet } from "./changeset-store.js";
+import { getChangeSet, getSealedGitProvenance } from "./changeset-store.js";
 import { getSuccessfulVerificationReceiptForCandidate } from "./verification-receipt-store.js";
 import { loadOperatorProjectReadRegistry } from "./project-registry.js";
 import { isSandboxV2Available } from "./v2-execution.js";
@@ -53,7 +57,7 @@ function none(
 ): ExecutePatchExportV2Result {
   return {
     license: {
-      state: error === "witness_mismatch" ? "outcome_unknown" : "none",
+      state: ["witness_mismatch", "manifest_witness_mismatch", "export_pair_incomplete"].includes(error) ? "outcome_unknown" : "none",
       profile: "patch_export",
       error,
       ...(messageEntityUuid ? { sourceMessageEntityUuid: messageEntityUuid } : {}),
@@ -155,7 +159,36 @@ export async function executePatchExportV2(
     return none("verification_receipt_required", { taskId }, messageEntityUuid);
   }
 
-  taskId = `v2-export:${request.changesetId}:${changeset.patch_sha256}`;
+  if (!changeset.base_commit || !changeset.base_tree_hash) return none("sealed_git_provenance_required", { taskId }, messageEntityUuid);
+  const git = getSealedGitProvenance(input.db, { ownerId: input.ownerId, changesetId: request.changesetId,
+    patchSha256: changeset.patch_sha256, candidateTreeHash: changeset.candidate_tree_hash,
+    baseTreeHash: changeset.base_tree_hash, baseCommit: changeset.base_commit });
+  if (!git) return none("sealed_git_provenance_required", { taskId }, messageEntityUuid);
+  const manager = input.workspaceManager ?? new WorkspaceManager();
+  const manifest = manager.getWorkspaceManifest(changeset.workspace_id);
+  if (!manifest || manifest.projectId !== request.projectId || manifest.sourceSnapshotId !== changeset.source_snapshot_id) return none("recorded_base_required", { taskId }, messageEntityUuid);
+  const base = validateRecordedGitBase({ sourceRoot: resolved.entry.canonicalRoot, workspaceRoot: join(manager.managedRoot, changeset.workspace_id),
+    record: manifest.gitBase, workspaceId: changeset.workspace_id, projectId: request.projectId, sourceSnapshotId: changeset.source_snapshot_id });
+  if (!base.ok) return none(base.error, { taskId }, messageEntityUuid);
+  if (base.record.baseCommit !== git.baseCommit || base.record.sourceTree !== git.sourceGitTree || base.record.sanitizedTree !== git.baseGitTree) return none("recorded_base_mismatch", { taskId }, messageEntityUuid);
+  let evidenceRefs: string[];
+  try {
+    const refs: unknown = JSON.parse(changeset.evidence_refs_json);
+    if (!Array.isArray(refs) || !refs.every(ref => typeof ref === "string")) return none("manifest_binding_invalid", { taskId }, messageEntityUuid);
+    evidenceRefs = refs;
+  } catch { return none("manifest_binding_invalid", { taskId }, messageEntityUuid); }
+  const manifestUtf8 = JSON.stringify({ version: 1, projectId: request.projectId, changesetId: request.changesetId,
+    baseCommit: git.baseCommit, baseTree: git.sourceGitTree, sanitizedBaseTree: git.baseGitTree, candidateTree: git.candidateGitTree,
+    candidateContentHash: changeset.candidate_tree_hash, rationale: changeset.rationale, evidenceRefs,
+    // Existing reference ontology; these are Thought's declared refs, never a Host interpretation or verification claim.
+    frictionRefs: evidenceRefs.filter(ref => ref.startsWith("friction:")),
+    m4Receipt: { taskId: verificationReceipt.taskId, workspaceId: verificationReceipt.workspaceId,
+      recipeId: verificationReceipt.recipeId, recipeVersion: verificationReceipt.recipeVersion,
+      snapshotId: verificationReceipt.snapshotId, candidateTreeHash: verificationReceipt.candidateTreeHash,
+      baseTreeHash: verificationReceipt.baseTreeHash, outcome: verificationReceipt.outcome,
+      verificationOutcome: "verified_success", settledAt: verificationReceipt.settledAt }, patchSha256: changeset.patch_sha256 }) + "\n";
+  const manifestSha256 = createHash("sha256").update(manifestUtf8, "utf8").digest("hex");
+  taskId = `v2-export:${request.changesetId}:${changeset.patch_sha256}:${manifestSha256}`;
 
   try {
     const dispatcher =
@@ -175,6 +208,8 @@ export async function executePatchExportV2(
       artifactRef: changeset.artifact_ref,
       expectedSha256: changeset.patch_sha256,
       destinationRoot,
+      manifestUtf8,
+      expectedManifestSha256: manifestSha256,
     });
 
     const receipt =
@@ -188,11 +223,16 @@ export async function executePatchExportV2(
         : res.outcome === "failed"
           ? (res.error ?? "patch_export_failed")
           : receipt
-            ? null
+            ? receipt.projectId === request.projectId && receipt.changesetId === request.changesetId
+              && receipt.patchSha256 === changeset.patch_sha256 && receipt.witnessedSha256 === changeset.patch_sha256
+              && receipt.artifactRef === changeset.artifact_ref
+              && receipt.destinationPath === join(destinationRoot, `${request.changesetId}.patch`)
+              && receipt.manifestSha256 === manifestSha256 && receipt.witnessedManifestSha256 === manifestSha256
+              && receipt.manifestDestinationPath === join(destinationRoot, `${request.changesetId}.manifest.json`) ? null : "manifest_witness_mismatch"
             : "missing_receipt";
 
     const status =
-      error === "witness_mismatch"
+      error && ["witness_mismatch", "manifest_witness_mismatch", "export_pair_incomplete"].includes(error)
         ? "outcome_unknown"
         : error
           ? "failed"
@@ -223,6 +263,9 @@ export async function executePatchExportV2(
       destinationRelativeName: receipt.destinationRelativeName,
       patchSha256: receipt.patchSha256,
       witnessedSha256: receipt.witnessedSha256,
+      manifestSha256: receipt.manifestSha256,
+      witnessedManifestSha256: receipt.witnessedManifestSha256,
+      manifestRelativeName: `${request.changesetId}.manifest.json`,
       bytesWritten: receipt.bytesWritten,
       applied: false as const,
       liveUnwritten: true as const,

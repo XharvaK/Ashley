@@ -2,21 +2,17 @@
  * Sandbox V2 M5 authorship executor.
  *
  * Seals a candidate change-set identity from an existing M3 workspace versus
- * an ephemeral sanitized live projection. Does not write the durable
+ * its recorded immutable sanitized base. Does not write the durable
  * candidate, the live repository, or Git refs.
  */
 
 import { createHash, randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { isAuthorshipAllowed } from "@composer-assistant/sandbox-policy";
 import type { ProtectedRootsConfig } from "@composer-assistant/sandbox-policy";
 import { V2_LIMITS } from "../limits.js";
 import type { V2ProjectReadRegistry } from "../registry.js";
-import {
-  buildSanitizedProjectView,
-  removeProjectView,
-} from "../project-inspection/source-view.js";
 import {
   WorkspaceManager,
   resolveDefaultManagedWorkspaceRoot,
@@ -32,7 +28,7 @@ import type {
 } from "../v2-types.js";
 import { candidateContainsGitMetadata, collectTreeRecords } from "./tree.js";
 import { diffCandidateAgainstBase } from "./diff.js";
-import { readParentGitIdentity } from "./git-identity.js";
+import { validateRecordedGitBase, renderNativeGitPatch } from "./native-git.js";
 import { scanAuthorshipText } from "./secret-scan.js";
 
 export type CandidateAuthorshipExecutorOptions = {
@@ -40,7 +36,6 @@ export type CandidateAuthorshipExecutorOptions = {
   protectedRoots?: ProtectedRootsConfig;
   workspaceManager?: WorkspaceManager;
   managedWorkspaceRoot?: string;
-  viewBuilder?: typeof buildSanitizedProjectView;
   settlementDeadlineAtMs?: number;
   clock?: { nowMs(): number };
 };
@@ -179,6 +174,11 @@ export async function executeCandidateAuthorship(
   if (candidateContainsGitMetadata(treeRoot)) {
     return fail("git_metadata_in_candidate");
   }
+  const workspaceRoot = join(manager.managedRoot, acquisition.workspaceId);
+  const base = validateRecordedGitBase({ sourceRoot: resolved.entry.canonicalRoot, workspaceRoot,
+    record: acquisition.manifest.gitBase, workspaceId: acquisition.workspaceId,
+    projectId: parsed.request.projectId, sourceSnapshotId: acquisition.manifest.sourceSnapshotId });
+  if (!base.ok) return fail(base.error);
 
   const beforeHash = computeProvisionalCandidateTreeHash(treeRoot);
   const snapshot = bindCandidateSnapshot({
@@ -191,19 +191,8 @@ export async function executeCandidateAuthorship(
     return fail("snapshot_mismatch");
   }
 
-  const viewBuilder = options.viewBuilder ?? buildSanitizedProjectView;
-  let viewRoot: string | undefined;
+  const viewRoot = base.baseTreeRoot;
   try {
-    const view = await viewBuilder({
-      canonicalRoot: resolved.entry.canonicalRoot,
-      protectedRoots: options.protectedRoots ?? {
-        delegatedWriteDeniedOwnerApprovable: [],
-        absoluteDenial: [],
-      },
-    });
-    if (!view.ok) return fail(view.error);
-    viewRoot = view.viewRoot;
-
     const baseRecords = collectTreeRecords(viewRoot);
     const candidateRecords = collectTreeRecords(treeRoot);
     const diff = diffCandidateAgainstBase({
@@ -213,17 +202,24 @@ export async function executeCandidateAuthorship(
     });
     if (!diff.ok) return fail(diff.error);
 
-    const secret = scanAuthorshipText(diff.patchUtf8);
+    // Scan admitted candidate bytes before binary encoding can conceal secret shapes.
+    for (const change of diff.changes) {
+      for (const root of [viewRoot, treeRoot]) {
+        const path = join(root, change.path);
+        if (existsSync(path) && scanAuthorshipText(readFileSync(path).toString("utf8")).hit) return fail("secret_detected");
+      }
+    }
+    const native = renderNativeGitPatch({ workspaceRoot, candidateRoot: treeRoot, baseTree: base.record.sanitizedTree });
+    const secret = scanAuthorshipText(native.patch.toString("utf8"));
     if (secret.hit) {
       return fail("secret_detected");
     }
 
-    const gitIdentity = readParentGitIdentity(resolved.entry.canonicalRoot);
     const changesetId = `cs_${randomBytes(16).toString("hex")}`;
     const controlDir = join(manager.managedRoot, "_control", "changesets", changesetId);
     mkdirSync(controlDir, { recursive: true, mode: 0o700 });
     const artifactPath = join(controlDir, "sealed.patch");
-    writeFileSync(artifactPath, diff.patchUtf8, { encoding: "utf8", mode: 0o600 });
+    writeFileSync(artifactPath, native.patch, { mode: 0o600 });
 
     const afterHash = computeProvisionalCandidateTreeHash(treeRoot);
     if (afterHash !== beforeHash) {
@@ -234,11 +230,16 @@ export async function executeCandidateAuthorship(
         executedAtMs: nowMs(options.clock),
       };
     }
+    if (options.settlementDeadlineAtMs !== undefined && nowMs(options.clock) >= options.settlementDeadlineAtMs) return fail("deadline_exceeded");
+    const finalBase = validateRecordedGitBase({ sourceRoot: resolved.entry.canonicalRoot, workspaceRoot,
+      record: base.record, workspaceId: acquisition.workspaceId, projectId: parsed.request.projectId,
+      sourceSnapshotId: acquisition.manifest.sourceSnapshotId });
+    if (!finalBase.ok) return fail(finalBase.error);
     if (!existsSync(artifactPath)) {
       return fail("artifact_missing");
     }
 
-    const patchSha256 = createHash("sha256").update(diff.patchUtf8, "utf8").digest("hex");
+    const patchSha256 = createHash("sha256").update(native.patch).digest("hex");
     const baseTreeHash = computeProvisionalCandidateTreeHash(viewRoot);
 
     return {
@@ -255,12 +256,15 @@ export async function executeCandidateAuthorship(
         sourceSnapshotId: acquisition.manifest.sourceSnapshotId,
         candidateTreeHash: beforeHash,
         baseTreeHash,
-        baseCommit: gitIdentity.baseCommit,
-        sourceCleanliness: gitIdentity.sourceCleanliness,
+        baseCommit: base.record.baseCommit,
+        sourceCleanliness: "clean",
+        baseGitTree: base.record.sanitizedTree,
+        sourceGitTree: base.record.sourceTree,
+        candidateGitTree: native.candidateGitTree,
         treeHashAlgorithm: PROVISIONAL_TREE_HASH_ALGORITHM,
         changedPaths: diff.changes,
         patchSha256,
-        patchBytes: Buffer.byteLength(diff.patchUtf8, "utf8"),
+        patchBytes: native.patch.length,
         artifactRef: artifactPath,
         candidateUnchanged: true,
         liveUnwritten: true,
@@ -268,7 +272,8 @@ export async function executeCandidateAuthorship(
         completedAtMs: nowMs(options.clock),
       },
     };
-  } finally {
-    if (viewRoot) removeProjectView(viewRoot);
+  } catch (error) {
+    const known = error instanceof Error && ["candidate_file_type_forbidden", "changeset_too_large"].includes(error.message);
+    return fail(known ? (error as Error).message : "native_git_render_failed");
   }
 }

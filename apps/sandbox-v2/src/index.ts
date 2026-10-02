@@ -152,6 +152,8 @@ export {
   validateChangesetAuthorRequest,
 } from "./authorship/executor.js";
 export { scanAuthorshipText } from "./authorship/secret-scan.js";
+export { validateRecordedGitBase } from "./authorship/native-git.js";
+export type { RecordedGitBase } from "./authorship/native-git.js";
 export {
   M5_APPLY_FORBIDDEN_OPERATIONS,
   isM5ApplyForbiddenOperation,

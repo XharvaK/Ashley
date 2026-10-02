@@ -101,9 +101,30 @@ Governing principles:
 ## 3. New capability
 
 Ashley can create one admitted, bounded, identity-bound candidate change-set
-from an existing M3 workspace versus an explicit sanitized live base, persist
+from an existing M3 workspace versus its immutable recorded sanitized base, persist
 it as control-plane work state, and receive a license that may utter the
 sentence in §1.
+
+The S0 controller records the admitted source commit and tree when it creates
+the workspace. It retains the sanitized base and an isolated Git object store
+outside the writable candidate tree. Missing, unreachable, mismatched, or
+stale bases refuse; authorship never substitutes live HEAD. Legacy workspaces
+without this record remain readable but cannot obtain a new S0 seal.
+
+Trusted native Git stages admitted regular files and renders a binary-capable
+patch. Candidate Git metadata, symlinks, shell commands, filters, external diff
+drivers, credentials, and network authority are excluded. File modes remain
+normalized to the existing content-only candidate contract. The provisional
+M4 content hash remains distinct from the native Git tree identity.
+
+M7 review export writes the exact patch and a bound manifest. The manifest
+contains the source commit/tree, sanitized base tree, candidate Git tree,
+changeset ID, persisted Thought rationale and declared evidence/friction
+references, matching successful M4 receipt, and patch digest. Declared references
+are not verification or authority. Both files require independent digest
+readback before paired-export success. Matching partial exports may complete;
+conflicts never overwrite files. This neither applies the patch nor promotes
+a capability. Physical Git execution remains separately qualified.
 
 | Term | Role | Bound name |
 |---|---|---|
@@ -197,8 +218,8 @@ slice's single admitted transition into `status = proposed`.
 | `sourceSnapshotId` | Workspace origin snapshot id (not the verified hash) |
 | `candidateSnapshotId` | Snapshot id bound at seal time |
 | `candidateTreeHash` | Provisional M4 tree hash of the durable candidate |
-| `baseTreeHash` | Tree hash of the sanitized live projection used as base |
-| `baseCommit` | Parent-side `git rev-parse HEAD` when available; else null |
+| `baseTreeHash` | Provisional M4 content hash of the immutable sanitized base |
+| `baseCommit` | Recorded source commit required for a new S0 seal; historical rows may be null |
 | `sourceCleanliness` | `clean` \| `dirty_explicit_manifest` \| `unknown` |
 | `staleBase` | Explicit freshness flag. First slice seals against the live projection just hashed, so this is false at creation |
 | `treeHashAlgorithm` | Same provisional algorithm as M4 |
@@ -261,14 +282,14 @@ First slice:
 admitted request
   -> inspect existing candidate (read-only)
     -> bind candidate snapshot identity
-      -> materialize ephemeral sanitized live base (read-only copy)
+      -> validate immutable recorded sanitized base and isolated Git objects
         -> compute bounded delta
           -> secret-scan rationale + patch
             -> SEAL artifact (control plane)
               -> persist row + events
                 -> status = proposed / reviewStatus = submitted
                   -> issue license
-                    -> mandatory cleanup of the ephemeral base view
+                    -> retain immutable base; remove temporary controller indexes
 ```
 
 Failure classes:

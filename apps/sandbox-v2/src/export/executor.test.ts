@@ -5,9 +5,18 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { canonicalizePath, type ProjectRootEntry } from "@composer-assistant/sandbox-policy";
 import { V2ProjectReadRegistry } from "../registry.js";
-import { executePatchExport } from "./executor.js";
+import { executePatchExport as executeBoundPatchExport } from "./executor.js";
 import { isForbiddenM7Profile, refuseUnadmittedM7Profile } from "./forbidden.js";
 import { isPatchExportResult } from "../v2-types.js";
+
+// M7 fixtures must carry S0 inputs so each test still reaches its original owning gate.
+function executePatchExport(request: any, options: Parameters<typeof executeBoundPatchExport>[1]) {
+  const manifestUtf8 = JSON.stringify({ version: 1, projectId: request.projectId, changesetId: request.changesetId,
+    patchSha256: request.expectedSha256, baseCommit: "a".repeat(40), baseTree: "b".repeat(40), sanitizedBaseTree: "c".repeat(40), candidateTree: "d".repeat(40),
+    rationale: "fixture rationale", frictionRefs: [], candidateContentHash: "e".repeat(64),
+    m4Receipt: { taskId: "fixture-m4", workspaceId: "workspace", candidateTreeHash: "e".repeat(64), outcome: "succeeded", verificationOutcome: "verified_success" } });
+  return executeBoundPatchExport({ ...request, manifestUtf8, expectedManifestSha256: createHash("sha256").update(manifestUtf8).digest("hex") }, options);
+}
 
 const tempDirs: string[] = [];
 

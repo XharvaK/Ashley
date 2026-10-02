@@ -1874,6 +1874,10 @@ export async function executeCandidateAuthorshipV2(
         candidateTreeHash: receipt.candidateTreeHash,
         baseTreeHash: receipt.baseTreeHash,
         baseCommit: receipt.baseCommit,
+        ...(receipt.baseCommit && receipt.baseGitTree && receipt.sourceGitTree && receipt.candidateGitTree ? {
+          gitProvenance: { baseCommit: receipt.baseCommit, baseGitTree: receipt.baseGitTree,
+            sourceGitTree: receipt.sourceGitTree, candidateGitTree: receipt.candidateGitTree },
+        } : {}),
         sourceCleanliness: receipt.sourceCleanliness,
         treeHashAlgorithm: receipt.treeHashAlgorithm,
         objective: boundRequest.objective,

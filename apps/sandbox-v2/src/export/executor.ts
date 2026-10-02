@@ -8,12 +8,14 @@
  *
  * This is not apply, merge, Git, deploy, or restart.
  */
-import { createHash, randomUUID } from "node:crypto";
-import { existsSync, lstatSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, isAbsolute, join, relative } from "node:path";
+import { createHash } from "node:crypto";
+import { existsSync, readFileSync } from "node:fs";
 import { isCanonicalForm, isPatchExportAllowed, isWithin } from "@composer-assistant/sandbox-policy";
 import type { V2ProjectReadRegistry } from "../registry.js";
 import type { SandboxV2PatchExportRequest, SandboxV2Result } from "../v2-types.js";
+import { writeArtifactPair } from "./artifact-pair.js";
+import { V2_LIMITS } from "../limits.js";
+import { scanAuthorshipText } from "../authorship/secret-scan.js";
 
 export type PatchExportExecutorOptions = {
   registry: V2ProjectReadRegistry;
@@ -22,42 +24,6 @@ export type PatchExportExecutorOptions = {
 
 function nowMs(clock?: { nowMs(): number }): number {
   return clock ? clock.nowMs() : Date.now();
-}
-
-function sha256File(path: string): string {
-  return createHash("sha256").update(readFileSync(path)).digest("hex");
-}
-
-function destinationState(
-  destRoot: string,
-  destPath: string,
-): { ok: true; exists: boolean } | { ok: false } {
-  try {
-    const rootStat = lstatSync(destRoot);
-    if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) return { ok: false };
-    const resolvedRoot = realpathSync(destRoot);
-    if (resolvedRoot !== destRoot || dirname(destPath) !== resolvedRoot) return { ok: false };
-
-    let destinationStat;
-    try {
-      destinationStat = lstatSync(destPath);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") return { ok: true, exists: false };
-      return { ok: false };
-    }
-    if (destinationStat.isSymbolicLink() || !destinationStat.isFile()) return { ok: false };
-    const resolvedDestination = realpathSync(destPath);
-    const resolvedRelative = relative(resolvedRoot, resolvedDestination);
-    if (dirname(resolvedDestination) !== resolvedRoot
-      || resolvedDestination === resolvedRoot
-      || resolvedRelative.startsWith("..")
-      || isAbsolute(resolvedRelative)) {
-      return { ok: false };
-    }
-    return { ok: true, exists: true };
-  } catch {
-    return { ok: false };
-  }
 }
 
 export function validatePatchExportRequest(
@@ -84,6 +50,22 @@ export function validatePatchExportRequest(
   if (typeof obj.destinationRoot !== "string" || !isCanonicalForm(obj.destinationRoot)) {
     return { ok: false, error: "destination_invalid" };
   }
+  if (typeof obj.manifestUtf8 !== "string" || Buffer.byteLength(obj.manifestUtf8) > V2_LIMITS.REQUEST_MAX_BYTES
+    || typeof obj.expectedManifestSha256 !== "string" || !/^[0-9a-f]{64}$/.test(obj.expectedManifestSha256)) return { ok: false, error: "export_manifest_required" };
+  if (createHash("sha256").update(obj.manifestUtf8, "utf8").digest("hex") !== obj.expectedManifestSha256) return { ok: false, error: "manifest_digest_mismatch" };
+  try {
+    const m = JSON.parse(obj.manifestUtf8);
+    if (m.version !== 1 || m.projectId !== obj.projectId || m.changesetId !== obj.changesetId || m.patchSha256 !== obj.expectedSha256
+      || ![m.baseCommit, m.baseTree, m.sanitizedBaseTree, m.candidateTree].every(value => typeof value === "string" && /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(value))
+      || typeof m.rationale !== "string" || !m.rationale.trim() || m.rationale.length > 4000
+      || !Array.isArray(m.frictionRefs) || m.frictionRefs.length > 8 || !m.frictionRefs.every((ref: unknown) => typeof ref === "string" && ref.startsWith("friction:") && ref.length > 9)
+      || m.m4Receipt?.outcome !== "succeeded" || m.m4Receipt?.verificationOutcome !== "verified_success"
+      || m.m4Receipt?.candidateTreeHash !== m.candidateContentHash || typeof m.candidateContentHash !== "string" || !/^[a-f0-9]{64}$/.test(m.candidateContentHash)
+      || typeof m.m4Receipt?.taskId !== "string" || !m.m4Receipt.taskId || typeof m.m4Receipt?.workspaceId !== "string" || !m.m4Receipt.workspaceId) {
+      return { ok: false, error: "manifest_binding_invalid" };
+    }
+    if (scanAuthorshipText(obj.manifestUtf8).hit) return { ok: false, error: "secret_detected" };
+  } catch { return { ok: false, error: "manifest_binding_invalid" }; }
   return {
     ok: true,
     request: {
@@ -94,6 +76,8 @@ export function validatePatchExportRequest(
       artifactRef: obj.artifactRef,
       expectedSha256: obj.expectedSha256,
       destinationRoot: obj.destinationRoot,
+      manifestUtf8: obj.manifestUtf8,
+      expectedManifestSha256: obj.expectedManifestSha256,
     },
   };
 }
@@ -122,7 +106,8 @@ export function executePatchExport(
   if (destRoot === resolved.entry.canonicalRoot) return fail("destination_is_live_root");
 
   if (!existsSync(parsed.request.artifactRef)) return fail("artifact_missing");
-  const sourceDigest = sha256File(parsed.request.artifactRef);
+  const bytes = readFileSync(parsed.request.artifactRef);
+  const sourceDigest = createHash("sha256").update(bytes).digest("hex");
   if (sourceDigest !== parsed.request.expectedSha256) return fail("artifact_digest_mismatch");
 
   const destName = `${parsed.request.changesetId}.patch`;
@@ -131,37 +116,10 @@ export function executePatchExport(
     return fail("destination_escape");
   }
 
-  const initialDestination = destinationState(destRoot, destPath);
-  if (!initialDestination.ok) return fail("destination_escape");
-
-  if (initialDestination.exists) {
-    const existing = sha256File(destPath);
-    if (existing !== parsed.request.expectedSha256) return fail("destination_conflict");
-    return succeeded(parsed.request, destPath, destName, existing, executedAtMs, readFileSync(destPath).byteLength);
-  }
-
-  const bytes = readFileSync(parsed.request.artifactRef);
-  const tempPath = join(destRoot, `.${destName}.${randomUUID()}.tmp`);
-  try {
-    writeFileSync(tempPath, bytes, { mode: 0o600, flag: "wx" });
-    const beforeRename = destinationState(destRoot, destPath);
-    if (!beforeRename.ok) return fail("destination_escape");
-    if (beforeRename.exists) return fail("destination_conflict");
-    renameSync(tempPath, destPath);
-  } catch {
-    return fail("destination_write_failed");
-  } finally {
-    try { rmSync(tempPath, { force: true }); } catch { /* preserve export result */ }
-  }
-
-  const afterRename = destinationState(destRoot, destPath);
-  if (!afterRename.ok || !afterRename.exists) return fail("destination_escape");
-  const witnessed = sha256File(destPath);
-  if (witnessed !== parsed.request.expectedSha256) {
-    return fail("witness_mismatch");
-  }
-
-  return succeeded(parsed.request, destPath, destName, witnessed, executedAtMs, bytes.byteLength);
+  const pair = writeArtifactPair({ destinationRoot: destRoot, changesetId: parsed.request.changesetId,
+    patch: bytes, manifest: Buffer.from(parsed.request.manifestUtf8, "utf8") });
+  if (!pair.ok) return fail(pair.error);
+  return succeeded(parsed.request, destPath, destName, pair.patchSha256, executedAtMs, bytes.byteLength, pair.manifestPath, pair.manifestSha256);
 }
 
 function succeeded(
@@ -171,6 +129,8 @@ function succeeded(
   witnessedSha256: string,
   executedAtMs: number,
   bytesWritten: number,
+  manifestPath: string,
+  manifestSha256: string,
 ): SandboxV2Result {
   return {
     outcome: "succeeded",
@@ -185,6 +145,9 @@ function succeeded(
       destinationPath: destPath,
       patchSha256: request.expectedSha256,
       witnessedSha256,
+      manifestDestinationPath: manifestPath,
+      manifestSha256: request.expectedManifestSha256,
+      witnessedManifestSha256: manifestSha256,
       bytesWritten,
       liveUnwritten: true,
       gitUnwritten: true,

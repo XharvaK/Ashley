@@ -11,7 +11,7 @@ export type PathChange = {
 };
 
 export type DiffResult =
-  | { ok: true; changes: PathChange[]; patchUtf8: string }
+  | { ok: true; changes: PathChange[] }
   | { ok: false; error: "empty_changeset" | "unbounded_path" | "changeset_too_large" };
 
 function compareRecords(
@@ -53,48 +53,6 @@ function compareRecords(
   return changes;
 }
 
-function fileBody(record: TreeFileRecord | undefined, missingLabel: string): string {
-  if (!record) return `${missingLabel}\n`;
-  if (record.utf8 === null) {
-    return `binary file sha256=${record.sha256} bytes=${record.bytes}\n`;
-  }
-  return record.utf8.endsWith("\n") ? record.utf8 : `${record.utf8}\n`;
-}
-
-function renderPatch(
-  changes: PathChange[],
-  base: Map<string, TreeFileRecord>,
-  candidate: Map<string, TreeFileRecord>,
-): string {
-  const parts: string[] = [];
-  for (const change of changes) {
-    parts.push(`diff --git a/${change.path} b/${change.path}`);
-    parts.push(`--- a/${change.changeKind === "added" ? "/dev/null" : change.path}`);
-    parts.push(`+++ b/${change.changeKind === "deleted" ? "/dev/null" : change.path}`);
-    const before = base.get(change.path);
-    const after = candidate.get(change.path);
-    if (change.changeKind === "deleted") {
-      for (const line of fileBody(before, "").split("\n").slice(0, -1)) {
-        parts.push(`-${line}`);
-      }
-      continue;
-    }
-    if (change.changeKind === "added") {
-      for (const line of fileBody(after, "").split("\n").slice(0, -1)) {
-        parts.push(`+${line}`);
-      }
-      continue;
-    }
-    for (const line of fileBody(before, "").split("\n").slice(0, -1)) {
-      parts.push(`-${line}`);
-    }
-    for (const line of fileBody(after, "").split("\n").slice(0, -1)) {
-      parts.push(`+${line}`);
-    }
-  }
-  return `${parts.join("\n")}\n`;
-}
-
 export function diffCandidateAgainstBase(input: {
   base: Map<string, TreeFileRecord>;
   candidate: Map<string, TreeFileRecord>;
@@ -115,10 +73,5 @@ export function diffCandidateAgainstBase(input: {
   if (changes.length > V2_LIMITS.CHANGESET_MAX_PATHS) {
     return { ok: false, error: "changeset_too_large" };
   }
-  const patchUtf8 = renderPatch(changes, input.base, input.candidate);
-  const patchBytes = Buffer.byteLength(patchUtf8, "utf8");
-  if (patchBytes > V2_LIMITS.CHANGESET_MAX_PATCH_BYTES) {
-    return { ok: false, error: "changeset_too_large" };
-  }
-  return { ok: true, changes, patchUtf8 };
+  return { ok: true, changes };
 }
