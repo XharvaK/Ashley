@@ -1,5 +1,11 @@
 // Authenticate operator observations; admission never grants acceptance, merge, or deployment authority.
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
+import { constants, type Dir } from "node:fs";
+import { lstat, open, opendir, realpath } from "node:fs/promises";
+import { join, resolve } from "node:path";
+import { resolveBudgetPolicy } from "../private-budget/policies.js";
+import { getPrivateReservationForWake, reservePrivateThought } from "../private-budget/ledger.js";
+import { SELF_CHANGE_POLICY_ID, SELF_CHANGE_WINDOW_MS } from "./self-change.js";
 import type { DatabaseSync } from "node:sqlite";
 import { appendInboxEvent, getInboxEvent } from "../cycle/inbox.js";
 
@@ -48,4 +54,60 @@ export function admitSelfChangeResult(db: DatabaseSync, input: { result: SelfCha
   const event = appendInboxEvent(db, { id, conversationId: input.conversationId, kind: "self_change_result",
     payload: { selfChangeResult: result, resultDigest }, createdAtMs: input.nowMs });
   return { kind: "admitted" as const, event };
+}
+
+export type SelfChangeResultPollState = { directory?: string; handle?: Dir };
+/** Local authenticated operator feed. File polling never creates credentials or chooses a policy limit. */
+export async function pollSelfChangeResults(db: DatabaseSync, input: {
+ enabled: boolean; directory: string; key: string; conversationId: string; nowMs: number; state?: SelfChangeResultPollState;
+}) {
+ const counts = { admitted: 0, existing: 0, refused: 0, budgetDeferred: 0 };
+ if (!input.enabled) return { status: "disabled" as const, ...counts };
+ if (Buffer.byteLength(input.key) < 32 || !input.conversationId.trim()) return { status: "unconfigured" as const, ...counts };
+ try { if (resolveBudgetPolicy(db, SELF_CHANGE_POLICY_ID).windowMs !== SELF_CHANGE_WINDOW_MS) return { status: "unconfigured" as const, ...counts }; }
+ catch { return { status: "unconfigured" as const, ...counts }; }
+ const directory = resolve(input.directory);
+ if (directory !== input.directory || (await lstat(directory)).isSymbolicLink() || await realpath(directory) !== directory) throw new Error("self_change_result_directory_invalid");
+ const state = input.state ?? {};
+ if (state.directory && state.directory !== directory) throw new Error("self_change_result_directory_changed");
+ state.directory = directory;
+ state.handle ??= await opendir(directory);
+ try {
+  // Keep an open directory cursor across maintenance passes; retained receipts cannot starve later files.
+  for (let scanned = 0; scanned < 32; scanned++) {
+   const entry = await state.handle.read();
+   if (!entry) { await state.handle.close(); state.handle = undefined; break; }
+   if (!entry.name.endsWith(".result.json")) continue;
+   try {
+    if (!entry.isFile() || entry.isSymbolicLink()) throw new Error("self_change_result_path_invalid");
+    const path = join(directory, entry.name);
+    const before = await lstat(path);
+    if (!before.isFile() || before.isSymbolicLink() || before.size > 32 * 1024) throw new Error("self_change_result_path_invalid");
+    const handle = await open(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+    let raw: string;
+    try {
+     const stat = await handle.stat();
+     if (!stat.isFile() || stat.ino !== before.ino || stat.dev !== before.dev || stat.size > 32 * 1024) throw new Error("self_change_result_path_invalid");
+     const bytes = Buffer.alloc(32 * 1024 + 1); const read = await handle.read(bytes, 0, bytes.length, 0);
+     if (read.bytesRead > 32 * 1024) throw new Error("self_change_result_invalid");
+     raw = bytes.subarray(0, read.bytesRead).toString("utf8");
+    } finally { await handle.close(); }
+    const result = authenticateSelfChangeResult(raw, input.key);
+    if (entry.name !== result.changesetId + ".result.json") throw new Error("self_change_result_filename_mismatch");
+    const admitted = admitSelfChangeResult(db, { result, conversationId: input.conversationId, nowMs: input.nowMs });
+    const event = admitted.event;
+    const previous = getPrivateReservationForWake(db, event.wakeId!);
+    if (previous && previous.policyId !== SELF_CHANGE_POLICY_ID) throw new Error("self_change_result_policy_conflict");
+    if (!previous) {
+     const reservation = reservePrivateThought(db, { admissionId: event.id, wakeId: event.wakeId!, conversationId: event.conversationId,
+      policyId: SELF_CHANGE_POLICY_ID, wallClockNowMs: input.nowMs });
+     if (reservation.kind !== "reserved") counts.budgetDeferred++;
+    }
+    counts[admitted.kind === "admitted" ? "admitted" : "existing"]++;
+   } catch { counts.refused++; } // Never log signed result text, keys, or filesystem/transport details.
+  }
+ } finally {
+  if (!input.state && state.handle) { await state.handle.close(); state.handle = undefined; }
+ }
+ return { status: "polled" as const, ...counts };
 }
