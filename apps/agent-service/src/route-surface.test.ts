@@ -636,6 +636,8 @@ describe("A3b practice owner routes", () => {
     try {
       expect((await fetch(`${url}/growth/dimensions`)).status).toBe(403);
       expect((await fetch(`${url}/growth/dimensions?owner_id=not-the-owner`)).status).toBe(403);
+      expect((await fetch(`${url}/growth/dimensions/seed`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: "x", question: "y?" }) })).status).toBe(403);
+      expect((await fetch(`${url}/growth/dimensions/revert`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ dimensionId: "d" }) })).status).toBe(403);
     } finally { await stopTestServer(server); env.discordOwnerId = previousOwner; }
   });
   it("rejects a non-owner practice view", async () => {
