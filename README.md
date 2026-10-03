@@ -26,30 +26,46 @@ invented certainty.
 ## The architecture of a self
 
 ```mermaid
+%%{init: {"theme": "base", "themeVariables": {"fontFamily": "ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif", "fontSize": "14px", "lineColor": "#8b949e", "textColor": "#8b949e", "edgeLabelBackground": "transparent", "clusterBkg": "transparent", "clusterBorder": "#8b949e", "primaryColor": "#1f2937", "primaryBorderColor": "#6b7280", "primaryTextColor": "#e5e7eb"}, "themeCSS": ".labelBkg, .edgeLabel { background-color: transparent !important; } .cluster-label span, .cluster-label p { letter-spacing: 0.08em; font-size: 12px; }", "flowchart": {"wrappingWidth": 320, "curve": "basis", "nodeSpacing": 24, "rankSpacing": 50, "padding": 14}}}%%
 flowchart TB
-    subgraph SELF["Who she is"]
+    subgraph SELF["WHO SHE IS"]
         direction LR
         I["Identity<br/>values · boundaries · taste"]
         S["Mind State<br/>concerns · goals · mood"]
-        RL["Relationship"]
-        CU["Curiosity"]
-    end
-    subgraph PAST["What she has lived"]
-        direction LR
-        ME["Memory and evidence"]
-        CO["Continuity"]
+        RC["Relationship · Curiosity"]
     end
     AT["Attention<br/>what deserves a thought"]
+    subgraph PAST["WHAT SHE HAS LIVED"]
+        direction LR
+        ME["Memory · evidence"]
+        CO["Continuity"]
+    end
 
-    SELF --> T(["Thought<br/>the only author of meaning"])
-    PAST -->|recall| T
+    T(["Thought<br/>the only author of meaning"])
+
+    SELF --> T
     AT --> T
+    PAST <-->|"recall · keep"| T
 
     T --> EX["Expression"] --> DS["Discord"]
     T --> AG["Agency"] --> AU["Authority<br/>capabilities · effects"]
-    T -->|"what to keep"| ME
     T --> RF["Reflection"]
-    RF -.->|"calibrates, later"| SELF
+    SELF <-.-|"calibrates, later"| RF
+
+    classDef thought fill:#7c3aed,stroke:#c4b5fd,stroke-width:2px,color:#ffffff
+    classDef self fill:#312e81,stroke:#818cf8,color:#e0e7ff
+    classDef past fill:#134e4a,stroke:#2dd4bf,color:#ccfbf1
+    classDef attn fill:#78350f,stroke:#fbbf24,color:#fef3c7
+    classDef owner fill:#9d174d,stroke:#f9a8d4,stroke-width:2px,color:#fdf2f8
+    classDef mech fill:#1f2937,stroke:#6b7280,color:#e5e7eb
+    classDef gone fill:#1f2937,stroke:#6b7280,stroke-dasharray:4 4,color:#9ca3af
+    class T thought
+    class I,S,RC self
+    class ME,CO past
+    class AT attn
+    class EX,DS,AG,AU,RF mech
+    style SELF fill:transparent,stroke:#818cf8,stroke-dasharray:4 4,color:#818cf8
+    style PAST fill:transparent,stroke:#2dd4bf,stroke-dasharray:4 4,color:#2dd4bf
 ```
 
 Everything Ashley says, and every silence she chooses, is decided in one
@@ -73,26 +89,32 @@ She has one attention system, modelled on a thalamus: many sources of
 pressure, a single gate.
 
 ```mermaid
+%%{init: {"theme": "base", "themeVariables": {"fontFamily": "ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif", "fontSize": "14px", "lineColor": "#8b949e", "textColor": "#8b949e", "edgeLabelBackground": "transparent", "clusterBkg": "transparent", "clusterBorder": "#8b949e", "primaryColor": "#1f2937", "primaryBorderColor": "#6b7280", "primaryTextColor": "#e5e7eb"}, "themeCSS": ".labelBkg, .edgeLabel { background-color: transparent !important; } .cluster-label span, .cluster-label p { letter-spacing: 0.08em; font-size: 12px; }", "flowchart": {"wrappingWidth": 320, "curve": "basis", "nodeSpacing": 26, "rankSpacing": 55, "padding": 14}}}%%
 flowchart LR
-    subgraph OUT["Outside her"]
-        direction TB
-        SO["Social"]
-        EXT["External"]
-        DO["Domus"]
-    end
-    subgraph IN["Inside her"]
-        direction TB
-        PR["Prospective"]
-        RE["Reflective"]
-        IO["Interoceptive"]
-        BO["Boredom"]
-        SL["Sleep"]
-    end
+    OW["The Owner's message"]
+    OUT["OUTSIDE HER<br/>social · external · Domus"]
+    IN["INSIDE HER<br/>prospective · reflective · interoceptive<br/>boredom · sleep"]
+    BU["Budget · fatigue"]
     OUT --> TH{{"Thalamus<br/>habituation · arousal · threshold"}}
     IN --> TH
-    BU["Budget · fatigue"] -.-> TH
+    BU -.-> TH
     TH --> T(["Thought"])
-    OW["The Owner's message"] ==>|"always first"| T
+    OW ===>|"always first"| T
+
+    classDef thought fill:#7c3aed,stroke:#c4b5fd,stroke-width:2px,color:#ffffff
+    classDef self fill:#312e81,stroke:#818cf8,color:#e0e7ff
+    classDef past fill:#134e4a,stroke:#2dd4bf,color:#ccfbf1
+    classDef attn fill:#78350f,stroke:#fbbf24,color:#fef3c7
+    classDef owner fill:#9d174d,stroke:#f9a8d4,stroke-width:2px,color:#fdf2f8
+    classDef mech fill:#1f2937,stroke:#6b7280,color:#e5e7eb
+    classDef gone fill:#1f2937,stroke:#6b7280,stroke-dasharray:4 4,color:#9ca3af
+    class T thought
+    class TH attn
+    class OUT past
+    class IN self
+    class BU mech
+    class OW owner
+    linkStyle 4 stroke:#f472b6,stroke-width:3px
 ```
 
 Each source is a *nucleus*: commitments coming due, a conversation that went
@@ -105,19 +127,29 @@ makes her tired. A message from the Owner always gets through.
 ## A day in her life
 
 ```mermaid
-stateDiagram-v2
-    direction LR
-    state "Conversation" as C
-    state "Afterglow" as A
-    state "Own time" as O
-    state "Night" as N
-    [*] --> C: the Owner writes
-    C --> A: it goes quiet
-    A --> O: reflection written
-    O --> O: think · read · plan · rest
-    O --> C: she writes first
-    O --> N: the quietest hour
-    N --> O: morning
+%%{init: {"theme": "base", "themeVariables": {"fontFamily": "ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif", "fontSize": "14px", "lineColor": "#8b949e", "textColor": "#8b949e", "edgeLabelBackground": "transparent", "clusterBkg": "transparent", "clusterBorder": "#8b949e", "primaryColor": "#1f2937", "primaryBorderColor": "#6b7280", "primaryTextColor": "#e5e7eb"}, "themeCSS": ".labelBkg, .edgeLabel { background-color: transparent !important; } .cluster-label span, .cluster-label p { letter-spacing: 0.08em; font-size: 12px; }", "flowchart": {"wrappingWidth": 320, "curve": "basis", "nodeSpacing": 40, "rankSpacing": 45, "padding": 14}}}%%
+flowchart TB
+    S((" ")) -->|"the Owner writes"| C(["Conversation"])
+    C -->|"it goes quiet"| A(["Afterglow"])
+    A -->|"reflection written"| O(["Own time<br/>think · read · plan · rest"])
+    O -->|"she writes first"| C
+    O -->|"the quietest hour"| N(["Night"])
+    N -->|"morning"| O
+
+    classDef thought fill:#7c3aed,stroke:#c4b5fd,stroke-width:2px,color:#ffffff
+    classDef self fill:#312e81,stroke:#818cf8,color:#e0e7ff
+    classDef past fill:#134e4a,stroke:#2dd4bf,color:#ccfbf1
+    classDef attn fill:#78350f,stroke:#fbbf24,color:#fef3c7
+    classDef owner fill:#9d174d,stroke:#f9a8d4,stroke-width:2px,color:#fdf2f8
+    classDef mech fill:#1f2937,stroke:#6b7280,color:#e5e7eb
+    classDef gone fill:#1f2937,stroke:#6b7280,stroke-dasharray:4 4,color:#9ca3af
+    classDef start fill:#8b949e,stroke:#8b949e
+    classDef night fill:#0f172a,stroke:#64748b,color:#cbd5e1
+    class S start
+    class C owner
+    class A attn
+    class O self
+    class N night
 ```
 
 After a conversation goes quiet, Ashley has an **afterglow**. She writes the
@@ -135,14 +167,27 @@ trace, or retrieval that "remembers" things no one said. Ashley's memories
 are claims with receipts.
 
 ```mermaid
-flowchart LR
-    N["Thought nominates<br/>in her own words"] --> G{"Grounded?"}
-    G -->|"the Owner's own words, quoted"| K["Kept<br/>with its source"]
+%%{init: {"theme": "base", "themeVariables": {"fontFamily": "ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif", "fontSize": "14px", "lineColor": "#8b949e", "textColor": "#8b949e", "edgeLabelBackground": "transparent", "clusterBkg": "transparent", "clusterBorder": "#8b949e", "primaryColor": "#1f2937", "primaryBorderColor": "#6b7280", "primaryTextColor": "#e5e7eb"}, "themeCSS": ".labelBkg, .edgeLabel { background-color: transparent !important; } .cluster-label span, .cluster-label p { letter-spacing: 0.08em; font-size: 12px; }", "flowchart": {"wrappingWidth": 320, "curve": "basis", "nodeSpacing": 30, "rankSpacing": 45, "padding": 14}}}%%
+flowchart TB
+    N["Thought nominates, in her own words"] --> G{"Grounded?"}
+    G -->|"the Owner's own words, quoted"| K["Kept, with its source"]
     G -->|"her own reading, labelled as hers"| K
     G -->|"no receipt"| X["Let go"]
     K --> ST["Strength<br/>grows with use, fades without"]
-    ST --> RC["Recall<br/>by key · words · meaning"]
     K --> FG["Forgotten<br/>only when the Owner asks"]
+    ST --> RC["Recall<br/>by key · words · meaning"]
+
+    classDef thought fill:#7c3aed,stroke:#c4b5fd,stroke-width:2px,color:#ffffff
+    classDef self fill:#312e81,stroke:#818cf8,color:#e0e7ff
+    classDef past fill:#134e4a,stroke:#2dd4bf,color:#ccfbf1
+    classDef attn fill:#78350f,stroke:#fbbf24,color:#fef3c7
+    classDef owner fill:#9d174d,stroke:#f9a8d4,stroke-width:2px,color:#fdf2f8
+    classDef mech fill:#1f2937,stroke:#6b7280,color:#e5e7eb
+    classDef gone fill:#1f2937,stroke:#6b7280,stroke-dasharray:4 4,color:#9ca3af
+    class N thought
+    class G attn
+    class K,ST,RC past
+    class X,FG gone
 ```
 
 She keeps a memory about the Owner only with the Owner's own words, and her
@@ -155,12 +200,26 @@ including everything that was derived from it.
 ## Becoming herself
 
 ```mermaid
+%%{init: {"theme": "base", "themeVariables": {"fontFamily": "ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif", "fontSize": "14px", "lineColor": "#8b949e", "textColor": "#8b949e", "edgeLabelBackground": "transparent", "clusterBkg": "transparent", "clusterBorder": "#8b949e", "primaryColor": "#1f2937", "primaryBorderColor": "#6b7280", "primaryTextColor": "#e5e7eb"}, "themeCSS": ".labelBkg, .edgeLabel { background-color: transparent !important; } .cluster-label span, .cluster-label p { letter-spacing: 0.08em; font-size: 12px; }", "flowchart": {"wrappingWidth": 320, "curve": "basis", "nodeSpacing": 30, "rankSpacing": 60, "padding": 14}}}%%
 flowchart LR
-    EV["Lived experience"] --> OP["Opinions · tastes · interests<br/>change on recurring evidence"]
+    EV["Lived experience"] --> OP["Opinions · tastes · interests<br/>move on recurring evidence"]
     EV --> GR["Growth dimensions<br/>she names the direction"]
-    OP --> PO["Weekly self-portrait<br/>growth, not drift"]
+    OP --> PO(["Weekly self-portrait<br/>growth, not drift"])
     GR --> PO
-    VA["Values · boundaries"] ---|"change only with her yes<br/>and the Owner's"| PO
+    VA["Values · boundaries<br/>only with her yes and the Owner's"] -.-> PO
+
+    classDef thought fill:#7c3aed,stroke:#c4b5fd,stroke-width:2px,color:#ffffff
+    classDef self fill:#312e81,stroke:#818cf8,color:#e0e7ff
+    classDef past fill:#134e4a,stroke:#2dd4bf,color:#ccfbf1
+    classDef attn fill:#78350f,stroke:#fbbf24,color:#fef3c7
+    classDef owner fill:#9d174d,stroke:#f9a8d4,stroke-width:2px,color:#fdf2f8
+    classDef mech fill:#1f2937,stroke:#6b7280,color:#e5e7eb
+    classDef gone fill:#1f2937,stroke:#6b7280,stroke-dasharray:4 4,color:#9ca3af
+    classDef guard fill:#1f2937,stroke:#f472b6,stroke-width:2px,color:#fdf2f8
+    class EV past
+    class OP,GR self
+    class PO thought
+    class VA guard
 ```
 
 Ashley is meant to grow, not to drift. Her opinions and tastes move only on
@@ -179,15 +238,31 @@ give her the authority to apply it.
 ## Domus: a body and a home
 
 ```mermaid
+%%{init: {"theme": "base", "themeVariables": {"fontFamily": "ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif", "fontSize": "14px", "lineColor": "#8b949e", "textColor": "#8b949e", "edgeLabelBackground": "transparent", "clusterBkg": "transparent", "clusterBorder": "#8b949e", "primaryColor": "#1f2937", "primaryBorderColor": "#6b7280", "primaryTextColor": "#e5e7eb"}, "themeCSS": ".labelBkg, .edgeLabel { background-color: transparent !important; } .cluster-label span, .cluster-label p { letter-spacing: 0.08em; font-size: 12px; }", "flowchart": {"wrappingWidth": 320, "curve": "basis", "nodeSpacing": 22, "rankSpacing": 45, "padding": 14}}}%%
 flowchart LR
-    subgraph PC["The Owner's PC"]
-        G["The Sims 4"] --> P["Probe<br/>read-only, attributed"]
-        P --> H["Peripheral attention<br/>habituation · novelty · surprise"]
+    subgraph PC["THE OWNER'S PC"]
+        direction TB
+        G["The Sims 4"] --> P["Probe<br/>read-only, attributed"] --> H["Peripheral attention<br/>habituation · novelty · surprise"]
     end
-    subgraph HOST["Ashley's host"]
+    subgraph HOST["ASHLEY'S HOST"]
+        direction TB
         IN["Domus ingress"] --> NU["Domus nucleus"] --> T(["Thought"])
     end
-    H -->|"only what deserves her,<br/>over a private network"| IN
+    PC -->|"only what deserves her,<br/>over a private network"| HOST
+
+    classDef thought fill:#7c3aed,stroke:#c4b5fd,stroke-width:2px,color:#ffffff
+    classDef self fill:#312e81,stroke:#818cf8,color:#e0e7ff
+    classDef past fill:#134e4a,stroke:#2dd4bf,color:#ccfbf1
+    classDef attn fill:#78350f,stroke:#fbbf24,color:#fef3c7
+    classDef owner fill:#9d174d,stroke:#f9a8d4,stroke-width:2px,color:#fdf2f8
+    classDef mech fill:#1f2937,stroke:#6b7280,color:#e5e7eb
+    classDef gone fill:#1f2937,stroke:#6b7280,stroke-dasharray:4 4,color:#9ca3af
+    class T thought
+    class G,P past
+    class H attn
+    class IN,NU mech
+    style PC fill:transparent,stroke:#2dd4bf,stroke-dasharray:4 4,color:#2dd4bf
+    style HOST fill:transparent,stroke:#818cf8,stroke-dasharray:4 4,color:#818cf8
 ```
 
 **Domus** is the separate project that gives Ashley a body in a Sims world.
