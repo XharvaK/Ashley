@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { maxClassification, type DataClassification } from "../../privacy/classification.js";
 import { REDACTED_MEMORY_STATEMENT } from "./assertions.js";
+import type { MemoryChannel, MemoryLineageClass } from "../types.js";
 
 /**
  * Growth V1 §4.4: episodes and the thread story.
@@ -41,6 +42,8 @@ export type EpisodeRecord = {
   takeaway: string | null;
   dataClassification: DataClassification;
   createdAtMs: number;
+  channel: MemoryChannel;
+  lineageClass: MemoryLineageClass;
 };
 
 /** Compact episode shape Thought sees. */
@@ -103,7 +106,21 @@ function mapEpisode(row: unknown): EpisodeRecord | null {
     takeaway: typeof value.ashley_takeaway === "string" ? value.ashley_takeaway : null,
     dataClassification: classification(value.data_classification),
     createdAtMs: number(value.created_at_ms),
+    channel: memoryChannel(value.channel),
+    lineageClass: memoryLineageClass(value.lineage_class),
   };
+}
+
+function memoryChannel(value: unknown): MemoryChannel {
+  if (value === "discord") return "discord";
+  if (typeof value === "string" && value.startsWith("domus:") && value.length > "domus:".length) {
+    return value as MemoryChannel;
+  }
+  return "discord";
+}
+
+function memoryLineageClass(value: unknown): MemoryLineageClass {
+  return value === "undone" ? "undone" : "current";
 }
 
 /** One episode per reflection cycle: the id is derived, so a replay cannot duplicate it. */
@@ -124,6 +141,7 @@ export function recordEpisode(
     rows: ReadonlyArray<{ rowId: string; createdAtMs: number; dataClassification: DataClassification }>;
     reflection: EpisodeReflection;
     nowMs: number;
+    channel?: MemoryChannel;
   },
 ): EpisodeRecord | null {
   const first = input.rows[0];
@@ -141,8 +159,9 @@ export function recordEpisode(
   const inserted = db.prepare(
     `INSERT OR IGNORE INTO episodes_v2
        (episode_id, conversation_id, cycle_id, started_at_ms, ended_at_ms, evidence_row_ids_json,
-        summary, tone, salience, unresolved_threads_json, ashley_takeaway, data_classification, created_at_ms)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        summary, tone, salience, unresolved_threads_json, ashley_takeaway, data_classification, created_at_ms,
+        channel, lineage_class)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'current')`,
   ).run(
     episodeId,
     input.conversationId,
@@ -157,6 +176,7 @@ export function recordEpisode(
     takeaway,
     maxClassification(...input.rows.map((row) => row.dataClassification)),
     input.nowMs,
+    input.channel ?? "discord",
   );
   if (number(inserted.changes) > 0) {
     db.prepare("INSERT INTO episodes_v2_fts (episode_id, summary, ashley_takeaway) VALUES (?, ?, ?)")

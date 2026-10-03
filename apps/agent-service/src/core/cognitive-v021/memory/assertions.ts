@@ -10,7 +10,9 @@ import type {
   AssertionKey,
   EpistemicDimensions,
   MemoryAssertion,
+  MemoryChannel,
   MemoryKind,
+  MemoryLineageClass,
 } from "../types.js";
 import type { SocialAudience } from "../social/types.js";
 import { isMemoryKind } from "./kinds.js";
@@ -133,8 +135,22 @@ function mapAssertion(value: unknown): MemoryAssertion | null {
     lineageParentKey: value.lineage_parent_key == null ? null : text(value.lineage_parent_key),
     admittedGeneration: value.admitted_generation == null ? null : number(value.admitted_generation),
     live: number(value.live) === 1,
+    channel: memoryChannel(value.channel),
+    lineageClass: memoryLineageClass(value.lineage_class),
     ...(facets === null ? {} : facets),
   };
+}
+
+function memoryChannel(value: unknown): MemoryChannel {
+  if (value === "discord") return "discord";
+  if (typeof value === "string" && value.startsWith("domus:") && value.length > "domus:".length) {
+    return value as MemoryChannel;
+  }
+  return "discord";
+}
+
+function memoryLineageClass(value: unknown): MemoryLineageClass {
+  return value === "undone" ? "undone" : "current";
 }
 
 export function hashMemoryAssertion(input: Pick<MemoryAssertion, "assertionKey" | "statement" | "memoryKind" | "dimensions" | "dataClassification" | "lineageParentKey" | "admittedGeneration" | "live">): string {
@@ -168,6 +184,7 @@ export type UpsertMemoryAssertionInput = {
   protectionBasisRefs?: string[];
   protectionStatus?: "admitted" | "unresolved" | null;
   licenseRefs?: string[];
+  channel?: MemoryChannel;
 };
 
 function assertWritable(input: UpsertMemoryAssertionInput): void {
@@ -219,11 +236,12 @@ export function upsertMemoryAssertion(
       }
     : { ...input, dataClassification: effectiveClassification };
   const contentHash = hashMemoryAssertion({ ...effective });
+  const channel = effective.channel ?? "discord";
   db.prepare(
     `INSERT INTO sidecar_memory_assertions
        (assertion_key, statement, memory_kind, dimensions_json, data_classification,
-        lineage_parent_key, admitted_generation, live, content_hash)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        lineage_parent_key, admitted_generation, live, content_hash, channel, lineage_class)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'current')
      ON CONFLICT(assertion_key) DO UPDATE SET
        statement=excluded.statement,
        memory_kind=excluded.memory_kind,
@@ -232,7 +250,9 @@ export function upsertMemoryAssertion(
        lineage_parent_key=excluded.lineage_parent_key,
        admitted_generation=excluded.admitted_generation,
        live=excluded.live,
-       content_hash=excluded.content_hash`,
+       content_hash=excluded.content_hash,
+       channel=excluded.channel,
+       lineage_class='current'`,
   ).run(
     effective.assertionKey,
     effective.statement,
@@ -243,6 +263,7 @@ export function upsertMemoryAssertion(
     effective.admittedGeneration,
     effective.live ? 1 : 0,
     contentHash,
+    channel,
   );
   const result = getMemoryAssertion(db, effective.assertionKey);
   if (!result) throw new Error("memory_assertion_upsert_lost");

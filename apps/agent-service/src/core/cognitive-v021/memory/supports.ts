@@ -6,6 +6,8 @@ import {
 import type {
   EpistemicDimensions,
   EpistemicSource,
+  MemoryChannel,
+  MemoryLineageClass,
   MemorySupport,
   MemorySupportProvenance,
   SourceSupportRef,
@@ -15,8 +17,9 @@ import { getConversationEvidence } from "../evidence/conversation-log.js";
 
 type DbRow = Record<string, unknown>;
 
-export type AppendMemorySupportInput = Omit<MemorySupport, "createdAtMs"> & {
+export type AppendMemorySupportInput = Omit<MemorySupport, "createdAtMs" | "channel" | "lineageClass"> & {
   createdAtMs?: number;
+  channel?: MemoryChannel;
   /** Validation context only; the conversation id remains owned by the source row. */
   conversationId?: string;
 };
@@ -69,7 +72,21 @@ function mapSupport(value: unknown): MemorySupport | null {
     dimensions: dimensions as EpistemicDimensions,
     dataClassification: classification(value.data_classification),
     createdAtMs: number(value.created_at_ms),
+    channel: memoryChannel(value.channel),
+    lineageClass: memoryLineageClass(value.lineage_class),
   };
+}
+
+function memoryChannel(value: unknown): MemoryChannel {
+  if (value === "discord") return "discord";
+  if (typeof value === "string" && value.startsWith("domus:") && value.length > "domus:".length) {
+    return value as MemoryChannel;
+  }
+  return "discord";
+}
+
+function memoryLineageClass(value: unknown): MemoryLineageClass {
+  return value === "undone" ? "undone" : "current";
 }
 
 export function appendMemorySupport(
@@ -93,8 +110,8 @@ export function appendMemorySupport(
     `INSERT OR IGNORE INTO sidecar_memory_supports
        (support_id, assertion_key, source, provenance, source_architecture_epoch,
         source_ref, settlement_id, evidence_lineage_id, observation_id, receipt_id,
-        dimensions_json, data_classification, created_at_ms, support_ref_json)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        dimensions_json, data_classification, created_at_ms, support_ref_json, channel, lineage_class)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'current')`,
   ).run(
     input.supportId,
     input.assertionKey,
@@ -110,6 +127,7 @@ export function appendMemorySupport(
     input.dataClassification,
     input.createdAtMs ?? Date.now(),
     supportRef ? JSON.stringify(supportRef) : null,
+    input.channel ?? "discord",
   );
   const row = db.prepare("SELECT * FROM sidecar_memory_supports WHERE support_id = ?").get(input.supportId);
   const result = mapSupport(row);

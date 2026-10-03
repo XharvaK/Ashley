@@ -15,6 +15,18 @@ export function openTestSidecar(): DatabaseSync {
 /** Rewind an in-memory current sidecar to a structurally valid historical fixture version. */
 export function setTestSidecarVersion(db: DatabaseSync, version: number): void {
   if (!Number.isSafeInteger(version) || version < 0) throw new Error("test_sidecar_version_invalid");
+  if (version < 61) {
+    for (const table of ["sidecar_memory_assertions", "sidecar_memory_supports", "episodes_v2", "activity_journal"]) {
+      const columns = new Set((db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name?: unknown }>)
+        .map((row) => typeof row.name === "string" ? row.name : ""));
+      for (const name of ["channel", "lineage_class"]) {
+        if (columns.has(name)) db.exec(`ALTER TABLE ${table} DROP COLUMN ${name}`);
+      }
+    }
+    const domusColumns = new Set((db.prepare("PRAGMA table_info(domus_observations)").all() as Array<{ name?: unknown }>)
+      .map((row) => typeof row.name === "string" ? row.name : ""));
+    if (domusColumns.has("undone_at_ms")) db.exec("ALTER TABLE domus_observations DROP COLUMN undone_at_ms");
+  }
   if (version < 60) db.exec("DROP TABLE IF EXISTS domus_observations; DROP TABLE IF EXISTS domus_heartbeats");
   if (version < 58) db.exec("DROP TABLE IF EXISTS self_change_ladder_history; DROP TABLE IF EXISTS self_change_ladder");
   if (version < 57) db.exec("DROP TABLE IF EXISTS self_change_result_receipts");

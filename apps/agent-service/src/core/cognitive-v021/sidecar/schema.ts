@@ -2177,3 +2177,17 @@ CREATE TABLE IF NOT EXISTS domus_heartbeats (
 );
 UPDATE cognitive_sidecar_meta SET schema_version=60 WHERE id=1;
 `;
+
+/** 8b-1: memory channel and lineage carriage. */
+export const COGNITIVE_SIDECAR_SCHEMA_V61 = String.raw`
+ALTER TABLE sidecar_memory_assertions ADD COLUMN channel TEXT NOT NULL DEFAULT 'discord';
+ALTER TABLE sidecar_memory_assertions ADD COLUMN lineage_class TEXT NOT NULL DEFAULT 'current' CHECK (lineage_class IN ('current','undone'));
+ALTER TABLE sidecar_memory_supports ADD COLUMN channel TEXT NOT NULL DEFAULT 'discord';
+ALTER TABLE sidecar_memory_supports ADD COLUMN lineage_class TEXT NOT NULL DEFAULT 'current' CHECK (lineage_class IN ('current','undone'));
+ALTER TABLE episodes_v2 ADD COLUMN channel TEXT NOT NULL DEFAULT 'discord';
+ALTER TABLE episodes_v2 ADD COLUMN lineage_class TEXT NOT NULL DEFAULT 'current' CHECK (lineage_class IN ('current','undone'));
+ALTER TABLE activity_journal ADD COLUMN channel TEXT NOT NULL DEFAULT 'discord';
+ALTER TABLE activity_journal ADD COLUMN lineage_class TEXT NOT NULL DEFAULT 'current' CHECK (lineage_class IN ('current','undone'));
+ALTER TABLE domus_observations ADD COLUMN undone_at_ms INTEGER;
+UPDATE cognitive_sidecar_meta SET schema_version=61 WHERE id=1;
+`;
