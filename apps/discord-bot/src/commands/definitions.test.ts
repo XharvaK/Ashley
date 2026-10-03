@@ -33,5 +33,7 @@ describe("A3b identity choices", () => {
     const identity = buildCommandDefinitions().find(command => command.name === "identity")!;
     const action = identity.options!.find(option => option.name === "action") as any;
     assert.ok(action.choices.some((choice: any) => choice.value === "practices"), "practice action exists");
+    assert.ok(action.choices.some((choice: any) => choice.value === "seed-dimension"), "seed action exists");
+    assert.ok(action.choices.some((choice: any) => choice.value === "revert-dimension"), "revert action exists");
   });
 });

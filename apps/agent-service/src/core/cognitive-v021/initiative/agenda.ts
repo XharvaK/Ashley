@@ -6,6 +6,7 @@ import { INTEREST_ROOTS, listInterestBranches } from "../memory/interests.js";
 import { UNSOLICITED_FUSE_LIMIT, countUnsolicited, recentUnsolicited } from "./reach-out.js";
 import type { AwakePass } from "./inner-pass.js";
 import { recordInfluencedAgendaOrder, type InfluenceAgendaContext } from "../influences/agenda.js";
+import { latestChosenGap } from "../growth/dimensions.js";
 
 /**
  * Growth V1 §5.3: the inner agenda for an AWAKE pass.
@@ -47,6 +48,7 @@ export function buildInnerAgenda(db: DatabaseSync, pass: AwakePass, nowMs: numbe
     lastLivedAtMs: branch.lastLivedAtMs,
     ...(branch.lastNote ? { note: branch.lastNote } : {}),
   }));
+  const chosen = latestChosenGap(db);
   return {
     lastAwakeAtMs: pass.sinceMs > 0 ? pass.sinceMs : null,
     episodesSince,
@@ -58,5 +60,6 @@ export function buildInnerAgenda(db: DatabaseSync, pass: AwakePass, nowMs: numbe
       fuseLimit: UNSOLICITED_FUSE_LIMIT,
       recent: recentUnsolicited(db),
     },
+    ...(chosen ? { chosenGap: { id: chosen.id, name: chosen.name, question: chosen.question } } : {}),
   };
 }

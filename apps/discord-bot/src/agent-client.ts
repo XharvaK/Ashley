@@ -775,6 +775,45 @@ export type IdentityReview = {
   status?: string;
 };
 
+export type GrowthDimensionView = {
+  id: string;
+  name: string;
+  question: string;
+  status: "active" | "retired";
+  origin: "owner_seed" | "ashley";
+};
+export type GrowthDimensionHistoryView = {
+  historyId: string;
+  dimensionId: string;
+  op: string;
+  actor: string;
+  reason: string | null;
+  createdAtMs: number;
+};
+
+export async function growthDimensions() {
+  const query = new URLSearchParams({ owner_id: config.ownerId });
+  return agentFetch<{ dimensions: GrowthDimensionView[]; history: GrowthDimensionHistoryView[] }>(
+    `/growth/dimensions?${query.toString()}`,
+  );
+}
+
+export async function seedGrowthDimension(name: string, question: string) {
+  return agentFetch<{ dimension: GrowthDimensionView }>("/growth/dimensions/seed", {
+    headers: ownerActorHeaders(),
+    method: "POST",
+    body: JSON.stringify({ userId: config.ownerId, name, question }),
+  });
+}
+
+export async function revertGrowthDimension(dimensionId: string) {
+  return agentFetch<{ reverted: boolean }>("/growth/dimensions/revert", {
+    headers: ownerActorHeaders(),
+    method: "POST",
+    body: JSON.stringify({ userId: config.ownerId, dimensionId }),
+  });
+}
+
 export async function identityReviews() {
   const query = new URLSearchParams({ owner_id: config.ownerId });
   return agentFetch<{ reviews: IdentityReview[] }>(

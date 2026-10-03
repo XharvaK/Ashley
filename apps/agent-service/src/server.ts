@@ -1,3 +1,4 @@
+import { listGrowthDimensions, revertAshleyDimensionEdit, seedGrowthDimension } from "./core/cognitive-v021/growth/dimensions.js";
 import {readSelfChangeLadder,commandSelfChangeLadder,recordSelfChangeLadderFinding} from "./core/cognitive-v021/growth/self-change-ladder.js";
 import { listPersonaSnapshots, personaChanges } from "./core/cognitive-v021/growth/snapshots.js";
 import express from "express";
@@ -2396,6 +2397,41 @@ export function createServer(
       requireOwner(String(req.query.owner_id ?? "") || undefined);
       const limit = Math.min(100, Number(req.query.limit ?? 50) || 50);
       res.json({ reviews: listFoundationalReviews(getCognitiveSidecar(), limit) });
+    } catch (err) {
+      const { status, body } = toErrorResponse(err);
+      res.status(status).json(body);
+    }
+  });
+
+  app.get("/growth/dimensions", (req, res) => {
+    try {
+      requireOwner(String(req.query.owner_id ?? "") || undefined);
+      res.json(listGrowthDimensions(getCognitiveSidecar()));
+    } catch (err) {
+      const { status, body } = toErrorResponse(err);
+      res.status(status).json(body);
+    }
+  });
+  app.post("/growth/dimensions/seed", (req, res) => {
+    try {
+      requireOwner(req.body?.userId);
+      const name = req.body?.name;
+      const question = req.body?.question;
+      if (typeof name !== "string" || name.trim() === "" || typeof question !== "string" || question.trim() === "") {
+        throw new AppError("message_required", "name and question are required", 400);
+      }
+      res.json({ dimension: seedGrowthDimension(getCognitiveSidecar(), { name, question, nowMs: Date.now() }) });
+    } catch (err) {
+      const { status, body } = toErrorResponse(err);
+      res.status(status).json(body);
+    }
+  });
+  app.post("/growth/dimensions/revert", (req, res) => {
+    try {
+      requireOwner(req.body?.userId);
+      const dimensionId = req.body?.dimensionId;
+      if (typeof dimensionId !== "string" || dimensionId.trim() === "") throw new AppError("message_required", "dimensionId is required", 400);
+      res.json(revertAshleyDimensionEdit(getCognitiveSidecar(), { dimensionId, nowMs: Date.now() }));
     } catch (err) {
       const { status, body } = toErrorResponse(err);
       res.status(status).json(body);

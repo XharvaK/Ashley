@@ -50,6 +50,9 @@ export function buildCommandDefinitions(): RESTPostAPIChatInputApplicationComman
           .addChoices(
             { name: "review", value: "review" },
             { name: "practices", value: "practices" },
+            { name: "dimensions", value: "dimensions" },
+            { name: "seed dimension", value: "seed-dimension" },
+            { name: "revert dimension", value: "revert-dimension" },
             { name: "approve", value: "approve" },
             { name: "reject", value: "reject" },
             { name: "defer", value: "defer" },
@@ -66,6 +69,15 @@ export function buildCommandDefinitions(): RESTPostAPIChatInputApplicationComman
           .setName("rationale")
           .setDescription("Optional reason for the decision")
           .setMaxLength(1000),
+      )
+      .addStringOption((o) =>
+        o.setName("name").setDescription("Exact dimension name to seed").setMaxLength(200),
+      )
+      .addStringOption((o) =>
+        o.setName("question").setDescription("Exact weekly question to seed").setMaxLength(400),
+      )
+      .addStringOption((o) =>
+        o.setName("dimension-id").setDescription("Dimension id to revert").setMaxLength(80),
       )
       .toJSON(),
     new SlashCommandBuilder()

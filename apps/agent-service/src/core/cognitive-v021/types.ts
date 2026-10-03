@@ -29,7 +29,7 @@ export type { SourceSupportRef } from "./evidence/interpretation-envelope.js";
 export const ARCHITECTURE_EPOCH = "v0.2.1" as const;
 export const IMPLEMENTATION_SPEC_VERSION = "0.2.1.r6" as const;
 export const THOUGHT_CONTRACT_VERSION = 2 as const;
-export const COGNITIVE_SIDECAR_SCHEMA_VERSION = 58 as const;
+export const COGNITIVE_SIDECAR_SCHEMA_VERSION = 59 as const;
 
 /**
  * Hard bound on cognition-facing concern discovery windows and pages. The
@@ -1885,6 +1885,7 @@ export type ThoughtInnerAgenda = {
     fuseLimit: number;
     recent: ReadonlyArray<{ atMs: number; excerpt: string; ownerRepliedAfterMs: number | null }>;
   };
+  chosenGap?: { id: string; name: string; question: string };
 };
 
 export type V021ForgetEntityType =
@@ -1897,6 +1898,8 @@ export type V021ForgetEntityType =
   | "v021_journal_entry"
   | "v021_interest_branch"
   | "v021_growth_revision"
+  | "v021_growth_gap"
+  | "v021_growth_dimension_history"
   | "v021_mood_event"
   | "v021_expectation"
   | "v021_diary_entry"

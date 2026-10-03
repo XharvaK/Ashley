@@ -629,6 +629,17 @@ describe("route surface registry", () => {
 });
 
 describe("A3b practice owner routes", () => {
+  it("rejects an unauthenticated dimensions view", async () => {
+    const previousOwner = env.discordOwnerId; env.discordOwnerId = "p7b-owner";
+    const manager = { core: {} } as unknown as AgentManager;
+    const { server, url } = await startTestServer(createServer(manager));
+    try {
+      expect((await fetch(`${url}/growth/dimensions`)).status).toBe(403);
+      expect((await fetch(`${url}/growth/dimensions?owner_id=not-the-owner`)).status).toBe(403);
+      expect((await fetch(`${url}/growth/dimensions/seed`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: "x", question: "y?" }) })).status).toBe(403);
+      expect((await fetch(`${url}/growth/dimensions/revert`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ dimensionId: "d" }) })).status).toBe(403);
+    } finally { await stopTestServer(server); env.discordOwnerId = previousOwner; }
+  });
   it("rejects a non-owner practice view", async () => {
     const previousOwner = env.discordOwnerId; env.discordOwnerId = "a3-owner";
     const manager = { core: {} } as unknown as AgentManager;
