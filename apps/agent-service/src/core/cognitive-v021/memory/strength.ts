@@ -111,6 +111,7 @@ export type CoreProfileEntry = Readonly<{
   memoryKind: MemoryKind;
   source: string;
   strength: number;
+  channel?: `domus:${string}`;
 }>;
 
 /** Always-present memory: what Ashley knows best about the Owner and herself. */
@@ -137,6 +138,7 @@ export function buildCoreProfile(
     memoryKind: assertion.memoryKind,
     source: assertion.dimensions.source,
     strength: Math.round((scores.get(assertion.assertionKey) ?? 0) * 1000) / 1000,
+    ...(assertion.channel !== "discord" ? { channel: assertion.channel } : {}),
   });
   const ranked = (items: MemoryAssertion[], limit: number) => items
     .map(entry)

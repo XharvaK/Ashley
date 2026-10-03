@@ -54,6 +54,7 @@ export type CompactMemoryEvidence = {
   subject?: string[] | null;
   audienceScope?: RetrievalHit["audienceScope"];
   licenseRefs?: string[];
+  channel?: `domus:${string}`;
 };
 
 export type CompactConversationEvidence = {
@@ -413,6 +414,7 @@ export function projectRetrievalHit(hit: RetrievalHit): CompactRetrievalEvidence
       audienceScope: hit.audienceScope,
       licenseRefs: hit.licenseRefs ?? [],
     } : {}),
+    ...(hit.channel ? { channel: hit.channel } : {}),
   };
 }
 

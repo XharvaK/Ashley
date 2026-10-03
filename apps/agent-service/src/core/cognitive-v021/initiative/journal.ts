@@ -57,6 +57,7 @@ export type ThoughtJournalEntry = {
   reads?: JournalRead[];
   interests?: string[];
   spoke?: true;
+  channel?: `domus:${string}`;
 };
 
 type Row = Record<string, unknown>;
@@ -205,7 +206,7 @@ export function listRecentJournal(
           WHERE e.producing_cycle_id = j.cycle_id AND e.role = 'ashley' AND e.delivered = 1
        ) AS delivered_speech
        FROM activity_journal j
-      WHERE j.forgotten_at_ms IS NULL AND j.created_at_ms >= ? AND j.data_classification != 'secret'
+      WHERE j.forgotten_at_ms IS NULL AND j.created_at_ms >= ? AND j.data_classification != 'secret' AND j.lineage_class = 'current'
       ORDER BY j.created_at_ms DESC, j.entry_id DESC LIMIT ?`,
   ).all(input.sinceMs ?? 0, Math.max(1, input.limit)) as Row[]).map(mapEntry);
 }
@@ -220,6 +221,7 @@ export function toThoughtJournalEntry(entry: JournalEntry): ThoughtJournalEntry 
     ...(entry.reads.length > 0 ? { reads: entry.reads } : {}),
     ...(entry.interests.length > 0 ? { interests: entry.interests } : {}),
     ...(entry.spoke ? { spoke: true as const } : {}),
+    ...(entry.channel !== "discord" ? { channel: entry.channel } : {}),
   };
 }
 

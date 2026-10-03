@@ -294,7 +294,7 @@ export function listMemoryAssertions(
   ).all(...args);
   return rows.map(mapAssertion)
     .filter((row): row is MemoryAssertion => row !== null)
-    .filter((row) => options.modelContext !== true || canEnterModelContext(row.dataClassification, "private"));
+    .filter((row) => options.modelContext !== true || (canEnterModelContext(row.dataClassification, "private") && row.lineageClass === "current"));
 }
 
 export function listLiveMemoryAssertions(db: DatabaseSync): MemoryAssertion[] {

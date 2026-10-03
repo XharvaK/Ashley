@@ -832,6 +832,8 @@ export type RetrievalHit = {
   audienceScope?: SocialAudience | null;
   licenseRefs?: string[];
   protectionStatus?: "admitted" | "unresolved" | null;
+  /** Present only for a Domus-world memory. Discord hits omit the field. */
+  channel?: `domus:${string}`;
 };
 export type RetrievalInfrastructureState = "ready" | "unavailable";
 

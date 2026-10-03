@@ -55,6 +55,7 @@ export type ThoughtEpisode = {
   tone?: string;
   unresolvedThreads?: string[];
   takeaway?: string;
+  channel?: `domus:${string}`;
 };
 
 export type ThreadStory = {
@@ -192,7 +193,7 @@ export function getEpisode(db: DatabaseSync, episodeId: string): EpisodeRecord |
 export function listRecentEpisodes(db: DatabaseSync, limit: number): EpisodeRecord[] {
   return db.prepare(
     `SELECT * FROM episodes_v2
-      WHERE forgotten_at_ms IS NULL
+      WHERE forgotten_at_ms IS NULL AND lineage_class = 'current'
       ORDER BY ended_at_ms DESC, created_at_ms DESC
       LIMIT ?`,
   ).all(Math.max(1, Math.floor(limit)))
@@ -216,7 +217,7 @@ export function searchEpisodes(db: DatabaseSync, terms: readonly string[], limit
   return db.prepare(
     `SELECT e.* FROM episodes_v2_fts f
        JOIN episodes_v2 e ON e.episode_id = f.episode_id
-      WHERE episodes_v2_fts MATCH ? AND e.forgotten_at_ms IS NULL
+      WHERE episodes_v2_fts MATCH ? AND e.forgotten_at_ms IS NULL AND e.lineage_class = 'current'
       ORDER BY bm25(episodes_v2_fts), e.ended_at_ms DESC
       LIMIT ?`,
   ).all(query, Math.max(1, Math.floor(limit)))
@@ -233,6 +234,7 @@ export function toThoughtEpisode(episode: EpisodeRecord): ThoughtEpisode {
     ...(episode.tone ? { tone: episode.tone } : {}),
     ...(episode.unresolvedThreads.length > 0 ? { unresolvedThreads: [...episode.unresolvedThreads] } : {}),
     ...(episode.takeaway ? { takeaway: episode.takeaway } : {}),
+    ...(episode.channel !== "discord" ? { channel: episode.channel } : {}),
   };
 }
 
