@@ -26,6 +26,15 @@ function writeExec(file, body) {
   chmodSync(file, 0o755);
 }
 
+function requiredUserUnits(scriptPath) {
+  const text = readFileSync(scriptPath, "utf8");
+  const block = text.match(/else\s+UNITS=\(\s*([^)]*?)\)/);
+  if (!block) throw new Error(`${scriptPath} has no default UNITS list`);
+  const units = block[1].trim().split(/\s+/).filter(Boolean);
+  if (units.length === 0) throw new Error(`${scriptPath} default UNITS list is empty`);
+  return units;
+}
+
 function createFixture() {
   const root = mkdtempSync(path.join(tmpdir(), "ashley-slice-c-"));
   const repo = path.join(root, "repo");
@@ -67,14 +76,13 @@ function createFixture() {
     path.join(ROOT, "deploy", "linux-mint", "sync-user-units.sh"),
     path.join(repo, "deploy", "linux-mint", "sync-user-units.sh"),
   );
-  copyFileSync(
-    path.join(ROOT, "deploy", "linux-mint", "systemd", "ashley-agent.service"),
-    path.join(unitSrc, "ashley-agent.service"),
-  );
-  copyFileSync(
-    path.join(ROOT, "deploy", "linux-mint", "systemd", "ashley-discord.service"),
-    path.join(unitSrc, "ashley-discord.service"),
-  );
+  const unitScript = path.join(ROOT, "deploy", "linux-mint", "sync-user-units.sh");
+  for (const unit of requiredUserUnits(unitScript)) {
+    copyFileSync(
+      path.join(ROOT, "deploy", "linux-mint", "systemd", unit),
+      path.join(unitSrc, unit),
+    );
+  }
   chmodSync(path.join(repo, "deploy", "linux-mint", "update.sh"), 0o755);
   chmodSync(path.join(repo, "deploy", "linux-mint", "plan-update.sh"), 0o755);
   chmodSync(path.join(repo, "deploy", "linux-mint", "derive-graph.mjs"), 0o755);
@@ -185,14 +193,14 @@ while [ "$#" -gt 0 ]; do
     --quiet) quiet=1; shift; continue ;;
     --value) value_only=1; shift; continue ;;
     -p) props="$props $2"; shift 2; continue ;;
-    stop|start|is-active|daemon-reload|show|status|restart)
+    stop|start|is-active|daemon-reload|show|status|restart|enable|list-timers)
       cmd="$1"; shift; break ;;
     *) shift; continue ;;
   esac
 done
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    --quiet) quiet=1; shift ;;
+    --quiet|--now|--all|--no-legend) quiet=1; shift ;;
     --value) value_only=1; shift ;;
     -p) props="$props $2"; shift 2 ;;
     *) units="$units $1"; shift ;;
@@ -257,6 +265,16 @@ case "\$cmd" in
     exit 0
     ;;
   status) exit 0 ;;
+  enable)
+    for unit in \$units; do printf '%s\\n' "\$unit" >> "\$state_dir/enabled-units"; done
+    exit 0
+    ;;
+  list-timers)
+    if [ -f "\$state_dir/enabled-units" ]; then
+      while read -r unit; do printf '%s %s\\n' "-" "\$unit"; done < "\$state_dir/enabled-units"
+    fi
+    exit 0
+    ;;
   *) exit 0 ;;
 esac
 `,
