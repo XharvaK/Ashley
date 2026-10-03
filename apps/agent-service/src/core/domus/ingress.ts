@@ -18,6 +18,11 @@
  * non-negative integer), attached (boolean), optional world (0..64) and probe_version (0..16).
  * Unknown keys are 400. The response is 200 {status:"ok"}.
  *
+ * POST /domus/undo accepts only v=1, world/branch/session (1..64), after_source_time_ms
+ * (safe non-negative integer), and reason (1..32 [A-Z_]). Unknown keys are 400
+ * {error:"invalid_body"}. The response is 200 {status:"ok", observations, supports,
+ * assertions, episodes, journal}.
+ *
  * Auth header X-Domus-Token. Missing, wrong, or equal to the Discord bot token is 401
  * {error:"unauthorized"}. Any other path is 404 {error:"not_found"}. JSON bodies over
  * 64 KiB are 413 {error:"payload_too_large"}. This listener does not append inbox rows.
@@ -25,6 +30,7 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import express from "express";
 import type { DatabaseSync } from "node:sqlite";
+import { markDomusSpanUndone } from "../cognitive-v021/memory/undo.js";
 import { admitObservation, canonicalJson, observationDigest, upsertHeartbeat } from "./store.js";
 
 const BODY_LIMIT = 64 * 1024;
@@ -131,6 +137,21 @@ export function parseObservation(body: unknown, now: number): {
   };
 }
 
+const UNDO_KEYS = new Set(["v", "world", "branch", "session", "after_source_time_ms", "reason"]);
+
+export function parseUndo(body: unknown): { world: string; branch: string; session: string; afterSourceTimeMs: number; reason: string } {
+  if (!isRecord(body)) fail(400, "invalid_body");
+  for (const key of Object.keys(body)) if (!UNDO_KEYS.has(key)) fail(400, "invalid_body");
+  if (body.v !== 1) fail(400, "invalid_body");
+  return {
+    world: text(body.world, 1, 64),
+    branch: text(body.branch, 1, 64),
+    session: text(body.session, 1, 64),
+    afterSourceTimeMs: safeInt(body.after_source_time_ms),
+    reason: text(body.reason, 1, 32, /^[A-Z_]+$/),
+  };
+}
+
 const HEARTBEAT_KEYS = new Set(["v", "helper_session", "sent_at_ms", "attached", "world", "probe_version"]);
 
 export function parseHeartbeat(body: unknown): Record<string, unknown> {
@@ -224,6 +245,26 @@ export function createDomusIngressApp(input: {
         json: canonicalJson(parsed),
       });
       res.status(200).json({ status: "ok" });
+    } catch (error) {
+      const http = error as HttpError;
+      if (http.status && http.code) {
+        res.status(http.status).json({ error: http.code });
+        return;
+      }
+      throw error;
+    }
+  });
+  app.post("/domus/undo", (req, res) => {
+    try {
+      const parsed = parseUndo(req.body);
+      const result = markDomusSpanUndone(input.db, {
+        world: parsed.world,
+        branch: parsed.branch,
+        session: parsed.session,
+        afterSourceTimeMs: parsed.afterSourceTimeMs,
+      }, input.now());
+      console.log(`[domus-ingress] undo world=${parsed.world} session=${parsed.session} reason=${parsed.reason} observations=${result.observations} assertions=${result.assertions}`);
+      res.status(200).json({ status: "ok", ...result });
     } catch (error) {
       const http = error as HttpError;
       if (http.status && http.code) {
