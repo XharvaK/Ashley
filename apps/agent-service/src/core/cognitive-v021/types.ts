@@ -257,6 +257,7 @@ export type CycleTriggerKind =
   | "subscription_item"
   | "future_trigger_due"
   | "observation_or_receipt"
+  | "self_change_result"
   | "recovery";
 
 export type CycleState =

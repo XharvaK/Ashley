@@ -737,6 +737,7 @@ describe("C1 v0.2.1-native shadow witness", () => {
       "subscription_item",
       "future_trigger_due",
       "observation_or_receipt",
+      "self_change_result",
       "recovery",
     ] as const) {
       expect(c1V021TriggerClass(trigger)).toBe("proactive");

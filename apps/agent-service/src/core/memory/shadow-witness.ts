@@ -283,6 +283,7 @@ export function c1V021TriggerClass(
     case "subscription_item":
     case "future_trigger_due":
     case "observation_or_receipt":
+    case "self_change_result":
     case "recovery":
       return "proactive";
     default: {

@@ -227,7 +227,7 @@ describe("v0.2.1 live dispatcher", () => {
 describe("F1 Frontier & Dispatch Continuation Witnesses", () => {
   const BASE_TIME = 2_000_000;
 
-  function setupScenario(params?: { triggerKind?: "owner_message" | "idle_opportunity" }) {
+  function setupScenario(params?: { triggerKind?: "owner_message" | "idle_opportunity" | "self_change_result" }) {
     const sidecar = openTestSidecar();
     const nuclear = openTestSidecar();
     const attentionDb = openTestSidecar();
@@ -826,6 +826,33 @@ describe("F1 Frontier & Dispatch Continuation Witnesses", () => {
         id: "ev:inbox:pzero",
         conversationId: cycle.conversationId,
         kind: "idle_opportunity",
+        wakeId: cycle.wakeId,
+        payload: { cycleId: cycle.cycleId },
+        createdAtMs: BASE_TIME,
+      });
+
+      await expect(
+        runLiveCognitiveTurn({
+          sidecar,
+          nuclear,
+          event,
+          deps: deps({ attentionDb }),
+        }),
+      ).rejects.toThrow("private_budget_reservation_missing");
+    } finally {
+      sidecar.close();
+      nuclear.close();
+      attentionDb.close();
+    }
+  });
+
+  it("SELF_CHANGE_RESULT_ZERO_RESERVATION_FAILS_CLOSED", async () => {
+    const { sidecar, nuclear, attentionDb, cycle } = setupScenario({ triggerKind: "self_change_result" });
+    try {
+      const event: InboxEvent = makeInboxEvent({
+        id: "ev:inbox:pzero",
+        conversationId: cycle.conversationId,
+        kind: "self_change_result",
         wakeId: cycle.wakeId,
         payload: { cycleId: cycle.cycleId },
         createdAtMs: BASE_TIME,

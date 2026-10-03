@@ -159,6 +159,7 @@ function triggerKindForInbox(kind: string): CycleTriggerKind {
   if (kind === "idle_opportunity") return "idle_opportunity";
   if (kind === "commitment_due") return "commitment_due";
   if (kind === "subscription_item") return "subscription_item";
+  if (kind === "self_change_result") return "self_change_result";
   if (kind === "observation_or_receipt") return "observation_or_receipt";
   if (kind === "recovery") return "recovery";
   if (kind === "control_settlement_receipt") return "observation_or_receipt";

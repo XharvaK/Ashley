@@ -21,6 +21,7 @@ function profileForTriggerKind(kind: CycleTriggerKind): SemanticCompositionProfi
     case "external_message":
       return "A";
     case "observation_or_receipt":
+    case "self_change_result":
       return "B";
     case "idle_opportunity":
     case "commitment_due":
@@ -38,6 +39,8 @@ function profileForTriggerKind(kind: CycleTriggerKind): SemanticCompositionProfi
 
 function triggerKindForEventKind(kind: string): ProfileTriggerKind | null {
   switch (kind) {
+    case "self_change_result":
+      return "self_change_result";
     case "observation_or_receipt":
       return "observation_or_receipt";
     case "idle_opportunity":
