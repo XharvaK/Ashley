@@ -1,3 +1,4 @@
+import {readSelfChangeLadder,commandSelfChangeLadder,recordSelfChangeLadderFinding} from "./core/cognitive-v021/growth/self-change-ladder.js";
 import { listPersonaSnapshots, personaChanges } from "./core/cognitive-v021/growth/snapshots.js";
 import express from "express";
 import cors from "cors";
@@ -2408,6 +2409,33 @@ export function createServer(
     } catch (err) {
       const { status, body } = toErrorResponse(err);
       res.status(status).json(body);
+    }
+  });
+
+  app.get("/growth/self-change/ladder", (req,res)=>{
+    try { requireOwner(String(req.query.owner_id ?? "") || undefined);res.json(readSelfChangeLadder(getCognitiveSidecar())); }
+    catch(err){const {status,body}=toErrorResponse(err);res.status(status).json(body);}
+  });
+  app.post("/growth/self-change/ladder", (req,res)=>{
+    try {
+      const actor=requireOwner(req.body.userId);
+      const {level,expectedRevision,commandId}=req.body;
+      if(typeof level!=="number" || typeof expectedRevision!=="number" || typeof commandId!=="string")throw new AppError("message_required","Valid ladder command required",400);
+      res.json(commandSelfChangeLadder(getCognitiveSidecar(),{level,expectedRevision,commandId,actor,nowMs:Date.now()}));
+    }catch(err){
+      if(err instanceof Error && err.message.startsWith("self_change_ladder_"))err=new AppError("message_required",err.message,err.message.includes("conflict")?409:400);
+      const {status,body}=toErrorResponse(err);res.status(status).json(body);
+    }
+  });
+  app.post("/growth/self-change/ladder/finding", (req,res)=>{
+    try {
+      const actor=requireOwner(req.body.userId);
+      const {eventId,kind,reference}=req.body;
+      if(typeof eventId!=="string" || typeof reference!=="string" || !["BLOCKING","revert"].includes(kind))throw new AppError("message_required","Attributable finding required",400);
+      res.json(recordSelfChangeLadderFinding(getCognitiveSidecar(),{eventId,kind,reference,actor,nowMs:Date.now()}));
+    }catch(err){
+      if(err instanceof Error && err.message.startsWith("self_change_ladder_"))err=new AppError("message_required",err.message,err.message.includes("conflict")?409:400);
+      const {status,body}=toErrorResponse(err);res.status(status).json(body);
     }
   });
 

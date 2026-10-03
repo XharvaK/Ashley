@@ -603,6 +603,25 @@ and receipt. Result speech is proactive, subject to pause, conversation and
 unsolicited-fuse gates, and Owner messages pre-empt the private pass. The result
 does not acquire optional-initiative status or public-presence authority.
 
+## Self-change ladder
+
+The ladder starts at L1. Its state and append-only history live in the sidecar.
+Authenticated Owner commands carry a command identity and expected revision;
+retries are idempotent and stale commands refuse. The Owner inspection route is
+`GET /growth/self-change/ladder`. Commands use `POST /growth/self-change/ladder`.
+Attributable later findings use `POST /growth/self-change/ladder/finding`.
+Both mutation routes require the authenticated Owner actor.
+
+An authenticated result with `outcome: "reverted"` or explicit
+`reviewDisposition: "BLOCKING"` drops one level once, with L0 as the floor.
+A generic `blocked` outcome alone is not a BLOCKING finding. Successful changes
+never raise the level. L0 refuses new self-change opportunities while preserving
+ordinary work and result feedback. Ladder state is shown in the private sense.
+
+L2/L3 are recorded levels only. They grant no automatic merge, deployment,
+capability promotion, or authority to change protected material. Every adoption
+still requires Owner approval and existing sandbox capability gates.
+
 ## Appendix A — Interest pool (50)
 
 Electronic music; Technology; Artificial intelligence; Psychology & the

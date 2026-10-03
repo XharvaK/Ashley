@@ -2092,3 +2092,18 @@ CREATE TABLE self_change_result_receipts (
 CREATE INDEX idx_self_change_results_pending ON self_change_result_receipts(conversation_id,received_at_ms) WHERE event_id IS NULL;
 UPDATE cognitive_sidecar_meta SET schema_version=57 WHERE id=1;
 `;
+
+/** Owner commands and attributable safety drops change ladder state without granting capabilities. */
+export const COGNITIVE_SIDECAR_SCHEMA_V58 = String.raw`
+CREATE TABLE self_change_ladder (
+ id INTEGER PRIMARY KEY CHECK(id=1),level INTEGER NOT NULL CHECK(level BETWEEN 0 AND 3),revision INTEGER NOT NULL CHECK(revision>=0)
+);
+INSERT INTO self_change_ladder VALUES(1,1,0);
+CREATE TABLE self_change_ladder_history (
+ event_id TEXT PRIMARY KEY NOT NULL,kind TEXT NOT NULL CHECK(kind IN ('owner_command','BLOCKING','revert')),
+ actor TEXT NOT NULL,reference TEXT NOT NULL,
+ from_level INTEGER NOT NULL CHECK(from_level BETWEEN 0 AND 3),to_level INTEGER NOT NULL CHECK(to_level BETWEEN 0 AND 3),
+ revision INTEGER NOT NULL UNIQUE CHECK(revision>0),created_at_ms INTEGER NOT NULL CHECK(created_at_ms>=0)
+);
+UPDATE cognitive_sidecar_meta SET schema_version=58 WHERE id=1;
+`;

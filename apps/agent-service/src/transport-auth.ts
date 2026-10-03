@@ -27,6 +27,8 @@ export const ADMIN_ROUTES: ReadonlyArray<readonly ["POST", string]> = [
   ["POST", "/nuclear/capabilities/recall/qualification-epoch/start"],
   ["POST", "/nuclear/capabilities/memory-evidence/qualification-epoch/start"],
   ["POST", "/nuclear/capabilities/memory-evidence/cutover"],
+  ["POST", "/growth/self-change/ladder"],
+  ["POST", "/growth/self-change/ladder/finding"],
   ["POST", "/growth/graduation/mode"],
   ["POST", "/growth/influences/mode"],
   ["POST", "/growth/graduation/adjudicate"],

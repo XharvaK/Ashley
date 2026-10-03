@@ -1,3 +1,4 @@
+import {readSelfChangeLadder} from "./self-change-ladder.js";
 // Thought chooses self-change; the Host exposes motive facts and binds its declared opportunity to L1.
 import type { DatabaseSync } from "node:sqlite";
 import type { FutureTrigger } from "../types.js";
@@ -8,7 +9,7 @@ import { configureBudgetPolicy, resolveBudgetPolicy, PRIVATE_THOUGHT_CLOCK_DISCO
 
 export const SELF_CHANGE_POLICY_ID = "ashley.self_change.v1";
 export const SELF_CHANGE_WINDOW_MS = 24 * 60 * 60 * 1000;
-export type SelfChangeRefusalReason = "self_change_mixed_scope" | "self_change_concern_binding_invalid" | "self_change_motive_unavailable" | "self_change_budget_unconfigured" | "self_change_budget_policy_invalid";
+export type SelfChangeRefusalReason = "self_change_ladder_l0" | "self_change_mixed_scope" | "self_change_concern_binding_invalid" | "self_change_motive_unavailable" | "self_change_budget_unconfigured" | "self_change_budget_policy_invalid";
 
 /** Configuration is Host/Owner supplied; this function neither supplies a limit nor activates a capability. */
 export function configureSelfChangeBudget(db: DatabaseSync, input: { limit: number; version: number }) {
@@ -30,6 +31,7 @@ export function selfChangeOpportunityPolicy(db: DatabaseSync, input: { conversat
   | { kind: "ordinary" } | { kind: "self_change"; policyId: string } | { kind: "refused"; reason: SelfChangeRefusalReason } {
   const declared = input.dueTriggers.filter(trigger => trigger.payload?.budgetPolicyId === SELF_CHANGE_POLICY_ID);
   if (declared.length === 0) return { kind: "ordinary" };
+  if (readSelfChangeLadder(db).level === 0) return { kind: "refused", reason: "self_change_ladder_l0" };
   if (declared.length !== input.dueTriggers.length) return { kind: "refused", reason: "self_change_mixed_scope" };
   const motives = selfChangeMotivesForThought(db,input.nowMs);
   for (const trigger of declared) {

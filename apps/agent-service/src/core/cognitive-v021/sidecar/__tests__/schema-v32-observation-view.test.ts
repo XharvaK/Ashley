@@ -19,10 +19,10 @@ describe("cognitive sidecar Schema V32 observation views", () => {
       openCognitiveSidecarDb(db, { dataPlane: { kind: "isolated" } });
 
       const columns = (db.prepare("PRAGMA table_info(observations)").all() as Array<{ name: string }>).map((row) => row.name);
-      expect(COGNITIVE_SIDECAR_SCHEMA_VERSION).toBe(57);
-      expect(db.prepare("PRAGMA user_version").get()).toMatchObject({ user_version: 57 });
+      expect(COGNITIVE_SIDECAR_SCHEMA_VERSION).toBe(58);
+      expect(db.prepare("PRAGMA user_version").get()).toMatchObject({ user_version: 58 });
       expect(db.prepare("SELECT schema_version FROM cognitive_sidecar_meta WHERE id = 1").get())
-        .toMatchObject({ schema_version: 57 });
+        .toMatchObject({ schema_version: 58 });
       expect(columns).toEqual(expect.arrayContaining([
         "parent_artifact_id",
         "representation_id",

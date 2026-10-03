@@ -8,7 +8,7 @@ import { openTestSidecar } from "../test-support.js";
 const results = await import("./self-change-results.js").catch(() => ({})) as typeof import("./self-change-results.js");
 const secret = "fixture-only-authentication-key-32bytes";
 const result = { version: 1 as const, changesetId: "cs_fixture", proposalCommit: "a".repeat(40), manifestSha256: "b".repeat(64), outcome: "rejected" as const, decidedAtMs: 10, decisionRef: "owner:fixture", summary: "Authored review result" };
-function envelope(value = result) { const payload = JSON.stringify(value); return JSON.stringify({ payload, hmacSha256: createHmac("sha256", secret).update(payload).digest("hex") }); }
+function envelope(value: unknown = result) { const payload = JSON.stringify(value); return JSON.stringify({ payload, hmacSha256: createHmac("sha256", secret).update(payload).digest("hex") }); }
 function api() { expect(typeof results.authenticateSelfChangeResult).toBe("function"); return results; }
 describe("authenticated self-change results", () => {
  it("authenticates bounded exact bytes and refuses tampering", () => {
@@ -160,5 +160,21 @@ it("refuses a future-dated signed decision before durable staging",async()=>{
   configureSelfChangeBudget(db,{limit:3,version:1});await writeFile(join(directory,"cs_fixture.json"),envelope());
   expect(await results.pollSelfChangeResults(db,{enabled:true,directory,key:secret,conversationId:"private-self",nowMs:9})).toMatchObject({refused:1,admitted:0});
   expect(results.pendingSelfChangeResults(db,"private-self",12)).toEqual([]);
+ }finally{db.close();await rm(directory,{recursive:true,force:true});}
+});
+
+it("drops once for an authenticated explicit BLOCKING finding while generic blocked is distinct",async()=>{
+ const db=openTestSidecar();const directory=await mkdtemp(join(tmpdir(),"ashley-result-ladder-"));
+ try{
+  const {readSelfChangeLadder}=await import("./self-change-ladder.js");
+  configureSelfChangeBudget(db,{limit:3,version:1});
+  await writeFile(join(directory,"cs_generic.json"),envelope({...result,changesetId:"cs_generic",outcome:"blocked"}));
+  const input={enabled:true,directory,key:secret,conversationId:"private-self",nowMs:11};
+  await results.pollSelfChangeResults(db,input);expect(readSelfChangeLadder(db).level).toBe(1);
+  await writeFile(join(directory,"cs_finding.json"),envelope({...result,changesetId:"cs_finding",reviewDisposition:"BLOCKING"}));
+  expect(await results.pollSelfChangeResults(db,input)).toMatchObject({refused:0});
+  expect(readSelfChangeLadder(db)).toMatchObject({level:0,revision:1});
+  await results.pollSelfChangeResults(db,input);expect(readSelfChangeLadder(db).revision).toBe(1);
+  expect(db.prepare("SELECT count(*) AS n FROM wakes").get()).toEqual({n:0});
  }finally{db.close();await rm(directory,{recursive:true,force:true});}
 });

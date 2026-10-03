@@ -1,3 +1,4 @@
+import {recordSelfChangeLadderFinding} from "./self-change-ladder.js";
 // Authenticate operator observations; admission never grants acceptance, merge, or deployment authority.
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { constants, type Dir } from "node:fs";
@@ -10,7 +11,7 @@ import type { DatabaseSync } from "node:sqlite";
 import { appendInboxEvent, appendInboxEventInTransaction, getInboxEvent, getCycle } from "../cycle/inbox.js";
 
 export type SelfChangeResult = { version: 1; changesetId: string; proposalCommit: string; manifestSha256: string;
-  outcome: "rejected" | "accepted" | "blocked" | "reverted"; decidedAtMs: number; decisionRef: string; summary: string };
+  outcome: "rejected" | "accepted" | "blocked" | "reverted"; decidedAtMs: number; decisionRef: string; summary: string; reviewDisposition?: "BLOCKING" | "NONBLOCKING" | "NOTE" };
 const oid = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/;
 const digest = /^[a-f0-9]{64}$/;
 function record(value: unknown): value is Record<string, unknown> { return !!value && typeof value === "object" && !Array.isArray(value); }
@@ -22,11 +23,13 @@ function validate(value: unknown): SelfChangeResult {
     || !Number.isSafeInteger(value.decidedAtMs) || Number(value.decidedAtMs) < 0
     || typeof value.decisionRef !== "string" || !value.decisionRef.trim() || value.decisionRef.length > 200
     || typeof value.summary !== "string" || !value.summary.trim() || value.summary.length > 4000
-    || Object.keys(value).some(key => !["version","changesetId","proposalCommit","manifestSha256","outcome","decidedAtMs","decisionRef","summary"].includes(key))) {
+    || (value.reviewDisposition !== undefined && !["BLOCKING","NONBLOCKING","NOTE"].includes(String(value.reviewDisposition)))
+    || Object.keys(value).some(key => !["version","changesetId","proposalCommit","manifestSha256","outcome","decidedAtMs","decisionRef","summary","reviewDisposition"].includes(key))) {
     throw new Error("self_change_result_invalid");
   }
   return { version: 1, changesetId: value.changesetId, proposalCommit: value.proposalCommit, manifestSha256: value.manifestSha256,
-    outcome: value.outcome as SelfChangeResult["outcome"], decidedAtMs: Number(value.decidedAtMs), decisionRef: value.decisionRef, summary: value.summary };
+    outcome: value.outcome as SelfChangeResult["outcome"], decidedAtMs: Number(value.decidedAtMs), decisionRef: value.decisionRef, summary: value.summary,
+    ...(value.reviewDisposition === undefined ? {} : {reviewDisposition: value.reviewDisposition as SelfChangeResult["reviewDisposition"]}) };
 }
 export function authenticateSelfChangeResult(raw: string, key: string): SelfChangeResult {
   if (Buffer.byteLength(key) < 32) throw new Error("self_change_result_authentication_unconfigured");
@@ -96,10 +99,17 @@ export async function pollSelfChangeResults(db: DatabaseSync, input: {
     if (!Number.isSafeInteger(input.nowMs) || input.nowMs < result.decidedAtMs) throw new Error("self_change_result_context_invalid");
     if (entry.name !== result.changesetId + ".json" && entry.name !== result.changesetId + ".result.json") throw new Error("self_change_result_filename_mismatch");
     const resultDigest = createHash("sha256").update(JSON.stringify(result)).digest("hex");
-    const previous = db.prepare("SELECT conversation_id,result_digest,event_id FROM self_change_result_receipts WHERE changeset_id=?").get(result.changesetId);
-    if (previous && (previous.conversation_id !== input.conversationId || previous.result_digest !== resultDigest)) throw new Error("self_change_result_conflict");
-    if (!previous) db.prepare("INSERT INTO self_change_result_receipts (changeset_id,conversation_id,result_digest,result_json,received_at_ms) VALUES (?,?,?,?,?)")
-     .run(result.changesetId,input.conversationId,resultDigest,JSON.stringify(result),input.nowMs);
+    db.exec("SAVEPOINT self_change_result_stage");
+    let previous: Record<string,unknown> | undefined;
+    try {
+     previous = db.prepare("SELECT conversation_id,result_digest,event_id FROM self_change_result_receipts WHERE changeset_id=?").get(result.changesetId);
+     if (previous && (previous.conversation_id !== input.conversationId || previous.result_digest !== resultDigest)) throw new Error("self_change_result_conflict");
+     if (!previous) db.prepare("INSERT INTO self_change_result_receipts (changeset_id,conversation_id,result_digest,result_json,received_at_ms) VALUES (?,?,?,?,?)")
+      .run(result.changesetId,input.conversationId,resultDigest,JSON.stringify(result),input.nowMs);
+     if(result.outcome==="reverted")recordSelfChangeLadderFinding(db,{eventId:result.changesetId+":revert",kind:"revert",reference:result.changesetId,nowMs:input.nowMs});
+     else if(result.reviewDisposition==="BLOCKING")recordSelfChangeLadderFinding(db,{eventId:result.changesetId+":BLOCKING",kind:"BLOCKING",reference:result.changesetId,nowMs:input.nowMs});
+     db.exec("RELEASE self_change_result_stage");
+    }catch(error){db.exec("ROLLBACK TO self_change_result_stage; RELEASE self_change_result_stage");throw error;}
     if(previous?.event_id) {
      const event=getInboxEvent(db,String(previous.event_id));
      if(!event?.wakeId)throw new Error("self_change_result_receipt_missing");

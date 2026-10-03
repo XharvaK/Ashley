@@ -1,3 +1,4 @@
+import {readSelfChangeLadder} from "../growth/self-change-ladder.js";
 import {readLearning} from "../thalamus/learning.js";
 import type { DataClassification } from "../../privacy/classification.js";
 // A sense states the truth at proportionate volume and then stops; a reasoned no quiets it.
@@ -76,6 +77,7 @@ export function sensesForThought(db: DatabaseSync, options: SenseOptions, readin
     lines.push(`${reading.sense}: ${reading.band}${reading.detail ? `; ${reading.detail}` : ""}${suffix}`);
   }
   if(options.ownerId){
+    lines.push(`self-change: L${readSelfChangeLadder(db).level}; automatic merge unavailable; Owner approval required`);
     const learning=readLearning(db,options.ownerId);
     lines.push(`attention sensitivity: nucleus gains=${JSON.stringify(learning.gains)}; family gains=${JSON.stringify(learning.familyGains)}; habituation=${JSON.stringify(learning.habituation)}`);
   }
