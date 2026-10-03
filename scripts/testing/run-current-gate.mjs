@@ -34,7 +34,7 @@ const gates = {
     ["npm", sandboxV2TestArgs],
   ],
   "current-deployment": [
-    ["node", ["--test", "scripts/testing/current-gates.test.mjs", "scripts/testing/reachability.test.mjs", "scripts/mint/coherent-activation.test.mjs"]],
+    ["node", ["--test", "scripts/testing/current-gates.test.mjs", "scripts/testing/reachability.test.mjs", "scripts/mint/coherent-activation.test.mjs", "scripts/mint/backup-bootstrap.test.mjs"]],
   ],
   "full-current": [
     ["npm", ["test", "--prefix", "apps/agent-service"]],
@@ -44,7 +44,7 @@ const gates = {
     ["npm", ["test", "--prefix", "apps/sandbox-m1"]],
     ["npm", ["test", "--prefix", "apps/sandbox-tree"]],
     ["npm", sandboxV2TestArgs],
-    ["node", ["--test", "scripts/testing/current-gates.test.mjs", "scripts/testing/reachability.test.mjs", "scripts/mint/coherent-activation.test.mjs"]],
+    ["node", ["--test", "scripts/testing/current-gates.test.mjs", "scripts/testing/reachability.test.mjs", "scripts/mint/coherent-activation.test.mjs", "scripts/mint/backup-bootstrap.test.mjs"]],
   ],
 };
 

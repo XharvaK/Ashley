@@ -79,10 +79,9 @@ $activate = @(
   "export ASHLEY_EXPECTED_SHA=$localSha",
   "export ASHLEY_EXPECTED_TREE=$localTree",
   '# Break-glass package replaces ad-hoc ~/ashley-backup-* copies. Do not copy live databases there.',
-  '# tsc emits JavaScript only. The sealed backup runs before update.sh stops or restarts services.',
+  '# Run only the backup source closure. Candidate-wide compilation belongs to the ordered activator.',
   'cd apps/agent-service',
-  'npx tsc -p tsconfig.json --pretty false',
-  'node dist/scripts/backup-daily.js',
+  'node --import tsx src/scripts/backup-daily.ts',
   "cd $RepoDir",
   'exec bash deploy/linux-mint/update.sh'
 )
