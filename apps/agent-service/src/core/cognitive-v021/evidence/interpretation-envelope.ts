@@ -53,6 +53,7 @@ export type SourceSupportRef =
       path: string | Readonly<{ row: number; column: number }>;
     }>
   | Readonly<{ kind: "observation_ref"; observationId: string }>
+  | Readonly<{ kind: "domus_observation"; observationId: string }>
   | Readonly<{ kind: "receipt_ref"; receiptId: string }>;
 
 export type InterpretationAudience =
@@ -201,6 +202,10 @@ export function parseSourceSupportRef(value: unknown): SourceSupportRef | null {
       return value as SourceSupportRef;
     }
     case "observation_ref":
+      return exactKeys(value, ["kind", "observationId"]) && nonEmptyText(value.observationId)
+        ? value as SourceSupportRef
+        : null;
+    case "domus_observation":
       return exactKeys(value, ["kind", "observationId"]) && nonEmptyText(value.observationId)
         ? value as SourceSupportRef
         : null;
@@ -713,6 +718,27 @@ function assertImageRegion(
   };
 }
 
+function assertDomusObservation(db: DatabaseSync, observationId: string): ResolvedSource {
+  const row = db.prepare(
+    "SELECT world, source_time_ms, admission_state, undone_at_ms FROM domus_observations WHERE observation_id = ?",
+  ).get(observationId) as { world?: unknown; source_time_ms?: unknown; admission_state?: unknown; undone_at_ms?: unknown } | undefined;
+  if (!row || row.admission_state === "dropped" || row.undone_at_ms != null) {
+    throw new Error("support_ref_unresolvable");
+  }
+  return {
+    principalKind: "observation",
+    principalId: null,
+    sourceTimeMs: typeof row.source_time_ms === "number" ? row.source_time_ms : Number(row.source_time_ms),
+  };
+}
+
+/** Domus observations carry their world as the memory channel. Every other kind is not a channel source. */
+export function domusChannelForRef(db: DatabaseSync, ref: SourceSupportRef): `domus:${string}` | null {
+  if (ref.kind !== "domus_observation") return null;
+  const row = db.prepare("SELECT world FROM domus_observations WHERE observation_id = ?").get(ref.observationId) as { world?: unknown } | undefined;
+  return typeof row?.world === "string" && row.world.length > 0 ? `domus:${row.world}` : null;
+}
+
 function assertSupportRefs(
   db: DatabaseSync,
   refs: readonly SourceSupportRef[],
@@ -726,6 +752,9 @@ function assertSupportRefs(
         break;
       case "observation_ref":
         resolved.push(assertObservationVisibleToConversation(db, ref.observationId, conversationId));
+        break;
+      case "domus_observation":
+        resolved.push(assertDomusObservation(db, ref.observationId));
         break;
       case "artifact_text_span":
         resolved.push(assertArtifactTextSpan(db, ref, conversationId));
@@ -768,6 +797,7 @@ function supportSourceIdentity(ref: SourceSupportRef): string {
   switch (ref.kind) {
     case "conversation_text_span": return `conversation_evidence:${ref.evidenceRowId}`;
     case "observation_ref": return `observation:${ref.observationId}`;
+    case "domus_observation": return `domus_observation:${ref.observationId}`;
     case "receipt_ref": return `receipt:${ref.receiptId}`;
     case "artifact_text_span":
     case "document_page_region":

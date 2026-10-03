@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { maxClassification, type DataClassification } from "../../privacy/classification.js";
 import type { InterestTouch } from "../memory/interests.js";
+import type { MemoryChannel, MemoryLineageClass } from "../types.js";
 
 /**
  * Growth V1 §5.3: the activity journal.
@@ -42,6 +43,8 @@ export type JournalEntry = {
   spoke: boolean;
   dataClassification: DataClassification;
   createdAtMs: number;
+  channel: MemoryChannel;
+  lineageClass: MemoryLineageClass;
 };
 
 /** Compact journal shape Thought sees. */
@@ -132,6 +135,7 @@ export function recordJournalEntry(
     spoke: boolean;
     nowMs: number;
     dataClassification?: DataClassification;
+    channel?: MemoryChannel;
   },
 ): { entryId: string; activity: JournalActivity | null; readRefs: number } {
   const reads = readsForCycle(db, input.cycleId);
@@ -141,8 +145,8 @@ export function recordJournalEntry(
   const entryId = journalEntryIdFor(input.cycleId);
   db.prepare(
     `INSERT OR IGNORE INTO activity_journal
-       (entry_id, conversation_id, cycle_id, pass_kind, activity, entry, read_refs_json, interests_json, spoke, data_classification, created_at_ms)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (entry_id, conversation_id, cycle_id, pass_kind, activity, entry, read_refs_json, interests_json, spoke, data_classification, created_at_ms, channel, lineage_class)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'current')`,
   ).run(
     entryId,
     input.conversationId,
@@ -155,6 +159,7 @@ export function recordJournalEntry(
     input.spoke ? 1 : 0,
     maxClassification(input.dataClassification ?? "ordinary", ...reads.map((read) => read.dataClassification)),
     input.nowMs,
+    input.channel ?? "discord",
   );
   return { entryId, activity, readRefs: reads.length };
 }
@@ -172,7 +177,21 @@ function mapEntry(row: Row): JournalEntry {
     spoke: Number(row.delivered_speech) === 1,
     dataClassification: classification(row.data_classification),
     createdAtMs: Number(row.created_at_ms ?? 0),
+    channel: memoryChannel(row.channel),
+    lineageClass: memoryLineageClass(row.lineage_class),
   };
+}
+
+function memoryChannel(value: unknown): MemoryChannel {
+  if (value === "discord") return "discord";
+  if (typeof value === "string" && value.startsWith("domus:") && value.length > "domus:".length) {
+    return value as MemoryChannel;
+  }
+  return "discord";
+}
+
+function memoryLineageClass(value: unknown): MemoryLineageClass {
+  return value === "undone" ? "undone" : "current";
 }
 
 /** Recent live entries, newest first. Secret entries never leave the store. */

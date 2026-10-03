@@ -32,6 +32,8 @@ export function supportRefDependencyKey(value: unknown): string | null {
       return typeof value.evidenceRowId === "string" ? `conversation_evidence:${value.evidenceRowId}` : null;
     case "observation_ref":
       return typeof value.observationId === "string" ? `observation:${value.observationId}` : null;
+    case "domus_observation":
+      return null;
     case "receipt_ref":
       return typeof value.receiptId === "string" ? `receipt:${value.receiptId}` : null;
     case "artifact_text_span":
@@ -211,6 +213,7 @@ function unavailableSupportReason(
     ).get(evidence.lineageId) as { row_id?: unknown } | undefined;
     return newest?.row_id === evidence.rowId ? null : "source_inaccessible";
   }
+  if (ref.kind === "domus_observation") return null;
   if (ref.kind === "observation_ref") {
     const row = db.prepare(
       `SELECT o.payload_json, o.data_classification, o.secret_omitted, c.conversation_id

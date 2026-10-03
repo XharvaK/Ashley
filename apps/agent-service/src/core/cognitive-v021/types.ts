@@ -29,7 +29,7 @@ export type { SourceSupportRef } from "./evidence/interpretation-envelope.js";
 export const ARCHITECTURE_EPOCH = "v0.2.1" as const;
 export const IMPLEMENTATION_SPEC_VERSION = "0.2.1.r6" as const;
 export const THOUGHT_CONTRACT_VERSION = 2 as const;
-export const COGNITIVE_SIDECAR_SCHEMA_VERSION = 60 as const;
+export const COGNITIVE_SIDECAR_SCHEMA_VERSION = 61 as const;
 
 /**
  * Hard bound on cognition-facing concern discovery windows and pages. The
@@ -1800,6 +1800,8 @@ export type DurableNomination = {
   salience?: number;
 };
 export type MemorySupportProvenance = "native" | "legacy_import";
+export type MemoryChannel = "discord" | `domus:${string}`;
+export type MemoryLineageClass = "current" | "undone";
 export type MemoryAssertion = {
   assertionKey: AssertionKey;
   statement: string;
@@ -1809,6 +1811,8 @@ export type MemoryAssertion = {
   lineageParentKey: AssertionKey | null;
   admittedGeneration: Generation | null;
   live: boolean;
+  channel: MemoryChannel;
+  lineageClass: MemoryLineageClass;
   sourcePrincipal?: string | null;
   subject?: string[] | null;
   audienceScope?: SocialAudience | null;
@@ -1832,6 +1836,8 @@ export type MemorySupport = {
   dimensions: EpistemicDimensions;
   dataClassification: DataClassification;
   createdAtMs: number;
+  channel: MemoryChannel;
+  lineageClass: MemoryLineageClass;
 };
 export type RememberDirective = {
   rememberRequested: true;

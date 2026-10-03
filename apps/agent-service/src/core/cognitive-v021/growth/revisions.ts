@@ -336,7 +336,7 @@ function evidenceOrigin(db: DatabaseSync, ref: string): EvidenceOrigin {
     if (supportRef?.kind === "conversation_text_span") groundings.push(rowGrounding(db, supportRef.evidenceRowId));
     else if (supportRef?.kind === "observation_ref") groundings.push(observationGrounding(db, supportRef.observationId));
     else if (supportRef?.kind === "receipt_ref") groundings.push({ roots: [`receipt:${supportRef.receiptId}`], own: false, external: false });
-    else if (supportRef) groundings.push({ roots: [`artifact:${supportRef.artifactId}`], own: false, external: false });
+    else if (supportRef && supportRef.kind !== "domus_observation") groundings.push({ roots: [`artifact:${supportRef.artifactId}`], own: false, external: false });
     else if (support.supportId.startsWith("social:evidence:") && support.sourceRef) groundings.push(rowGrounding(db, support.sourceRef));
   }
   const cycles = (db.prepare(
