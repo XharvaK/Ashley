@@ -1,4 +1,5 @@
 import { frictionForThought, recordFriction } from "./friction.js";
+import { selfChangeMotivesForThought } from "./self-change.js";
 import { proposeInfluences } from "../influences/proposals.js";
 import { influenceProposalsForThought, recordInfluencePositions, type InfluenceProposal } from "../influences/positions.js";
 import { graduationForThought, proposeCalibration, recordCalibrationPositions, type CalibrationLine, type CalibrationProposal } from "../graduation/calibration.js";
@@ -42,6 +43,8 @@ import {
 export type IdentityStore = { nuclear: DatabaseSync; ownerId: string };
 
 export type ThoughtGrowth = {
+  /** Source facts only; Thought decides whether to open a self-change concern. */
+  selfChange: ReturnType<typeof selfChangeMotivesForThought>;
   influenceProposals?: InfluenceProposal[];
   calibrationProposals?: CalibrationProposal[];
   calibration?: CalibrationLine[];
@@ -134,6 +137,7 @@ export function growthForThought(db: DatabaseSync, identityStore: IdentityStore 
     ...(influenceProposals.length ? { influenceProposals } : {}),
     ...graduationForThought(db, nowMs),
     friction: frictionForThought(db, nowMs),
+    selfChange: selfChangeMotivesForThought(db, nowMs),
     practices: listCurrentPractices(db).map(revision => ({ revisionId: revision.revisionId, text: revision.proposedText, heldSinceMs: revision.appliedAtMs ?? revision.updatedAtMs })),
     mood: {
       valence: mood.valence,

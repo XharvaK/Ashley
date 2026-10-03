@@ -1,4 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
+import { selfChangeOpportunityPolicy, type SelfChangeRefusalReason } from "../growth/self-change.js";
 import { getCycle, resolveDurableContinuationOwner } from "../cycle/inbox.js";
 import { listOccupancy } from "../concerns/occupancy.js";
 import { fireDueTriggers } from "./future-triggers.js";
@@ -134,6 +135,7 @@ export type IdleTickOptions = {
 };
 
 export type IdleTickReason =
+  | SelfChangeRefusalReason
   | "empty_house"
   | "active_frontier"
   | "occupancy_unreachable"
@@ -694,7 +696,9 @@ async function tickConversation(
     : matched.length > 0
       ? matched.map((observation) => observation.observationId).join(",")
       : `${occupancy.map((item) => item.concernId).join(",")}:tick:${nowMs}`;
-  const policyId = options.privateBudgetPolicyId ?? PRIVATE_THOUGHT_POLICY_ID;
+  const selfChange = selfChangeOpportunityPolicy(db, { conversationId, dueTriggers: commitment ? [] : dueTriggers, nowMs });
+  if (selfChange.kind === "refused") return emptyResult(conversationId, selfChange.reason, dueTriggers, []);
+  const policyId = selfChange.kind === "self_change" ? selfChange.policyId : options.privateBudgetPolicyId ?? PRIVATE_THOUGHT_POLICY_ID;
   const budgetProjection = getPrivateBudgetProjection(db, {
     conversationId,
     policyId,

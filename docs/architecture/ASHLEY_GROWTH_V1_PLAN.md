@@ -547,6 +547,29 @@ None blocking. Owner-set: AFTERGLOW 30 min (watermarked), AWAKE 3 h,
 private budget 12/h. Defaults: window 40 + thread story, runaway fuse 12
 unsolicited/24 h, recall fuse 32/24 KB. All tunable.
 
+## Self-change motive and private-budget binding
+
+The private growth projection exposes factual recurring friction counts and
+existing Thought-proposed practices. These facts never open a concern. Thought
+may use the existing concern objective target with `kind: "self_change"`,
+`motiveKind: "friction_pattern" | "practice"`, and `motiveRef` identifying the
+friction kind or practice revision. The existing concern and occupancy lifecycle
+remain authoritative.
+
+A Thought-authored future trigger may bind a later private opportunity to that
+concern with `payload.budgetPolicyId: "ashley.self_change.v1"`. The current concern,
+snapshot, conversation, motive evidence, and configured policy must resolve.
+Mixed trigger scopes refuse this dedicated admission. An unconfigured policy
+never falls back to ordinary private-Thought capacity. General own-time passes,
+commitments, and conversation retain their existing policy selection.
+
+The Host configuration helper `configureSelfChangeBudget` uses L1's versioned
+policy resolver and reservation ledger. It requires an Owner-supplied limit;
+there is no implicit self-change capacity. Existing dispatch binding, recovery,
+clock reconciliation, capability grants, and named sandbox operation gates
+remain separate. Admitted opportunities do not prove provider dispatch, a
+successful patch, review acceptance, deployment, or permission to change Ashley.
+
 ## Appendix A — Interest pool (50)
 
 Electronic music; Technology; Artificial intelligence; Psychology & the
