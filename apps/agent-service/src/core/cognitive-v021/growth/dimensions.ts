@@ -131,7 +131,7 @@ export function applyWeeklyGaps(
 ): AppliedGaps {
   const result: AppliedGaps = { stored: 0, dropped: 0, chosenId: null, editsApplied: 0, editsRefused: 0 };
   const seen = new Set<string>();
-  const accepted: GapScoreInput[] = [];
+  const accepted: Array<{ id: string; score: number; note: string; supportRefs: string[] }> = [];
   let duplicate = false;
   for (const item of input.dimensions ?? []) {
     const note = typeof item.note === "string" ? item.note : "";
