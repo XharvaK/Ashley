@@ -51,6 +51,8 @@ export function buildInnerAgenda(db: DatabaseSync, pass: AwakePass, nowMs: numbe
   const chosen = latestChosenGap(db);
   return {
     lastAwakeAtMs: pass.sinceMs > 0 ? pass.sinceMs : null,
+    restStreak: countAwakeRestStreak(db),
+    sinceOwnerMs: sinceOwnerMs(db, nowMs),
     episodesSince,
     unresolvedThreads,
     openQuestions,
@@ -62,4 +64,27 @@ export function buildInnerAgenda(db: DatabaseSync, pass: AwakePass, nowMs: numbe
     },
     ...(chosen ? { chosenGap: { id: chosen.id, name: chosen.name, question: chosen.question } } : {}),
   };
+}
+
+/** Newest current awake journal rows that are rest, until the first other activity. */
+function countAwakeRestStreak(db: DatabaseSync): number {
+  const rows = db.prepare(
+    `SELECT activity FROM activity_journal
+      WHERE pass_kind = 'awake' AND forgotten_at_ms IS NULL AND lineage_class = 'current'
+      ORDER BY created_at_ms DESC, entry_id DESC`,
+  ).all() as Array<{ activity: string | null }>;
+  let streak = 0;
+  for (const row of rows) {
+    if (row.activity !== "rest") break;
+    streak += 1;
+  }
+  return streak;
+}
+
+/** nowMs minus the newest Owner evidence row, or null when the Owner has no row. */
+function sinceOwnerMs(db: DatabaseSync, nowMs: number): number | null {
+  const row = db.prepare(
+    `SELECT MAX(created_at_ms) AS at_ms FROM conversation_evidence_log WHERE role = 'owner'`,
+  ).get() as { at_ms: number | null } | undefined;
+  return row?.at_ms == null ? null : nowMs - Number(row.at_ms);
 }
