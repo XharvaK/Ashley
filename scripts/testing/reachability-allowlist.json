@@ -22,6 +22,8 @@
     "core/honesty/activity-license.ts": "review: dependency of the legacy honesty finalizer",
     "core/sandbox/bounded-operation-store.ts": "review: exercised by the schema v31 migration test",
     "core/sandbox/operational-job-store.ts": "review: dependency of the bounded-operation store",
-    "core/continuity/backup-package.ts": "review: authenticated three-store backup, unwired; decide wire or delete"
+    "core/continuity/backup-package.ts": "review: authenticated three-store backup, unwired; decide wire or delete",
+    "scripts/backup-daily.ts": "operator/timer entry point run by systemd/deploy wrapper, not imported",
+    "scripts/backup-drill.ts": "operator/timer entry point run by systemd/deploy wrapper, not imported"
   }
 }
