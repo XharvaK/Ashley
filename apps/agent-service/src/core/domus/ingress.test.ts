@@ -70,6 +70,37 @@ describe("domus ingress", () => {
     return fetch(`${base}${path}`, { method: "POST", headers, body: raw ?? JSON.stringify(body) });
   }
 
+  function undoBody(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+    return { v: 1, world: "willow", branch: "main", session: "s1", after_source_time_ms: 10, reason: "RELOAD", ...overrides };
+  }
+
+  it("rejects undo without a token and with a wrong token", async () => {
+    const { base } = await start();
+    expect((await post(base, "/domus/undo", undoBody())).status).toBe(401);
+    expect((await post(base, "/domus/undo", undoBody(), "x".repeat(32))).status).toBe(401);
+  });
+
+  it("rejects an unknown key, a bad reason, and a negative after time", async () => {
+    const { base } = await start();
+    expect((await post(base, "/domus/undo", undoBody({ extra: 1 }), TOKEN)).status).toBe(400);
+    expect((await post(base, "/domus/undo", undoBody({ reason: "reload" }), TOKEN)).status).toBe(400);
+    expect((await post(base, "/domus/undo", undoBody({ after_source_time_ms: -1 }), TOKEN)).status).toBe(400);
+  });
+
+  it("undoes a span and a second call is a zero count", async () => {
+    const { db, base } = await start();
+    db.prepare(`INSERT INTO domus_observations (
+      observation_id, digest, world, branch, session, attachment, body, snapshot, seq,
+      source_time_ms, expires_at_ms, receipt_time_ms, lineage_class, payload_json
+    ) VALUES ('obs-u', 'd', 'willow', 'main', 's1', 'a', 'b', 's', 1, 50, 60, 55, 'WORLD_LINE', '{}')`).run();
+    const response = await post(base, "/domus/undo", undoBody(), TOKEN);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ status: "ok", observations: 1, supports: 0, assertions: 0, episodes: 0, journal: 0 });
+    const again = await post(base, "/domus/undo", undoBody(), TOKEN);
+    expect(again.status).toBe(200);
+    expect(await again.json()).toEqual({ status: "ok", observations: 0, supports: 0, assertions: 0, episodes: 0, journal: 0 });
+  });
+
   it("rejects a missing token", async () => {
     const { base } = await start();
     expect((await post(base, "/domus/observation", observation())).status).toBe(401);

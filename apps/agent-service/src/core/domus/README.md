@@ -54,6 +54,22 @@ Unknown keys: `400 {"error":"invalid_body"}`.
 
 `sent_at_ms` is a safe non-negative integer. `attached` is a boolean. Upserts `domus_heartbeats` by `helper_session` (`last_received_at_ms`, `last_sent_at_ms`, `count`, `last_json`). Response: `200 {"status":"ok"}`.
 
+## POST /domus/undo
+
+Unknown keys: `400 {"error":"invalid_body"}`. The helper decides; Ashley never infers abandonment.
+
+```json
+{ "v": 1, "world": "1..64", "branch": "1..64", "session": "1..64", "after_source_time_ms": 0, "reason": "1..32 chars of [A-Z_]" }
+```
+
+`after_source_time_ms` is a safe non-negative integer. `world`, `branch`, and `session` use the same character rules as those fields on an observation. Response: `200 {"status":"ok","observations":0,"supports":0,"assertions":0,"episodes":0,"journal":0}`.
+
+- Observations in that world, branch, and session with `source_time_ms` greater than `after_source_time_ms` and `undone_at_ms` null get `undone_at_ms` set to the undo time. Rows stay.
+- Current supports whose `support_ref_json` is `{ kind: "domus_observation", observationId }` for one of those ids, and that still have `source_ref` or `support_ref_json`, become `lineage_class = undone`. A forgotten support (both null) is skipped.
+- Each current assertion that owns one of those supports, and whose statement is not redacted, becomes `undone`. Every other current support of that assertion becomes `undone` with it.
+- Current episodes and journal rows on `domus:<world>` with `forgotten_at_ms` null and `created_at_ms` at or after the earliest undone receipt become `undone`. Cycle binding waits for 8d.
+- Nothing is deleted or redacted. `live`, `statement`, `content_hash`, FTS, vectors, and `memory_strength` stay as they are. A second identical call returns zeros.
+
 ## Memory channel and lineage (8b-1)
 
-`sidecar_memory_assertions`, `sidecar_memory_supports`, `episodes_v2`, and `activity_journal` carry `channel` (`discord` or `domus:<world>`, default `discord`) and `lineage_class` (`current` or `undone`, default `current`). `domus_observations.undone_at_ms` is null while the observation still counts. Thought may cite a stored row as typed support `{ kind: "domus_observation", observationId }`. Admission resolves it only when the row exists, `admission_state` is not `dropped`, and `undone_at_ms` is null, then stamps `channel` from that row's world. A nomination whose fresh supports name more than one channel (two worlds, or Discord plus Domus) is `admission_skipped_provenance`. A Domus observation never grounds an Owner-world claim.
+`sidecar_memory_assertions`, `sidecar_memory_supports`, `episodes_v2`, and `activity_journal` carry `channel` (`discord` or `domus:<world>`, default `discord`) and `lineage_class` (`current` or `undone`, default `current`). `domus_observations.undone_at_ms` is null while the observation still counts. Rows marked `undone` stay as history and are hidden from recall. Thought may cite a stored row as typed support `{ kind: "domus_observation", observationId }`. Admission resolves it only when the row exists, `admission_state` is not `dropped`, and `undone_at_ms` is null, then stamps `channel` from that row's world. A nomination whose fresh supports name more than one channel (two worlds, or Discord plus Domus) is `admission_skipped_provenance`. A Domus observation never grounds an Owner-world claim.
