@@ -28,6 +28,18 @@ describe("identity command", () => {
   });
 });
 
+describe("P7b dimensions", () => {
+  it("lists dimensions and recent history", async () => {
+    const identity = await import("./identity.js") as typeof import("./identity.js");
+    const rendered = identity.renderDimensions(
+      [{ id: "d1", name: "Sustained inquiry", question: "Did I follow a question past its first answer?", status: "active", origin: "owner_seed" }],
+      [{ historyId: "h1", dimensionId: "d1", op: "add", actor: "owner", reason: "owner seed", createdAtMs: 1 }],
+    );
+    assert.match(rendered, /Sustained inquiry: Did I follow a question past its first answer\?/);
+    assert.match(rendered, /add by owner: owner seed/);
+  });
+});
+
 describe("A3b practice view", () => {
   it("renders earned practices with revision identifiers for reversion", async () => {
     const identity = await import("./identity.js") as any;

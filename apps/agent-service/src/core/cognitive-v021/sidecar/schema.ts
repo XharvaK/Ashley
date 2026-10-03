@@ -2107,3 +2107,43 @@ CREATE TABLE self_change_ladder_history (
 );
 UPDATE cognitive_sidecar_meta SET schema_version=58 WHERE id=1;
 `;
+
+/** Weekly felt-gap dimensions. No rows are seeded. */
+export const COGNITIVE_SIDECAR_SCHEMA_V59 = String.raw`
+CREATE TABLE IF NOT EXISTS growth_dimensions (
+  id TEXT PRIMARY KEY NOT NULL,
+  name TEXT NOT NULL,
+  weekly_question TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('active','retired')),
+  origin TEXT NOT NULL CHECK (origin IN ('owner_seed','ashley')),
+  created_at_ms INTEGER NOT NULL,
+  updated_at_ms INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS growth_dimension_history (
+  history_id TEXT PRIMARY KEY NOT NULL,
+  dimension_id TEXT NOT NULL,
+  op TEXT NOT NULL CHECK (op IN ('add','rename','retire','revert')),
+  actor TEXT NOT NULL CHECK (actor IN ('owner','ashley')),
+  reason TEXT,
+  before_json TEXT,
+  after_json TEXT,
+  created_at_ms INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS growth_gap_scores (
+  pass_id TEXT NOT NULL,
+  dimension_id TEXT NOT NULL,
+  score INTEGER NOT NULL CHECK (score BETWEEN 0 AND 5),
+  note TEXT,
+  support_refs_json TEXT NOT NULL,
+  chosen INTEGER NOT NULL CHECK (chosen IN (0, 1)) DEFAULT 0,
+  data_classification TEXT NOT NULL,
+  created_at_ms INTEGER NOT NULL,
+  PRIMARY KEY (pass_id, dimension_id)
+);
+CREATE TABLE IF NOT EXISTS growth_gap_diagnostics (
+  pass_id TEXT PRIMARY KEY NOT NULL,
+  dropped INTEGER NOT NULL,
+  created_at_ms INTEGER NOT NULL
+);
+UPDATE cognitive_sidecar_meta SET schema_version=59 WHERE id=1;
+`;

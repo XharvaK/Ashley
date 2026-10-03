@@ -723,14 +723,15 @@ describe("Thought semantic output contract", () => {
     // Rotation earned by typed inspect/evidence operation vocabulary, objective
     // web.fetch vocabulary and instructions, Growth V1 nomination salience and memory.lookup,
     // the Growth V1 G4 growth field (appraisal, expectations, revisions), the G5 night field,
+    // P7b weekly night.gaps,
     // the A2 forget field, and A9 expectation basisRefs;
     // T3 attention adds structured watches, wake feedback and resting; parser identity remains v2.
     expect(THOUGHT_SEMANTIC_SCHEMA_FINGERPRINT).toBe(
-      "sha256:1429d2297ad2501cf316170751db6acefc71653db85a6f2f662e59fe9073674a",
+      "sha256:98953e4dc2a7cbfb7328798cfc58cada12fb85e5615c653e6deb6ddd9d886da9",
     );
     const zeroOp = constrainThoughtOutputSchema(buildOperationalEffectNamespaceFromRefs([]));
     expect(zeroOp.wireSchemaFingerprint).toBe(
-      "sha256:5d89ccc4b6bbebbae605a042f04de0473074e9bbadf8a6746997f430f01074dc",
+      "sha256:ad58ffa559f7efcd0add451d9f80db99485275903cd0ada7bd902e34e702ba55",
     );
     expect(zeroOp.namespaceConstraintFingerprint).toBe(
       "sha256:d277b3804b25361994107886d1f33f779a7501298b01fe483ebe7c795b6e19c6",

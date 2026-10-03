@@ -99,7 +99,7 @@ describe("cognitive sidecar Schema V25 effect occupancy", () => {
       prepareV24(db);
       openCognitiveSidecarDb(db, { dataPlane: { kind: "isolated" } });
 
-      expect(COGNITIVE_SIDECAR_SCHEMA_VERSION).toBe(58);
+      expect(COGNITIVE_SIDECAR_SCHEMA_VERSION).toBe(59);
       expect(db.prepare("PRAGMA user_version").get()).toMatchObject({ user_version: 58 });
       expect(db.prepare("SELECT COUNT(*) AS count FROM in_flight_effects").get()).toMatchObject({ count: 3 });
       expect(db.prepare("SELECT COUNT(*) AS count FROM effect_receipts").get()).toMatchObject({ count: 2 });

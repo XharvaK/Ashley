@@ -1,6 +1,6 @@
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, type ButtonInteraction, type ChatInputCommandInteraction } from "discord.js";
 import { isOwner } from "../security/gate.js";
-import { decideIdentityReview, identityReviews, currentPractices, revertPractice, type Practice } from "../agent-client.js";
+import { decideIdentityReview, identityReviews, currentPractices, revertPractice, growthDimensions, seedGrowthDimension, revertGrowthDimension, type Practice, type GrowthDimensionView, type GrowthDimensionHistoryView } from "../agent-client.js";
 
 export function renderReview(review: Awaited<ReturnType<typeof identityReviews>>["reviews"][number]): string {
   const status = review.appliedAt
@@ -14,6 +14,14 @@ export function renderReview(review: Awaited<ReturnType<typeof identityReviews>>
   return lines.join("\n");
 }
 
+export function renderDimensions(dimensions: readonly GrowthDimensionView[], history: readonly GrowthDimensionHistoryView[]): string {
+  const lines = dimensions.length
+    ? dimensions.map((dimension) => `${dimension.status === "active" ? "active" : "retired"} ${dimension.origin} ${dimension.name}: ${dimension.question}`)
+    : ["No growth dimensions are seeded."];
+  const recent = history.slice(0, 8).map((row) => `${row.op} by ${row.actor}${row.reason ? `: ${row.reason}` : ""}`);
+  return recent.length ? `${lines.join("\n")}\n\n${recent.join("\n")}` : lines.join("\n");
+}
+
 export async function execute(
   interaction: ChatInputCommandInteraction,
 ): Promise<void> {
@@ -25,6 +33,32 @@ export async function execute(
     const components: ActionRowBuilder<ButtonBuilder>[] = [];
     for (let n = 0; n < buttons.length; n += 3) components.push(new ActionRowBuilder<ButtonBuilder>().addComponents(buttons.slice(n, n+3)));
     await interaction.editReply({ content: renderPractices(shown), components });
+    return;
+  }
+  if (action === "dimensions") {
+    const listed = await growthDimensions();
+    await interaction.editReply(renderDimensions(listed.dimensions, listed.history));
+    return;
+  }
+  if (action === "seed-dimension") {
+    const name = interaction.options.getString("name");
+    const question = interaction.options.getString("question");
+    if (!name || !question) {
+      await interaction.editReply("A dimension needs its name and weekly question, unchanged.");
+      return;
+    }
+    const seeded = await seedGrowthDimension(name, question);
+    await interaction.editReply(`Seeded ${seeded.dimension.name}: ${seeded.dimension.question}`);
+    return;
+  }
+  if (action === "revert-dimension") {
+    const dimensionId = interaction.options.getString("dimension-id");
+    if (!dimensionId) {
+      await interaction.editReply("Name the dimension to revert.");
+      return;
+    }
+    const result = await revertGrowthDimension(dimensionId);
+    await interaction.editReply(result.reverted ? "Reverted Ashley's latest edit on that dimension." : "There was no Ashley edit to revert.");
     return;
   }
   if (action === "review") {

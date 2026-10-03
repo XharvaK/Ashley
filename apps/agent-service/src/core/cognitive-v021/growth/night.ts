@@ -9,6 +9,7 @@ import { listRecentJournal, toThoughtJournalEntry, type ThoughtJournalEntry } fr
 import { notifySidecarPostCommit } from "../retrieval/derived-store.js";
 import type { NightPass } from "../initiative/inner-pass.js";
 import { listAppliedRevisions, revisableIdentityEntries } from "./revisions.js";
+import { applyWeeklyGaps, listActiveDimensions } from "./dimensions.js";
 import type { IdentityStore } from "./growth.js";
 
 /**
@@ -47,6 +48,11 @@ export type NightClaim = {
   salience?: Array<{ key: string; salience: number }>;
   closeQuestions?: string[];
   narrative?: string;
+  gaps?: {
+    dimensions?: Array<{ id: string; score: number; note?: string; supportRefs?: string[] }>;
+    choose?: string;
+    edits?: Array<{ op: "add" | "rename" | "retire"; id?: string; name?: string; question?: string; reason?: string }>;
+  };
 };
 
 export type ThoughtNightAgenda = {
@@ -68,6 +74,8 @@ export type ThoughtNightAgenda = {
     changes: Array<{ layer: string; text: string; appliedAtMs: number }>;
     previousNarrative?: { text: string; writtenAtMs: number };
   };
+  /** Present only when this weekly pass has active dimensions to feel against. */
+  dimensions?: Array<{ id: string; name: string; question: string }>;
 };
 
 type Row = Record<string, unknown>;
@@ -173,6 +181,8 @@ export function buildNightAgenda(
         .map((revision) => ({ layer: revision.layer, text: revision.proposedText, appliedAtMs: revision.appliedAtMs ?? revision.updatedAtMs })),
       ...(previous ? { previousNarrative: { text: previous.text, writtenAtMs: previous.createdAtMs } } : {}),
     };
+    const dimensions = listActiveDimensions(db).map((dimension) => ({ id: dimension.id, name: dimension.name, question: dimension.question }));
+    if (dimensions.length > 0) agenda.dimensions = dimensions;
   }
   return agenda;
 }
@@ -201,7 +211,15 @@ export function closeOpenQuestion(db: DatabaseSync, key: string): boolean {
   return true;
 }
 
-export type NightRecordResult = { diaryId: string | null; rescored: string[]; closed: string[]; narrativeId: string | null };
+export type NightRecordResult = {
+  diaryId: string | null;
+  rescored: string[];
+  closed: string[];
+  narrativeId: string | null;
+  gapsStored: number;
+  gapsDropped: number;
+  chosenId: string | null;
+};
 
 /**
  * Record what a night settlement authored. Only keys the pass could see are
@@ -212,7 +230,7 @@ export function recordNight(
   input: { cycleId: string; pass: NightPass; claim?: NightClaim; timeZone: string; dataClassification: DataClassification; nowMs: number },
 ): NightRecordResult {
   const { claim, nowMs } = input;
-  const result: NightRecordResult = { diaryId: null, rescored: [], closed: [], narrativeId: null };
+  const result: NightRecordResult = { diaryId: null, rescored: [], closed: [], narrativeId: null, gapsStored: 0, gapsDropped: 0, chosenId: null };
   if (!claim) return result;
   const live = new Map(listLiveMemoryAssertions(db).map((assertion) => [assertion.assertionKey, assertion]));
   const diary = claim.diary?.trim().slice(0, DIARY_MAX_CHARS);
@@ -237,6 +255,22 @@ export function recordNight(
     if (closeOpenQuestion(db, key)) result.closed.push(key);
   }
   const narrative = claim.narrative?.trim().slice(0, NARRATIVE_MAX_CHARS);
+  const weeklyWork = input.pass.weekly && (Boolean(claim.gaps) || Boolean(narrative));
+  if (weeklyWork) db.exec("SAVEPOINT weekly_pass");
+  try {
+  if (input.pass.weekly && claim.gaps) {
+    const gaps = applyWeeklyGaps(db, {
+      passId: input.cycleId,
+      nowMs,
+      dataClassification: input.dataClassification,
+      dimensions: claim.gaps.dimensions,
+      choose: claim.gaps.choose,
+      edits: claim.gaps.edits,
+    });
+    result.gapsStored = gaps.stored;
+    result.gapsDropped = gaps.dropped;
+    result.chosenId = gaps.chosenId;
+  }
   if (narrative && input.pass.weekly) {
     const narrativeId = idFor("narrative", input.cycleId);
     // The narrative and its weekly watermark share storage truth, including aftermath replay.
@@ -258,6 +292,11 @@ export function recordNight(
       db.exec("ROLLBACK TO weekly_narrative_closure; RELEASE weekly_narrative_closure");
       throw error;
     }
+  }
+  if (weeklyWork) db.exec("RELEASE weekly_pass");
+  } catch (error) {
+    if (weeklyWork) db.exec("ROLLBACK TO weekly_pass; RELEASE weekly_pass");
+    throw error;
   }
   return result;
 }

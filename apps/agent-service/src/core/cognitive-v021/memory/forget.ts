@@ -15,6 +15,7 @@ import { forgetRevision, revisionIdsForForget } from "../growth/revisions.js";
 import { forgetMoodEvent, moodEventIdsForForget } from "../growth/mood.js";
 import { expectationIdsForForget, forgetExpectation } from "../growth/expectations.js";
 import { diaryEntryIdsForForget, forgetDiaryEntry, forgetNarrative, narrativeIdsForForget } from "../growth/night.js";
+import { dimensionHistoryIdsForForget, forgetDimensionHistory, forgetGapScore, gapScoreIdsForForget } from "../growth/dimensions.js";
 import { forgetSnapshot, snapshotIdsForForget } from "../growth/snapshots.js";
 
 type Row = Record<string, unknown>;
@@ -29,6 +30,8 @@ export const V021_FORGET_TARGET_MATRIX = {
   activity_journal: { behavior: "none", content: "redact" },
   interest_branches: { behavior: "none", content: "redact" },
   growth_revisions: { behavior: "retract", content: "redact" },
+  growth_gap_scores: { behavior: "none", content: "redact" },
+  growth_dimension_history: { behavior: "none", content: "redact" },
   mood_events: { behavior: "none", content: "redact" },
   expectations: { behavior: "none", content: "redact" },
   diary_entries: { behavior: "none", content: "redact" },
@@ -419,6 +422,14 @@ export function applyV021Forget(
       changedRows += forgetDiaryEntry(db, id, nowMs);
       addTarget(targets, "v021_diary_entry", id);
     }
+    for (const id of gapScoreIdsForForget(db, topic)) {
+      changedRows += forgetGapScore(db, id);
+      addTarget(targets, "v021_growth_gap", id);
+    }
+    for (const id of dimensionHistoryIdsForForget(db, topic)) {
+      changedRows += forgetDimensionHistory(db, id);
+      addTarget(targets, "v021_growth_dimension_history", id);
+    }
     for (const id of narrativeIdsForForget(db, topic)) {
       changedRows += forgetNarrative(db, id, nowMs);
       addTarget(targets, "v021_self_narrative", id);
@@ -589,6 +600,8 @@ export function planV021Forget(
   for (const id of moodEventIdsForForget(db, topic)) add("v021_mood_event", id);
   for (const id of expectationIdsForForget(db, topic)) add("v021_expectation", id);
   for (const id of diaryEntryIdsForForget(db, topic)) add("v021_diary_entry", id);
+  for (const id of gapScoreIdsForForget(db, topic)) add("v021_growth_gap", id);
+  for (const id of dimensionHistoryIdsForForget(db, topic)) add("v021_growth_dimension_history", id);
   for (const id of narrativeIdsForForget(db, topic)) add("v021_self_narrative", id);
   for (const id of attentionWatchIdsForForget(db, topic)) add("v021_attention_watch",id,"detach");
   for (const id of snapshotIdsForForget(db, topic)) add("v021_persona_snapshot", id);
@@ -733,6 +746,8 @@ function applyV021ForgetTargetsInTransaction(
   for (const id of targetIds(targets, "v021_diary_entry")) {
     changed.value += forgetDiaryEntry(db, id, nowMs);
   }
+  for (const id of targetIds(targets, "v021_growth_gap")) changed.value += forgetGapScore(db, id);
+  for (const id of targetIds(targets, "v021_growth_dimension_history")) changed.value += forgetDimensionHistory(db, id);
   for (const id of targetIds(targets, "v021_self_narrative")) {
     changed.value += forgetNarrative(db, id, nowMs);
   }
