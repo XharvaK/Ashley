@@ -719,6 +719,30 @@ describe("Thought semantic output contract", () => {
     });
   });
 
+  it("requires an explicit durableNominations decision on every settlement", () => {
+    const schema = THOUGHT_OUTPUT_SCHEMA as {
+      oneOf: Array<{ required?: string[]; properties?: Record<string, { minItems?: number }> }>;
+    };
+    const settlementForm = schema.oneOf[0];
+    expect(settlementForm.required).toEqual(["kind", "speech", "durableNominations"]);
+    expect(settlementForm.properties?.durableNominations?.minItems).toBe(0);
+  });
+
+  it("accepts an empty or omitted durableNominations list and rejects an invalid item", () => {
+    const base = { kind: "settlement", speech: { mode: "none" } };
+    expect(parseThoughtSemanticOutput({ ...base, durableNominations: [] }, new Set())).toEqual({
+      ok: true,
+      value: { ...base, durableNominations: [] },
+    });
+    expect(parseThoughtSemanticOutput(base, new Set())).toEqual({ ok: true, value: base });
+    const invalid = parseThoughtSemanticOutput({
+      ...base,
+      durableNominations: [{ statement: "not a nomination" }],
+    }, new Set());
+    expect(invalid.ok).toBe(false);
+    if (!invalid.ok) expect(invalid.field).toBe("durableNominations");
+  });
+
   it("keeps protected semantic, wire, and capability fingerprints exact", () => {
     // Rotation earned by typed inspect/evidence operation vocabulary, objective
     // web.fetch vocabulary and instructions, Growth V1 nomination salience and memory.lookup,
@@ -727,11 +751,11 @@ describe("Thought semantic output contract", () => {
     // the A2 forget field, and A9 expectation basisRefs;
     // T3 attention adds structured watches, wake feedback and resting; parser identity remains v2.
     expect(THOUGHT_SEMANTIC_SCHEMA_FINGERPRINT).toBe(
-      "sha256:ed8e391330d30b01554276b56a9f290a3972b0b5642939084711840123c3c5a9",
+      "sha256:e84f211839eadc828a02eb6bc97cb4155d22d13534197ba7c22198c88ea1915d",
     );
     const zeroOp = constrainThoughtOutputSchema(buildOperationalEffectNamespaceFromRefs([]));
     expect(zeroOp.wireSchemaFingerprint).toBe(
-      "sha256:a0627c1c6694ada20bc0d6ec48e11ccc2f5aa3bf63eaef4b66c57c0c7ffb8121",
+      "sha256:5d8a1826f03b7ea56b730f39467f6656778f0d20f665cf23abacdf7e44abb14c",
     );
     expect(zeroOp.namespaceConstraintFingerprint).toBe(
       "sha256:d277b3804b25361994107886d1f33f779a7501298b01fe483ebe7c795b6e19c6",

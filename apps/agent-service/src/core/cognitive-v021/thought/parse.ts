@@ -909,7 +909,7 @@ function parseSettlementSemantic(value: SemanticRecord, allowlist: ReadonlySet<s
     ["durableNominations", (item) => validNomination(item, allowlist)],
   ];
   for (const [key, validator] of arrays) {
-    result = optionalArray(value, key, validator);
+    result = optionalArray(value, key, validator, key !== "durableNominations");
     if (!result.ok) return semanticFailure(result.code, result.field);
   }
   if (own(value, "reflection") && !validReflection(value.reflection)) {

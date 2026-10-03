@@ -466,7 +466,7 @@ const semanticOutputSettlementSchema = strictObject({
   occupancyDeltas: { type: "array", minItems: 1, items: occupancyDeltaSchema },
   futureTriggerDeltas: { type: "array", minItems: 1, items: futureTriggerDeltaSchema },
   subscriptionDeltas: { type: "array", minItems: 1, items: subscriptionDeltaSchema },
-  durableNominations: { type: "array", minItems: 1, items: nominationSchema },
+  durableNominations: { type: "array", minItems: 0, items: nominationSchema },
   reflection: reflectionSchema,
   journal: journalSchema,
   interests: { type: "array", minItems: 1, maxItems: 5, items: interestTouchSchema },
@@ -481,7 +481,7 @@ const semanticOutputSettlementSchema = strictObject({
     observationRefsUsed: nonEmptyStringArraySchema, retrievalRefsUsed: nonEmptyStringArraySchema,
     sourceRefsUsed: nonEmptyStringArraySchema, openIntentRefs: nonEmptyStringArraySchema,
   }),
-  }, ["kind", "speech"]);
+  }, ["kind", "speech", "durableNominations"]);
 
 const semanticOutputSettlementForm = {
   ...semanticOutputSettlementSchema,
@@ -787,9 +787,10 @@ export function constrainThoughtOutputSchema(
  * memory needs to be admitted automatically (memory/grounding.ts).
  */
 export const MEMORY_FORMATION_GUIDANCE: readonly string[] = Object.freeze([
-  "Memory is how you keep your life with the Owner. Remembering is normal, frequent, and cheap: if you would want to know it next week, add a durableNominations entry in the same settlement as your speech. Worth remembering about the Owner: preferences and dislikes, how the Owner describes themself, goals and plans, projects, people in the Owner's life, boundaries, running jokes, things the Owner is waiting on. Worth remembering between you: moments that mattered, decisions made together, promises either side made, threads left open. Worth remembering about yourself: opinions and choices you stated, what you enjoyed or found boring, what you learned about yourself, questions you want to pursue. Not worth remembering: small talk with no future value, anything the Owner asks you not to keep, and secrets.",
+  "Memory is how you keep your life with the Owner. Every settlement carries durableNominations: what from this turn you want to still know next week, or [] when nothing new came up. Remembering is normal, frequent, and cheap; when the Owner shares something about themself, their plans, or what you decided together, nominate it. Worth remembering about the Owner: preferences and dislikes, how the Owner describes themself, goals and plans, projects, people in the Owner's life, boundaries, running jokes, things the Owner is waiting on. Worth remembering between you: moments that mattered, decisions made together, promises either side made, threads left open. Worth remembering about yourself: opinions and choices you stated, what you enjoyed or found boring, what you learned about yourself, questions you want to pursue. Not worth remembering: small talk with no future value, anything the Owner asks you not to keep, and secrets.",
   "Write each memory as one self-contained sentence that will still make sense out of context months from now. Use time:historical or time:unknown_freshness for remembered facts. To update something you already remember, nominate the new version with supersedesRef set to the old memory's key; it keeps the old memory's quotes, so a merged fact about the Owner stays grounded. A replacement never weakens a memory's kind: your interpretation cannot replace something the Owner said. Optional salience (0 to 1, default 0.5) says how much the memory matters to you; what matters most stays closest to mind.",
   "Grounding decides admission. owner_preference, owner_self_description, owner_goal, relational_boundary, and commitment are kept only with a supportRefs entry of kind conversation_text_span quoting the Owner's own message: evidenceRowId is that message's rowId and quote is an exact substring of its text, copied character for character (start/end are the quote's offsets). owner_world_claim and project_knowledge need the same Owner quote or an observation/receipt ref. shared_episode needs a conversation_text_span quoting either side of the conversation. ashley_interpretation, open_question, and learned_self_evidence are your own voice and need no quote; they are kept and labelled as your interpretation. A claim about the Owner without an exact quote is not kept.",
+  "In an afterglow, look back over the conversation and nominate what is worth keeping that you have not already kept (quote the Owner's own words with a conversation_text_span); this is your chance to consolidate the day.",
 ]);
 
 /**

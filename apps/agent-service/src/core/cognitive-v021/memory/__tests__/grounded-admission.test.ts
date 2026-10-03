@@ -64,8 +64,8 @@ function nomination(kind: MemoryKind, overrides: Partial<DurableNomination> = {}
 
 function publish(db: DatabaseSync, values: DurableNomination[], settlementId = "settlement-grounded"): void {
   const draft = makeThoughtDraft({
-    cycleId: values[0].cycleId,
-    generation: values[0].generation,
+    cycleId: values[0]?.cycleId ?? "cycle-grounded",
+    generation: values[0]?.generation ?? 1,
     speech: {
       mode: "none",
       mustSay: [],
@@ -92,6 +92,17 @@ function liveStatements(db: DatabaseSync): string[] {
 describe("Growth V1 grounded automatic admission", () => {
   it("covers every MemoryKind with a grounding rule", () => {
     expect(Object.keys(AUTOMATIC_ADMISSION_GROUNDING).sort()).toEqual([...MEMORY_KINDS].sort());
+  });
+
+  it("publishes an explicit empty nomination list as zero rows", () => {
+    const { db } = fixture();
+    try {
+      publish(db, []);
+      const row = db.prepare("SELECT COUNT(*) AS n FROM durable_nominations").get() as { n: number };
+      expect(row.n).toBe(0);
+    } finally {
+      db.close();
+    }
   });
 
   it("admits an Owner preference that quotes the Owner verbatim, with no directive", () => {

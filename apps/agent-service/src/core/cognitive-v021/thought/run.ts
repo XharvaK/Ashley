@@ -163,6 +163,7 @@ import { getWake } from "../wake/ledger.js";
 import { resolveOriginProfile } from "../cycle/origin-profile.js";
 import { resolveRepairContinuityRecovery } from "../retry/owner-recovery.js";
 import { admitOwnerSuppliedClaim, runGovernedAdmissionCatchup } from "../memory/admission.js";
+import { admissionTickFromResults, logMemoryAdmission, logMemoryAdmissionError, logMemorySettlement } from "../memory/decision-log.js";
 import { recordMemoryRecall, recordMemoryUse } from "../memory/strength.js";
 import {
   afterglowPassFromPayload,
@@ -2826,8 +2827,9 @@ export async function runCognitiveCycle(
   if (deps.origin !== "shadow") {
     try {
       runGovernedAdmissionCatchup(sidecar, { nowMs: deps.nowMs(), limit: 64 });
-    } catch {
+    } catch (error) {
       // The authoritative nomination remains durable and unadmitted.
+      logMemoryAdmissionError(error);
     }
   }
   const requestedCycleId = typeof payload.cycleId === "string" ? payload.cycleId : null;
@@ -4609,6 +4611,10 @@ export async function runCognitiveCycle(
         ...(publicationReason ? { publicationReason } : {}),
       });
     }
+    if (publication.settlementId !== null) {
+      const memoryPass = afterglowPass ? "afterglow" : awakePass ? "awake" : nightPass ? "night" : "turn";
+      logMemorySettlement(publication.settlementId, memoryPass, settlement.durableNominations);
+    }
     if (deps.origin !== "shadow" && publication.settlementId !== null) {
       try {
         // C1 observes only the accepted native settlement and the exact
@@ -4699,16 +4705,18 @@ export async function runCognitiveCycle(
       const evidence = getConversationEvidence(sidecar, directive.evidenceRowId);
       if (evidence && evidence.lineageId === directive.evidenceLineageId) {
         directiveDecided = true;
+        const directiveResults = [];
         for (const nomination of (settlement.durableNominations ?? [])) {
-          admitOwnerSuppliedClaim(sidecar, {
+          directiveResults.push(admitOwnerSuppliedClaim(sidecar, {
             settlementId: settlement.settlementId,
             nominationId: nomination.nominationId,
             evidence,
             evidenceRowId: directive.evidenceRowId,
             currentnessEntitled,
             nowMs: deps.nowMs(),
-          });
+          }));
         }
+        logMemoryAdmission(admissionTickFromResults(directiveResults));
       }
     }
     if (!directiveDecided && deps.origin !== "shadow" && (settlement.durableNominations ?? []).length > 0) {
@@ -4718,9 +4726,10 @@ export async function runCognitiveCycle(
           nominationIds: (settlement.durableNominations ?? []).map((nomination) => nomination.nominationId),
           limit: (settlement.durableNominations ?? []).length,
         });
-      } catch {
+      } catch (error) {
         // Publication is authoritative. A transient admission failure is
         // recovered by the next bounded lifecycle catch-up.
+        logMemoryAdmissionError(error);
       }
     }
     if (settlement.forget && deps.origin !== "shadow" && publication.settlementId !== null) {

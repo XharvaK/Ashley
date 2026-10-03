@@ -455,7 +455,7 @@ describe("Core D0 local Sparse VNext qualification", () => {
 
   it("D0-15 rejects every present empty optional array and composite", () => {
     const minimal = { kind: "settlement", speech: { mode: "draft", surfaceDraft: "Answer." } };
-    for (const field of ["workingContextDeltas", "concernDeltas", "occupancyDeltas", "futureTriggerDeltas", "subscriptionDeltas", "durableNominations"] as const) {
+    for (const field of ["workingContextDeltas", "concernDeltas", "occupancyDeltas", "futureTriggerDeltas", "subscriptionDeltas"] as const) {
       expect(parseThoughtSemanticOutput({ ...minimal, [field]: [] }, new Set())).toMatchObject({ ok: false, code: "empty_when_present", field });
     }
     for (const field of ["interpretation", "commitments", "evidenceUse"] as const) {

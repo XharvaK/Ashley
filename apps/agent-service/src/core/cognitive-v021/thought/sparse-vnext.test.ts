@@ -18,7 +18,7 @@ describe("Sparse VNext fresh authoring", () => {
     }
   });
 
-  it.each(["workingContextDeltas", "deskDeltas", "concernDeltas", "occupancyDeltas", "futureTriggerDeltas", "subscriptionDeltas", "durableNominations"])("rejects empty or malformed present %s", (field) => {
+  it.each(["workingContextDeltas", "deskDeltas", "concernDeltas", "occupancyDeltas", "futureTriggerDeltas", "subscriptionDeltas"])("rejects empty or malformed present %s", (field) => {
     expect(parse({ ...minimal, [field]: [] })).toMatchObject({ ok: false, code: "empty_when_present", field });
     for (const value of [null, {}, "", false]) expect(parse({ ...minimal, [field]: value }).ok).toBe(false);
   });
@@ -187,7 +187,7 @@ describe("Sparse VNext fresh authoring", () => {
 
   it("keeps sparse schema law distinct from wire qualification bounds", () => {
     const canonical = THOUGHT_OUTPUT_SCHEMA as any;
-    expect(canonical.oneOf[0].required).toEqual(["kind", "speech"]);
+    expect(canonical.oneOf[0].required).toEqual(["kind", "speech", "durableNominations"]);
     expect(canonical.oneOf[0].properties.concernDeltas.items.oneOf[1].properties.target).toEqual({ type: "string", minLength: 1 });
     const wire = constrainThoughtOutputSchema({ allowedOperationalEffectRefs: [], fingerprint: "sha256:test" } as any).schema as any;
     expect(wire.oneOf[0].properties.speech.oneOf.find((b: any) => b.properties.mode.const === "draft").properties.surfaceDraft.maxLength).toBe(6000);

@@ -21,6 +21,7 @@ import { domusChannelForRef, parseSourceSupportRef, validateSourceSupportRefs, t
 import type { MemoryChannel } from "../types.js";
 import { getMemoryAssertion, REDACTED_MEMORY_STATEMENT, upsertMemoryAssertion } from "./assertions.js";
 import { notifySidecarPostCommit } from "../retrieval/derived-store.js";
+import { logMemoryAdmission } from "./decision-log.js";
 import { hasStructuredCurrentnessEntitlement } from "../authority/check.js";
 import {
   AUTOMATIC_ADMISSION_KINDS,
@@ -735,12 +736,14 @@ export function runGovernedAdmissionCatchup(
   db: DatabaseSync,
   options: GovernedAdmissionCatchupOptions = {},
 ): AdmissionTickResult {
-  return tickAdmission(db, {
+  const result = tickAdmission(db, {
     ...options,
     allowedKinds: AUTOMATIC_ADMISSION_KINDS,
     requireGrounding: true,
     undecidedOnly: true,
   });
+  logMemoryAdmission(result);
+  return result;
 }
 
 export type AdmitOwnerSuppliedClaimInput = {
