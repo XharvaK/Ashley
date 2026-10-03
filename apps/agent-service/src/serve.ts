@@ -120,9 +120,9 @@ export async function closeStartupResources(
   resources: StartupCleanupResources,
 ): Promise<void> {
   const resultProducerClose = resources.selfChangeResultMaintenance?.close();
-  await closeHttpServer(resources.domusServer);
   resources.cognitiveConsumer?.stop();
   resources.frontierCoordinator?.stop();
+  await closeHttpServer(resources.domusServer);
   if (resultProducerClose) try { await resultProducerClose; } catch { /* preserve startup failure */ }
   try {
     if (resources.cognitiveConsumer) await resources.cognitiveConsumer.done;

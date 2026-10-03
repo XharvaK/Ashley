@@ -22,7 +22,7 @@ describe("cognitive sidecar Schema V32 observation views", () => {
       expect(COGNITIVE_SIDECAR_SCHEMA_VERSION).toBe(60);
       expect(db.prepare("PRAGMA user_version").get()).toMatchObject({ user_version: 60 });
       expect(db.prepare("SELECT schema_version FROM cognitive_sidecar_meta WHERE id = 1").get())
-        .toMatchObject({ schema_version: 59 });
+        .toMatchObject({ schema_version: 60 });
       expect(columns).toEqual(expect.arrayContaining([
         "parent_artifact_id",
         "representation_id",
