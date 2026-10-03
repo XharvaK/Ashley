@@ -58,7 +58,7 @@ function recall(
       triggerTerms: ["lantern"],
       workingContextTopics: ["lantern"],
       assertionKeys,
-      includeLogSearch: false,
+      includeLogSearch: true,
     },
   }, derived, { queryVector: { model: fake.model, vector } }).hits;
 }
@@ -84,8 +84,10 @@ describe("domus channel at recall", () => {
         expect(domus?.channel).toBe("domus:w1");
         expect(discord).toBeTruthy();
         expect("channel" in (discord ?? {})).toBe(false);
-        expect(projectRetrievalHit(domus!).channel).toBe("domus:w1");
-        expect("channel" in projectRetrievalHit(discord!)).toBe(false);
+        const projectedDomus = projectRetrievalHit(domus!);
+        const projectedDiscord = projectRetrievalHit(discord!);
+        expect(projectedDomus.kind === "log" ? undefined : projectedDomus.channel).toBe("domus:w1");
+        expect("channel" in projectedDiscord).toBe(false);
       };
       expectTier("key", "mem:key", "mem:discord-key");
       expectTier("lexical", "mem:lex", "mem:discord-lex");
@@ -171,15 +173,15 @@ describe("domus channel at recall", () => {
     try {
       recordJournalEntry(db, {
         conversationId: "thread", cycleId: "j-domus", passKind: "awake",
-        claim: { entry: "Walked the orchard." }, spoke: false, nowMs: now, channel: "domus:w1",
+        claim: { activity: "think", entry: "Walked the orchard." }, spoke: false, nowMs: now, channel: "domus:w1",
       });
       recordJournalEntry(db, {
         conversationId: "thread", cycleId: "j-discord", passKind: "awake",
-        claim: { entry: "Sat at the desk." }, spoke: false, nowMs: now + 1,
+        claim: { activity: "think", entry: "Sat at the desk." }, spoke: false, nowMs: now + 1,
       });
       const undone = recordJournalEntry(db, {
         conversationId: "thread", cycleId: "j-undone", passKind: "awake",
-        claim: { entry: "Left the cellar." }, spoke: false, nowMs: now + 2, channel: "domus:w1",
+        claim: { activity: "think", entry: "Left the cellar." }, spoke: false, nowMs: now + 2, channel: "domus:w1",
       });
       db.prepare("UPDATE activity_journal SET lineage_class = 'undone' WHERE entry_id = ?").run(undone.entryId);
       const thought = journalForThought(db, now + 3);
@@ -208,7 +210,7 @@ describe("domus channel at recall", () => {
       });
       recordJournalEntry(sidecar, {
         conversationId: "owner-thread", cycleId: "j-domus", passKind: "awake",
-        claim: { entry: "Walked the orchard." }, spoke: false, nowMs: 5_000, channel: "domus:w1",
+        claim: { activity: "think", entry: "Walked the orchard." }, spoke: false, nowMs: 5_000, channel: "domus:w1",
       });
       derived.reconcile(sidecar);
       const cycle = admitTestCycle(sidecar, {
@@ -250,7 +252,7 @@ describe("domus channel at recall", () => {
       });
       recordJournalEntry(discordDb, {
         conversationId: "owner-thread", cycleId: "j-discord", passKind: "awake",
-        claim: { entry: "Sat with the study lamp." }, spoke: false, nowMs: 5_000,
+        claim: { activity: "think", entry: "Sat with the study lamp." }, spoke: false, nowMs: 5_000,
       });
       discordDerived.reconcile(discordDb);
       const cycle = admitTestCycle(discordDb, {
