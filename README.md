@@ -26,17 +26,15 @@ invented certainty.
 ## The architecture of a self
 
 ```mermaid
-%%{init: {"theme": "base", "themeVariables": {"fontFamily": "ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif", "fontSize": "14px", "lineColor": "#8b949e", "textColor": "#8b949e", "edgeLabelBackground": "transparent", "clusterBkg": "transparent", "clusterBorder": "#8b949e", "primaryColor": "#1f2937", "primaryBorderColor": "#6b7280", "primaryTextColor": "#e5e7eb"}, "themeCSS": ".labelBkg, .edgeLabel { background-color: transparent !important; } .cluster-label span, .cluster-label p { letter-spacing: 0.08em; font-size: 12px; }", "flowchart": {"wrappingWidth": 320, "curve": "basis", "nodeSpacing": 24, "rankSpacing": 50, "padding": 14}}}%%
+%%{init: {"theme": "base", "themeVariables": {"lineColor": "#8b949e", "textColor": "#8b949e", "edgeLabelBackground": "transparent", "clusterBkg": "transparent", "clusterBorder": "#8b949e", "primaryColor": "#1e293b", "primaryBorderColor": "#64748b", "primaryTextColor": "#e2e8f0"}, "themeCSS": ".labelBkg, .edgeLabel { background-color: transparent !important; }", "flowchart": {"curve": "basis", "nodeSpacing": 24, "rankSpacing": 50, "padding": 16}}}%%
 flowchart TB
     subgraph SELF["WHO SHE IS"]
-        direction LR
         I["Identity<br/>values · boundaries · taste"]
         S["Mind State<br/>concerns · goals · mood"]
         RC["Relationship · Curiosity"]
     end
     AT["Attention<br/>what deserves a thought"]
     subgraph PAST["WHAT SHE HAS LIVED"]
-        direction LR
         ME["Memory · evidence"]
         CO["Continuity"]
     end
@@ -52,20 +50,18 @@ flowchart TB
     T --> RF["Reflection"]
     SELF <-.-|"calibrates, later"| RF
 
-    classDef thought fill:#7c3aed,stroke:#c4b5fd,stroke-width:2px,color:#ffffff
-    classDef self fill:#312e81,stroke:#818cf8,color:#e0e7ff
-    classDef past fill:#134e4a,stroke:#2dd4bf,color:#ccfbf1
-    classDef attn fill:#78350f,stroke:#fbbf24,color:#fef3c7
-    classDef owner fill:#9d174d,stroke:#f9a8d4,stroke-width:2px,color:#fdf2f8
-    classDef mech fill:#1f2937,stroke:#6b7280,color:#e5e7eb
-    classDef gone fill:#1f2937,stroke:#6b7280,stroke-dasharray:4 4,color:#9ca3af
-    class T thought
+    classDef core fill:#7c3aed,stroke:#c4b5fd,color:#ffffff,stroke-width:2px
+    classDef self fill:#2e1065,stroke:#8b5cf6,color:#ede9fe
+    classDef past fill:#1e1b4b,stroke:#818cf8,color:#e0e7ff
+    classDef attn fill:#3b0764,stroke:#c084fc,color:#f3e8ff
+    classDef mech fill:#1e293b,stroke:#64748b,color:#e2e8f0
+    class T core
     class I,S,RC self
     class ME,CO past
     class AT attn
     class EX,DS,AG,AU,RF mech
-    style SELF fill:transparent,stroke:#818cf8,stroke-dasharray:4 4,color:#818cf8
-    style PAST fill:transparent,stroke:#2dd4bf,stroke-dasharray:4 4,color:#2dd4bf
+    style SELF fill:transparent,stroke:#8b5cf6,stroke-dasharray:4 4,color:#8b5cf6
+    style PAST fill:transparent,stroke:#818cf8,stroke-dasharray:4 4,color:#818cf8
 ```
 
 Everything Ashley says, and every silence she chooses, is decided in one
@@ -89,9 +85,9 @@ She has one attention system, modelled on a thalamus: many sources of
 pressure, a single gate.
 
 ```mermaid
-%%{init: {"theme": "base", "themeVariables": {"fontFamily": "ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif", "fontSize": "14px", "lineColor": "#8b949e", "textColor": "#8b949e", "edgeLabelBackground": "transparent", "clusterBkg": "transparent", "clusterBorder": "#8b949e", "primaryColor": "#1f2937", "primaryBorderColor": "#6b7280", "primaryTextColor": "#e5e7eb"}, "themeCSS": ".labelBkg, .edgeLabel { background-color: transparent !important; } .cluster-label span, .cluster-label p { letter-spacing: 0.08em; font-size: 12px; }", "flowchart": {"wrappingWidth": 320, "curve": "basis", "nodeSpacing": 26, "rankSpacing": 55, "padding": 14}}}%%
+%%{init: {"theme": "base", "themeVariables": {"lineColor": "#8b949e", "textColor": "#8b949e", "edgeLabelBackground": "transparent", "clusterBkg": "transparent", "clusterBorder": "#8b949e", "primaryColor": "#1e293b", "primaryBorderColor": "#64748b", "primaryTextColor": "#e2e8f0"}, "themeCSS": ".labelBkg, .edgeLabel { background-color: transparent !important; }", "flowchart": {"curve": "basis", "nodeSpacing": 26, "rankSpacing": 55, "padding": 16}}}%%
 flowchart LR
-    OW["The Owner's message"]
+    US["A message from the User"]
     OUT["OUTSIDE HER<br/>social · external · Domus"]
     IN["INSIDE HER<br/>prospective · reflective · interoceptive<br/>boredom · sleep"]
     BU["Budget · fatigue"]
@@ -99,21 +95,20 @@ flowchart LR
     IN --> TH
     BU -.-> TH
     TH --> T(["Thought"])
-    OW ===>|"always first"| T
+    US ===>|"always first"| T
 
-    classDef thought fill:#7c3aed,stroke:#c4b5fd,stroke-width:2px,color:#ffffff
-    classDef self fill:#312e81,stroke:#818cf8,color:#e0e7ff
-    classDef past fill:#134e4a,stroke:#2dd4bf,color:#ccfbf1
-    classDef attn fill:#78350f,stroke:#fbbf24,color:#fef3c7
-    classDef owner fill:#9d174d,stroke:#f9a8d4,stroke-width:2px,color:#fdf2f8
-    classDef mech fill:#1f2937,stroke:#6b7280,color:#e5e7eb
-    classDef gone fill:#1f2937,stroke:#6b7280,stroke-dasharray:4 4,color:#9ca3af
-    class T thought
+    classDef core fill:#7c3aed,stroke:#c4b5fd,color:#ffffff,stroke-width:2px
+    classDef self fill:#2e1065,stroke:#8b5cf6,color:#ede9fe
+    classDef past fill:#1e1b4b,stroke:#818cf8,color:#e0e7ff
+    classDef attn fill:#3b0764,stroke:#c084fc,color:#f3e8ff
+    classDef user fill:#831843,stroke:#f472b6,color:#fdf2f8,stroke-width:2px
+    classDef mech fill:#1e293b,stroke:#64748b,color:#e2e8f0
+    class T core
     class TH attn
     class OUT past
     class IN self
     class BU mech
-    class OW owner
+    class US user
     linkStyle 4 stroke:#f472b6,stroke-width:3px
 ```
 
@@ -122,31 +117,27 @@ quiet, her own energy and mood, the world she follows, her body in Domus.
 Repeated signals habituate, novelty stands out,
 pressure builds and leaks away, and only when it crosses a threshold does she
 spend a Thought on it. Her own time draws on a private budget, and spending it
-makes her tired. A message from the Owner always gets through.
+makes her tired. A message from the User always gets through.
 
 ## A day in her life
 
 ```mermaid
-%%{init: {"theme": "base", "themeVariables": {"fontFamily": "ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif", "fontSize": "14px", "lineColor": "#8b949e", "textColor": "#8b949e", "edgeLabelBackground": "transparent", "clusterBkg": "transparent", "clusterBorder": "#8b949e", "primaryColor": "#1f2937", "primaryBorderColor": "#6b7280", "primaryTextColor": "#e5e7eb"}, "themeCSS": ".labelBkg, .edgeLabel { background-color: transparent !important; } .cluster-label span, .cluster-label p { letter-spacing: 0.08em; font-size: 12px; }", "flowchart": {"wrappingWidth": 320, "curve": "basis", "nodeSpacing": 40, "rankSpacing": 45, "padding": 14}}}%%
+%%{init: {"theme": "base", "themeVariables": {"lineColor": "#8b949e", "textColor": "#8b949e", "edgeLabelBackground": "transparent", "clusterBkg": "transparent", "clusterBorder": "#8b949e", "primaryColor": "#1e293b", "primaryBorderColor": "#64748b", "primaryTextColor": "#e2e8f0"}, "themeCSS": ".labelBkg, .edgeLabel { background-color: transparent !important; }", "flowchart": {"curve": "basis", "nodeSpacing": 40, "rankSpacing": 45, "padding": 16}}}%%
 flowchart TB
-    S((" ")) -->|"the Owner writes"| C(["Conversation"])
+    S((" ")) -->|"the User writes"| C(["Conversation"])
     C -->|"it goes quiet"| A(["Afterglow"])
     A -->|"reflection written"| O(["Own time<br/>think · read · plan · rest"])
     O -->|"she writes first"| C
     O -->|"the quietest hour"| N(["Night"])
     N -->|"morning"| O
 
-    classDef thought fill:#7c3aed,stroke:#c4b5fd,stroke-width:2px,color:#ffffff
-    classDef self fill:#312e81,stroke:#818cf8,color:#e0e7ff
-    classDef past fill:#134e4a,stroke:#2dd4bf,color:#ccfbf1
-    classDef attn fill:#78350f,stroke:#fbbf24,color:#fef3c7
-    classDef owner fill:#9d174d,stroke:#f9a8d4,stroke-width:2px,color:#fdf2f8
-    classDef mech fill:#1f2937,stroke:#6b7280,color:#e5e7eb
-    classDef gone fill:#1f2937,stroke:#6b7280,stroke-dasharray:4 4,color:#9ca3af
+    classDef user fill:#831843,stroke:#f472b6,color:#fdf2f8,stroke-width:2px
+    classDef attn fill:#3b0764,stroke:#c084fc,color:#f3e8ff
+    classDef self fill:#2e1065,stroke:#8b5cf6,color:#ede9fe
+    classDef night fill:#0f172a,stroke:#475569,color:#cbd5e1
     classDef start fill:#8b949e,stroke:#8b949e
-    classDef night fill:#0f172a,stroke:#64748b,color:#cbd5e1
     class S start
-    class C owner
+    class C user
     class A attn
     class O self
     class N night
@@ -167,64 +158,58 @@ trace, or retrieval that "remembers" things no one said. Ashley's memories
 are claims with receipts.
 
 ```mermaid
-%%{init: {"theme": "base", "themeVariables": {"fontFamily": "ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif", "fontSize": "14px", "lineColor": "#8b949e", "textColor": "#8b949e", "edgeLabelBackground": "transparent", "clusterBkg": "transparent", "clusterBorder": "#8b949e", "primaryColor": "#1f2937", "primaryBorderColor": "#6b7280", "primaryTextColor": "#e5e7eb"}, "themeCSS": ".labelBkg, .edgeLabel { background-color: transparent !important; } .cluster-label span, .cluster-label p { letter-spacing: 0.08em; font-size: 12px; }", "flowchart": {"wrappingWidth": 320, "curve": "basis", "nodeSpacing": 30, "rankSpacing": 45, "padding": 14}}}%%
+%%{init: {"theme": "base", "themeVariables": {"lineColor": "#8b949e", "textColor": "#8b949e", "edgeLabelBackground": "transparent", "clusterBkg": "transparent", "clusterBorder": "#8b949e", "primaryColor": "#1e293b", "primaryBorderColor": "#64748b", "primaryTextColor": "#e2e8f0"}, "themeCSS": ".labelBkg, .edgeLabel { background-color: transparent !important; }", "flowchart": {"curve": "basis", "nodeSpacing": 30, "rankSpacing": 45, "padding": 16}}}%%
 flowchart TB
     N["Thought nominates, in her own words"] --> G{"Grounded?"}
-    G -->|"the Owner's own words, quoted"| K["Kept, with its source"]
+    G -->|"the User's own words, quoted"| K["Kept, with its source"]
     G -->|"her own reading, labelled as hers"| K
     G -->|"no receipt"| X["Let go"]
     K --> ST["Strength<br/>grows with use, fades without"]
-    K --> FG["Forgotten<br/>only when the Owner asks"]
+    K --> FG["Forgotten<br/>only when the User asks"]
     ST --> RC["Recall<br/>by key · words · meaning"]
 
-    classDef thought fill:#7c3aed,stroke:#c4b5fd,stroke-width:2px,color:#ffffff
-    classDef self fill:#312e81,stroke:#818cf8,color:#e0e7ff
-    classDef past fill:#134e4a,stroke:#2dd4bf,color:#ccfbf1
-    classDef attn fill:#78350f,stroke:#fbbf24,color:#fef3c7
-    classDef owner fill:#9d174d,stroke:#f9a8d4,stroke-width:2px,color:#fdf2f8
-    classDef mech fill:#1f2937,stroke:#6b7280,color:#e5e7eb
-    classDef gone fill:#1f2937,stroke:#6b7280,stroke-dasharray:4 4,color:#9ca3af
-    class N thought
+    classDef core fill:#7c3aed,stroke:#c4b5fd,color:#ffffff,stroke-width:2px
+    classDef attn fill:#3b0764,stroke:#c084fc,color:#f3e8ff
+    classDef past fill:#1e1b4b,stroke:#818cf8,color:#e0e7ff
+    classDef mech fill:#1e293b,stroke:#64748b,color:#e2e8f0
+    classDef gone fill:#1e293b,stroke:#64748b,stroke-dasharray:4 4,color:#94a3b8
+    class N core
     class G attn
     class K,ST,RC past
     class X,FG gone
 ```
 
-She keeps a memory about the Owner only with the Owner's own words, and her
+She keeps a memory about the User only with the User's own words, and her
 interpretations stay labelled as hers. Her reading of someone can never
 overwrite what they actually said. Nothing is deleted by age; unused memories
-just drift out of reach. Forgetting belongs to the Owner and is semantic: she
+just drift out of reach. Forgetting belongs to the User and is semantic: she
 says what a request covers, asks for a yes, and then it is truly gone,
 including everything that was derived from it.
 
 ## Becoming herself
 
 ```mermaid
-%%{init: {"theme": "base", "themeVariables": {"fontFamily": "ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif", "fontSize": "14px", "lineColor": "#8b949e", "textColor": "#8b949e", "edgeLabelBackground": "transparent", "clusterBkg": "transparent", "clusterBorder": "#8b949e", "primaryColor": "#1f2937", "primaryBorderColor": "#6b7280", "primaryTextColor": "#e5e7eb"}, "themeCSS": ".labelBkg, .edgeLabel { background-color: transparent !important; } .cluster-label span, .cluster-label p { letter-spacing: 0.08em; font-size: 12px; }", "flowchart": {"wrappingWidth": 320, "curve": "basis", "nodeSpacing": 30, "rankSpacing": 60, "padding": 14}}}%%
+%%{init: {"theme": "base", "themeVariables": {"lineColor": "#8b949e", "textColor": "#8b949e", "edgeLabelBackground": "transparent", "clusterBkg": "transparent", "clusterBorder": "#8b949e", "primaryColor": "#1e293b", "primaryBorderColor": "#64748b", "primaryTextColor": "#e2e8f0"}, "themeCSS": ".labelBkg, .edgeLabel { background-color: transparent !important; }", "flowchart": {"curve": "basis", "nodeSpacing": 30, "rankSpacing": 60, "padding": 16}}}%%
 flowchart LR
     EV["Lived experience"] --> OP["Opinions · tastes · interests<br/>move on recurring evidence"]
     EV --> GR["Growth dimensions<br/>she names the direction"]
     OP --> PO(["Weekly self-portrait<br/>growth, not drift"])
     GR --> PO
-    VA["Values · boundaries<br/>only with her yes and the Owner's"] -.-> PO
+    VA["Values · boundaries<br/>only with her yes and the User's"] -.-> PO
 
-    classDef thought fill:#7c3aed,stroke:#c4b5fd,stroke-width:2px,color:#ffffff
-    classDef self fill:#312e81,stroke:#818cf8,color:#e0e7ff
-    classDef past fill:#134e4a,stroke:#2dd4bf,color:#ccfbf1
-    classDef attn fill:#78350f,stroke:#fbbf24,color:#fef3c7
-    classDef owner fill:#9d174d,stroke:#f9a8d4,stroke-width:2px,color:#fdf2f8
-    classDef mech fill:#1f2937,stroke:#6b7280,color:#e5e7eb
-    classDef gone fill:#1f2937,stroke:#6b7280,stroke-dasharray:4 4,color:#9ca3af
-    classDef guard fill:#1f2937,stroke:#f472b6,stroke-width:2px,color:#fdf2f8
+    classDef core fill:#7c3aed,stroke:#c4b5fd,color:#ffffff,stroke-width:2px
+    classDef self fill:#2e1065,stroke:#8b5cf6,color:#ede9fe
+    classDef past fill:#1e1b4b,stroke:#818cf8,color:#e0e7ff
+    classDef attn fill:#3b0764,stroke:#c084fc,color:#f3e8ff
     class EV past
     class OP,GR self
-    class PO thought
-    class VA guard
+    class PO core
+    class VA attn
 ```
 
 Ashley is meant to grow, not to drift. Her opinions and tastes move only on
 independent, recurring evidence, so no single persuasive message can rewrite
-her. Her values change only with her own affirmation *and* the Owner's. She
+her. Her values change only with her own affirmation *and* the User's. She
 names the directions she wants to grow in, picks one to work on each week, and
 keeps a portrait of herself so slow change can be read for what it is.
 Interests she actually lives in grow roots and branches; the ones she ignores
@@ -232,15 +217,15 @@ stay seeds.
 
 She can also work on her own code. In an unprivileged sandbox she authors and
 tests a change. An operator process carries it to her own private repository,
-and the Owner reviews every change set. Writing a change about herself does not
+and the User reviews every change set. Writing a change about herself does not
 give her the authority to apply it.
 
 ## Domus: a body and a home
 
 ```mermaid
-%%{init: {"theme": "base", "themeVariables": {"fontFamily": "ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif", "fontSize": "14px", "lineColor": "#8b949e", "textColor": "#8b949e", "edgeLabelBackground": "transparent", "clusterBkg": "transparent", "clusterBorder": "#8b949e", "primaryColor": "#1f2937", "primaryBorderColor": "#6b7280", "primaryTextColor": "#e5e7eb"}, "themeCSS": ".labelBkg, .edgeLabel { background-color: transparent !important; } .cluster-label span, .cluster-label p { letter-spacing: 0.08em; font-size: 12px; }", "flowchart": {"wrappingWidth": 320, "curve": "basis", "nodeSpacing": 22, "rankSpacing": 45, "padding": 14}}}%%
+%%{init: {"theme": "base", "themeVariables": {"lineColor": "#8b949e", "textColor": "#8b949e", "edgeLabelBackground": "transparent", "clusterBkg": "transparent", "clusterBorder": "#8b949e", "primaryColor": "#1e293b", "primaryBorderColor": "#64748b", "primaryTextColor": "#e2e8f0"}, "themeCSS": ".labelBkg, .edgeLabel { background-color: transparent !important; }", "flowchart": {"curve": "basis", "nodeSpacing": 22, "rankSpacing": 45, "padding": 16}}}%%
 flowchart LR
-    subgraph PC["THE OWNER'S PC"]
+    subgraph PC["THE USER'S PC"]
         direction TB
         G["The Sims 4"] --> P["Probe<br/>read-only, attributed"] --> H["Peripheral attention<br/>habituation · novelty · surprise"]
     end
@@ -250,19 +235,16 @@ flowchart LR
     end
     PC -->|"only what deserves her,<br/>over a private network"| HOST
 
-    classDef thought fill:#7c3aed,stroke:#c4b5fd,stroke-width:2px,color:#ffffff
-    classDef self fill:#312e81,stroke:#818cf8,color:#e0e7ff
-    classDef past fill:#134e4a,stroke:#2dd4bf,color:#ccfbf1
-    classDef attn fill:#78350f,stroke:#fbbf24,color:#fef3c7
-    classDef owner fill:#9d174d,stroke:#f9a8d4,stroke-width:2px,color:#fdf2f8
-    classDef mech fill:#1f2937,stroke:#6b7280,color:#e5e7eb
-    classDef gone fill:#1f2937,stroke:#6b7280,stroke-dasharray:4 4,color:#9ca3af
-    class T thought
+    classDef core fill:#7c3aed,stroke:#c4b5fd,color:#ffffff,stroke-width:2px
+    classDef past fill:#1e1b4b,stroke:#818cf8,color:#e0e7ff
+    classDef attn fill:#3b0764,stroke:#c084fc,color:#f3e8ff
+    classDef mech fill:#1e293b,stroke:#64748b,color:#e2e8f0
+    class T core
     class G,P past
     class H attn
     class IN,NU mech
-    style PC fill:transparent,stroke:#2dd4bf,stroke-dasharray:4 4,color:#2dd4bf
-    style HOST fill:transparent,stroke:#818cf8,stroke-dasharray:4 4,color:#818cf8
+    style PC fill:transparent,stroke:#818cf8,stroke-dasharray:4 4,color:#818cf8
+    style HOST fill:transparent,stroke:#8b5cf6,stroke-dasharray:4 4,color:#8b5cf6
 ```
 
 **Domus** is the separate project that gives Ashley a body in a Sims world.
@@ -293,13 +275,13 @@ this page makes no status claims.
 
 ## Read on
 
-- [`VISION.md`](VISION.md): why she exists, in the Owner's words
+- [`VISION.md`](VISION.md): why she exists, in the User's words
 - [Constitution](docs/Ashley_Constitution.md), [Core Principles](docs/Ashley_Core_Principles.md), [Ethics](docs/Ashley_Ethics.md): what binds her
 - [Architecture Freeze](docs/architecture/Ashley_Architecture_Freeze.md) and [module map](docs/Architecture_Index.md): how she's built
 - [Memory and recall](docs/memory-and-recall.md): how she remembers
 - [`AGENTS.md`](AGENTS.md): working in this repository
 
-One Owner, English, Discord, one Linux host. Under active development.
+One User, English, Discord, one Linux host. Under active development.
 MIT licensed (see [LICENSE](LICENSE)).
 
 ---
