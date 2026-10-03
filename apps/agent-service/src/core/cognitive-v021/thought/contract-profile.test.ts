@@ -121,6 +121,15 @@ describe("I1 profile-scoped Thought contract", () => {
     }
   });
 
+  it("offers self-change engineering instructions only with advertised engineering capability", () => {
+    const plain = thoughtOutputCompatibilityInstruction(thoughtContractProfile(chat));
+    const engineering = thoughtOutputCompatibilityInstruction(thoughtContractProfile({ ...chat, capabilityReality: { canOfferWorkspace: true } }));
+    expect(plain).not.toContain("payload.budgetPolicyId=ashley.self_change.v1");
+    expect(engineering).toContain("payload.budgetPolicyId=ashley.self_change.v1");
+    expect(thoughtOutputCompatibilityInstruction()).toContain("payload.budgetPolicyId=ashley.self_change.v1");
+    expect(plain).toContain(GROWTH_GUIDANCE);
+  });
+
   it("holds the chat prefix under its budget and every profile below the full contract", () => {
     const tokens = (text: string) => estimateRequestTokens([{ role: "system", content: text }]).estimatedInputTokens;
     const full = tokens(thoughtOutputCompatibilityInstruction());

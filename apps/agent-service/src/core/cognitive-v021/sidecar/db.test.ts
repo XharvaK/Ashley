@@ -72,7 +72,9 @@ describe("cognitive v0.2.1 sidecar database", () => {
       // v44: expectation_basis.
       // v45: persona_snapshots; v46: friction_events; v48: sense_declines.
       // v56: attention_watches, thalamus_state, thalamus_decisions.
-      expect(tables).toHaveLength(94);
+      // v57: authenticated result staging; v58: ladder state and history.
+      expect(tables).toHaveLength(97);
+      for (const table of ["self_change_result_receipts", "self_change_ladder", "self_change_ladder_history"]) expect(tables).toContain(table);
       for (const table of ["attention_watches", "thalamus_state", "thalamus_decisions"]) expect(tables).toContain(table);
     expect(tables).toContain("forget_epoch");
     expect(tables).toContain("settlement_aftermath");
