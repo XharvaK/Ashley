@@ -497,8 +497,8 @@ describe("Core D0 local Sparse VNext qualification", () => {
     const settlementBranch = (constrained.schema.oneOf as Array<Record<string, any>>).find((branch) => branch.properties?.kind?.const === "settlement")!;
     const operational = settlementBranch.properties.commitments.properties.operational;
     expect(operational).toBeUndefined();
-    expect(validateQualificationSchema({ kind: "settlement", speech: { mode: "none" }, commitments: { conversational: ["acknowledge"] } }, constrained.schema)).toMatchObject({ ok: true });
-    expect(validateQualificationSchema({ kind: "settlement", speech: { mode: "none" }, commitments: { operational: [{ effectRef: "effect:invented", claimedState: "succeeded" }] } }, constrained.schema)).toMatchObject({ ok: false });
+    expect(validateQualificationSchema({ kind: "settlement", speech: { mode: "none" }, commitments: { conversational: ["acknowledge"] }, durableNominations: [] }, constrained.schema)).toMatchObject({ ok: true });
+    expect(validateQualificationSchema({ kind: "settlement", speech: { mode: "none" }, commitments: { operational: [{ effectRef: "effect:invented", claimedState: "succeeded" }] }, durableNominations: [] }, constrained.schema)).toMatchObject({ ok: false });
     const materialized = makeThoughtDraft({ commitments: { conversational: ["acknowledge"] }, operations: { observationsConsumed: [], effectsCompleted: [], intentsStillInFlight: [] } });
     expect(materialized.operations.effectsCompleted).toEqual([]);
   });

@@ -32,6 +32,7 @@ function settlement(operational: unknown[]) {
     speech: {
       mode: "none",
     },
+    durableNominations: [],
   };
 }
 
