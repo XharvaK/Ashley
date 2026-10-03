@@ -135,7 +135,7 @@ describe("markDomusSpanUndone", () => {
         conversationId: "grounded-thread",
         cycleId: "cycle-ep-in",
         rows: [{ rowId: "row-ep", createdAtMs: 500, dataClassification: "ordinary" }],
-        reflection: { summary: "span episode", takeaway: null, tone: null, salience: 0.5, unresolvedThreads: [] },
+        reflection: { summary: "span episode", salience: 0.5 },
         nowMs: 500,
         channel: "domus:willow",
       });
@@ -143,7 +143,7 @@ describe("markDomusSpanUndone", () => {
         conversationId: "grounded-thread",
         cycleId: "cycle-ep-early",
         rows: [{ rowId: "row-ep-early", createdAtMs: 100, dataClassification: "ordinary" }],
-        reflection: { summary: "early episode", takeaway: null, tone: null, salience: 0.5, unresolvedThreads: [] },
+        reflection: { summary: "early episode", salience: 0.5 },
         nowMs: 149,
         channel: "domus:willow",
       });
@@ -151,7 +151,7 @@ describe("markDomusSpanUndone", () => {
         conversationId: "grounded-thread",
         cycleId: "cycle-ep-other",
         rows: [{ rowId: "row-ep-other", createdAtMs: 500, dataClassification: "ordinary" }],
-        reflection: { summary: "other world", takeaway: null, tone: null, salience: 0.5, unresolvedThreads: [] },
+        reflection: { summary: "other world", salience: 0.5 },
         nowMs: 500,
         channel: "domus:oasis",
       });
