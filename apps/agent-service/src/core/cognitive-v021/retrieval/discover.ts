@@ -72,6 +72,7 @@ function fetchExactKeyHits(
     if (!assertion) continue;
     if (assertion.dataClassification === "secret") continue;
     if (assertion.statement === REDACTED_MEMORY_STATEMENT) continue;
+    if (assertion.lineageClass === "undone") continue;
     if (!retrievalHitEligible({
       audienceScope: assertion.audienceScope ?? { kind: "owner_private" },
       protectionStatus: assertion.protectionStatus ?? null,
@@ -98,6 +99,7 @@ function fetchExactKeyHits(
       audienceScope: assertion.audienceScope ?? { kind: "owner_private" },
       licenseRefs: assertion.licenseRefs ?? [],
       protectionStatus: assertion.protectionStatus ?? null,
+      ...(assertion.channel !== "discord" ? { channel: assertion.channel } : {}),
     });
   }
 
@@ -340,6 +342,7 @@ export function retrieveCandidates(
   }
   const rawTriggerHits: RetrievalHit[] = rawTriggerResult.rows.flatMap((row) => {
     const assertion = getMemoryAssertion(sidecarDb, row.assertionKey);
+    if (assertion?.lineageClass === "undone") return [];
     const metadata = {
       audienceScope: assertion?.audienceScope ?? { kind: "owner_private" } as SocialAudience,
       protectionStatus: assertion?.protectionStatus ?? null,
@@ -364,6 +367,7 @@ export function retrieveCandidates(
       audienceScope: metadata.audienceScope,
       licenseRefs: metadata.licenseRefs,
       protectionStatus: metadata.protectionStatus,
+      ...(assertion && assertion.channel !== "discord" ? { channel: assertion.channel } : {}),
     }];
   });
 
@@ -374,6 +378,7 @@ export function retrieveCandidates(
   }
   const concernHits: RetrievalHit[] = concernResult.rows.flatMap((row) => {
     const assertion = getMemoryAssertion(sidecarDb, row.assertionKey);
+    if (assertion?.lineageClass === "undone") return [];
     const metadata = {
       audienceScope: assertion?.audienceScope ?? { kind: "owner_private" } as SocialAudience,
       protectionStatus: assertion?.protectionStatus ?? null,
@@ -398,6 +403,7 @@ export function retrieveCandidates(
       audienceScope: metadata.audienceScope,
       licenseRefs: metadata.licenseRefs,
       protectionStatus: metadata.protectionStatus,
+      ...(assertion && assertion.channel !== "discord" ? { channel: assertion.channel } : {}),
     }];
   });
 
@@ -407,6 +413,7 @@ export function retrieveCandidates(
     ? vectorNeighbors(derivedStore, options.queryVector).flatMap(({ assertionKey, similarity }) => {
         const assertion = getMemoryAssertion(sidecarDb, assertionKey);
         if (!assertion?.live || assertion.dataClassification === "secret") return [];
+        if (assertion.lineageClass === "undone") return [];
         const metadata = {
           audienceScope: assertion.audienceScope ?? { kind: "owner_private" } as SocialAudience,
           protectionStatus: assertion.protectionStatus ?? null,
@@ -431,6 +438,7 @@ export function retrieveCandidates(
           audienceScope: metadata.audienceScope,
           licenseRefs: metadata.licenseRefs,
           protectionStatus: metadata.protectionStatus,
+          ...(assertion.channel !== "discord" ? { channel: assertion.channel } : {}),
         }];
       })
     : [];
