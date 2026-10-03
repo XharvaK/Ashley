@@ -1,0 +1,15 @@
+[Unit]
+Description=Ashley private proposal courier (Owner-gated)
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/project-ashley
+EnvironmentFile=-%h/.composer-assistant/self-change/courier.env
+ExecStart=/usr/bin/bash %h/project-ashley/deploy/linux-mint/self-courier.sh
+UMask=0077
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=%h/.composer-assistant/self-change
+TimeoutStartSec=10min

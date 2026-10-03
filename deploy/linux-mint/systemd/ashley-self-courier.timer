@@ -1,0 +1,10 @@
+[Unit]
+Description=Ashley private proposal courier interval (Owner-gated)
+
+[Timer]
+OnBootSec=15min
+OnUnitActiveSec=15min
+Unit=ashley-self-courier.service
+
+[Install]
+WantedBy=timers.target
