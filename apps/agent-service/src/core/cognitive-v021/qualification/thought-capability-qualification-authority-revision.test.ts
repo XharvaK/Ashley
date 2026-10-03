@@ -54,7 +54,8 @@ const REJECTED_CURRENTNESS_SETTLEMENT = `{
     "mustSay": ["Understood. I have received your message."],
     "surfaceDraft": "Understood. I have received your message.",
     "presentationDirectives": ["concise", "direct"]
-  }
+  },
+  "durableNominations": []
 }`;
 
 /**

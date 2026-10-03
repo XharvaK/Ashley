@@ -1364,6 +1364,7 @@ function fixtureFor(caseId: ThoughtQualificationCaseId): unknown {
       evidenceUse: {
         sourceRefsUsed: [...SETTLEMENT_FIXTURE_EXPECTATION.sourceRefsUsed],
       },
+      durableNominations: [],
     };
   }
   if (caseId === "observation_intent") {
