@@ -285,7 +285,8 @@ export async function runLiveCognitiveTurn(
   const isPrivateTrigger = cycle.triggerKind === "idle_opportunity" ||
     cycle.triggerKind === "subscription_item" ||
     cycle.triggerKind === "future_trigger_due" ||
-    cycle.triggerKind === "self_change_result";
+    cycle.triggerKind === "self_change_result" ||
+    cycle.triggerKind === "domus_notification";
 
   if (!reservation) {
     if (explicitReservationId || isPrivateTrigger) {

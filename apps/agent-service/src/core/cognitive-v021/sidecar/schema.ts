@@ -2147,3 +2147,33 @@ CREATE TABLE IF NOT EXISTS growth_gap_diagnostics (
 );
 UPDATE cognitive_sidecar_meta SET schema_version=59 WHERE id=1;
 `;
+
+/** Domus helper observations and heartbeats. No inbox admission in this migration. */
+export const COGNITIVE_SIDECAR_SCHEMA_V60 = String.raw`
+CREATE TABLE IF NOT EXISTS domus_observations (
+  observation_id TEXT PRIMARY KEY,
+  digest TEXT NOT NULL,
+  world TEXT NOT NULL,
+  branch TEXT NOT NULL,
+  session TEXT NOT NULL,
+  attachment TEXT NOT NULL,
+  body TEXT NOT NULL,
+  snapshot TEXT NOT NULL,
+  seq INTEGER NOT NULL,
+  source_time_ms INTEGER NOT NULL,
+  expires_at_ms INTEGER NOT NULL,
+  receipt_time_ms INTEGER NOT NULL,
+  lineage_class TEXT NOT NULL,
+  payload_json TEXT NOT NULL,
+  admission_state TEXT NOT NULL DEFAULT 'stored' CHECK (admission_state IN ('stored','admitted','dropped'))
+);
+CREATE INDEX IF NOT EXISTS idx_domus_observations_world_session_seq ON domus_observations(world, session, seq);
+CREATE TABLE IF NOT EXISTS domus_heartbeats (
+  helper_session TEXT PRIMARY KEY,
+  last_received_at_ms INTEGER NOT NULL,
+  last_sent_at_ms INTEGER NOT NULL,
+  count INTEGER NOT NULL,
+  last_json TEXT NOT NULL
+);
+UPDATE cognitive_sidecar_meta SET schema_version=60 WHERE id=1;
+`;

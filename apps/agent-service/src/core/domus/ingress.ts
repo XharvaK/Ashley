@@ -1,0 +1,240 @@
+/**
+ * Domus ingress wire contract v1.
+ *
+ * POST /domus/observation accepts only:
+ * v=1, observation_id (1..128 [A-Za-z0-9._:-]), world/branch/session/attachment/body/snapshot
+ * (strings, 1..64), seq/source_time_ms/expires_at_ms (safe non-negative integers),
+ * lineage_class (1..32 [A-Z_]), percepts (1..32 of {kind: 1..32 [a-z0-9_], salience: finite 0..1,
+ * facts: object <= 2048 UTF-8 bytes of JSON.stringify}), optional portrait (object <= 8192 bytes).
+ * Unknown top-level keys, unknown percept keys, expires_at_ms <= source_time_ms, or a window
+ * over 600000 ms are 400 {error:"invalid_body"}. source_time_ms > now+120000 is 400
+ * {error:"clock_skew"}. now > expires_at_ms is 410 {error:"expired"}.
+ * Digest is SHA-256 of recursively key-sorted JSON. New id is 202 {status:"admitted",
+ * observation_id, receipt_time_ms}. Same id and digest is 200 {status:"duplicate", ...}
+ * with the original receipt time. Same id and a different digest is 409
+ * {error:"observation_conflict"}.
+ *
+ * POST /domus/heartbeat accepts only v=1, helper_session (1..64), sent_at_ms (safe
+ * non-negative integer), attached (boolean), optional world (0..64) and probe_version (0..16).
+ * Unknown keys are 400. The response is 200 {status:"ok"}.
+ *
+ * Auth header X-Domus-Token. Missing, wrong, or equal to the Discord bot token is 401
+ * {error:"unauthorized"}. Any other path is 404 {error:"not_found"}. JSON bodies over
+ * 64 KiB are 413 {error:"payload_too_large"}. This listener does not append inbox rows.
+ */
+import { createHash, timingSafeEqual } from "node:crypto";
+import express from "express";
+import type { DatabaseSync } from "node:sqlite";
+import { admitObservation, canonicalJson, observationDigest, upsertHeartbeat } from "./store.js";
+
+const BODY_LIMIT = 64 * 1024;
+const MAX_WINDOW_MS = 600_000;
+const MAX_SKEW_MS = 120_000;
+
+export type DomusIngressDecision =
+  | { enabled: true }
+  | { enabled: false; reason: "token_missing" | "token_too_short" | "token_matches_bot" };
+
+export function decideDomusIngress(input: { helperToken: string; botToken: string }): DomusIngressDecision {
+  const helper = input.helperToken ?? "";
+  if (!helper.trim()) return { enabled: false, reason: "token_missing" };
+  if (Buffer.byteLength(helper, "utf8") < 32) return { enabled: false, reason: "token_too_short" };
+  const bot = input.botToken ?? "";
+  if (bot && tokenEqual(helper, bot)) return { enabled: false, reason: "token_matches_bot" };
+  return { enabled: true };
+}
+
+function tokenEqual(left: string, right: string): boolean {
+  return timingSafeEqual(
+    createHash("sha256").update(left, "utf8").digest(),
+    createHash("sha256").update(right, "utf8").digest(),
+  );
+}
+
+type HttpError = Error & { status: number; code: string };
+
+function fail(status: number, code: string): never {
+  const error = new Error(code) as HttpError;
+  error.status = status;
+  error.code = code;
+  throw error;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function text(value: unknown, min: number, max: number, pattern?: RegExp): string {
+  if (typeof value !== "string" || value.length < min || value.length > max || (pattern && !pattern.test(value))) {
+    fail(400, "invalid_body");
+  }
+  return value;
+}
+
+function safeInt(value: unknown): number {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) fail(400, "invalid_body");
+  return value;
+}
+
+function jsonObject(value: unknown, maxBytes: number): Record<string, unknown> {
+  if (!isRecord(value) || Buffer.byteLength(JSON.stringify(value), "utf8") > maxBytes) fail(400, "invalid_body");
+  return value;
+}
+
+const OBSERVATION_KEYS = new Set([
+  "v", "observation_id", "world", "branch", "session", "attachment", "body", "snapshot",
+  "seq", "source_time_ms", "expires_at_ms", "lineage_class", "percepts", "portrait",
+]);
+
+export function parseObservation(body: unknown, now: number): {
+  observationId: string;
+  normalized: Record<string, unknown>;
+  fields: {
+    world: string; branch: string; session: string; attachment: string; body: string; snapshot: string;
+    seq: number; sourceTimeMs: number; expiresAtMs: number; lineageClass: string;
+  };
+} {
+  if (!isRecord(body)) fail(400, "invalid_body");
+  for (const key of Object.keys(body)) if (!OBSERVATION_KEYS.has(key)) fail(400, "invalid_body");
+  if (body.v !== 1) fail(400, "invalid_body");
+  const observationId = text(body.observation_id, 1, 128, /^[A-Za-z0-9._:-]+$/);
+  const world = text(body.world, 1, 64);
+  const branch = text(body.branch, 1, 64);
+  const session = text(body.session, 1, 64);
+  const attachment = text(body.attachment, 1, 64);
+  const snapshot = text(body.snapshot, 1, 64);
+  const textBody = text(body.body, 1, 64);
+  const seq = safeInt(body.seq);
+  const sourceTimeMs = safeInt(body.source_time_ms);
+  const expiresAtMs = safeInt(body.expires_at_ms);
+  const lineageClass = text(body.lineage_class, 1, 32, /^[A-Z_]+$/);
+  if (!Array.isArray(body.percepts) || body.percepts.length < 1 || body.percepts.length > 32) fail(400, "invalid_body");
+  const percepts = body.percepts.map((item) => {
+    if (!isRecord(item)) fail(400, "invalid_body");
+    for (const key of Object.keys(item)) if (key !== "kind" && key !== "salience" && key !== "facts") fail(400, "invalid_body");
+    const salience = item.salience;
+    if (typeof salience !== "number" || !Number.isFinite(salience) || salience < 0 || salience > 1) fail(400, "invalid_body");
+    return { kind: text(item.kind, 1, 32, /^[a-z0-9_]+$/), salience, facts: jsonObject(item.facts, 2048) };
+  });
+  const normalized: Record<string, unknown> = {
+    v: 1, observation_id: observationId, world, branch, session, attachment, body: textBody, snapshot,
+    seq, source_time_ms: sourceTimeMs, expires_at_ms: expiresAtMs, lineage_class: lineageClass, percepts,
+  };
+  if ("portrait" in body) normalized.portrait = jsonObject(body.portrait, 8192);
+  if (expiresAtMs <= sourceTimeMs || expiresAtMs - sourceTimeMs > MAX_WINDOW_MS) fail(400, "invalid_body");
+  if (sourceTimeMs > now + MAX_SKEW_MS) fail(400, "clock_skew");
+  if (now > expiresAtMs) fail(410, "expired");
+  return {
+    observationId,
+    normalized,
+    fields: { world, branch, session, attachment, body: textBody, snapshot, seq, sourceTimeMs, expiresAtMs, lineageClass },
+  };
+}
+
+const HEARTBEAT_KEYS = new Set(["v", "helper_session", "sent_at_ms", "attached", "world", "probe_version"]);
+
+export function parseHeartbeat(body: unknown): Record<string, unknown> {
+  if (!isRecord(body)) fail(400, "invalid_body");
+  for (const key of Object.keys(body)) if (!HEARTBEAT_KEYS.has(key)) fail(400, "invalid_body");
+  if (body.v !== 1 || typeof body.attached !== "boolean") fail(400, "invalid_body");
+  const normalized: Record<string, unknown> = {
+    v: 1,
+    helper_session: text(body.helper_session, 1, 64),
+    sent_at_ms: safeInt(body.sent_at_ms),
+    attached: body.attached,
+  };
+  if ("world" in body) normalized.world = text(body.world, 0, 64);
+  if ("probe_version" in body) normalized.probe_version = text(body.probe_version, 0, 16);
+  return normalized;
+}
+
+export function createDomusIngressApp(input: {
+  db: DatabaseSync;
+  token: string;
+  botToken: string;
+  now: () => number;
+}): express.Express {
+  const app = express();
+  app.use(express.json({ limit: BODY_LIMIT }));
+  app.use((error: { type?: string; status?: number }, _req: express.Request, res: express.Response, next: express.NextFunction) => {
+    if (error?.type === "entity.too.large" || error?.status === 413) {
+      res.status(413).json({ error: "payload_too_large" });
+      return;
+    }
+    if (error instanceof SyntaxError) {
+      res.status(400).json({ error: "invalid_body" });
+      return;
+    }
+    next(error);
+  });
+  app.use((req, res, next) => {
+    const presented = req.get("X-Domus-Token") ?? "";
+    if (!presented || !tokenEqual(presented, input.token) || (input.botToken && tokenEqual(presented, input.botToken))) {
+      res.status(401).json({ error: "unauthorized" });
+      return;
+    }
+    next();
+  });
+  app.post("/domus/observation", (req, res) => {
+    try {
+      const now = input.now();
+      const parsed = parseObservation(req.body, now);
+      const payloadJson = canonicalJson(parsed.normalized);
+      const result = admitObservation(input.db, {
+        observationId: parsed.observationId,
+        digest: observationDigest(parsed.normalized),
+        world: parsed.fields.world,
+        branch: parsed.fields.branch,
+        session: parsed.fields.session,
+        attachment: parsed.fields.attachment,
+        body: parsed.fields.body,
+        snapshot: parsed.fields.snapshot,
+        seq: parsed.fields.seq,
+        sourceTimeMs: parsed.fields.sourceTimeMs,
+        expiresAtMs: parsed.fields.expiresAtMs,
+        receiptTimeMs: now,
+        lineageClass: parsed.fields.lineageClass,
+        payloadJson,
+      });
+      if (result.status === "conflict") {
+        res.status(409).json({ error: "observation_conflict" });
+        return;
+      }
+      res.status(result.status === "admitted" ? 202 : 200).json({
+        status: result.status,
+        observation_id: parsed.observationId,
+        receipt_time_ms: result.receiptTimeMs,
+      });
+    } catch (error) {
+      const http = error as HttpError;
+      if (http.status && http.code) {
+        res.status(http.status).json({ error: http.code });
+        return;
+      }
+      throw error;
+    }
+  });
+  app.post("/domus/heartbeat", (req, res) => {
+    try {
+      const parsed = parseHeartbeat(req.body);
+      upsertHeartbeat(input.db, {
+        helperSession: String(parsed.helper_session),
+        receivedAtMs: input.now(),
+        sentAtMs: Number(parsed.sent_at_ms),
+        json: canonicalJson(parsed),
+      });
+      res.status(200).json({ status: "ok" });
+    } catch (error) {
+      const http = error as HttpError;
+      if (http.status && http.code) {
+        res.status(http.status).json({ error: http.code });
+        return;
+      }
+      throw error;
+    }
+  });
+  app.use((_req, res) => {
+    res.status(404).json({ error: "not_found" });
+  });
+  return app;
+}

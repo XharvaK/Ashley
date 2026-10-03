@@ -1,4 +1,5 @@
 import { createSelfChangeResultMaintenance, type SelfChangeResultMaintenance } from "./core/cognitive-v021/growth/self-change-results.js";
+import { createDomusIngressApp, decideDomusIngress } from "./core/domus/ingress.js";
 import type { AgentManager } from "./agent.js";
 import { AFTERGLOW_POLL_MS } from "./core/cognitive-v021/initiative/afterglow.js";
 import {isThalamusEnabled} from "./core/cognitive-v021/thalamus/scheduler.js";
@@ -106,6 +107,7 @@ export function createAgentInboxConsumerHandler(
 
 type StartupCleanupResources = {
   selfChangeResultMaintenance?: SelfChangeResultMaintenance | null;
+  domusServer?: ShutdownServer | null;
   cognitiveSidecar: DatabaseSync | null;
   cognitiveConsumer: InboxConsumerHandle | null;
   frontierCoordinator: FrontierCoordinatorHandle | null;
@@ -118,6 +120,7 @@ export async function closeStartupResources(
   resources: StartupCleanupResources,
 ): Promise<void> {
   const resultProducerClose = resources.selfChangeResultMaintenance?.close();
+  await closeHttpServer(resources.domusServer);
   resources.cognitiveConsumer?.stop();
   resources.frontierCoordinator?.stop();
   if (resultProducerClose) try { await resultProducerClose; } catch { /* preserve startup failure */ }
@@ -160,8 +163,15 @@ export async function closeStartupResources(
 
 type ShutdownResources = Pick<
   StartupCleanupResources,
-  "cognitiveConsumer" | "frontierCoordinator" | "derivedStore" | "observabilityDb" | "selfChangeResultMaintenance"
+  "cognitiveConsumer" | "frontierCoordinator" | "derivedStore" | "observabilityDb" | "selfChangeResultMaintenance" | "domusServer"
 >;
+
+async function closeHttpServer(server: ShutdownServer | null | undefined): Promise<void> {
+  if (!server) return;
+  await new Promise<void>((resolve, reject) => {
+    server.close((error) => (error ? reject(error) : resolve()));
+  });
+}
 
 type ShutdownServer = {
   close: (callback: (error?: Error) => void) => void;
@@ -185,6 +195,7 @@ export async function shutdownAgent(
     resources.derivedStore?.close();
     resources.observabilityDb?.close();
     await manager.shutdown();
+    await closeHttpServer(resources.domusServer);
     await new Promise<void>((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));
     });
@@ -218,6 +229,7 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
     return embedderPromise;
   };
   let observabilityDb: DatabaseSync | null = null;
+  let domusServer: ShutdownServer | null = null;
   let projectSystemNotice: ((noticeId: number) => Promise<void>) | undefined;
   try {
     await manager.init();
@@ -780,6 +792,20 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
       projectSystemNotice,
     });
     server = listen(app);
+    const domusDecision = decideDomusIngress({
+      helperToken: env.domusHelperToken,
+      botToken: process.env.DISCORD_BOT_TOKEN ?? "",
+    });
+    if (domusDecision.enabled && cognitiveSidecar) {
+      domusServer = createDomusIngressApp({
+        db: cognitiveSidecar,
+        token: env.domusHelperToken,
+        botToken: process.env.DISCORD_BOT_TOKEN ?? "",
+        now: () => Date.now(),
+      }).listen(env.domusIngressPort, "127.0.0.1");
+    } else if (!domusDecision.enabled) {
+      console.log(`[domus-ingress] disabled: ${domusDecision.reason}`);
+    }
   manager.markStartupComplete();
   console.log(
     `[agent-service] nuclear core enabled db=${manager.core.getHealth().dbPath} plane=${manager.dataPlane.kind}`,
@@ -791,7 +817,7 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
     shuttingDown = true;
     await shutdownAgent(
       manager,
-      { cognitiveConsumer, frontierCoordinator, derivedStore, observabilityDb, selfChangeResultMaintenance },
+      { cognitiveConsumer, frontierCoordinator, derivedStore, observabilityDb, selfChangeResultMaintenance, domusServer },
       server,
       signal,
     );
@@ -802,6 +828,7 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
   } catch (error) {
     await closeStartupResources(manager, {
       cognitiveSidecar,
+      domusServer,
       selfChangeResultMaintenance,
       cognitiveConsumer,
       frontierCoordinator,

@@ -139,6 +139,8 @@ function createEnv() {
   memoryOwnerId:
     process.env.MEMORY_OWNER_ID ?? process.env.DISCORD_OWNER_ID ?? "",
   agentPort: numericEnv("AGENT_PORT", 3710, 1, 65_535, true),
+  domusIngressPort: numericEnv("DOMUS_INGRESS_PORT", 3711, 1, 65_535, true),
+  domusHelperToken: process.env.DOMUS_HELPER_TOKEN ?? "",
   agentBindHost: process.env.AGENT_BIND_HOST ?? "127.0.0.1",
   nodeEnv: process.env.NODE_ENV ?? "development",
   personaEvalMode: process.env.PERSONA_EVAL_MODE === "true",

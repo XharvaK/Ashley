@@ -153,13 +153,14 @@ function payloadRecord(value: unknown): DbRow {
   return isRow(value) && !Array.isArray(value) ? value : {};
 }
 
-function triggerKindForInbox(kind: string): CycleTriggerKind {
+export function triggerKindForInbox(kind: string): CycleTriggerKind {
   if (kind === "external_message" || kind === "external_utterance") return "external_message";
   if (kind === "future_trigger_due") return "future_trigger_due";
   if (kind === "idle_opportunity") return "idle_opportunity";
   if (kind === "commitment_due") return "commitment_due";
   if (kind === "subscription_item") return "subscription_item";
   if (kind === "self_change_result") return "self_change_result";
+  if (kind === "domus_notification") return "domus_notification";
   if (kind === "observation_or_receipt") return "observation_or_receipt";
   if (kind === "recovery") return "recovery";
   if (kind === "control_settlement_receipt") return "observation_or_receipt";

@@ -2271,6 +2271,7 @@ function triggerKind(value: unknown): CycleTriggerKind {
     case "future_trigger_due":
     case "observation_or_receipt":
     case "self_change_result":
+    case "domus_notification":
     case "recovery":
       return value;
     default:
@@ -2293,6 +2294,7 @@ export function deliveryIntentFor(
   const external = triggerKind === "external_message";
   const trigger: DeliveryIntent["trigger"] =
     triggerKind === "self_change_result" ? "self_change_result" :
+    triggerKind === "domus_notification" ? "domus_notification" :
     triggerKind === "idle_opportunity" ? "idle" :
       triggerKind === "commitment_due" ? "commitment_due" :
       triggerKind === "subscription_item" ? "subscription" :
@@ -3181,7 +3183,7 @@ export async function runCognitiveCycle(
     }) ?? deps.capabilityReality,
     publicPresenceEnabled,
   );
-  let ownerMessage = originProfile.triggerKind === "self_change_result" ? "" : typeof payload.ownerMessage === "string"
+  let ownerMessage = originProfile.triggerKind === "self_change_result" || originProfile.triggerKind === "domus_notification" ? "" : typeof payload.ownerMessage === "string"
     ? payload.ownerMessage
     : triggerEvidence?.text ?? listConversationEvidence(sidecar, cycle.conversationId, { limit: 1 }).at(-1)?.text ?? "";
   const perceive = async (): Promise<Observation[]> => {

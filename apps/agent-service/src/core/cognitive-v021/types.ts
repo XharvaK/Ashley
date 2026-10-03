@@ -29,7 +29,7 @@ export type { SourceSupportRef } from "./evidence/interpretation-envelope.js";
 export const ARCHITECTURE_EPOCH = "v0.2.1" as const;
 export const IMPLEMENTATION_SPEC_VERSION = "0.2.1.r6" as const;
 export const THOUGHT_CONTRACT_VERSION = 2 as const;
-export const COGNITIVE_SIDECAR_SCHEMA_VERSION = 59 as const;
+export const COGNITIVE_SIDECAR_SCHEMA_VERSION = 60 as const;
 
 /**
  * Hard bound on cognition-facing concern discovery windows and pages. The
@@ -258,6 +258,7 @@ export type CycleTriggerKind =
   | "future_trigger_due"
   | "observation_or_receipt"
   | "self_change_result"
+  | "domus_notification"
   | "recovery";
 
 export type CycleState =
@@ -1942,7 +1943,8 @@ export type DeliveryIntent = {
     | "subscription"
     | "recovery"
     | "operation_completion"
-    | "self_change_result";
+    | "self_change_result"
+    | "domus_notification";
   deliveryLane: "reactive" | "proactive" | "social_notify";
   purpose: "licensed_speech" | "system_notice";
   /** Host-owned destination binding for a permitted social publication. */

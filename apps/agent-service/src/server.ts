@@ -1,4 +1,6 @@
 import { listGrowthDimensions, revertAshleyDimensionEdit, seedGrowthDimension } from "./core/cognitive-v021/growth/dimensions.js";
+import { decideDomusIngress } from "./core/domus/ingress.js";
+import { readDomusStatus } from "./core/domus/store.js";
 import {readSelfChangeLadder,commandSelfChangeLadder,recordSelfChangeLadderFinding} from "./core/cognitive-v021/growth/self-change-ladder.js";
 import { listPersonaSnapshots, personaChanges } from "./core/cognitive-v021/growth/snapshots.js";
 import express from "express";
@@ -2397,6 +2399,23 @@ export function createServer(
       requireOwner(String(req.query.owner_id ?? "") || undefined);
       const limit = Math.min(100, Number(req.query.limit ?? 50) || 50);
       res.json({ reviews: listFoundationalReviews(getCognitiveSidecar(), limit) });
+    } catch (err) {
+      const { status, body } = toErrorResponse(err);
+      res.status(status).json(body);
+    }
+  });
+
+  app.get("/domus/status", (req, res) => {
+    try {
+      requireOwner(String(req.query.owner_id ?? "") || undefined);
+      const decision = decideDomusIngress({
+        helperToken: env.domusHelperToken,
+        botToken: process.env.DISCORD_BOT_TOKEN ?? "",
+      });
+      const listener = decision.enabled
+        ? { enabled: true, port: env.domusIngressPort }
+        : { enabled: false, port: env.domusIngressPort, reason: decision.reason };
+      res.json({ listener, ...readDomusStatus(getCognitiveSidecar()) });
     } catch (err) {
       const { status, body } = toErrorResponse(err);
       res.status(status).json(body);

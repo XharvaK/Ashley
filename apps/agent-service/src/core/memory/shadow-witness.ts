@@ -284,6 +284,7 @@ export function c1V021TriggerClass(
     case "future_trigger_due":
     case "observation_or_receipt":
     case "self_change_result":
+    case "domus_notification":
     case "recovery":
       return "proactive";
     default: {

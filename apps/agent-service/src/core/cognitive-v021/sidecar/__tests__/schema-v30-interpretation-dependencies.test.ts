@@ -59,8 +59,8 @@ describe("cognitive sidecar Schema V30 interpretation dependencies", () => {
 
       openCognitiveSidecarDb(db, { dataPlane: { kind: "isolated" } });
 
-      expect(COGNITIVE_SIDECAR_SCHEMA_VERSION).toBe(59);
-      expect(db.prepare("PRAGMA user_version").get()).toMatchObject({ user_version: 59 });
+      expect(COGNITIVE_SIDECAR_SCHEMA_VERSION).toBe(60);
+      expect(db.prepare("PRAGMA user_version").get()).toMatchObject({ user_version: 60 });
       expect(db.prepare("SELECT schema_version FROM cognitive_sidecar_meta WHERE id = 1").get())
         .toMatchObject({ schema_version: 59 });
       expect(db.prepare("PRAGMA table_info(interpretation_dependencies)").all()).toEqual(expect.arrayContaining([
