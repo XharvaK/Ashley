@@ -71,6 +71,7 @@ import {
   COGNITIVE_SIDECAR_SCHEMA_V54,
   COGNITIVE_SIDECAR_SCHEMA_V55,
   COGNITIVE_SIDECAR_SCHEMA_V56,
+  COGNITIVE_SIDECAR_SCHEMA_V57,
 } from "./schema.js";
 import { recoverCognitiveSidecar } from "./recovery.js";
 import { cycleIdFor, occurrenceIdFor, wakeIdFor } from "../wake/identity.js";
@@ -831,6 +832,7 @@ export function openCognitiveSidecarDb(
       existing.exec(COGNITIVE_SIDECAR_SCHEMA_V54);
       existing.exec(COGNITIVE_SIDECAR_SCHEMA_V55);
       existing.exec(COGNITIVE_SIDECAR_SCHEMA_V56);
+      existing.exec(COGNITIVE_SIDECAR_SCHEMA_V57);
       existing.exec(`PRAGMA user_version = ${COGNITIVE_SIDECAR_SCHEMA_VERSION}`);
       existing.exec("COMMIT");
     } catch (error) {
@@ -899,6 +901,7 @@ export function openCognitiveSidecarDb(
       if (version < 54) existing.exec(COGNITIVE_SIDECAR_SCHEMA_V54);
       if (version < 55) existing.exec(COGNITIVE_SIDECAR_SCHEMA_V55);
       if (version < 56) existing.exec(COGNITIVE_SIDECAR_SCHEMA_V56);
+      if (version < 57) existing.exec(COGNITIVE_SIDECAR_SCHEMA_V57);
       existing.exec(`PRAGMA user_version = ${COGNITIVE_SIDECAR_SCHEMA_VERSION}`);
       ensureMeta(existing);
       existing.exec("COMMIT");

@@ -17,7 +17,7 @@ describe("Growth V1 §5.5 delivery gate", () => {
   });
 
   it("defers her own initiative while paused or mid-conversation, and never drops it", () => {
-    for (const trigger of ["idle", "future_trigger", "subscription"] as const) {
+    for (const trigger of ["idle", "future_trigger", "subscription", "self_change_result"] as const) {
       expect(evaluateReachOutGate({ deliveryLane: "proactive", trigger }, { paused: true, chatInProgress: false }))
         .toEqual({ ok: false, reason: "proactive_paused", defer: true });
       expect(evaluateReachOutGate({ deliveryLane: "proactive", trigger }, { paused: false, chatInProgress: true }))

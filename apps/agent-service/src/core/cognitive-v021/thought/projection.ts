@@ -104,6 +104,7 @@ export type ProjectedThoughtInput = {
     kind: CycleTriggerKind;
     ref: string;
     continuityRecovery?: ThoughtInput["trigger"]["continuityRecovery"];
+    selfChangeResult?: ThoughtInput["trigger"]["selfChangeResult"];
   };
   commitmentDue?: ThoughtInput["commitmentDue"];
   rawConversation: ThoughtInput["rawConversation"];

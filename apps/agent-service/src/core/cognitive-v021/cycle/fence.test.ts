@@ -38,7 +38,7 @@ describe("v0.2.1 cycle fence", () => {
   });
 
   it("pre-empts her private pass when Alex speaks, instead of folding his message into it (R1)", () => {
-    for (const privateKind of ["idle_opportunity", "future_trigger_due", "subscription_item"] as const) {
+    for (const privateKind of ["idle_opportunity", "future_trigger_due", "subscription_item", "self_change_result"] as const) {
       const db = openTestSidecar();
       try {
         const pass = admitTestCycle(db, {

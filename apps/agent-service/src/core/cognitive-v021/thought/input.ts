@@ -103,6 +103,7 @@ export type BuildThoughtInputOptions = {
   stableSelfBound?: number;
   /** Host-derived recovery/profile trigger. It is not a new persisted authority. */
   triggerKindOverride?: CycleTriggerKind;
+  selfChangeResult?: ThoughtInput["trigger"]["selfChangeResult"];
   /**
    * Host-projected continuity-recovery frame for a repair Thought. Mechanical
    * references only; Thought authors all meaning. Set only for repair-kind turns.
@@ -1158,6 +1159,8 @@ export function buildThoughtInput(options: BuildThoughtInputOptions): ThoughtInp
     trigger: {
       kind: options.triggerKindOverride ?? options.cycle.triggerKind as CycleTriggerKind,
       ref: options.cycle.triggerRef,
+      ...(audience.kind === "owner_private" && (options.triggerKindOverride ?? options.cycle.triggerKind) === "self_change_result" && options.selfChangeResult
+        ? { selfChangeResult: { ...options.selfChangeResult } } : {}),
       ...(options.continuityRecovery
         ? {
             continuityRecovery: {

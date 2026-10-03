@@ -1,7 +1,7 @@
 // Authored deadlines and matched structured watches create timing obligations, not Host-authored intentions.
 import type { Candidate } from "../core.js";
 import { proposal, type Fact } from "./facts.js";
-export type ProspectiveFact = Fact & { kind: "trigger" | "commitment" | "watch"; dueAtMs?: number;
+export type ProspectiveFact = Fact & { kind: "trigger" | "commitment" | "watch" | "self_change_result"; dueAtMs?: number;
   matched?: boolean; action?: "wake" | "wake_urgent" | "suppress" | "quiet_until"; expiresAtMs?: number };
 export function prospective(items: readonly ProspectiveFact[], nowMs: number): Candidate[] {
   const result: Candidate[] = [];

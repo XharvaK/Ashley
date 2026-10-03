@@ -15,7 +15,7 @@ export const REACH_OUT_RECENT_LIMIT = 5;
 const EXCERPT_MAX_CHARS = 160;
 
 /** Cycles nobody asked for: her own time, her own follow-ups, her subscriptions. */
-export const UNSOLICITED_TRIGGER_KINDS = Object.freeze(["idle_opportunity", "future_trigger_due", "subscription_item"]);
+export const UNSOLICITED_TRIGGER_KINDS = Object.freeze(["idle_opportunity", "future_trigger_due", "subscription_item", "self_change_result"]);
 
 export function isUnsolicitedTriggerKind(value: string): boolean {
   return (UNSOLICITED_TRIGGER_KINDS as readonly string[]).includes(value);
@@ -29,7 +29,7 @@ const UNSOLICITED_ROWS = `
     JOIN cycle_records c ON c.cycle_id = e.producing_cycle_id
    WHERE e.role = 'ashley'
      AND e.text IS NOT NULL AND e.text != ''
-     AND c.trigger_kind IN ('idle_opportunity', 'future_trigger_due', 'subscription_item')`;
+     AND c.trigger_kind IN ('idle_opportunity', 'future_trigger_due', 'subscription_item', 'self_change_result')`;
 
 export function countUnsolicited(db: DatabaseSync, nowMs: number): number {
   const row = db.prepare(`SELECT COUNT(*) AS n FROM (${UNSOLICITED_ROWS} AND e.created_at_ms > ?)`)

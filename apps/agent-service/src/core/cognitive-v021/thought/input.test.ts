@@ -1011,3 +1011,21 @@ describe("GS1 private projection re-entry", () => {
     } finally { db.close(); }
   });
 });
+
+describe("private self-change result input", () => {
+ const result = { version: 1 as const, changesetId: "cs_fixture", proposalCommit: "a".repeat(40), manifestSha256: "b".repeat(64), outcome: "rejected" as const, decidedAtMs: 1, decisionRef: "owner:fixture", summary: "Actual signed review" };
+ it("carries the result as a typed private trigger observation", () => {
+  const db = openTestSidecar();
+  try {
+   const cycle = admitTestCycle(db, { conversationId: "private-result", triggerKind: "self_change_result", triggerRef: "result", nowMs: 1 });
+   expect(makeInput(db, cycle, { selfChangeResult: result }).trigger).toMatchObject({ kind: "self_change_result", selfChangeResult: result });
+  } finally { db.close(); }
+ });
+ it("omits the private result from external audience input", () => {
+  const db = openTestSidecar();
+  try {
+   const cycle = admitTestCycle(db, { conversationId: "external-result", triggerKind: "external_message", triggerRef: "result", nowMs: 1 });
+   expect(makeInput(db, cycle, { selfChangeResult: result, audience: { kind: "room", roomId: "room:fixture" } }).trigger).not.toHaveProperty("selfChangeResult");
+  } finally { db.close(); }
+ });
+});

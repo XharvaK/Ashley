@@ -54,3 +54,22 @@ describe("one arbitration, one selected executor",()=>{
  });
 
 });
+
+it("selects a staged operator result through the actual prospective executor",async()=>{
+ const {configureSelfChangeBudget}=await import("../growth/self-change.js");
+ const {selectSelfChangeResult}=await import("../growth/self-change-results.js");
+ const {createHash}=await import("node:crypto");
+ const db=openTestSidecar();try{
+  configureSelfChangeBudget(db,{limit:3,version:1});
+  const value={version:1,changesetId:"cs_timing",proposalCommit:"a".repeat(40),manifestSha256:"b".repeat(64),outcome:"accepted",decidedAtMs:10,decisionRef:"fixture",summary:"Operator observation"};
+  const json=JSON.stringify(value);
+  db.prepare("INSERT INTO self_change_result_receipts (changeset_id,conversation_id,result_digest,result_json,received_at_ms) VALUES (?,?,?,?,?)").run(value.changesetId,"fixture:owner",createHash("sha256").update(json).digest("hex"),json,11);
+  const result=await run(db,{ownerId:"owner",conversationId:"fixture:owner",nowMs:T,enabled:true,candidates:[candidate("self-result:cs_timing")],facts:[],context,
+   executors:{idle:()=>{throw new Error("ordinary executor");},selfChangeResult:async(changesetId:string,selected:any)=>selectSelfChangeResult(db,{changesetId,conversationId:"fixture:owner",ownerId:"owner",authorityEpoch:1,nowMs:T,bind:selected.bind})}});
+  expect(result).toMatchObject({execution:{kind:"selected"}});
+  const cycle=db.prepare("SELECT cycle_id,occupant_id,trigger_kind FROM cycle_records").get()!;
+  expect(cycle).toMatchObject({occupant_id:"owner",trigger_kind:"self_change_result"});
+  expect(db.prepare("SELECT cycle_id FROM thalamus_decisions").get()!.cycle_id).toBe(cycle.cycle_id);
+  expect(db.prepare("SELECT count(*) AS n FROM private_budget_reservations WHERE policy_id='ashley.self_change.v1'").get()).toEqual({n:1});
+ }finally{db.close();}
+});

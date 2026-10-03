@@ -1,3 +1,4 @@
+import { createSelfChangeResultMaintenance, type SelfChangeResultMaintenance } from "./core/cognitive-v021/growth/self-change-results.js";
 import type { AgentManager } from "./agent.js";
 import { AFTERGLOW_POLL_MS } from "./core/cognitive-v021/initiative/afterglow.js";
 import {isThalamusEnabled} from "./core/cognitive-v021/thalamus/scheduler.js";
@@ -104,6 +105,7 @@ export function createAgentInboxConsumerHandler(
 }
 
 type StartupCleanupResources = {
+  selfChangeResultMaintenance?: SelfChangeResultMaintenance | null;
   cognitiveSidecar: DatabaseSync | null;
   cognitiveConsumer: InboxConsumerHandle | null;
   frontierCoordinator: FrontierCoordinatorHandle | null;
@@ -115,8 +117,10 @@ export async function closeStartupResources(
   manager: Pick<AgentManager, "shutdown" | "logger" | "core">,
   resources: StartupCleanupResources,
 ): Promise<void> {
+  const resultProducerClose = resources.selfChangeResultMaintenance?.close();
   resources.cognitiveConsumer?.stop();
   resources.frontierCoordinator?.stop();
+  if (resultProducerClose) try { await resultProducerClose; } catch { /* preserve startup failure */ }
   try {
     if (resources.cognitiveConsumer) await resources.cognitiveConsumer.done;
   } catch {
@@ -156,7 +160,7 @@ export async function closeStartupResources(
 
 type ShutdownResources = Pick<
   StartupCleanupResources,
-  "cognitiveConsumer" | "frontierCoordinator" | "derivedStore" | "observabilityDb"
+  "cognitiveConsumer" | "frontierCoordinator" | "derivedStore" | "observabilityDb" | "selfChangeResultMaintenance"
 >;
 
 type ShutdownServer = {
@@ -173,7 +177,9 @@ export async function shutdownAgent(
   console.log(`[agent-service] ${signal}`);
   try {
     manager.beginShutdown();
+    const resultProducerClose = resources.selfChangeResultMaintenance?.close();
     resources.cognitiveConsumer?.stop();
+    if (resultProducerClose) await resultProducerClose;
     if (resources.cognitiveConsumer) await resources.cognitiveConsumer.done;
     resources.frontierCoordinator?.stop();
     resources.derivedStore?.close();
@@ -194,6 +200,7 @@ export async function shutdownAgent(
 export async function serveAgent(manager: AgentManager): Promise<void> {
   let cognitiveSidecar: DatabaseSync | null = null;
   let cognitiveConsumer: InboxConsumerHandle | null = null;
+  let selfChangeResultMaintenance: SelfChangeResultMaintenance | null = null;
   let frontierCoordinator: FrontierCoordinatorHandle | null = null;
   let derivedStore: DerivedStore | null = null;
   // A5: the local embedder loads once, on first use; null when disabled or unavailable.
@@ -642,10 +649,20 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
         .catch((error) => console.warn("[cognitive-v021] inner life deferred", error))
         .finally(() => { innerRunning = false; });
     };
+    selfChangeResultMaintenance = createSelfChangeResultMaintenance(sidecar, {
+      directory: join(manager.dataPlane.dataDir, "self-change", "results"),
+      conversationId: () => {
+        const row = nuclear.prepare("SELECT id FROM mem_threads WHERE owner_id = ? AND status = 'active' ORDER BY updated_at DESC LIMIT 1").get(ownerId) as { id?: unknown } | undefined;
+        return typeof row?.id === "string" ? row.id : null;
+      },
+      config: () => ({ enabled: process.env.ASHLEY_SELF_CHANGE_RESULTS_ENABLED === "true", key: process.env.ASHLEY_SELF_CHANGE_RESULT_KEY ?? "" }),
+    });
     cognitiveConsumer = startInboxConsumer(sidecar, {
       workerId: `agent-service:${process.pid}`,
       handler: createAgentInboxConsumerHandler(manager),
       onReconciliationMaintenance: (nowMs) => {
+        if (!manager.isPaused()) void selfChangeResultMaintenance?.poll(nowMs)
+          .catch(() => console.warn("[self-change] result_maintenance_deferred"));
         if (isExternalSocialCaptureEnabled()) {
           void reconcileUnbatchedCaptures(sidecar, {
             nowMs,
@@ -774,7 +791,7 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
     shuttingDown = true;
     await shutdownAgent(
       manager,
-      { cognitiveConsumer, frontierCoordinator, derivedStore, observabilityDb },
+      { cognitiveConsumer, frontierCoordinator, derivedStore, observabilityDb, selfChangeResultMaintenance },
       server,
       signal,
     );
@@ -785,6 +802,7 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
   } catch (error) {
     await closeStartupResources(manager, {
       cognitiveSidecar,
+      selfChangeResultMaintenance,
       cognitiveConsumer,
       frontierCoordinator,
       derivedStore,

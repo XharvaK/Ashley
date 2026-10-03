@@ -1,3 +1,4 @@
+import {pendingSelfChangeResults,selfChangeResultBudgetAvailable,selectSelfChangeResult} from "./core/cognitive-v021/growth/self-change-results.js";
 import { createSocialTimingHooks } from "./core/cognitive-v021/thalamus/social-timing.js";
 import { promoteEligiblePending } from "./core/cognitive-v021/social/dm-activation.js";
 import { promoteEligibleRoomPending } from "./core/cognitive-v021/social/room-activation.js";
@@ -270,11 +271,21 @@ export class AgentManager {
     const commitments=isCommitmentsEnabled()?listDueCommitmentOpportunities(nuclear,ownerId,nowMs):[];
     current.candidates.push(...prospective(commitments.map(item=>({eventId:`commitment:${item.commitmentId}`,observedAtMs:item.fireAtMs ?? nowMs,
       refs:[item.commitmentId],kind:"commitment" as const,dueAtMs:item.fireAtMs ?? nowMs})),nowMs));
+    const resultFeedEnabled=process.env.ASHLEY_SELF_CHANGE_RESULTS_ENABLED==="true" && Buffer.byteLength(process.env.ASHLEY_SELF_CHANGE_RESULT_KEY ?? "")>=32;
+    const resultBudget=resultFeedEnabled && selfChangeResultBudgetAvailable(sidecar,nowMs);
+    const resultCandidates=resultBudget?prospective(pendingSelfChangeResults(sidecar,conversationId,nowMs).map(item=>({
+      eventId:`self-result:${item.changesetId}`,observedAtMs:item.receivedAtMs,refs:[item.changesetId],kind:"self_change_result" as const,dueAtMs:item.receivedAtMs})),nowMs):[];
+    // Dedicated capacity cannot grant ordinary private passes capacity.
+    if(!current.context.budgetAvailable && resultCandidates.length)current.candidates=[];
+    current.candidates.push(...resultCandidates);
+    if(resultCandidates.length)current.context={...current.context,budgetAvailable:true};
     return runThalamusPass(sidecar,{ownerId,conversationId,nowMs,enabled:true,...current,
       prepare:(decision,selected)=>({...selected,
         observations:decision.bundle.flatMap(candidate=>subscriptions.retained.get(candidate.eventId)?[subscriptions.retained.get(candidate.eventId)!]:[]).slice(0,PRIVATE_SUBSCRIPTION_ITEMS_PER_IDLE),
         bind:cycleId=>{selected.bind(cycleId);recordInfluencedCuriosityRank(sidecar,subscriptions.curiosity,{cycleId,ownerId},nowMs);},
       }),executors:{
+      selfChangeResult:async(changesetId,selected)=>selectSelfChangeResult(sidecar,{changesetId,conversationId,ownerId,
+        authorityEpoch:readCognitiveSidecarMeta(sidecar).authority_epoch,nowMs,bind:selected.bind}),
       afterglow:selected=>this.tickCognitiveAfterglow(ownerId,nowMs,selected),
       night:selected=>this.tickCognitiveNight(ownerId,nowMs,afterglowEnabled,selected),
       awake:selected=>this.tickCognitiveAwake(ownerId,nowMs,afterglowEnabled,selected),

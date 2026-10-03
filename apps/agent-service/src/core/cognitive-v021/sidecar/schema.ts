@@ -2077,3 +2077,18 @@ CREATE TABLE thalamus_decisions (
 CREATE INDEX idx_thalamus_decisions_owner_time ON thalamus_decisions(owner_id,evaluated_at_ms,decision_id);
 UPDATE cognitive_sidecar_meta SET schema_version=56 WHERE id=1;
 `;
+
+/** Authenticated operator receipts wait for timing selection without creating cognitive work. */
+export const COGNITIVE_SIDECAR_SCHEMA_V57 = String.raw`
+CREATE TABLE self_change_result_receipts (
+ changeset_id TEXT PRIMARY KEY NOT NULL,
+ conversation_id TEXT NOT NULL,
+ result_digest TEXT NOT NULL CHECK(length(result_digest)=64),
+ result_json TEXT NOT NULL CHECK(json_valid(result_json)),
+ received_at_ms INTEGER NOT NULL CHECK(received_at_ms>=0),
+ event_id TEXT REFERENCES inbox_events(id),
+ admitted_at_ms INTEGER
+);
+CREATE INDEX idx_self_change_results_pending ON self_change_result_receipts(conversation_id,received_at_ms) WHERE event_id IS NULL;
+UPDATE cognitive_sidecar_meta SET schema_version=57 WHERE id=1;
+`;

@@ -52,7 +52,7 @@ export function prepareTick(db:DatabaseSync,options:Omit<TickOptions,"execute">)
    && decision.bundle.every(candidate=>candidate.source==="social");
   const identity=social ? cycle?.occupant_id===null && cycle.trigger_kind==="external_message"
    && db.prepare("SELECT id FROM inbox_events WHERE conversation_id=? AND kind='external_utterance' AND json_valid(payload_json) AND json_extract(payload_json,'$.cycleId')=? AND json_extract(payload_json,'$.ownerId')=? LIMIT 1").get(conversationId,cycleId,ownerId)
-   : cycle?.occupant_id===ownerId && ["idle_opportunity","commitment_due","subscription_item","future_trigger_due"].includes(String(cycle?.trigger_kind));
+   : cycle?.occupant_id===ownerId && ["idle_opportunity","commitment_due","subscription_item","future_trigger_due","self_change_result"].includes(String(cycle?.trigger_kind));
   if(!cycle || cycle.conversation_id!==conversationId || !identity)throw new Error("thalamus_decision_cycle_identity");
   const changed=db.prepare("UPDATE thalamus_decisions SET cycle_id=? WHERE decision_id=? AND owner_id=? AND (cycle_id IS NULL OR cycle_id=?)").run(cycleId,decisionId,ownerId,cycleId);
   if(Number(changed.changes)!==1)throw new Error("thalamus_decision_cycle_conflict");

@@ -103,11 +103,11 @@ describe("interest graph", () => {
 });
 
 describe("reaching out", () => {
-  it("counts only unsolicited messages against the fuse and reports how they landed", () => {
+  it.each(["idle_opportunity", "self_change_result"] as const)("counts %s speech against the unsolicited fuse and reports how it landed", (triggerKind) => {
     const db = openTestSidecar();
     try {
       const conversationId = "thread-reach";
-      const idle = admitTestCycle(db, { conversationId, triggerKind: "idle_opportunity", triggerRef: "awake:1", occupantId: "doc", authorityEpoch: 1, nowMs: T0 });
+      const idle = admitTestCycle(db, { conversationId, triggerKind, triggerRef: "awake:1", occupantId: "doc", authorityEpoch: 1, nowMs: T0 });
       const reply = admitTestCycle(db, { conversationId, triggerKind: "owner_message", triggerRef: "owner-1", occupantId: "doc", authorityEpoch: 1, nowMs: T0 });
       appendAshleyEvidence(db, { conversationId, text: "found a great Basic Channel interview", nowMs: T0, producingCycleId: idle.cycleId, delivered: true, audienceAtCapture: "owner_private" });
       appendAshleyEvidence(db, { conversationId, text: "sure, here you go", nowMs: T0, producingCycleId: reply.cycleId, delivered: true, audienceAtCapture: "owner_private" });

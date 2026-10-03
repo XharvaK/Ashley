@@ -570,6 +570,39 @@ clock reconciliation, capability grants, and named sandbox operation gates
 remain separate. Admitted opportunities do not prove provider dispatch, a
 successful patch, review acceptance, deployment, or permission to change Ashley.
 
+## Private self-change result ingress
+
+Operator result observations enter as `self_change_result`, a private non-Owner
+origin. A bounded local poller reads `self-change/results/` under the selected
+data plane. It requires explicit `ASHLEY_SELF_CHANGE_RESULTS_ENABLED=true`, a
+separate `ASHLEY_SELF_CHANGE_RESULT_KEY`, and a configured self-change budget.
+The SSH deploy key is not a result-signing key. No credential or numeric limit
+is supplied implicitly.
+
+Each `<changeset-id>.json` (the earlier `.result.json` spelling is also accepted) contains an envelope with a JSON `payload`
+string and its `hmacSha256`, computed with HMAC-SHA256 over the exact UTF-8
+payload bytes. The versioned payload carries `changesetId`, `proposalCommit`,
+`manifestSha256`, `outcome`, `decidedAtMs`, `decisionRef`, and `summary`.
+Outcomes are `accepted`, `rejected`, `blocked`, or `reverted`: attributable
+operator observations, never authority to merge, deploy, or promote a capability.
+
+The durable staging row is the per-changeset receipt. Polling creates no wake,
+cycle, or reservation. Repeating the same result is idempotent; a conflicting
+result refuses. The prospective thalamus nucleus selects a pending receipt
+before its private cycle is admitted and the timing decision is bound.
+Dedicated budget capacity never grants ordinary private work capacity.
+
+The selected event stays ineligible until its separate budget reservation is
+bound. Authenticated polling repairs an interrupted reservation without
+creating another wake or timing decision. Missing or refused budget cannot
+cross the provider-dispatch boundary. Operator files remain retained.
+
+Thought receives the verified persisted result in its typed private trigger;
+external audience projections omit it. Recovery resolves the original cycle
+and receipt. Result speech is proactive, subject to pause, conversation and
+unsolicited-fuse gates, and Owner messages pre-empt the private pass. The result
+does not acquire optional-initiative status or public-presence authority.
+
 ## Appendix A — Interest pool (50)
 
 Electronic music; Technology; Artificial intelligence; Psychology & the
