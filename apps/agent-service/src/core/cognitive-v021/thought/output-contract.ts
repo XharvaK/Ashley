@@ -218,6 +218,7 @@ const sourceSupportRefSchema = { oneOf: [
     ] },
   }, ["kind", "artifactId", "representationId", "path"]),
   strictObject({ kind: { const: "observation_ref" }, observationId: existingRefSchema }, ["kind", "observationId"]),
+  strictObject({ kind: { const: "domus_observation" }, observationId: existingRefSchema }, ["kind", "observationId"]),
   strictObject({ kind: { const: "receipt_ref" }, receiptId: existingRefSchema }, ["kind", "receiptId"]),
 ] };
 const interpretationAudienceSchema = { oneOf: [

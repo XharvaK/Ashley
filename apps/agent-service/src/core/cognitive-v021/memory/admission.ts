@@ -17,7 +17,8 @@ import {
 } from "./nomination.js";
 import { appendMemorySupport, listMemorySupports, supportConversationId } from "./supports.js";
 import { recordMemoryFormation } from "./strength.js";
-import { parseSourceSupportRef, validateSourceSupportRefs, type ResolvedSource } from "../evidence/interpretation-envelope.js";
+import { domusChannelForRef, parseSourceSupportRef, validateSourceSupportRefs, type ResolvedSource } from "../evidence/interpretation-envelope.js";
+import type { MemoryChannel } from "../types.js";
 import { getMemoryAssertion, REDACTED_MEMORY_STATEMENT, upsertMemoryAssertion } from "./assertions.js";
 import { notifySidecarPostCommit } from "../retrieval/derived-store.js";
 import { hasStructuredCurrentnessEntitlement } from "../authority/check.js";
@@ -306,6 +307,13 @@ function resolveTypedSupport(
   for (const value of values) {
     const ref = parseSourceSupportRef(value);
     if (!ref) throw new Error("support_ref_invalid");
+    if (ref.kind === "domus_observation") {
+      const [resolved] = validateSourceSupportRefs(db, [ref], conversationId);
+      result.refs.push(ref);
+      result.resolved.push(resolved!);
+      result.conversationIds.push(conversationId);
+      continue;
+    }
     let refConversationId = conversationId;
     if (ref.kind === "conversation_text_span" && !isSocialConversationId(conversationId)) {
       const rowConversationId = getConversationEvidence(db, ref.evidenceRowId)?.conversationId;
@@ -433,6 +441,13 @@ function admitOne(
     logAdmission(db, result, nowMs);
     return result;
   }
+  const freshChannels = new Set(typed.refs.map((ref) => domusChannelForRef(db, ref) ?? "discord"));
+  if (freshChannels.size > 1) {
+    const result = noAssertion("admission_skipped_provenance");
+    logAdmission(db, result, nowMs);
+    return result;
+  }
+  const channel: MemoryChannel = freshChannels.size === 1 ? [...freshChannels][0]! : "discord";
   const isOwnerOrigin = nomination.dimensions.source === "owner_utterance" || nomination.dimensions.reliability === "owner_supplied";
   if (isOwnerOrigin && typed.resolved.some((source) => source.principalKind !== "owner")) {
     const result = noAssertion("admission_skipped_provenance");
@@ -440,9 +455,14 @@ function admitOne(
     return result;
   }
   const inherited = inheritedSupport(db, replacedKeys, isOwnerOrigin);
-  const typedSupportRefs = [...typed.refs, ...inherited.refs];
-  const resolvedTypedSupport = [...typed.resolved, ...inherited.resolved];
-  const supportConversationIds = [...typed.conversationIds, ...inherited.conversationIds];
+  const inheritedKept = inherited.refs.flatMap((ref, index) => {
+    const refChannel = domusChannelForRef(db, ref) ?? "discord";
+    if (refChannel !== channel) return [];
+    return [{ ref, resolved: inherited.resolved[index]!, conversationId: inherited.conversationIds[index]! }];
+  });
+  const typedSupportRefs = [...typed.refs, ...inheritedKept.map((item) => item.ref)];
+  const resolvedTypedSupport = [...typed.resolved, ...inheritedKept.map((item) => item.resolved)];
+  const supportConversationIds = [...typed.conversationIds, ...inheritedKept.map((item) => item.conversationId)];
 
   if (options.requireGrounding
     && !isGroundedForKind(nomination.memoryKind, typedSupportRefs, resolvedTypedSupport, {
@@ -556,6 +576,7 @@ function admitOne(
     lineageParentKey: nomination.supersedesAssertionKey,
     admittedGeneration: nomination.generation,
     live: true,
+    channel,
     ...(socialAdmission ? socialAdmission.facets : {}),
   });
   if (nomination.supersedesAssertionKey && nomination.supersedesAssertionKey !== nomination.assertionKey) {
@@ -577,6 +598,7 @@ function admitOne(
     dimensions: nomination.dimensions,
     dataClassification: effectiveClassification,
     createdAtMs: nowMs,
+    channel,
   });
   for (const [index, supportRef] of typedSupportRefs.entries()) {
     appendMemorySupport(db, {
@@ -595,6 +617,7 @@ function admitOne(
       supportRef,
       conversationId: supportConversationIds[index] ?? current.conversationId,
       createdAtMs: nowMs,
+      channel: domusChannelForRef(db, supportRef) ?? "discord",
     });
   }
   if (socialAdmission) {

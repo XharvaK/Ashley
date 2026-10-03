@@ -53,3 +53,7 @@ Unknown keys: `400 {"error":"invalid_body"}`.
 ```
 
 `sent_at_ms` is a safe non-negative integer. `attached` is a boolean. Upserts `domus_heartbeats` by `helper_session` (`last_received_at_ms`, `last_sent_at_ms`, `count`, `last_json`). Response: `200 {"status":"ok"}`.
+
+## Memory channel and lineage (8b-1)
+
+`sidecar_memory_assertions`, `sidecar_memory_supports`, `episodes_v2`, and `activity_journal` carry `channel` (`discord` or `domus:<world>`, default `discord`) and `lineage_class` (`current` or `undone`, default `current`). `domus_observations.undone_at_ms` is null while the observation still counts. Thought may cite a stored row as typed support `{ kind: "domus_observation", observationId }`. Admission resolves it only when the row exists, `admission_state` is not `dropped`, and `undone_at_ms` is null, then stamps `channel` from that row's world. A nomination whose fresh supports name more than one channel (two worlds, or Discord plus Domus) is `admission_skipped_provenance`. A Domus observation never grounds an Owner-world claim.
