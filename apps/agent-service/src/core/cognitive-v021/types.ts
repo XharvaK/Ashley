@@ -1882,6 +1882,10 @@ export type ThoughtInnerPass =
  */
 export type ThoughtInnerAgenda = {
   lastAwakeAtMs: number | null;
+  /** Consecutive newest current awake journal rows whose activity is rest. */
+  restStreak: number;
+  /** Milliseconds since the newest Owner evidence row, or null when none exists. */
+  sinceOwnerMs: number | null;
   episodesSince: readonly import("./memory/episodes.js").ThoughtEpisode[];
   unresolvedThreads: readonly string[];
   openQuestions: ReadonlyArray<{ key: string; statement: string }>;

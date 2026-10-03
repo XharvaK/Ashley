@@ -79,10 +79,16 @@ describe("I1 profile-scoped Thought contract", () => {
   });
 
   it("gives each pass only its own guidance", () => {
+    const awake = thoughtOutputCompatibilityInstruction(thoughtContractProfile(pass("awake")));
+    for (const phrase of ["starting a conversation is a normal part of it", "restStreak", "sinceOwnerMs", "Mind the Owner's local time"]) {
+      expect(awake).toContain(phrase);
+    }
+    expect(awake).not.toContain("genuinely earns it");
     const afterglow = thoughtOutputCompatibilityInstruction(thoughtContractProfile(pass("afterglow")));
     expect(afterglow).toContain(AFTERGLOW_GUIDANCE);
     expect(afterglow).toContain(JOURNAL_SETTLE_GUIDANCE);
     expect(afterglow).not.toContain(AWAKE_GUIDANCE);
+    expect(afterglow).not.toContain("starting a conversation is a normal part of it");
     expect(afterglow).not.toContain(NIGHT_GUIDANCE);
     const night = thoughtOutputCompatibilityInstruction(thoughtContractProfile(pass("night")));
     expect(night).toContain(NIGHT_GUIDANCE);
