@@ -21,7 +21,8 @@ import { notifySidecarPostCommit } from "../retrieval/derived-store.js";
 
 type DbRow = Record<string, unknown>;
 
-export const REDACTED_MEMORY_STATEMENT = "[redacted]" as const;
+export { REDACTED_MEMORY_STATEMENT } from "./redacted.js";
+import { REDACTED_MEMORY_STATEMENT } from "./redacted.js";
 
 // Canonical 11-member set lives in ./kinds.ts. This module keeps the
 // assertion fence but must not duplicate or alias the value set.
