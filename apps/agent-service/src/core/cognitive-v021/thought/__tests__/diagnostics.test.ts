@@ -1332,9 +1332,33 @@ describe("Thought Diagnostics & Observability DB", () => {
       expect(rows.find((row) => row.requestId === "request-mode-rich")?.providerDiagnostics)
         .toMatchObject({ providerRequestId: "provider-request:test", cachedTokens: 0 });
       expect(rows.find((row) => row.requestId === "request-mode-off")?.providerDiagnostics).toBeNull();
+      vi.stubEnv("ASHLEY_OBSERVABILITY_MODE", "off");
+      obs.recordDiagnostic({
+        cycleId: "cycle-mode-off-returned",
+        generation: 1,
+        requestId: "request-mode-off-returned",
+        pass: 1,
+        code: "provider_returned",
+        stage: "provider_dispatch",
+        dispatchTruth: "sent",
+        providerFailure: { ...providerFailure, failureClass: undefined },
+        providerDiagnostics: { ...s5, cachedSource: "provider_usage" },
+      });
+      const returnedOff = obs.db.prepare(
+        "SELECT model_id, total_tokens, cached_source, cached_tokens, messages_fingerprint, estimator_input_tokens FROM thought_dispatch_diagnostics WHERE request_id = ?",
+      ).get("request-mode-off-returned") as Record<string, unknown>;
+      expect(returnedOff).toMatchObject({
+        model_id: "model:test",
+        total_tokens: 20,
+        cached_source: "provider_usage",
+        cached_tokens: 0,
+        messages_fingerprint: null,
+        estimator_input_tokens: 12,
+      });
       expect(rows.find((row) => row.requestId === "request-mode-off")?.providerFailure)
         .toMatchObject({ failureClass: "provider_internal", dispatchTruth: "sent" });
-      expect(rows.find((row) => row.requestId === "request-mode-sampled-success")?.providerDiagnostics).toBeNull();
+      expect(rows.find((row) => row.requestId === "request-mode-sampled-success")?.providerDiagnostics)
+        .toMatchObject({ modelId: "model:test", totalTokens: 20, cachedTokens: 0, messagesFingerprint: null });
       expect(rows.find((row) => row.requestId === "request-mode-sampled-incident")?.providerDiagnostics)
         .toMatchObject({ providerRequestId: "provider-request:test" });
       expect(obs.db.prepare(

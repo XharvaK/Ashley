@@ -216,6 +216,10 @@ export type CompletionOptions = {
   temperature?: number;
   presencePenalty?: number;
   reasoningEffort?: "none" | "low" | "medium" | "high" | "xhigh";
+  /** Thought trigger kind. Domus notifications select a lower reasoning effort. */
+  thoughtTriggerKind?: string;
+  /** Thought contract pass. Used only for an opt-in stable prompt-cache key. */
+  thoughtContractPass?: string;
   /** Provider wire format after Model Fabric resolution. */
   responseFormat?: "json_object" | "json_schema";
   /** Code-owned shape request; adapters use only the trusted control below. */

@@ -90,7 +90,7 @@ export function validateKernelEnvelope(value: unknown): KernelEnvelopeValidation
       attempt.provider !== "command_code" ||
       attempt.requestedModelId !== COMMAND_CODE_POLICY.modelId ||
       attempt.providerModel !== attempt.requestedModelId ||
-      attempt.reasoningEffort !== COMMAND_CODE_POLICY.effort ||
+      (attempt.reasoningEffort !== COMMAND_CODE_POLICY.effort && attempt.reasoningEffort !== "medium") ||
       !validNonEmpty(attempt.providerInvocationId) ||
       !validNonEmpty(attempt.providerAttemptId) ||
       !validNonEmpty(attempt.contractId) ||

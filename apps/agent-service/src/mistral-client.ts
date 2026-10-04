@@ -94,7 +94,7 @@ import {
   type ModelFabricDispatchMetadata,
 } from "./core/model-fabric/index.js";
 import type { WireDispatchEvidence } from "./core/model-routing/types.js";
-import { COMMAND_CODE_POLICY } from "./core/command-code/policy.js";
+import { COMMAND_CODE_POLICY, thoughtReasoningEffortForTrigger } from "./core/command-code/policy.js";
 import {
   attachCommandCodeBoundaryEvidence,
   attachCommandCodeThoughtEvidence,
@@ -483,9 +483,10 @@ async function completeDirectCommandCodeThought(
   const providerAttemptId = `${providerInvocationId}:attempt:1`;
   const thoughtContext = context as Omit<ThoughtInvocationContext, "allocationId">;
   const maxTokens = options.maxTokens ?? COMMAND_CODE_THOUGHT_MAX_OUTPUT_TOKENS;
+  const reasoningEffort = thoughtReasoningEffortForTrigger(options.thoughtTriggerKind);
   const controls: ProviderBoundaryControls = {
     maxTokens,
-    reasoningConfiguration: COMMAND_CODE_POLICY.effort,
+    reasoningConfiguration: reasoningEffort,
     ...(options.temperature === undefined ? {} : { temperature: options.temperature }),
     ...(options.deadlineAtMs == null ? {} : { deadlineAtMs: options.deadlineAtMs }),
   };
@@ -497,7 +498,7 @@ async function completeDirectCommandCodeThought(
       ...options,
       model: COMMAND_CODE_POLICY.modelId,
       maxTokens,
-      reasoningEffort: COMMAND_CODE_POLICY.effort,
+      reasoningEffort,
       responseFormat: "json_schema" as const,
       structuredOutput,
     },
@@ -529,7 +530,7 @@ async function completeDirectCommandCodeThought(
     wakeId: thoughtContext.wakeId ?? null,
     requestedModelId: COMMAND_CODE_POLICY.modelId,
     providerModel: boundary?.providerModel ?? completion?.providerModel ?? null,
-    reasoningEffort: COMMAND_CODE_POLICY.effort,
+    reasoningEffort,
     requestHash: boundary?.requestHash ?? completion?.providerRequestHash ?? null,
     responseHash: boundary?.responseHash ?? completion?.providerResponseHash ?? null,
     providerRequestId: boundary?.providerRequestId ?? completion?.providerRequestId ?? null,
@@ -671,7 +672,7 @@ async function completeDirectCommandCodeThought(
           const boundary: CommandCodeBoundaryEvidence = {
             backend: "command_code_api",
             requestedModelId: COMMAND_CODE_POLICY.modelId,
-            reasoningEffort: COMMAND_CODE_POLICY.effort,
+            reasoningEffort,
             ...(result.providerRequestHash ? { requestHash: result.providerRequestHash } : {}),
             providerModel: result.providerModel ?? null,
             providerRequestId: result.providerRequestId ?? null,
@@ -778,7 +779,7 @@ async function completeDirectCommandCodeThought(
     const boundary: CommandCodeBoundaryEvidence = {
       backend: "command_code_api",
       requestedModelId: COMMAND_CODE_POLICY.modelId,
-      reasoningEffort: COMMAND_CODE_POLICY.effort,
+      reasoningEffort,
       requestHash: inner.providerRequestHash!,
       providerModel: inner.providerModel,
       providerRequestId: inner.providerRequestId,
@@ -799,7 +800,7 @@ async function completeDirectCommandCodeThought(
       provider: "command_code",
       requestedModelId: COMMAND_CODE_POLICY.modelId,
       providerModel: inner.providerModel! as typeof COMMAND_CODE_POLICY.modelId,
-      reasoningEffort: COMMAND_CODE_POLICY.effort,
+      reasoningEffort,
       providerRequestId: inner.providerRequestId ?? null,
       providerHttpStatus: inner.providerHttpStatus!,
       requestHash: inner.providerRequestHash!,

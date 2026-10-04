@@ -99,6 +99,109 @@ describe("command-code-adapter", () => {
     });
   });
 
+  it("reads both documented usage shapes, including cached tokens", async () => {
+    env.commandCodeApiKey = "test-command-code-key";
+    const dispatchWith = async (usage: Record<string, unknown>) => {
+      const fetcher = vi.fn(async () => fakeResponse({
+        id: "response-usage",
+        model: MODEL,
+        choices: [{ message: { content: "{\"kind\":\"abstain\"}" }, finish_reason: "stop" }],
+        usage,
+      }));
+      const adapter = createCommandCodeAdapter(fetcher);
+      return adapter.dispatch({
+        messages,
+        modelId: MODEL,
+        options: {
+          maxTokens: 65_536,
+          reasoningEffort: COMMAND_CODE_POLICY.effort,
+          structuredOutput: thoughtOutputStructuredRequest(),
+        },
+      });
+    };
+    const chatShape = await dispatchWith({
+      prompt_tokens: 40,
+      completion_tokens: 4,
+      prompt_tokens_details: { cached_tokens: 30 },
+    });
+    const responsesShape = await dispatchWith({
+      input_tokens: 41,
+      output_tokens: 5,
+      input_tokens_details: { cached_tokens: 12 },
+    });
+    expect(chatShape.usage).toMatchObject({ promptTokens: 40, completionTokens: 4, cachedTokens: 30 });
+    expect(responsesShape.usage).toMatchObject({ promptTokens: 41, completionTokens: 5, cachedTokens: 12 });
+  });
+
+  it("adds a stable prompt cache key only when the env flag is on", async () => {
+    env.commandCodeApiKey = "test-command-code-key";
+    const capture = async () => {
+      let request: Record<string, unknown> | undefined;
+      const fetcher = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        request = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        return fakeResponse({
+          id: "response-cache",
+          model: MODEL,
+          choices: [{ message: { content: "{\"kind\":\"abstain\"}" }, finish_reason: "stop" }],
+          usage: { prompt_tokens: 1, completion_tokens: 1 },
+        });
+      });
+      const adapter = createCommandCodeAdapter(fetcher);
+      await adapter.dispatch({
+        messages,
+        modelId: MODEL,
+        options: {
+          maxTokens: 65_536,
+          reasoningEffort: COMMAND_CODE_POLICY.effort,
+          structuredOutput: thoughtOutputStructuredRequest(),
+          thoughtContractPass: "awake",
+        },
+      });
+      return request;
+    };
+    delete process.env.ASHLEY_THOUGHT_PROMPT_CACHE_KEY;
+    expect(await capture()).not.toHaveProperty("prompt_cache_key");
+    process.env.ASHLEY_THOUGHT_PROMPT_CACHE_KEY = "true";
+    expect(await capture()).toMatchObject({ prompt_cache_key: "ashley-thought-awake-v1" });
+    delete process.env.ASHLEY_THOUGHT_PROMPT_CACHE_KEY;
+  });
+
+  it("uses medium effort for a domus notification and xhigh otherwise", async () => {
+    env.commandCodeApiKey = "test-command-code-key";
+    const effortFor = async (thoughtTriggerKind: string, reasoningEffort: "xhigh" | "medium" = "xhigh") => {
+      let request: Record<string, unknown> | undefined;
+      const fetcher = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        request = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        return fakeResponse({
+          id: "response-effort",
+          model: MODEL,
+          choices: [{ message: { content: "{\"kind\":\"abstain\"}" }, finish_reason: "stop" }],
+          usage: { prompt_tokens: 1, completion_tokens: 1 },
+        });
+      });
+      const adapter = createCommandCodeAdapter(fetcher);
+      await adapter.dispatch({
+        messages,
+        modelId: MODEL,
+        options: {
+          maxTokens: 65_536,
+          reasoningEffort,
+          structuredOutput: thoughtOutputStructuredRequest(),
+          thoughtTriggerKind,
+          thoughtContractPass: thoughtTriggerKind === "domus_notification" ? "chat" : "awake",
+        },
+      });
+      return request?.reasoning_effort;
+    };
+    expect(await effortFor("domus_notification")).toBe("medium");
+    expect(await effortFor("owner_message")).toBe("xhigh");
+    expect(await effortFor("idle_opportunity")).toBe("xhigh");
+    // Medium is a Domus-only setting; any other trigger asking for it fails closed.
+    await expect(effortFor("owner_message", "medium")).rejects.toMatchObject({
+      message: expect.stringContaining("command_code_policy_effort_required"),
+    });
+  });
+
   it("fails closed without the policy-owned xhigh effort and does not call the provider", async () => {
     env.commandCodeApiKey = "test-command-code-key";
     const fetcher = vi.fn(async () => fakeResponse({}));

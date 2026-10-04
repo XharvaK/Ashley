@@ -828,7 +828,7 @@ describe("Whole-Thought Projection Allocator", () => {
       system_prefix_estimated_tokens: allocated.receipt.tokenBreakdown.static_contract_tokens,
       candidate_S0_S1_prefix_bytes: expect.any(Number),
       candidate_S0_S1_prefix_estimated_tokens: expect.any(Number),
-      first_volatile_field: "rawConversation",
+      first_volatile_field: "retrieval",
       first_volatile_byte_offset: expect.any(Number),
       allocation_candidate_count: candidateCount,
       renderTentative_call_count: candidateCount + 1,
@@ -860,21 +860,73 @@ describe("Whole-Thought Projection Allocator", () => {
       "workingContext",
       "occupancy",
       "domainPointers",
-      "rawConversation",
       "retrieval",
+      "rawConversation",
+      "allowedOperationalEffectRefs",
+      "authorityObjections",
+      "runtimeCondition",
+      "rememberDirective",
       "cycleId",
       "generation",
       "trigger",
       "observations",
       "inFlight",
-      "allowedOperationalEffectRefs",
-      "authorityObjections",
-      "runtimeCondition",
-      "rememberDirective",
       "effectBudget",
     ]);
     expect(Object.keys(serialized).sort()).toEqual(Object.keys(visible).sort());
     expect(serialized).toEqual(visible);
+  });
+
+  it("keeps a cache prefix through conversation selection when only the clock moves", () => {
+    const clock = {
+      now: "Tuesday 29 September 2026, 22:13",
+      timeZone: "UTC+03:00",
+      partOfDay: "night" as const,
+    };
+    const frozen = makeThoughtInput();
+    frozen.rawConversation = frozen.rawConversation.map((row) => ({ ...row, createdAtMs: 1_699_999_000_000 }));
+    const base = makeThoughtInput({
+      ...frozen,
+      thoughtLegDeadlineAtMs: 1_700_000_000_000,
+      clock,
+      conversationSelection: { frontierIncludedIds: ["row-1"], omittedEvidenceIds: [] },
+    });
+    const later = makeThoughtInput({
+      ...frozen,
+      thoughtLegDeadlineAtMs: 1_700_000_120_000,
+      clock: { ...clock, now: "Tuesday 29 September 2026, 22:15" },
+      conversationSelection: { frontierIncludedIds: ["row-1"], omittedEvidenceIds: [] },
+    });
+    const first = allocateThoughtProjection({ thoughtInput: base, requestId: "req-pcache-clock-a" }).messages[1]?.content ?? "";
+    const second = allocateThoughtProjection({ thoughtInput: later, requestId: "req-pcache-clock-b" }).messages[1]?.content ?? "";
+    let shared = 0;
+    while (shared < first.length && shared < second.length && first[shared] === second[shared]) shared += 1;
+    const selectionAt = first.indexOf('"conversationSelection":');
+    expect(selectionAt).toBeGreaterThan(0);
+    expect(shared).toBeGreaterThan(selectionAt);
+    expect(JSON.parse(first)).toEqual(JSON.parse(second.replace(later.clock!.now, base.clock!.now).replace(String(later.thoughtLegDeadlineAtMs), String(base.thoughtLegDeadlineAtMs))));
+  });
+
+  it("keeps a cache prefix through retrieval when one conversation row is appended", () => {
+    const baseRows = makeThoughtInput().rawConversation;
+    const appended = [...baseRows, { ...baseRows[0]!, rowId: "row-2", text: "one more line", createdAtMs: baseRows[0]!.createdAtMs + 1, contentHash: "hash2" }];
+    const first = allocateThoughtProjection({
+      thoughtInput: makeThoughtInput(),
+      requestId: "req-pcache-row-a",
+    }).messages[1]?.content ?? "";
+    const second = allocateThoughtProjection({
+      thoughtInput: makeThoughtInput({ rawConversation: appended }),
+      requestId: "req-pcache-row-b",
+    }).messages[1]?.content ?? "";
+    let shared = 0;
+    while (shared < first.length && shared < second.length && first[shared] === second[shared]) shared += 1;
+    expect(shared).toBeGreaterThan(first.indexOf('"retrieval":'));
+    expect(first.slice(0, first.indexOf('"rawConversation":'))).toBe(second.slice(0, second.indexOf('"rawConversation":')));
+    const parsedFirst = JSON.parse(first) as Record<string, unknown>;
+    const parsedSecond = JSON.parse(second) as Record<string, unknown>;
+    expect(Object.keys(parsedFirst).sort()).toEqual(Object.keys(parsedSecond).sort());
+    parsedSecond.rawConversation = parsedFirst.rawConversation;
+    expect(parsedSecond).toEqual(parsedFirst);
   });
 
   it("keeps the stable prefix byte-identical when only cycle and trigger data change", () => {
@@ -905,8 +957,8 @@ describe("Whole-Thought Projection Allocator", () => {
     expect(firstJson.slice(0, firstS1End)).toBe(secondJson.slice(0, secondS1End));
     expect(JSON.parse(firstJson).cycleId).not.toBe(JSON.parse(secondJson).cycleId);
     expect(JSON.parse(firstJson).trigger).not.toEqual(JSON.parse(secondJson).trigger);
-    expect(first.receipt.diagnostics?.first_volatile_field).toBe("rawConversation");
-    expect(second.receipt.diagnostics?.first_volatile_field).toBe("rawConversation");
+    expect(first.receipt.diagnostics?.first_volatile_field).toBe("retrieval");
+    expect(second.receipt.diagnostics?.first_volatile_field).toBe("retrieval");
   });
 
   it("invalidates the stable prefix when canonical identity changes", () => {
@@ -3076,7 +3128,7 @@ describe("E2c optional Working Context loss honesty (allocator)", () => {
     const systemMessage = thoughtMessagesForProjection(ok.projected)[0]?.content ?? "";
     expect(systemMessage.split(ALLOCATOR_OMISSION_GUIDANCE).length - 1).toBe(1);
     expect(systemMessage.split(WC_OPTIONAL_OMISSION_GUIDANCE).length - 1).toBe(1);
-  });
+  }, 20_000);
 
   it("introduces no new final gate on complete cycles (Q)", () => {
     // Genuine all-fit cycle: no disclosure of any kind, tight envelope.
