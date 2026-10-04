@@ -3,7 +3,7 @@
  * This pass only marks lineage. It does not delete, redact, or change live rows.
  */
 import type { DatabaseSync } from "node:sqlite";
-import { REDACTED_MEMORY_STATEMENT } from "./assertions.js";
+import { REDACTED_MEMORY_STATEMENT } from "./redacted.js";
 
 export type DomusUndoSpan = {
   world: string;
