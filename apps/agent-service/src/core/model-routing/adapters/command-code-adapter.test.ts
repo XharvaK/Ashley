@@ -196,6 +196,10 @@ describe("command-code-adapter", () => {
     expect(await effortFor("domus_notification")).toBe("medium");
     expect(await effortFor("owner_message")).toBe("xhigh");
     expect(await effortFor("idle_opportunity")).toBe("xhigh");
+    // Medium is a Domus-only setting; any other trigger asking for it fails closed.
+    await expect(effortFor("owner_message", "medium")).rejects.toMatchObject({
+      message: expect.stringContaining("command_code_policy_effort_required"),
+    });
   });
 
   it("fails closed without the policy-owned xhigh effort and does not call the provider", async () => {

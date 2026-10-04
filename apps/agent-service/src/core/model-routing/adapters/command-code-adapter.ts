@@ -185,7 +185,7 @@ function buildRequestBody(args: ProviderDispatchArgs): Record<string, unknown> {
     throw new AppError("capability_mismatch", "command_code_model_not_qualified", 400);
   }
   const effort = resolveThoughtEffort(args);
-  if (!acceptedEffort(effort, contractFor(args.options.structuredOutput))) {
+  if (!acceptedEffort(effort, contractFor(args.options.structuredOutput), args.options.thoughtTriggerKind)) {
     throw new AppError("capability_mismatch", "command_code_policy_effort_required", 400);
   }
   const contract = contractFor(args.options.structuredOutput);
@@ -217,15 +217,17 @@ function resolveThoughtEffort(args: ProviderDispatchArgs): CommandCodeThoughtEff
   const mapped = thoughtReasoningEffortForTrigger(args.options.thoughtTriggerKind);
   if (args.options.thoughtTriggerKind === "domus_notification") return mapped;
   const requested = reasoningEffortFor(args.options, args.fabricReasoning);
-  return requested === "xhigh" || requested === "medium" ? requested : undefined;
+  return requested === COMMAND_CODE_POLICY.effort ? requested : undefined;
 }
 
+// Medium is only reachable through the Domus trigger map (Owner, 2026-10-04).
 function acceptedEffort(
   effort: CommandCodeThoughtEffort | undefined,
   contract: CommandCodeContract | null,
+  triggerKind: string | null | undefined,
 ): effort is CommandCodeThoughtEffort {
   if (effort === COMMAND_CODE_POLICY.effort) return true;
-  return contract === "thought" && effort === "medium";
+  return contract === "thought" && effort === "medium" && triggerKind === "domus_notification";
 }
 
 function promptCacheKey(args: ProviderDispatchArgs): string | undefined {
