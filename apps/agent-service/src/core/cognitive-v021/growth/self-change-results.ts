@@ -70,7 +70,14 @@ export async function pollSelfChangeResults(db: DatabaseSync, input: {
  try { if (resolveBudgetPolicy(db, SELF_CHANGE_POLICY_ID).windowMs !== SELF_CHANGE_WINDOW_MS) return { status: "unconfigured" as const, ...counts }; }
  catch { return { status: "unconfigured" as const, ...counts }; }
  const directory = resolve(input.directory);
- if (directory !== input.directory || (await lstat(directory)).isSymbolicLink() || await realpath(directory) !== directory) throw new Error("self_change_result_directory_invalid");
+ let directoryStat: Awaited<ReturnType<typeof lstat>>;
+ try {
+  directoryStat = await lstat(directory);
+ } catch (error) {
+  if (error && typeof error === "object" && (error as { code?: unknown }).code === "ENOENT") return { status: "unconfigured" as const, ...counts };
+  throw error;
+ }
+ if (directory !== input.directory || directoryStat.isSymbolicLink() || await realpath(directory) !== directory) throw new Error("self_change_result_directory_invalid");
  const state = input.state ?? {};
  if (state.directory && state.directory !== directory) throw new Error("self_change_result_directory_changed");
  state.directory = directory;
