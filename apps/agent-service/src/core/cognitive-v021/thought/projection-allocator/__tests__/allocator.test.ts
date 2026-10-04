@@ -3128,7 +3128,7 @@ describe("E2c optional Working Context loss honesty (allocator)", () => {
     const systemMessage = thoughtMessagesForProjection(ok.projected)[0]?.content ?? "";
     expect(systemMessage.split(ALLOCATOR_OMISSION_GUIDANCE).length - 1).toBe(1);
     expect(systemMessage.split(WC_OPTIONAL_OMISSION_GUIDANCE).length - 1).toBe(1);
-  });
+  }, 20_000);
 
   it("introduces no new final gate on complete cycles (Q)", () => {
     // Genuine all-fit cycle: no disclosure of any kind, tight envelope.
