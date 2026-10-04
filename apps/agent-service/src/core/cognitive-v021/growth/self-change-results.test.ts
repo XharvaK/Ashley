@@ -178,3 +178,23 @@ it("drops once for an authenticated explicit BLOCKING finding while generic bloc
   expect(db.prepare("SELECT count(*) AS n FROM wakes").get()).toEqual({n:0});
  }finally{db.close();await rm(directory,{recursive:true,force:true});}
 });
+
+it("reports a missing results directory as unconfigured and still throws other filesystem errors", async () => {
+  const poll = results.pollSelfChangeResults;
+  const db = openTestSidecar();
+  const missing = join(tmpdir(), "ashley-result-missing-pmem2");
+  const fileAsDirectory = join(tmpdir(), "ashley-result-not-a-dir-pmem2");
+  try {
+    configureSelfChangeBudget(db, { limit: 3, version: 1 });
+    await rm(missing, { recursive: true, force: true });
+    await expect(poll(db, { enabled: true, directory: missing, key: secret, conversationId: "private-self", nowMs: 11 }))
+      .resolves.toMatchObject({ status: "unconfigured", admitted: 0, existing: 0, refused: 0, budgetDeferred: 0 });
+    await writeFile(fileAsDirectory, "not-a-directory");
+    await expect(poll(db, { enabled: true, directory: fileAsDirectory, key: secret, conversationId: "private-self", nowMs: 11 }))
+      .rejects.toThrow();
+  } finally {
+    db.close();
+    await rm(missing, { recursive: true, force: true });
+    await rm(fileAsDirectory, { force: true });
+  }
+});

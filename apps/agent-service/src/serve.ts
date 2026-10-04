@@ -1,4 +1,14 @@
 import { createSelfChangeResultMaintenance, type SelfChangeResultMaintenance } from "./core/cognitive-v021/growth/self-change-results.js";
+
+let lastSelfChangeResultMaintenanceCode: string | null = null;
+
+function selfChangeResultMaintenanceCode(error: unknown): string {
+  const coded = error && typeof error === "object" && "code" in error ? (error as { code?: unknown }).code : undefined;
+  const text = typeof coded === "string" && coded.length > 0
+    ? coded
+    : error instanceof Error ? error.message : String(error);
+  return text.slice(0, 80);
+}
 import { createDomusIngressApp, decideDomusIngress } from "./core/domus/ingress.js";
 import type { AgentManager } from "./agent.js";
 import { AFTERGLOW_POLL_MS } from "./core/cognitive-v021/initiative/afterglow.js";
@@ -674,7 +684,13 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
       handler: createAgentInboxConsumerHandler(manager),
       onReconciliationMaintenance: (nowMs) => {
         if (!manager.isPaused()) void selfChangeResultMaintenance?.poll(nowMs)
-          .catch(() => console.warn("[self-change] result_maintenance_deferred"));
+          .then(() => { lastSelfChangeResultMaintenanceCode = null; })
+          .catch((error: unknown) => {
+            const code = selfChangeResultMaintenanceCode(error);
+            if (code === lastSelfChangeResultMaintenanceCode) return;
+            lastSelfChangeResultMaintenanceCode = code;
+            console.warn(`[self-change] result_maintenance_deferred code=${code}`);
+          });
         if (isExternalSocialCaptureEnabled()) {
           void reconcileUnbatchedCaptures(sidecar, {
             nowMs,
