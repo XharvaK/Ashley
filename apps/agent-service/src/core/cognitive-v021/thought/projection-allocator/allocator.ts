@@ -638,6 +638,13 @@ export function allocateThoughtProjection(
       : 0;
     const hasConversationSelection =
       c2Input.conversationSelection !== undefined || conversationOmittedIds.size > 0;
+    // Stable first, volatile last: prefix-cache friendly (R-CACHE, PCACHE).
+    // Reordering changes no content.
+    // Keys absent from the PCACHE order sit immediately before cycleId:
+    // constitution, capabilityReality, publicPresence, availableDestinations,
+    // workingContextSelection, deskEntries, commitmentDue, pendingForget,
+    // allowedOperationalEffectRefs, authorityObjections, runtimeCondition,
+    // rememberDirective, settlementOnly, c3Experiences.
     const projected = {
       ...(includeOrientationKernel && c2Input.orientationKernel !== undefined
         ? { orientationKernel: c2Input.orientationKernel }
@@ -645,31 +652,16 @@ export function allocateThoughtProjection(
       learnedSelfSlice: boundedLearnedSelfSlice,
       occupantId: input.occupantId,
       authorityEpoch: input.authorityEpoch,
-      constitution: input.constitution,
-      capabilityReality: input.capabilityReality,
-      ...(input.publicPresence === undefined ? {} : { publicPresence: input.publicPresence }),
-      ...(input.availableDestinations === undefined ? {} : {
-        availableDestinations: [...input.availableDestinations].slice(0, MAX_AVAILABLE_SOCIAL_DESTINATIONS),
-      }),
+      ...(input.coreProfile === undefined ? {} : { coreProfile: input.coreProfile }),
+      ...(input.threadStory === undefined ? {} : { threadStory: input.threadStory }),
+      ...(input.growth === undefined ? {} : { growth: input.growth }),
       workingContext: wc,
-      // E2c: allocator-stage optional-WC loss honesty. Present only when
-      // > 0; absence means no KNOWN allocator-stage optional omission.
-      // Counts post-invalidation eligible topic/other items actually
-      // omitted by fuse or budget — never required WC, never desk,
-      // never invalidated rows, never refs or subtype breakdowns.
-      ...(finalOptionalWcOmittedCount > 0
-        ? {
-            workingContextSelection: {
-              optionalAllocatorOmittedCount: finalOptionalWcOmittedCount,
-            },
-          }
-        : {}),
-      ...(input.deskEntries === undefined ? {} : { deskEntries }),
       occupancy: boundedRequiredSectionData.occupancy,
       ...(includeDomainPointers && c2Input.domainPointers !== undefined
         ? { domainPointers: c2Input.domainPointers }
         : {}),
-      rawConversation: orderedConversation(conversation),
+      ...(input.episodes === undefined ? {} : { episodes: input.episodes }),
+      ...(input.activityJournal === undefined ? {} : { activityJournal: input.activityJournal }),
       retrieval: {
         request: input.retrieval.request,
         hits: retrieval,
@@ -683,36 +675,7 @@ export function allocateThoughtProjection(
           ? { allocatorOmittedCount: finalRetrievalOmittedCount }
           : {}),
       },
-      cycleId: input.cycleId,
-      generation: input.generation,
-      trigger: input.trigger,
-      ...(input.commitmentDue === undefined ? {} : { commitmentDue: input.commitmentDue }),
-      ...(input.wakeCauses === undefined ? {} : { wakeCauses: [...input.wakeCauses] }),
-      ...(input.previousInvocationDelta === undefined ? {} : { previousInvocationDelta: input.previousInvocationDelta }),
-      ...(input.thoughtLegDeadlineAtMs === undefined ? {} : { thoughtLegDeadlineAtMs: input.thoughtLegDeadlineAtMs }),
-      ...(input.clock === undefined ? {} : { clock: input.clock }),
-      ...(input.coreProfile === undefined ? {} : { coreProfile: input.coreProfile }),
-      ...(input.threadStory === undefined ? {} : { threadStory: input.threadStory }),
-      ...(input.episodes === undefined ? {} : { episodes: input.episodes }),
-      ...(input.activityJournal === undefined ? {} : { activityJournal: input.activityJournal }),
-      ...(input.growth === undefined ? {} : { growth: input.growth }),
-      ...(input.innerPass === undefined ? {} : { innerPass: input.innerPass }),
-      ...(input.pendingForget === undefined ? {} : { pendingForget: input.pendingForget }),
-      observations: includeObservations ? boundedRequiredSectionData.observations : [],
-      inFlight: projectedInFlight,
-      allowedOperationalEffectRefs: [...operationalNamespace.allowedOperationalEffectRefs],
-      authorityObjections: input.authorityObjections,
-      runtimeCondition: {
-        ...input.runtimeCondition,
-        compression: compression || input.runtimeCondition.compression,
-      },
-      rememberDirective: input.rememberDirective,
-      effectBudget: input.effectBudget ?? {
-        maxEffectRounds: MAX_EFFECT_ROUNDS,
-        usedEffectRounds: 0,
-        remainingEffectRounds: MAX_EFFECT_ROUNDS,
-      },
-      ...(input.settlementOnly === undefined ? {} : { settlementOnly: input.settlementOnly }),
+      rawConversation: orderedConversation(conversation),
       ...(hasConversationSelection
         ? {
             conversationSelection: {
@@ -730,6 +693,35 @@ export function allocateThoughtProjection(
             },
           }
         : {}),
+      constitution: input.constitution,
+      capabilityReality: input.capabilityReality,
+      ...(input.publicPresence === undefined ? {} : { publicPresence: input.publicPresence }),
+      ...(input.availableDestinations === undefined ? {} : {
+        availableDestinations: [...input.availableDestinations].slice(0, MAX_AVAILABLE_SOCIAL_DESTINATIONS),
+      }),
+      // E2c: allocator-stage optional-WC loss honesty. Present only when
+      // > 0; absence means no KNOWN allocator-stage optional omission.
+      // Counts post-invalidation eligible topic/other items actually
+      // omitted by fuse or budget — never required WC, never desk,
+      // never invalidated rows, never refs or subtype breakdowns.
+      ...(finalOptionalWcOmittedCount > 0
+        ? {
+            workingContextSelection: {
+              optionalAllocatorOmittedCount: finalOptionalWcOmittedCount,
+            },
+          }
+        : {}),
+      ...(input.deskEntries === undefined ? {} : { deskEntries }),
+      ...(input.commitmentDue === undefined ? {} : { commitmentDue: input.commitmentDue }),
+      ...(input.pendingForget === undefined ? {} : { pendingForget: input.pendingForget }),
+      allowedOperationalEffectRefs: [...operationalNamespace.allowedOperationalEffectRefs],
+      authorityObjections: input.authorityObjections,
+      runtimeCondition: {
+        ...input.runtimeCondition,
+        compression: compression || input.runtimeCondition.compression,
+      },
+      rememberDirective: input.rememberDirective,
+      ...(input.settlementOnly === undefined ? {} : { settlementOnly: input.settlementOnly }),
       ...(includeC3Experiences && c2Input.c3Experiences !== undefined
         ? {
             c3Experiences: {
@@ -738,6 +730,21 @@ export function allocateThoughtProjection(
             },
           }
         : {}),
+      cycleId: input.cycleId,
+      generation: input.generation,
+      trigger: input.trigger,
+      ...(input.wakeCauses === undefined ? {} : { wakeCauses: [...input.wakeCauses] }),
+      ...(input.previousInvocationDelta === undefined ? {} : { previousInvocationDelta: input.previousInvocationDelta }),
+      ...(input.innerPass === undefined ? {} : { innerPass: input.innerPass }),
+      observations: includeObservations ? boundedRequiredSectionData.observations : [],
+      inFlight: projectedInFlight,
+      effectBudget: input.effectBudget ?? {
+        maxEffectRounds: MAX_EFFECT_ROUNDS,
+        usedEffectRounds: 0,
+        remainingEffectRounds: MAX_EFFECT_ROUNDS,
+      },
+      ...(input.thoughtLegDeadlineAtMs === undefined ? {} : { thoughtLegDeadlineAtMs: input.thoughtLegDeadlineAtMs }),
+      ...(input.clock === undefined ? {} : { clock: input.clock }),
     };
 
     if (input.audience !== undefined) {

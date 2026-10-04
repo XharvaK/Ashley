@@ -1197,16 +1197,18 @@ export class ObservabilityStore {
     // reducible S5 tier persists only when the collection mode allows it.
     // Accountability-tier columns persist untouched in every mode.
     const mode = readObservabilityMode();
-    const s5 = resolveReducibleCollection({ mode, code: diag.code, providerFailure: diag.providerFailure })
-      ? diag.providerDiagnostics ?? buildProviderS5(diag.providerFailure, {
-          dispatchMessagesHash: diag.dispatchMessagesHash,
-          estimate: {
-            input: diag.providerFailure?.inputTokens ?? diag.estimatedInputTokens ?? null,
-            output: diag.providerFailure?.completionTokens ?? null,
-            total: diag.providerFailure?.totalTokens ?? null,
-          },
-        }) ?? null
-      : null;
+    const builtS5 = diag.providerDiagnostics ?? buildProviderS5(diag.providerFailure, {
+      dispatchMessagesHash: diag.dispatchMessagesHash,
+      estimate: {
+        input: diag.providerFailure?.inputTokens ?? diag.estimatedInputTokens ?? null,
+        output: diag.providerFailure?.completionTokens ?? null,
+        total: diag.providerFailure?.totalTokens ?? null,
+      },
+    }) ?? null;
+    const reducible = resolveReducibleCollection({ mode, code: diag.code, providerFailure: diag.providerFailure });
+    const s5 = reducible ? builtS5 : null;
+    // provider_returned usage columns hold no prompt text and persist in every mode.
+    const usageS5 = !reducible && diag.code === "provider_returned" ? builtS5 : null;
     const stmt = this.db.prepare(`
       INSERT INTO thought_dispatch_diagnostics (
         cycle_id, generation, request_id, pass, code, stage,
@@ -1264,22 +1266,22 @@ export class ObservabilityStore {
       boundedPublicationReason(diag.publicationReason),
       s5?.providerRequestId ?? null,
       s5?.cfRay ?? null,
-      s5?.totalTokens ?? null,
-      s5?.cachedSource ?? null,
-      s5?.cachedTokens ?? null,
+      s5?.totalTokens ?? usageS5?.totalTokens ?? null,
+      s5?.cachedSource ?? usageS5?.cachedSource ?? null,
+      s5?.cachedTokens ?? usageS5?.cachedTokens ?? null,
       s5?.messagesFingerprint ?? null,
       s5?.paramsFingerprint ?? null,
       s5?.affinityFingerprint ?? null,
       s5?.affinityApplied === true ? 1 : s5?.affinityApplied === false ? 0 : null,
-      s5?.estimatorInputTokens ?? null,
-      s5?.estimatorOutputTokens ?? null,
-      s5?.estimatorTotalTokens ?? null,
-      s5?.estimatorVersion ?? null,
+      s5?.estimatorInputTokens ?? usageS5?.estimatorInputTokens ?? null,
+      s5?.estimatorOutputTokens ?? usageS5?.estimatorOutputTokens ?? null,
+      s5?.estimatorTotalTokens ?? usageS5?.estimatorTotalTokens ?? null,
+      s5?.estimatorVersion ?? usageS5?.estimatorVersion ?? null,
       s5?.policyId ?? null,
       s5?.policyVersion ?? null,
       s5?.outputTokenLimit ?? null,
       s5?.resourcePolicyFingerprint ?? null,
-      s5?.modelId ?? null,
+      s5?.modelId ?? usageS5?.modelId ?? null,
       s5?.attemptOrdinal ?? null,
       s5?.latencyMs ?? null,
       s5?.finishReason ?? null,

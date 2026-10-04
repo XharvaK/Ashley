@@ -705,9 +705,15 @@ function providerFailureCapture(input: {
   const totalTokens = typeof observedTotalTokens === "number" && Number.isFinite(observedTotalTokens)
     ? observedTotalTokens
     : undefined;
-  const cachedSource = canonicalUsage?.cachedInputTokens !== null && canonicalUsage?.cachedInputTokens !== undefined
-    ? "provider_usage"
+  const completionCachedTokens = finiteNonNegative(completion?.usage?.cachedTokens);
+  const canonicalCachedTokens = canonicalUsage?.cachedInputTokens !== null
+    && canonicalUsage?.cachedInputTokens !== undefined
+    && Number.isFinite(canonicalUsage.cachedInputTokens)
+    && canonicalUsage.cachedInputTokens >= 0
+    ? canonicalUsage.cachedInputTokens
     : undefined;
+  const cachedInputTokens = completionCachedTokens ?? canonicalCachedTokens;
+  const cachedSource = cachedInputTokens !== undefined ? "provider_usage" : undefined;
   const receipt = metadata?.receipt;
   const attentionRequestId = completion?.attentionRequestId
     ?? (receipt && receipt.attentionRequestId !== null ? receipt.attentionRequestId : undefined);
@@ -814,10 +820,7 @@ function providerFailureCapture(input: {
       && canonicalUsage?.reasoningTokens !== undefined
       ? { reasoningTokens: canonicalUsage.reasoningTokens }
       : {}),
-    ...(canonicalUsage?.cachedInputTokens !== null
-      && canonicalUsage?.cachedInputTokens !== undefined
-      ? { cachedInputTokens: canonicalUsage.cachedInputTokens }
-      : {}),
+    ...(cachedInputTokens !== undefined ? { cachedInputTokens } : {}),
     ...(canonicalUsage?.neuronUsage !== null
       && canonicalUsage?.neuronUsage !== undefined
       ? { neuronUsage: canonicalUsage.neuronUsage }
@@ -1575,6 +1578,8 @@ export async function runThoughtModel(
     route: "thought",
     responseFormat: "json_schema",
     structuredOutput: thoughtOutputStructuredRequest(operationalNamespace, thoughtContractProfile(input)),
+    thoughtContractPass: thoughtContractProfile(input).pass,
+    thoughtTriggerKind: input.trigger?.kind,
     purpose: "thought",
     directCommandCodeThought: true,
     lane: "urgent_grounded",

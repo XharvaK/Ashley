@@ -14,7 +14,7 @@ import {
   VISION_MEDIA_OUTPUT_SCHEMA_ID,
   visionMediaJsonObjectInstruction,
 } from "../../cognitive-v021/perception/vision-output-contract.js";
-import { COMMAND_CODE_POLICY } from "../../command-code/policy.js";
+import { COMMAND_CODE_POLICY, thoughtReasoningEffortForTrigger, type CommandCodeThoughtEffort } from "../../command-code/policy.js";
 import {
   attachCommandCodeBoundaryEvidence,
   type CommandCodeBoundaryEvidence,
@@ -47,8 +47,11 @@ type CommandCodeResponse = {
   usage?: {
     prompt_tokens?: unknown;
     completion_tokens?: unknown;
+    input_tokens?: unknown;
+    output_tokens?: unknown;
     total_tokens?: unknown;
     prompt_tokens_details?: { cached_tokens?: unknown };
+    input_tokens_details?: { cached_tokens?: unknown };
     completion_tokens_details?: { reasoning_tokens?: unknown };
   };
 };
@@ -65,12 +68,13 @@ function nonNegativeInteger(value: unknown): number | undefined {
 
 function toUsage(raw: CommandCodeResponse["usage"]): TokenUsage | undefined {
   if (!raw) return undefined;
-  const promptTokens = nonNegativeInteger(raw.prompt_tokens);
-  const completionTokens = nonNegativeInteger(raw.completion_tokens);
+  const promptTokens = nonNegativeInteger(raw.prompt_tokens) ?? nonNegativeInteger(raw.input_tokens);
+  const completionTokens = nonNegativeInteger(raw.completion_tokens) ?? nonNegativeInteger(raw.output_tokens);
   if (promptTokens === undefined || completionTokens === undefined) return undefined;
   const usage: TokenUsage = { promptTokens, completionTokens };
   const totalTokens = nonNegativeInteger(raw.total_tokens);
-  const cachedTokens = nonNegativeInteger(raw.prompt_tokens_details?.cached_tokens);
+  const cachedTokens = nonNegativeInteger(raw.prompt_tokens_details?.cached_tokens)
+    ?? nonNegativeInteger(raw.input_tokens_details?.cached_tokens);
   const reasoningTokens = nonNegativeInteger(raw.completion_tokens_details?.reasoning_tokens);
   if (totalTokens !== undefined) usage.totalTokens = totalTokens;
   if (cachedTokens !== undefined) usage.cachedTokens = cachedTokens;
@@ -180,7 +184,8 @@ function buildRequestBody(args: ProviderDispatchArgs): Record<string, unknown> {
   if (args.modelId !== COMMAND_CODE_POLICY.modelId) {
     throw new AppError("capability_mismatch", "command_code_model_not_qualified", 400);
   }
-  if (reasoningEffortFor(args.options, args.fabricReasoning) !== COMMAND_CODE_POLICY.effort) {
+  const effort = resolveThoughtEffort(args);
+  if (!acceptedEffort(effort, contractFor(args.options.structuredOutput))) {
     throw new AppError("capability_mismatch", "command_code_policy_effort_required", 400);
   }
   const contract = contractFor(args.options.structuredOutput);
@@ -201,10 +206,33 @@ function buildRequestBody(args: ProviderDispatchArgs): Record<string, unknown> {
     model: COMMAND_CODE_POLICY.modelId,
     messages: mapMessages(args.messages, contract),
     max_tokens: maxTokens,
-    reasoning_effort: COMMAND_CODE_POLICY.effort,
+    reasoning_effort: effort,
     response_format: { type: "json_object" },
+    ...(promptCacheKey(args) ? { prompt_cache_key: promptCacheKey(args) } : {}),
     ...(args.options.temperature !== undefined ? { temperature: args.options.temperature } : {}),
   };
+}
+
+function resolveThoughtEffort(args: ProviderDispatchArgs): CommandCodeThoughtEffort | undefined {
+  const mapped = thoughtReasoningEffortForTrigger(args.options.thoughtTriggerKind);
+  if (args.options.thoughtTriggerKind === "domus_notification") return mapped;
+  const requested = reasoningEffortFor(args.options, args.fabricReasoning);
+  return requested === "xhigh" || requested === "medium" ? requested : undefined;
+}
+
+function acceptedEffort(
+  effort: CommandCodeThoughtEffort | undefined,
+  contract: CommandCodeContract | null,
+): effort is CommandCodeThoughtEffort {
+  if (effort === COMMAND_CODE_POLICY.effort) return true;
+  return contract === "thought" && effort === "medium";
+}
+
+function promptCacheKey(args: ProviderDispatchArgs): string | undefined {
+  if (process.env.ASHLEY_THOUGHT_PROMPT_CACHE_KEY?.trim().toLowerCase() !== "true") return undefined;
+  const pass = args.options.thoughtContractPass;
+  if (!pass || contractFor(args.options.structuredOutput) !== "thought") return undefined;
+  return `ashley-thought-${pass}-v1`;
 }
 
 function sha256(value: string): `sha256:${string}` {
@@ -261,7 +289,7 @@ export function createCommandCodeAdapter(
       const boundary: {
         backend: "command_code_api";
         requestedModelId: string;
-        reasoningEffort: typeof COMMAND_CODE_POLICY.effort;
+        reasoningEffort: CommandCodeThoughtEffort;
         requestHash?: `sha256:${string}`;
         providerModel?: string | null;
         providerRequestId?: string | null;
@@ -280,6 +308,7 @@ export function createCommandCodeAdapter(
           throw new AppError("agent_not_ready", "Command Code Provider API credential not configured", 503);
         }
         const body = buildRequestBody(args);
+        boundary.reasoningEffort = body.reasoning_effort as CommandCodeThoughtEffort;
         const serializedBody = JSON.stringify(body);
         const providerRequestHash = sha256(serializedBody);
         boundary.requestHash = providerRequestHash;

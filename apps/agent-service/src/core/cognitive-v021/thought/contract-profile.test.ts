@@ -157,6 +157,26 @@ describe("I1 profile-scoped Thought contract", () => {
     expect(settlementFields(thoughtContractProfile(pass("night")))).not.toContain("reflection");
     expect(settlementFields(thoughtContractProfile({ ...chat, audience: { kind: "room" } }))).not.toContain("growth");
   });
+
+  it("shares a stable instruction prefix across chat, awake, and afterglow", () => {
+    const chatText = thoughtOutputCompatibilityInstruction(thoughtContractProfile(chat));
+    const awakeText = thoughtOutputCompatibilityInstruction(thoughtContractProfile(pass("awake")));
+    const afterglowText = thoughtOutputCompatibilityInstruction(thoughtContractProfile(pass("afterglow")));
+    const shortest = Math.min(chatText.length, awakeText.length, afterglowText.length);
+    let shared = 0;
+    while (shared < shortest && chatText[shared] === awakeText[shared] && chatText[shared] === afterglowText[shared]) shared += 1;
+    expect(shared / shortest).toBeGreaterThanOrEqual(0.8);
+    const markers = [AFTERGLOW_GUIDANCE, AWAKE_GUIDANCE, GROWTH_GUIDANCE, NIGHT_GUIDANCE, MEMORY_FORMATION_GUIDANCE[0]!];
+    for (const text of [chatText, awakeText, afterglowText]) {
+      for (const marker of markers) {
+        if (text.includes(marker)) expect(text.split(marker).length - 1).toBe(1);
+      }
+    }
+    expect(chatText.includes(AWAKE_GUIDANCE)).toBe(false);
+    expect(awakeText.includes(AWAKE_GUIDANCE)).toBe(true);
+    expect(afterglowText.includes(AFTERGLOW_GUIDANCE)).toBe(true);
+    expect(chatText.startsWith("Code-owned Thought contract")).toBe(true);
+  });
 });
 
 describe("the chat dispatch", () => {
