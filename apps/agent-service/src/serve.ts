@@ -1,14 +1,4 @@
 import { createSelfChangeResultMaintenance, type SelfChangeResultMaintenance } from "./core/cognitive-v021/growth/self-change-results.js";
-
-let lastSelfChangeResultMaintenanceCode: string | null = null;
-
-function selfChangeResultMaintenanceCode(error: unknown): string {
-  const coded = error && typeof error === "object" && "code" in error ? (error as { code?: unknown }).code : undefined;
-  const text = typeof coded === "string" && coded.length > 0
-    ? coded
-    : error instanceof Error ? error.message : String(error);
-  return text.slice(0, 80);
-}
 import { createDomusIngressApp, decideDomusIngress } from "./core/domus/ingress.js";
 import type { AgentManager } from "./agent.js";
 import { AFTERGLOW_POLL_MS } from "./core/cognitive-v021/initiative/afterglow.js";
@@ -108,6 +98,16 @@ import {
   ownerBootstrapReadinessFor,
   type OwnerBootstrapAvailability,
 } from "./core/rollout/owner-bootstrap-readiness.js";
+
+let lastSelfChangeResultMaintenanceCode: string | null = null;
+
+function selfChangeResultMaintenanceCode(error: unknown): string {
+  const coded = error && typeof error === "object" && "code" in error ? (error as { code?: unknown }).code : undefined;
+  const text = typeof coded === "string" && coded.length > 0
+    ? coded
+    : error instanceof Error ? error.message : String(error);
+  return text.slice(0, 80);
+}
 
 export function createAgentInboxConsumerHandler(
   manager: Pick<AgentManager, "dispatchCognitiveEvent">,
