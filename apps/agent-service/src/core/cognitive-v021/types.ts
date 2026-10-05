@@ -1,5 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
-import type { COMMAND_CODE_POLICY, CommandCodeThoughtEffort } from "../command-code/policy.js";
+import type { CommandCodeThoughtEffort, CommandCodeThoughtModelId } from "../command-code/policy.js";
 import type { StructuredOutputRequest } from "../model-fabric/types.js";
 import type { ChatMessage, CompletionOptions, ProviderId } from "../model-routing/types.js";
 import type {
@@ -154,8 +154,8 @@ export type CapturedDirectCommandCodeAttemptIdentity = {
   dispatchSequence: number;
   routeAlias: string | null;
   provider: "command_code";
-  requestedModelId: typeof COMMAND_CODE_POLICY.modelId;
-  providerModel: typeof COMMAND_CODE_POLICY.modelId;
+  requestedModelId: CommandCodeThoughtModelId;
+  providerModel: CommandCodeThoughtModelId;
   reasoningEffort: CommandCodeThoughtEffort;
   providerRequestId: string | null;
   providerHttpStatus: number;

@@ -1,10 +1,10 @@
-import type { COMMAND_CODE_POLICY, CommandCodeThoughtEffort } from "./policy.js";
+import type { CommandCodeThoughtEffort, CommandCodeThoughtModelId } from "./policy.js";
 
 export type CommandCodeTransportOutcome = "not_sent" | "sent_outcome_unknown" | "response_received";
 
 export type CommandCodeBoundaryEvidence = Readonly<{
   backend: "command_code_api";
-  requestedModelId: typeof COMMAND_CODE_POLICY.modelId;
+  requestedModelId: CommandCodeThoughtModelId;
   reasoningEffort: CommandCodeThoughtEffort;
   requestHash?: `sha256:${string}`;
   providerModel?: string | null;
@@ -24,7 +24,7 @@ export type CommandCodeThoughtEvidence = Readonly<{
   cycleId: string;
   generation: number;
   wakeId: string | null;
-  requestedModelId: typeof COMMAND_CODE_POLICY.modelId;
+  requestedModelId: CommandCodeThoughtModelId;
   providerModel: string | null;
   reasoningEffort: CommandCodeThoughtEffort;
   requestHash: `sha256:${string}` | null;

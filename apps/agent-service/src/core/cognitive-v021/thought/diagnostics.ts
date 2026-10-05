@@ -254,7 +254,8 @@ export function buildProviderS5(
       policyVersion: integerS5Number(extras?.policy?.version),
       outputTokenLimit: integerS5Number(capture.maxTokens),
       resourcePolicyFingerprint,
-      modelId: textS5String(capture.model, 160),
+      // The model that answered; a per-trigger model differs from the configured one.
+      modelId: textS5String(capture.providerModel ?? capture.model, 160),
       attemptOrdinal: integerS5Number(capture.attemptOrdinal),
       latencyMs: finiteS5Number(capture.elapsedMs),
       finishReason: textS5String(capture.finishReason, 64),
@@ -1282,9 +1283,10 @@ export class ObservabilityStore {
       s5?.outputTokenLimit ?? null,
       s5?.resourcePolicyFingerprint ?? null,
       s5?.modelId ?? usageS5?.modelId ?? null,
-      s5?.attemptOrdinal ?? null,
-      s5?.latencyMs ?? null,
-      s5?.finishReason ?? null,
+      s5?.attemptOrdinal ?? usageS5?.attemptOrdinal ?? null,
+      // Timing and finish hold no prompt text: kept in every mode, like usage.
+      s5?.latencyMs ?? usageS5?.latencyMs ?? null,
+      s5?.finishReason ?? usageS5?.finishReason ?? null,
       s5?.errorCode ?? null,
       diag.createdAtMs ?? nowMs,
     );

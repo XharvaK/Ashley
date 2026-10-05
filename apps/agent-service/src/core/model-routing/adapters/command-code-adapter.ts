@@ -14,7 +14,7 @@ import {
   VISION_MEDIA_OUTPUT_SCHEMA_ID,
   visionMediaJsonObjectInstruction,
 } from "../../cognitive-v021/perception/vision-output-contract.js";
-import { COMMAND_CODE_POLICY, thoughtReasoningEffortForTrigger, type CommandCodeThoughtEffort } from "../../command-code/policy.js";
+import { COMMAND_CODE_POLICY, thoughtModelForTrigger, thoughtReasoningEffortForTrigger, type CommandCodeThoughtEffort } from "../../command-code/policy.js";
 import {
   attachCommandCodeBoundaryEvidence,
   type CommandCodeBoundaryEvidence,
@@ -181,7 +181,11 @@ function bindingIdFor(contract: CommandCodeContract): string {
 }
 
 function buildRequestBody(args: ProviderDispatchArgs): Record<string, unknown> {
-  if (args.modelId !== COMMAND_CODE_POLICY.modelId) {
+  // Muse for every Thought and contract; the Domus model only for a Domus Thought pass.
+  if (args.modelId !== COMMAND_CODE_POLICY.modelId && !(
+    args.modelId === thoughtModelForTrigger(args.options.thoughtTriggerKind)
+    && contractFor(args.options.structuredOutput) === "thought"
+  )) {
     throw new AppError("capability_mismatch", "command_code_model_not_qualified", 400);
   }
   const effort = resolveThoughtEffort(args);
@@ -203,7 +207,7 @@ function buildRequestBody(args: ProviderDispatchArgs): Record<string, unknown> {
     throw new AppError("capability_mismatch", "command_code_output_limit_unsupported", 400);
   }
   return {
-    model: COMMAND_CODE_POLICY.modelId,
+    model: args.modelId,
     messages: mapMessages(args.messages, contract),
     max_tokens: maxTokens,
     reasoning_effort: effort,
@@ -342,7 +346,7 @@ export function createCommandCodeAdapter(
         const returnedModel = typeof result.model === "string" ? result.model : null;
         boundary.providerModel = returnedModel;
         if (typeof result.id === "string" && result.id.length > 0) boundary.providerRequestId = result.id;
-        if (returnedModel !== COMMAND_CODE_POLICY.modelId) {
+        if (returnedModel !== args.modelId) {
           throw new AppError("capability_mismatch", "command_code_model_identity_mismatch", 502);
         }
         const firstChoice = Array.isArray(result.choices) ? result.choices[0] : undefined;

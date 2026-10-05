@@ -1275,6 +1275,9 @@ describe("Thought Diagnostics & Observability DB", () => {
       estimatorOutputTokens: 8,
       estimatorTotalTokens: 20,
       modelId: "model:test",
+      latencyMs: 4200,
+      finishReason: "stop",
+      attemptOrdinal: 1,
     };
     const obs = openObservabilityStore(":memory:");
     try {
@@ -1345,7 +1348,7 @@ describe("Thought Diagnostics & Observability DB", () => {
         providerDiagnostics: { ...s5, cachedSource: "provider_usage" },
       });
       const returnedOff = obs.db.prepare(
-        "SELECT model_id, total_tokens, cached_source, cached_tokens, messages_fingerprint, estimator_input_tokens FROM thought_dispatch_diagnostics WHERE request_id = ?",
+        "SELECT model_id, total_tokens, cached_source, cached_tokens, messages_fingerprint, estimator_input_tokens, latency_ms, finish_reason, attempt_ordinal FROM thought_dispatch_diagnostics WHERE request_id = ?",
       ).get("request-mode-off-returned") as Record<string, unknown>;
       expect(returnedOff).toMatchObject({
         model_id: "model:test",
@@ -1354,6 +1357,10 @@ describe("Thought Diagnostics & Observability DB", () => {
         cached_tokens: 0,
         messages_fingerprint: null,
         estimator_input_tokens: 12,
+        // Timing evidence holds no prompt text and is kept in every mode.
+        latency_ms: 4200,
+        finish_reason: "stop",
+        attempt_ordinal: 1,
       });
       expect(rows.find((row) => row.requestId === "request-mode-off")?.providerFailure)
         .toMatchObject({ failureClass: "provider_internal", dispatchTruth: "sent" });

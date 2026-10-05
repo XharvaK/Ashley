@@ -5,7 +5,7 @@ import {
   thoughtOutputDeepSeekJsonObjectInstruction,
   thoughtOutputStructuredRequest,
 } from "../../cognitive-v021/thought/output-contract.js";
-import { COMMAND_CODE_POLICY } from "../../command-code/policy.js";
+import { COMMAND_CODE_DOMUS_POLICY, COMMAND_CODE_POLICY } from "../../command-code/policy.js";
 import { commandCodeBoundaryEvidenceFromError } from "../../command-code/evidence.js";
 import type { ChatMessage } from "../types.js";
 import { createCommandCodeAdapter } from "./command-code-adapter.js";
@@ -200,6 +200,49 @@ describe("command-code-adapter", () => {
     await expect(effortFor("owner_message", "medium")).rejects.toMatchObject({
       message: expect.stringContaining("command_code_policy_effort_required"),
     });
+  });
+
+  it("sends a Domus pass to the Domus model and checks the reply came from it", async () => {
+    env.commandCodeApiKey = "test-command-code-key";
+    const DOMUS = COMMAND_CODE_DOMUS_POLICY.modelId;
+    const run = async (modelId: string, thoughtTriggerKind: string, returned: string) => {
+      let request: Record<string, unknown> | undefined;
+      const fetcher = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        request = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        return fakeResponse({
+          id: "response-domus",
+          model: returned,
+          choices: [{ message: { content: "{\"kind\":\"abstain\"}" }, finish_reason: "stop" }],
+          usage: { prompt_tokens: 1, completion_tokens: 1 },
+        });
+      });
+      const result = await createCommandCodeAdapter(fetcher).dispatch({
+        messages,
+        modelId,
+        options: {
+          maxTokens: 65_536,
+          structuredOutput: thoughtOutputStructuredRequest(),
+          thoughtTriggerKind,
+          thoughtContractPass: "chat",
+        },
+      });
+      return { request, result, calls: fetcher.mock.calls.length };
+    };
+    const domus = await run(DOMUS, "domus_notification", DOMUS);
+    expect(domus.request).toMatchObject({ model: DOMUS, reasoning_effort: "medium" });
+    expect(domus.result.providerModel).toBe(DOMUS);
+    // The reply must come from the model that was asked.
+    await expect(run(DOMUS, "domus_notification", MODEL)).rejects.toMatchObject({
+      message: expect.stringContaining("command_code_model_identity_mismatch"),
+    });
+    // Only a Domus pass may use the Domus model; nothing is sent otherwise.
+    const fetcher = vi.fn(async () => fakeResponse({}));
+    await expect(createCommandCodeAdapter(fetcher).dispatch({
+      messages,
+      modelId: DOMUS,
+      options: { maxTokens: 65_536, reasoningEffort: "xhigh", structuredOutput: thoughtOutputStructuredRequest(), thoughtTriggerKind: "owner_message" },
+    })).rejects.toMatchObject({ message: expect.stringContaining("command_code_model_not_qualified") });
+    expect(fetcher).not.toHaveBeenCalled();
   });
 
   it("fails closed without the policy-owned xhigh effort and does not call the provider", async () => {

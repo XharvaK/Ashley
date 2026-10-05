@@ -94,7 +94,7 @@ import {
   type ModelFabricDispatchMetadata,
 } from "./core/model-fabric/index.js";
 import type { WireDispatchEvidence } from "./core/model-routing/types.js";
-import { COMMAND_CODE_POLICY, thoughtReasoningEffortForTrigger } from "./core/command-code/policy.js";
+import { COMMAND_CODE_POLICY, thoughtModelForTrigger, thoughtReasoningEffortForTrigger, type CommandCodeThoughtModelId } from "./core/command-code/policy.js";
 import {
   attachCommandCodeBoundaryEvidence,
   attachCommandCodeThoughtEvidence,
@@ -484,6 +484,7 @@ async function completeDirectCommandCodeThought(
   const thoughtContext = context as Omit<ThoughtInvocationContext, "allocationId">;
   const maxTokens = options.maxTokens ?? COMMAND_CODE_THOUGHT_MAX_OUTPUT_TOKENS;
   const reasoningEffort = thoughtReasoningEffortForTrigger(options.thoughtTriggerKind);
+  const thoughtModelId = thoughtModelForTrigger(options.thoughtTriggerKind);
   const controls: ProviderBoundaryControls = {
     maxTokens,
     reasoningConfiguration: reasoningEffort,
@@ -493,10 +494,10 @@ async function completeDirectCommandCodeThought(
   const actualWireBindingId = `${structuredOutput.contractId}:${structuredOutput.schemaId}`;
   const adapterArgs = {
     messages,
-    modelId: COMMAND_CODE_POLICY.modelId,
+    modelId: thoughtModelId,
     options: {
       ...options,
-      model: COMMAND_CODE_POLICY.modelId,
+      model: thoughtModelId,
       maxTokens,
       reasoningEffort,
       responseFormat: "json_schema" as const,
@@ -528,7 +529,7 @@ async function completeDirectCommandCodeThought(
     cycleId: thoughtContext.cycleId,
     generation: thoughtContext.generation,
     wakeId: thoughtContext.wakeId ?? null,
-    requestedModelId: COMMAND_CODE_POLICY.modelId,
+    requestedModelId: thoughtModelId,
     providerModel: boundary?.providerModel ?? completion?.providerModel ?? null,
     reasoningEffort,
     requestHash: boundary?.requestHash ?? completion?.providerRequestHash ?? null,
@@ -598,7 +599,7 @@ async function completeDirectCommandCodeThought(
       providerId: "command_code",
       quotaBucket: `command_code:${COMMAND_CODE_POLICY.modelId}`,
       routeAlias: options.route ?? "thought",
-      modelAlias: COMMAND_CODE_POLICY.modelId,
+      modelAlias: thoughtModelId,
       maxTokens,
       toolsJson: options.tools ? JSON.stringify(options.tools) : undefined,
       wireAdditionalBytes,
@@ -671,7 +672,7 @@ async function completeDirectCommandCodeThought(
           completion = result;
           const boundary: CommandCodeBoundaryEvidence = {
             backend: "command_code_api",
-            requestedModelId: COMMAND_CODE_POLICY.modelId,
+            requestedModelId: thoughtModelId,
             reasoningEffort,
             ...(result.providerRequestHash ? { requestHash: result.providerRequestHash } : {}),
             providerModel: result.providerModel ?? null,
@@ -681,7 +682,7 @@ async function completeDirectCommandCodeThought(
             transportOutcome: "response_received",
           };
           if (
-            result.providerModel !== COMMAND_CODE_POLICY.modelId ||
+            result.providerModel !== thoughtModelId ||
             !result.providerRequestHash ||
             !result.providerResponseHash ||
             result.providerResponseHash !== commandCodeHash(result.text) ||
@@ -778,7 +779,7 @@ async function completeDirectCommandCodeThought(
     const inner = attentive.result;
     const boundary: CommandCodeBoundaryEvidence = {
       backend: "command_code_api",
-      requestedModelId: COMMAND_CODE_POLICY.modelId,
+      requestedModelId: thoughtModelId,
       reasoningEffort,
       requestHash: inner.providerRequestHash!,
       providerModel: inner.providerModel,
@@ -798,8 +799,8 @@ async function completeDirectCommandCodeThought(
       dispatchSequence: attentive.acceptedDispatchIdentity.dispatchSequence,
       routeAlias: attentive.acceptedDispatchIdentity.routeAlias,
       provider: "command_code",
-      requestedModelId: COMMAND_CODE_POLICY.modelId,
-      providerModel: inner.providerModel! as typeof COMMAND_CODE_POLICY.modelId,
+      requestedModelId: thoughtModelId,
+      providerModel: inner.providerModel! as CommandCodeThoughtModelId,
       reasoningEffort,
       providerRequestId: inner.providerRequestId ?? null,
       providerHttpStatus: inner.providerHttpStatus!,
