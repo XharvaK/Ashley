@@ -89,6 +89,12 @@ the following:
 - `SC-CON-07` Ordinary security patches, spending choices, releases, provider
   operations, and availability decisions do not require consultation, although
   Ashley may comment.
+- `SC-CON-08` Owner decision, 2026-10-06. Choosing the model for her Domus
+  (game-body) passes, and a declared fallback model used only while her
+  primary provider is unreachable, are provider operations under `SC-CON-07`,
+  not model-family changes under `SC-CON-04`. The model that answered is
+  recorded on every pass, and she may comment. Changing the primary model of
+  her conversations with Alex still needs consultation.
 
 ## Recorded position
 
