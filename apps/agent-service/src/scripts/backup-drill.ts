@@ -2,6 +2,7 @@ import { mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { waitForLocks } from "../core/sqlite-locks.js";
 import { createProductionDataPlane } from "../core/data-plane.js";
 import { loadEnvFile } from "../env.js";
 import { materializeVerifiedBackupMembers, restoreVerifyPackage } from "../core/continuity/backup-package.js";
@@ -145,9 +146,9 @@ export function runBackupDrill(options: DrillOptions = {}): number {
     }
 
     const liveDb = {
-      nuclear: new DatabaseSync(paths.nuclearDbPath, { readOnly: true }),
-      continuity: new DatabaseSync(paths.continuityDbPath, { readOnly: true }),
-      sidecar: new DatabaseSync(paths.sidecarDbPath, { readOnly: true }),
+      nuclear: waitForLocks(new DatabaseSync(paths.nuclearDbPath, { readOnly: true })),
+      continuity: waitForLocks(new DatabaseSync(paths.continuityDbPath, { readOnly: true })),
+      sidecar: waitForLocks(new DatabaseSync(paths.sidecarDbPath, { readOnly: true })),
     };
     const restoredDb = {
       nuclear: new DatabaseSync(members.nuclearDbPath, { readOnly: true }),

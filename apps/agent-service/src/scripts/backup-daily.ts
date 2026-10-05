@@ -2,6 +2,7 @@
 import { linkSync, unlinkSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { sqliteResultCode, waitForLocks } from "../core/sqlite-locks.js";
 import { createProductionDataPlane } from "../core/data-plane.js";
 import { loadEnvFile } from "../env.js";
 import {
@@ -56,6 +57,18 @@ function fail(statusPath: string | null, code: string, log: (line: string) => vo
   return 1;
 }
 
+/**
+ * The status code for a failed step: the package's own backup_* codes as they are, an SQLite
+ * error as backup_sqlite_<primary result code> (5 busy, 6 locked, 11 corrupt, ...), anything
+ * else as the step's fallback. Never the error text (it may carry paths).
+ */
+export function backupFailureCode(error: unknown, fallback: string): string {
+  const message = error instanceof Error ? error.message : "";
+  if (message.startsWith("backup_") || message === "sidecar_meta_missing") return message;
+  const sqlite = sqliteResultCode(error);
+  return sqlite === null ? fallback : `backup_sqlite_${sqlite}`;
+}
+
 export function runDailyBackup(options: DailyBackupOptions = {}): number {
   const log = options.log ?? ((line) => console.error(line));
   const now = options.now ?? new Date();
@@ -85,13 +98,10 @@ export function runDailyBackup(options: DailyBackupOptions = {}): number {
       sidecar: readSidecarSchemaVersion(paths.sidecarDbPath),
     };
   } catch (error) {
-    const code = error instanceof Error && error.message === "sidecar_meta_missing"
-      ? "sidecar_meta_missing"
-      : "backup_schema_unreadable";
-    return fail(paths.statusPath, code, log);
+    return fail(paths.statusPath, backupFailureCode(error, "backup_schema_unreadable"), log);
   }
 
-  const continuity = new DatabaseSync(paths.continuityDbPath);
+  const continuity = waitForLocks(new DatabaseSync(paths.continuityDbPath));
   let packagePath: string;
   try {
     const created = createDualBackupPackage({
@@ -120,9 +130,7 @@ export function runDailyBackup(options: DailyBackupOptions = {}): number {
     packagePath = stamped;
     verifyBackupPackage({ packagePath, transferKeyHex: key });
   } catch (error) {
-    const code = error instanceof Error ? error.message : "backup_failed";
-    const safe = code.startsWith("backup_") || code === "sidecar_meta_missing" ? code : "backup_failed";
-    return fail(paths.statusPath, safe, log);
+    return fail(paths.statusPath, backupFailureCode(error, "backup_failed"), log);
   } finally {
     continuity.close();
   }

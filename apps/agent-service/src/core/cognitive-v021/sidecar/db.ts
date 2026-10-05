@@ -1,5 +1,6 @@
 import { validateA3SidecarSchema } from "../../cognition/schema-contract.js";
 import { DatabaseSync } from "node:sqlite";
+import { waitForLocks } from "../../sqlite-locks.js";
 import {
   isReservedProductionStoragePath,
   type DataPlaneContext,
@@ -749,7 +750,7 @@ export function openCognitiveSidecarDb(
       throw sidecarError("production_data_plane_required");
     }
   }
-  existing.exec("PRAGMA busy_timeout = 5000");
+  waitForLocks(existing);
 
   const version = userVersion(existing);
   if (version > COGNITIVE_SIDECAR_SCHEMA_VERSION) {

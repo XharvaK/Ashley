@@ -4,6 +4,7 @@ import { existsSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
+import { waitForLocks } from "./sqlite-locks.js";
 import {
   dataPlaneOwnsFile,
   isolatedPlaneForFile,
@@ -3673,6 +3674,7 @@ export function openNuclearDb(
     err.code = "data_plane_required";
     throw err;
   }
+  waitForLocks(existing);
   const resolved = resolveMigrateOptions(existing, options);
   assertNuclearOpenAllowed(nuclearMainFile(existing), resolved.dataPlane);
   const mainFile = nuclearMainFile(existing);

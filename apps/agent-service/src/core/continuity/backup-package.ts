@@ -19,6 +19,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { waitForLocks } from "../sqlite-locks.js";
 import { NUCLEAR_SUPPORTED_VERSION } from "../db.js";
 import {
   COGNITIVE_SIDECAR_SCHEMA_VERSION,
@@ -147,7 +148,7 @@ function sha256File(path: string): string {
 }
 
 function readC1CorrectionSeq(nuclearDbPath: string): number | null {
-  const db = new DatabaseSync(nuclearDbPath);
+  const db = waitForLocks(new DatabaseSync(nuclearDbPath));
   try {
     const exists = db.prepare(
       "SELECT 1 AS found FROM sqlite_master WHERE type = 'table' AND name = 'memory_contract_state'",
@@ -161,8 +162,9 @@ function readC1CorrectionSeq(nuclearDbPath: string): number | null {
   }
 }
 
-function vacuumInto(sourcePath: string, destPath: string): void {
-  const db = new DatabaseSync(sourcePath);
+/** A consistent copy of a live database; it waits for a writer that is committing (sqlite-locks.ts). */
+export function vacuumInto(sourcePath: string, destPath: string): void {
+  const db = waitForLocks(new DatabaseSync(sourcePath));
   try {
     const escaped = destPath.replace(/'/g, "''");
     db.exec(`VACUUM INTO '${escaped}'`);

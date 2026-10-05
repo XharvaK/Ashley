@@ -4,9 +4,15 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 import { openNuclearDb } from "./db.js";
+import { SHARED_DB_BUSY_TIMEOUT_MS } from "./sqlite-locks.js";
 
+// HARD-P34 witnessed SQLITE_BUSY surfacing immediately and left busy_timeout out until contention
+// handling was proven incorrect. Production 2026-10-05 proved it: the deploy's backup failed twice on
+// locks and a live delivery claim threw "database is locked" while a backup read nuclear.db. Nuclear
+// now waits SHARED_DB_BUSY_TIMEOUT_MS (sqlite-locks.test.ts shows the cross-process wait succeeding);
+// a lock that is not released in time still surfaces as SQLITE_BUSY, and no committed work is lost.
 describe("nuclear SQLite contention", () => {
-  it("surfaces SQLITE_BUSY immediately without losing committed work", () => {
+  it("waits for the busy timeout, then surfaces SQLITE_BUSY without losing committed work", () => {
     const directory = mkdtempSync(join(tmpdir(), "ashley-db-contention-"));
     const databasePath = join(directory, "nuclear.db");
     let first: DatabaseSync | null = null;
@@ -15,6 +21,9 @@ describe("nuclear SQLite contention", () => {
     try {
       first = openNuclearDb(new DatabaseSync(databasePath));
       second = openNuclearDb(new DatabaseSync(databasePath));
+      expect(second.prepare("PRAGMA busy_timeout").get()).toEqual({ timeout: SHARED_DB_BUSY_TIMEOUT_MS });
+      // Same process: the holder cannot let go while this connection waits, so keep the wait short here.
+      second.exec("PRAGMA busy_timeout = 300");
 
       first.exec(`
         CREATE TABLE contention_witness (
@@ -39,7 +48,8 @@ describe("nuclear SQLite contention", () => {
 
       expect(contentionError).toBeDefined();
       expect(String(contentionError)).toMatch(/SQLITE_BUSY|database is locked/i);
-      expect(elapsedMs).toBeLessThan(1_000);
+      expect(elapsedMs).toBeGreaterThanOrEqual(250);
+      expect(elapsedMs).toBeLessThan(3_000);
 
       first.exec("COMMIT");
       second.exec("BEGIN IMMEDIATE");

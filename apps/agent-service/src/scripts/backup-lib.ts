@@ -10,6 +10,7 @@ import {
 } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { waitForLocks } from "../core/sqlite-locks.js";
 import type { DataPlaneContext } from "../core/data-plane.js";
 
 export type BackupVersions = {
@@ -93,7 +94,7 @@ export function packageStamp(now: Date): string {
 }
 
 export function readUserVersion(dbPath: string): number {
-  const db = new DatabaseSync(dbPath, { readOnly: true });
+  const db = waitForLocks(new DatabaseSync(dbPath, { readOnly: true }));
   try {
     const row = db.prepare("PRAGMA user_version").get() as { user_version?: number } | undefined;
     const value = Number(row?.user_version ?? 0);
@@ -105,7 +106,7 @@ export function readUserVersion(dbPath: string): number {
 }
 
 export function readSidecarSchemaVersion(dbPath: string): number {
-  const db = new DatabaseSync(dbPath, { readOnly: true });
+  const db = waitForLocks(new DatabaseSync(dbPath, { readOnly: true }));
   try {
     const row = db.prepare(
       "SELECT schema_version FROM cognitive_sidecar_meta WHERE id = 1",
