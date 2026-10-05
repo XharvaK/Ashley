@@ -1742,6 +1742,8 @@ export type ThoughtInput = {
   pendingForget?: readonly import("./memory/semantic-forget.js").ThoughtPendingForget[];
   /** Present only during an afterglow or AWAKE pass. */
   innerPass?: ThoughtInnerPass;
+  /** 8d: present only during an Owner-private Domus pass; facts from the game, rebuilt from durable rows. */
+  domus?: import("../domus/notification.js").DomusForThought;
   /** Present only for an autonomous idle-opportunity Thought. */
   publicPresence?: PublicPresenceContext;
   /** Host factual context for the single Ashley-authored capacity-wait turn. */

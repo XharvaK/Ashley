@@ -39,7 +39,7 @@ export function learnPublishedWake(db:DatabaseSync,settlementId:string,ownerId:s
  const ema=(current:number,next:number,bounds:{min:number;max:number})=>clamp(current+P.learningEmaAlpha.default*(next-current),bounds);
  const sources=new Set<Nucleus>(),families=new Set<string>();
  for(const candidate of receipt.bundle as Candidate[]){
-  if(!["reflective","sleep","prospective","external","boredom","interoceptive","social"].includes(candidate.source) || !candidate.coalesceKey)throw new Error("thalamus_learning_receipt");
+  if(!["reflective","sleep","prospective","external","boredom","interoceptive","social","domus"].includes(candidate.source) || !candidate.coalesceKey)throw new Error("thalamus_learning_receipt");
   const family=`${candidate.source}:${candidate.coalesceKey}`;
   if(!sources.has(candidate.source)){learned.gains[candidate.source]=ema(learned.gains[candidate.source] ?? P.nucleusGain.default,target,P.nucleusGain.learningBound);sources.add(candidate.source);}
   if(families.has(family))continue;families.add(family);

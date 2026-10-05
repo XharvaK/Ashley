@@ -103,7 +103,7 @@ describe("interest graph", () => {
 });
 
 describe("reaching out", () => {
-  it.each(["idle_opportunity", "self_change_result"] as const)("counts %s speech against the unsolicited fuse and reports how it landed", (triggerKind) => {
+  it.each(["idle_opportunity", "self_change_result", "domus_notification"] as const)("counts %s speech against the unsolicited fuse and reports how it landed", (triggerKind) => {
     const db = openTestSidecar();
     try {
       const conversationId = "thread-reach";

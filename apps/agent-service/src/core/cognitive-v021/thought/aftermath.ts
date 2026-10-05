@@ -24,6 +24,8 @@ export type AftermathContext = {
   timingOnly?:boolean;
   /** Set for private passes: the journal entry to record. */
   passKind: JournalPassKind | null;
+  /** 8d: a Domus pass journals on its world's channel. */
+  channel?: `domus:${string}`;
   nightPass: NightPass | null;
   senseBands?: Partial<Record<SenseName, string>>;
 };
@@ -113,6 +115,7 @@ export function recordSettlementAftermath(
         conversationId: context.conversationId,
         cycleId,
         passKind: context.passKind,
+        ...(context.channel ? { channel: context.channel } : {}),
         ...(standing && settlement.journal ? { claim: settlement.journal } : {}),
         interests,
         spoke: Number(pending.queued_speech) === 1,

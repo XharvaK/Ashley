@@ -43,6 +43,8 @@ import {collectInnerFacts} from "./core/cognitive-v021/thalamus/current-facts.js
 import {runThalamusPass} from "./core/cognitive-v021/thalamus/integration.js";
 import {isThalamusEnabled} from "./core/cognitive-v021/thalamus/scheduler.js";
 import {prospective} from "./core/cognitive-v021/thalamus/nuclei/prospective.js";
+import {domus} from "./core/cognitive-v021/thalamus/nuclei/domus.js";
+import {embodimentBudgetAvailable,pendingDomus,repairDomusReservations,selectDomusNotification} from "./core/domus/notification.js";
 import {isCommitmentsEnabled,listDueCommitmentOpportunities,type CommitmentOpportunity} from "./core/relationship/commitment-admission.js";
 import { DEFAULT_OWNER_TIME_ZONE } from "./core/cognitive-v021/thought/clock.js";
 import { detectCredentialShape, CREDENTIAL_OMITTED_PLACEHOLDER } from "./core/privacy/secrets.js";
@@ -275,16 +277,22 @@ export class AgentManager {
     const resultBudget=resultFeedEnabled && selfChangeResultBudgetAvailable(sidecar,nowMs);
     const resultCandidates=resultBudget?prospective(pendingSelfChangeResults(sidecar,conversationId,nowMs).map(item=>({
       eventId:`self-result:${item.changesetId}`,observedAtMs:item.receivedAtMs,refs:[item.changesetId],kind:"self_change_result" as const,dueAtMs:item.receivedAtMs})),nowMs):[];
+    // 8d: game observations the Domus helper delivered, paid by the embodiment budget.
+    repairDomusReservations(sidecar,{conversationId,nowMs});
+    const domusCandidates=embodimentBudgetAvailable(sidecar,nowMs)?domus(pendingDomus(sidecar,nowMs)):[];
+    const dedicated=[...resultCandidates,...domusCandidates];
     // Dedicated capacity cannot grant ordinary private passes capacity.
-    if(!current.context.budgetAvailable && resultCandidates.length)current.candidates=[];
-    current.candidates.push(...resultCandidates);
-    if(resultCandidates.length)current.context={...current.context,budgetAvailable:true};
+    if(!current.context.budgetAvailable && dedicated.length)current.candidates=[];
+    current.candidates.push(...dedicated);
+    if(dedicated.length)current.context={...current.context,budgetAvailable:true};
     return runThalamusPass(sidecar,{ownerId,conversationId,nowMs,enabled:true,...current,
       prepare:(decision,selected)=>({...selected,
         observations:decision.bundle.flatMap(candidate=>subscriptions.retained.get(candidate.eventId)?[subscriptions.retained.get(candidate.eventId)!]:[]).slice(0,PRIVATE_SUBSCRIPTION_ITEMS_PER_IDLE),
         bind:cycleId=>{selected.bind(cycleId);recordInfluencedCuriosityRank(sidecar,subscriptions.curiosity,{cycleId,ownerId},nowMs);},
       }),executors:{
       selfChangeResult:async(changesetId,selected)=>selectSelfChangeResult(sidecar,{changesetId,conversationId,ownerId,
+        authorityEpoch:readCognitiveSidecarMeta(sidecar).authority_epoch,nowMs,bind:selected.bind}),
+      domus:async(observationId,selected)=>selectDomusNotification(sidecar,{observationId,conversationId,ownerId,
         authorityEpoch:readCognitiveSidecarMeta(sidecar).authority_epoch,nowMs,bind:selected.bind}),
       afterglow:selected=>this.tickCognitiveAfterglow(ownerId,nowMs,selected),
       night:selected=>this.tickCognitiveNight(ownerId,nowMs,afterglowEnabled,selected),

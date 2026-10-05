@@ -4,7 +4,7 @@ Separate listener on `127.0.0.1`, port `DOMUS_INGRESS_PORT` (default 3711). It s
 
 Auth header: `X-Domus-Token`. Compared as SHA-256 digests with `crypto.timingSafeEqual`. Missing, wrong, or the bot token: `401 {"error":"unauthorized"}`. JSON body limit 64 KiB: `413 {"error":"payload_too_large"}`. Any other path: `404 {"error":"not_found"}`.
 
-Phase 8a stores rows. It does not append inbox events and does not wake Thought.
+Phase 8a stores rows. The listener never appends inbox events and never wakes Thought; 8d below does that from the thalamus.
 
 ## POST /domus/observation
 
@@ -73,3 +73,13 @@ Unknown keys: `400 {"error":"invalid_body"}`. The helper decides; Ashley never i
 ## Memory channel and lineage (8b-1)
 
 `sidecar_memory_assertions`, `sidecar_memory_supports`, `episodes_v2`, and `activity_journal` carry `channel` (`discord` or `domus:<world>`, default `discord`) and `lineage_class` (`current` or `undone`, default `current`). `domus_observations.undone_at_ms` is null while the observation still counts. Rows marked `undone` stay as history and are hidden from recall. Thought may cite a stored row as typed support `{ kind: "domus_observation", observationId }`. Admission resolves it only when the row exists, `admission_state` is not `dropped`, and `undone_at_ms` is null, then stamps `channel` from that row's world. A nomination whose fresh supports name more than one channel (two worlds, or Discord plus Domus) is `admission_skipped_provenance`. A Domus observation never grounds an Owner-world claim.
+
+## Domus passes (8d)
+
+`notification.ts`. The central thalamus's `domus` nucleus (`thalamus/nuclei/domus.ts`) proposes one candidate per armed attachment over its pending rows: `admission_state` stored, `undone_at_ms` null, not expired, newest 32. An attachment is armed while its latest heartbeat said `attached: true` and arrived within 180 s. The helper's peripheral thalamus already did salience, habituation and refractory, so a delivered row is due (`deadlineMs`); a percept with `urgency: always_through` makes the candidate `ALWAYS_THROUGH`. A conversation with the Owner still holds the lane.
+
+Budget `ashley.embodiment.v1`, one rolling hour, limit from `ASHLEY_EMBODIMENT_BUDGET_LIMIT` (bump `ASHLEY_EMBODIMENT_BUDGET_VERSION` to change it), configured at startup. Unset means no Domus passes. It never lends capacity to ordinary private passes.
+
+When selected, one transaction appends inbox `domus_notification` (`domus-notification:<newest id>`), binds the thalamus decision, marks the included rows `admitted` and older stored rows of that attachment `dropped`; then the wake reserves the embodiment budget (a missed reservation is retried, the rows are never admitted twice). Disarming stops new passes; admitted work finishes and is not refunded.
+
+Thought gets `domus` (Owner-private only), rebuilt from the rows, never from the inbox payload: `world`, `asOfMs`, `observationIds`, `portrait` (the newest row's helper portrait), `events` (the percepts in time order within 4 KiB, newest kept, `omittedEvents` counts the rest). Undone rows are left out. The contract profile is `domus`, and the pass journals on `domus:<world>`.

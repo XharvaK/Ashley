@@ -147,6 +147,10 @@ export const THALAMUS_PARAMETERS = {
     units: "milliseconds", default: 60000, learningBound: { min: 0, max: 120000 },
     source: "architect default", status: "PROVISIONAL",
   },
+  domusRefractoryMs: {
+    units: "milliseconds", default: 0, learningBound: { min: 0, max: 0 },
+    source: "8d: the Domus helper's peripheral thalamus owns game refractory", status: "FIXED",
+  },
   reflectionWindowRows: {
     units: "rows", default: 40, learningBound: { min: 40, max: 40 },
     source: "parameter contract: coverage ruling", status: "FIXED",

@@ -1,6 +1,6 @@
 // Nuclei propose timing facts; this pure arbiter selects a pass without authoring meaning or granting execution authority.
 import { THALAMUS_PARAMETERS as P } from "./parameters.js";
-export type Nucleus = "reflective" | "sleep" | "prospective" | "external" | "boredom" | "interoceptive" | "social";
+export type Nucleus = "reflective" | "sleep" | "prospective" | "external" | "boredom" | "interoceptive" | "social" | "domus";
 export type Candidate = {
   eventId: string; observedAtMs: number; source: Nucleus; salience: number;
   class: "ALWAYS_THROUGH" | "PRESSURE" | "OPPORTUNISTIC";
@@ -25,7 +25,7 @@ const refractory: Record<Nucleus, number> = {
   reflective: P.reflectiveRefractoryMs.default, sleep: P.sleepRefractoryMs.default,
   prospective: P.prospectiveRefractoryMs.default, external: P.externalRefractoryMs.default,
   boredom: P.boredomRefractoryMs.default, interoceptive: P.interoceptiveRefractoryMs.default,
-  social: P.socialRefractoryMs.default,
+  social: P.socialRefractoryMs.default, domus: P.domusRefractoryMs.default,
 };
 function threshold(source: Nucleus, context: ThalamusContext): number {
   const mood = clamp(1 + P.moodAmplitude.default * (1 - 2 * clamp(context.energy, 0, 1)

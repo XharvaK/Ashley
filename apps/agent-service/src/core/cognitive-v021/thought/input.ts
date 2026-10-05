@@ -139,6 +139,8 @@ export type BuildThoughtInputOptions = {
   clock?: { nowMs: number; timeZone?: string; currentRowIds?: readonly string[] };
   /** Afterglow or AWAKE only: what this private pass is about. */
   innerPass?: ThoughtInnerPass;
+  /** 8d: a Domus pass's portrait (kept only for Owner-private audiences). */
+  domus?: import("../../domus/notification.js").DomusForThought;
   /** Growth V1 G4: mood, opinions, open revisions and expectations (kept only for Owner-private audiences). */
   growth?: import("../growth/growth.js").ThoughtGrowth;
   senses?: import("../senses/senses.js").ThoughtSenses;
@@ -1209,6 +1211,7 @@ export function buildThoughtInput(options: BuildThoughtInputOptions): ThoughtInp
     ...(episodes.length === 0 ? {} : { episodes }),
     ...(activityJournal.length === 0 ? {} : { activityJournal }),
     ...(options.innerPass && audience.kind === "owner_private" ? { innerPass: options.innerPass } : {}),
+    ...(options.domus && audience.kind === "owner_private" ? { domus: options.domus } : {}),
     ...(options.growth && audience.kind === "owner_private" ? { growth: options.growth } : {}),
     ...(options.senses && audience.kind === "owner_private" ? { senses: options.senses } : {}),
     ...(options.attention && audience.kind === "owner_private" ? { attention: options.attention } : {}),

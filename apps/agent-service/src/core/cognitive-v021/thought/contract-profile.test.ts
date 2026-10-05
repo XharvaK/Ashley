@@ -8,6 +8,7 @@ import { estimateRequestTokens } from "./projection-allocator/budget.js";
 import {
   AFTERGLOW_GUIDANCE,
   AWAKE_GUIDANCE,
+  DOMUS_GUIDANCE,
   FULL_THOUGHT_CONTRACT_PROFILE,
   GROWTH_GUIDANCE,
   JOURNAL_READING_GUIDANCE,
@@ -236,5 +237,52 @@ describe("the chat dispatch", () => {
     expect(prompt).toContain("`coreProfile` holds what matters most");
     expect(prompt).toMatch(/If none of them holds anything about Alex, I say I don't remember yet/);
     for (const retired of ["hot messages", "Memory context", "Reading claim license note"]) expect(prompt).not.toContain(retired);
+  });
+});
+
+describe("8d the Domus pass", () => {
+  const domusTurn: ThoughtContractProfileSource = { trigger: { kind: "domus_notification" }, capabilityReality: noCapabilities };
+  const portrait = { world: "slot0", asOfMs: 5, observationIds: ["helper.1"], portrait: { mood: "Happy" },
+    events: [{ observationId: "helper.1", atMs: 5, kind: "need", facts: { subject: "hunger", object: "low" } }] };
+
+  it("has its own profile: Domus guidance, private journal law, no other pass", () => {
+    const profile = thoughtContractProfile(domusTurn);
+    expect(thoughtContractProfileKey(profile)).toBe("domus+owner");
+    const text = thoughtOutputCompatibilityInstruction(profile);
+    expect(text).toContain(DOMUS_GUIDANCE);
+    expect(text).toContain(JOURNAL_SETTLE_GUIDANCE);
+    for (const absent of [AFTERGLOW_GUIDANCE, AWAKE_GUIDANCE, NIGHT_GUIDANCE]) expect(text).not.toContain(absent);
+    for (const source of [chat, pass("afterglow"), pass("awake"), pass("night"), { trigger: { kind: "future_trigger_due" } }]) {
+      expect(thoughtOutputCompatibilityInstruction(thoughtContractProfile(source))).not.toContain(DOMUS_GUIDANCE);
+    }
+    expect(thoughtOutputCompatibilityInstruction()).toContain(DOMUS_GUIDANCE);
+    const fields = settlementFields(profile);
+    expect(fields).toEqual(expect.arrayContaining(["journal", "durableNominations", "speech"]));
+    for (const field of ["reflection", "night", "forget"]) expect(fields).not.toContain(field);
+    expect(DOMUS_GUIDANCE).toContain("domus_observation");
+    expect(DOMUS_GUIDANCE).toMatch(/cannot act in the game/);
+  });
+
+  function allocateDomus(audience?: { kind: "room"; roomId: string }) {
+    const db = openTestSidecar();
+    const cycle = admitTestCycle(db, { conversationId: "dm:owner", triggerKind: "domus_notification", triggerRef: "domus-notification:helper.1", nowMs: 1 });
+    const input = buildThoughtInput({
+      sidecar: db, cycle, triggerText: "", domus: portrait,
+      constitution: { constitutional: ["truth first"], stableSelf: ["sharp"] },
+      capabilityReality: noCapabilities, learnedSelfSlice: { dispositions: [], interests: [] },
+      ...(audience ? { audience } : {}),
+    });
+    try { return { input, allocated: allocateThoughtProjection({ thoughtInput: input, requestId: "domus-request" }) }; }
+    finally { db.close(); }
+  }
+
+  it("carries the portrait to the model as given, Owner-private only", () => {
+    const { input, allocated } = allocateDomus();
+    expect(input.domus).toEqual(portrait);
+    expect(allocated.receipt.diagnostics?.thought_contract_profile).toBe("domus+owner");
+    expect(allocated.messages[0]!.content).toContain(DOMUS_GUIDANCE);
+    const user = JSON.parse(String(allocated.messages[1]!.content)) as { domus?: unknown };
+    expect(user.domus).toEqual(portrait);
+    expect(allocateDomus({ kind: "room", roomId: "room:1" }).input.domus).toBeUndefined();
   });
 });

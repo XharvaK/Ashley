@@ -1,4 +1,5 @@
 import { createSelfChangeResultMaintenance, type SelfChangeResultMaintenance } from "./core/cognitive-v021/growth/self-change-results.js";
+import { configureEmbodimentBudget } from "./core/domus/notification.js";
 import { createDomusIngressApp, decideDomusIngress } from "./core/domus/ingress.js";
 import type { AgentManager } from "./agent.js";
 import { AFTERGLOW_POLL_MS } from "./core/cognitive-v021/initiative/afterglow.js";
@@ -671,6 +672,14 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
         .catch((error) => console.warn("[cognitive-v021] inner life deferred", error))
         .finally(() => { innerRunning = false; });
     };
+    if (env.embodimentBudgetLimit > 0) {
+      try {
+        configureEmbodimentBudget(sidecar, { limit: env.embodimentBudgetLimit, version: env.embodimentBudgetVersion });
+      } catch (error) {
+        // A changed limit needs a higher version; until then Domus passes keep the current policy or stay off.
+        console.warn(`[domus] embodiment_budget_unconfigured code=${error instanceof Error ? error.message : "unknown"}`);
+      }
+    }
     selfChangeResultMaintenance = createSelfChangeResultMaintenance(sidecar, {
       directory: join(manager.dataPlane.dataDir, "self-change", "results"),
       conversationId: () => {

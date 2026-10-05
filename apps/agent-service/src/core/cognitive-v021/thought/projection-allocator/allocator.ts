@@ -736,6 +736,7 @@ export function allocateThoughtProjection(
       ...(input.wakeCauses === undefined ? {} : { wakeCauses: [...input.wakeCauses] }),
       ...(input.previousInvocationDelta === undefined ? {} : { previousInvocationDelta: input.previousInvocationDelta }),
       ...(input.innerPass === undefined ? {} : { innerPass: input.innerPass }),
+      ...(input.domus === undefined ? {} : { domus: input.domus }),
       observations: includeObservations ? boundedRequiredSectionData.observations : [],
       inFlight: projectedInFlight,
       effectBudget: input.effectBudget ?? {
@@ -1152,6 +1153,7 @@ export function allocateThoughtProjection(
     "activityJournal",
     "growth",
     "innerPass",
+    "domus",
     "pendingForget",
     "rawConversation",
     "deskEntries",

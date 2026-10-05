@@ -5,6 +5,7 @@ type Selection={triggerId?:string;commitmentId?:string};
 type Executor=(selected:SelectedPassExecution)=>Promise<unknown>;
 export type PassExecutors={afterglow:Executor;night:Executor;awake:Executor;
  selfChangeResult?:(changesetId:string,selected:SelectedPassExecution)=>Promise<unknown>;
+ domus?:(observationId:string,selected:SelectedPassExecution)=>Promise<unknown>;
  idle:(selection:Selection,selected:SelectedPassExecution)=>Promise<unknown>};
 /** Dispatch one selected pass. Coalesced timing proposals do not mature extra obligations. */
 export function runThalamusPass(db:DatabaseSync,options:Omit<TickOptions,"execute"> & {executors:PassExecutors;
@@ -15,6 +16,10 @@ export function runThalamusPass(db:DatabaseSync,options:Omit<TickOptions,"execut
   if(decision.passType==="afterglow")return options.executors.afterglow(selected);
   if(decision.passType==="night")return options.executors.night(selected);
   const first=decision.bundle[0]!;
+  if(first.source==="domus"){
+   if(!options.executors.domus)throw new Error("thalamus_domus_executor_required");
+   return options.executors.domus(first.eventId.slice(6),selected);
+  }
   if(first.source==="prospective"){
    if(first.eventId.startsWith("self-result:")){
     if(!options.executors.selfChangeResult)throw new Error("thalamus_self_change_executor_required");

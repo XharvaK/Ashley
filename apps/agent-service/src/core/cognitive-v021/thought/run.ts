@@ -1,4 +1,5 @@
 import { selfChangeResultForThought } from "../growth/self-change-results.js";
+import { domusChannelFor, domusForThought } from "../../domus/notification.js";
 import { readThoughtAttention } from "../thalamus/store.js";
 import { randomUUID } from "node:crypto";
 import { env } from "../../../env.js";
@@ -3328,6 +3329,8 @@ export async function runCognitiveCycle(
       cycle,
       triggerKindOverride: originProfile.triggerKind,
       ...(originProfile.triggerKind === "self_change_result" ? { selfChangeResult: selfChangeResultForThought(sidecar, event, originProfile.originCycleId) } : {}),
+      ...(originProfile.triggerKind === "domus_notification" && effectiveThoughtAudience.kind === "owner_private"
+        ? { domus: domusForThought(sidecar, event, originProfile.originCycleId) } : {}),
       triggerText: ownerMessage,
       triggerEvidence,
       ...(continuityRecovery ? { continuityRecovery } : {}),
@@ -4539,6 +4542,7 @@ export async function runCognitiveCycle(
               ? cycle.triggerKind === "future_trigger_due" ? "future_trigger" : "private"
               : null,
           nightPass: nightPass ?? null,
+          ...(originProfile.triggerKind === "domus_notification" ? domusChannelFor(sidecar, event, originProfile.originCycleId) : {}),
           senseBands,
         }
       : deps.origin!=="shadow" && externalCycle && settlement.attention?.wakeWorth
