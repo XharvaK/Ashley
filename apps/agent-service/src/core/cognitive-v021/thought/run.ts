@@ -1,5 +1,5 @@
 import { selfChangeResultForThought } from "../growth/self-change-results.js";
-import { domusChannelFor, domusForThought } from "../../domus/notification.js";
+import { domusActBindingFor, domusChannelFor, domusForThought } from "../../domus/notification.js";
 import { readThoughtAttention } from "../thalamus/store.js";
 import { randomUUID } from "node:crypto";
 import { env } from "../../../env.js";
@@ -1434,6 +1434,7 @@ function materializeSemanticSettlement(
     }));
   if (semantic.reflection) result.reflection = semantic.reflection;
   if (semantic.journal) result.journal = { ...semantic.journal };
+  if (semantic.domusAct) result.domusAct = { ...semantic.domusAct };
   if (semantic.interests) result.interests = semantic.interests.map((touch) => ({ ...touch }));
   (result as ThoughtSettlementDraft).sawSecret = sawSecret;
   if (semantic.growth) result.growth = structuredClone(semantic.growth);
@@ -3330,7 +3331,7 @@ export async function runCognitiveCycle(
       triggerKindOverride: originProfile.triggerKind,
       ...(originProfile.triggerKind === "self_change_result" ? { selfChangeResult: selfChangeResultForThought(sidecar, event, originProfile.originCycleId) } : {}),
       ...(originProfile.triggerKind === "domus_notification" && effectiveThoughtAudience.kind === "owner_private"
-        ? { domus: domusForThought(sidecar, event, originProfile.originCycleId) } : {}),
+        ? { domus: domusForThought(sidecar, event, originProfile.originCycleId, { enabled: env.domusActEnabled, nowMs: deps.nowMs() }) } : {}),
       triggerText: ownerMessage,
       triggerEvidence,
       ...(continuityRecovery ? { continuityRecovery } : {}),
@@ -4543,6 +4544,9 @@ export async function runCognitiveCycle(
               : null,
           nightPass: nightPass ?? null,
           ...(originProfile.triggerKind === "domus_notification" ? domusChannelFor(sidecar, event, originProfile.originCycleId) : {}),
+          ...(originProfile.triggerKind === "domus_notification" && env.domusActEnabled
+            ? (() => { const binding = domusActBindingFor(sidecar, event, originProfile.originCycleId); return binding ? { domusAct: binding } : {}; })()
+            : {}),
           senseBands,
         }
       : deps.origin!=="shadow" && externalCycle && settlement.attention?.wakeWorth

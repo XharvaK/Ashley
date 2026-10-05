@@ -8,6 +8,7 @@ import { recordSenseDeclines, type SenseClaim, type SenseName } from "../senses/
 import { recordGrowth, type IdentityStore } from "../growth/growth.js";
 import type { GrowthClaim } from "../growth/claim.js";
 import { recordNight, type NightClaim } from "../growth/night.js";
+import { recordDomusAct, type DomusActBinding, type DomusActClaim } from "../../domus/acts.js";
 
 /**
  * R13: a settlement's inner-life aftermath (its journal entry, interest
@@ -26,6 +27,8 @@ export type AftermathContext = {
   passKind: JournalPassKind | null;
   /** 8d: a Domus pass journals on its world's channel. */
   channel?: `domus:${string}`;
+  /** 8f: acting was on and these were the options she read; her domusAct is resolved against them. */
+  domusAct?: DomusActBinding;
   nightPass: NightPass | null;
   senseBands?: Partial<Record<SenseName, string>>;
 };
@@ -44,6 +47,7 @@ type StoredSettlement = {
   redacted?: unknown;
   interests?: InterestTouch[];
   journal?: JournalClaim;
+  domusAct?: DomusActClaim;
   growth?: GrowthClaim;
   senses?: SenseClaim;
   attention?: AttentionClaim;
@@ -122,6 +126,9 @@ export function recordSettlementAftermath(
         dataClassification,
         nowMs: options.nowMs,
       });
+    }
+    if (standing && context.domusAct && settlement.domusAct) {
+      recordDomusAct(db, { binding: context.domusAct, claim: settlement.domusAct, cycleId, nowMs: options.nowMs });
     }
     if (standing && settlement.senses) recordSenseDeclines(db, settlement.senses, { nowMs: Number(pending.created_at_ms), conversationId: context.conversationId, dataDir: options.dataDir, dataClassification }, context.senseBands);
     if (standing && settlement.attention && options.identityStore?.ownerId) recordPublishedAttention(db,settlementId,options.identityStore.ownerId,options.nowMs);

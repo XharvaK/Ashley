@@ -5,7 +5,8 @@
  * v=1, observation_id (1..128 [A-Za-z0-9._:-]), world/branch/session/attachment/body/snapshot
  * (strings, 1..64), seq/source_time_ms/expires_at_ms (safe non-negative integers),
  * lineage_class (1..32 [A-Z_]), percepts (1..32 of {kind: 1..32 [a-z0-9_], salience: finite 0..1,
- * facts: object <= 2048 UTF-8 bytes of JSON.stringify}), optional portrait (object <= 8192 bytes).
+ * facts: object <= 2048 UTF-8 bytes of JSON.stringify}), optional portrait (object <= 8192 bytes),
+ * optional options (8f: array of up to 32 objects, <= 8192 bytes; what she may choose to do).
  * Unknown top-level keys, unknown percept keys, expires_at_ms <= source_time_ms, or a window
  * over 600000 ms are 400 {error:"invalid_body"}. source_time_ms > now+120000 is 400
  * {error:"clock_skew"}. now > expires_at_ms is 410 {error:"expired"}.
@@ -23,6 +24,12 @@
  * {error:"invalid_body"}. The response is 200 {status:"ok", observations, supports,
  * assertions, episodes, journal}.
  *
+ * POST /domus/acts/sync (8f) accepts only v=1, helper_session (1..64) and events (0..64 of {act_id
+ * 1..64 [A-Za-z0-9], phase one of received|accepted|rejected|pushed|finished|unknown|expired,
+ * at_ms safe integer, optional detail object <= 1024 bytes}). Events for acts of another attachment
+ * are ignored. The response is 200 {status:"ok", applied, acts:[{act_id, object_id, guid64,
+ * expires_at_ms}]}: her requested acts for this helper session that have not expired.
+ *
  * Auth header X-Domus-Token. Missing, wrong, or equal to the Discord bot token is 401
  * {error:"unauthorized"}. Any other path is 404 {error:"not_found"}. JSON bodies over
  * 64 KiB are 413 {error:"payload_too_large"}. This listener does not append inbox rows.
@@ -32,6 +39,7 @@ import express from "express";
 import type { DatabaseSync } from "node:sqlite";
 import { markDomusSpanUndone } from "../cognitive-v021/memory/undo.js";
 import { admitObservation, canonicalJson, observationDigest, upsertHeartbeat } from "./store.js";
+import { isDomusActPhase, syncDomusActs, type DomusActEvent } from "./acts.js";
 
 const BODY_LIMIT = 64 * 1024;
 const MAX_WINDOW_MS = 600_000;
@@ -89,7 +97,7 @@ function jsonObject(value: unknown, maxBytes: number): Record<string, unknown> {
 
 const OBSERVATION_KEYS = new Set([
   "v", "observation_id", "world", "branch", "session", "attachment", "body", "snapshot",
-  "seq", "source_time_ms", "expires_at_ms", "lineage_class", "percepts", "portrait",
+  "seq", "source_time_ms", "expires_at_ms", "lineage_class", "percepts", "portrait", "options",
 ]);
 
 export function parseObservation(body: unknown, now: number): {
@@ -127,6 +135,11 @@ export function parseObservation(body: unknown, now: number): {
     seq, source_time_ms: sourceTimeMs, expires_at_ms: expiresAtMs, lineage_class: lineageClass, percepts,
   };
   if ("portrait" in body) normalized.portrait = jsonObject(body.portrait, 8192);
+  if ("options" in body) {
+    if (!Array.isArray(body.options) || body.options.length > 32 || !body.options.every(isRecord)
+      || Buffer.byteLength(JSON.stringify(body.options), "utf8") > 8192) fail(400, "invalid_body");
+    normalized.options = body.options;
+  }
   if (expiresAtMs <= sourceTimeMs || expiresAtMs - sourceTimeMs > MAX_WINDOW_MS) fail(400, "invalid_body");
   if (sourceTimeMs > now + MAX_SKEW_MS) fail(400, "clock_skew");
   if (now > expiresAtMs) fail(410, "expired");
@@ -150,6 +163,27 @@ export function parseUndo(body: unknown): { world: string; branch: string; sessi
     afterSourceTimeMs: safeInt(body.after_source_time_ms),
     reason: text(body.reason, 1, 32, /^[A-Z_]+$/),
   };
+}
+
+const SYNC_KEYS = new Set(["v", "helper_session", "events"]);
+const SYNC_EVENT_KEYS = new Set(["act_id", "phase", "at_ms", "detail"]);
+
+export function parseActSync(body: unknown): { helperSession: string; events: DomusActEvent[] } {
+  if (!isRecord(body)) fail(400, "invalid_body");
+  for (const key of Object.keys(body)) if (!SYNC_KEYS.has(key)) fail(400, "invalid_body");
+  if (body.v !== 1 || !Array.isArray(body.events) || body.events.length > 64) fail(400, "invalid_body");
+  const events = body.events.map((item): DomusActEvent => {
+    if (!isRecord(item)) fail(400, "invalid_body");
+    for (const key of Object.keys(item)) if (!SYNC_EVENT_KEYS.has(key)) fail(400, "invalid_body");
+    if (!isDomusActPhase(item.phase)) fail(400, "invalid_body");
+    return {
+      actId: text(item.act_id, 1, 64, /^[A-Za-z0-9]+$/),
+      phase: item.phase,
+      atMs: safeInt(item.at_ms),
+      ...("detail" in item ? { detail: jsonObject(item.detail, 1024) } : {}),
+    };
+  });
+  return { helperSession: text(body.helper_session, 1, 64), events };
 }
 
 const HEARTBEAT_KEYS = new Set(["v", "helper_session", "sent_at_ms", "attached", "world", "probe_version"]);
@@ -245,6 +279,20 @@ export function createDomusIngressApp(input: {
         json: canonicalJson(parsed),
       });
       res.status(200).json({ status: "ok" });
+    } catch (error) {
+      const http = error as HttpError;
+      if (http.status && http.code) {
+        res.status(http.status).json({ error: http.code });
+        return;
+      }
+      throw error;
+    }
+  });
+  app.post("/domus/acts/sync", (req, res) => {
+    try {
+      const parsed = parseActSync(req.body);
+      const result = syncDomusActs(input.db, { helperSession: parsed.helperSession, events: parsed.events, nowMs: input.now() });
+      res.status(200).json({ status: "ok", applied: result.applied, acts: result.acts });
     } catch (error) {
       const http = error as HttpError;
       if (http.status && http.code) {

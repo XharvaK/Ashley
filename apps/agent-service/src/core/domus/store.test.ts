@@ -12,8 +12,8 @@ it("applies v60 idempotently on a v59 database that already has rows", () => {
     const growth = db.prepare("SELECT * FROM growth_dimensions").all();
     setTestSidecarVersion(db, 59);
     openCognitiveSidecarDb(db, { dataPlane: { kind: "isolated" } });
-    expect(COGNITIVE_SIDECAR_SCHEMA_VERSION).toBe(61);
-    expect((db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(61);
+    expect(COGNITIVE_SIDECAR_SCHEMA_VERSION).toBe(62);
+    expect((db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(62);
     expect(db.prepare("SELECT * FROM growth_dimensions").all()).toEqual(growth);
     expect(db.prepare("SELECT COUNT(*) AS n FROM domus_observations").get()).toEqual({ n: 0 });
     db.prepare(`INSERT INTO domus_observations (
@@ -28,7 +28,7 @@ it("applies v60 idempotently on a v59 database that already has rows", () => {
     db.exec("PRAGMA user_version = 59");
     openCognitiveSidecarDb(db, { dataPlane: { kind: "isolated" } });
     expect(db.prepare("SELECT observation_id FROM domus_observations").all()).toEqual([{ observation_id: "obs" }]);
-    expect((db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(61);
+    expect((db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(62);
     expect(db.prepare("SELECT COUNT(*) AS n FROM inbox_events").get()).toEqual({ n: 0 });
   } finally {
     db.close();

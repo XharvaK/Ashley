@@ -64,6 +64,7 @@ describe("memory nomination guidance example", () => {
       ownerPrivate: true,
       engineering: false,
       publicPresence: false,
+      domusAct: false,
     });
     expect(chat).toContain("durableNominations is never omitted");
     expect(chat).toContain("durableNominations is not an optional domain");

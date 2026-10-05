@@ -29,7 +29,7 @@ export type { SourceSupportRef } from "./evidence/interpretation-envelope.js";
 export const ARCHITECTURE_EPOCH = "v0.2.1" as const;
 export const IMPLEMENTATION_SPEC_VERSION = "0.2.1.r6" as const;
 export const THOUGHT_CONTRACT_VERSION = 2 as const;
-export const COGNITIVE_SIDECAR_SCHEMA_VERSION = 61 as const;
+export const COGNITIVE_SIDECAR_SCHEMA_VERSION = 62 as const;
 
 /**
  * Hard bound on cognition-facing concern discovery windows and pages. The
@@ -1049,6 +1049,8 @@ export type SettlementSemanticOutput = {
   reflection?: import("./initiative/inner-pass.js").AfterglowReflection;
   /** Private passes: Ashley's own journal entry for this pass. */
   journal?: import("./initiative/journal.js").JournalClaim;
+  /** 8f Domus passes: one listed game action she chooses (Host-resolved; carries no execution authority). */
+  domusAct?: import("../domus/acts.js").DomusActClaim;
   /** Interests Ashley lived in this turn or pass (Owner-private). */
   interests?: readonly import("./memory/interests.js").InterestTouch[];
   /** Growth V1 G4: appraisal, expectations, revisions (Owner-private). */
@@ -1333,6 +1335,8 @@ export type ThoughtSettlementDraft = {
   reflection?: import("./initiative/inner-pass.js").AfterglowReflection;
   /** Private passes: stored by the Host after publication (initiative/journal.ts). */
   journal?: import("./initiative/journal.js").JournalClaim;
+  /** 8f: stored by the Host after publication as a requested act (domus/acts.ts). */
+  domusAct?: import("../domus/acts.js").DomusActClaim;
   /** Stored by the Host after publication (memory/interests.ts). */
   interests?: import("./memory/interests.js").InterestTouch[];
   /** Stored by the Host after publication (growth/growth.ts). */

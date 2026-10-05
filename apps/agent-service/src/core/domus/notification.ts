@@ -5,6 +5,7 @@ import { appendInboxEventInTransaction, getCycle, getInboxEvent } from "../cogni
 import { configureBudgetPolicy, resolveBudgetPolicy, PRIVATE_THOUGHT_CLOCK_DISCONTINUITY_MS } from "../cognitive-v021/private-budget/policies.js";
 import { getPrivateBudgetProjection, getPrivateReservationForWake, reservePrivateThought } from "../cognitive-v021/private-budget/ledger.js";
 import type { DomusPending } from "../cognitive-v021/thalamus/nuclei/domus.js";
+import { domusActBinding, domusOptionsFor, recentDomusActs, type DomusActBinding, type DomusOptionObject, type DomusRecentAct } from "./acts.js";
 
 export const EMBODIMENT_POLICY_ID = "ashley.embodiment.v1";
 export const EMBODIMENT_WINDOW_MS = 60 * 60 * 1000;
@@ -22,6 +23,10 @@ export type DomusForThought = {
   portrait?: Record<string, unknown>;
   events: DomusEvent[];
   omittedEvents?: number;
+  /** 8f: what she may choose to do now (refs to name in domusAct), when acting is on. */
+  options?: DomusOptionObject[];
+  /** 8f: her own recent acts in this world and the latest thing known about each. */
+  acts?: DomusRecentAct[];
 };
 
 type Row = Record<string, unknown>;
@@ -157,8 +162,14 @@ export function domusChannelFor(db: DatabaseSync, event: { id: string; conversat
   try { return { channel: `domus:${boundNotification(db, event, originCycleId).world}` }; } catch { return {}; }
 }
 
+/** 8f: the row whose options a Domus pass may choose from (none when acting is off or nothing was offered). */
+export function domusActBindingFor(db: DatabaseSync, event: { id: string; conversationId: string }, originCycleId?: string): DomusActBinding | undefined {
+  try { return domusActBinding(db, boundNotification(db, event, originCycleId)); } catch { return undefined; }
+}
+
 /** Re-read the bound inbox event and the durable rows; never project the caller's payload. Undone rows are left out. */
-export function domusForThought(db: DatabaseSync, event: { id: string; conversationId: string }, originCycleId?: string): DomusForThought {
+export function domusForThought(db: DatabaseSync, event: { id: string; conversationId: string }, originCycleId?: string,
+  acting: { enabled: boolean; nowMs: number } = { enabled: false, nowMs: 0 }): DomusForThought {
   const bound = boundNotification(db, event, originCycleId);
   const read = db.prepare(`SELECT observation_id, world, source_time_ms, payload_json FROM domus_observations
     WHERE observation_id = ? AND admission_state = 'admitted' AND undone_at_ms IS NULL`);
@@ -182,6 +193,8 @@ export function domusForThought(db: DatabaseSync, event: { id: string; conversat
       if (value && typeof value === "object" && !Array.isArray(value)) portrait = value as Record<string, unknown>;
     } catch { /* a row without a readable portrait offers none */ }
   }
+  const options = acting.enabled ? domusOptionsFor(db, domusActBinding(db, bound)) : [];
+  const acts = acting.enabled ? recentDomusActs(db, bound.world, acting.nowMs) : [];
   return {
     world: bound.world,
     asOfMs: rows.length ? Math.max(...rows.map(row => Number(row.source_time_ms))) : 0,
@@ -189,5 +202,7 @@ export function domusForThought(db: DatabaseSync, event: { id: string; conversat
     ...(portrait ? { portrait } : {}),
     events,
     ...(all.length > events.length ? { omittedEvents: all.length - events.length } : {}),
+    ...(options.length ? { options } : {}),
+    ...(acts.length ? { acts } : {}),
   };
 }

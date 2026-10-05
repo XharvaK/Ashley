@@ -260,7 +260,10 @@ describe("8d the Domus pass", () => {
     expect(fields).toEqual(expect.arrayContaining(["journal", "durableNominations", "speech"]));
     for (const field of ["reflection", "night", "forget"]) expect(fields).not.toContain(field);
     expect(DOMUS_GUIDANCE).toContain("domus_observation");
-    expect(DOMUS_GUIDANCE).toMatch(/cannot act in the game/);
+    expect(DOMUS_GUIDANCE).toMatch(/a world to live in and discover, not a list of needs/);
+    expect(DOMUS_GUIDANCE).not.toMatch(/cannot act/);
+    expect(thoughtOutputCompatibilityInstruction(profile)).toMatch(/You cannot act in the game/);
+    expect(fields).not.toContain("domusAct");
   });
 
   function allocateDomus(audience?: { kind: "room"; roomId: string }) {

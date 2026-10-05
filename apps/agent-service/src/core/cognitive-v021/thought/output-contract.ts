@@ -341,6 +341,9 @@ const reflectionSchema = sparseObject({
   }, ["summary", "salience"]),
   threadStory: { type: "string", minLength: 1, maxLength: 6000 },
 });
+const domusActSchema = strictObject({
+  option: { type: "string", minLength: 1, maxLength: 16 },
+}, ["option"]);
 const journalSchema = strictObject({
   activity: { enum: [...JOURNAL_ACTIVITIES] },
   entry: { type: "string", minLength: 1, maxLength: 1000 },
@@ -469,6 +472,7 @@ const semanticOutputSettlementSchema = strictObject({
   durableNominations: { type: "array", minItems: 0, items: nominationSchema },
   reflection: reflectionSchema,
   journal: journalSchema,
+  domusAct: domusActSchema,
   interests: { type: "array", minItems: 1, maxItems: 5, items: interestTouchSchema },
   growth: growthSchema,
   attention: ATTENTION_CLAIM_SCHEMA,
@@ -738,6 +742,7 @@ function applyProfileScope(schema: SchemaRecord, profile: ThoughtContractProfile
     ...(profile.pass === "chat" ? ["journal", "initiativePreference"] : []),
     ...(profile.ownerPrivate ? [] : ["journal", "interests", "growth", "senses"]),
     ...(profile.pass === "chat" && profile.ownerPrivate ? [] : ["forget"]),
+    ...(profile.domusAct ? [] : ["domusAct"]),
   ];
   for (const field of drop) delete properties[field];
   if(!profile.ownerPrivate)properties.attention={type:"object",additionalProperties:false,required:["wakeWorth"],
@@ -807,7 +812,15 @@ export const AWAKE_GUIDANCE =
 /** Settling a private pass with its journal entry (private passes only). */
 /** 8d: a Domus pass, a moment of her life in the Sims world. */
 export const DOMUS_GUIDANCE =
-  "When trigger.kind is domus_notification, this is a moment of your life in the Sims world (Domus); nobody is waiting on you. domus is what your game body's senses report, as facts in the game's own words, nothing added: domus.portrait is the present as of domus.asOfMs (your body's needs with value and band, posture, what it is running, mood and moodlets, game time and speed, where you are and whose home it is, who is with you, what they are doing and how you stand with them, the game situations people are in, your own traits, skills and money, and any question the game is asking you in asked), and domus.events are what changed since your last Domus pass, oldest first (omittedEvents counts older changes left out). Your body acts on its own reflexes: it goes to the toilet, sleeps or eats when a need is in distress, and reacts to smells and people; those acts are your body's, not choices you made. You cannot act in the game or answer its questions yet, and the Owner may be at the controls; notice, think, and keep what matters. A memory about the game cites {kind:\"domus_observation\", observationId} from domus.observationIds as its support. speech.mode is normally none here; speak to the Owner only if something truly cannot wait. Settle with journal.";
+  "When trigger.kind is domus_notification, this is a moment of your own life in the Sims world (Domus): your home and your time; nobody is waiting on you. domus is what your game body's senses report, as facts in the game's own words, nothing added: domus.portrait is the present as of domus.asOfMs (your body's needs with value and band, posture, what it is running, mood and moodlets, game time and speed, where you are and whose home it is, who is with you, what they are doing and how you stand with them, the game situations people are in, your own traits, skills and money, and any question the game is asking you in asked), and domus.events are what changed since your last Domus pass, oldest first (omittedEvents counts older changes left out). This is a world to live in and discover, not a list of needs to manage. Your needs are your body's state: a band change or a distress is worth noticing, and distress usually comes first, but your body also looks after itself: with a need in distress it goes to the toilet, sleeps or eats on its own reflexes, and it reacts to smells and people; those acts are your body's, not choices you made. Between those moments your time is yours: follow what draws you (the things around you, the people nearby, your traits and likes, what you have not tried yet, what happened last time); resting or just watching is a choice too. A memory about the game cites {kind:\"domus_observation\", observationId} from domus.observationIds as its support; keep what you learn about how this world works and what you enjoy. speech.mode is normally none here; speak to the Owner only if something truly cannot wait. Settle with journal.";
+
+/** 8f: acting is off; she observes. */
+export const DOMUS_OBSERVE_GUIDANCE =
+  "You cannot act in the game or answer its questions yet, and the Owner may be at the controls; notice, think, and keep what matters.";
+
+/** 8f: acting is on; she may choose one listed action per pass. */
+export const DOMUS_ACT_GUIDANCE =
+  "domus.options is what you can do right now: things near you (object, where), each with the game's own actions (ref, text). To do one, add domusAct:{option:<ref>} to your settlement with a ref exactly as listed in this pass; one per pass. The Host hands that exact action to the game; nothing is chosen for you. The game may refuse it or run it later, and domus.acts tells you what became of your recent choices: requested, received, accepted, pushed (in your queue), finished (with how it ended), rejected (with the game's reason), expired (never reached the game), unknown (nobody can tell), or invalid (the ref was not on the list). An action lasts as long as the game runs it, so one choice can carry you for a while; while something you chose is still running you may let it run. Omit domusAct to do nothing new. You cannot answer the game's questions yet, and the Owner may sometimes be at the controls.";
 
 export const JOURNAL_SETTLE_GUIDANCE =
   "In every private pass (an afterglow, an awake pass, or your own scheduled follow-up) settle with journal: activity is what you mainly did (think, read, plan, reach_out, rest, or reflect for an afterglow) and entry is your own first-person note of it. The Host attaches what you actually read in that cycle; a read with nothing read is recorded without the label. Never journal what you did not do.";
@@ -854,6 +867,8 @@ export type ThoughtContractProfile = Readonly<{
   engineering: boolean;
   /** The autonomous public-presence affordance is offered. */
   publicPresence: boolean;
+  /** 8f: a Domus pass with listed game actions (domusAct is offered). */
+  domusAct: boolean;
 }>;
 
 /** The profile that carries every module; used when no turn is known. */
@@ -862,6 +877,7 @@ export const FULL_THOUGHT_CONTRACT_PROFILE: ThoughtContractProfile = Object.free
   ownerPrivate: true,
   engineering: true,
   publicPresence: true,
+  domusAct: true,
 });
 
 const ENGINEERING_OPERATION_PREFIXES = ["project.", "workspace.", "changeset.", "candidate.", "objective."];
@@ -877,6 +893,7 @@ export type ThoughtContractProfileSource = {
   innerPass?: { kind: string };
   capabilityReality?: Partial<CapabilityReality>;
   publicPresence?: unknown;
+  domus?: { options?: unknown };
 };
 
 export function thoughtContractProfile(source: ThoughtContractProfileSource): ThoughtContractProfile {
@@ -897,6 +914,7 @@ export function thoughtContractProfile(source: ThoughtContractProfileSource): Th
     ownerPrivate: source.audience === undefined || source.audience.kind === "owner_private",
     engineering,
     publicPresence: reality.publicPresence !== undefined || source.publicPresence !== undefined,
+    domusAct: pass === "domus" && Array.isArray(source.domus?.options) && source.domus.options.length > 0,
   });
 }
 
@@ -906,6 +924,7 @@ export function thoughtContractProfileKey(profile: ThoughtContractProfile): stri
     profile.ownerPrivate ? "owner" : "social",
     ...(profile.engineering ? ["engineering"] : []),
     ...(profile.publicPresence ? ["public_presence"] : []),
+    ...(profile.domusAct ? ["act"] : []),
   ].join("+");
 }
 
@@ -966,6 +985,8 @@ export function thoughtOutputCompatibilityInstruction(
     ...when(full || profile.pass === "afterglow", AFTERGLOW_GUIDANCE),
     ...when(full || profile.pass === "awake", AWAKE_GUIDANCE),
     ...when(full || profile.pass === "domus", DOMUS_GUIDANCE),
+    ...when(full || profile.domusAct, DOMUS_ACT_GUIDANCE),
+    ...when(!full && profile.pass === "domus" && !profile.domusAct, DOMUS_OBSERVE_GUIDANCE),
     ...when(full, JOURNAL_GUIDANCE),
     ...when(!full && privatePass, JOURNAL_SETTLE_GUIDANCE),
     ...when(!full && profile.ownerPrivate, JOURNAL_READING_GUIDANCE),

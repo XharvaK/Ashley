@@ -144,6 +144,8 @@ function createEnv() {
   /** 8d E3-B1: Domus passes per rolling hour, set by the Owner. 0 (unset) leaves the embodiment budget unconfigured. */
   embodimentBudgetLimit: numericEnv("ASHLEY_EMBODIMENT_BUDGET_LIMIT", 0, 0, 3600, true),
   embodimentBudgetVersion: numericEnv("ASHLEY_EMBODIMENT_BUDGET_VERSION", 1, 1, 1_000_000, true),
+  /** 8f embodiment_actuation: Domus passes may choose one listed game action. Default off; the Owner turns it on. */
+  domusActEnabled: process.env.ASHLEY_DOMUS_ACT_ENABLED?.trim().toLowerCase() === "true",
   agentBindHost: process.env.AGENT_BIND_HOST ?? "127.0.0.1",
   nodeEnv: process.env.NODE_ENV ?? "development",
   personaEvalMode: process.env.PERSONA_EVAL_MODE === "true",

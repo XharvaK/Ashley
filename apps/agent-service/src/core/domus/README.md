@@ -83,3 +83,10 @@ Budget `ashley.embodiment.v1`, one rolling hour, limit from `ASHLEY_EMBODIMENT_B
 When selected, one transaction appends inbox `domus_notification` (`domus-notification:<newest id>`), binds the thalamus decision, marks the included rows `admitted` and older stored rows of that attachment `dropped`; then the wake reserves the embodiment budget (a missed reservation is retried, the rows are never admitted twice). Disarming stops new passes; admitted work finishes and is not refunded.
 
 Thought gets `domus` (Owner-private only), rebuilt from the rows, never from the inbox payload: `world`, `asOfMs`, `observationIds`, `portrait` (the newest row's helper portrait), `events` (the percepts in time order within 4 KiB, newest kept, `omittedEvents` counts the rest). Undone rows are left out. The contract profile is `domus`, and the pass journals on `domus:<world>`.
+
+## Acting in the game (8f)
+
+With `ASHLEY_DOMUS_ACT_ENABLED=true` a Domus pass whose newest observation carries `options` (what the helper lists near her body, with the game's own action names) offers `domusAct: {option}` in her settlement. The Host resolves the ref against that stored row only; a ref not on the list is kept as `invalid`, never matched or guessed. The aftermath keeps one requested act per cycle in `domus_acts`.
+
+The helper pulls requested acts for its own session with `POST /domus/acts/sync` and reports what happened as append-only `domus_act_events`: received, accepted, rejected, pushed, finished, unknown, expired. States move forward only; a terminal state is never overwritten, and a late event is still kept. A requested act not picked up within 90 s expires and never reaches the game. Her next Domus pass reads her recent acts and their latest state in `domus.acts`.
+

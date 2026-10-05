@@ -66,7 +66,7 @@ describe("A5b bounded branch proposals", () => {
   it("upgrades v51 without manufacturing proposals or receipts", () => {
     const db = openTestSidecar(); try {
       setTestSidecarVersion(db, 51); openCognitiveSidecarDb(db, { dataPlane: { kind: "isolated" } });
-      expect(db.prepare("PRAGMA user_version").get()).toEqual({ user_version: 61 });
+      expect(db.prepare("PRAGMA user_version").get()).toEqual({ user_version: 62 });
       expect(db.prepare("SELECT * FROM learned_influences").all()).toEqual([]);
       expect(db.prepare("SELECT * FROM interest_touches").all()).toEqual([]);
     } finally { db.close(); }

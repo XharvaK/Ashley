@@ -2191,3 +2191,33 @@ ALTER TABLE activity_journal ADD COLUMN lineage_class TEXT NOT NULL DEFAULT 'cur
 ALTER TABLE domus_observations ADD COLUMN undone_at_ms INTEGER;
 UPDATE cognitive_sidecar_meta SET schema_version=61 WHERE id=1;
 `;
+
+/** 8f: her acts in the Sims world (requested by her Thought, carried by the helper) and their append-only events. */
+export const COGNITIVE_SIDECAR_SCHEMA_V62 = String.raw`
+CREATE TABLE IF NOT EXISTS domus_acts (
+  act_id TEXT PRIMARY KEY,
+  cycle_id TEXT NOT NULL UNIQUE,
+  world TEXT NOT NULL,
+  attachment TEXT NOT NULL,
+  observation_id TEXT NOT NULL,
+  option_ref TEXT NOT NULL,
+  object_id TEXT,
+  guid64 TEXT,
+  label TEXT NOT NULL,
+  state TEXT NOT NULL CHECK (state IN ('requested','invalid','received','accepted','rejected','pushed','finished','unknown','expired')),
+  requested_at_ms INTEGER NOT NULL,
+  expires_at_ms INTEGER NOT NULL,
+  updated_at_ms INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_domus_acts_attachment_state ON domus_acts(attachment, state);
+CREATE INDEX IF NOT EXISTS idx_domus_acts_world_requested ON domus_acts(world, requested_at_ms);
+CREATE TABLE IF NOT EXISTS domus_act_events (
+  act_id TEXT NOT NULL REFERENCES domus_acts(act_id),
+  phase TEXT NOT NULL CHECK (phase IN ('received','accepted','rejected','pushed','finished','unknown','expired')),
+  at_ms INTEGER NOT NULL,
+  received_at_ms INTEGER NOT NULL,
+  detail_json TEXT NOT NULL,
+  PRIMARY KEY (act_id, phase)
+);
+UPDATE cognitive_sidecar_meta SET schema_version=62 WHERE id=1;
+`;
