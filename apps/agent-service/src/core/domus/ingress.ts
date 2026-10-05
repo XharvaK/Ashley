@@ -30,6 +30,9 @@
  * are ignored. The response is 200 {status:"ok", applied, acts:[{act_id, object_id, guid64,
  * expires_at_ms}]}: her requested acts for this helper session that have not expired.
  *
+ * A newly admitted observation (202) calls onAdmitted, so the host can evaluate it now; a
+ * duplicate, a conflict or a rejected body does not.
+ *
  * Auth header X-Domus-Token. Missing, wrong, or equal to the Discord bot token is 401
  * {error:"unauthorized"}. Any other path is 404 {error:"not_found"}. JSON bodies over
  * 64 KiB are 413 {error:"payload_too_large"}. This listener does not append inbox rows.
@@ -208,6 +211,7 @@ export function createDomusIngressApp(input: {
   token: string;
   botToken: string;
   now: () => number;
+  onAdmitted?: () => void;
 }): express.Express {
   const app = express();
   app.use(express.json({ limit: BODY_LIMIT }));
@@ -260,6 +264,9 @@ export function createDomusIngressApp(input: {
         observation_id: parsed.observationId,
         receipt_time_ms: result.receiptTimeMs,
       });
+      if (result.status === "admitted" && input.onAdmitted) {
+        try { input.onAdmitted(); } catch { /* the minute poll still evaluates it */ }
+      }
     } catch (error) {
       const http = error as HttpError;
       if (http.status && http.code) {

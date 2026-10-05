@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { SHARED_DB_BUSY_TIMEOUT_MS, sqliteResultCode, waitForLocks } from "./sqlite-locks.js";
 import { openNuclearDb } from "./db.js";
 import { openContinuityDb } from "./continuity/db.js";
-import { openCognitiveSidecarDb } from "./cognitive-v021/sidecar/db.js";
+import { openTestSidecar } from "./cognitive-v021/test-support.js";
 import { readUserVersion } from "../scripts/backup-lib.js";
 import { vacuumInto } from "./continuity/backup-package.js";
 import { backupFailureCode } from "../scripts/backup-daily.js";
@@ -66,7 +66,7 @@ describe("shared SQLite between the live service and the backup", () => {
   it("every live opener waits on locks", () => {
     const continuity = openContinuityDb(new DatabaseSync(":memory:"));
     const nuclear = openNuclearDb(new DatabaseSync(":memory:"), { continuity });
-    const sidecar = openCognitiveSidecarDb(new DatabaseSync(":memory:"), {});
+    const sidecar = openTestSidecar();
     try {
       for (const db of [continuity, nuclear, sidecar]) {
         expect(db.prepare("PRAGMA busy_timeout").get()).toEqual({ timeout: SHARED_DB_BUSY_TIMEOUT_MS });

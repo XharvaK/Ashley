@@ -48,13 +48,14 @@ describe("domus ingress", () => {
     while (closers.length) await closers.pop()?.();
   });
 
-  async function start() {
+  async function start(onAdmitted?: () => void) {
     const db = openTestSidecar();
     const app = createDomusIngressApp({
       db,
       token: TOKEN,
       botToken: BOT,
       now: () => NOW,
+      ...(onAdmitted ? { onAdmitted } : {}),
     });
     const started = await listen(app);
     closers.push(async () => {
@@ -124,6 +125,17 @@ describe("domus ingress", () => {
     expect(response.status).toBe(202);
     expect(await response.json()).toEqual({ status: "admitted", observation_id: "obs-1", receipt_time_ms: NOW });
     expect(db.prepare("SELECT COUNT(*) AS n FROM domus_observations").get()).toEqual({ n: 1 });
+  });
+
+  it("asks for an evaluation only when an observation is newly admitted", async () => {
+    let calls = 0;
+    const { base } = await start(() => { calls++; });
+    expect((await post(base, "/domus/observation", observation(), TOKEN)).status).toBe(202);
+    expect((await post(base, "/domus/observation", observation(), TOKEN)).status).toBe(200);
+    expect((await post(base, "/domus/observation", { ...observation(), v: 2 }, TOKEN)).status).toBe(400);
+    expect(calls).toBe(1);
+    const { base: failing } = await start(() => { throw new Error("busy"); });
+    expect((await post(failing, "/domus/observation", observation(), TOKEN)).status).toBe(202);
   });
 
   it("returns the original receipt for a duplicate digest", async () => {

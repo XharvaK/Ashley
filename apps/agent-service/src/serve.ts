@@ -241,6 +241,8 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
   };
   let observabilityDb: DatabaseSync | null = null;
   let domusServer: ShutdownServer | null = null;
+  // 8f latency: a newly admitted Domus observation asks for a thalamus pass now, not at the next minute.
+  let onDomusArrival = (): void => {};
   let projectSystemNotice: ((noticeId: number) => Promise<void>) | undefined;
   try {
     await manager.init();
@@ -636,12 +638,15 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
     // runs only when there is nothing left to reflect on.
     let innerRunning = false;
     let innerLastPollMs = 0;
+    let innerArrival = false;
     const pollInnerLife = (nowMs: number): void => {
       const awakeEnabled = isPeriodicCognitionEnabled();
       const thalamusEnabled=isThalamusEnabled();
       if ((!thalamusEnabled && !env.afterglowEnabled && !awakeEnabled) || innerRunning || manager.isPaused()) return;
-      if (nowMs - innerLastPollMs < (thalamusEnabled?THALAMUS_PARAMETERS.schedulerPollMs.default:AFTERGLOW_POLL_MS)) return;
+      const arrival = thalamusEnabled && innerArrival;
+      if (!arrival && nowMs - innerLastPollMs < (thalamusEnabled?THALAMUS_PARAMETERS.schedulerPollMs.default:AFTERGLOW_POLL_MS)) return;
       innerRunning = true;
+      innerArrival = false;
       innerLastPollMs = nowMs;
       void (async () => {
         if(thalamusEnabled){
@@ -670,7 +675,15 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
         }
       })()
         .catch((error) => console.warn("[cognitive-v021] inner life deferred", error))
-        .finally(() => { innerRunning = false; });
+        .finally(() => {
+          innerRunning = false;
+          // A game moment that arrived during this pass is evaluated as soon as it ends.
+          if (innerArrival) setImmediate(() => pollInnerLife(Date.now()));
+        });
+    };
+    onDomusArrival = () => {
+      innerArrival = true;
+      pollInnerLife(Date.now());
     };
     if (env.embodimentBudgetLimit > 0) {
       try {
@@ -827,6 +840,7 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
         token: env.domusHelperToken,
         botToken: process.env.DISCORD_BOT_TOKEN ?? "",
         now: () => Date.now(),
+        onAdmitted: () => onDomusArrival(),
       }).listen(env.domusIngressPort, "127.0.0.1");
     } else if (!domusDecision.enabled) {
       console.log(`[domus-ingress] disabled: ${domusDecision.reason}`);
