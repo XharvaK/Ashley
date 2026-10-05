@@ -1738,6 +1738,8 @@ export async function runThoughtModel(
     );
     if (!semanticResult.ok) {
       const diagnosticCode = semanticResult.code as ThoughtParserFailureCode;
+      // The field path names a contract field, never her words; it is what a fix needs.
+      console.warn(`[thought] parse failure code=${diagnosticCode} field=${semanticResult.field ?? "-"} model=${completion.providerModel ?? "-"}`);
       const previousFeedback = typeof options.structuralFeedback === "string"
         ? null
         : options.structuralFeedback;
