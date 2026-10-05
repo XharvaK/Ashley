@@ -1005,8 +1005,18 @@ export function captureThoughtSourcePackage(
 }
 
 /** Assemble the fixed Thought input set. Workspace notes are intentionally absent. */
+/**
+ * H0.3 game lens: a Domus pass is her time in the house. It carries the last few turns of
+ * her conversation with the Owner, not forty, and no engineering pointers, engineering
+ * capability or conversation episodes; the smaller, steadier prompt is faster and caches.
+ */
+export const DOMUS_LAST_N_TURNS = 6;
+
 export function buildThoughtInput(options: BuildThoughtInputOptions): ThoughtInputWithC2 {
-  const lastNTurns = Math.max(1, Math.min(100, options.lastNTurns ?? DEFAULT_LAST_N_TURNS));
+  const domusPass = (options.triggerKindOverride ?? options.cycle.triggerKind) === "domus_notification";
+  const lastNTurns = domusPass
+    ? DOMUS_LAST_N_TURNS
+    : Math.max(1, Math.min(100, options.lastNTurns ?? DEFAULT_LAST_N_TURNS));
   const occupancyK = Math.max(1, Math.min(100, options.occupancyK ?? DEFAULT_OCCUPANCY_COMPACT_K));
   const audience = options.audience ?? ownerAudience();
   const licenses = options.licenses ?? [];
@@ -1066,8 +1076,8 @@ export function buildThoughtInput(options: BuildThoughtInputOptions): ThoughtInp
   );
   const effectiveCapabilityReality = options.effectContinuation
     ? effectContinuationCapabilityReality(capabilityReality, options.effectContinuation.allowVerification)
-    : options.settlementOnly === true
-      ? settlementOnlyCapabilityReality(capabilityReality)
+    : options.settlementOnly === true || domusPass
+      ? { ...settlementOnlyCapabilityReality(capabilityReality), canOfferDelegatedInvestigation: false }
       : capabilityReality;
   const identity = constitution as IdentitySlice & Partial<IdentityOrientationSource>;
   const orientationKernel = options.orientationKernel && audience.kind === "owner_private"
@@ -1079,7 +1089,9 @@ export function buildThoughtInput(options: BuildThoughtInputOptions): ThoughtInp
     stableSelfBound: options.stableSelfBound,
     learnedSelf: learnedSelfSlice,
   });
-  const domainPointers = sourceCapture.domainPointers;
+  const domainPointers = domusPass
+    ? { ...sourceCapture.domainPointers, pointers: [] }
+    : sourceCapture.domainPointers;
   const c3Experiences = options.c3Experiences ?? adaptC3Experiences(
     options.sidecar,
     options.cycle.conversationId,
@@ -1146,7 +1158,7 @@ export function buildThoughtInput(options: BuildThoughtInputOptions): ThoughtInp
   const threadStory = audience.kind === "owner_private"
     ? getThreadStory(options.sidecar, options.cycle.conversationId)
     : null;
-  const episodes = audience.kind === "owner_private"
+  const episodes = audience.kind === "owner_private" && !domusPass
     ? episodesForThought(options.sidecar, query.rawTriggerTerms)
     : [];
   const activityJournal = audience.kind === "owner_private"
