@@ -740,7 +740,7 @@ describe("Thought semantic output contract", () => {
       durableNominations: [{ statement: "not a nomination" }],
     }, new Set());
     expect(invalid.ok).toBe(false);
-    if (!invalid.ok) expect(invalid.field).toBe("durableNominations");
+    if (!invalid.ok) expect(invalid.field).toBe("durableNominations[0].memoryKind");
   });
 
   it("keeps protected semantic, wire, and capability fingerprints exact", () => {

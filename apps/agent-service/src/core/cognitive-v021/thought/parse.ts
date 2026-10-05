@@ -634,15 +634,32 @@ function validSubscriptionDelta(value: unknown, allowlist: ReadonlySet<string>):
     && (subscription.expiresAtMs === null || (typeof subscription.expiresAtMs === "number" && Number.isInteger(subscription.expiresAtMs)));
 }
 
+const NOMINATION_REQUIRED = ["statement", "memoryKind", "dimensions", "dataClassification", "sourceRefs", "supersedesRef", "concernRef"] as const;
+const NOMINATION_OPTIONAL = ["supportRefs", "salience"] as const;
+
+/** The first part of a nomination that is wrong (a contract field name, never her words), or null. */
+function nominationFault(value: unknown, allowlist: ReadonlySet<string>): string | null {
+  const record = semanticRecord(value);
+  if (!record) return "not_object";
+  const allowed = new Set<string>([...NOMINATION_REQUIRED, ...NOMINATION_OPTIONAL]);
+  const unknown = Object.keys(record).find((key) => !allowed.has(key));
+  if (unknown !== undefined) return "unknown_key";
+  const missing = NOMINATION_REQUIRED.find((key) => !own(record, key));
+  if (missing !== undefined) return missing;
+  if (!nonEmptyString(record.statement)) return "statement";
+  if (!isMemoryKind(record.memoryKind)) return "memoryKind";
+  if (own(record, "salience") && !(typeof record.salience === "number" && record.salience >= 0 && record.salience <= 1)) return "salience";
+  if (!validEpistemicDimensions(record.dimensions)) return "dimensions";
+  if (!["ordinary", "sensitive", "never_public", "secret"].includes(record.dataClassification as string)) return "dataClassification";
+  if (!refArray(record.sourceRefs, allowlist)) return "sourceRefs";
+  if (!optionalTypedSupportRefs(record)) return "supportRefs";
+  if (!(record.supersedesRef === null || existingRef(record.supersedesRef, allowlist))) return "supersedesRef";
+  if (!validSemanticRefField(record.concernRef, allowlist)) return "concernRef";
+  return null;
+}
+
 function validNomination(value: unknown, allowlist: ReadonlySet<string>): value is ThoughtDurableNomination {
-  const record = recordShape(value, ["statement", "memoryKind", "dimensions", "dataClassification", "sourceRefs", "supersedesRef", "concernRef"], ["supportRefs", "salience"]);
-  return !!record && nonEmptyString(record.statement) && isMemoryKind(record.memoryKind)
-    && (!own(record, "salience") || (typeof record.salience === "number" && record.salience >= 0 && record.salience <= 1))
-    && validEpistemicDimensions(record.dimensions)
-    && ["ordinary", "sensitive", "never_public", "secret"].includes(record.dataClassification as string)
-    && refArray(record.sourceRefs, allowlist) && optionalTypedSupportRefs(record)
-    && (record.supersedesRef === null || existingRef(record.supersedesRef, allowlist))
-    && validSemanticRefField(record.concernRef, allowlist);
+  return nominationFault(value, allowlist) === null;
 }
 
 function validateEvidenceUse(parent: SemanticRecord, allowlist: ReadonlySet<string>): ValidationResult {
@@ -911,6 +928,13 @@ function parseSettlementSemantic(value: SemanticRecord, allowlist: ReadonlySet<s
   ];
   for (const [key, validator] of arrays) {
     result = optionalArray(value, key, validator, key !== "durableNominations");
+    if (!result.ok && key === "durableNominations" && result.code === "wrong_type" && Array.isArray(value.durableNominations)) {
+      // Name the entry and the part that is wrong, so a structural retry can fix it.
+      const index = value.durableNominations.findIndex((item) => nominationFault(item, allowlist) !== null);
+      if (index >= 0) {
+        return semanticFailure("wrong_type", `durableNominations[${index}].${nominationFault(value.durableNominations[index], allowlist)}`);
+      }
+    }
     if (!result.ok) return semanticFailure(result.code, result.field);
   }
   if (own(value, "reflection") && !validReflection(value.reflection)) {

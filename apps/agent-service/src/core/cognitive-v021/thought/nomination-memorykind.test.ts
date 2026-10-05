@@ -140,8 +140,25 @@ describe("nomination MemoryKind structural boundary", () => {
     const result = parseThoughtSemanticOutput(invalidSettlement(), refs);
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.field).toBe("durableNominations");
+      expect(result.field).toBe("durableNominations[0].memoryKind");
     }
+  });
+
+  it("names the entry and the part of a nomination that is wrong", () => {
+    const fieldFor = (patch: Record<string, unknown>, drop?: string) => {
+      const settlement = validSettlement();
+      const entry: Record<string, unknown> = { ...settlement.durableNominations[0], ...patch };
+      if (drop) delete entry[drop];
+      const result = parseThoughtSemanticOutput(
+        { ...settlement, durableNominations: [settlement.durableNominations[0], entry] }, refs);
+      return result.ok ? null : result.field;
+    };
+    expect(fieldFor({}, "supersedesRef")).toBe("durableNominations[1].supersedesRef");
+    expect(fieldFor({ sourceRefs: ["not-on-the-list"] })).toBe("durableNominations[1].sourceRefs");
+    expect(fieldFor({ extra: 1 })).toBe("durableNominations[1].unknown_key");
+    expect(fieldFor({ dataClassification: "public" })).toBe("durableNominations[1].dataClassification");
+    expect(parseThoughtSemanticOutput({ ...validSettlement(), durableNominations: "none" }, refs))
+      .toMatchObject({ ok: false, field: "durableNominations" });
   });
 
   it("recovers through the bounded structural retry to one lawful settlement and one outbox", async () => {
