@@ -9,7 +9,8 @@ import { applyV021Forget, applyV021ForgetTargets, planV021Forget } from "../memo
 import { parseThoughtSemanticOutput } from "../thought/parse.js";
 import { makeSemanticSettlement } from "../test-support.js";
 import type { NightPass } from "../initiative/inner-pass.js";
-import { buildNightAgenda, latestNarrative, listDiary, recordNight, wordOverlap } from "./night.js";
+import { appendMemorySupport } from "../memory/supports.js";
+import { buildNightAgenda, latestDreamReceipt, latestNarrative, listDiary, recordNight, wordOverlap } from "./night.js";
 import { resolveRevisionEvidence } from "./revisions.js";
 
 const HOUR = 3_600_000;
@@ -49,6 +50,90 @@ describe("Growth V1 G5 night consolidation", () => {
     } finally {
       db.close();
       nuclear.close();
+    }
+  });
+
+  it("shows each live memory's support count and lane", () => {
+    const db = openTestSidecar();
+    try {
+      memory(db, "m:house", "The kitchen in slot one faces the garden.", "ashley_interpretation", NOW - HOUR);
+      db.prepare("UPDATE sidecar_memory_assertions SET channel = ? WHERE assertion_key = ?").run("domus:slot1", "m:house");
+      const support = {
+        assertionKey: "m:house",
+        source: "tool" as const,
+        provenance: "native" as const,
+        sourceArchitectureEpoch: "v0.2.1" as const,
+        sourceRef: null,
+        settlementId: null,
+        evidenceLineageId: null,
+        observationId: null,
+        receiptId: null,
+        dimensions,
+        dataClassification: "ordinary" as const,
+        channel: "domus:slot1" as const,
+      };
+      appendMemorySupport(db, { ...support, supportId: "support:house:1", createdAtMs: NOW - HOUR });
+      appendMemorySupport(db, { ...support, supportId: "support:house:2", createdAtMs: NOW - HOUR + 1 });
+      const agenda = buildNightAgenda(db, { pass: pass(), identityStore: null, nowMs: NOW });
+      expect(agenda.memories.find((item) => item.key === "m:house")).toMatchObject({ supports: 2, lane: "domus:slot1" });
+    } finally {
+      db.close();
+    }
+  });
+
+  it("writes a receipt for a night with a claim and an empty receipt without one", () => {
+    const db = openTestSidecar();
+    try {
+      memory(db, "m:keep", "Alex's sister is called Lena.", "ashley_interpretation", NOW - DAY);
+      memory(db, "m:q", "Why does the garden face west?", "open_question", NOW - 20 * DAY);
+      const claimed = recordNight(db, {
+        cycleId: "night-receipt", pass: pass(), timeZone: ZONE, dataClassification: "ordinary", nowMs: NOW,
+        claim: {
+          diary: "The garden stayed with me.",
+          salience: [{ key: "m:keep", salience: 0.8 }],
+          closeQuestions: ["m:q"],
+        },
+      });
+      const stored = db.prepare("SELECT receipt_json FROM dream_receipts WHERE cycle_id = ?").get("night-receipt") as { receipt_json: string };
+      expect(JSON.parse(stored.receipt_json)).toEqual({
+        v: 1,
+        diaryId: claimed.diaryId,
+        rescored: ["m:keep"],
+        closed: ["m:q"],
+        narrativeId: null,
+        gapsStored: 0,
+        chosenId: null,
+      });
+      recordNight(db, { cycleId: "night-empty", pass: pass(), timeZone: ZONE, dataClassification: "ordinary", nowMs: NOW + HOUR });
+      const empty = db.prepare("SELECT receipt_json FROM dream_receipts WHERE cycle_id = ?").get("night-empty") as { receipt_json: string };
+      expect(JSON.parse(empty.receipt_json)).toEqual({
+        v: 1, diaryId: null, rescored: [], closed: [], narrativeId: null, gapsStored: 0, chosenId: null,
+      });
+      expect(db.prepare("SELECT COUNT(*) AS n FROM dream_receipts").get()).toMatchObject({ n: 2 });
+    } finally {
+      db.close();
+    }
+  });
+
+  it("reads admitted merges into the latest receipt and leaves out the rest", () => {
+    const db = openTestSidecar();
+    try {
+      recordNight(db, { cycleId: "night-merge", pass: pass(), timeZone: ZONE, dataClassification: "ordinary", nowMs: NOW });
+      const insert = db.prepare(
+        `INSERT INTO durable_nominations
+           (nomination_id, cycle_id, generation, assertion_key, statement, memory_kind,
+            dimensions_json, data_classification, supersedes_assertion_key, concern_id, admitted)
+         VALUES (?, 'night-merge', 1, ?, ?, 'ashley_interpretation', '{}', ?, ?, NULL, ?)`,
+      );
+      insert.run("nom:kept", "m:new", "Lena is Alex's sister, and she gardens.", "ordinary", "m:old", 1);
+      insert.run("nom:waiting", "m:later", "A merge still waiting.", "ordinary", "m:other", 0);
+      insert.run("nom:secret", "m:hidden", "A secret merge.", "secret", "m:secret-old", 1);
+      const receipt = latestDreamReceipt(db);
+      expect(receipt?.merged).toEqual([{ from: "m:old", to: "m:new", statement: "Lena is Alex's sister, and she gardens." }]);
+      expect(receipt?.diary).toBe(false);
+      expect(receipt?.at).toBe(new Date(NOW).toISOString());
+    } finally {
+      db.close();
     }
   });
 

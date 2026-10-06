@@ -88,4 +88,34 @@ describe("memory command", () => {
     assert.match(rendered, /^Stored memory summary:\n\nWho she is becoming \(2026-10-06\):\nI am becoming someone who reads before she argues\./);
     assert.match(rendered, /Diary 2026-10-05: Quiet day; I read about Basic Channel\./);
   });
+
+  it("shows the last night receipt after who she is becoming, at most three merges", () => {
+    const rendered = renderMemorySummary({
+      narrative: null,
+      facts: [],
+      growth: {
+        mood: { valence: 0, energy: 0.5, openness: 0.5, tension: 0, reason: null },
+        opinions: [],
+        changes: [],
+        dream: {
+          cycleId: "night-1",
+          at: "2026-10-06T01:00:00.000Z",
+          sinceMs: 1,
+          diary: true,
+          narrative: true,
+          rescored: 2,
+          closed: ["q:one"],
+          gapsStored: 0,
+          merged: [
+            { from: "m:a", to: "m:b", statement: "Lena gardens on Sundays." },
+            { from: "m:c", to: "m:d", statement: "The kitchen faces the garden." },
+            { from: "m:e", to: "m:f", statement: "Dub techno after two." },
+            { from: "m:g", to: "m:h", statement: "A fourth merge stays off the page." },
+          ],
+        },
+      },
+    });
+    assert.match(rendered, /Last night \(2026-10-06\): merged 4 · closed 1 · re-weighed 2 · wrote her diary · wrote who she is becoming\n• Lena gardens on Sundays\.\n• The kitchen faces the garden\.\n• Dub techno after two\.\n/);
+    assert.doesNotMatch(rendered, /fourth merge/);
+  });
 });

@@ -61,7 +61,7 @@ export type ThoughtNightAgenda = {
   sinceMs: number;
   weekly: boolean;
   day: { episodes: ThoughtEpisode[]; journal: ThoughtJournalEntry[] };
-  memories: Array<{ key: string; kind: string; statement: string; salience: number; formedAtMs: number | null; uses: number }>;
+  memories: Array<{ key: string; kind: string; statement: string; salience: number; formedAtMs: number | null; uses: number; supports: number; lane: string }>;
   /** Pairs whose words overlap most; only a hint, never a verdict. */
   similar: Array<{ keys: [string, string]; overlap: number }>;
   selfEvidence: Array<{ key: string; statement: string; formedAtMs: number | null }>;
@@ -105,6 +105,15 @@ export function buildNightAgenda(
   input: { pass: NightPass; identityStore: IdentityStore | null; nowMs: number },
 ): ThoughtNightAgenda {
   const { pass, nowMs } = input;
+  const supportByKey = new Map<string, { supports: number; lane: string }>();
+  for (const row of db.prepare(
+    `SELECT assertion_key, channel, (SELECT COUNT(*) FROM sidecar_memory_supports s WHERE s.assertion_key = a.assertion_key) AS supports
+       FROM sidecar_memory_assertions a WHERE a.live = 1`,
+  ).all() as Row[]) {
+    const key = String(row.assertion_key);
+    const channel = typeof row.channel === "string" && row.channel.length > 0 ? row.channel : "discord";
+    supportByKey.set(key, { supports: Number(row.supports) || 0, lane: channel });
+  }
   const live = listLiveMemoryAssertions(db)
     .filter((assertion) => visibleMemory(assertion.statement, assertion.dataClassification)
       && (!assertion.audienceScope || assertion.audienceScope.kind === "owner_private"))
@@ -117,6 +126,8 @@ export function buildNightAgenda(
         salience: strength?.salience ?? 0.5,
         formedAtMs: strength?.formedAtMs ?? null,
         uses: (strength?.useCount ?? 0) + (strength?.recallCount ?? 0),
+        supports: supportByKey.get(assertion.assertionKey)?.supports ?? 0,
+        lane: supportByKey.get(assertion.assertionKey)?.lane ?? "discord",
         lastTouchedMs: Math.max(strength?.formedAtMs ?? 0, strength?.lastUsedAtMs ?? 0, strength?.lastRecalledAtMs ?? 0),
       };
     });
@@ -236,7 +247,24 @@ export function recordNight(
 ): NightRecordResult {
   const { claim, nowMs } = input;
   const result: NightRecordResult = { diaryId: null, rescored: [], closed: [], narrativeId: null, gapsStored: 0, gapsDropped: 0, chosenId: null };
-  if (!claim) return result;
+  const writeReceipt = (): void => {
+    db.prepare(
+      `INSERT OR REPLACE INTO dream_receipts (cycle_id, conversation_id, night_since_ms, receipt_json, created_at_ms)
+       VALUES (?, (SELECT conversation_id FROM cycle_records WHERE cycle_id = ?), ?, ?, ?)`,
+    ).run(input.cycleId, input.cycleId, input.pass.sinceMs, JSON.stringify({
+      v: 1,
+      diaryId: result.diaryId,
+      rescored: result.rescored,
+      closed: result.closed,
+      narrativeId: result.narrativeId,
+      gapsStored: result.gapsStored,
+      chosenId: result.chosenId,
+    }), nowMs);
+  };
+  if (!claim) {
+    writeReceipt();
+    return result;
+  }
   const live = new Map(listLiveMemoryAssertions(db).map((assertion) => [assertion.assertionKey, assertion]));
   const diary = claim.diary?.trim().slice(0, DIARY_MAX_CHARS);
   if (diary) {
@@ -303,7 +331,59 @@ export function recordNight(
     if (weeklyWork) db.exec("ROLLBACK TO weekly_pass; RELEASE weekly_pass");
     throw error;
   }
+  writeReceipt();
   return result;
+}
+
+export type DreamReceipt = {
+  cycleId: string;
+  at: string;
+  sinceMs: number;
+  diary: boolean;
+  narrative: boolean;
+  rescored: number;
+  closed: string[];
+  merged: Array<{ from: string; to: string; statement: string }>;
+  gapsStored: number;
+};
+
+/** Latest night receipt. Merges are read live from admitted nominations, so admission order does not matter. */
+export function latestDreamReceipt(db: DatabaseSync): DreamReceipt | null {
+  const row = db.prepare(
+    "SELECT cycle_id, night_since_ms, receipt_json, created_at_ms FROM dream_receipts ORDER BY created_at_ms DESC, cycle_id DESC LIMIT 1",
+  ).get() as Row | undefined;
+  if (!row) return null;
+  let parsed: Record<string, unknown> = {};
+  try {
+    const value = JSON.parse(String(row.receipt_json));
+    if (value && typeof value === "object") parsed = value as Record<string, unknown>;
+  } catch {
+    parsed = {};
+  }
+  const closed = Array.isArray(parsed.closed) ? parsed.closed.filter((item): item is string => typeof item === "string") : [];
+  const rescored = Array.isArray(parsed.rescored) ? parsed.rescored.length : 0;
+  const cycleId = String(row.cycle_id);
+  const merged = (db.prepare(
+    `SELECT supersedes_assertion_key AS from_key, assertion_key AS to_key, statement
+       FROM durable_nominations
+      WHERE cycle_id = ? AND supersedes_assertion_key IS NOT NULL AND admitted = 1 AND data_classification <> 'secret'
+      ORDER BY nomination_id`,
+  ).all(cycleId) as Row[]).map((item) => ({
+    from: String(item.from_key),
+    to: String(item.to_key),
+    statement: String(item.statement).trim().slice(0, 120),
+  }));
+  return {
+    cycleId,
+    at: new Date(Number(row.created_at_ms)).toISOString(),
+    sinceMs: Number(row.night_since_ms),
+    diary: parsed.diaryId != null,
+    narrative: parsed.narrativeId != null,
+    rescored,
+    closed,
+    merged,
+    gapsStored: typeof parsed.gapsStored === "number" ? parsed.gapsStored : 0,
+  };
 }
 
 export type DiaryEntry = { entryId: string; day: string; text: string; createdAtMs: number };

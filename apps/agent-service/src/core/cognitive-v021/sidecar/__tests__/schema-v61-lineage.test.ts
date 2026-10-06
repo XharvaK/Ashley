@@ -24,8 +24,8 @@ it("migrates a v60 memory row set to channel and lineage defaults", () => {
     ) VALUES ('obs','digest','w','b','s','a','body','snap',1,1,2,3,'WORLD','{}')`).run();
     setTestSidecarVersion(db, 60);
     openCognitiveSidecarDb(db, { dataPlane: { kind: "isolated" } });
-    expect(COGNITIVE_SIDECAR_SCHEMA_VERSION).toBe(66);
-    expect((db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(66);
+    expect(COGNITIVE_SIDECAR_SCHEMA_VERSION).toBe(67);
+    expect((db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(67);
     for (const [table, idColumn, id] of [
       ["sidecar_memory_assertions", "assertion_key", "a1"],
       ["sidecar_memory_supports", "support_id", "s1"],

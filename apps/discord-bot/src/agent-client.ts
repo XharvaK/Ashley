@@ -625,6 +625,17 @@ export type MemoryGrowth = {
   changes: Array<{ layer: string; text: string; appliedAt: string }>;
   becoming?: { text: string; writtenAt: string } | null;
   diary?: Array<{ day: string; text: string }>;
+  dream?: {
+    cycleId: string;
+    at: string;
+    sinceMs: number;
+    diary: boolean;
+    narrative: boolean;
+    rescored: number;
+    closed: string[];
+    merged: Array<{ from: string; to: string; statement: string }>;
+    gapsStored: number;
+  } | null;
 };
 
 export async function memorySummary(includePrivate = false) {

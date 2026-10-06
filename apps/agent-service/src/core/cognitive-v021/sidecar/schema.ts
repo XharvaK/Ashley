@@ -2408,3 +2408,16 @@ CREATE TABLE IF NOT EXISTS domus_session_state (
 );
 UPDATE cognitive_sidecar_meta SET schema_version=66 WHERE id=1;
 `;
+
+/** M4: what a night changed, ids and counts only (the Host's receipt, never her words). */
+export const COGNITIVE_SIDECAR_SCHEMA_V67 = String.raw`
+CREATE TABLE IF NOT EXISTS dream_receipts (
+  cycle_id TEXT PRIMARY KEY,
+  conversation_id TEXT,
+  night_since_ms INTEGER NOT NULL,
+  receipt_json TEXT NOT NULL,
+  created_at_ms INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_dream_receipts_created ON dream_receipts(created_at_ms);
+UPDATE cognitive_sidecar_meta SET schema_version=67 WHERE id=1;
+`;

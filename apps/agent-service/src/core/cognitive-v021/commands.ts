@@ -5,7 +5,7 @@ import { getThreadStory, listRecentEpisodes } from "./memory/episodes.js";
 import { listRecentJournal } from "./initiative/journal.js";
 import { listInterestBranches } from "./memory/interests.js";
 import { readMood } from "./growth/mood.js";
-import { latestNarrative, listDiary } from "./growth/night.js";
+import { latestDreamReceipt, latestNarrative, listDiary, type DreamReceipt } from "./growth/night.js";
 import {
   appliedEntryIdsForRevisions,
   listAppliedRevisions,
@@ -107,6 +107,8 @@ export type V021MemorySummary = {
     becoming: { text: string; writtenAt: string } | null;
     /** Her most recent diary entries, newest first. */
     diary: Array<{ day: string; text: string }>;
+    /** The Host's latest night receipt: ids and counts, present with the same private growth. */
+    dream?: DreamReceipt | null;
   };
   lastUpdated: string;
   threadId: string;
@@ -334,6 +336,7 @@ export function getV021MemorySummary(
       })),
     becoming: selfNarrative ? { text: selfNarrative.text, writtenAt: new Date(selfNarrative.createdAtMs).toISOString() } : null,
     diary: listDiary(sidecar, 2).map((entry) => ({ day: entry.day, text: entry.text })),
+    dream: latestDreamReceipt(sidecar),
   };
   const lastUpdatedMs = evidence.at(-1)?.createdAtMs ?? 0;
   return {

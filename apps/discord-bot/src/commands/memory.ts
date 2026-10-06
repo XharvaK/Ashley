@@ -14,13 +14,24 @@ export function renderMemorySummary(data: {
   const activity = data.activity ?? [];
   const interests = data.interests ?? [];
   const grown = (data.growth?.opinions.length ?? 0) + (data.growth?.changes.length ?? 0)
-    + (data.growth?.diary?.length ?? 0) + (data.growth?.becoming ? 1 : 0) > 0;
+    + (data.growth?.diary?.length ?? 0) + (data.growth?.becoming ? 1 : 0) + (data.growth?.dream ? 1 : 0) > 0;
   if (!data.narrative && data.facts.length === 0 && episodes.length === 0 && activity.length === 0 && !grown) {
     return "Stored memory summary: no pinned memories.";
   }
   const lines: string[] = ["Stored memory summary:", ""];
   if (data.growth?.becoming) {
     lines.push(`Who she is becoming (${data.growth.becoming.writtenAt.slice(0, 10)}):`, data.growth.becoming.text, "");
+  }
+  if (data.growth?.dream) {
+    const dream = data.growth.dream;
+    const extras = [
+      dream.diary ? "wrote her diary" : "",
+      dream.narrative ? "wrote who she is becoming" : "",
+    ].filter(Boolean);
+    const tail = extras.length ? ` · ${extras.join(" · ")}` : "";
+    lines.push(`Last night (${dream.at.slice(0, 10)}): merged ${dream.merged.length} · closed ${dream.closed.length} · re-weighed ${dream.rescored}${tail}`);
+    for (const item of dream.merged.slice(0, 3)) lines.push(`• ${item.statement}`);
+    lines.push("");
   }
   if (data.narrative) {
     lines.push("Where we left off:", data.narrative, "");
