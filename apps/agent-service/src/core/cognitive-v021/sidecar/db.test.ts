@@ -75,8 +75,8 @@ describe("cognitive v0.2.1 sidecar database", () => {
       // v57: authenticated result staging; v58: ladder state and history.
       // v59: growth dimensions, history, gap scores, and gap diagnostics.
       // v60: domus ingress heartbeats and observations.
-      // v63: discord_names, place_seen, place_intents, home_ops.
-      expect(tables).toHaveLength(109);
+      // v63: discord_names, place_seen, place_intents, home_ops, pursuits, own_time_wishes, will_changes.
+      expect(tables).toHaveLength(112);
       for (const table of ["domus_heartbeats", "domus_observations", "domus_acts", "domus_act_events"]) expect(tables).toContain(table);
       for (const table of ["growth_dimensions", "growth_dimension_history", "growth_gap_scores", "growth_gap_diagnostics"]) expect(tables).toContain(table);
       for (const table of ["self_change_result_receipts", "self_change_ladder", "self_change_ladder_history"]) expect(tables).toContain(table);

@@ -3,6 +3,7 @@ import { domusActBindingFor, domusChannelFor, domusForThought, domusNowForThough
 import { thoughtPlaces } from "../../places/thought.js";
 import { placesSeenMarks } from "../../places/places.js";
 import { homeForThought, homeRootFor } from "../../home/home.js";
+import { willForThought } from "../../will/pursuits.js";
 import { readThoughtAttention } from "../thalamus/store.js";
 import { randomUUID } from "node:crypto";
 import { env } from "../../../env.js";
@@ -1440,6 +1441,8 @@ function materializeSemanticSettlement(
   if (semantic.domusAct) result.domusAct = { ...semantic.domusAct };
   if (semantic.intents) result.intents = semantic.intents.map((intent) => ({ ...intent }));
   if (semantic.home) result.home = semantic.home.map((op) => ({ ...op }));
+  if (semantic.pursuits) result.pursuits = structuredClone(semantic.pursuits) as typeof result.pursuits;
+  if (semantic.nextOwnTime) result.nextOwnTime = { ...semantic.nextOwnTime };
   if (semantic.interests) result.interests = semantic.interests.map((touch) => ({ ...touch }));
   (result as ThoughtSettlementDraft).sawSecret = sawSecret;
   if (semantic.growth) result.growth = structuredClone(semantic.growth);
@@ -3346,7 +3349,8 @@ export async function runCognitiveCycle(
             const places = thoughtPlaces(sidecar, nuclear, { nowMs, ...(cycle.triggerKind === "owner_message" ? { here: "owner_dm" as const } : {}),
               ...(game ? { game: { world: game.world, live: game.live } } : {}) });
             const home = deps.dataDir ? homeForThought(sidecar, homeRootFor(deps.dataDir), nowMs) : undefined;
-            return { ...(places ? { places } : {}), ...(home ? { home } : {}) };
+            const will = willForThought(sidecar, nowMs);
+            return { ...(places ? { places } : {}), ...(home ? { home } : {}), ...(will ? { will } : {}) };
           })() : {}),
       triggerText: ownerMessage,
       triggerEvidence,

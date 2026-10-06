@@ -1,3 +1,4 @@
+import { dueOwnTime } from "./core/will/pursuits.js";
 import {pendingSelfChangeResults,selfChangeResultBudgetAvailable,selectSelfChangeResult} from "./core/cognitive-v021/growth/self-change-results.js";
 import { createSocialTimingHooks } from "./core/cognitive-v021/thalamus/social-timing.js";
 import { promoteEligiblePending } from "./core/cognitive-v021/social/dm-activation.js";
@@ -272,6 +273,9 @@ export class AgentManager {
     const polled=canAcquire?await pollObservationSubscriptions(sidecar,{conversationId,nowMs}):{items:[]};
     const subscriptions=retainSubscriptionFacts(sidecar,{ownerId,conversationId,nowMs,items:polled.items});
     current.candidates.push(...subscriptions.candidates);current.facts.push(...subscriptions.facts);
+    // D1: the times she asked for her own time, once due.
+    if(periodicEnabled)current.candidates.push(...prospective(dueOwnTime(sidecar,nowMs).map(wish=>({eventId:`wish:${wish.wishId}`,observedAtMs:wish.atMs,
+      refs:[wish.wishId],kind:"trigger" as const,dueAtMs:wish.atMs})),nowMs));
     const commitments=isCommitmentsEnabled()?listDueCommitmentOpportunities(nuclear,ownerId,nowMs):[];
     current.candidates.push(...prospective(commitments.map(item=>({eventId:`commitment:${item.commitmentId}`,observedAtMs:item.fireAtMs ?? nowMs,
       refs:[item.commitmentId],kind:"commitment" as const,dueAtMs:item.fireAtMs ?? nowMs})),nowMs));

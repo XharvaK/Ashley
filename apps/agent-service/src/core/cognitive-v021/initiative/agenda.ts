@@ -1,3 +1,4 @@
+import { takeDueOwnTime } from "../../will/pursuits.js";
 import type { DatabaseSync } from "node:sqlite";
 import type { ThoughtInnerAgenda } from "../types.js";
 import { listLiveMemoryAssertions, REDACTED_MEMORY_STATEMENT } from "../memory/assertions.js";
@@ -63,6 +64,7 @@ export function buildInnerAgenda(db: DatabaseSync, pass: AwakePass, nowMs: numbe
       recent: recentUnsolicited(db),
     },
     ...(chosen ? { chosenGap: { id: chosen.id, name: chosen.name, question: chosen.question } } : {}),
+    ...(() => { const due = takeDueOwnTime(db, nowMs); return due.length ? { ownTimeDue: due } : {}; })(),
   };
 }
 

@@ -48,6 +48,7 @@ import { isConcernObjectiveFacet } from "../concerns/objective.js";
 import { isInterestRoot } from "../memory/interests.js";
 import { isPlaceIntentClaims } from "../../places/intents.js";
 import { isHomeOps } from "../../home/home.js";
+import { isOwnTimeClaim, isPursuitOps } from "../../will/pursuits.js";
 import { isJournalActivity } from "../initiative/journal.js";
 import { isDomusActClaim } from "../../domus/acts.js";
 import { isValidSenseClaim } from "../senses/senses.js";
@@ -890,7 +891,7 @@ function validInterests(value: unknown): boolean {
 function parseSettlementSemantic(value: SemanticRecord, allowlist: ReadonlySet<string>): ThoughtSemanticParseResult {
   const unknown = Object.keys(value).find((key) => ![
     "kind", "interactionIntent", "speech", "initiativePreference", "interpretation", "commitments", "workingContextDeltas", "deskDeltas", "concernDeltas",
-    "occupancyDeltas", "futureTriggerDeltas", "subscriptionDeltas", "durableNominations", "reflection", "journal", "domusAct", "intents", "home", "interests", "growth", "senses", "attention", "night", "forget", "evidenceUse",
+    "occupancyDeltas", "futureTriggerDeltas", "subscriptionDeltas", "durableNominations", "reflection", "journal", "domusAct", "intents", "home", "pursuits", "nextOwnTime", "interests", "growth", "senses", "attention", "night", "forget", "evidenceUse",
   ].includes(key));
   if (unknown) return semanticFailure("unknown_field", unknown);
   if (value.kind !== "settlement") return semanticFailure("wrong_kind", "kind");
@@ -953,6 +954,12 @@ function parseSettlementSemantic(value: SemanticRecord, allowlist: ReadonlySet<s
   }
   if (own(value, "home") && !isHomeOps(value.home)) {
     return semanticFailure("wrong_type", "home");
+  }
+  if (own(value, "pursuits") && !isPursuitOps(value.pursuits)) {
+    return semanticFailure("wrong_type", "pursuits");
+  }
+  if (own(value, "nextOwnTime") && !isOwnTimeClaim(value.nextOwnTime)) {
+    return semanticFailure("wrong_type", "nextOwnTime");
   }
   if (own(value, "interests") && !validInterests(value.interests)) {
     return semanticFailure("wrong_type", "interests");

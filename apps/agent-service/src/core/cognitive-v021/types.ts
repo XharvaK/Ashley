@@ -1057,6 +1057,10 @@ export type SettlementSemanticOutput = {
   intents?: readonly import("../places/intents.js").PlaceIntentClaim[];
   /** E1 Owner-private turns: changes to her home folder (Host-applied after publication). */
   home?: readonly import("../home/home.js").HomeOp[];
+  /** C1 Owner-private turns: start, advance, park, finish or drop her pursuits. */
+  pursuits?: readonly import("../will/pursuits.js").PursuitOp[];
+  /** D1 Owner-private turns: when she wants her next own time, and for what. */
+  nextOwnTime?: import("../will/pursuits.js").OwnTimeClaim;
   /** Interests Ashley lived in this turn or pass (Owner-private). */
   interests?: readonly import("./memory/interests.js").InterestTouch[];
   /** Growth V1 G4: appraisal, expectations, revisions (Owner-private). */
@@ -1347,6 +1351,9 @@ export type ThoughtSettlementDraft = {
   intents?: import("../places/intents.js").PlaceIntentClaim[];
   /** E1: applied by the Host after publication (home/home.ts). */
   home?: import("../home/home.js").HomeOp[];
+  /** C1/D1: applied by the Host after publication (will/pursuits.ts). */
+  pursuits?: import("../will/pursuits.js").PursuitOp[];
+  nextOwnTime?: import("../will/pursuits.js").OwnTimeClaim;
   /** Stored by the Host after publication (memory/interests.ts). */
   interests?: import("./memory/interests.js").InterestTouch[];
   /** Stored by the Host after publication (growth/growth.ts). */
@@ -1764,6 +1771,8 @@ export type ThoughtInput = {
   places?: import("../places/thought.js").ThoughtPlaces;
   /** E1: her home folder and her latest changes there (Owner-private). */
   home?: import("../home/home.js").ThoughtHome;
+  /** C1/D1: her pursuits and the times she asked for her own time (Owner-private). */
+  will?: import("../will/pursuits.js").ThoughtWill;
   /** Present only for an autonomous idle-opportunity Thought. */
   publicPresence?: PublicPresenceContext;
   /** Host factual context for the single Ashley-authored capacity-wait turn. */
@@ -1921,6 +1930,8 @@ export type ThoughtInnerAgenda = {
     recent: ReadonlyArray<{ atMs: number; excerpt: string; ownerRepliedAfterMs: number | null }>;
   };
   chosenGap?: { id: string; name: string; question: string };
+  /** D1: she asked for this own time; what she said it was for. */
+  ownTimeDue?: ReadonlyArray<{ atMs: number; for: string; pursuitId?: string }>;
 };
 
 export type V021ForgetEntityType =

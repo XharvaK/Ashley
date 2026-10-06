@@ -2253,6 +2253,40 @@ CREATE TABLE IF NOT EXISTS place_intents (
 );
 CREATE INDEX IF NOT EXISTS idx_place_intents_state_due ON place_intents(state, due_at_ms);
 CREATE INDEX IF NOT EXISTS idx_place_intents_place ON place_intents(place_ref, requested_at_ms);
+CREATE TABLE IF NOT EXISTS pursuits (
+  pursuit_id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  why TEXT NOT NULL,
+  next_step TEXT,
+  state TEXT NOT NULL CHECK (state IN ('active','parked','finished','dropped')),
+  notes_json TEXT NOT NULL DEFAULT '[]',
+  return_at_ms INTEGER,
+  started_cycle_id TEXT NOT NULL,
+  started_at_ms INTEGER NOT NULL,
+  updated_at_ms INTEGER NOT NULL,
+  touched_count INTEGER NOT NULL DEFAULT 0,
+  ended_at_ms INTEGER
+);
+CREATE TABLE IF NOT EXISTS own_time_wishes (
+  wish_id TEXT PRIMARY KEY,
+  cycle_id TEXT NOT NULL UNIQUE,
+  want_at_ms INTEGER NOT NULL,
+  reason TEXT NOT NULL,
+  pursuit_id TEXT,
+  state TEXT NOT NULL CHECK (state IN ('pending','fired')),
+  created_at_ms INTEGER NOT NULL,
+  fired_at_ms INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_own_time_wishes_due ON own_time_wishes(state, want_at_ms);
+CREATE TABLE IF NOT EXISTS will_changes (
+  cycle_id TEXT NOT NULL,
+  ordinal INTEGER NOT NULL,
+  what TEXT NOT NULL,
+  ok INTEGER NOT NULL,
+  reason TEXT,
+  at_ms INTEGER NOT NULL,
+  PRIMARY KEY (cycle_id, ordinal)
+);
 CREATE TABLE IF NOT EXISTS home_ops (
   cycle_id TEXT NOT NULL,
   ordinal INTEGER NOT NULL,

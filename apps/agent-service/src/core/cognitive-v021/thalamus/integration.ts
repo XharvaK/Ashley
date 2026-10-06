@@ -25,6 +25,8 @@ export function runThalamusPass(db:DatabaseSync,options:Omit<TickOptions,"execut
     if(!options.executors.selfChangeResult)throw new Error("thalamus_self_change_executor_required");
     return options.executors.selfChangeResult(first.eventId.slice(12),selected);
    }
+   // D1: a time she asked for herself is her own time.
+   if(first.eventId.startsWith("wish:"))return options.executors.awake(selected);
    const selection:Selection=first.eventId.startsWith("trigger:")?{triggerId:first.eventId.slice(8)}
     :first.eventId.startsWith("commitment:")?{commitmentId:first.eventId.slice(11)}:{};
    return options.executors.idle(selection,selected);
