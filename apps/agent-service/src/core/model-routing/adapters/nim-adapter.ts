@@ -224,7 +224,7 @@ function buildRequestBody(
   if (fabricReasoning) {
     applyTranslatedControlToNimBody(body, model, fabricReasoning);
   } else if (options.reasoningEffort !== undefined) {
-    if (options.reasoningEffort === "xhigh") {
+    if (options.reasoningEffort === "xhigh" || options.reasoningEffort === "max") {
       throw Object.assign(new Error("nim_reasoning_effort_unsupported"), {
         code: "nim_reasoning_effort_unsupported",
       });
@@ -313,7 +313,7 @@ function statusCode(err: unknown): number | undefined {
  */
 export function nimReasoningEffortForModel(
   modelId: string,
-  requested: Exclude<NonNullable<CompletionOptions["reasoningEffort"]>, "xhigh">,
+  requested: Exclude<NonNullable<CompletionOptions["reasoningEffort"]>, "xhigh" | "max">,
 ): "none" | "low" | "medium" | "high" {
   if (modelId.startsWith("openai/gpt-oss")) {
     if (requested === "none") return "low";

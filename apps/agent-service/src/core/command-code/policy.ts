@@ -21,22 +21,9 @@ export const COMMAND_CODE_DOMUS_POLICY = Object.freeze({
   effort: "medium",
 } as const);
 
-export type CommandCodeThoughtModelId =
-  | typeof COMMAND_CODE_POLICY.modelId
-  | typeof COMMAND_CODE_DOMUS_POLICY.modelId;
-
-export const COMMAND_CODE_THOUGHT_MODELS: ReadonlySet<string> = new Set<CommandCodeThoughtModelId>([
-  COMMAND_CODE_POLICY.modelId,
-  COMMAND_CODE_DOMUS_POLICY.modelId,
-]);
-
 export function thoughtModelForTrigger(triggerKind: string | null | undefined): CommandCodeThoughtModelId {
   return triggerKind === "domus_notification" ? COMMAND_CODE_DOMUS_POLICY.modelId : COMMAND_CODE_POLICY.modelId;
 }
-
-export type CommandCodeThoughtEffort =
-  | typeof COMMAND_CODE_POLICY.effort
-  | (typeof THOUGHT_EFFORT_BY_TRIGGER_KIND)[keyof typeof THOUGHT_EFFORT_BY_TRIGGER_KIND];
 
 export function thoughtReasoningEffortForTrigger(
   triggerKind: string | null | undefined,
@@ -44,3 +31,43 @@ export function thoughtReasoningEffortForTrigger(
   if (triggerKind === "domus_notification") return THOUGHT_EFFORT_BY_TRIGGER_KIND.domus_notification;
   return COMMAND_CODE_POLICY.effort;
 }
+
+/**
+ * HA2 provider lifeboat (User, 2026-10-06): one backup model per Thought pass, tried once, only
+ * after the pass's own model failed because the provider was unavailable. Muse passes fall back
+ * to DeepSeek V4.1 Flash at max; Domus passes fall back to Muse at medium.
+ */
+export const COMMAND_CODE_LIFEBOAT = Object.freeze({
+  thought: Object.freeze({ modelId: "deepseek/deepseek-v4.1-flash", effort: "max" } as const),
+  domus: Object.freeze({ modelId: "meta/muse-spark-1.3-contributor", effort: "medium" } as const),
+});
+
+export type CommandCodeLifeboat =
+  | typeof COMMAND_CODE_LIFEBOAT.thought
+  | typeof COMMAND_CODE_LIFEBOAT.domus;
+
+export function thoughtLifeboatForTrigger(triggerKind: string | null | undefined): CommandCodeLifeboat {
+  return triggerKind === "domus_notification" ? COMMAND_CODE_LIFEBOAT.domus : COMMAND_CODE_LIFEBOAT.thought;
+}
+
+export type CommandCodeThoughtModelId =
+  | typeof COMMAND_CODE_POLICY.modelId
+  | typeof COMMAND_CODE_DOMUS_POLICY.modelId
+  | typeof COMMAND_CODE_LIFEBOAT.thought.modelId;
+
+export const COMMAND_CODE_THOUGHT_MODELS: ReadonlySet<string> = new Set<CommandCodeThoughtModelId>([
+  COMMAND_CODE_POLICY.modelId,
+  COMMAND_CODE_DOMUS_POLICY.modelId,
+  COMMAND_CODE_LIFEBOAT.thought.modelId,
+]);
+
+export type CommandCodeThoughtEffort =
+  | typeof COMMAND_CODE_POLICY.effort
+  | (typeof THOUGHT_EFFORT_BY_TRIGGER_KIND)[keyof typeof THOUGHT_EFFORT_BY_TRIGGER_KIND]
+  | typeof COMMAND_CODE_LIFEBOAT.thought.effort;
+
+export const COMMAND_CODE_THOUGHT_EFFORTS: ReadonlySet<string> = new Set([
+  COMMAND_CODE_POLICY.effort,
+  "medium",
+  COMMAND_CODE_LIFEBOAT.thought.effort,
+]);

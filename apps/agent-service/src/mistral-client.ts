@@ -94,7 +94,7 @@ import {
   type ModelFabricDispatchMetadata,
 } from "./core/model-fabric/index.js";
 import type { WireDispatchEvidence } from "./core/model-routing/types.js";
-import { COMMAND_CODE_POLICY, thoughtModelForTrigger, thoughtReasoningEffortForTrigger, type CommandCodeThoughtModelId } from "./core/command-code/policy.js";
+import { COMMAND_CODE_POLICY, thoughtLifeboatForTrigger, thoughtModelForTrigger, thoughtReasoningEffortForTrigger, type CommandCodeThoughtModelId } from "./core/command-code/policy.js";
 import {
   attachCommandCodeBoundaryEvidence,
   attachCommandCodeThoughtEvidence,
@@ -483,8 +483,9 @@ async function completeDirectCommandCodeThought(
   const providerAttemptId = `${providerInvocationId}:attempt:1`;
   const thoughtContext = context as Omit<ThoughtInvocationContext, "allocationId">;
   const maxTokens = options.maxTokens ?? COMMAND_CODE_THOUGHT_MAX_OUTPUT_TOKENS;
-  const reasoningEffort = thoughtReasoningEffortForTrigger(options.thoughtTriggerKind);
-  const thoughtModelId = thoughtModelForTrigger(options.thoughtTriggerKind);
+  const lifeboat = options.thoughtLifeboat === true ? thoughtLifeboatForTrigger(options.thoughtTriggerKind) : null;
+  const reasoningEffort = lifeboat ? lifeboat.effort : thoughtReasoningEffortForTrigger(options.thoughtTriggerKind);
+  const thoughtModelId = lifeboat ? lifeboat.modelId : thoughtModelForTrigger(options.thoughtTriggerKind);
   const controls: ProviderBoundaryControls = {
     maxTokens,
     reasoningConfiguration: reasoningEffort,

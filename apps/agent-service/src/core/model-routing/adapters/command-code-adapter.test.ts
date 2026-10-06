@@ -5,7 +5,7 @@ import {
   thoughtOutputDeepSeekJsonObjectInstruction,
   thoughtOutputStructuredRequest,
 } from "../../cognitive-v021/thought/output-contract.js";
-import { COMMAND_CODE_DOMUS_POLICY, COMMAND_CODE_POLICY } from "../../command-code/policy.js";
+import { COMMAND_CODE_DOMUS_POLICY, COMMAND_CODE_LIFEBOAT, COMMAND_CODE_POLICY } from "../../command-code/policy.js";
 import { commandCodeBoundaryEvidenceFromError } from "../../command-code/evidence.js";
 import type { ChatMessage } from "../types.js";
 import { createCommandCodeAdapter } from "./command-code-adapter.js";
@@ -243,6 +243,64 @@ describe("command-code-adapter", () => {
       options: { maxTokens: 65_536, reasoningEffort: "xhigh", structuredOutput: thoughtOutputStructuredRequest(), thoughtTriggerKind: "owner_message" },
     })).rejects.toMatchObject({ message: expect.stringContaining("command_code_model_not_qualified") });
     expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it("sends one lifeboat model at the lifeboat effort and rejects any other model", async () => {
+    env.commandCodeApiKey = "test-command-code-key";
+    const run = async (modelId: string, thoughtTriggerKind: string, thoughtLifeboat?: boolean) => {
+      let request: Record<string, unknown> | undefined;
+      const fetcher = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        request = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        return fakeResponse({
+          id: "response-lifeboat",
+          model: modelId,
+          choices: [{ message: { content: "{\"kind\":\"abstain\"}" }, finish_reason: "stop" }],
+          usage: { prompt_tokens: 1, completion_tokens: 1 },
+        });
+      });
+      const result = await createCommandCodeAdapter(fetcher).dispatch({
+        messages,
+        modelId,
+        options: {
+          maxTokens: 65_536,
+          structuredOutput: thoughtOutputStructuredRequest(),
+          thoughtTriggerKind,
+          thoughtContractPass: "chat",
+          ...(thoughtLifeboat ? { thoughtLifeboat: true } : {}),
+        },
+      });
+      return { request, result, calls: fetcher.mock.calls.length, fetcher };
+    };
+    const museLane = await run(COMMAND_CODE_LIFEBOAT.thought.modelId, "owner_message", true);
+    expect(museLane.request).toMatchObject({
+      model: "deepseek/deepseek-v4.1-flash",
+      reasoning_effort: "max",
+    });
+    const domusLane = await run(COMMAND_CODE_LIFEBOAT.domus.modelId, "domus_notification", true);
+    expect(domusLane.request).toMatchObject({ reasoning_effort: "medium" });
+    const wrongModel = vi.fn(async () => fakeResponse({}));
+    await expect(createCommandCodeAdapter(wrongModel).dispatch({
+      messages,
+      modelId: "deepseek/deepseek-v4.1-flash-fast",
+      options: {
+        maxTokens: 65_536,
+        structuredOutput: thoughtOutputStructuredRequest(),
+        thoughtTriggerKind: "owner_message",
+        thoughtLifeboat: true,
+      },
+    })).rejects.toMatchObject({ message: expect.stringContaining("command_code_model_not_qualified") });
+    expect(wrongModel).not.toHaveBeenCalled();
+    const noFlag = vi.fn(async () => fakeResponse({}));
+    await expect(createCommandCodeAdapter(noFlag).dispatch({
+      messages,
+      modelId: COMMAND_CODE_LIFEBOAT.thought.modelId,
+      options: {
+        maxTokens: 65_536,
+        structuredOutput: thoughtOutputStructuredRequest(),
+        thoughtTriggerKind: "owner_message",
+      },
+    })).rejects.toMatchObject({ message: expect.stringContaining("command_code_model_not_qualified") });
+    expect(noFlag).not.toHaveBeenCalled();
   });
 
   it("fails closed without the policy-owned xhigh effort and does not call the provider", async () => {

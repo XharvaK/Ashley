@@ -20,6 +20,7 @@ import {
 } from "../../../mistral-client.js";
 import type { ChatMessage } from "../../model-routing/types.js";
 import { commandCodeThoughtEvidenceFromError } from "../../command-code/evidence.js";
+import { thoughtLifeboatForTrigger, thoughtModelForTrigger } from "../../command-code/policy.js";
 import {
   ORDINARY_THOUGHT_BUDGET_MS,
   MAX_AUTHORITY_REVISIONS,
@@ -313,6 +314,16 @@ export type ThoughtInvocation = {
   providerUsageCapture?: ThoughtProviderFailureCapture;
   /** Physical execution evidence projected from the canonical Model Fabric receipt. */
   thoughtExecutionProvenance?: ThoughtExecutionProvenance;
+  /** HA2: set when the pass's own model failed and the lifeboat model was dispatched. */
+  lifeboat?: {
+    fromModelId: string;
+    toModelId: string;
+    toEffort: string;
+    primaryFailureClass: string;
+    primaryDispatchTruth: "sent" | "not_sent" | "unknown";
+    primaryAttemptId: string | null;
+    primaryProviderAttempts: number | "unknown";
+  };
 };
 
 type SettlementRevisionFeedback = {
@@ -377,6 +388,9 @@ export async function invokeThoughtComplete(
   if (!options.attentionDb) throw new Error("dispatch_data_plane_missing");
   return invoker(messages, options);
 }
+
+/** HA2: the least time a lifeboat dispatch needs left before the pass deadline. */
+export const THOUGHT_LIFEBOAT_MIN_REMAINING_MS = 20_000;
 
 type ThoughtProviderCaptureStatus = {
   parserStatus: ThoughtProviderFailureCapture["parserStatus"];
@@ -456,6 +470,17 @@ function executionProvenanceForCompletion(
   return completion.commandCodeEvidence
     ? executionProvenanceFromDirectCommandCode(completion.commandCodeEvidence)
     : executionProvenanceFromMetadata(completion.modelFabric);
+}
+
+function withLifeboatAttempts(
+  provenance: ThoughtExecutionProvenance,
+  lifeboat: ThoughtInvocation["lifeboat"],
+): ThoughtExecutionProvenance {
+  if (!lifeboat) return provenance;
+  const total = typeof provenance.providerAttempts === "number" && typeof lifeboat.primaryProviderAttempts === "number"
+    ? provenance.providerAttempts + lifeboat.primaryProviderAttempts
+    : "unknown";
+  return Object.freeze({ ...provenance, providerAttempts: total });
 }
 
 function executionProvenanceForError(
@@ -836,6 +861,13 @@ class ThoughtMaterializationError extends Error {
     this.code = code;
     this.field = field;
   }
+}
+
+/** Only a provider that could not answer launches the lifeboat; never a timeout, a cancel or a bad request. */
+export function lifeboatQualifies(error: unknown): boolean {
+  if (error instanceof ThoughtMaterializationError) return false;
+  const code = (error as { code?: unknown } | null)?.code;
+  return code === "provider_unavailable" || code === "rate_limited";
 }
 
 function materializationFailure(
@@ -1526,6 +1558,7 @@ export async function runThoughtModel(
   let completionInputTokens: number | undefined;
   let lastCompletion: Awaited<ReturnType<typeof completeChat>> | undefined;
   let dispatchStarted = false;
+  let lifeboat: ThoughtInvocation["lifeboat"];
   let sawSecret = false;
 
   try {
@@ -1629,11 +1662,63 @@ export async function runThoughtModel(
     dispatchOptions.thoughtInvocationContext = thoughtInvocationContext;
 
     dispatchStarted = true;
-    const completion = await invokeThoughtComplete(
-      messages,
-      dispatchOptions,
-      deps.completeChat,
-    );
+    let completion: Awaited<ReturnType<typeof completeChat>>;
+    try {
+      completion = await invokeThoughtComplete(messages, dispatchOptions, deps.completeChat);
+    } catch (primaryError) {
+      const remainingMs = options.deadlineAtMs - Date.now();
+      if (
+        options.signal?.aborted === true
+        || options.disableThoughtTransportFailover === true
+        || !lifeboatQualifies(primaryError)
+        || remainingMs < THOUGHT_LIFEBOAT_MIN_REMAINING_MS
+      ) throw primaryError;
+      const target = thoughtLifeboatForTrigger(input.trigger?.kind);
+      const primaryCapture = providerFailureCaptureForError(primaryError, dispatchOptions, undefined, true);
+      const primaryEvidence = commandCodeThoughtEvidenceFromError(primaryError);
+      const primaryProvenance = executionProvenanceForError(primaryError, undefined);
+      lifeboat = {
+        fromModelId: thoughtModelForTrigger(input.trigger?.kind),
+        toModelId: target.modelId,
+        toEffort: target.effort,
+        primaryFailureClass: primaryCapture.failureClass ?? "provider_unavailable",
+        primaryDispatchTruth: primaryCapture.dispatchTruth,
+        primaryAttemptId: primaryEvidence?.providerAttemptId ?? null,
+        primaryProviderAttempts: primaryProvenance.providerAttempts,
+      };
+      console.warn(`[thought] lifeboat from=${lifeboat.fromModelId} class=${lifeboat.primaryFailureClass} to=${lifeboat.toModelId} effort=${lifeboat.toEffort}`);
+      if (deps.observabilityDb) {
+        try {
+          recordDiagnostic(deps.observabilityDb, {
+            cycleId: input.cycleId,
+            generation: input.generation,
+            requestId,
+            pass,
+            code: "provider_unavailable",
+            stage: "provider_dispatch",
+            dispatchTruth: primaryCapture.dispatchTruth,
+            semanticProjectionHash,
+            dispatchMessagesHash,
+            primaryProvider: "command_code",
+            primaryAttemptId: lifeboat.primaryAttemptId,
+            primaryDispatchTruth: primaryCapture.dispatchTruth,
+            fallbackAttemptOrdinal: 2,
+            fallbackFromAttemptId: lifeboat.primaryAttemptId,
+            providerFailure: primaryCapture,
+            createdAtMs: deps.nowMs(),
+          });
+        } catch {
+          // Observability persistence must not change the pass.
+        }
+      }
+      dispatchOptions.thoughtLifeboat = true;
+      // Attention binds thought_invocation_id uniquely. The lifeboat is its own allocation.
+      dispatchOptions.thoughtInvocationContext = {
+        ...thoughtInvocationContext,
+        invocationId: randomUUID(),
+      };
+      completion = await invokeThoughtComplete(messages, dispatchOptions, deps.completeChat);
+    }
     lastCompletion = completion;
     completionInputTokens = completion.usage?.promptTokens ?? estimatedInputTokens;
     if (options.signal?.aborted) {
@@ -1651,7 +1736,8 @@ export async function runThoughtModel(
         requestId,
         cancelled: true,
         inputTokens: completion.usage?.promptTokens ?? estimatedInputTokens,
-        thoughtExecutionProvenance: executionProvenanceForCompletion(completion),
+        thoughtExecutionProvenance: withLifeboatAttempts(executionProvenanceForCompletion(completion), lifeboat),
+        ...(lifeboat ? { lifeboat } : {}),
       };
     }
     const semanticResult = parseThoughtSemanticOutput(
@@ -1705,7 +1791,8 @@ export async function runThoughtModel(
             structuralRetryStatus: "not_scheduled",
             },
           ),
-        thoughtExecutionProvenance: executionProvenanceForCompletion(completion),
+        thoughtExecutionProvenance: withLifeboatAttempts(executionProvenanceForCompletion(completion), lifeboat),
+        ...(lifeboat ? { lifeboat } : {}),
       };
     }
     const semantic = semanticResult.value;
@@ -1739,7 +1826,8 @@ export async function runThoughtModel(
             structuralRetryStatus: "not_scheduled",
             },
           ),
-        thoughtExecutionProvenance: executionProvenanceForCompletion(completion),
+        thoughtExecutionProvenance: withLifeboatAttempts(executionProvenanceForCompletion(completion), lifeboat),
+        ...(lifeboat ? { lifeboat } : {}),
       };
     }
     const kernelEnvelope = completion.capturedAttemptIdentity
@@ -1874,7 +1962,8 @@ export async function runThoughtModel(
           structuralRetryStatus: "not_applicable",
         },
       ),
-      thoughtExecutionProvenance: executionProvenanceForCompletion(completion),
+      thoughtExecutionProvenance: withLifeboatAttempts(executionProvenanceForCompletion(completion), lifeboat),
+      ...(lifeboat ? { lifeboat } : {}),
     };
   } catch (error) {
     const cancelled = options.signal?.aborted === true
@@ -1910,14 +1999,21 @@ export async function runThoughtModel(
               ),
             }
           : {}),
-        thoughtExecutionProvenance: lastCompletion
-          ? executionProvenanceForCompletion(lastCompletion)
-          : UNKNOWN_EXECUTION_PROVENANCE,
+        thoughtExecutionProvenance: withLifeboatAttempts(
+          lastCompletion
+            ? executionProvenanceForCompletion(lastCompletion)
+            : UNKNOWN_EXECUTION_PROVENANCE,
+          lifeboat,
+        ),
+        ...(lifeboat ? { lifeboat } : {}),
       };
     }
-    const executionProvenance = !dispatchStarted && !lastCompletion
-      ? NOT_SENT_EXECUTION_PROVENANCE
-      : executionProvenanceForError(error, lastCompletion);
+    const executionProvenance = withLifeboatAttempts(
+      !dispatchStarted && !lastCompletion
+        ? NOT_SENT_EXECUTION_PROVENANCE
+        : executionProvenanceForError(error, lastCompletion),
+      lifeboat,
+    );
     // AppError code "timeout" is minted only by the dispatch deadline branch;
     // the shared Model Fabric classifier maps it (and raw deadline
     // TimeoutErrors) to the internal timeout code. A received provider
@@ -2015,6 +2111,7 @@ export async function runThoughtModel(
         deferred: true,
         nextEligibleAtMs: attentionErr.nextEligibleAtMs,
         thoughtExecutionProvenance: executionProvenance,
+        ...(lifeboat ? { lifeboat } : {}),
       };
     }
 
@@ -2035,6 +2132,7 @@ export async function runThoughtModel(
       thoughtDeadline,
       ...(providerCapture ? { providerFailureCapture: providerCapture } : {}),
       thoughtExecutionProvenance: executionProvenance,
+      ...(lifeboat ? { lifeboat } : {}),
     };
   }
 }
@@ -3654,6 +3752,13 @@ export async function runCognitiveCycle(
           dispatchMessagesHash: allocated.hashes.dispatchMessagesHash,
           estimatedInputTokens: invocation.inputTokens,
           providerFailure: invocation.providerUsageCapture,
+          ...(invocation.lifeboat ? {
+            primaryProvider: "command_code",
+            primaryAttemptId: invocation.lifeboat.primaryAttemptId,
+            primaryDispatchTruth: invocation.lifeboat.primaryDispatchTruth,
+            fallbackAttemptOrdinal: 2,
+            fallbackFromAttemptId: invocation.lifeboat.primaryAttemptId,
+          } : {}),
           providerDiagnostics: buildProviderS5(invocation.providerUsageCapture, {
             dispatchMessagesHash: allocated.hashes.dispatchMessagesHash,
             estimate: { input: invocation.inputTokens ?? null },

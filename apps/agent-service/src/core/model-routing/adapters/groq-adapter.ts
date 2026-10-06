@@ -144,7 +144,7 @@ function buildRequestBody(
       });
     }
   } else if (options.reasoningEffort !== undefined) {
-    if (options.reasoningEffort === "xhigh") {
+    if (options.reasoningEffort === "xhigh" || options.reasoningEffort === "max") {
       throw Object.assign(new Error("groq_reasoning_effort_unsupported"), {
         code: "groq_reasoning_effort_unsupported",
       });
@@ -216,7 +216,7 @@ function statusCode(err: unknown): number | undefined {
  */
 export function groqReasoningEffortForModel(
   modelId: string,
-  requested: Exclude<NonNullable<CompletionOptions["reasoningEffort"]>, "xhigh">,
+  requested: Exclude<NonNullable<CompletionOptions["reasoningEffort"]>, "xhigh" | "max">,
 ): "none" | "low" | "medium" | "high" | undefined {
   if (modelId === QWEN_3_6_MODEL) {
     return requested === "none" ? "none" : undefined;

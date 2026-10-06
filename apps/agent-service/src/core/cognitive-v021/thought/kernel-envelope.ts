@@ -1,5 +1,5 @@
 import { sha256 } from "../../model-fabric/hash.js";
-import { COMMAND_CODE_POLICY, COMMAND_CODE_THOUGHT_MODELS } from "../../command-code/policy.js";
+import { COMMAND_CODE_THOUGHT_EFFORTS, COMMAND_CODE_THOUGHT_MODELS } from "../../command-code/policy.js";
 import type {
   CapturedThoughtAttemptIdentity,
   KernelEnvelope,
@@ -90,7 +90,7 @@ export function validateKernelEnvelope(value: unknown): KernelEnvelopeValidation
       attempt.provider !== "command_code" ||
       !COMMAND_CODE_THOUGHT_MODELS.has(attempt.requestedModelId) ||
       attempt.providerModel !== attempt.requestedModelId ||
-      (attempt.reasoningEffort !== COMMAND_CODE_POLICY.effort && attempt.reasoningEffort !== "medium") ||
+      !COMMAND_CODE_THOUGHT_EFFORTS.has(attempt.reasoningEffort) ||
       !validNonEmpty(attempt.providerInvocationId) ||
       !validNonEmpty(attempt.providerAttemptId) ||
       !validNonEmpty(attempt.contractId) ||

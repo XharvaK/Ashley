@@ -14,7 +14,7 @@ import {
   VISION_MEDIA_OUTPUT_SCHEMA_ID,
   visionMediaJsonObjectInstruction,
 } from "../../cognitive-v021/perception/vision-output-contract.js";
-import { COMMAND_CODE_POLICY, thoughtModelForTrigger, thoughtReasoningEffortForTrigger, type CommandCodeThoughtEffort } from "../../command-code/policy.js";
+import { COMMAND_CODE_POLICY, thoughtLifeboatForTrigger, thoughtModelForTrigger, thoughtReasoningEffortForTrigger, type CommandCodeThoughtEffort } from "../../command-code/policy.js";
 import {
   attachCommandCodeBoundaryEvidence,
   type CommandCodeBoundaryEvidence,
@@ -181,18 +181,22 @@ function bindingIdFor(contract: CommandCodeContract): string {
 }
 
 function buildRequestBody(args: ProviderDispatchArgs): Record<string, unknown> {
+  const contract = contractFor(args.options.structuredOutput);
+  const lifeboat = args.options.thoughtLifeboat === true;
   // Muse for every Thought and contract; the Domus model only for a Domus Thought pass.
-  if (args.modelId !== COMMAND_CODE_POLICY.modelId && !(
-    args.modelId === thoughtModelForTrigger(args.options.thoughtTriggerKind)
-    && contractFor(args.options.structuredOutput) === "thought"
-  )) {
+  // A lifeboat dispatch may use only that pass's backup model.
+  const qualified = lifeboat
+    ? contract === "thought" && args.modelId === thoughtLifeboatForTrigger(args.options.thoughtTriggerKind).modelId
+    : args.modelId === COMMAND_CODE_POLICY.modelId || (
+      args.modelId === thoughtModelForTrigger(args.options.thoughtTriggerKind) && contract === "thought"
+    );
+  if (!qualified) {
     throw new AppError("capability_mismatch", "command_code_model_not_qualified", 400);
   }
   const effort = resolveThoughtEffort(args);
-  if (!acceptedEffort(effort, contractFor(args.options.structuredOutput), args.options.thoughtTriggerKind)) {
+  if (!acceptedEffort(effort, contract, args.options.thoughtTriggerKind, lifeboat)) {
     throw new AppError("capability_mismatch", "command_code_policy_effort_required", 400);
   }
-  const contract = contractFor(args.options.structuredOutput);
   if (contract === null) {
     throw new AppError("capability_mismatch", "command_code_thought_contract_required", 400);
   }
@@ -218,6 +222,7 @@ function buildRequestBody(args: ProviderDispatchArgs): Record<string, unknown> {
 }
 
 function resolveThoughtEffort(args: ProviderDispatchArgs): CommandCodeThoughtEffort | undefined {
+  if (args.options.thoughtLifeboat === true) return thoughtLifeboatForTrigger(args.options.thoughtTriggerKind).effort;
   const mapped = thoughtReasoningEffortForTrigger(args.options.thoughtTriggerKind);
   if (args.options.thoughtTriggerKind === "domus_notification") return mapped;
   const requested = reasoningEffortFor(args.options, args.fabricReasoning);
@@ -229,7 +234,9 @@ function acceptedEffort(
   effort: CommandCodeThoughtEffort | undefined,
   contract: CommandCodeContract | null,
   triggerKind: string | null | undefined,
+  lifeboat: boolean,
 ): effort is CommandCodeThoughtEffort {
+  if (lifeboat && contract === "thought" && effort === thoughtLifeboatForTrigger(triggerKind).effort) return true;
   if (effort === COMMAND_CODE_POLICY.effort) return true;
   return contract === "thought" && effort === "medium" && triggerKind === "domus_notification";
 }

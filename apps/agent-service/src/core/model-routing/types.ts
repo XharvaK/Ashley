@@ -215,9 +215,11 @@ export type CompletionOptions = {
   maxTokens?: number;
   temperature?: number;
   presencePenalty?: number;
-  reasoningEffort?: "none" | "low" | "medium" | "high" | "xhigh";
+  reasoningEffort?: "none" | "low" | "medium" | "high" | "xhigh" | "max";
   /** Thought trigger kind. Domus notifications select a lower reasoning effort. */
   thoughtTriggerKind?: string;
+  /** HA2: dispatch this Thought pass to its lifeboat model (policy.ts), once, after a provider failure. */
+  thoughtLifeboat?: boolean;
   /** Thought contract pass. Used only for an opt-in stable prompt-cache key. */
   thoughtContractPass?: string;
   /** Provider wire format after Model Fabric resolution. */

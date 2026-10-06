@@ -244,7 +244,7 @@ function reasoningEffortFor(
     }
     return fabricReasoning.value;
   }
-  if (options.reasoningEffort === "xhigh") {
+  if (options.reasoningEffort === "xhigh" || options.reasoningEffort === "max") {
     throw Object.assign(new Error("mistral_reasoning_effort_unsupported"), {
       code: "mistral_reasoning_effort_unsupported",
     });
