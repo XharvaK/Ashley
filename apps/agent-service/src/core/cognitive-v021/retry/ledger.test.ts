@@ -1,7 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it, vi } from "vitest";
 import { openCognitiveSidecarDb } from "../sidecar/db.js";
-import { admitWake } from "../wake/ledger.js";
+import { admitWake, cancelWake, getWake } from "../wake/ledger.js";
 import { appendInboxEvent } from "../cycle/inbox.js";
 import { ownerCoverageHash } from "../owner-obligation.js";
 import { claimNextDurableWork, startDurableAttempt, settleDurableAttempt, DURABLE_WORK_COORDINATION_LEASE_MS, renewDurableWorkClaimInTransaction } from "./ledger.js";
@@ -134,6 +134,31 @@ describe("durable attempt ledger", () => {
     });
     expect(settled).toEqual({ kind: "retry_wait", nextEligibleAtMs: 2_100 });
     expect(sidecar.prepare("SELECT state, status, attempt_count, next_eligible_at_ms FROM inbox_events WHERE id = ?").get("event:retry")).toMatchObject({ state: "retry_wait", status: "failed_retryable", attempt_count: 1, next_eligible_at_ms: 2_100 });
+    sidecar.close();
+  });
+
+  it("lets a cognition that ends after an Owner message cancelled its wake converge onto the cancellation", () => {
+    const sidecar = db();
+    seedEvent(sidecar);
+    const started = startDurableAttempt(sidecar, { eventId: "event:retry", workerId: "worker-1", nowMs: 1_000 });
+    const wakeId = (sidecar.prepare("SELECT wake_id FROM inbox_events WHERE id = ?").get("event:retry") as { wake_id: string }).wake_id;
+    cancelWake(sidecar, { wakeId, nowMs: 1_050 });
+    expect(settleDurableAttempt(sidecar, {
+      eventId: "event:retry", attemptId: started.attemptId, claimToken: started.claimToken, result: { kind: "completed" }, nowMs: 1_100,
+    })).toEqual({ kind: "completed" });
+    expect(sidecar.prepare("SELECT state, terminal_reason FROM inbox_events WHERE id = ?").get("event:retry")).toMatchObject({ state: "terminal", terminal_reason: "completed" });
+    expect(getWake(sidecar, wakeId)).toMatchObject({ state: "terminal", terminalReason: "cancelled" });
+    sidecar.close();
+  });
+
+  it("still refuses a success onto a wake that ended any other way", () => {
+    const sidecar = db();
+    seedEvent(sidecar);
+    const started = startDurableAttempt(sidecar, { eventId: "event:retry", workerId: "worker-1", nowMs: 1_000 });
+    sidecar.prepare("UPDATE wakes SET state = 'terminal', terminal_reason = 'quarantined'").run();
+    expect(() => settleDurableAttempt(sidecar, {
+      eventId: "event:retry", attemptId: started.attemptId, claimToken: started.claimToken, result: { kind: "completed" }, nowMs: 1_100,
+    })).toThrow("wake_terminal_conflict");
     sidecar.close();
   });
 

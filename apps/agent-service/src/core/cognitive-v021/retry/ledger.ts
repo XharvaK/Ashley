@@ -317,7 +317,7 @@ function wakeToTerminal(
   const current = getWake(db, wakeId);
   if (!current) throw new Error("wake_missing");
   if (current.state === "terminal") {
-    if (current.terminalReason !== reason) throw new Error("wake_terminal_conflict");
+    if (current.terminalReason !== reason && !lateResultAfterCancellation(current, reason)) throw new Error("wake_terminal_conflict");
     return;
   }
   db.prepare(
@@ -326,6 +326,18 @@ function wakeToTerminal(
             lease_token = NULL, lease_expires_at_ms = NULL, updated_at_ms = ?
       WHERE wake_id = ? AND state != 'terminal'`,
   ).run(reason, nowMs, wakeId);
+}
+
+/**
+ * A newer Owner message cancels the wake of an unsolicited cycle that is still
+ * in flight; that cognition may already have settled (a Domus act sent) and then
+ * reports its own ending. The cancellation stands; the late ending converges onto it.
+ */
+function lateResultAfterCancellation(
+  wake: { terminalReason: string | null; cancellationId: string | null },
+  reason: string,
+): boolean {
+  return wake.terminalReason === "cancelled" && wake.cancellationId !== null && (reason === "completed" || reason === "no_action");
 }
 
 function finishWakeForEvent(
@@ -356,7 +368,7 @@ function finishWakeForEvent(
     return;
   }
   if (wake.state === "terminal") {
-    if (wake.terminalReason !== reason) throw new Error("wake_terminal_conflict");
+    if (wake.terminalReason !== reason && !lateResultAfterCancellation(wake, reason)) throw new Error("wake_terminal_conflict");
     return;
   }
   if (wake.state === "reconciling") {
