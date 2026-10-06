@@ -58,6 +58,18 @@ function settlementFields(profile: ReturnType<typeof thoughtContractProfile>): s
   return Object.keys(schema.oneOf[0]!.properties);
 }
 
+describe("G1 limits by who owns them", () => {
+  it("offers her placeRules in private turns and contactStop only in a contact's own turn", () => {
+    const owner = settlementFields(thoughtContractProfile(chat));
+    const dm = settlementFields(thoughtContractProfile({ ...chat, audience: { kind: "dm" } }));
+    expect(owner).toContain("placeRules");
+    expect(owner).not.toContain("contactStop");
+    expect(dm).toContain("contactStop");
+    expect(dm).not.toContain("placeRules");
+    expect(thoughtOutputCompatibilityInstruction(thoughtContractProfile({ ...chat, audience: { kind: "dm" } }))).toContain("contactStop no_initiation");
+  });
+});
+
 describe("I1 profile-scoped Thought contract", () => {
   it("derives the profile from the turn", () => {
     expect(thoughtContractProfileKey(thoughtContractProfile(chat))).toBe("chat+owner");

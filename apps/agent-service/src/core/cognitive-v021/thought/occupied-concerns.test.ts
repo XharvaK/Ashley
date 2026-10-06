@@ -311,7 +311,7 @@ describe("P1 occupied-concern projection", () => {
     // objective facet fields, and instructions;
     // parser identity is unchanged.
     expect(THOUGHT_OUTPUT_SCHEMA_FINGERPRINT).toBe(
-      "sha256:b7d2a7d8664374497daebfb7444ca2a1d250f5628e190e4fc948aedb82499015",
+      "sha256:ce853e84a12ec49aea2d742532a728ae576a9388bb611c412d9478f35db39686",
     );
   });
 });

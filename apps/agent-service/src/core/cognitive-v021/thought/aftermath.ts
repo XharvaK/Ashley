@@ -3,6 +3,7 @@ import { recordPlacesSeen } from "../../places/places.js";
 import { applyHomeOps, homeRootFor, type HomeOp } from "../../home/home.js";
 import { applyPursuitOps, recordOwnTime, type OwnTimeClaim, type PursuitOp } from "../../will/pursuits.js";
 import { recordWebPlaceClaims, type WebPlaceClaim } from "../../reach/web.js";
+import { applyPlaceRules, type PlaceRuleClaim } from "../../places/rules.js";
 import { recordPublishedAttention } from "../thalamus/store.js";
 import type { AttentionClaim } from "../thalamus/attention.js";
 import type { DatabaseSync } from "node:sqlite";
@@ -65,6 +66,7 @@ type StoredSettlement = {
   pursuits?: PursuitOp[];
   nextOwnTime?: OwnTimeClaim;
   webPlaces?: WebPlaceClaim[];
+  placeRules?: PlaceRuleClaim[];
   growth?: GrowthClaim;
   senses?: SenseClaim;
   attention?: AttentionClaim;
@@ -163,6 +165,9 @@ export function recordSettlementAftermath(
     if (standing && context.ownerPrivate !== false && settlement.webPlaces?.length) {
       recordWebPlaceClaims(db, { claims: settlement.webPlaces, ownerTurn: context.ownerTurn === true,
         ...(context.ownerEvidenceRowId ? { basisRef: context.ownerEvidenceRowId } : {}), nowMs: options.nowMs });
+    }
+    if (standing && context.ownerPrivate !== false && settlement.placeRules?.length) {
+      applyPlaceRules(db, { cycleId, claims: settlement.placeRules, nowMs: options.nowMs });
     }
     if (standing && context.domusAct && settlement.domusAct) {
       recordDomusAct(db, { binding: context.domusAct, claim: settlement.domusAct, cycleId, nowMs: options.nowMs });

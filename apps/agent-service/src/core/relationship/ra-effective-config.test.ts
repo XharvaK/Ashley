@@ -2,26 +2,26 @@ import { describe, expect, it } from "vitest";
 import { getRaEffectiveConfig } from "./ra-effective-config.js";
 
 describe("RA effective configuration", () => {
-  it("fails closed for missing and malformed values", () => {
+  it("fails closed for missing and malformed values; contact DMs are on unless switched off", () => {
     expect(getRaEffectiveConfig({})).toEqual({
       commitmentsEnabled: false,
-      dmPublicationEnabled: false,
+      dmPublicationEnabled: true,
       roomPublicationChannelId: null,
       roomSeedActive: false,
-      socialCaptureEnabled: false,
+      socialCaptureEnabled: true,
       botDmPrincipal: null,
       dmPrincipal: null,
-      dmCognitionEnabled: false,
+      dmCognitionEnabled: true,
     });
     expect(getRaEffectiveConfig({
       RA_COMMITMENTS: "TRUE",
-      RA_DM_PUBLICATION: "yes",
+      RA_DM_PUBLICATION: "false",
       RA_ROOM_PUBLICATION: "   ",
       RA_ROOM_SEED_ACTIVE: "on",
-      RA_SOCIAL_CAPTURE: "enabled",
+      RA_SOCIAL_CAPTURE: "0",
       RA_BOT_DM: "   ",
       RA_DM_PRINCIPAL: "   ",
-      RA_DM_COGNITION: "TRUE",
+      RA_DM_COGNITION: " OFF ",
     })).toEqual({
       commitmentsEnabled: false,
       dmPublicationEnabled: false,

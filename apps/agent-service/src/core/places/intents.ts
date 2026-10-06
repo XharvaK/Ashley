@@ -7,6 +7,7 @@ import { createHash } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { appendAshleyEvidence } from "../cognitive-v021/evidence/conversation-log.js";
 import { findPlaceEntry, placePostLimit, postsLast24h, type PlaceEntry } from "./places.js";
+import { closedPlaces, contactRestrictions } from "./rules.js";
 
 export const PLACE_INTENTS_MAX = 3;
 export const PLACE_SAY_MAX_CHARS = 2000;
@@ -74,7 +75,8 @@ function move(sidecar: DatabaseSync, id: string, from: readonly PlaceIntentState
 /**
  * One bot round trip. Its reports are applied first (posted lands in her evidence log for that place,
  * so the place's conversation shows it and replies to it reach her); then due posts are checked and
- * handed over. Checks at hand-over: the place is still hers (trusted room or contact), and the fuse.
+ * handed over. Checks at hand-over: the place is still hers (trusted room or contact), the Owner has not
+ * closed it, the contact has not asked her to stop, and the fuse.
  */
 export function syncPlacePosts(sidecar: DatabaseSync, nuclear: DatabaseSync, input: {
   reports: readonly PlaceSyncReport[]; nowMs: number;
@@ -113,12 +115,20 @@ export function syncPlacePosts(sidecar: DatabaseSync, nuclear: DatabaseSync, inp
     move(sidecar, String(row.intent_id), ["requested"], "expired", input.nowMs, { reason: "not_sent_in_time" });
   }
   const posts: PlacePost[] = [];
-  const due = sidecar.prepare(`SELECT intent_id, place_ref, say FROM place_intents WHERE state = 'requested' AND due_at_ms <= ?
+  const closed = closedPlaces(sidecar);
+  const due = sidecar.prepare(`SELECT intent_id, place_ref, interaction, say FROM place_intents WHERE state = 'requested' AND due_at_ms <= ?
     ORDER BY due_at_ms, requested_at_ms, ordinal LIMIT 8`).all(input.nowMs) as Row[];
   for (const row of due) {
     const id = String(row.intent_id);
     const entry = findPlaceEntry(nuclear, sidecar, String(row.place_ref), input.nowMs);
     if (!entry) { move(sidecar, id, ["requested"], "refused", input.nowMs, { reason: "not_one_of_your_places" }); continue; }
+    if (closed.has(entry.ref)) { move(sidecar, id, ["requested"], "refused", input.nowMs, { reason: "closed_by_owner" }); continue; }
+    if (entry.target.kind === "contact") {
+      const asked = contactRestrictions(nuclear, entry.target.principalId);
+      const stop = asked.find(kind => kind === "do_not_contact" || kind === "no_dm" || kind === "room_only")
+        ?? (row.interaction === "initiate" && asked.includes("no_initiation") ? "no_initiation" : undefined);
+      if (stop) { move(sidecar, id, ["requested"], "refused", input.nowMs, { reason: `they_asked:${stop}` }); continue; }
+    }
     if (postsLast24h(sidecar, entry.ref, input.nowMs) >= placePostLimit(entry.kind)) {
       move(sidecar, id, ["requested"], "refused", input.nowMs, { reason: "place_fuse" });
       continue;

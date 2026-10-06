@@ -80,6 +80,14 @@ function raFlag(value: unknown): boolean {
   return value === true || value === "true" || value === "1";
 }
 
+/** Contact DMs are on unless switched off; the Owner's permit decides who. */
+function raOn(value: unknown): boolean {
+  if (value === undefined || value === null) return true;
+  if (value === false) return false;
+  const text = String(value).trim().toLowerCase();
+  return !(text === "false" || text === "0" || text === "off");
+}
+
 function raPrincipal(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
@@ -89,13 +97,13 @@ function raPrincipal(value: unknown): string | null {
 export function getRaEffectiveConfig(env: RaEnvironment = process.env): DiscordRaEffectiveConfig {
   return {
     commitmentsEnabled: raFlag(env.RA_COMMITMENTS),
-    dmPublicationEnabled: raFlag(env.RA_DM_PUBLICATION),
+    dmPublicationEnabled: raOn(env.RA_DM_PUBLICATION),
     roomPublicationChannelId: raPrincipal(env.RA_ROOM_PUBLICATION),
     roomSeedActive: raFlag(env.RA_ROOM_SEED_ACTIVE),
-    socialCaptureEnabled: raFlag(env.RA_SOCIAL_CAPTURE),
+    socialCaptureEnabled: raOn(env.RA_SOCIAL_CAPTURE),
     botDmPrincipal: raPrincipal(env.RA_BOT_DM),
     dmPrincipal: raPrincipal(env.RA_DM_PRINCIPAL),
-    dmCognitionEnabled: raFlag(env.RA_DM_COGNITION),
+    dmCognitionEnabled: raOn(env.RA_DM_COGNITION),
   };
 }
 

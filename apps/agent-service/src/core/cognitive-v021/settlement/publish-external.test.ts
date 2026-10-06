@@ -131,7 +131,7 @@ function withPublicationEnabled<T>(callback: () => T): T {
 
 function withPublicationDisabled<T>(callback: () => T): T {
   const previous = process.env.RA_DM_PUBLICATION;
-  delete process.env.RA_DM_PUBLICATION;
+  process.env.RA_DM_PUBLICATION = "false";
   try {
     return callback();
   } finally {

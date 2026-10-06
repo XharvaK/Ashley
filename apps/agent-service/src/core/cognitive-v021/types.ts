@@ -1063,6 +1063,10 @@ export type SettlementSemanticOutput = {
   nextOwnTime?: import("../will/pursuits.js").OwnTimeClaim;
   /** I1 Owner-private turns: websites to make her places (approved only in a turn the Owner started), or close. */
   webPlaces?: readonly import("../reach/web.js").WebPlaceClaim[];
+  /** G1 Owner-private turns: her own standing rules for her places, in her words. */
+  placeRules?: readonly import("../places/rules.js").PlaceRuleClaim[];
+  /** G1 a contact's own turn: what that person asked of her (the Host binds it to the speaker). */
+  contactStop?: import("../places/rules.js").ContactStop;
   /** Interests Ashley lived in this turn or pass (Owner-private). */
   interests?: readonly import("./memory/interests.js").InterestTouch[];
   /** Growth V1 G4: appraisal, expectations, revisions (Owner-private). */
@@ -1358,6 +1362,9 @@ export type ThoughtSettlementDraft = {
   nextOwnTime?: import("../will/pursuits.js").OwnTimeClaim;
   /** I1: recorded by the Host after publication (reach/web.ts). */
   webPlaces?: import("../reach/web.js").WebPlaceClaim[];
+  /** G1: kept by the Host after publication (places/rules.ts). */
+  placeRules?: import("../places/rules.js").PlaceRuleClaim[];
+  contactStop?: import("../places/rules.js").ContactStop;
   /** Stored by the Host after publication (memory/interests.ts). */
   interests?: import("./memory/interests.js").InterestTouch[];
   /** Stored by the Host after publication (growth/growth.ts). */

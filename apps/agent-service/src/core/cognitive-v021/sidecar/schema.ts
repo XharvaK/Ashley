@@ -2287,6 +2287,17 @@ CREATE TABLE IF NOT EXISTS will_changes (
   at_ms INTEGER NOT NULL,
   PRIMARY KEY (cycle_id, ordinal)
 );
+CREATE TABLE IF NOT EXISTS place_rules (
+  place_ref TEXT PRIMARY KEY,
+  rule TEXT NOT NULL,
+  cycle_id TEXT NOT NULL,
+  set_at_ms INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS place_switches (
+  place_ref TEXT PRIMARY KEY,
+  state TEXT NOT NULL CHECK (state IN ('closed')),
+  set_at_ms INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS web_places (
   origin TEXT PRIMARY KEY,
   state TEXT NOT NULL CHECK (state IN ('requested','approved','closed')),

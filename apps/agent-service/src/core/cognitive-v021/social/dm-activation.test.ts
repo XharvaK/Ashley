@@ -113,7 +113,7 @@ describe("RA-P15 external DM activation", () => {
         conversationKey: captured.conversationKey,
       }, { nowMs, ownerId });
 
-      expect(withEnv({ RA_DM_PRINCIPAL: principalId, RA_DM_COGNITION: undefined }, () =>
+      expect(withEnv({ RA_DM_PRINCIPAL: principalId, RA_DM_COGNITION: "false" }, () =>
         promoteEligiblePending(sidecar, nuclear, { nowMs, ownerId }))).toMatchObject({
         promoted: 0,
         waiting: 0,
@@ -240,7 +240,7 @@ describe("RA-P15 external DM activation", () => {
         licensedText: "blocked external reply",
         deliveryIntent: { ...intent, externalPublication: { ...intent.externalPublication, licenseRefs: [license.entityUuid] } },
       });
-      await withEnv({ RA_DM_PRINCIPAL: principalId, RA_DM_PUBLICATION: undefined }, async () => {
+      await withEnv({ RA_DM_PRINCIPAL: principalId, RA_DM_PUBLICATION: "false" }, async () => {
         await createOutboxProjector(sidecar, nuclear, { nowMs: () => nowMs + 1 }).project(blockedOutbox.outboxId);
       });
       expect(sidecar.prepare("SELECT send_status FROM speech_outbox WHERE outbox_id = ?").get(blockedOutbox.outboxId))

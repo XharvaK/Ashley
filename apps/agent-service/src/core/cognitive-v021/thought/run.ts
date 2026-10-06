@@ -5,6 +5,7 @@ import { placesSeenMarks } from "../../places/places.js";
 import { homeForThought, homeRootFor } from "../../home/home.js";
 import { willForThought } from "../../will/pursuits.js";
 import { vaultDirFor } from "../../reach/vault-dir.js";
+import { applyContactStop } from "../../places/rules.js";
 import { readThoughtAttention } from "../thalamus/store.js";
 import { randomUUID } from "node:crypto";
 import { env } from "../../../env.js";
@@ -1445,6 +1446,8 @@ function materializeSemanticSettlement(
   if (semantic.pursuits) result.pursuits = structuredClone(semantic.pursuits) as typeof result.pursuits;
   if (semantic.nextOwnTime) result.nextOwnTime = { ...semantic.nextOwnTime };
   if (semantic.webPlaces) result.webPlaces = semantic.webPlaces.map((claim) => ({ ...claim }));
+  if (semantic.placeRules) result.placeRules = semantic.placeRules.map((claim) => ({ ...claim }));
+  if (semantic.contactStop) result.contactStop = semantic.contactStop;
   if (semantic.interests) result.interests = semantic.interests.map((touch) => ({ ...touch }));
   (result as ThoughtSettlementDraft).sawSecret = sawSecret;
   if (semantic.growth) result.growth = structuredClone(semantic.growth);
@@ -4474,6 +4477,18 @@ export async function runCognitiveCycle(
     }, randomUUID(), finalText);
     if (commitmentBindings.length > 0) settlement.commitmentBindings = [...commitmentBindings];
     let externalPublication: DeliveryIntent["externalPublication"] | undefined;
+    // G1: a contact's stop holds even when she answers nothing. It binds only to the human who sent
+    // the message that started this turn, in a DM with them.
+    if (externalCycle && deps.origin !== "shadow" && settlement.contactStop && externalDestination?.kind === "external_dm"
+      && triggerEvidence?.speakerKind === "external_human" && triggerEvidence.rowId
+      && triggerEvidence.speakerPrincipalId?.trim() === externalDestination.principalId && externalOwnerId) {
+      try {
+        applyContactStop(nuclear, { ownerId: externalOwnerId, principalId: externalDestination.principalId,
+          stop: settlement.contactStop, sourceMessageRef: triggerEvidence.rowId, nowMs: deps.nowMs() });
+      } catch (error) {
+        console.warn("[contact-stop] not recorded", error instanceof Error ? error.message : error);
+      }
+    }
     if (externalCycle) {
       const blockExternalCycle = (): KernelRunResult => {
         sidecar.prepare(

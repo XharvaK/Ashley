@@ -14,11 +14,13 @@ import {
   type PendingDelivery,
 } from "../agent-client.js";
 
-test("Discord RA parser uses the same fail-closed forms", () => {
+test("Discord RA parser: contact DMs are on unless switched off, the rest fails closed", () => {
   assert.equal(getRaEffectiveConfig({ RA_SOCIAL_CAPTURE: "true" }).socialCaptureEnabled, true);
-  assert.equal(getRaEffectiveConfig({ RA_SOCIAL_CAPTURE: "1" }).socialCaptureEnabled, true);
-  assert.equal(getRaEffectiveConfig({ RA_SOCIAL_CAPTURE: "TRUE" }).socialCaptureEnabled, false);
-  assert.equal(getRaEffectiveConfig({}).socialCaptureEnabled, false);
+  assert.equal(getRaEffectiveConfig({}).socialCaptureEnabled, true);
+  assert.equal(getRaEffectiveConfig({ RA_SOCIAL_CAPTURE: "false" }).socialCaptureEnabled, false);
+  assert.equal(getRaEffectiveConfig({ RA_SOCIAL_CAPTURE: " OFF " }).socialCaptureEnabled, false);
+  assert.equal(getRaEffectiveConfig({ RA_DM_PUBLICATION: "0" }).dmPublicationEnabled, false);
+  assert.equal(getRaEffectiveConfig({ RA_COMMITMENTS: "TRUE" }).commitmentsEnabled, false);
   assert.equal(getRaEffectiveConfig({ RA_BOT_DM: " principal " }).botDmPrincipal, "principal");
   assert.equal(getRaEffectiveConfig({ RA_BOT_DM: "   " }).botDmPrincipal, null);
 });

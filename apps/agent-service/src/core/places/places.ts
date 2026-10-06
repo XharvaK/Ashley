@@ -4,6 +4,7 @@
 // and contact carries its newest lines, who has been there, and what is new since she last looked.
 // Owner-private turns read it; a room or a contact never sees her other places.
 import type { DatabaseSync } from "node:sqlite";
+import { closedPlaces, contactRestrictions } from "./rules.js";
 
 export const PLACE_TAIL_LINES = 8;
 export const PLACE_LINE_CHARS = 280;
@@ -33,6 +34,10 @@ export type ThoughtPlace = {
   posts?: { last24h: number; limit: number };
   /** The game: whether it is running now. */
   live?: boolean;
+  /** The Owner closed this place (/places): nothing you post here goes out until it is reopened. */
+  closedByOwner?: true;
+  /** What this person asked of you: no_initiation (only answer them), do_not_contact, no_dm or room_only. */
+  theyAsked?: string[];
 };
 
 type Row = Record<string, unknown>;
@@ -151,14 +156,17 @@ function seenThrough(sidecar: DatabaseSync, ref: string): number {
   return Number(row?.seen_through_ms ?? 0);
 }
 
-function placeView(sidecar: DatabaseSync, entry: PlaceEntry, nowMs: number): ThoughtPlace {
+function placeView(sidecar: DatabaseSync, nuclear: DatabaseSync, entry: PlaceEntry, nowMs: number, closed: Set<string>): ThoughtPlace {
   const limit = placePostLimit(entry.kind);
+  const asked = entry.target.kind === "contact" ? contactRestrictions(nuclear, entry.target.principalId) : [];
   const view: ThoughtPlace = {
     ref: entry.ref,
     kind: entry.kind,
     name: placeName(sidecar, entry),
     audience: entry.kind === "room" ? "everyone in this channel" : "only this person (and the Owner, who can read all you keep)",
     posts: { last24h: postsLast24h(sidecar, entry.ref, nowMs), limit },
+    ...(closed.has(entry.ref) ? { closedByOwner: true as const } : {}),
+    ...(asked.length ? { theyAsked: asked } : {}),
   };
   if (!entry.conversationIds.length) return view;
   const marks = entry.conversationIds.map(() => "?").join(",");
@@ -187,7 +195,8 @@ export function placesForThought(sidecar: DatabaseSync, nuclear: DatabaseSync, i
 }): ThoughtPlace[] {
   const places: ThoughtPlace[] = [{ ref: "owner_dm", kind: "owner_dm", name: "your DM with the Owner", audience: "the Owner",
     ...(input.here === "owner_dm" ? { here: true as const } : {}) }];
-  for (const entry of listPlaceEntries(nuclear, sidecar, input.nowMs)) places.push(placeView(sidecar, entry, input.nowMs));
+  const closed = closedPlaces(sidecar);
+  for (const entry of listPlaceEntries(nuclear, sidecar, input.nowMs)) places.push(placeView(sidecar, nuclear, entry, input.nowMs, closed));
   if (input.game) places.push({ ref: `domus:${input.game.world}`, kind: "game", name: "your home in The Sims 4 (Domus)",
     audience: "the game only", live: input.game.live });
   return places;
