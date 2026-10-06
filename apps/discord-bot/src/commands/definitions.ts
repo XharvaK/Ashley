@@ -193,5 +193,20 @@ export function buildCommandDefinitions(): RESTPostAPIChatInputApplicationComman
         .setName("list")
         .setDescription("List trusted contacts"))
       .toJSON(),
+    new SlashCommandBuilder()
+      .setName(commandSurface.places)
+      .setDescription("Ashley's places: rooms, contacts, websites")
+      .addSubcommand((subcommand) => subcommand
+        .setName("list")
+        .setDescription("List her places and her own rules"))
+      .addSubcommand((subcommand) => subcommand
+        .setName("close")
+        .setDescription("Close a place: nothing she posts there goes out")
+        .addStringOption((o) => o.setName("place").setDescription("room:..., contact:... or a website origin").setRequired(true)))
+      .addSubcommand((subcommand) => subcommand
+        .setName("open")
+        .setDescription("Open a place again, or let her into a website")
+        .addStringOption((o) => o.setName("place").setDescription("room:..., contact:... or a website origin").setRequired(true)))
+      .toJSON(),
   ];
 }

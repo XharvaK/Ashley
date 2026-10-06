@@ -1,3 +1,4 @@
+import { ownerPlacesView, ownerSwitchPlace } from "./core/places/owner.js";
 import { listGrowthDimensions, revertAshleyDimensionEdit, seedGrowthDimension } from "./core/cognitive-v021/growth/dimensions.js";
 import { decideDomusIngress } from "./core/domus/ingress.js";
 import { readDomusStatus } from "./core/domus/store.js";
@@ -1889,6 +1890,33 @@ export function createServer(
     } catch (err) {
       const { status, body } = toErrorResponse(err instanceof Error && err.message === "place_sync_invalid"
         ? new AppError("bad_request", "invalid place sync", 400) : err);
+      res.status(status).json(body);
+    }
+  });
+
+  /** G1: the Owner's view of her places and the switch for each (/places). */
+  app.get("/places", (_req, res) => {
+    try {
+      requireReady();
+      res.json({ ok: true, ...ownerPlacesView(getCognitiveSidecar(), manager.core.getDatabase(), Date.now()) });
+    } catch (err) {
+      const { status, body } = toErrorResponse(err);
+      res.status(status).json(body);
+    }
+  });
+
+  app.post("/places/switch", (req, res) => {
+    try {
+      requireReady();
+      const body = c1Body(req);
+      requireOwner(typeof body.userId === "string" ? body.userId : undefined);
+      const place = c1RequiredString(body, "place", 300);
+      if (body.state !== "closed" && body.state !== "open") throw new AppError("message_required", "state must be closed or open", 400);
+      const result = ownerSwitchPlace(getCognitiveSidecar(), manager.core.getDatabase(), { place, state: body.state, nowMs: Date.now() });
+      if (!result.ok) throw new AppError("not_found", "not one of her places", 404);
+      res.json({ ok: true, place: result.place, state: body.state });
+    } catch (err) {
+      const { status, body } = toErrorResponse(err);
       res.status(status).json(body);
     }
   });

@@ -667,6 +667,22 @@ export async function removeContact(principalId: string) {
   });
 }
 
+export type OwnerPlace = { ref: string; kind: string; name: string; closed: boolean; theyAsked?: string[]; postsLast24h?: number };
+
+/** G1: her places for the Owner, and the Owner's switch. */
+export async function listPlaces() {
+  return agentFetch<{ places: OwnerPlace[]; web: Array<{ origin: string; state: string; reason: string | null }>;
+    rules: Array<{ place: string; rule: string; setAtMs: number }> }>("/places");
+}
+
+export async function switchPlace(place: string, state: "closed" | "open") {
+  return agentFetch<{ place: string; state: string }>("/places/switch", {
+    headers: ownerActorHeaders(),
+    method: "POST",
+    body: JSON.stringify({ userId: config.ownerId, place, state }),
+  });
+}
+
 export async function checkHealth(): Promise<boolean> {
   try {
     const res = await fetch(`${config.agentUrl}/health`, {

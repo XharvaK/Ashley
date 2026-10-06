@@ -100,6 +100,8 @@
     { "method": "POST", "path": "/chat/ingress-external", "ownerScope": "internal", "lifecycle": "active" },
     { "method": "GET", "path": "/social/eligibility", "ownerScope": "internal", "lifecycle": "active" },
     { "method": "POST", "path": "/places/posts/sync", "ownerScope": "internal", "lifecycle": "active" },
+    { "method": "GET", "path": "/places", "ownerScope": "owner_required", "lifecycle": "active" },
+    { "method": "POST", "path": "/places/switch", "ownerScope": "owner_required", "lifecycle": "active" },
     { "method": "POST", "path": "/chat/text", "ownerScope": "owner_required", "lifecycle": "retired" },
     { "method": "GET", "path": "/delivery/:id", "ownerScope": "owner_required", "lifecycle": "active" },
     { "method": "GET", "path": "/delivery/pending", "ownerScope": "owner_required", "lifecycle": "active" },

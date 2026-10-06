@@ -18,6 +18,7 @@ const IMPLEMENTED = [
   "attention",
   "delegation",
   "contacts",
+  "places",
 ] as const;
 
 type CommandKey = (typeof IMPLEMENTED)[number];

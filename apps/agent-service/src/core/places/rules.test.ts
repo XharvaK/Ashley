@@ -92,3 +92,24 @@ describe("G1 the Owner's switch and a contact's stop", () => {
     } finally { close(); }
   });
 });
+
+describe("G1 /places for the Owner", () => {
+  it("lists rooms, contacts, sites and her rules, and switches each", async () => {
+    const { ownerPlacesView, ownerSwitchPlace } = await import("./owner.js");
+    const { recordWebPlaceClaims, webPlaceState } = await import("../reach/web.js");
+    const { sidecar, nuclear, close } = world();
+    try {
+      recordWebPlaceClaims(sidecar, { claims: [{ origin: "https://agents.example.org", reason: "curious" }], ownerTurn: false, nowMs: NOW });
+      applyPlaceRules(sidecar, { cycleId: "c1", nowMs: NOW, claims: [{ place: ROOM, rule: "only when asked" }] });
+      expect(ownerSwitchPlace(sidecar, nuclear, { place: ROOM, state: "closed", nowMs: NOW })).toEqual({ ok: true, place: ROOM });
+      expect(ownerSwitchPlace(sidecar, nuclear, { place: "contact:nobody", state: "closed", nowMs: NOW })).toEqual({ ok: false, reason: "not_a_place" });
+      expect(ownerSwitchPlace(sidecar, nuclear, { place: "agents.example.org", state: "open", nowMs: NOW }))
+        .toEqual({ ok: true, place: "https://agents.example.org" });
+      expect(webPlaceState(sidecar, "https://agents.example.org")).toBe("approved");
+      const view = ownerPlacesView(sidecar, nuclear, NOW + 1);
+      expect(view.places.map(place => [place.ref, place.closed])).toEqual([[ROOM, true], ["contact:p1", false]]);
+      expect(view.web).toEqual([{ origin: "https://agents.example.org", state: "approved", reason: "curious" }]);
+      expect(view.rules).toEqual([{ place: ROOM, rule: "only when asked", setAtMs: NOW }]);
+    } finally { close(); }
+  });
+});
