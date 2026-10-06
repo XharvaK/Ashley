@@ -3,7 +3,6 @@ import {
   TARGET_SEMANTIC_INPUT_ENVELOPE,
 } from "../cognitive-v021/thought/projection-allocator/budget.js";
 import {
-  THOUGHT_OUTPUT_SCHEMA_FINGERPRINT,
   thoughtOutputDeepSeekJsonObjectInstruction,
   thoughtOutputStructuredRequest,
 } from "../cognitive-v021/thought/output-contract.js";
@@ -280,9 +279,7 @@ describe("GLM-5.3 Flash Thought provider migration witnesses", () => {
     });
     expect(THOUGHT_OUTPUT_CONTRACT_ID).toBe("ashley.thought.semantic.v2");
     expect(THOUGHT_OUTPUT_SCHEMA_ID).toBe("ashley.thought.semantic.v2.schema");
-    expect(THOUGHT_OUTPUT_SCHEMA_FINGERPRINT).toBe(
-      "sha256:e84f211839eadc828a02eb6bc97cb4155d22d13534197ba7c22198c88ea1915d",
-    );
+    // The schema fingerprint is pinned once, in semantic-output-contract.test.ts (a copy here went stale at 8f).
     expect(THOUGHT_SEMANTIC_PARSER_ID).toBe("ashley.thought.semantic-parser.v1");
     expect(parseThoughtSemanticOutput(
       JSON.stringify({
