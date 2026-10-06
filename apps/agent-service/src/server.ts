@@ -731,10 +731,10 @@ export function createServer(
    */
   app.get("/social/contacts", (_req, res) => {
     try {
-      const teachers = new Map(listTeachers(getCognitiveSidecar()).map((item) => [item.principalId, item.teaches]));
+      const teachers = new Set(listTeachers(getCognitiveSidecar()));
       const contacts = listActiveSocialPermits(manager.core.getDatabase(), Date.now())
         .map((item) => ({ principalId: item.principalId, scope: item.scope, grantedAt: item.grantedAt, expiresAt: item.expiresAt,
-          ...(teachers.has(item.principalId) ? { teaches: teachers.get(item.principalId) } : {}) }));
+          ...(teachers.has(item.principalId) ? { teacher: true } : {}) }));
       res.json({ ok: true, contacts });
     } catch (err) {
       const { status, body } = toErrorResponse(err);
@@ -756,10 +756,7 @@ export function createServer(
         sourceSpan: { kind: "owner_control", route: "/social/contacts", ownerId },
         nowMs: Date.now(),
       });
-      // T: the Owner may make a contact one of her teachers, with what they teach.
-      const teaches = typeof body.teaches === "string" ? body.teaches.trim().slice(0, 80) : "";
-      if (teaches) setTeacher(getCognitiveSidecar(), principalId, teaches, Date.now());
-      res.json({ ok: true, contact: { principalId: permit.principalId, scope: permit.scope, grantedAt: permit.grantedAt, ...(teaches ? { teaches } : {}) } });
+      res.json({ ok: true, contact: { principalId: permit.principalId, scope: permit.scope, grantedAt: permit.grantedAt } });
     } catch (err) {
       const { status, body } = toErrorResponse(err);
       res.status(status).json(body);
@@ -775,8 +772,26 @@ export function createServer(
       const revoked = listActiveSocialPermits(db, Date.now())
         .filter((item) => item.principalId === principalId)
         .map((item) => revokePerson(db, { entityUuid: item.entityUuid, nowMs: Date.now() }));
-      setTeacher(getCognitiveSidecar(), principalId, null, Date.now());
+      setTeacher(getCognitiveSidecar(), principalId, false, Date.now());
       res.json({ ok: true, revoked: revoked.length });
+    } catch (err) {
+      const { status, body } = toErrorResponse(err);
+      res.status(status).json(body);
+    }
+  });
+
+  /** T: the Owner switches a trusted contact to one of her teachers, or back. */
+  app.post("/social/contacts/teacher", (req, res) => {
+    try {
+      const body = c1Body(req);
+      requireOwner(typeof body.userId === "string" ? body.userId : undefined);
+      const principalId = c1RequiredString(body, "principalId", 300);
+      const on = body.on === true;
+      if (on && !listActiveSocialPermits(manager.core.getDatabase(), Date.now()).some((item) => item.principalId === principalId)) {
+        throw new AppError("message_required", "only a trusted contact can be her teacher", 400);
+      }
+      setTeacher(getCognitiveSidecar(), principalId, on, Date.now());
+      res.json({ ok: true, teacher: on });
     } catch (err) {
       const { status, body } = toErrorResponse(err);
       res.status(status).json(body);

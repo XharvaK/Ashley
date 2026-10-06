@@ -96,6 +96,7 @@ describe("bot → agent transport authentication", () => {
     // A3: only the Owner grants or revokes a trusted contact.
     expect(isAdminRoute("POST", "/social/contacts")).toBe(true);
     expect(isAdminRoute("POST", "/social/contacts/revoke")).toBe(true);
+    expect(isAdminRoute("POST", "/social/contacts/teacher")).toBe(true);
     expect(isAdminRoute("POST", "/places/switch")).toBe(true);
   });
 

@@ -184,11 +184,12 @@ export function buildCommandDefinitions(): RESTPostAPIChatInputApplicationComman
           .addChoices(
             { name: "DMs only", value: "dm_only" },
             { name: "DMs and trusted rooms", value: "person_wide" },
-          ))
-        .addStringOption((o) => o
-          .setName("teaches")
-          .setDescription("Make them one of her teachers: what they teach her (e.g. science)")
-          .setMaxLength(80)))
+          )))
+      .addSubcommand((subcommand) => subcommand
+        .setName("teacher")
+        .setDescription("Make a trusted contact one of her teachers, or not")
+        .addUserOption((o) => o.setName("user").setDescription("The person").setRequired(true))
+        .addBooleanOption((o) => o.setName("on").setDescription("Teacher on or off").setRequired(true)))
       .addSubcommand((subcommand) => subcommand
         .setName("remove")
         .setDescription("Stop a person talking with Ashley")

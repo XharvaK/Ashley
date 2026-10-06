@@ -24,10 +24,11 @@ describe("T her teachers and what she keeps", () => {
     const { sidecar, close } = world();
     try {
       expect(teacherForThought(sidecar, "p1")).toBeUndefined();
-      setTeacher(sidecar, "p1", "science", NOW);
-      expect(teacherForThought(sidecar, "p1")).toEqual({ name: "Jeff", teaches: "science" });
-      expect(listTeachers(sidecar)).toEqual([{ principalId: "p1", teaches: "science" }]);
-      setTeacher(sidecar, "p1", null, NOW + 1);
+      setTeacher(sidecar, "p1", true, NOW);
+      setTeacher(sidecar, "p1", true, NOW + 1);
+      expect(teacherForThought(sidecar, "p1")).toEqual({ name: "Jeff" });
+      expect(listTeachers(sidecar)).toEqual(["p1"]);
+      setTeacher(sidecar, "p1", false, NOW + 1);
       expect(teacherForThought(sidecar, "p1")).toBeUndefined();
     } finally { close(); }
   });
@@ -35,7 +36,7 @@ describe("T her teachers and what she keeps", () => {
   it("keeps lessons once per turn, bound to who taught them and where, and shows the last week to her own time", () => {
     const { sidecar, nuclear, close } = world();
     try {
-      setTeacher(sidecar, "p1", "science", NOW);
+      setTeacher(sidecar, "p1", true, NOW);
       recordLessons(sidecar, { cycleId: "old", fromPrincipal: "p1", placeRef: "contact:p1", nowMs: NOW - LESSONS_WINDOW_MS - 1,
         claims: [{ what: "an old lesson" }] });
       recordLessons(sidecar, { cycleId: "c1", fromPrincipal: "p1", placeRef: "contact:p1", nowMs: NOW - 60_000,
@@ -43,7 +44,7 @@ describe("T her teachers and what she keeps", () => {
       recordLessons(sidecar, { cycleId: "c1", fromPrincipal: "p1", placeRef: "contact:p1", nowMs: NOW, claims: [{ what: "a replay of the same turn" }] });
       recordLessons(sidecar, { cycleId: "c2", fromPrincipal: "p2", placeRef: "contact:p2", nowMs: NOW, claims: [{ what: "fractal palettes repeat" }] });
       expect(lessonsForThought(sidecar, NOW)).toEqual([
-        { from: "Jeff", teaches: "science", place: "Jeff", what: "Autonomous agents fail most at long-horizon credit assignment",
+        { from: "Jeff", fromTeacher: true, place: "Jeff", what: "Autonomous agents fail most at long-horizon credit assignment",
           curiousAbout: "how memory changes that", atMs: NOW - 60_000 },
         { from: "Mara", place: "Mara", what: "fractal palettes repeat", atMs: NOW },
       ]);

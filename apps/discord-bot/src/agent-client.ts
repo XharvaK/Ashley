@@ -644,18 +644,27 @@ export async function memorySummary(includePrivate = false) {
 }
 
 
-export type TrustedContact = { principalId: string; scope: "dm_only" | "person_wide"; grantedAt: string; expiresAt: string | null; teaches?: string };
+export type TrustedContact = { principalId: string; scope: "dm_only" | "person_wide"; grantedAt: string; expiresAt: string | null; teacher?: boolean };
 
 /** A3: the Owner's trusted contacts. Writes are admin acts (Owner actor). */
 export async function listContacts() {
   return agentFetch<{ contacts: TrustedContact[] }>("/social/contacts");
 }
 
-export async function addContact(principalId: string, scope: TrustedContact["scope"], teaches?: string) {
-  return agentFetch<{ contact: Pick<TrustedContact, "principalId" | "scope" | "grantedAt" | "teaches"> }>("/social/contacts", {
+export async function addContact(principalId: string, scope: TrustedContact["scope"]) {
+  return agentFetch<{ contact: Pick<TrustedContact, "principalId" | "scope" | "grantedAt"> }>("/social/contacts", {
     headers: ownerActorHeaders(),
     method: "POST",
-    body: JSON.stringify({ userId: config.ownerId, principalId, scope, ...(teaches ? { teaches } : {}) }),
+    body: JSON.stringify({ userId: config.ownerId, principalId, scope }),
+  });
+}
+
+/** T: make a trusted contact one of her teachers, or not. */
+export async function setContactTeacher(principalId: string, on: boolean) {
+  return agentFetch<{ teacher: boolean }>("/social/contacts/teacher", {
+    headers: ownerActorHeaders(),
+    method: "POST",
+    body: JSON.stringify({ userId: config.ownerId, principalId, on }),
   });
 }
 

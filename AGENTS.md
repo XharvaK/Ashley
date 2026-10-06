@@ -236,5 +236,5 @@ npm run eval:full -- -Baseline baseline-w0 -Label wave5
 | `/continuity` | Continuity lineage snapshot |
 | `/status` | Nuclear health + initiative + relationship_state |
 | `/attention` | Owner-only timing sensitivity and calibration |
-| `/contacts` | Owner-only: add, remove or list trusted contacts (who may talk with Ashley) |
+| `/contacts` | Owner-only: add, remove or list trusted contacts (who may talk with Ashley); `teacher` switches one to her teacher |
 | `/places` | Owner-only: list her places (rooms, contacts, websites) and her own rules; close or open one |
