@@ -26,6 +26,11 @@ on:
       - "scripts/phase0/**"
       - "workspace/prompts/**"
 
+# A newer push to the same branch replaces a run still in progress: only the newest commit is judged.
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
+
 # Offline CI builds the current Sandbox V2 file packages, then runs the
 # explicit current release gate. Physical Linux qualification remains separate.
 jobs:
