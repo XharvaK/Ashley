@@ -1724,6 +1724,23 @@ describe("P0 system-notice Owner-DM recheck split", () => {
     }
   });
 
+  it("D2: a notice written after recovery gave up survives the recovery cycles, not a newer Owner message", () => {
+    const fixture = systemNoticeRecheckFixture("owner_recovery_exhausted");
+    try {
+      admitTestCycle(fixture.sidecar, { conversationId: fixture.cycle.conversationId, triggerKind: "recovery",
+        triggerRef: "repair-1", occupantId: "doc", authorityEpoch: 1, nowMs: 3 });
+      expect(recheckSystemNoticePublicationReservation(fixture.nuclear, fixture.reservationId, 4, { cognitiveSidecar: fixture.sidecar }))
+        .toEqual({ ok: true });
+      admitTestCycle(fixture.sidecar, { conversationId: fixture.cycle.conversationId, triggerKind: "owner_message",
+        triggerRef: "owner-again", occupantId: "doc", authorityEpoch: 1, nowMs: 5 });
+      expect(recheckSystemNoticePublicationReservation(fixture.nuclear, fixture.reservationId, 6, { cognitiveSidecar: fixture.sidecar }))
+        .toEqual({ ok: false, reason: "stale_generation" });
+    } finally {
+      fixture.nuclear.close();
+      fixture.sidecar.close();
+    }
+  });
+
   it("E: speech path still requires its speech row", () => {
     const fixture = ownerDmRecheckFixture();
     try {

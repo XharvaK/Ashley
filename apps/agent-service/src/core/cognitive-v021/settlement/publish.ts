@@ -1750,7 +1750,16 @@ export function recheckSystemNoticePublicationReservation(
 
   // System notices carry no generation of their own; the bound cycle is the
   // currentness fence. A cycle-less notice has no cycle identity to compare.
-  if (notice.cycleId !== null) {
+  if (notice.cycleId !== null && notice.noticeKey.endsWith(":owner_recovery_exhausted")) {
+    // Recovery wrote this after its own repair cycles ran, so it is about an older cycle by design
+    // (live 2026-10-06: every such notice was refused as stale and the Owner was never told). It holds
+    // until the Owner writes again.
+    const bound = cognitiveSidecar.prepare("SELECT generation FROM cycle_records WHERE cycle_id = ?").get(notice.cycleId) as DbRow | undefined;
+    const newerOwner = bound && cognitiveSidecar.prepare(
+      `SELECT 1 FROM cycle_records WHERE conversation_id = ? AND generation > ? AND trigger_kind = 'owner_message' LIMIT 1`,
+    ).get(notice.conversationId, Number(bound.generation));
+    if (!bound || newerOwner) return { ok: false, reason: "stale_generation" };
+  } else if (notice.cycleId !== null) {
     const current = getCurrentCycle(cognitiveSidecar, notice.conversationId, { includeIdle: true });
     if (!current || current.cycleId !== notice.cycleId) {
       return { ok: false, reason: "stale_generation" };
