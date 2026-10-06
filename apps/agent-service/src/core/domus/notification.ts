@@ -103,9 +103,11 @@ export function pendingDomus(db: DatabaseSync, nowMs: number): DomusPending[] {
   return result;
 }
 
-/** The selected cycle and timing receipt commit together with the rows' admission; disarmed or unpaid work is deferred. */
+/** The selected cycle and timing receipt commit together with the rows' admission; disarmed or unpaid work is deferred.
+ * E1: conversationId is the game lane; homeConversationId is the Owner's thread, where her words from the game go. */
 export function selectDomusNotification(db: DatabaseSync, input: {
-  observationId: string; conversationId: string; ownerId: string; authorityEpoch: number; nowMs: number; bind: (cycleId: string) => void;
+  observationId: string; conversationId: string; homeConversationId?: string; ownerId: string; authorityEpoch: number; nowMs: number;
+  bind: (cycleId: string) => void;
 }) {
   const id = "domus-notification:" + input.observationId;
   const existing = getInboxEvent(db, id);
@@ -122,7 +124,9 @@ export function selectDomusNotification(db: DatabaseSync, input: {
     if (!included.some(row => row.observation_id === input.observationId)) throw new Error("domus_observation_not_pending");
     const observationIds = included.map(row => String(row.observation_id));
     event = appendInboxEventInTransaction(db, { id, conversationId: input.conversationId, kind: "domus_notification",
-      payload: { domus: { world: String(newest.world), attachment, observationIds }, occupantId: input.ownerId, authorityEpoch: input.authorityEpoch },
+      payload: { domus: { world: String(newest.world), attachment, observationIds }, occupantId: input.ownerId, authorityEpoch: input.authorityEpoch,
+        ...(input.homeConversationId && input.homeConversationId !== input.conversationId
+          ? { channel: "discord", threadId: input.homeConversationId } : {}) },
       createdAtMs: input.nowMs }, id);
     db.prepare("UPDATE inbox_events SET next_eligible_at_ms=? WHERE id=? AND state='pending'").run(Number.MAX_SAFE_INTEGER, id);
     input.bind(String((event.payload as Row).cycleId));
@@ -169,6 +173,15 @@ function boundNotification(db: DatabaseSync, event: { id: string; conversationId
   const attachment = (bound as { attachment?: unknown }).attachment;
   return { world: bound.world, observationIds: bound.observationIds.map(String), eventId: persisted.id, createdAtMs: persisted.createdAtMs,
     ...(typeof attachment === "string" && attachment ? { attachment } : {}) };
+}
+
+/** E1: the Owner's thread a game-lane pass belongs to (none for a pass in the Owner's own thread). */
+export function domusHomeFor(db: DatabaseSync, event: { id: string; conversationId: string }, originCycleId?: string): string | undefined {
+  try {
+    const persisted = getInboxEvent(db, boundNotification(db, event, originCycleId).eventId);
+    const threadId = (persisted?.payload as Row | undefined)?.threadId;
+    return typeof threadId === "string" && threadId && threadId !== event.conversationId ? threadId : undefined;
+  } catch { return undefined; }
 }
 
 /** The memory channel of a Domus pass, for its journal entry. */

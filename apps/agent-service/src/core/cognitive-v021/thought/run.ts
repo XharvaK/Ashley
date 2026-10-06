@@ -1,5 +1,5 @@
 import { selfChangeResultForThought } from "../growth/self-change-results.js";
-import { domusActBindingFor, domusChannelFor, domusForThought, domusNowForThought } from "../../domus/notification.js";
+import { domusActBindingFor, domusChannelFor, domusForThought, domusHomeFor, domusNowForThought } from "../../domus/notification.js";
 import { domusSessionForThought } from "../../domus/session.js";
 import { thoughtPlaces } from "../../places/thought.js";
 import { placesSeenMarks } from "../../places/places.js";
@@ -3260,7 +3260,11 @@ export async function runCognitiveCycle(
       triggerKindOverride: originProfile.triggerKind,
       ...(originProfile.triggerKind === "self_change_result" ? { selfChangeResult: selfChangeResultForThought(sidecar, event, originProfile.originCycleId) } : {}),
       ...(originProfile.triggerKind === "domus_notification" && effectiveThoughtAudience.kind === "owner_private"
-        ? { domus: domusForThought(sidecar, event, originProfile.originCycleId, { enabled: env.domusActEnabled, nowMs: deps.nowMs() }) } : {}),
+        ? (() => {
+            const home = domusHomeFor(sidecar, event, originProfile.originCycleId);
+            return { domus: domusForThought(sidecar, event, originProfile.originCycleId, { enabled: env.domusActEnabled, nowMs: deps.nowMs() }),
+              ...(home ? { homeConversationId: home } : {}) };
+          })() : {}),
       ...(effectiveThoughtAudience.kind === "owner_private" && !externalCycle && originProfile.triggerKind !== "domus_notification"
         ? (() => {
             const nowMs = deps.nowMs();

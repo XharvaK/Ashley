@@ -126,6 +126,8 @@ export type ClaimDurableWorkInput = {
   conversationId?: string;
   eventId?: string;
   lane?: string;
+  /** E1: leave out conversations under this prefix (the game lane has its own worker). */
+  excludeConversationPrefix?: string;
   nowMs?: number;
   leaseMs?: number;
 };
@@ -727,6 +729,10 @@ function candidates(db: DatabaseSync, input: ClaimDurableWorkInput): FairWorkCan
   if (input.lane) {
     clauses.push("e.lane = ?");
     values.push(input.lane);
+  }
+  if (input.excludeConversationPrefix) {
+    clauses.push("substr(e.conversation_id, 1, ?) != ?");
+    values.push(input.excludeConversationPrefix.length, input.excludeConversationPrefix);
   }
   const rows = db.prepare(
     `SELECT e.id, e.lane, e.conversation_id, e.state,

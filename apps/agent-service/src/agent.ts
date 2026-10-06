@@ -40,7 +40,8 @@ import {getActiveDeferredFrontier} from "./core/cognitive-v021/frontier/ledger.j
 import {isPrivateThoughtActive} from "./core/cognitive-v021/initiative/idle.js";
 import {recordInfluencedCuriosityRank} from "./core/cognitive-v021/influences/curiosity.js";
 import {PRIVATE_SUBSCRIPTION_ITEMS_PER_IDLE} from "./core/cognitive-v021/types.js";
-import {collectInnerFacts} from "./core/cognitive-v021/thalamus/current-facts.js";
+import {collectInnerFacts,innerContext} from "./core/cognitive-v021/thalamus/current-facts.js";
+import {domusLaneId} from "./core/domus/lane.js";
 import {runThalamusPass} from "./core/cognitive-v021/thalamus/integration.js";
 import {isThalamusEnabled} from "./core/cognitive-v021/thalamus/scheduler.js";
 import {prospective} from "./core/cognitive-v021/thalamus/nuclei/prospective.js";
@@ -283,10 +284,9 @@ export class AgentManager {
     const resultBudget=resultFeedEnabled && selfChangeResultBudgetAvailable(sidecar,nowMs);
     const resultCandidates=resultBudget?prospective(pendingSelfChangeResults(sidecar,conversationId,nowMs).map(item=>({
       eventId:`self-result:${item.changesetId}`,observedAtMs:item.receivedAtMs,refs:[item.changesetId],kind:"self_change_result" as const,dueAtMs:item.receivedAtMs})),nowMs):[];
-    // 8d: game observations the Domus helper delivered, paid by the embodiment budget.
+    // 8d: a game pass admitted in the Owner's thread before E1 still finishes there; new ones go to the game lane.
     repairDomusReservations(sidecar,{conversationId,nowMs});
-    const domusCandidates=embodimentBudgetAvailable(sidecar,nowMs)?domus(pendingDomus(sidecar,nowMs)):[];
-    const dedicated=[...resultCandidates,...domusCandidates];
+    const dedicated=[...resultCandidates];
     // Dedicated capacity cannot grant ordinary private passes capacity.
     if(!current.context.budgetAvailable && dedicated.length)current.candidates=[];
     current.candidates.push(...dedicated);
@@ -298,13 +298,34 @@ export class AgentManager {
       }),executors:{
       selfChangeResult:async(changesetId,selected)=>selectSelfChangeResult(sidecar,{changesetId,conversationId,ownerId,
         authorityEpoch:readCognitiveSidecarMeta(sidecar).authority_epoch,nowMs,bind:selected.bind}),
-      domus:async(observationId,selected)=>selectDomusNotification(sidecar,{observationId,conversationId,ownerId,
-        authorityEpoch:readCognitiveSidecarMeta(sidecar).authority_epoch,nowMs,bind:selected.bind}),
       afterglow:selected=>this.tickCognitiveAfterglow(ownerId,nowMs,selected),
       night:selected=>this.tickCognitiveNight(ownerId,nowMs,afterglowEnabled,selected),
       awake:selected=>this.tickCognitiveAwake(ownerId,nowMs,afterglowEnabled,selected),
       idle:(selection,selected)=>this.tickCognitiveIdle(ownerId,{...selected,nowMs,selection,
         commitment:commitments.find(item=>item.commitmentId===selection.commitmentId)}),
+    }});
+  }
+
+  /**
+   * E1: the game lane's own thalamus pass. Game observations the Domus helper delivered, paid by the
+   * embodiment budget, become one Domus pass in the lane. It never waits on a Discord turn or her other
+   * inner life; only the lane's own current pass holds the next one.
+   */
+  async tickDomusLane(ownerId:string,nowMs=Date.now()){
+    if(!isThalamusEnabled())return {kind:"disabled"} as const;
+    const sidecar=this.openCognitiveSidecar();
+    if(!sidecar || !this.cognitiveDeps)throw new AppError("agent_not_ready","Cognitive dispatcher unavailable",503);
+    const home=resolveActiveThread(this.core.getDatabase(),ownerId,"discord"),lane=domusLaneId(ownerId);
+    repairDomusReservations(sidecar,{conversationId:lane,nowMs});
+    if(!embodimentBudgetAvailable(sidecar,nowMs))return {kind:"budget"} as const;
+    const candidates=domus(pendingDomus(sidecar,nowMs));
+    if(!candidates.length)return {kind:"idle"} as const;
+    const context={...innerContext(sidecar,{conversationId:home,nowMs,timeZone:env.ownerTimeZone || DEFAULT_OWNER_TIME_ZONE}),budgetAvailable:true};
+    const laneOnly=async()=>{throw new Error("domus_lane_selects_domus_only");};
+    return runThalamusPass(sidecar,{ownerId,conversationId:lane,nowMs,enabled:true,candidates,facts:[],context,executors:{
+      afterglow:laneOnly,night:laneOnly,awake:laneOnly,idle:laneOnly,
+      domus:async(observationId,selected)=>selectDomusNotification(sidecar,{observationId,conversationId:lane,homeConversationId:home,ownerId,
+        authorityEpoch:readCognitiveSidecarMeta(sidecar).authority_epoch,nowMs,bind:selected.bind}),
     }});
   }
 

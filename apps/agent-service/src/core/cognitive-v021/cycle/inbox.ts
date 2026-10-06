@@ -835,12 +835,13 @@ export function listCycleOwnerUtterances(db: DatabaseSync, conversationId: strin
   return rows.map(mapInbox).filter((row): row is InboxEvent => row !== null);
 }
 
-export function claimInboxEvent(db: DatabaseSync, input: { workerId: string; conversationId?: string; eventId?: string; nowMs?: number; leaseMs?: number }): InboxEvent | null {
+export function claimInboxEvent(db: DatabaseSync, input: { workerId: string; conversationId?: string; excludeConversationPrefix?: string; eventId?: string; nowMs?: number; leaseMs?: number }): InboxEvent | null {
   const nowMs = input.nowMs ?? Date.now();
   try {
     const claimed = claimNextDurableWork(db, {
       workerId: input.workerId,
       conversationId: input.conversationId,
+      excludeConversationPrefix: input.excludeConversationPrefix,
       eventId: input.eventId,
       nowMs,
       leaseMs: input.leaseMs,

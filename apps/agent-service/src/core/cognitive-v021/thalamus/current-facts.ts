@@ -2,6 +2,7 @@ import {listInterestBranches} from "../memory/interests.js";
 import type {DatabaseSync} from "node:sqlite";
 import {readAfterglowState} from "../initiative/afterglow.js";
 import {domusSessionsDue} from "../../domus/session.js";
+import {domusLaneId} from "../../domus/lane.js";
 import {readInnerState} from "../initiative/awake.js";
 import {readNightState,quietestHour} from "../initiative/night.js";
 import {readMood} from "../growth/mood.js";
@@ -17,6 +18,18 @@ import type {Candidate,ThalamusContext} from "./core.js";
 import type {AttentionFact} from "./attention.js";
 import {THALAMUS_PARAMETERS as P} from "./parameters.js";
 type Options={ownerId:string;conversationId:string;nowMs:number;timeZone:string;afterglowEnabled:boolean;dataDir?:string};
+/** Her state as the arbiter weighs it: private-budget fatigue, mood and the hour against her quietest one. */
+export function innerContext(db:DatabaseSync,options:{conversationId:string;nowMs:number;timeZone:string}):ThalamusContext{
+ const {conversationId,nowMs}=options;
+ const mood=readMood(db,nowMs);
+ const quietHour=readNightState(db,conversationId)?.quietHour ?? quietestHour(db,{nowMs,timeZone:options.timeZone});
+ const parts=new Intl.DateTimeFormat("en-US",{timeZone:options.timeZone,hour:"numeric",hourCycle:"h23"}).formatToParts(nowMs);
+ const localHour=Number(parts.find(part=>part.type==="hour")!.value);
+ const budget=getPrivateBudgetProjection(db,{policyId:PRIVATE_THOUGHT_POLICY_ID,wallClockNowMs:nowMs});
+ return {budgetAvailable:budget.remaining>0 && budget.clockState!=="clock_reconciliation",conversationClaimHeld:false,
+  spentFraction:budget.limit>0?budget.consumingCount/budget.limit:1,energy:mood.energy,tension:mood.tension,
+  circadianPhase:Math.cos(2*Math.PI*(localHour-quietHour)/P.hoursPerDay.default)};
+}
 /** Read metadata from its current owners. No text matching, acquisition, admission or clock writes. */
 export function collectInnerFacts(db:DatabaseSync,options:Options){
  const {ownerId,conversationId,nowMs}=options;
@@ -55,8 +68,8 @@ export function collectInnerFacts(db:DatabaseSync,options:Options){
  const ownPublication=db.prepare(`SELECT MAX(a.created_at_ms) AS at FROM thalamus_decisions d
   JOIN cycle_records c ON c.cycle_id=d.cycle_id JOIN settlements s ON s.cycle_id=c.cycle_id
   JOIN settlement_aftermath a ON a.settlement_id=s.settlement_id
-  WHERE d.owner_id=? AND d.decision_code='fire' AND d.pass_type='own_time' AND c.conversation_id=?
-  AND c.occupant_id=? AND a.created_at_ms<=?`).get(ownerId,conversationId,ownerId,nowMs);
+  WHERE d.owner_id=? AND d.decision_code='fire' AND d.pass_type='own_time' AND c.conversation_id IN (?,?)
+  AND c.occupant_id=? AND a.created_at_ms<=?`).get(ownerId,conversationId,domusLaneId(ownerId),ownerId,nowMs);
  const baselines=[inner?.lastAwakeAtMs,ownPublication?.at].filter((value):value is number=>typeof value==="number" && Number.isFinite(value) && value<=nowMs);
  const idleSinceMs=baselines.length?Math.max(...baselines):null;
  const agenda=count("SELECT count(*) AS n FROM mind_occupancy WHERE conversation_id=? AND status!='resolved'",conversationId);
@@ -73,10 +86,7 @@ export function collectInnerFacts(db:DatabaseSync,options:Options){
  }
  const triggers=db.prepare("SELECT trigger_id,due_at_ms FROM future_triggers WHERE conversation_id=? AND status IN ('scheduled','needs_review') AND due_at_ms<=? ORDER BY due_at_ms,trigger_id").all(conversationId,nowMs);
  candidates.push(...prospective(triggers.map(row=>({eventId:`trigger:${row.trigger_id}`,observedAtMs:Number(row.due_at_ms),refs:[String(row.trigger_id)],kind:"trigger" as const,dueAtMs:Number(row.due_at_ms)})),nowMs));
- const budget=getPrivateBudgetProjection(db,{policyId:PRIVATE_THOUGHT_POLICY_ID,wallClockNowMs:nowMs});
- const context:ThalamusContext={budgetAvailable:budget.remaining>0 && budget.clockState!=="clock_reconciliation",conversationClaimHeld:false,
-  spentFraction:budget.limit>0?budget.consumingCount/budget.limit:1,energy:mood.energy,tension:mood.tension,
-  circadianPhase:Math.cos(2*Math.PI*(localHour-quietHour)/P.hoursPerDay.default)};
+ const context=innerContext(db,{conversationId,nowMs,timeZone:options.timeZone});
  // Polling pressure is not a new observation. Preserve identity/time until the fact changes.
  for(const candidate of candidates){
   const family=state.families[`${candidate.source}:${candidate.coalesceKey}`];

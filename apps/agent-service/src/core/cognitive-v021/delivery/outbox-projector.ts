@@ -1,4 +1,5 @@
 import { recordDelivered, recordOwnerReply } from "../graduation/recorders.js";
+import { isDomusLane } from "../../domus/lane.js";
 import { recordHostFriction } from "../growth/friction.js";
 import type { DatabaseSync } from "node:sqlite";
 import { planContentBubbles } from "../../delivery/bubble-plan.js";
@@ -292,8 +293,9 @@ function markDeliveredEvidence(
       WHERE reservation_id = ? AND role = ? LIMIT 1`,
   ).get(reservationId, role);
   if (existing) return;
+  // E1: words she sent from the game lane belong to the thread they were delivered in.
   const input = {
-    conversationId: row.conversationId,
+    conversationId: isDomusLane(row.conversationId) && row.deliveryIntent.threadId ? row.deliveryIntent.threadId : row.conversationId,
     text: delivered.map((bubble) => bubble.text).join("\n\n"),
     discordMessageIds: delivered.map((bubble) => bubble.discordMessageId!),
     reservationId,

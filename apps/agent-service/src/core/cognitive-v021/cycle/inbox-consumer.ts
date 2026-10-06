@@ -47,7 +47,7 @@ export type InboxConsumerHandler = (
 
 export function claimNextInboxEvent(
   db: DatabaseSync,
-  input: { workerId: string; conversationId?: string; nowMs?: number; leaseMs?: number },
+  input: { workerId: string; conversationId?: string; excludeConversationPrefix?: string; nowMs?: number; leaseMs?: number },
 ): InboxEvent | null {
   return claimInboxEvent(db, input);
 }
@@ -218,6 +218,13 @@ export type InboxConsumerOptions = {
   workerId: string;
   handler: InboxConsumerHandler;
   conversationId?: string;
+  /** E1: leave out conversations under this prefix (served by another consumer). */
+  excludeConversationPrefix?: string;
+  /**
+   * E1: false for a second consumer that serves one lane only; the main consumer
+   * keeps the steady-state reconciliation and its maintenance seam.
+   */
+  steadyStateReconciliation?: boolean;
   nowMs?: () => number;
   leaseMs?: number;
   pollMs?: number;
@@ -270,6 +277,7 @@ export async function consumeNextInboxEvent(
   const event = claimNextInboxEvent(db, {
     workerId: options.workerId,
     conversationId: options.conversationId,
+    excludeConversationPrefix: options.excludeConversationPrefix,
     nowMs,
     leaseMs: options.leaseMs,
   });
@@ -428,11 +436,14 @@ export function startInboxConsumer(
     });
   }
 
+  const reconciles = options.steadyStateReconciliation !== false;
   const done = (async () => {
     while (!stopped) {
-      const tick = await awaitTickWithInflightDeadline(consumeNextInboxEvent(db, options));
+      const tick = reconciles
+        ? await awaitTickWithInflightDeadline(consumeNextInboxEvent(db, options))
+        : await consumeNextInboxEvent(db, options);
       if (stopped) break;
-      maybeReconcilePostTick(tick);
+      if (reconciles) maybeReconcilePostTick(tick);
       if (tick.outcome !== "consumed") {
         await new Promise<void>((resolve) => {
           wake = resolve;

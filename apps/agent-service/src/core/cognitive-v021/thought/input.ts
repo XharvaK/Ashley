@@ -143,6 +143,8 @@ export type BuildThoughtInputOptions = {
   innerPass?: ThoughtInnerPass;
   /** 8d: a Domus pass's portrait (kept only for Owner-private audiences). */
   domus?: import("../../domus/notification.js").DomusForThought;
+  /** E1: a game-lane pass reads its last turns, thread story and log search from the Owner's thread. */
+  homeConversationId?: string;
   /** A1/B1: her places and her recent acts there, computed by the caller (Owner-private only). */
   places?: import("../../places/thought.js").ThoughtPlaces;
   /** E1: her home folder, computed by the caller (Owner-private only). */
@@ -1058,17 +1060,23 @@ export function buildThoughtInput(options: BuildThoughtInputOptions): ThoughtInp
     options.sidecar,
     options.cycle.conversationId,
   );
-  const conversationSelection = frontierAwareEvidenceSelection(
-    options.sidecar,
-    options.cycle.conversationId,
-    {
-      lastNTurns,
-      triggerEvidence: options.triggerEvidence,
-      composeLogIds: options.cycle.composeLogIds,
-      activeFrontier,
-      suppliedEvidence: options.rawConversation,
-    },
-  );
+  // E1: the game lane has no turns of its own; its pass reads the Owner's thread, read-only.
+  const home = domusPass && options.homeConversationId && options.homeConversationId !== options.cycle.conversationId
+    ? options.homeConversationId : undefined;
+  const evidenceConversationId = home ?? options.cycle.conversationId;
+  const conversationSelection = home
+    ? frontierAwareEvidenceSelection(options.sidecar, home, { lastNTurns })
+    : frontierAwareEvidenceSelection(
+      options.sidecar,
+      options.cycle.conversationId,
+      {
+        lastNTurns,
+        triggerEvidence: options.triggerEvidence,
+        composeLogIds: options.cycle.composeLogIds,
+        activeFrontier,
+        suppliedEvidence: options.rawConversation,
+      },
+    );
   const rawConversation = markRoomRowsToHer(filterEvidence(conversationSelection.selectedEvidence, audience), audience);
   // E2a recency-loss honesty: count the selector's same-read exclusion set
   // through the EXISTING lifecycle filterEvidence — the sole eligibility
@@ -1159,7 +1167,7 @@ export function buildThoughtInput(options: BuildThoughtInputOptions): ThoughtInp
   const retrieval = retrieveCandidates(
     options.sidecar,
     {
-      conversationId: options.cycle.conversationId,
+      conversationId: evidenceConversationId,
       request: {
         triggerTerms: query.rawTriggerTerms,
         workingContextTopics: query.concernTerms,
@@ -1189,7 +1197,7 @@ export function buildThoughtInput(options: BuildThoughtInputOptions): ThoughtInp
     ? buildCoreProfile(options.sidecar, options.clock?.nowMs ?? Date.now())
     : { owner: [], self: [] };
   const threadStory = audience.kind === "owner_private"
-    ? getThreadStory(options.sidecar, options.cycle.conversationId)
+    ? getThreadStory(options.sidecar, evidenceConversationId)
     : null;
   const episodes = audience.kind === "owner_private" && !domusPass
     ? episodesForThought(options.sidecar, query.rawTriggerTerms, undefined, options.clock?.nowMs ?? Date.now())

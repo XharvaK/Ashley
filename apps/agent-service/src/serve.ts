@@ -28,6 +28,7 @@ import { TavilyWebSearchProvider } from "./core/perception/tavily-search-provide
 import { createOutboxProjector, reconcileProjectedDeliverySweep } from "./core/cognitive-v021/delivery/outbox-projector.js";
 import { reconcileOrphanedSendingDeliveries, reconcileUnfulfilledFailedSpeechReservations } from "./core/cognitive-v021/delivery/pending.js";
 import { startInboxConsumer, type InboxConsumerHandle, type InboxConsumerHandler } from "./core/cognitive-v021/cycle/inbox-consumer.js";
+import { DOMUS_LANE_PREFIX, domusLaneId } from "./core/domus/lane.js";
 import {
   reconcileStartupOwnership,
   reconcileUnbatchedCaptures,
@@ -652,15 +653,12 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
     // runs only when there is nothing left to reflect on.
     let innerRunning = false;
     let innerLastPollMs = 0;
-    let innerArrival = false;
     const pollInnerLife = (nowMs: number): void => {
       const awakeEnabled = isPeriodicCognitionEnabled();
       const thalamusEnabled=isThalamusEnabled();
       if ((!thalamusEnabled && !env.afterglowEnabled && !awakeEnabled) || innerRunning || manager.isPaused()) return;
-      const arrival = thalamusEnabled && innerArrival;
-      if (!arrival && nowMs - innerLastPollMs < (thalamusEnabled?THALAMUS_PARAMETERS.schedulerPollMs.default:AFTERGLOW_POLL_MS)) return;
+      if (nowMs - innerLastPollMs < (thalamusEnabled?THALAMUS_PARAMETERS.schedulerPollMs.default:AFTERGLOW_POLL_MS)) return;
       innerRunning = true;
-      innerArrival = false;
       innerLastPollMs = nowMs;
       void (async () => {
         if(thalamusEnabled){
@@ -691,14 +689,29 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
         .catch((error) => console.warn("[cognitive-v021] inner life deferred", error))
         .finally(() => {
           innerRunning = false;
-          // A game moment that arrived during this pass is evaluated as soon as it ends.
-          if (innerArrival) setImmediate(() => pollInnerLife(Date.now()));
         });
     };
-    onDomusArrival = () => {
-      innerArrival = true;
-      pollInnerLife(Date.now());
+    // E1: the game lane is polled on its own, beside her inner life: a game moment is weighed at once
+    // when it arrives or when her last game pass ends, and never waits for a Discord turn.
+    let laneRunning = false;
+    let laneAgain = false;
+    let laneLastPollMs = 0;
+    const pollDomusLane = (nowMs: number, now = false): void => {
+      if (!isThalamusEnabled() || manager.isPaused()) return;
+      if (laneRunning) { laneAgain ||= now; return; }
+      if (!now && nowMs - laneLastPollMs < THALAMUS_PARAMETERS.schedulerPollMs.default) return;
+      laneRunning = true;
+      laneAgain = false;
+      laneLastPollMs = nowMs;
+      void manager.tickDomusLane(ownerId, nowMs)
+        .then((result) => { if (result.kind === "evaluated") console.log(`[domus] lane ${result.decision.kind} reason=${result.decision.reason}`); })
+        .catch((error) => console.warn("[domus] lane deferred", error))
+        .finally(() => {
+          laneRunning = false;
+          if (laneAgain) setImmediate(() => pollDomusLane(Date.now(), true));
+        });
     };
+    onDomusArrival = () => pollDomusLane(Date.now(), true);
     if (env.embodimentBudgetLimit > 0) {
       try {
         configureEmbodimentBudget(sidecar, { limit: env.embodimentBudgetLimit, version: env.embodimentBudgetVersion });
@@ -715,9 +728,26 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
       },
       config: () => ({ enabled: process.env.ASHLEY_SELF_CHANGE_RESULTS_ENABLED === "true", key: process.env.ASHLEY_SELF_CHANGE_RESULT_KEY ?? "" }),
     });
-    cognitiveConsumer = startInboxConsumer(sidecar, {
+    const consumerHandler = createAgentInboxConsumerHandler(manager);
+    // E1: the game lane's own worker. A game thought and a Discord turn run side by side; when a game
+    // pass ends the lane is weighed again at once.
+    const laneConsumer = startInboxConsumer(sidecar, {
+      workerId: `agent-service:${process.pid}:domus`,
+      conversationId: domusLaneId(ownerId),
+      steadyStateReconciliation: false,
+      handler: async (event) => {
+        try {
+          return await consumerHandler(event);
+        } finally {
+          setImmediate(() => pollDomusLane(Date.now(), true));
+        }
+      },
+      onError: (error, event) => console.error(`[domus] lane event failed id=${event?.id ?? "?"}`, error),
+    });
+    const mainConsumer = startInboxConsumer(sidecar, {
       workerId: `agent-service:${process.pid}`,
-      handler: createAgentInboxConsumerHandler(manager),
+      excludeConversationPrefix: DOMUS_LANE_PREFIX,
+      handler: consumerHandler,
       onReconciliationMaintenance: (nowMs) => {
         if (!manager.isPaused()) void selfChangeResultMaintenance?.poll(nowMs)
           .then(() => { lastSelfChangeResultMaintenanceCode = null; })
@@ -824,9 +854,14 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
         }
         if (observabilityDb) purgeThoughtDebugCaptures(observabilityDb, nowMs);
         pollInnerLife(nowMs);
+        pollDomusLane(nowMs);
       },
       onError: (error, event) => console.error(`[cognitive-v021] event failed id=${event?.id ?? "?"}`, error),
     });
+    cognitiveConsumer = {
+      stop: () => { mainConsumer.stop(); laneConsumer.stop(); },
+      done: Promise.all([mainConsumer.done, laneConsumer.done]).then(() => undefined),
+    };
     frontierCoordinator = startFrontierCoordinator(
       sidecar,
       nuclear,
