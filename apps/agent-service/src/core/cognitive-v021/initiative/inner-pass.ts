@@ -2,7 +2,10 @@ import type { EpisodeReflection } from "../memory/episodes.js";
 
 /** Inner-pass identity carried on an inbox payload (Growth V1 §5.1). Dependency-free. */
 
-export type AfterglowMode = "silence" | "rolling";
+export type AfterglowMode = "silence" | "rolling" | "session";
+
+/** M2: one stretch of her life in a game world (mode session): no conversation rows. */
+export type AfterglowSession = { world: string; fromMs: number; throughMs: number; observationIds: string[] };
 
 /** Host record of what one afterglow covers, carried on its inbox event. */
 export type AfterglowPass = {
@@ -10,6 +13,7 @@ export type AfterglowPass = {
   mode: AfterglowMode;
   rowIds: string[];
   throughSeq: number;
+  session?: AfterglowSession;
 };
 
 /** What Ashley authors in an afterglow settlement. */
@@ -29,6 +33,16 @@ export function afterglowPassFromPayload(payload: unknown): AfterglowPass | null
   if (value.kind !== "afterglow") return null;
   if (!Array.isArray(value.rowIds) || !value.rowIds.every((id) => typeof id === "string")) return null;
   if (!Number.isSafeInteger(value.throughSeq)) return null;
+  if (value.mode === "session") {
+    const session = value.session as Row | undefined;
+    if (!session || typeof session.world !== "string" || !Number.isSafeInteger(session.fromMs) || !Number.isSafeInteger(session.throughMs)
+      || !Array.isArray(session.observationIds) || !session.observationIds.every((id) => typeof id === "string")) return null;
+    return {
+      kind: "afterglow", mode: "session", rowIds: [], throughSeq: 0,
+      session: { world: session.world, fromMs: session.fromMs as number, throughMs: session.throughMs as number,
+        observationIds: [...session.observationIds as string[]] },
+    };
+  }
   return {
     kind: "afterglow",
     mode: value.mode === "rolling" ? "rolling" : "silence",

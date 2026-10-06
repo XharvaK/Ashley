@@ -1,13 +1,14 @@
 import {listInterestBranches} from "../memory/interests.js";
 import type {DatabaseSync} from "node:sqlite";
 import {readAfterglowState} from "../initiative/afterglow.js";
+import {domusSessionsDue} from "../../domus/session.js";
 import {readInnerState} from "../initiative/awake.js";
 import {readNightState,quietestHour} from "../initiative/night.js";
 import {readMood} from "../growth/mood.js";
 import {readSenseFacts} from "../senses/senses.js";
 import {getPrivateBudgetProjection,PRIVATE_THOUGHT_POLICY_ID} from "../private-budget/ledger.js";
 import {readAttentionFlags,readThalamusCheckpoint} from "./store.js";
-import {reflective} from "./nuclei/reflective.js";
+import {reflective, sessionReflective} from "./nuclei/reflective.js";
 import {sleep} from "./nuclei/sleep.js";
 import {boredom} from "./nuclei/boredom.js";
 import {interoceptive} from "./nuclei/interoceptive.js";
@@ -35,6 +36,9 @@ export function collectInnerFacts(db:DatabaseSync,options:Options){
  const magnitude=appraisal ? Math.max(...Object.values(appraisal).map(value=>Math.abs(Number(value)))) : 0;
  if(options.afterglowEnabled && rows.length)push(reflective({eventId:`reflection:${conversationId}:${rows.at(-1)!.seq}`,observedAtMs:lastAt,
   refs:rows.map(row=>String(row.row_id)),unreflectedRows:rows.length,lastMessageAtMs:lastAt,appraisalMagnitude:magnitude},nowMs));
+ // M2: a stretch of play that is over (or long) is due as it stands; the afterglow executor reflects it.
+ if(options.afterglowEnabled)for(const session of domusSessionsDue(db,nowMs).slice(0,1))push(sessionReflective({
+  eventId:`reflection:domus:${session.world}:${session.throughMs}`,observedAtMs:session.lastAtMs,refs:session.observationIds.slice(-8)},nowMs));
  const night=readNightState(db,conversationId),since=night?.lastNightAtMs ?? 0;
  const quietHour=night?.quietHour ?? quietestHour(db,{nowMs,timeZone:options.timeZone});
  const parts=new Intl.DateTimeFormat("en-US",{timeZone:options.timeZone,hour:"numeric",hourCycle:"h23"}).formatToParts(nowMs);

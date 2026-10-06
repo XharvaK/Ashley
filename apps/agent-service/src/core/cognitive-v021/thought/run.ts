@@ -1,5 +1,6 @@
 import { selfChangeResultForThought } from "../growth/self-change-results.js";
 import { domusActBindingFor, domusChannelFor, domusForThought, domusNowForThought } from "../../domus/notification.js";
+import { domusSessionForThought } from "../../domus/session.js";
 import { thoughtPlaces } from "../../places/thought.js";
 import { placesSeenMarks } from "../../places/places.js";
 import { homeForThought, homeRootFor } from "../../home/home.js";
@@ -2540,9 +2541,10 @@ function persistedMalformedRetries(
 
 /** The rows an afterglow reflects on, as they stand now; forgotten rows stay out. */
 function afterglowInnerPass(sidecar: DatabaseSync, pass: AfterglowPass): import("../types.js").ThoughtInnerPass {
+  if (pass.session) return { kind: "afterglow", mode: "session", session: domusSessionForThought(sidecar, pass.session) };
   return {
     kind: "afterglow",
-    mode: pass.mode,
+    mode: pass.mode === "rolling" ? "rolling" : "silence",
     rows: loadAfterglowRows(sidecar, pass.rowIds)
       .filter((row) => !row.redacted)
       .map((row) => ({ rowId: row.rowId, role: row.role, text: row.text, atMs: row.createdAtMs })),

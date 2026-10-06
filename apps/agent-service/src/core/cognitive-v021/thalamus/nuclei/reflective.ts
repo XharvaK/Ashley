@@ -11,3 +11,7 @@ export function reflective(input: ReflectiveFacts, nowMs: number) {
   return proposal(input, "reflective", "reflection", score, "afterglow",
     rows >= P.reflectionWindowRows.default ? "ALWAYS_THROUGH" : "PRESSURE");
 }
+/** M2: a stretch of play the Host found due (ended, or long) goes through as it stands. */
+export function sessionReflective(input: Fact, _nowMs: number) {
+  return proposal(input, "reflective", "reflection", 1, "afterglow", "ALWAYS_THROUGH");
+}

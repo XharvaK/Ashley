@@ -2376,7 +2376,7 @@ CREATE INDEX IF NOT EXISTS idx_lessons_at ON lessons(at_ms);
 UPDATE cognitive_sidecar_meta SET schema_version=65 WHERE id=1;
 `;
 
-/** H0.5: her short plans in the house. The first act is an ordinary act; the rest wait here until the one before finishes. */
+/** H0.5: her short plans in the house (the first act is an ordinary act; the rest wait here until the one before finishes). M2: the session afterglow's watermark. */
 export const COGNITIVE_SIDECAR_SCHEMA_V66 = String.raw`
 CREATE TABLE IF NOT EXISTS domus_plan_steps (
   plan_id TEXT NOT NULL REFERENCES domus_acts(act_id),
@@ -2396,5 +2396,15 @@ CREATE TABLE IF NOT EXISTS domus_plan_steps (
 );
 CREATE INDEX IF NOT EXISTS idx_domus_plan_steps_attachment_state ON domus_plan_steps(attachment, state);
 CREATE INDEX IF NOT EXISTS idx_domus_plan_steps_world_state ON domus_plan_steps(world, state);
+-- M2: the session afterglow's watermark per game world.
+CREATE TABLE IF NOT EXISTS domus_session_state (
+  world TEXT PRIMARY KEY,
+  reflected_through_ms INTEGER NOT NULL DEFAULT 0,
+  attempt_range TEXT,
+  attempt_count INTEGER NOT NULL DEFAULT 0,
+  failed_attempts INTEGER NOT NULL DEFAULT 0,
+  last_outcome TEXT,
+  updated_at_ms INTEGER NOT NULL
+);
 UPDATE cognitive_sidecar_meta SET schema_version=66 WHERE id=1;
 `;

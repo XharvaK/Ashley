@@ -1916,6 +1916,12 @@ export type ThoughtInnerPass =
       rows: ReadonlyArray<{ rowId: string; role: "owner" | "ashley"; text: string; atMs: number }>;
     }
   | {
+      /** M2: a stretch of her life in a game world is over (or long); no conversation rows. */
+      kind: "afterglow";
+      mode: "session";
+      session: import("../domus/session.js").ThoughtDomusSession;
+    }
+  | {
       kind: "awake";
       agenda: ThoughtInnerAgenda;
     }

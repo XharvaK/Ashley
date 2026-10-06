@@ -17,6 +17,7 @@ import {
 } from "./idle.js";
 import { recordEpisode, writeThreadStory } from "../memory/episodes.js";
 import type { AfterglowMode, AfterglowPass, AfterglowReflection } from "./inner-pass.js";
+import { completeDomusSession, tickDomusSession } from "../../domus/session.js";
 
 export { afterglowPassFromPayload, type AfterglowMode, type AfterglowPass, type AfterglowReflection } from "./inner-pass.js";
 
@@ -235,6 +236,11 @@ export async function tickAfterglow(
   const nowMs = options.nowMs ?? Date.now();
   const { conversationId } = options;
   const decision = evaluateAfterglow(db, { conversationId, nowMs, timing:options.timing });
+  // M2: with no conversation to reflect on, a stretch of play that is over may be.
+  if (decision.kind === "nothing" || decision.kind === "not_due") {
+    const session = await tickDomusSession(db, { ...options, nowMs });
+    if (session) return session;
+  }
   if (decision.kind === "nothing") return { outcome: "nothing" };
   if (decision.kind === "not_due") return { outcome: "not_due" };
   // The Owner always comes first: never reflect while a turn is in progress.
@@ -264,15 +270,50 @@ export async function tickAfterglow(
   }
 
   const attempt = previousAttempts + 1;
-  const triggerRef = `afterglow:${range}#${attempt}`;
+  const pass: AfterglowPass = {
+    kind: "afterglow",
+    mode,
+    rowIds: rows.map((row) => row.rowId),
+    throughSeq: last.seq,
+  };
+  const ran = await runReflectionPass(db, {
+    ...options, nowMs, pass, eventId: afterglowEventId(conversationId, range, attempt), triggerRef: `afterglow:${range}#${attempt}`,
+    // Count the attempt before any durable work exists, so a crash between the
+    // steps below costs an attempt instead of repeating one forever.
+    count: () => writeAttempt(db, conversationId, range, attempt, failedAttempts, nowMs),
+    uncount: () => writeAttempt(db, conversationId, range, previousAttempts, sameRange ? state.failedAttempts : 0, nowMs),
+  });
+  return ran.outcome === "ran" ? { ...ran, coveredRows: rows.length } : ran;
+}
+
+/**
+ * One reflection pass through the same wake, private budget, inbox, and kernel path as every
+ * other private cycle (the conversation afterglow and M2's session afterglow share it).
+ */
+export async function runReflectionPass(
+  db: DatabaseSync,
+  options: {
+    conversationId: string;
+    occupantId: string;
+    authorityEpoch: number;
+    nowMs: number;
+    thought: IdleThoughtRunner;
+    privateBudgetPolicyId?: string;
+    pass: AfterglowPass;
+    eventId: string;
+    triggerRef: string;
+    count: () => void;
+    uncount: () => void;
+  },
+): Promise<AfterglowTickResult> {
+  const { conversationId, nowMs, pass, triggerRef } = options;
+  const mode = pass.mode;
   const policyId = options.privateBudgetPolicyId ?? PRIVATE_THOUGHT_POLICY_ID;
   const projection = getPrivateBudgetProjection(db, { conversationId, policyId, wallClockNowMs: nowMs });
   if (projection.clockState === "clock_reconciliation" || projection.remaining <= 0) {
     return { outcome: "budget", mode };
   }
-  // Count the attempt before any durable work exists, so a crash between the
-  // steps below costs an attempt instead of repeating one forever.
-  writeAttempt(db, conversationId, range, attempt, failedAttempts, nowMs);
+  options.count();
   const admission = admitWake(db, {
     occurrenceId: occurrenceIdFor({ sourceKind: "idle", triggerRef, conversationId }),
     triggerRef,
@@ -285,7 +326,7 @@ export async function tickAfterglow(
     nowMs,
   });
   if (admission.kind === "stale" || admission.kind === "cancelled") return { outcome: "wake_closed", mode };
-  if (getInboxEvent(db, afterglowEventId(conversationId, range, attempt)) !== null) return { outcome: "in_flight", mode };
+  if (getInboxEvent(db, options.eventId) !== null) return { outcome: "in_flight", mode };
   const cycle = getCycle(db, admission.wake.cycleId);
   if (!cycle) throw new Error("afterglow_cycle_missing");
   const budget = reservePrivateThought(db, {
@@ -296,18 +337,12 @@ export async function tickAfterglow(
     wallClockNowMs: nowMs,
   });
   if (budget.kind === "refused" || budget.reservation.state !== "held") {
-    writeAttempt(db, conversationId, range, previousAttempts, sameRange ? state.failedAttempts : 0, nowMs);
+    options.uncount();
     return { outcome: "budget", mode };
   }
 
-  const pass: AfterglowPass = {
-    kind: "afterglow",
-    mode,
-    rowIds: rows.map((row) => row.rowId),
-    throughSeq: last.seq,
-  };
   const event = appendInboxEvent(db, {
-    id: afterglowEventId(conversationId, range, attempt),
+    id: options.eventId,
     wakeId: cycle.wakeId,
     conversationId,
     kind: "idle_opportunity",
@@ -340,7 +375,7 @@ export async function tickAfterglow(
     nowMs,
     thought: options.thought,
   });
-  return { outcome: "ran", mode, coveredRows: rows.length, thought };
+  return { outcome: "ran", mode, thought };
 }
 
 /** The covered rows as they stand now; a forgotten row comes back redacted. */
@@ -381,6 +416,10 @@ export function completeAfterglow(
     nowMs: number;
   },
 ): "reflected" | "forget_race" {
+  if (input.pass.session) {
+    return completeDomusSession(db, { cycleId: input.cycleId, conversationId: input.conversationId, session: input.pass.session,
+      reflection: input.reflection, nowMs: input.nowMs });
+  }
   db.exec("BEGIN IMMEDIATE");
   try {
     const rows = loadAfterglowRows(db, input.pass.rowIds);
