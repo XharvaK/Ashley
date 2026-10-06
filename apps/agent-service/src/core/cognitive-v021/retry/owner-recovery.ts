@@ -740,11 +740,41 @@ function finalFailureNoticeForExhaustedOwner(
  * counted, never retried inline, and protect the conversation from wake
  * convergence for this pass (fail closed).
  */
+/** An Owner row stuck in reconciliation longer than this, and answered since, no longer holds the conversation. */
+export const STALE_RECONCILING_OWNER_MS = 24 * 60 * 60_000;
+
+/**
+ * Live 2026-10-06: two Owner rows from 2026-09-28 sat in 'reconciling' (outcome unknown after an
+ * observation binding conflict) for eight days. Each counted as an open continuation, so no failed
+ * Owner turn since then ever reached a final notice. A row that old which she has answered since (a
+ * delivered reply after it) is retired as stale; nothing is replayed or invented.
+ */
+export function retireStaleReconcilingOwnerRows(db: DatabaseSync, nowMs: number): string[] {
+  const rows = db.prepare(
+    `SELECT e.id, e.conversation_id, e.created_at_ms FROM inbox_events e
+      WHERE e.kind IN ('owner_message', 'owner_utterance') AND e.state = 'reconciling' AND e.created_at_ms <= ?
+        AND EXISTS (SELECT 1 FROM conversation_evidence_log l WHERE l.conversation_id = e.conversation_id
+          AND l.role = 'ashley' AND l.delivered = 1 AND l.created_at_ms > e.created_at_ms)`,
+  ).all(nowMs - STALE_RECONCILING_OWNER_MS) as Array<Record<string, unknown>>;
+  const retired: string[] = [];
+  for (const row of rows) {
+    const changes = Number(db.prepare(
+      `UPDATE inbox_events SET state = 'terminal', terminal_reason = 'stale', claim_token = NULL, worker_id = NULL,
+          lease_expires_at_ms = NULL, next_eligible_at_ms = NULL
+        WHERE id = ? AND state = 'reconciling'`,
+    ).run(text(row.id)).changes ?? 0);
+    if (changes > 0) retired.push(text(row.id));
+  }
+  return retired;
+}
+
 export function serviceUnansweredOwnerRecovery(
   db: DatabaseSync,
   options: { nowMs?: number; conversationLimit?: number; wakeLimit?: number } = {},
 ): UnansweredOwnerRecoveryResult {
   const nowMs = options.nowMs ?? Date.now();
+  const stale = retireStaleReconcilingOwnerRows(db, nowMs);
+  if (stale.length) console.warn(`[owner-recovery] retired stale reconciling Owner rows=${stale.length}`);
   const eligible = findEligibleUnansweredOwnerObligations(db, options);
   const result: UnansweredOwnerRecoveryResult = {
     eligibleConversations: eligible.length,

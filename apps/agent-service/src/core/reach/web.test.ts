@@ -112,6 +112,24 @@ describe("I1 websites as her places", () => {
     } finally { close(); }
   });
 
+  it("reads the Owner's recent words in the Owner's conversation, so a retry still counts as asked", async () => {
+    const { admitTestCycle } = await import("../cognitive-v021/test-support.js");
+    const { appendOwnerUtterance } = await import("../cognitive-v021/evidence/conversation-log.js");
+    const { ownerWordsForCycle, OWNER_ASK_WINDOW_MS } = await import("./web.js");
+    const { sidecar, close } = world();
+    try {
+      appendOwnerUtterance(sidecar, { conversationId: "owner-thread", text: "an old ask: go to old.example.com", discordMessageIds: ["o0"], nowMs: NOW - OWNER_ASK_WINDOW_MS - 1 });
+      appendOwnerUtterance(sidecar, { conversationId: "owner-thread", text: "can you read http://agents.example.org./ and join?", discordMessageIds: ["o1"], nowMs: NOW - 14 * 60_000 });
+      appendOwnerUtterance(sidecar, { conversationId: "owner-thread", text: "yeah can you try again?", discordMessageIds: ["o2"], nowMs: NOW });
+      admitTestCycle(sidecar, { cycleId: "retry", conversationId: "owner-thread", occupantId: "owner", generation: 1, triggerKind: "owner_message", nowMs: NOW });
+      admitTestCycle(sidecar, { cycleId: "awake", conversationId: "owner-thread", occupantId: "owner", generation: 1, triggerKind: "idle_opportunity", nowMs: NOW });
+      const words = ownerWordsForCycle(sidecar, "retry", NOW);
+      expect(words).toContain("agents.example.org");
+      expect(words).not.toContain("old.example.com");
+      expect(ownerWordsForCycle(sidecar, "awake", NOW)).toBe("");
+    } finally { close(); }
+  });
+
   it("validates her requests", () => {
     expect(isValidWebRequest({ url: `${SITE}/api/post`, method: "POST", json: { title: "hi" }, auth: { vault: "secret" } })).toBe(true);
     expect(isValidWebRequest({ url: `${SITE}/a`, json: {}, body: "x" })).toBe(false);

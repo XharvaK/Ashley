@@ -65,17 +65,20 @@ function bareHost(origin: string): string {
   return new URL(origin).hostname.replace(/^www\./, "");
 }
 
-/** The Owner's own words in the turn that started this cycle (empty outside an Owner turn). */
-export function ownerWordsForCycle(sidecar: DatabaseSync, cycleId: string | undefined): string {
+/** How far back the Owner's words still ask her to go somewhere ("can you try again?" names no site). */
+export const OWNER_ASK_WINDOW_MS = 2 * 60 * 60_000;
+
+/**
+ * The Owner's own recent words in the conversation of a turn the Owner started (empty otherwise). Live
+ * 2026-10-06: the site was named in one message and "yeah can you try again?" came fourteen minutes later.
+ */
+export function ownerWordsForCycle(sidecar: DatabaseSync, cycleId: string | undefined, nowMs = Date.now()): string {
   if (!cycleId) return "";
-  const cycle = sidecar.prepare("SELECT trigger_kind, compose_log_ids_json FROM cycle_records WHERE cycle_id = ?").get(cycleId) as Row | undefined;
+  const cycle = sidecar.prepare("SELECT trigger_kind, conversation_id FROM cycle_records WHERE cycle_id = ?").get(cycleId) as Row | undefined;
   if (!cycle || cycle.trigger_kind !== "owner_message") return "";
-  let ids: unknown;
-  try { ids = JSON.parse(String(cycle.compose_log_ids_json ?? "[]")); } catch { return ""; }
-  if (!Array.isArray(ids) || !ids.length) return "";
-  const marks = ids.map(() => "?").join(",");
-  return (sidecar.prepare(`SELECT text FROM conversation_evidence_log WHERE role = 'owner' AND row_id IN (${marks})`)
-    .all(...ids.map(String)) as Row[]).map(row => String(row.text ?? "")).join(" ");
+  return (sidecar.prepare(`SELECT text FROM conversation_evidence_log WHERE conversation_id = ? AND role = 'owner' AND created_at_ms >= ?
+    ORDER BY created_at_ms DESC LIMIT 12`).all(String(cycle.conversation_id), nowMs - OWNER_ASK_WINDOW_MS) as Row[])
+    .map(row => String(row.text ?? "")).join(" ");
 }
 
 export function isWebPlaceClaims(value: unknown): value is WebPlaceClaim[] {
@@ -288,7 +291,7 @@ function scrub(text: string, values: readonly string[]): string {
 
 export type WebRequestOutcome = {
   status?: number; url: string; contentType?: string; json?: unknown; text?: string; truncated?: boolean;
-  location?: string; keptInVault?: string[]; error?: string;
+  location?: string; keptInVault?: string[]; error?: string; hint?: string;
 };
 
 /** Execute one web.request in an approved place; every attempt is logged (it counts toward the fuse). */
@@ -309,7 +312,10 @@ export async function executeWebRequest(sidecar: DatabaseSync, input: {
     && input.ownerWords.toLowerCase().includes(bareHost(origin))) {
     recordWebPlaceClaims(sidecar, { claims: [{ origin, reason: "the Owner asked me to go there" }], ownerTurn: true, nowMs: input.nowMs });
   }
-  if (!origin || webPlaceState(sidecar, origin) !== "approved") return { url: url.toString(), error: "not_an_approved_place" };
+  if (!origin || webPlaceState(sidecar, origin) !== "approved") {
+    return { url: url.toString(), error: "not_an_approved_place",
+      hint: "The Owner has not let you into this site: tell the Owner and ask; retrying will not change it." };
+  }
   if (requestCount(sidecar, origin, input.nowMs - 3_600_000) >= WEB_REQUESTS_PER_HOUR
     || requestCount(sidecar, origin, input.nowMs - 86_400_000) >= WEB_REQUESTS_PER_DAY) {
     return { url: url.toString(), error: "place_fuse" };

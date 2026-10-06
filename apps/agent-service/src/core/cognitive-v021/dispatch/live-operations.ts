@@ -1224,7 +1224,7 @@ export function createV021LiveOperationExecutors(
         if (req.audience?.kind !== "owner_private" || !options.sidecar || !options.vaultDir) throw new CapabilityUnavailableError("web_request_unavailable");
         if (!isValidWebRequest(req.request)) throw new CapabilityUnavailableError("web_request_invalid");
         const outcome = await executeWebRequest(options.sidecar, { request: req.request, vaultDir: options.vaultDir, cycleId: req.cycleId, nowMs: nowMs(),
-          ownerWords: ownerWordsForCycle(options.sidecar, req.cycleId) });
+          ownerWords: ownerWordsForCycle(options.sidecar, req.cycleId, nowMs()) });
         return {
           observationId: `v021:observation:${req.requestId}`,
           cycleId: req.cycleId,
