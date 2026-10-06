@@ -4546,6 +4546,7 @@ export async function runCognitiveCycle(
               : null,
           nightPass: nightPass ?? null,
           ...(originProfile.triggerKind === "domus_notification" ? domusChannelFor(sidecar, event, originProfile.originCycleId) : {}),
+          ...(allocated.projected.domus?.changes?.quiet === true ? { domusQuiet: true as const } : {}),
           ...(originProfile.triggerKind === "domus_notification" && env.domusActEnabled
             ? (() => { const binding = domusActBindingFor(sidecar, event, originProfile.originCycleId); return binding ? { domusAct: binding } : {}; })()
             : {}),

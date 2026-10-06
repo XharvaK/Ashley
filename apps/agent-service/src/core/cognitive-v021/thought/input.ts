@@ -1185,7 +1185,7 @@ export function buildThoughtInput(options: BuildThoughtInputOptions): ThoughtInp
     ? episodesForThought(options.sidecar, query.rawTriggerTerms)
     : [];
   const activityJournal = audience.kind === "owner_private"
-    ? journalForThought(options.sidecar, options.clock?.nowMs ?? Date.now())
+    ? journalForThought(options.sidecar, options.clock?.nowMs ?? Date.now(), domusPass && options.domus ? `domus:${options.domus.world}` : undefined)
     : [];
   const domusNow = audience.kind === "owner_private" && !domusPass
     ? domusNowForThought(options.sidecar, options.clock?.nowMs ?? Date.now())

@@ -90,3 +90,11 @@ With `ASHLEY_DOMUS_ACT_ENABLED=true` a Domus pass whose newest observation carri
 
 The helper pulls requested acts for its own session with `POST /domus/acts/sync` and reports what happened as append-only `domus_act_events`: received, accepted, rejected, pushed, finished, unknown, expired. States move forward only; a terminal state is never overwritten, and a late event is still kept. A requested act not picked up within 90 s expires and never reaches the game. Her next Domus pass reads her recent acts and their latest state in `domus.acts`.
 
+
+## What changed, and quiet check-ins (H0.4)
+
+`changes.ts`. Every Domus pass carries `domus.changes`, Host facts about what differs from the pass she last settled in the same helper session (a pass that never settled was never read): need bands (`before → now`), mood, posture, room, feelings (moodlets), what her body runs, people on the lot, what the game asks, her options (by object), reports about her acts that arrived since (`actNews`), any other portrait part whose value differs (`other`, plus `sense:<kind>` for percept kinds the comparison does not cover, and `urgent`), and `unchanged`. The clock, game speed and pause, need values, people off the lot and `more_nearby` are not compared. The first pass of a session is `{ first: true }`. The portrait still comes whole with every pass, because Thought is stateless.
+
+With nothing changed, `quiet: true`. A quiet pass in which she neither acts nor speaks is kept as a quiet check-in: the journal row stays (a pass happened), and her words are not recorded. Reading the journal back, consecutive wordless passes on one channel collapse into one item, `{ quiet: n, sinceMs, atMs }`, so they never crowd out other entries. A Domus pass reads only its own world's lane.
+
+Replay of the 2026-10-05/06 sessions (44 settled passes): 11 are quiet. The repetitive 19:22–19:25 stretch keeps 2 entries with words instead of 8.

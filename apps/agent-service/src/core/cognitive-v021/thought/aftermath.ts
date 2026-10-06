@@ -27,6 +27,8 @@ export type AftermathContext = {
   passKind: JournalPassKind | null;
   /** 8d: a Domus pass journals on its world's channel. */
   channel?: `domus:${string}`;
+  /** H0.4: nothing she read had changed since her last Domus pass (domus.changes.quiet). */
+  domusQuiet?: true;
   /** 8f: acting was on and these were the options she read; her domusAct is resolved against them. */
   domusAct?: DomusActBinding;
   nightPass: NightPass | null;
@@ -114,13 +116,16 @@ export function recordSettlementAftermath(
           .run(branchId, cycleId, options.nowMs);
       }
     }
+    // H0.4: a quiet Domus pass in which she neither acts nor speaks is a quiet check-in: the Host
+    // keeps the fact that it happened, not words about a moment in which nothing changed.
+    const quietCheckIn = context.domusQuiet === true && !settlement.domusAct && Number(pending.queued_speech) !== 1;
     if (context.passKind) {
       recordJournalEntry(db, {
         conversationId: context.conversationId,
         cycleId,
         passKind: context.passKind,
         ...(context.channel ? { channel: context.channel } : {}),
-        ...(standing && settlement.journal ? { claim: settlement.journal } : {}),
+        ...(standing && settlement.journal && !quietCheckIn ? { claim: settlement.journal } : {}),
         interests,
         spoke: Number(pending.queued_speech) === 1,
         dataClassification,

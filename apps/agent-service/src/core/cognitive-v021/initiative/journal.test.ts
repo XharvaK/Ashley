@@ -4,7 +4,7 @@ import { appendAshleyEvidence, appendOwnerUtterance } from "../evidence/conversa
 import { admitTestCycle, openTestSidecar } from "../test-support.js";
 import { applyV021Forget } from "../memory/forget.js";
 import { listInterestBranches, recordInterestTouches } from "../memory/interests.js";
-import { journalForThought, listRecentJournal, recordJournalEntry } from "./journal.js";
+import { JOURNAL_THOUGHT_LIMIT, journalForThought, listRecentJournal, recordJournalEntry } from "./journal.js";
 import { UNSOLICITED_FUSE_LIMIT, countUnsolicited, recentUnsolicited, unsolicitedFuseTripped } from "./reach-out.js";
 
 const T0 = Date.UTC(2026, 8, 29, 12, 0);
@@ -70,6 +70,30 @@ describe("activity journal", () => {
       const forgotten = db.prepare("SELECT entry, read_refs_json FROM activity_journal WHERE cycle_id = 'cycle-a'").get();
       expect(forgotten).toEqual({ entry: null, read_refs_json: "[]" });
       expect(listInterestBranches(db, T0).some((branch) => branch.label.toLowerCase().includes("kyoto"))).toBe(false);
+    } finally {
+      db.close();
+    }
+  });
+});
+
+describe("H0.4 quiet passes in the journal", () => {
+  it("reads a run of wordless passes on one channel as one line, so they never crowd out the rest", () => {
+    const db = openTestSidecar();
+    try {
+      const pass = (cycleId: string, minute: number, input: { entry?: string; channel?: `domus:${string}` } = {}) =>
+        recordJournalEntry(db, { conversationId: "thread", cycleId, passKind: input.channel ? "private" : "awake", spoke: false,
+          nowMs: T0 + minute * MINUTE, ...(input.channel ? { channel: input.channel } : {}),
+          ...(input.entry ? { claim: { activity: "think" as const, entry: input.entry } } : {}) });
+      pass("chat-thought", 0, { entry: "Thinking about the record fair." });
+      pass("game-start", 1, { channel: "domus:slot8", entry: "Home, hungry." });
+      for (let index = 0; index < 40; index++) pass(`game-quiet-${index}`, 2 + index, { channel: "domus:slot8" });
+      pass("game-meal", 50, { channel: "domus:slot8", entry: "Ate at last." });
+      const all = journalForThought(db, T0 + 60 * MINUTE);
+      expect(all.map(item => item.entry ?? `quiet:${item.quiet}`)).toEqual(["Ate at last.", "quiet:40", "Home, hungry.", "Thinking about the record fair."]);
+      expect(all[1]).toMatchObject({ channel: "domus:slot8", quiet: 40, sinceMs: T0 + 2 * MINUTE, atMs: T0 + 41 * MINUTE });
+      expect(all.length).toBeLessThanOrEqual(JOURNAL_THOUGHT_LIMIT);
+      // A Domus pass reads its own world's lane only.
+      expect(journalForThought(db, T0 + 60 * MINUTE, "domus:slot8").map(item => item.entry ?? item.quiet)).toEqual(["Ate at last.", 40, "Home, hungry."]);
     } finally {
       db.close();
     }

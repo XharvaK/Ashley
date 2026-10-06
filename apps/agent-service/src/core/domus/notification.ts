@@ -6,6 +6,7 @@ import { configureBudgetPolicy, resolveBudgetPolicy, PRIVATE_THOUGHT_CLOCK_DISCO
 import { getPrivateBudgetProjection, getPrivateReservationForWake, reservePrivateThought } from "../cognitive-v021/private-budget/ledger.js";
 import type { DomusPending } from "../cognitive-v021/thalamus/nuclei/domus.js";
 import { domusActBinding, domusOptionsFor, recentDomusActs, type DomusActBinding, type DomusOptionObject, type DomusRecentAct } from "./acts.js";
+import { compareDomusReads, domusActNewsSince, domusReadOf, previousDomusRead, type DomusChanges } from "./changes.js";
 
 export const EMBODIMENT_POLICY_ID = "ashley.embodiment.v1";
 export const EMBODIMENT_WINDOW_MS = 60 * 60 * 1000;
@@ -29,6 +30,8 @@ export type DomusForThought = {
   world: string;
   asOfMs: number;
   observationIds: string[];
+  /** H0.4: what changed since the pass she last settled in this game session (Host facts). */
+  changes: DomusChanges;
   portrait?: Record<string, unknown>;
   events: DomusEvent[];
   omittedEvents?: number;
@@ -163,7 +166,9 @@ function boundNotification(db: DatabaseSync, event: { id: string; conversationId
   if (!persisted || persisted.kind !== "domus_notification" || persisted.conversationId !== event.conversationId) throw new Error("domus_notification_missing");
   const bound = (persisted.payload as Row).domus as { world?: unknown; observationIds?: unknown } | undefined;
   if (!bound || typeof bound.world !== "string" || !bound.world || !Array.isArray(bound.observationIds)) throw new Error("domus_notification_invalid");
-  return { world: bound.world, observationIds: bound.observationIds.map(String) };
+  const attachment = (bound as { attachment?: unknown }).attachment;
+  return { world: bound.world, observationIds: bound.observationIds.map(String), eventId: persisted.id, createdAtMs: persisted.createdAtMs,
+    ...(typeof attachment === "string" && attachment ? { attachment } : {}) };
 }
 
 /** The memory channel of a Domus pass, for its journal entry. */
@@ -257,10 +262,20 @@ export function domusForThought(db: DatabaseSync, event: { id: string; conversat
   }
   const options = acting.enabled ? domusOptionsFor(db, domusActBinding(db, bound)) : [];
   const acts = acting.enabled ? recentDomusActs(db, bound.world, acting.nowMs) : [];
+  let changes: DomusChanges = { first: true };
+  const previous = bound.attachment ? previousDomusRead(db, { conversationId: event.conversationId, eventId: bound.eventId,
+    attachment: bound.attachment, createdAtMs: bound.createdAtMs }) : undefined;
+  const before = previous && previous.world === bound.world ? domusReadOf(db, bound.world, previous.observationIds) : undefined;
+  if (previous && before) {
+    changes = { sinceMs: before.sourceTimeMs, ...compareDomusReads({ portrait: before.portrait, options: acting.enabled ? before.options : [] },
+      { portrait: portrait ?? {}, options }, { actNews: domusActNewsSince(db, bound.world, previous.createdAtMs, Math.max(acting.nowMs, bound.createdAtMs)),
+        perceptKinds: all.map(item => item.kind), urgent: all.some(item => item.facts.urgency === "always_through") }) };
+  }
   return {
     world: bound.world,
     asOfMs: rows.length ? Math.max(...rows.map(row => Number(row.source_time_ms))) : 0,
     observationIds: rows.map(row => String(row.observation_id)),
+    changes,
     ...(portrait ? { portrait } : {}),
     events,
     ...(all.length > events.length ? { omittedEvents: all.length - events.length } : {}),

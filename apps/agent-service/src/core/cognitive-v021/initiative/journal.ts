@@ -58,6 +58,9 @@ export type ThoughtJournalEntry = {
   interests?: string[];
   spoke?: true;
   channel?: `domus:${string}`;
+  /** H0.4: this many passes in a row left no entry (nothing new), from sinceMs to atMs. */
+  quiet?: number;
+  sinceMs?: number;
 };
 
 type Row = Record<string, unknown>;
@@ -198,7 +201,7 @@ function memoryLineageClass(value: unknown): MemoryLineageClass {
 /** Recent live entries, newest first. Secret entries never leave the store. */
 export function listRecentJournal(
   db: DatabaseSync,
-  input: { sinceMs?: number; limit: number },
+  input: { sinceMs?: number; limit: number; channel?: MemoryChannel },
 ): JournalEntry[] {
   return (db.prepare(
     `SELECT j.*, EXISTS (
@@ -207,8 +210,9 @@ export function listRecentJournal(
        ) AS delivered_speech
        FROM activity_journal j
       WHERE j.forgotten_at_ms IS NULL AND j.created_at_ms >= ? AND j.data_classification != 'secret' AND j.lineage_class = 'current'
+        AND (? IS NULL OR j.channel = ?)
       ORDER BY j.created_at_ms DESC, j.entry_id DESC LIMIT ?`,
-  ).all(input.sinceMs ?? 0, Math.max(1, input.limit)) as Row[]).map(mapEntry);
+  ).all(input.sinceMs ?? 0, input.channel ?? null, input.channel ?? null, Math.max(1, input.limit)) as Row[]).map(mapEntry);
 }
 
 export function toThoughtJournalEntry(entry: JournalEntry): ThoughtJournalEntry {
@@ -225,9 +229,53 @@ export function toThoughtJournalEntry(entry: JournalEntry): ThoughtJournalEntry 
   };
 }
 
-export function journalForThought(db: DatabaseSync, nowMs: number): ThoughtJournalEntry[] {
-  return listRecentJournal(db, { sinceMs: nowMs - JOURNAL_THOUGHT_WINDOW_MS, limit: JOURNAL_THOUGHT_LIMIT })
-    .map(toThoughtJournalEntry);
+/** A pass that left nothing to read: no words, no reads, no speech. */
+function wordless(entry: JournalEntry): boolean {
+  return entry.entry === null && entry.reads.length === 0 && !entry.spoke;
+}
+
+/**
+ * H0.4 (live 2026-10-05: one game hour of check-ins pushed every Discord entry out of view):
+ * consecutive wordless passes on one channel read as one line, "n quiet passes from sinceMs to
+ * atMs". Entries are newest first; so is the result.
+ */
+export function collapseQuietRuns(entries: readonly JournalEntry[]): ThoughtJournalEntry[] {
+  const result: ThoughtJournalEntry[] = [];
+  let run: { newest: JournalEntry; oldestAtMs: number; count: number } | null = null;
+  const flush = () => {
+    if (!run) return;
+    result.push({ ...toThoughtJournalEntry(run.newest), quiet: run.count, sinceMs: run.oldestAtMs });
+    run = null;
+  };
+  for (const entry of entries) {
+    if (wordless(entry) && run && run.newest.channel === entry.channel && run.newest.passKind === entry.passKind) {
+      run.count += 1;
+      run.oldestAtMs = entry.createdAtMs;
+      continue;
+    }
+    flush();
+    if (wordless(entry)) run = { newest: entry, oldestAtMs: entry.createdAtMs, count: 1 };
+    else result.push(toThoughtJournalEntry(entry));
+  }
+  flush();
+  return result;
+}
+
+/** How many raw rows a collapsed read looks through for its items. */
+export const JOURNAL_COLLAPSE_SCAN = 256;
+
+/** Recent entries with quiet runs collapsed, newest first, up to limit items; one channel when given. */
+export function recentJournalCollapsed(
+  db: DatabaseSync,
+  input: { sinceMs?: number; limit: number; channel?: MemoryChannel },
+): ThoughtJournalEntry[] {
+  const rows = listRecentJournal(db, { sinceMs: input.sinceMs, limit: JOURNAL_COLLAPSE_SCAN, channel: input.channel });
+  return collapseQuietRuns(rows).slice(0, Math.max(1, input.limit));
+}
+
+/** What Thought reads: a Domus pass reads its own world's lane (H0.3), every other pass all lanes. */
+export function journalForThought(db: DatabaseSync, nowMs: number, channel?: MemoryChannel): ThoughtJournalEntry[] {
+  return recentJournalCollapsed(db, { sinceMs: nowMs - JOURNAL_THOUGHT_WINDOW_MS, limit: JOURNAL_THOUGHT_LIMIT, ...(channel ? { channel } : {}) });
 }
 
 /** Entries that mention a forgotten topic, or cite a read that a forget redacted. */

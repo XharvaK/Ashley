@@ -246,7 +246,7 @@ describe("the chat dispatch", () => {
 
 describe("8d the Domus pass", () => {
   const domusTurn: ThoughtContractProfileSource = { trigger: { kind: "domus_notification" }, capabilityReality: noCapabilities };
-  const portrait = { world: "slot0", asOfMs: 5, observationIds: ["helper.1"], portrait: { mood: "Happy" },
+  const portrait = { world: "slot0", asOfMs: 5, observationIds: ["helper.1"], changes: { first: true as const }, portrait: { mood: "Happy" },
     events: [{ observationId: "helper.1", atMs: 5, kind: "need", facts: { subject: "hunger", object: "low" } }] };
 
   it("has its own profile: Domus guidance, private journal law, no other pass", () => {

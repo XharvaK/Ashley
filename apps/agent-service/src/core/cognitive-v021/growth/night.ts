@@ -5,7 +5,7 @@ import { hashMemoryAssertion, listLiveMemoryAssertions, REDACTED_MEMORY_STATEMEN
 import { getMemoryStrength, recordMemoryFormation } from "../memory/strength.js";
 import { listRecentEpisodes, toThoughtEpisode, type ThoughtEpisode } from "../memory/episodes.js";
 import { listInterestBranches } from "../memory/interests.js";
-import { listRecentJournal, toThoughtJournalEntry, type ThoughtJournalEntry } from "../initiative/journal.js";
+import { recentJournalCollapsed, type ThoughtJournalEntry } from "../initiative/journal.js";
 import { notifySidecarPostCommit } from "../retrieval/derived-store.js";
 import type { NightPass } from "../initiative/inner-pass.js";
 import { listAppliedRevisions, revisableIdentityEntries } from "./revisions.js";
@@ -146,8 +146,7 @@ export function buildNightAgenda(
   const episodes = listRecentEpisodes(db, 60).filter((episode) => episode.dataClassification !== "secret");
   const dayEpisodes = episodes.filter((episode) => episode.endedAtMs > pass.sinceMs)
     .slice(0, NIGHT_DAY_EPISODES_LIMIT).reverse().map(toThoughtEpisode);
-  const journal = listRecentJournal(db, { sinceMs: pass.sinceMs, limit: NIGHT_DAY_JOURNAL_LIMIT })
-    .reverse().map(toThoughtJournalEntry);
+  const journal = recentJournalCollapsed(db, { sinceMs: pass.sinceMs, limit: NIGHT_DAY_JOURNAL_LIMIT }).reverse();
   const taste = {
     entries: input.identityStore
       ? revisableIdentityEntries(input.identityStore.nuclear, input.identityStore.ownerId)
