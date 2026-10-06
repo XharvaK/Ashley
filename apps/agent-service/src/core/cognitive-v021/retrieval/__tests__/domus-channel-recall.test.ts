@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { DatabaseSync } from "node:sqlite";
 import { appendOwnerUtterance } from "../../evidence/conversation-log.js";
-import { journalForThought, recordJournalEntry } from "../../initiative/journal.js";
+import { journalForThought, recentJournalCollapsed, recordJournalEntry } from "../../initiative/journal.js";
 import { upsertMemoryAssertion } from "../../memory/assertions.js";
 import { listLiveMemoryAssertions } from "../../memory/assertions.js";
 import { recordEpisode, episodesForThought, listRecentEpisodes, searchEpisodes } from "../../memory/episodes.js";
@@ -184,7 +184,9 @@ describe("domus channel at recall", () => {
         claim: { activity: "think", entry: "Left the cellar." }, spoke: false, nowMs: now + 2, channel: "domus:w1",
       });
       db.prepare("UPDATE activity_journal SET lineage_class = 'undone' WHERE entry_id = ?").run(undone.entryId);
-      const thought = journalForThought(db, now + 3);
+      // M1: a Discord turn reads the Discord lane only; every lane together still carries its channel.
+      expect(journalForThought(db, now + 3).map((item) => item.entry)).toEqual(["Sat at the desk."]);
+      const thought = recentJournalCollapsed(db, { sinceMs: 0, limit: 10 });
       const domus = thought.find((item) => item.entry === "Walked the orchard.");
       const discord = thought.find((item) => item.entry === "Sat at the desk.");
       expect(domus?.channel).toBe("domus:w1");
@@ -232,7 +234,8 @@ describe("domus channel at recall", () => {
       });
       expect(input.retrieval.hits.find((hit) => hit.assertionKey === "mem:domus")?.channel).toBe("domus:w1");
       expect(input.episodes?.some((item) => item.channel === "domus:w1")).toBe(true);
-      expect(input.activityJournal?.some((item) => item.channel === "domus:w1")).toBe(true);
+      // M1: a game pass that did not speak stays in its lane; the game reaches this turn as an episode.
+      expect((input.activityJournal ?? []).some((item) => item.channel === "domus:w1")).toBe(false);
       expect(input.coreProfile?.owner.some((entry) => entry.channel === "domus:w1")).toBe(true);
     } finally {
       derived.close();

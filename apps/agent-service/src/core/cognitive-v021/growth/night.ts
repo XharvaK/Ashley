@@ -35,6 +35,8 @@ export const NIGHT_STALE_QUESTIONS_LIMIT = 10;
 export const NIGHT_BRANCHES_LIMIT = 16;
 export const NIGHT_DAY_EPISODES_LIMIT = 12;
 export const NIGHT_DAY_JOURNAL_LIMIT = 16;
+/** M1: the day's game lanes get their own room beside the Discord lane. */
+export const NIGHT_DAY_DOMUS_JOURNAL_LIMIT = 16;
 /** A question nobody touched for two weeks is offered for closing. */
 export const STALE_QUESTION_AGE_MS = 14 * 24 * 60 * 60_000;
 export const DIARY_MAX_CHARS = 1_500;
@@ -146,7 +148,11 @@ export function buildNightAgenda(
   const episodes = listRecentEpisodes(db, 60).filter((episode) => episode.dataClassification !== "secret");
   const dayEpisodes = episodes.filter((episode) => episode.endedAtMs > pass.sinceMs)
     .slice(0, NIGHT_DAY_EPISODES_LIMIT).reverse().map(toThoughtEpisode);
-  const journal = recentJournalCollapsed(db, { sinceMs: pass.sinceMs, limit: NIGHT_DAY_JOURNAL_LIMIT }).reverse();
+  // M1: per-lane caps, so a day of play and a day of talk both reach the night, oldest first.
+  const journal = [
+    ...recentJournalCollapsed(db, { sinceMs: pass.sinceMs, limit: NIGHT_DAY_JOURNAL_LIMIT, channel: "discord" }),
+    ...recentJournalCollapsed(db, { sinceMs: pass.sinceMs, limit: NIGHT_DAY_DOMUS_JOURNAL_LIMIT, channel: "domus" }),
+  ].sort((a, b) => a.atMs - b.atMs || a.entryId.localeCompare(b.entryId));
   const taste = {
     entries: input.identityStore
       ? revisableIdentityEntries(input.identityStore.nuclear, input.identityStore.ownerId)

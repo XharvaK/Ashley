@@ -198,11 +198,19 @@ function memoryLineageClass(value: unknown): MemoryLineageClass {
   return value === "undone" ? "undone" : "current";
 }
 
+/**
+ * A journal lane: one channel, or every game lane (`domus`). spokenToo (M1) adds an entry of
+ * another lane whose pass delivered speech: what she said to someone always shows.
+ */
+export type JournalLane = { channel?: MemoryChannel | "domus"; spokenToo?: boolean };
+
 /** Recent live entries, newest first. Secret entries never leave the store. */
 export function listRecentJournal(
   db: DatabaseSync,
-  input: { sinceMs?: number; limit: number; channel?: MemoryChannel },
+  input: { sinceMs?: number; limit: number } & JournalLane,
 ): JournalEntry[] {
+  const channel = input.channel === "domus" ? null : input.channel ?? null;
+  const domus = input.channel === "domus" ? 1 : 0;
   return (db.prepare(
     `SELECT j.*, EXISTS (
          SELECT 1 FROM conversation_evidence_log e
@@ -210,9 +218,11 @@ export function listRecentJournal(
        ) AS delivered_speech
        FROM activity_journal j
       WHERE j.forgotten_at_ms IS NULL AND j.created_at_ms >= ? AND j.data_classification != 'secret' AND j.lineage_class = 'current'
-        AND (? IS NULL OR j.channel = ?)
+        AND (((? IS NULL OR j.channel = ?) AND (? = 0 OR j.channel LIKE 'domus:%'))
+          OR (? = 1 AND EXISTS (SELECT 1 FROM conversation_evidence_log e
+               WHERE e.producing_cycle_id = j.cycle_id AND e.role = 'ashley' AND e.delivered = 1)))
       ORDER BY j.created_at_ms DESC, j.entry_id DESC LIMIT ?`,
-  ).all(input.sinceMs ?? 0, input.channel ?? null, input.channel ?? null, Math.max(1, input.limit)) as Row[]).map(mapEntry);
+  ).all(input.sinceMs ?? 0, channel, channel, domus, input.spokenToo ? 1 : 0, Math.max(1, input.limit)) as Row[]).map(mapEntry);
 }
 
 export function toThoughtJournalEntry(entry: JournalEntry): ThoughtJournalEntry {
@@ -267,15 +277,22 @@ export const JOURNAL_COLLAPSE_SCAN = 256;
 /** Recent entries with quiet runs collapsed, newest first, up to limit items; one channel when given. */
 export function recentJournalCollapsed(
   db: DatabaseSync,
-  input: { sinceMs?: number; limit: number; channel?: MemoryChannel },
+  input: { sinceMs?: number; limit: number } & JournalLane,
 ): ThoughtJournalEntry[] {
-  const rows = listRecentJournal(db, { sinceMs: input.sinceMs, limit: JOURNAL_COLLAPSE_SCAN, channel: input.channel });
-  return collapseQuietRuns(rows).slice(0, Math.max(1, input.limit));
+  const { limit, ...lane } = input;
+  const rows = listRecentJournal(db, { ...lane, limit: JOURNAL_COLLAPSE_SCAN });
+  return collapseQuietRuns(rows).slice(0, Math.max(1, limit));
 }
 
-/** What Thought reads: a Domus pass reads its own world's lane (H0.3), every other pass all lanes. */
+/**
+ * What Thought reads: a Domus pass reads its own world's lane (H0.3); every other pass the Discord
+ * lane plus any game pass that spoke (M1, live 2026-10-05: an hour of game check-ins pushed every
+ * Discord entry out of her Discord turns). The game reaches those turns as domusNow and, once a
+ * stretch of play is over, its session episode.
+ */
 export function journalForThought(db: DatabaseSync, nowMs: number, channel?: MemoryChannel): ThoughtJournalEntry[] {
-  return recentJournalCollapsed(db, { sinceMs: nowMs - JOURNAL_THOUGHT_WINDOW_MS, limit: JOURNAL_THOUGHT_LIMIT, ...(channel ? { channel } : {}) });
+  const lane: JournalLane = channel ? { channel } : { channel: "discord", spokenToo: true };
+  return recentJournalCollapsed(db, { sinceMs: nowMs - JOURNAL_THOUGHT_WINDOW_MS, limit: JOURNAL_THOUGHT_LIMIT, ...lane });
 }
 
 /** Entries that mention a forgotten topic, or cite a read that a forget redacted. */

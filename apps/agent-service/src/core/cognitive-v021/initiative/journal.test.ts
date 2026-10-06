@@ -4,7 +4,7 @@ import { appendAshleyEvidence, appendOwnerUtterance } from "../evidence/conversa
 import { admitTestCycle, openTestSidecar } from "../test-support.js";
 import { applyV021Forget } from "../memory/forget.js";
 import { listInterestBranches, recordInterestTouches } from "../memory/interests.js";
-import { JOURNAL_THOUGHT_LIMIT, journalForThought, listRecentJournal, recordJournalEntry } from "./journal.js";
+import { JOURNAL_THOUGHT_LIMIT, journalForThought, listRecentJournal, recentJournalCollapsed, recordJournalEntry } from "./journal.js";
 import { UNSOLICITED_FUSE_LIMIT, countUnsolicited, recentUnsolicited, unsolicitedFuseTripped } from "./reach-out.js";
 
 const T0 = Date.UTC(2026, 8, 29, 12, 0);
@@ -88,12 +88,36 @@ describe("H0.4 quiet passes in the journal", () => {
       pass("game-start", 1, { channel: "domus:slot8", entry: "Home, hungry." });
       for (let index = 0; index < 40; index++) pass(`game-quiet-${index}`, 2 + index, { channel: "domus:slot8" });
       pass("game-meal", 50, { channel: "domus:slot8", entry: "Ate at last." });
-      const all = journalForThought(db, T0 + 60 * MINUTE);
+      const all = recentJournalCollapsed(db, { sinceMs: 0, limit: JOURNAL_THOUGHT_LIMIT });
       expect(all.map(item => item.entry ?? `quiet:${item.quiet}`)).toEqual(["Ate at last.", "quiet:40", "Home, hungry.", "Thinking about the record fair."]);
       expect(all[1]).toMatchObject({ channel: "domus:slot8", quiet: 40, sinceMs: T0 + 2 * MINUTE, atMs: T0 + 41 * MINUTE });
       expect(all.length).toBeLessThanOrEqual(JOURNAL_THOUGHT_LIMIT);
       // A Domus pass reads its own world's lane only.
       expect(journalForThought(db, T0 + 60 * MINUTE, "domus:slot8").map(item => item.entry ?? item.quiet)).toEqual(["Ate at last.", 40, "Home, hungry."]);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("M1: every other pass reads the Discord lane, plus a game pass that spoke; the night gets both lanes", () => {
+    const db = openTestSidecar();
+    try {
+      const pass = (cycleId: string, minute: number, entry: string, channel?: `domus:${string}`) =>
+        recordJournalEntry(db, { conversationId: "thread", cycleId, passKind: channel ? "private" : "awake", spoke: false,
+          nowMs: T0 + minute * MINUTE, ...(channel ? { channel } : {}), claim: { activity: "think" as const, entry } });
+      pass("chat-1", 0, "Thinking about the record fair.");
+      for (let index = 0; index < 14; index++) pass(`game-${index}`, 1 + index, `Moment ${index} in the house.`, "domus:slot8");
+      pass("game-said", 20, "Told Alex I found the job.", "domus:slot8");
+      appendAshleyEvidence(db, { conversationId: "thread", text: "I have a job!", producingCycleId: "game-said", delivered: true, nowMs: T0 + 20 * MINUTE });
+      pass("chat-2", 30, "Back to the record fair.");
+      expect(journalForThought(db, T0 + 60 * MINUTE).map(item => item.entry))
+        .toEqual(["Back to the record fair.", "Told Alex I found the job.", "Thinking about the record fair."]);
+      const night = [
+        ...recentJournalCollapsed(db, { sinceMs: 0, limit: 16, channel: "discord" }),
+        ...recentJournalCollapsed(db, { sinceMs: 0, limit: 16, channel: "domus" }),
+      ];
+      expect(night.filter(item => item.channel === "domus:slot8")).toHaveLength(15);
+      expect(night.filter(item => !item.channel)).toHaveLength(2);
     } finally {
       db.close();
     }
