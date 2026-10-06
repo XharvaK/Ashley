@@ -1,3 +1,4 @@
+import { composeDuePlaceWishes, thoughtPlaceComposer } from "./core/places/compose.js";
 import { homeRootFor } from "./core/home/home.js";
 import { vaultDirFor } from "./core/reach/vault-dir.js";
 import { createSelfChangeResultMaintenance, type SelfChangeResultMaintenance } from "./core/cognitive-v021/growth/self-change-results.js";
@@ -483,6 +484,16 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
     };
     manager.configureCognitiveDispatch({ deps, projector });
     reconcileStartupOwnership(sidecar);
+    // B3: what she wished to say in another place is written there, by her Thought held in that place.
+    const placeComposer = thoughtPlaceComposer(sidecar, nuclear, deps, { timeZone: env.ownerTimeZone || DEFAULT_OWNER_TIME_ZONE });
+    let composingPlaceWishes = false;
+    setInterval(() => {
+      if (composingPlaceWishes) return;
+      composingPlaceWishes = true;
+      void composeDuePlaceWishes(sidecar, nuclear, { nowMs: Date.now(), compose: placeComposer })
+        .catch((error) => console.warn("[places] compose deferred", error instanceof Error ? error.message : error))
+        .finally(() => { composingPlaceWishes = false; });
+    }, 20_000).unref();
     if (isExternalSocialCaptureEnabled()) {
       const externalRecovery = await reconcileUnbatchedCaptures(sidecar, {
         batch: (input) => admitExternalBatch(

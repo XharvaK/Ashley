@@ -3,6 +3,12 @@
 // are due, the Host checks the place is still hers to speak in and that the place's fuse holds, the
 // bot sends it and reports what happened, and her next turns read the receipt. Nothing is written
 // for her and nothing is guessed: a place she names that is not hers is refused with its reason.
+//
+// B3 (User 2026-10-06: "she shouldn't tell a channel or someone else about an own time about me, or
+// vice versa"): an Owner-private turn sees everything she keeps. Only a post the Owner asked for in
+// the turn the Owner started (ownerAsked) is sent as written there. Any other intent is a wish: her
+// words become a draft, and the post is written again in a Thought held in that place, which sees
+// only what that place may see (places/compose.ts).
 import { createHash } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { appendAshleyEvidence } from "../cognitive-v021/evidence/conversation-log.js";
@@ -20,8 +26,8 @@ export const PLACE_SENDING_LEASE_MS = 2 * 60_000;
 export const PLACE_RECENT_ACTS = 6;
 export const PLACE_RECENT_ACTS_MS = 48 * 60 * 60_000;
 
-export type PlaceIntentClaim = { place: string; interaction: "initiate" | "continue"; say: string; atMs?: number };
-export type PlaceIntentState = "requested" | "sending" | "posted" | "refused" | "failed" | "expired";
+export type PlaceIntentClaim = { place: string; interaction: "initiate" | "continue"; say: string; atMs?: number; ownerAsked?: true };
+export type PlaceIntentState = "requested" | "sending" | "posted" | "refused" | "failed" | "expired" | "composing" | "let_go";
 export type PlaceAct = { place: string; say: string; state: PlaceIntentState; requestedAtMs: number; updatedAtMs: number; dueAtMs?: number; reason?: string };
 export type PlacePost = { intent_id: string; target: PlaceEntry["target"]; text: string };
 export type PlaceSyncReport = { intentId: string; outcome: "posted" | "failed"; discordMessageId?: string; reason?: string };
@@ -33,7 +39,8 @@ export function isPlaceIntentClaims(value: unknown): value is PlaceIntentClaim[]
   return value.every(item => {
     if (!item || typeof item !== "object" || Array.isArray(item)) return false;
     const record = item as Record<string, unknown>;
-    if (Object.keys(record).some(key => !["place", "interaction", "say", "atMs"].includes(key))) return false;
+    if (Object.keys(record).some(key => !["place", "interaction", "say", "atMs", "ownerAsked"].includes(key))) return false;
+    if (record.ownerAsked !== undefined && record.ownerAsked !== true) return false;
     return typeof record.place === "string" && record.place.length >= 1 && record.place.length <= 200
       && (record.interaction === "initiate" || record.interaction === "continue")
       && typeof record.say === "string" && record.say.trim().length >= 1 && record.say.length <= PLACE_SAY_MAX_CHARS
@@ -47,19 +54,28 @@ function intentId(cycleId: string, ordinal: number): string {
 
 /**
  * Keep her intents from one settled cycle, once. A turn that saw secret material posts nowhere
- * (the Host cannot tell which words carry it). A time past the allowed horizon is refused.
+ * (the Host cannot tell which words carry it). A time past the allowed horizon is refused. Only a
+ * post the Owner asked for in the Owner's own turn goes out as written; the rest are written in the
+ * place itself.
  */
 export function recordPlaceIntents(sidecar: DatabaseSync, input: {
-  cycleId: string; claims: readonly PlaceIntentClaim[]; sawSecret: boolean; nowMs: number;
+  cycleId: string; claims: readonly PlaceIntentClaim[]; sawSecret: boolean; nowMs: number; ownerTurn?: boolean;
 }): Array<{ intentId: string; state: PlaceIntentState; reason?: string }> {
   const insert = sidecar.prepare(`INSERT OR IGNORE INTO place_intents (intent_id, cycle_id, ordinal, place_ref, interaction, say, state, reason,
     due_at_ms, requested_at_ms, updated_at_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+  const wish = sidecar.prepare(`INSERT OR IGNORE INTO place_wishes (wish_id, cycle_id, ordinal, place_ref, interaction, draft, state,
+    due_at_ms, requested_at_ms, updated_at_ms) VALUES (?, ?, ?, ?, ?, ?, 'composing', ?, ?, ?)`);
   return input.claims.slice(0, PLACE_INTENTS_MAX).map((claim, ordinal) => {
     const id = intentId(input.cycleId, ordinal);
     const due = claim.atMs !== undefined && claim.atMs > input.nowMs ? claim.atMs : input.nowMs;
     const reason = input.sawSecret ? "secret_in_view"
       : due - input.nowMs > PLACE_INTENT_MAX_DELAY_MS ? "too_far_ahead"
       : undefined;
+    if (!reason && !(claim.ownerAsked && input.ownerTurn)) {
+      const wishId = id.replace(/^intent:/, "wish:");
+      wish.run(wishId, input.cycleId, ordinal, claim.place.trim(), claim.interaction, claim.say.trim(), due, input.nowMs, input.nowMs);
+      return { intentId: wishId, state: "composing" as const };
+    }
     const state: PlaceIntentState = reason ? "refused" : "requested";
     insert.run(id, input.cycleId, ordinal, claim.place.trim(), claim.interaction, claim.say.trim(), state, reason ?? null, due, input.nowMs, input.nowMs);
     return { intentId: id, state, ...(reason ? { reason } : {}) };
@@ -138,10 +154,19 @@ export function syncPlacePosts(sidecar: DatabaseSync, nuclear: DatabaseSync, inp
   return { posts, applied };
 }
 
-/** Her recent acts in other places, newest last, for her next turns. */
+/**
+ * Her recent acts in other places, newest last, for her next turns. A wish still being written there
+ * shows as composing (with her draft); one she let go shows why; a written one shows as its post.
+ */
 export function recentPlaceActs(sidecar: DatabaseSync, nowMs: number): PlaceAct[] {
-  return (sidecar.prepare(`SELECT place_ref, say, state, reason, requested_at_ms, updated_at_ms, due_at_ms FROM place_intents
-    WHERE requested_at_ms >= ? OR state = 'requested' ORDER BY requested_at_ms DESC LIMIT ?`).all(nowMs - PLACE_RECENT_ACTS_MS, PLACE_RECENT_ACTS) as Row[])
+  const since = nowMs - PLACE_RECENT_ACTS_MS;
+  return (sidecar.prepare(`SELECT * FROM (
+      SELECT place_ref, say, state, reason, requested_at_ms, updated_at_ms, due_at_ms FROM place_intents
+        WHERE requested_at_ms >= ? OR state = 'requested'
+      UNION ALL
+      SELECT place_ref, draft AS say, state, reason, requested_at_ms, updated_at_ms, due_at_ms FROM place_wishes
+        WHERE state != 'written' AND (requested_at_ms >= ? OR state = 'composing'))
+    ORDER BY requested_at_ms DESC LIMIT ?`).all(since, since, PLACE_RECENT_ACTS) as Row[])
     .reverse().map(row => ({
       place: String(row.place_ref), say: String(row.say).slice(0, 280), state: String(row.state) as PlaceIntentState,
       requestedAtMs: Number(row.requested_at_ms), updatedAtMs: Number(row.updated_at_ms),

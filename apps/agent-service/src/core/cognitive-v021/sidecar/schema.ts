@@ -2331,3 +2331,25 @@ CREATE TABLE IF NOT EXISTS home_ops (
 );
 UPDATE cognitive_sidecar_meta SET schema_version=63 WHERE id=1;
 `;
+
+/** B3: what she wants to say in another place, written there (places/compose.ts). */
+export const COGNITIVE_SIDECAR_SCHEMA_V64 = String.raw`
+CREATE TABLE IF NOT EXISTS place_wishes (
+  wish_id TEXT PRIMARY KEY,
+  cycle_id TEXT NOT NULL,
+  ordinal INTEGER NOT NULL,
+  place_ref TEXT NOT NULL,
+  interaction TEXT NOT NULL CHECK (interaction IN ('initiate','continue')),
+  draft TEXT NOT NULL,
+  state TEXT NOT NULL CHECK (state IN ('composing','written','let_go','refused','failed')),
+  reason TEXT,
+  intent_id TEXT,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  due_at_ms INTEGER NOT NULL,
+  requested_at_ms INTEGER NOT NULL,
+  updated_at_ms INTEGER NOT NULL,
+  UNIQUE (cycle_id, ordinal)
+);
+CREATE INDEX IF NOT EXISTS idx_place_wishes_state_due ON place_wishes(state, due_at_ms);
+UPDATE cognitive_sidecar_meta SET schema_version=64 WHERE id=1;
+`;

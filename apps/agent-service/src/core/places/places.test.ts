@@ -59,12 +59,12 @@ describe("A1 her places", () => {
 });
 
 describe("B1 acting in her places", () => {
-  const claim = (place: string, text: string, atMs?: number) => ({ place, interaction: "initiate" as const, say: text, ...(atMs ? { atMs } : {}) });
+  const claim = (place: string, text: string, atMs?: number) => ({ place, interaction: "initiate" as const, say: text, ownerAsked: true as const, ...(atMs ? { atMs } : {}) });
 
   it("hands a due post to the bot once, and a posted receipt lands in the place's log and her acts", () => {
     const { sidecar, nuclear, close } = world();
     try {
-      const [recorded] = recordPlaceIntents(sidecar, { cycleId: "c-1", claims: [claim(ROOM, "I can see the server now")], sawSecret: false, nowMs: NOW });
+      const [recorded] = recordPlaceIntents(sidecar, { ownerTurn: true, cycleId: "c-1", claims: [claim(ROOM, "I can see the server now")], sawSecret: false, nowMs: NOW });
       expect(recorded).toMatchObject({ state: "requested" });
       const first = syncPlacePosts(sidecar, nuclear, { reports: [], nowMs: NOW + 1000 });
       expect(first.posts).toEqual([{ intent_id: recorded!.intentId, target: { kind: "room", guildId: "g1", channelId: "c1" }, text: "I can see the server now" }]);
@@ -80,13 +80,13 @@ describe("B1 acting in her places", () => {
   it("refuses a place that is not hers, a turn that saw secrets, and posts past the fuse", () => {
     const { sidecar, nuclear, close } = world();
     try {
-      recordPlaceIntents(sidecar, { cycleId: "c-x", claims: [claim("room:g9:c9", "hi")], sawSecret: false, nowMs: NOW });
-      expect(recordPlaceIntents(sidecar, { cycleId: "c-s", claims: [claim(ROOM, "hi")], sawSecret: true, nowMs: NOW + 1 })[0]).toMatchObject({ state: "refused", reason: "secret_in_view" });
+      recordPlaceIntents(sidecar, { ownerTurn: true, cycleId: "c-x", claims: [claim("room:g9:c9", "hi")], sawSecret: false, nowMs: NOW });
+      expect(recordPlaceIntents(sidecar, { ownerTurn: true, cycleId: "c-s", claims: [claim(ROOM, "hi")], sawSecret: true, nowMs: NOW + 1 })[0]).toMatchObject({ state: "refused", reason: "secret_in_view" });
       syncPlacePosts(sidecar, nuclear, { reports: [], nowMs: NOW + 1 });
       expect(recentPlaceActs(sidecar, NOW + 1).map(act => [act.place, act.state, act.reason])).toEqual([
         ["room:g9:c9", "refused", "not_one_of_your_places"], [ROOM, "refused", "secret_in_view"]]);
       for (let index = 0; index <= PLACE_POST_LIMITS.room; index++) {
-        recordPlaceIntents(sidecar, { cycleId: `c-f${index}`, claims: [claim(ROOM, `line ${index}`)], sawSecret: false, nowMs: NOW + 2 + index });
+        recordPlaceIntents(sidecar, { ownerTurn: true, cycleId: `c-f${index}`, claims: [claim(ROOM, `line ${index}`)], sawSecret: false, nowMs: NOW + 2 + index });
       }
       const handed = syncPlacePosts(sidecar, nuclear, { reports: [], nowMs: NOW + 100 }).posts.length
         + syncPlacePosts(sidecar, nuclear, { reports: [], nowMs: NOW + 200 }).posts.length;
@@ -98,11 +98,11 @@ describe("B1 acting in her places", () => {
   it("waits for a later time, and expires a post nobody sent", () => {
     const { sidecar, nuclear, close } = world();
     try {
-      recordPlaceIntents(sidecar, { cycleId: "c-later", claims: [claim(ROOM, "good morning", NOW + 3_600_000)], sawSecret: false, nowMs: NOW });
+      recordPlaceIntents(sidecar, { ownerTurn: true, cycleId: "c-later", claims: [claim(ROOM, "good morning", NOW + 3_600_000)], sawSecret: false, nowMs: NOW });
       expect(syncPlacePosts(sidecar, nuclear, { reports: [], nowMs: NOW + 60_000 }).posts).toEqual([]);
       expect(recentPlaceActs(sidecar, NOW + 60_000)[0]).toMatchObject({ state: "requested", dueAtMs: NOW + 3_600_000 });
       expect(syncPlacePosts(sidecar, nuclear, { reports: [], nowMs: NOW + 3_600_000 }).posts).toHaveLength(1);
-      recordPlaceIntents(sidecar, { cycleId: "c-stale", claims: [claim(ROOM, "late")], sawSecret: false, nowMs: NOW });
+      recordPlaceIntents(sidecar, { ownerTurn: true, cycleId: "c-stale", claims: [claim(ROOM, "late")], sawSecret: false, nowMs: NOW });
       syncPlacePosts(sidecar, nuclear, { reports: [], nowMs: NOW + PLACE_INTENT_TTL_MS + 3_600_000 });
       expect(recentPlaceActs(sidecar, NOW + PLACE_INTENT_TTL_MS + 3_600_000).find(act => act.say === "late"))
         .toMatchObject({ state: "expired" });
@@ -128,9 +128,9 @@ describe("B1 aftermath", () => {
     try {
       admitTestCycle(sidecar, { cycleId: "chat-cycle", conversationId: "owner-thread", occupantId: "owner", generation: 1, triggerKind: "owner_message", nowMs: NOW });
       sidecar.prepare("INSERT INTO settlements(settlement_id,cycle_id,generation,payload_json) VALUES(?,?,1,?)").run("s-chat", "chat-cycle",
-        JSON.stringify({ sawSecret: false, intents: [{ place: ROOM, interaction: "initiate", say: "hey everyone" }] }));
+        JSON.stringify({ sawSecret: false, intents: [{ place: ROOM, interaction: "initiate", say: "hey everyone", ownerAsked: true }] }));
       recordAftermathPending(sidecar, { settlementId: "s-chat", cycleId: "chat-cycle", nowMs: NOW,
-        context: { conversationId: "owner-thread", ownerPrivate: true, passKind: null, nightPass: null, placesSeen: { [ROOM]: NOW - 5 } } });
+        context: { conversationId: "owner-thread", ownerPrivate: true, passKind: null, nightPass: null, ownerTurn: true, placesSeen: { [ROOM]: NOW - 5 } } });
       expect(recordSettlementAftermath(sidecar, "s-chat", { identityStore: null, timeZone: "UTC", nowMs: NOW })).toBe("recorded");
       expect(recentPlaceActs(sidecar, NOW)).toEqual([expect.objectContaining({ place: ROOM, say: "hey everyone", state: "requested" })]);
       expect(sidecar.prepare("SELECT seen_through_ms FROM place_seen WHERE place_ref = ?").get(ROOM)).toEqual({ seen_through_ms: NOW - 5 });

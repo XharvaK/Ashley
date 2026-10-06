@@ -59,11 +59,11 @@ describe("G1 the Owner's switch and a contact's stop", () => {
     try {
       setPlaceSwitch(sidecar, ROOM, "closed", NOW);
       expect(placesForThought(sidecar, nuclear, { nowMs: NOW }).find(place => place.ref === ROOM)).toMatchObject({ closedByOwner: true });
-      recordPlaceIntents(sidecar, { cycleId: "c1", claims: [{ place: ROOM, interaction: "initiate", say: "hi all" }], sawSecret: false, nowMs: NOW });
+      recordPlaceIntents(sidecar, { ownerTurn: true, cycleId: "c1", claims: [{ place: ROOM, interaction: "initiate", say: "hi all", ownerAsked: true }], sawSecret: false, nowMs: NOW });
       expect(syncPlacePosts(sidecar, nuclear, { reports: [], nowMs: NOW + 1 }).posts).toEqual([]);
       expect(recentPlaceActs(sidecar, NOW + 2).at(-1)).toMatchObject({ state: "refused", reason: "closed_by_owner" });
       setPlaceSwitch(sidecar, ROOM, "open", NOW + 3);
-      recordPlaceIntents(sidecar, { cycleId: "c2", claims: [{ place: ROOM, interaction: "initiate", say: "hi again" }], sawSecret: false, nowMs: NOW + 3 });
+      recordPlaceIntents(sidecar, { ownerTurn: true, cycleId: "c2", claims: [{ place: ROOM, interaction: "initiate", say: "hi again", ownerAsked: true }], sawSecret: false, nowMs: NOW + 3 });
       expect(syncPlacePosts(sidecar, nuclear, { reports: [], nowMs: NOW + 4 }).posts).toHaveLength(1);
     } finally { close(); }
   });
@@ -74,20 +74,20 @@ describe("G1 the Owner's switch and a contact's stop", () => {
       applyContactStop(nuclear, { ownerId: "owner", principalId: "p1", stop: "no_initiation", sourceMessageRef: "row-1", nowMs: NOW });
       expect(contactRestrictions(nuclear, "p1")).toEqual(["no_initiation"]);
       expect(placesForThought(sidecar, nuclear, { nowMs: NOW }).find(place => place.ref === "contact:p1")).toMatchObject({ theyAsked: ["no_initiation"] });
-      recordPlaceIntents(sidecar, { cycleId: "c1", nowMs: NOW, sawSecret: false, claims: [
-        { place: "contact:p1", interaction: "initiate", say: "thinking of you" },
-        { place: "contact:p1", interaction: "continue", say: "about what you said earlier" }] });
+      recordPlaceIntents(sidecar, { ownerTurn: true, cycleId: "c1", nowMs: NOW, sawSecret: false, claims: [
+        { place: "contact:p1", interaction: "initiate", say: "thinking of you", ownerAsked: true },
+        { place: "contact:p1", interaction: "continue", say: "about what you said earlier", ownerAsked: true }] });
       const handed = syncPlacePosts(sidecar, nuclear, { reports: [], nowMs: NOW + 1 }).posts;
       expect(handed.map(post => post.text)).toEqual(["about what you said earlier"]);
       expect(recentPlaceActs(sidecar, NOW + 2).find(act => act.say === "thinking of you")).toMatchObject({ state: "refused", reason: "they_asked:no_initiation" });
 
       applyContactStop(nuclear, { ownerId: "owner", principalId: "p1", stop: "do_not_contact", sourceMessageRef: "row-2", nowMs: NOW + 3 });
-      recordPlaceIntents(sidecar, { cycleId: "c2", nowMs: NOW + 3, sawSecret: false, claims: [{ place: "contact:p1", interaction: "continue", say: "ok" }] });
+      recordPlaceIntents(sidecar, { ownerTurn: true, cycleId: "c2", nowMs: NOW + 3, sawSecret: false, claims: [{ place: "contact:p1", interaction: "continue", say: "ok", ownerAsked: true }] });
       expect(syncPlacePosts(sidecar, nuclear, { reports: [], nowMs: NOW + 4 }).posts).toEqual([]);
 
       applyContactStop(nuclear, { ownerId: "owner", principalId: "p1", stop: "resume", sourceMessageRef: "row-3", nowMs: NOW + 5 });
       expect(contactRestrictions(nuclear, "p1")).toEqual([]);
-      recordPlaceIntents(sidecar, { cycleId: "c3", nowMs: NOW + 5, sawSecret: false, claims: [{ place: "contact:p1", interaction: "initiate", say: "hey" }] });
+      recordPlaceIntents(sidecar, { ownerTurn: true, cycleId: "c3", nowMs: NOW + 5, sawSecret: false, claims: [{ place: "contact:p1", interaction: "initiate", say: "hey", ownerAsked: true }] });
       expect(syncPlacePosts(sidecar, nuclear, { reports: [], nowMs: NOW + 6 }).posts).toHaveLength(1);
     } finally { close(); }
   });

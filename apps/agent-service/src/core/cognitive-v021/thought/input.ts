@@ -149,6 +149,8 @@ export type BuildThoughtInputOptions = {
   home?: import("../../home/home.js").ThoughtHome;
   /** C1/D1: her pursuits and clock, computed by the caller (Owner-private only). */
   will?: import("../../will/pursuits.js").ThoughtWill;
+  /** B3: kept only for a room or contact audience (the place the post is written in). */
+  placeWish?: import("../../places/compose.js").ThoughtPlaceWish;
   /** Growth V1 G4: mood, opinions, open revisions and expectations (kept only for Owner-private audiences). */
   growth?: import("../growth/growth.js").ThoughtGrowth;
   senses?: import("../senses/senses.js").ThoughtSenses;
@@ -1260,6 +1262,7 @@ export function buildThoughtInput(options: BuildThoughtInputOptions): ThoughtInp
     ...(options.places && audience.kind === "owner_private" && !domusPass ? { places: options.places } : {}),
     ...(options.home && audience.kind === "owner_private" && !domusPass ? { home: options.home } : {}),
     ...(options.will && audience.kind === "owner_private" && !domusPass ? { will: options.will } : {}),
+    ...(options.placeWish && (audience.kind === "room" || audience.kind === "dm") ? { placeWish: options.placeWish } : {}),
     ...(options.growth && audience.kind === "owner_private" ? { growth: options.growth } : {}),
     ...(options.senses && audience.kind === "owner_private" ? { senses: options.senses } : {}),
     ...(options.attention && audience.kind === "owner_private" ? { attention: options.attention } : {}),

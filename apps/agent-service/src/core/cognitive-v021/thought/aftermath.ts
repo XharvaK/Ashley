@@ -151,7 +151,8 @@ export function recordSettlementAftermath(
     }
     if (context.ownerPrivate !== false) recordPlacesSeen(db, context.placesSeen, options.nowMs);
     if (standing && context.ownerPrivate !== false && settlement.intents?.length) {
-      recordPlaceIntents(db, { cycleId, claims: settlement.intents, sawSecret: settlement.sawSecret !== false, nowMs: options.nowMs });
+      recordPlaceIntents(db, { cycleId, claims: settlement.intents, sawSecret: settlement.sawSecret !== false, nowMs: options.nowMs,
+        ownerTurn: context.ownerTurn === true });
     }
     if (standing && context.ownerPrivate !== false && settlement.home?.length && options.dataDir) {
       applyHomeOps(db, homeRootFor(options.dataDir), { cycleId, ops: settlement.home, nowMs: options.nowMs });

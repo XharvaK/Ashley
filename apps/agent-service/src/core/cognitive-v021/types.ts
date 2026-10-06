@@ -29,7 +29,7 @@ export type { SourceSupportRef } from "./evidence/interpretation-envelope.js";
 export const ARCHITECTURE_EPOCH = "v0.2.1" as const;
 export const IMPLEMENTATION_SPEC_VERSION = "0.2.1.r6" as const;
 export const THOUGHT_CONTRACT_VERSION = 2 as const;
-export const COGNITIVE_SIDECAR_SCHEMA_VERSION = 63 as const;
+export const COGNITIVE_SIDECAR_SCHEMA_VERSION = 64 as const;
 
 /**
  * Hard bound on cognition-facing concern discovery windows and pages. The
@@ -1784,6 +1784,8 @@ export type ThoughtInput = {
   home?: import("../home/home.js").ThoughtHome;
   /** C1/D1: her pursuits and the times she asked for her own time (Owner-private). */
   will?: import("../will/pursuits.js").ThoughtWill;
+  /** B3: a Thought held in one of her places to write what she wished to say there (places/compose.ts). */
+  placeWish?: import("../places/compose.js").ThoughtPlaceWish;
   /** Present only for an autonomous idle-opportunity Thought. */
   publicPresence?: PublicPresenceContext;
   /** Host factual context for the single Ashley-authored capacity-wait turn. */

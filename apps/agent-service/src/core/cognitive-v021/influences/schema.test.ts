@@ -9,7 +9,7 @@ describe("A5a sidecar influence storage",()=>{
   const db=openTestSidecar();try{
    expect(names(db)).toEqual(expect.arrayContaining(tables));
    expect(db.prepare("SELECT highest_contract_version,state,live_authority_existed FROM influence_contract_state WHERE id=1").get()).toEqual({highest_contract_version:1,state:"observe",live_authority_existed:0});
-   expect(db.prepare("PRAGMA user_version").get()).toEqual({user_version: 63});
+   expect(db.prepare("PRAGMA user_version").get()).toEqual({user_version: 64});
    expect(db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
    expect(db.prepare("SELECT name FROM sqlite_master WHERE type='index'").all().map(row=>row.name)).toEqual(expect.arrayContaining([
     "idx_learned_influences_owner_state","idx_learned_influences_entity_uuid",
@@ -27,7 +27,7 @@ describe("A5a sidecar influence storage",()=>{
    expect(names(db)).toEqual(expect.arrayContaining(tables));
    expect(db.prepare("SELECT * FROM interest_touches").all()).toEqual([]);
    expect(db.prepare("SELECT lived_count FROM interest_branches WHERE branch_id='technology/compilers'").get()).toEqual({lived_count:9});
-   expect(db.prepare("PRAGMA user_version").get()).toEqual({user_version: 63});
+   expect(db.prepare("PRAGMA user_version").get()).toEqual({user_version: 64});
   }finally{db.close();}
  });
 });
