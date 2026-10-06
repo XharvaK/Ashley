@@ -2,10 +2,13 @@ import type { EpisodeReflection } from "../memory/episodes.js";
 
 /** Inner-pass identity carried on an inbox payload (Growth V1 §5.1). Dependency-free. */
 
-export type AfterglowMode = "silence" | "rolling" | "session";
+export type AfterglowMode = "silence" | "rolling" | "session" | "diary";
 
 /** M2: one stretch of her life in a game world (mode session): no conversation rows. */
 export type AfterglowSession = { world: string; fromMs: number; throughMs: number; observationIds: string[] };
+
+/** 8h: one night's sleep in a game world (mode diary): no conversation rows. */
+export type AfterglowDiary = { world: string; observationId: string };
 
 /** Host record of what one afterglow covers, carried on its inbox event. */
 export type AfterglowPass = {
@@ -14,6 +17,7 @@ export type AfterglowPass = {
   rowIds: string[];
   throughSeq: number;
   session?: AfterglowSession;
+  diary?: AfterglowDiary;
 };
 
 /** What Ashley authors in an afterglow settlement. */
@@ -41,6 +45,14 @@ export function afterglowPassFromPayload(payload: unknown): AfterglowPass | null
       kind: "afterglow", mode: "session", rowIds: [], throughSeq: 0,
       session: { world: session.world, fromMs: session.fromMs as number, throughMs: session.throughMs as number,
         observationIds: [...session.observationIds as string[]] },
+    };
+  }
+  if (value.mode === "diary") {
+    const diary = value.diary as Row | undefined;
+    if (!diary || typeof diary.world !== "string" || typeof diary.observationId !== "string") return null;
+    return {
+      kind: "afterglow", mode: "diary", rowIds: [], throughSeq: 0,
+      diary: { world: diary.world, observationId: diary.observationId },
     };
   }
   return {

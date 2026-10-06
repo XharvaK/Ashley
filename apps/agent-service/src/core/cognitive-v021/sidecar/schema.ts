@@ -2421,3 +2421,17 @@ CREATE TABLE IF NOT EXISTS dream_receipts (
 CREATE INDEX IF NOT EXISTS idx_dream_receipts_created ON dream_receipts(created_at_ms);
 UPDATE cognitive_sidecar_meta SET schema_version=67 WHERE id=1;
 `;
+
+/** 8h: her Sims diary, one per night's sleep the helper reported (an observation with a day). */
+export const COGNITIVE_SIDECAR_SCHEMA_V68 = String.raw`
+CREATE TABLE IF NOT EXISTS domus_diary_state (
+  observation_id TEXT PRIMARY KEY,
+  world TEXT NOT NULL,
+  state TEXT NOT NULL CHECK (state IN ('pending', 'written', 'abandoned', 'forget_race')),
+  attempt_count INTEGER NOT NULL DEFAULT 0,
+  failed_attempts INTEGER NOT NULL DEFAULT 0,
+  cycle_id TEXT,
+  updated_at_ms INTEGER NOT NULL
+);
+UPDATE cognitive_sidecar_meta SET schema_version=68 WHERE id=1;
+`;

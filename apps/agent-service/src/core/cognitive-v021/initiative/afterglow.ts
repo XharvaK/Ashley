@@ -17,6 +17,7 @@ import {
 } from "./idle.js";
 import { recordEpisode, writeThreadStory } from "../memory/episodes.js";
 import type { AfterglowMode, AfterglowPass, AfterglowReflection } from "./inner-pass.js";
+import { completeDomusDiary, tickDomusDiary } from "../../domus/diary.js";
 import { completeDomusSession, tickDomusSession } from "../../domus/session.js";
 
 export { afterglowPassFromPayload, type AfterglowMode, type AfterglowPass, type AfterglowReflection } from "./inner-pass.js";
@@ -238,6 +239,8 @@ export async function tickAfterglow(
   const decision = evaluateAfterglow(db, { conversationId, nowMs, timing:options.timing });
   // M2: with no conversation to reflect on, a stretch of play that is over may be.
   if (decision.kind === "nothing" || decision.kind === "not_due") {
+    const diary = await tickDomusDiary(db, { ...options, nowMs });
+    if (diary) return diary;
     const session = await tickDomusSession(db, { ...options, nowMs });
     if (session) return session;
   }
@@ -415,7 +418,11 @@ export function completeAfterglow(
     reflection: AfterglowReflection | undefined;
     nowMs: number;
   },
-): "reflected" | "forget_race" {
+): "reflected" | "forget_race" | "written" | "abandoned" {
+  if (input.pass.diary) {
+    return completeDomusDiary(db, { cycleId: input.cycleId, conversationId: input.conversationId, diary: input.pass.diary,
+      reflection: input.reflection, nowMs: input.nowMs });
+  }
   if (input.pass.session) {
     return completeDomusSession(db, { cycleId: input.cycleId, conversationId: input.conversationId, session: input.pass.session,
       reflection: input.reflection, nowMs: input.nowMs });

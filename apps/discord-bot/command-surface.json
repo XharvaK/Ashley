@@ -3,6 +3,7 @@
   "commands": [
     "remember",
     "memory",
+    "diary",
     "proactive",
     "identity",
     "commitments",

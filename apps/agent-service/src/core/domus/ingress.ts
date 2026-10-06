@@ -6,6 +6,7 @@
  * (strings, 1..64), seq/source_time_ms/expires_at_ms (safe non-negative integers),
  * lineage_class (1..32 [A-Z_]), percepts (1..32 of {kind: 1..32 [a-z0-9_], salience: finite 0..1,
  * facts: object <= 2048 UTF-8 bytes of JSON.stringify}), optional portrait (object <= 8192 bytes),
+ * optional day (8h: object <= 16384 bytes; the helper's facts-only digest of one Sims day),
  * optional options (8f: array of up to 32 objects, <= 8192 bytes; what she may choose to do).
  * Unknown top-level keys, unknown percept keys, expires_at_ms <= source_time_ms, or a window
  * over 600000 ms are 400 {error:"invalid_body"}. source_time_ms > now+120000 is 400
@@ -108,7 +109,7 @@ function jsonObject(value: unknown, maxBytes: number): Record<string, unknown> {
 
 const OBSERVATION_KEYS = new Set([
   "v", "observation_id", "world", "branch", "session", "attachment", "body", "snapshot",
-  "seq", "source_time_ms", "expires_at_ms", "lineage_class", "percepts", "portrait", "options",
+  "seq", "source_time_ms", "expires_at_ms", "lineage_class", "percepts", "portrait", "day", "options",
 ]);
 
 export function parseObservation(body: unknown, now: number): {
@@ -146,6 +147,7 @@ export function parseObservation(body: unknown, now: number): {
     seq, source_time_ms: sourceTimeMs, expires_at_ms: expiresAtMs, lineage_class: lineageClass, percepts,
   };
   if ("portrait" in body) normalized.portrait = jsonObject(body.portrait, 8192);
+  if ("day" in body) normalized.day = jsonObject(body.day, 16384);
   if ("options" in body) {
     if (!Array.isArray(body.options) || body.options.length > 32 || !body.options.every(isRecord)
       || Buffer.byteLength(JSON.stringify(body.options), "utf8") > 8192) fail(400, "invalid_body");

@@ -215,6 +215,22 @@ describe("domus ingress", () => {
     expect((await post(base, "/domus/observation", observation({ percepts }), TOKEN)).status).toBe(400);
   });
 
+  it("admits an observation that carries a day, and refuses a day over 16384 bytes", async () => {
+    const { db, base } = await start();
+    const day = { slept: true, acts: [{ label: "Practice piano", startedBy: "sim" }] };
+    const admitted = await post(base, "/domus/observation", observation({ observation_id: "obs-day", day }), TOKEN);
+    expect(admitted.status).toBe(202);
+    const stored = db.prepare("SELECT payload_json FROM domus_observations WHERE observation_id = 'obs-day'").get() as { payload_json: string };
+    expect(JSON.parse(stored.payload_json).day).toEqual(day);
+    const bulky = await post(base, "/domus/observation", observation({
+      observation_id: "obs-big-day",
+      day: { note: "x".repeat(20 * 1024) },
+    }), TOKEN);
+    expect(bulky.status).toBe(400);
+    expect(await bulky.json()).toEqual({ error: "invalid_body" });
+    expect(db.prepare("SELECT COUNT(*) AS n FROM domus_observations WHERE observation_id = 'obs-big-day'").get()).toEqual({ n: 0 });
+  });
+
   it("rejects facts larger than 2048 bytes", async () => {
     const { base } = await start();
     const response = await post(base, "/domus/observation", observation({

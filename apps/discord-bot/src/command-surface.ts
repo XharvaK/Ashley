@@ -10,6 +10,7 @@ type CommandSurfaceFile = {
 const IMPLEMENTED = [
   "remember",
   "memory",
+  "diary",
   "proactive",
   "identity",
   "commitments",

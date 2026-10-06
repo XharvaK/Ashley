@@ -56,6 +56,7 @@
     { "method": "GET", "path": "/growth/practices", "ownerScope": "owner_required", "lifecycle": "active" },
     { "method": "GET", "path": "/growth/dimensions", "ownerScope": "owner_required", "lifecycle": "active" },
     { "method": "GET", "path": "/domus/status", "ownerScope": "owner_required", "lifecycle": "active" },
+    { "method": "GET", "path": "/domus/diary", "ownerScope": "owner_required", "lifecycle": "active" },
     { "method": "POST", "path": "/growth/dimensions/seed", "ownerScope": "owner_required", "lifecycle": "active" },
     { "method": "POST", "path": "/growth/dimensions/revert", "ownerScope": "owner_required", "lifecycle": "active" },
     { "method": "POST", "path": "/growth/identity/reviews/doc", "ownerScope": "owner_required", "lifecycle": "active" },

@@ -78,8 +78,10 @@ describe("cognitive v0.2.1 sidecar database", () => {
       // v63: discord_names, place_seen, place_intents, home_ops, pursuits, own_time_wishes, will_changes, web_places, web_requests.
       // v66: domus_plan_steps, domus_session_state.
       // v67: dream_receipts.
-      expect(tables).toHaveLength(122);
+      // v68: domus_diary_state.
+      expect(tables).toHaveLength(123);
       expect(tables).toContain("dream_receipts");
+      expect(tables).toContain("domus_diary_state");
       for (const table of ["domus_heartbeats", "domus_observations", "domus_acts", "domus_act_events"]) expect(tables).toContain(table);
       for (const table of ["growth_dimensions", "growth_dimension_history", "growth_gap_scores", "growth_gap_diagnostics"]) expect(tables).toContain(table);
       for (const table of ["self_change_result_receipts", "self_change_ladder", "self_change_ladder_history"]) expect(tables).toContain(table);

@@ -25,6 +25,10 @@ export function buildCommandDefinitions(): RESTPostAPIChatInputApplicationComman
       )
       .toJSON(),
     new SlashCommandBuilder()
+      .setName(commandSurface.diary)
+      .setDescription("Her Sims diary")
+      .toJSON(),
+    new SlashCommandBuilder()
       .setName(commandSurface.proactive)
       .setDescription("Proactive outreach status and controls")
       .addStringOption((o) =>

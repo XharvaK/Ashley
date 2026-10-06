@@ -638,6 +638,14 @@ export type MemoryGrowth = {
   } | null;
 };
 
+export type SimsDiaryEntry = { world: string; at: string; text: string; takeaway: string | null };
+
+/** 8h: her Sims diary, newest first. Owner-only on the agent. */
+export async function domusDiary(limit = 3) {
+  const q = new URLSearchParams({ owner_id: config.ownerId, limit: String(limit) });
+  return agentFetch<{ entries: SimsDiaryEntry[] }>(`/domus/diary?${q}`);
+}
+
 export async function memorySummary(includePrivate = false) {
   const q = new URLSearchParams({
     owner_id: config.ownerId,

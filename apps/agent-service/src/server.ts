@@ -3,6 +3,7 @@ import { ownerPlacesView, ownerSwitchPlace } from "./core/places/owner.js";
 import { lifeReceipt, renderLifeReceipt } from "./core/will/receipt.js";
 import { listGrowthDimensions, revertAshleyDimensionEdit, seedGrowthDimension } from "./core/cognitive-v021/growth/dimensions.js";
 import { decideDomusIngress } from "./core/domus/ingress.js";
+import { listDomusDiary } from "./core/domus/diary.js";
 import { readDomusStatus } from "./core/domus/store.js";
 import {readSelfChangeLadder,commandSelfChangeLadder,recordSelfChangeLadderFinding} from "./core/cognitive-v021/growth/self-change-ladder.js";
 import { listPersonaSnapshots, personaChanges } from "./core/cognitive-v021/growth/snapshots.js";
@@ -2485,6 +2486,18 @@ export function createServer(
         ? { enabled: true, port: env.domusIngressPort }
         : { enabled: false, port: env.domusIngressPort, reason: decision.reason };
       res.json({ listener, ...readDomusStatus(getCognitiveSidecar()) });
+    } catch (err) {
+      const { status, body } = toErrorResponse(err);
+      res.status(status).json(body);
+    }
+  });
+
+  app.get("/domus/diary", (req, res) => {
+    try {
+      requireOwner(String(req.query.owner_id ?? "") || undefined);
+      const parsed = Number(req.query.limit ?? 7);
+      const limit = Number.isInteger(parsed) && parsed >= 1 && parsed <= 14 ? parsed : 7;
+      res.json({ entries: listDomusDiary(getCognitiveSidecar(), limit) });
     } catch (err) {
       const { status, body } = toErrorResponse(err);
       res.status(status).json(body);
