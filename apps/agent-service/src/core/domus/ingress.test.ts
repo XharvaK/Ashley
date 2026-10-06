@@ -127,6 +127,15 @@ describe("domus ingress", () => {
     expect(db.prepare("SELECT COUNT(*) AS n FROM domus_observations").get()).toEqual({ n: 1 });
   });
 
+  it("E3: the overlay feed answers its own helper session behind the token", async () => {
+    const { base } = await start();
+    expect((await post(base, "/domus/feed", { v: 1, helper_session: "attachment" })).status).toBe(401);
+    const response = await post(base, "/domus/feed", { v: 1, helper_session: "attachment" }, TOKEN);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ status: "ok", items: [] });
+    expect((await post(base, "/domus/feed", { v: 1, helper_session: "attachment", extra: 1 }, TOKEN)).status).toBe(400);
+  });
+
   it("H0.5: a newly admitted wake drops what still waits in her plan in that attachment", async () => {
     const { db, base } = await start();
     db.prepare(`INSERT INTO domus_acts (act_id, cycle_id, world, attachment, observation_id, option_ref, label, state,

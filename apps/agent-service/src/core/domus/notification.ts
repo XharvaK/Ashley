@@ -1,5 +1,6 @@
 // 8d: a stored Domus observation becomes one private Domus pass. The thalamus selects, the embodiment
 // budget pays, the inbox carries it, and Thought reads a portrait rebuilt from the durable rows.
+import { DOMUS_GAME_ONLY } from "./lane.js";
 import type { DatabaseSync } from "node:sqlite";
 import { appendInboxEventInTransaction, getCycle, getInboxEvent } from "../cognitive-v021/cycle/inbox.js";
 import { configureBudgetPolicy, resolveBudgetPolicy, PRIVATE_THOUGHT_CLOCK_DISCONTINUITY_MS } from "../cognitive-v021/private-budget/policies.js";
@@ -60,7 +61,7 @@ export function embodimentBudgetAvailable(db: DatabaseSync, nowMs: number): bool
 
 /** E1b: the Owner can keep his conversations out of her game passes. The helper on his PC carries
  * the switch in its heartbeat; a pass admitted while it is on is stamped game-only for good. */
-export const DOMUS_GAME_ONLY = "game_only";
+export { DOMUS_GAME_ONLY };
 
 export function gameOnlyInputs(db: DatabaseSync, attachment: string): boolean {
   const row = db.prepare("SELECT last_json FROM domus_heartbeats WHERE helper_session = ?").get(attachment) as Row | undefined;

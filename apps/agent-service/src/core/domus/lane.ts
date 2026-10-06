@@ -11,3 +11,6 @@ export function domusLaneId(ownerId: string): string {
 export function isDomusLane(conversationId: string): boolean {
   return conversationId.startsWith(DOMUS_LANE_PREFIX);
 }
+
+/** E1b: a pass admitted while the User kept his conversations out of her game passes. */
+export const DOMUS_GAME_ONLY = "game_only";

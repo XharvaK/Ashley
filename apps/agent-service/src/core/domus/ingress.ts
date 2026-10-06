@@ -31,6 +31,11 @@
  * are ignored. The response is 200 {status:"ok", applied, acts:[{act_id, object_id, guid64,
  * expires_at_ms}]}: her requested acts for this helper session that have not expired.
  *
+ * POST /domus/feed (E3) accepts only v=1 and helper_session (1..64). The response is 200
+ * {status:"ok", items}: her settled game passes for that helper session that were stamped
+ * game-only, newest last, with the act each chose and its plan (see feed.ts). Held lines are
+ * listed without their words.
+ *
  * A newly admitted observation (202) calls onAdmitted, so the host can evaluate it now; a
  * duplicate, a conflict or a rejected body does not.
  *
@@ -44,6 +49,7 @@ import type { DatabaseSync } from "node:sqlite";
 import { markDomusSpanUndone } from "../cognitive-v021/memory/undo.js";
 import { admitObservation, canonicalJson, observationDigest, upsertHeartbeat } from "./store.js";
 import { interruptDomusPlans, isDomusActPhase, syncDomusActs, type DomusActEvent } from "./acts.js";
+import { domusFeed } from "./feed.js";
 
 const BODY_LIMIT = 64 * 1024;
 const MAX_WINDOW_MS = 600_000;
@@ -190,6 +196,15 @@ export function parseActSync(body: unknown): { helperSession: string; events: Do
   return { helperSession: text(body.helper_session, 1, 64), events };
 }
 
+const FEED_KEYS = new Set(["v", "helper_session"]);
+
+export function parseFeed(body: unknown): { helperSession: string } {
+  if (!isRecord(body)) fail(400, "invalid_body");
+  for (const key of Object.keys(body)) if (!FEED_KEYS.has(key)) fail(400, "invalid_body");
+  if (body.v !== 1) fail(400, "invalid_body");
+  return { helperSession: text(body.helper_session, 1, 64) };
+}
+
 const HEARTBEAT_KEYS = new Set(["v", "helper_session", "sent_at_ms", "attached", "world", "probe_version", "inputs"]);
 
 export function parseHeartbeat(body: unknown): Record<string, unknown> {
@@ -312,6 +327,19 @@ export function createDomusIngressApp(input: {
       const parsed = parseActSync(req.body);
       const result = syncDomusActs(input.db, { helperSession: parsed.helperSession, events: parsed.events, nowMs: input.now() });
       res.status(200).json({ status: "ok", applied: result.applied, acts: result.acts, planned: result.planned });
+    } catch (error) {
+      const http = error as HttpError;
+      if (http.status && http.code) {
+        res.status(http.status).json({ error: http.code });
+        return;
+      }
+      throw error;
+    }
+  });
+  app.post("/domus/feed", (req, res) => {
+    try {
+      const parsed = parseFeed(req.body);
+      res.status(200).json({ status: "ok", items: domusFeed(input.db, { helperSession: parsed.helperSession, nowMs: input.now() }) });
     } catch (error) {
       const http = error as HttpError;
       if (http.status && http.code) {
