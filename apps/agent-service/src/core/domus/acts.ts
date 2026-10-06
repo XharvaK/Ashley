@@ -132,12 +132,17 @@ function dropPlannedSteps(db: DatabaseSync, input: { world?: string; attachment?
     WHERE state = 'planned' AND ${where}`).run(input.reason, input.nowMs, value).changes ?? 0);
 }
 
-/** Percepts that wake her for something new (not her own act ending, not a slow check) end a plan. */
+/**
+ * Percepts that wake her for something new end a plan: someone arriving, the game asking, a need
+ * dropping a band, a refused act, a new place. Not her own act ending (idle), a slow check, or a
+ * mood change (most often what her own act did to her).
+ */
 const NOT_INTERRUPTING: ReadonlySet<string> = new Set(["idle", "check"]);
 
 export function isInterruptingPercept(percept: unknown): boolean {
+  const kind = (percept as { kind?: unknown } | null)?.kind;
   const facts = (percept as { facts?: Record<string, unknown> } | null)?.facts;
-  if (!facts || typeof facts !== "object") return false;
+  if (!facts || typeof facts !== "object" || kind === "moodlet") return false;
   return (facts.urgency === "wake" || facts.urgency === "always_through")
     && !NOT_INTERRUPTING.has(String(facts.bucket)) && facts.object !== "check";
 }

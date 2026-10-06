@@ -178,7 +178,8 @@ describe("H0.5 her short plans", () => {
     sync(db, [], NOW + 1);
     const idle = { kind: "interaction", salience: 0.5, facts: { urgency: "wake", bucket: "idle" } };
     const check = { kind: "env", salience: 0.1, facts: { urgency: "normal", object: "check", bucket: "busy" } };
-    expect(interruptDomusPlans(db, { attachment: "helper-a", percepts: [idle, check], nowMs: NOW + 2 })).toBe(0);
+    const mood = { kind: "moodlet", salience: 0.4, facts: { urgency: "wake", subject: "mood", bucket: "Mood_Happy" } };
+    expect(interruptDomusPlans(db, { attachment: "helper-a", percepts: [idle, check, mood], nowMs: NOW + 2 })).toBe(0);
     expect(interruptDomusPlans(db, { attachment: "helper-b", percepts: [{ kind: "presence", salience: 1, facts: { urgency: "wake", bucket: "on_lot" } }], nowMs: NOW + 2 })).toBe(0);
     const visitor = { kind: "presence", salience: 1, facts: { urgency: "wake", bucket: "on_lot", name: "Summer" } };
     expect(interruptDomusPlans(db, { attachment: "helper-a", percepts: [idle, visitor], nowMs: NOW + 3 })).toBe(2);
