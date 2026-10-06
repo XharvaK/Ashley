@@ -1192,7 +1192,7 @@ export function buildThoughtInput(options: BuildThoughtInputOptions): ThoughtInp
     ? getThreadStory(options.sidecar, options.cycle.conversationId)
     : null;
   const episodes = audience.kind === "owner_private" && !domusPass
-    ? episodesForThought(options.sidecar, query.rawTriggerTerms)
+    ? episodesForThought(options.sidecar, query.rawTriggerTerms, undefined, options.clock?.nowMs ?? Date.now())
     : [];
   const activityJournal = audience.kind === "owner_private"
     ? journalForThought(options.sidecar, options.clock?.nowMs ?? Date.now(), domusPass && options.domus ? `domus:${options.domus.world}` : undefined)

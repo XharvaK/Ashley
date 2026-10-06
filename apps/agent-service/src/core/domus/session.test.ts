@@ -4,7 +4,7 @@ import { openTestSidecar } from "../cognitive-v021/test-support.js";
 import { afterglowPassFromPayload, tickAfterglow, completeAfterglow } from "../cognitive-v021/initiative/afterglow.js";
 import type { IdleThoughtRunner } from "../cognitive-v021/initiative/idle.js";
 import { recordJournalEntry } from "../cognitive-v021/initiative/journal.js";
-import { listRecentEpisodes } from "../cognitive-v021/memory/episodes.js";
+import { episodesForThought, listRecentEpisodes, recordEpisode } from "../cognitive-v021/memory/episodes.js";
 import { admitObservation, observationDigest, upsertHeartbeat } from "./store.js";
 import {
   DOMUS_SESSION_QUIET_MS, DOMUS_SESSION_ROLLING_MS, domusSessionForThought, domusSessionsDue, readDomusSessionState,
@@ -109,6 +109,19 @@ describe("M2 the session afterglow", () => {
       reflection: { episode: { summary: "Gone.", salience: 0.5 } } })).toBe("forget_race");
     expect(listRecentEpisodes(db, 5)).toEqual([]);
     expect(readDomusSessionState(db, "slot8").reflectedThroughMs).toBe(T0 + 3 * MINUTE);
+  });
+
+  it("keeps the latest game session in view of a Discord turn after talk pushed it out of the recent ones", () => {
+    const db = openTestSidecar();
+    const episode = (cycleId: string, atMs: number, summary: string, channel?: `domus:${string}`) => recordEpisode(db, {
+      conversationId: "owner-thread", cycleId, rows: [{ rowId: `${cycleId}-row`, createdAtMs: atMs, dataClassification: "ordinary" }],
+      reflection: { summary, salience: 0.5 }, nowMs: atMs, ...(channel ? { channel } : {}) });
+    episode("game", T0, "An evening at the piano.", "domus:slot8");
+    for (let index = 1; index <= 3; index++) episode(`talk-${index}`, T0 + index * MINUTE, `Talk ${index}.`);
+    expect(episodesForThought(db, []).map(item => item.summary)).toEqual(["Talk 1.", "Talk 2.", "Talk 3."]);
+    expect(episodesForThought(db, [], undefined, T0 + 10 * MINUTE).map(item => item.summary))
+      .toEqual(["An evening at the piano.", "Talk 1.", "Talk 2.", "Talk 3."]);
+    expect(episodesForThought(db, [], undefined, T0 + 4 * 24 * 60 * MINUTE).map(item => item.summary)).toEqual(["Talk 1.", "Talk 2.", "Talk 3."]);
   });
 
   it("reads a session pass back from its inbox payload, and refuses a malformed one", () => {

@@ -239,12 +239,22 @@ export function toThoughtEpisode(episode: EpisodeRecord): ThoughtEpisode {
 }
 
 /** The recent episodes plus the ones this moment brings to mind. */
+/** M1/M2: the latest stretch of play stays in view of a Discord turn for this long. */
+export const LATEST_GAME_EPISODE_MS = 3 * 24 * 60 * 60_000;
+
 export function episodesForThought(
   db: DatabaseSync,
   terms: readonly string[],
   limits: { recent: number; matched: number } = { recent: 3, matched: 3 },
+  nowMs?: number,
 ): ThoughtEpisode[] {
   const recent = listRecentEpisodes(db, limits.recent);
+  // M1: the latest game session summary rides along even when talk has pushed it out of the recent ones.
+  if (nowMs !== undefined && !recent.some((episode) => episode.channel !== "discord")) {
+    const game = mapEpisode(db.prepare(`SELECT * FROM episodes_v2 WHERE forgotten_at_ms IS NULL AND lineage_class = 'current'
+      AND channel LIKE 'domus:%' AND ended_at_ms >= ? ORDER BY ended_at_ms DESC LIMIT 1`).get(nowMs - LATEST_GAME_EPISODE_MS));
+    if (game) recent.push(game);
+  }
   const seen = new Set(recent.map((episode) => episode.episodeId));
   const matched = searchEpisodes(db, terms, limits.matched + recent.length)
     .filter((episode) => !seen.has(episode.episodeId))
