@@ -5,6 +5,11 @@ import {openTestSidecar} from "../test-support.js";
 import {grantPerson} from "../../relationship/social-authority.js";
 import {admitExternalCapture,admitExternalBatch} from "../ingress/http.js";
 import {promoteEligiblePending} from "../social/dm-activation.js";
+import {appendAshleyEvidence} from "../evidence/conversation-log.js";
+import {observeGatewayUserId} from "./scheduler.js";
+import {addressedToHer,ROOM_ADDRESS} from "./social-timing.js";
+import {arbitrate,type ThalamusState} from "./core.js";
+import {social} from "./nuclei/social.js";
 const T=Date.parse("2026-10-02T12:00:00Z"),ownerId="owner",principalId="person";
 function fixture(){
  const db=openTestSidecar(),nuclear=openNuclearDb(new DatabaseSync(":memory:"));
@@ -46,6 +51,36 @@ describe("social timing wraps existing admission",()=>{
    const timing=createSocialTimingHooks(db,{ownerId,ownerConversationId:"owner-private",nowMs:T,context:{budgetAvailable:false,conversationClaimHeld:false,spentFraction:1,energy:.5,tension:0,circadianPhase:0},resourceAvailable:()=>true});
    expect(promoteEligiblePending(db,nuclear,{nowMs:T,ownerId,env,timing}).promoted).toBe(1);
   }finally{db.close();nuclear.close();}
+ });
+
+ it("grades how much a room message is meant for her",()=>{
+  const db=openTestSidecar();try{
+   const room="room:g:c",self="1234567890123456";observeGatewayUserId(self);
+   const msg=(text:string,extra:Record<string,unknown>={})=>({markerId:"m",conversationId:room,kind:"room" as const,
+    evidence:{rowId:"r",text,createdAtMs:T,mentionIds:[],replyToMessageId:null,...extra} as any});
+   expect(addressedToHer(db,{...msg("hi"),kind:"dm"},T)).toBe(ROOM_ADDRESS.direct);
+   expect(addressedToHer(db,msg("hey you",{mentionIds:[self]}),T)).toBe(ROOM_ADDRESS.direct);
+   expect(addressedToHer(db,msg("what do you think, Ashley?"),T)).toBe(ROOM_ADDRESS.name);
+   expect(addressedToHer(db,msg("ashleys are nice"),T)).toBe(ROOM_ADDRESS.ambient);
+   expect(addressedToHer(db,msg("anyone up for pizza"),T)).toBe(ROOM_ADDRESS.ambient);
+   appendAshleyEvidence(db,{conversationId:room,text:"I'd go for pizza",discordMessageIds:["her-1"],nowMs:T-60_000});
+   expect(addressedToHer(db,msg("haha same"),T)).toBe(ROOM_ADDRESS.inConversation);
+   expect(addressedToHer(db,msg("later",{createdAtMs:T+ROOM_ADDRESS.inConversationMs}),T)).toBe(ROOM_ADDRESS.ambient);
+   expect(addressedToHer(db,msg("later",{createdAtMs:T+ROOM_ADDRESS.inConversationMs,replyToMessageId:"her-1"}),T)).toBe(ROOM_ADDRESS.direct);
+   // Alone ambient chatter stays under the threshold; a direct or in-conversation message does not.
+   expect(ROOM_ADDRESS.ambient).toBeLessThan(0.5);expect(ROOM_ADDRESS.inConversation).toBeGreaterThan(0.5);
+  }finally{db.close();}
+ });
+
+ it("one ambient line stays quiet; a lively room wakes her",()=>{
+  const context={budgetAvailable:true,conversationClaimHeld:false,spentFraction:0,energy:.5,tension:0,circadianPhase:0};
+  const line=(i:number)=>social({eventId:`m${i}`,observedAtMs:T+i*10_000,refs:[`r${i}`],coalesceKey:"room:g:c",isOwner:false,eligible:true,
+   fuseAvailable:true,relationshipBasis:1,addressedToHer:ROOM_ADDRESS.ambient,novelty:1})!;
+  let state:ThalamusState={lastNowMs:T,families:{},lastSelectedAtMs:{}};
+  const one=arbitrate(state,[line(0)],T,context);expect(one.decision.kind).toBe("none");
+  state=one.state;let fired=false;
+  for(const i of [1,2,3]){const r=arbitrate(state,[line(i)],T+i*10_000,context);state=r.state;if(r.decision.kind==="fire"){fired=true;break;}}
+  expect(fired).toBe(true);
  });
 
 });

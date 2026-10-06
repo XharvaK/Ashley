@@ -380,7 +380,8 @@ export function buildAllocationCandidates(
   // conversationSelection when text does not fit the semantic envelope.
   const conversationSelection = input.conversationSelection;
   const frontierIds = new Set(conversationSelection?.frontierIncludedIds ?? []);
-  const currentTriggerId = input.trigger.kind !== "owner_message"
+  // The message that woke her is the current trigger, from the Owner or from a contact.
+  const currentTriggerId = input.trigger.kind !== "owner_message" && input.trigger.kind !== "external_message"
     ? null
     : conversationSelection?.currentTriggerRowId !== undefined
       ? conversationSelection.currentTriggerRowId

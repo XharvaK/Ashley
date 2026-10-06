@@ -73,6 +73,7 @@ import { episodesForThought, getThreadStory } from "../memory/episodes.js";
 import { journalForThought } from "../initiative/journal.js";
 import { domusNowForThought } from "../../domus/notification.js";
 import { getThoughtAttemptCounters } from "./counters.js";
+import { currentGatewayUserId } from "../thalamus/scheduler.js";
 
 export type BuildThoughtInputOptions = {
   sidecar: DatabaseSync;
@@ -292,6 +293,27 @@ function filterEvidence(
     ? [...rows]
     : rows.filter((row) =>
       row.dataClassification !== "secret" && !row.secretOmitted && evidenceMatchesAudience(row, audience));
+}
+
+/**
+ * In a room, mark the rows that @mention her or reply to one of her messages. These are
+ * transport facts the Host observes; whether a message is meant for her stays her reading.
+ */
+export function markRoomRowsToHer(
+  rows: ConversationEvidenceRecord[],
+  audience: SocialAudience,
+): ConversationEvidenceRecord[] {
+  if (audience.kind !== "room") return rows;
+  const self = currentGatewayUserId();
+  const hers = new Set(rows.filter((row) => row.role === "ashley").flatMap((row) => row.discordMessageIds));
+  return rows.map((row) => {
+    if (row.role !== "external_dialog") return row;
+    const toHer: Array<"mention" | "reply"> = [
+      ...(self && row.mentionIds?.includes(self) ? ["mention" as const] : []),
+      ...(row.replyToMessageId && hers.has(row.replyToMessageId) ? ["reply" as const] : []),
+    ];
+    return toHer.length > 0 ? { ...row, toHer } : row;
+  });
 }
 
 function filterStructured<T extends AudienceBoundValue>(
@@ -1037,7 +1059,7 @@ export function buildThoughtInput(options: BuildThoughtInputOptions): ThoughtInp
       suppliedEvidence: options.rawConversation,
     },
   );
-  const rawConversation = filterEvidence(conversationSelection.selectedEvidence, audience);
+  const rawConversation = markRoomRowsToHer(filterEvidence(conversationSelection.selectedEvidence, audience), audience);
   // E2a recency-loss honesty: count the selector's same-read exclusion set
   // through the EXISTING lifecycle filterEvidence — the sole eligibility
   // definition. A row rejected by the lifecycle filter contributes zero and

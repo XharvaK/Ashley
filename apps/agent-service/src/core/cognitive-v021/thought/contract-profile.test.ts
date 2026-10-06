@@ -18,6 +18,7 @@ import {
   OWNER_VISIBILITY_GUIDANCE,
   SOCIAL_VISIBILITY_GUIDANCE,
   SOCIAL_TRUST_GUIDANCE,
+  GROUP_CHAT_GUIDANCE,
   constrainThoughtOutputSchema,
   thoughtContractProfile,
   thoughtContractProfileKey,
@@ -118,6 +119,8 @@ describe("I1 profile-scoped Thought contract", () => {
     expect(SOCIAL_VISIBILITY_GUIDANCE).toMatch(/never promise/i);
     // A9: calibrated trust is social-turn guidance; the chat prefix stays lean.
     expect(room).toContain(SOCIAL_TRUST_GUIDANCE);
+    expect(room).toContain(GROUP_CHAT_GUIDANCE);
+    expect(thoughtOutputCompatibilityInstruction(thoughtContractProfile(chat))).not.toContain(GROUP_CHAT_GUIDANCE);
     expect(thoughtOutputCompatibilityInstruction(thoughtContractProfile(chat))).not.toContain(SOCIAL_TRUST_GUIDANCE);
     expect(SOCIAL_TRUST_GUIDANCE).toMatch(/authority on their own/);
   });

@@ -673,6 +673,8 @@ export type ConversationEvidenceRecord = {
   mentionIds?: string[];
   attachmentRefs?: unknown[];
   provenance?: unknown | null;
+  /** Room projection only: Host-observed transport facts that this row @mentions her or replies to her. */
+  toHer?: Array<"mention" | "reply">;
 };
 export type ConversationEvidenceDiscordId = {
   discordMessageId: string;
