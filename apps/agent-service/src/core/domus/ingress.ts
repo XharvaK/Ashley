@@ -50,6 +50,7 @@ import { markDomusSpanUndone } from "../cognitive-v021/memory/undo.js";
 import { admitObservation, canonicalJson, observationDigest, upsertHeartbeat } from "./store.js";
 import { interruptDomusPlans, isDomusActPhase, syncDomusActs, type DomusActEvent } from "./acts.js";
 import { domusFeed } from "./feed.js";
+import { recentWatchMarks } from "../oversight/word-watch.js";
 
 const BODY_LIMIT = 64 * 1024;
 const MAX_WINDOW_MS = 600_000;
@@ -197,6 +198,8 @@ export function parseActSync(body: unknown): { helperSession: string; events: Do
 }
 
 const FEED_KEYS = new Set(["v", "helper_session"]);
+/** E4: word-watch flags this recent ride along with the feed, so the helper can keep the recording around them. */
+const WATCH_MARKS_MS = 10 * 60_000;
 
 export function parseFeed(body: unknown): { helperSession: string } {
   if (!isRecord(body)) fail(400, "invalid_body");
@@ -342,8 +345,11 @@ export function createDomusIngressApp(input: {
   app.post("/domus/feed", (req, res) => {
     try {
       const parsed = parseFeed(req.body);
-      res.status(200).json({ status: "ok", items: domusFeed(input.db, { helperSession: parsed.helperSession, nowMs: input.now(),
-        ...(input.observability ? { observability: input.observability } : {}), ...(input.build ? { build: input.build } : {}) }) });
+      const now = input.now();
+      const items = domusFeed(input.db, { helperSession: parsed.helperSession, nowMs: now,
+        ...(input.observability ? { observability: input.observability } : {}), ...(input.build ? { build: input.build } : {}) });
+      const marks = input.observability ? recentWatchMarks(input.observability, now - WATCH_MARKS_MS) : [];
+      res.status(200).json({ status: "ok", items, marks });
     } catch (error) {
       const http = error as HttpError;
       if (http.status && http.code) {

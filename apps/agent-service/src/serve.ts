@@ -4,6 +4,7 @@ import { vaultDirFor } from "./core/reach/vault-dir.js";
 import { createSelfChangeResultMaintenance, type SelfChangeResultMaintenance } from "./core/cognitive-v021/growth/self-change-results.js";
 import { configureEmbodimentBudget } from "./core/domus/notification.js";
 import { execFileSync } from "node:child_process";
+import { loadWatchTerms, notifyWatch, scanWordWatch } from "./core/oversight/word-watch.js";
 import { createDomusIngressApp, decideDomusIngress } from "./core/domus/ingress.js";
 import type { AgentManager } from "./agent.js";
 import { AFTERGLOW_POLL_MS } from "./core/cognitive-v021/initiative/afterglow.js";
@@ -245,6 +246,7 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
     return embedderPromise;
   };
   let observabilityDb: DatabaseSync | null = null;
+  let wordWatchAtMs = 0;
   let domusServer: ShutdownServer | null = null;
   // 8f latency: a newly admitted Domus observation asks for a thalamus pass now, not at the next minute.
   let onDomusArrival = (): void => {};
@@ -854,6 +856,18 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
           console.warn("[cognitive-v021] aftermath recovery deferred", error);
         }
         if (observabilityDb) purgeThoughtDebugCaptures(observabilityDb, nowMs);
+        if (observabilityDb && nowMs - wordWatchAtMs >= WORD_WATCH_EVERY_MS) {
+          wordWatchAtMs = nowMs;
+          try {
+            const flags = scanWordWatch(sidecar, observabilityDb, { terms: loadWatchTerms(env.wordWatchFile), nowMs });
+            if (flags.length > 0) {
+              console.log(`[watch] flagged=${flags.length} surfaces=${[...new Set(flags.map(item => item.surface))].join(",")}`);
+              void notifyWatch(env.wordWatchWebhook, flags);
+            }
+          } catch (error) {
+            console.warn(`[watch] scan deferred: ${error instanceof Error ? error.name : "error"}`);
+          }
+        }
         pollInnerLife(nowMs);
         pollDomusLane(nowMs);
       },
@@ -929,6 +943,9 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
     throw error;
   }
 }
+
+/** E4: how often the word watch reads her new lines. */
+const WORD_WATCH_EVERY_MS = 30_000;
 
 /** E4: the commit this agent runs (the deploy checks it out), carried on each pass's regime. */
 function agentBuild(): string {

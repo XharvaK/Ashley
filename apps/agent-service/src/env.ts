@@ -141,6 +141,9 @@ function createEnv() {
   agentPort: numericEnv("AGENT_PORT", 3710, 1, 65_535, true),
   domusIngressPort: numericEnv("DOMUS_INGRESS_PORT", 3711, 1, 65_535, true),
   domusHelperToken: process.env.DOMUS_HELPER_TOKEN ?? "",
+  /** E4: the User's private word watch (a file of words, never committed) and its review webhook (a secret). */
+  wordWatchFile: process.env.ASHLEY_WORD_WATCH_FILE?.trim() || join(homedir(), ".composer-assistant", "word_watch.txt"),
+  wordWatchWebhook: process.env.ASHLEY_WORD_WATCH_WEBHOOK?.trim() ?? "",
   /** 8d E3-B1: Domus passes per rolling hour, set by the Owner. 0 (unset) leaves the embodiment budget unconfigured. */
   embodimentBudgetLimit: numericEnv("ASHLEY_EMBODIMENT_BUDGET_LIMIT", 0, 0, 3600, true),
   embodimentBudgetVersion: numericEnv("ASHLEY_EMBODIMENT_BUDGET_VERSION", 1, 1, 1_000_000, true),

@@ -132,7 +132,7 @@ describe("domus ingress", () => {
     expect((await post(base, "/domus/feed", { v: 1, helper_session: "attachment" })).status).toBe(401);
     const response = await post(base, "/domus/feed", { v: 1, helper_session: "attachment" }, TOKEN);
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ status: "ok", items: [] });
+    expect(await response.json()).toEqual({ status: "ok", items: [], marks: [] });
     expect((await post(base, "/domus/feed", { v: 1, helper_session: "attachment", extra: 1 }, TOKEN)).status).toBe(400);
   });
 
