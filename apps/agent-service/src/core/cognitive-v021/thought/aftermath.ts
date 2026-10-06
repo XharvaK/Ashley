@@ -2,6 +2,7 @@ import { recordPlaceIntents, type PlaceIntentClaim } from "../../places/intents.
 import { recordPlacesSeen } from "../../places/places.js";
 import { applyHomeOps, homeRootFor, type HomeOp } from "../../home/home.js";
 import { applyPursuitOps, recordOwnTime, type OwnTimeClaim, type PursuitOp } from "../../will/pursuits.js";
+import { recordWebPlaceClaims, type WebPlaceClaim } from "../../reach/web.js";
 import { recordPublishedAttention } from "../thalamus/store.js";
 import type { AttentionClaim } from "../thalamus/attention.js";
 import type { DatabaseSync } from "node:sqlite";
@@ -35,6 +36,9 @@ export type AftermathContext = {
   domusQuiet?: true;
   /** A1: the newest line she was shown in each of her places. */
   placesSeen?: Record<string, number>;
+  /** I1: the Owner started this turn (a website she adds now is approved), and the Owner's message. */
+  ownerTurn?: true;
+  ownerEvidenceRowId?: string;
   /** 8f: acting was on and these were the options she read; her domusAct is resolved against them. */
   domusAct?: DomusActBinding;
   nightPass: NightPass | null;
@@ -60,6 +64,7 @@ type StoredSettlement = {
   home?: HomeOp[];
   pursuits?: PursuitOp[];
   nextOwnTime?: OwnTimeClaim;
+  webPlaces?: WebPlaceClaim[];
   growth?: GrowthClaim;
   senses?: SenseClaim;
   attention?: AttentionClaim;
@@ -154,6 +159,10 @@ export function recordSettlementAftermath(
     }
     if (standing && context.ownerPrivate !== false && settlement.nextOwnTime) {
       recordOwnTime(db, { cycleId, claim: settlement.nextOwnTime, nowMs: options.nowMs });
+    }
+    if (standing && context.ownerPrivate !== false && settlement.webPlaces?.length) {
+      recordWebPlaceClaims(db, { claims: settlement.webPlaces, ownerTurn: context.ownerTurn === true,
+        ...(context.ownerEvidenceRowId ? { basisRef: context.ownerEvidenceRowId } : {}), nowMs: options.nowMs });
     }
     if (standing && context.domusAct && settlement.domusAct) {
       recordDomusAct(db, { binding: context.domusAct, claim: settlement.domusAct, cycleId, nowMs: options.nowMs });

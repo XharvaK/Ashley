@@ -22,6 +22,7 @@ import {
   PLACES_GUIDANCE,
   HOME_GUIDANCE,
   WILL_GUIDANCE,
+  WEB_GUIDANCE,
   constrainThoughtOutputSchema,
   thoughtContractProfile,
   thoughtContractProfileKey,
@@ -174,7 +175,8 @@ describe("I1 profile-scoped Thought contract", () => {
       expect(settlementFields(thoughtContractProfile(source))).toContain("home");
       expect(thoughtOutputCompatibilityInstruction(thoughtContractProfile(source))).toContain(HOME_GUIDANCE);
       expect(thoughtOutputCompatibilityInstruction(thoughtContractProfile(source))).toContain(WILL_GUIDANCE);
-      expect(settlementFields(thoughtContractProfile(source))).toEqual(expect.arrayContaining(["pursuits", "nextOwnTime"]));
+      expect(settlementFields(thoughtContractProfile(source))).toEqual(expect.arrayContaining(["pursuits", "nextOwnTime", "webPlaces"]));
+      expect(thoughtOutputCompatibilityInstruction(thoughtContractProfile(source))).toContain(WEB_GUIDANCE);
     }
     const room = { ...chat, audience: { kind: "room" } };
     expect(thoughtOutputCompatibilityInstruction(thoughtContractProfile(room))).not.toContain(PLACES_GUIDANCE);
@@ -182,6 +184,7 @@ describe("I1 profile-scoped Thought contract", () => {
     expect(settlementFields(thoughtContractProfile(room))).not.toContain("home");
     expect(settlementFields(thoughtContractProfile(room))).not.toContain("pursuits");
     expect(settlementFields(thoughtContractProfile(room))).not.toContain("nextOwnTime");
+    expect(settlementFields(thoughtContractProfile(room))).not.toContain("webPlaces");
     expect(PLACES_GUIDANCE).toMatch(/not that it is up/);
   });
 

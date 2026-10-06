@@ -148,10 +148,12 @@ authorize, and a work-queue projection (e.g. delivery pending) is never
 proof of delivery. Cognition influence is capability-gated; never assume
 an effective mode — resolve it from source or production evidence.
 
-The product boundary is single-owner, English-language, Discord-only
-(voice, Telegram, habits, Moltbook, and skills retired). Expansion needs
-its own design, authority review, verification evidence, and owner
-acceptance.
+The product boundary is single-owner and English-language. She lives in
+Discord (the Owner's DM, trusted rooms, contacts), in The Sims 4 (Domus),
+and on websites the Owner asked her to go to (`core/reach/`: generic
+`web.request`, nothing per site). Voice, Telegram, habits and the old
+skills are retired. Further expansion needs its own design, authority
+review, verification evidence, and owner acceptance.
 
 ## 7. Conditional reading routes
 

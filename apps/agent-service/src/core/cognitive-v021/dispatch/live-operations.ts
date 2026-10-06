@@ -1,3 +1,4 @@
+import { executeWebRequest, isValidWebRequest } from "../../reach/web.js";
 import type { DatabaseSync } from "node:sqlite";
 import { env } from "../../../env.js";
 import {
@@ -170,6 +171,8 @@ export type V021LiveOperationExecutorOptions = {
   ownerId?: string;
   /** E1: her home folder (home.read). */
   homeRoot?: string;
+  /** I1: her vault for web.request. */
+  vaultDir?: string;
   nowMs?: () => number;
   registry?: V2ProjectReadRegistry;
   workspaceManager?: WorkspaceManager;
@@ -1216,6 +1219,23 @@ export function createV021LiveOperationExecutors(
           if (error instanceof CapabilityUnavailableError) throw error;
           throw new CapabilityUnavailableError("web_search_unavailable");
         }
+      }
+      if (req.kind === "web.request") {
+        if (req.audience?.kind !== "owner_private" || !options.sidecar || !options.vaultDir) throw new CapabilityUnavailableError("web_request_unavailable");
+        if (!isValidWebRequest(req.request)) throw new CapabilityUnavailableError("web_request_invalid");
+        const outcome = await executeWebRequest(options.sidecar, { request: req.request, vaultDir: options.vaultDir, cycleId: req.cycleId, nowMs: nowMs() });
+        return {
+          observationId: `v021:observation:${req.requestId}`,
+          cycleId: req.cycleId,
+          generation: req.generation,
+          derived: false,
+          replaySafe: false,
+          modality: "tool",
+          payload: outcome as unknown as Record<string, unknown>,
+          provenance: "reach:web.request",
+          dataClassification: "never_public",
+          secretOmitted: Boolean(outcome.keptInVault?.length),
+        };
       }
       if (req.kind === WEB_FETCH_OPERATION_KIND) {
         try {

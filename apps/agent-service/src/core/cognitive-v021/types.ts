@@ -1061,6 +1061,8 @@ export type SettlementSemanticOutput = {
   pursuits?: readonly import("../will/pursuits.js").PursuitOp[];
   /** D1 Owner-private turns: when she wants her next own time, and for what. */
   nextOwnTime?: import("../will/pursuits.js").OwnTimeClaim;
+  /** I1 Owner-private turns: websites to make her places (approved only in a turn the Owner started), or close. */
+  webPlaces?: readonly import("../reach/web.js").WebPlaceClaim[];
   /** Interests Ashley lived in this turn or pass (Owner-private). */
   interests?: readonly import("./memory/interests.js").InterestTouch[];
   /** Growth V1 G4: appraisal, expectations, revisions (Owner-private). */
@@ -1354,6 +1356,8 @@ export type ThoughtSettlementDraft = {
   /** C1/D1: applied by the Host after publication (will/pursuits.ts). */
   pursuits?: import("../will/pursuits.js").PursuitOp[];
   nextOwnTime?: import("../will/pursuits.js").OwnTimeClaim;
+  /** I1: recorded by the Host after publication (reach/web.ts). */
+  webPlaces?: import("../reach/web.js").WebPlaceClaim[];
   /** Stored by the Host after publication (memory/interests.ts). */
   interests?: import("./memory/interests.js").InterestTouch[];
   /** Stored by the Host after publication (growth/growth.ts). */

@@ -562,3 +562,77 @@ export async function fetchWithAggregateLimits(
     },
   };
 }
+
+export type LimitedRequestResult = {
+  status: number;
+  finalUrl: string;
+  contentType: string;
+  body: Uint8Array;
+  truncated: boolean;
+  location?: string;
+};
+
+/**
+ * I1: one HTTP request to a public endpoint, any method, with the same public-address pinning and size bounds
+ * as fetchWithLimits. Redirects are returned, not followed (a site's API answers with what it means), and a
+ * non-2xx status is returned with its body: an API's error text is information for her.
+ */
+export async function requestWithLimits(
+  input: string,
+  options: {
+    method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+    headers: Record<string, string>;
+    body?: string;
+    timeoutMs: number;
+    maxBytes: number;
+    signal?: AbortSignal;
+    fetcher?: FetchLike;
+    resolve?: ResolveHost;
+    userAgent?: string;
+  },
+): Promise<LimitedRequestResult> {
+  const offlineFixture = process.env.ASHLEY_PHASE0_OFFLINE === "true" && Boolean(options.fetcher || options.resolve);
+  if (!offlineFixture) assertOutboundAllowed("curiosity_http");
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), options.timeoutMs);
+  const abortFromExternal = () => controller.abort();
+  if (options.signal) {
+    if (options.signal.aborted) controller.abort();
+    else options.signal.addEventListener("abort", abortFromExternal, { once: true });
+  }
+  let agent: Agent | undefined;
+  let failed = false;
+  try {
+    const endpoint = await withAbort(resolvePublicEndpoint(input, options.resolve ?? defaultResolve), controller.signal);
+    const request = {
+      method: options.method,
+      redirect: "manual" as const,
+      headers: { "user-agent": options.userAgent ?? "Ashley/1.0", ...options.headers },
+      ...(options.body === undefined ? {} : { body: options.body }),
+      signal: controller.signal,
+    };
+    const response = await withAbort(Promise.resolve().then(() => {
+      if (options.fetcher) return options.fetcher(endpoint.url, request);
+      agent = createPinnedAgent(endpoint);
+      return undiciFetch(endpoint.url, { ...request, dispatcher: agent }) as unknown as Promise<Response>;
+    }), controller.signal);
+    const bounded = await withAbort(boundedBody(response, options.maxBytes, true), controller.signal);
+    const location = response.headers.get("location");
+    return {
+      status: response.status,
+      finalUrl: endpoint.url.toString(),
+      contentType: response.headers.get("content-type")?.toLowerCase() ?? "",
+      body: bounded.body,
+      truncated: bounded.truncated,
+      ...(location ? { location } : {}),
+    };
+  } catch (error) {
+    failed = true;
+    if (controller.signal.aborted) throw new Error("fetch_timeout");
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+    options.signal?.removeEventListener("abort", abortFromExternal);
+    if (agent) await closePinnedAgent(agent, failed || controller.signal.aborted);
+  }
+}

@@ -4,6 +4,7 @@ import { thoughtPlaces } from "../../places/thought.js";
 import { placesSeenMarks } from "../../places/places.js";
 import { homeForThought, homeRootFor } from "../../home/home.js";
 import { willForThought } from "../../will/pursuits.js";
+import { vaultDirFor } from "../../reach/vault-dir.js";
 import { readThoughtAttention } from "../thalamus/store.js";
 import { randomUUID } from "node:crypto";
 import { env } from "../../../env.js";
@@ -1443,6 +1444,7 @@ function materializeSemanticSettlement(
   if (semantic.home) result.home = semantic.home.map((op) => ({ ...op }));
   if (semantic.pursuits) result.pursuits = structuredClone(semantic.pursuits) as typeof result.pursuits;
   if (semantic.nextOwnTime) result.nextOwnTime = { ...semantic.nextOwnTime };
+  if (semantic.webPlaces) result.webPlaces = semantic.webPlaces.map((claim) => ({ ...claim }));
   if (semantic.interests) result.interests = semantic.interests.map((touch) => ({ ...touch }));
   (result as ThoughtSettlementDraft).sawSecret = sawSecret;
   if (semantic.growth) result.growth = structuredClone(semantic.growth);
@@ -3347,6 +3349,7 @@ export async function runCognitiveCycle(
             const nowMs = deps.nowMs();
             const game = domusNowForThought(sidecar, nowMs);
             const places = thoughtPlaces(sidecar, nuclear, { nowMs, ...(cycle.triggerKind === "owner_message" ? { here: "owner_dm" as const } : {}),
+              ...(deps.dataDir ? { vaultDir: vaultDirFor(deps.dataDir) } : {}),
               ...(game ? { game: { world: game.world, live: game.live } } : {}) });
             const home = deps.dataDir ? homeForThought(sidecar, homeRootFor(deps.dataDir), nowMs) : undefined;
             const will = willForThought(sidecar, nowMs);
@@ -4566,6 +4569,7 @@ export async function runCognitiveCycle(
           ...(originProfile.triggerKind === "domus_notification" ? domusChannelFor(sidecar, event, originProfile.originCycleId) : {}),
           ...(allocated.projected.domus?.changes?.quiet === true ? { domusQuiet: true as const } : {}),
           ...(allocated.projected.places ? { placesSeen: placesSeenMarks(allocated.projected.places.list) } : {}),
+          ...(cycle.triggerKind === "owner_message" ? { ownerTurn: true as const, ...(triggerEvidence?.rowId ? { ownerEvidenceRowId: triggerEvidence.rowId } : {}) } : {}),
           ...(originProfile.triggerKind === "domus_notification" && env.domusActEnabled
             ? (() => { const binding = domusActBindingFor(sidecar, event, originProfile.originCycleId); return binding ? { domusAct: binding } : {}; })()
             : {}),

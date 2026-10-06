@@ -2287,6 +2287,27 @@ CREATE TABLE IF NOT EXISTS will_changes (
   at_ms INTEGER NOT NULL,
   PRIMARY KEY (cycle_id, ordinal)
 );
+CREATE TABLE IF NOT EXISTS web_places (
+  origin TEXT PRIMARY KEY,
+  state TEXT NOT NULL CHECK (state IN ('requested','approved','closed')),
+  reason TEXT,
+  basis_ref TEXT,
+  requested_at_ms INTEGER,
+  approved_at_ms INTEGER,
+  closed_at_ms INTEGER,
+  updated_at_ms INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS web_requests (
+  request_id INTEGER PRIMARY KEY AUTOINCREMENT,
+  origin TEXT NOT NULL,
+  method TEXT NOT NULL,
+  path TEXT NOT NULL,
+  status INTEGER,
+  error TEXT,
+  cycle_id TEXT,
+  at_ms INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_web_requests_origin_at ON web_requests(origin, at_ms);
 CREATE TABLE IF NOT EXISTS home_ops (
   cycle_id TEXT NOT NULL,
   ordinal INTEGER NOT NULL,
