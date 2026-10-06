@@ -3263,7 +3263,7 @@ export async function runCognitiveCycle(
         ? (() => {
             const nowMs = deps.nowMs();
             const game = domusNowForThought(sidecar, nowMs);
-            const places = thoughtPlaces(sidecar, nuclear, { nowMs, ...(cycle.triggerKind === "owner_message" ? { here: "owner_dm" as const } : {}),
+            const places = thoughtPlaces(sidecar, nuclear, { nowMs, ...(originProfile.triggerKind === "owner_message" ? { here: "owner_dm" as const } : {}),
               ...(deps.dataDir ? { vaultDir: vaultDirFor(deps.dataDir) } : {}),
               ...(game ? { game: { world: game.world, live: game.live } } : {}) });
             const home = deps.dataDir ? homeForThought(sidecar, homeRootFor(deps.dataDir), nowMs) : undefined;
@@ -4511,7 +4511,8 @@ export async function runCognitiveCycle(
           ...(originProfile.triggerKind === "domus_notification" ? domusChannelFor(sidecar, event, originProfile.originCycleId) : {}),
           ...(allocated.projected.domus?.changes?.quiet === true ? { domusQuiet: true as const } : {}),
           ...(allocated.projected.places ? { placesSeen: placesSeenMarks(allocated.projected.places.list) } : {}),
-          ...(cycle.triggerKind === "owner_message" ? { ownerTurn: true as const, ...(triggerEvidence?.rowId ? { ownerEvidenceRowId: triggerEvidence.rowId } : {}) } : {}),
+          // A recovery repairs an unanswered Owner message: it is the Owner's turn too (live 2026-10-06).
+          ...(originProfile.triggerKind === "owner_message" ? { ownerTurn: true as const, ...(triggerEvidence?.rowId ? { ownerEvidenceRowId: triggerEvidence.rowId } : {}) } : {}),
           ...(originProfile.triggerKind === "domus_notification" && env.domusActEnabled
             ? (() => { const binding = domusActBindingFor(sidecar, event, originProfile.originCycleId); return binding ? { domusAct: binding } : {}; })()
             : {}),

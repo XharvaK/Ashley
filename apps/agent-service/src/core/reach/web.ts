@@ -75,7 +75,9 @@ export const OWNER_ASK_WINDOW_MS = 2 * 60 * 60_000;
 export function ownerWordsForCycle(sidecar: DatabaseSync, cycleId: string | undefined, nowMs = Date.now()): string {
   if (!cycleId) return "";
   const cycle = sidecar.prepare("SELECT trigger_kind, conversation_id FROM cycle_records WHERE cycle_id = ?").get(cycleId) as Row | undefined;
-  if (!cycle || cycle.trigger_kind !== "owner_message") return "";
+  // A recovery cycle answers an Owner message that went unanswered (live 2026-10-06: the repair of the
+  // 1f916 ask was refused because it was not an owner_message cycle).
+  if (!cycle || (cycle.trigger_kind !== "owner_message" && cycle.trigger_kind !== "recovery")) return "";
   return (sidecar.prepare(`SELECT text FROM conversation_evidence_log WHERE conversation_id = ? AND role = 'owner' AND created_at_ms >= ?
     ORDER BY created_at_ms DESC LIMIT 12`).all(String(cycle.conversation_id), nowMs - OWNER_ASK_WINDOW_MS) as Row[])
     .map(row => String(row.text ?? "")).join(" ");

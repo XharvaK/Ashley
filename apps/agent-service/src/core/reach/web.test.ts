@@ -123,6 +123,8 @@ describe("I1 websites as her places", () => {
       appendOwnerUtterance(sidecar, { conversationId: "owner-thread", text: "yeah can you try again?", discordMessageIds: ["o2"], nowMs: NOW });
       admitTestCycle(sidecar, { cycleId: "retry", conversationId: "owner-thread", occupantId: "owner", generation: 1, triggerKind: "owner_message", nowMs: NOW });
       admitTestCycle(sidecar, { cycleId: "awake", conversationId: "owner-thread", occupantId: "owner", generation: 1, triggerKind: "idle_opportunity", nowMs: NOW });
+      admitTestCycle(sidecar, { cycleId: "repair", conversationId: "owner-thread", occupantId: "owner", generation: 1, triggerKind: "recovery", nowMs: NOW });
+      expect(ownerWordsForCycle(sidecar, "repair", NOW)).toContain("agents.example.org");
       const words = ownerWordsForCycle(sidecar, "retry", NOW);
       expect(words).toContain("agents.example.org");
       expect(words).not.toContain("old.example.com");
