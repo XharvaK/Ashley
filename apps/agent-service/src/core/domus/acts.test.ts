@@ -100,6 +100,20 @@ describe("8f the helper round trip", () => {
     expect(row(db, actId).state).toBe("received");
   });
 
+  it("makes an act still in flight from an ended session unknown once another session syncs", () => {
+    // Live 2026-10-06: a meal pushed in one session never finished; the next day she still waited for it.
+    const db = openTestSidecar();
+    const { actId } = act(db, "a1");
+    syncDomusActs(db, { helperSession: "helper-a", events: [{ actId, phase: "pushed", atMs: NOW }], nowMs: NOW + 1 });
+    expect(row(db, actId).state).toBe("pushed");
+    syncDomusActs(db, { helperSession: "helper-a", events: [], nowMs: NOW + 2 });
+    expect(row(db, actId).state).toBe("pushed");
+    syncDomusActs(db, { helperSession: "helper-b", events: [], nowMs: NOW + 3 });
+    expect(row(db, actId).state).toBe("unknown");
+    const detail = db.prepare("SELECT detail_json FROM domus_act_events WHERE act_id = ? AND phase = 'unknown'").get(actId) as { detail_json: string };
+    expect(JSON.parse(detail.detail_json)).toEqual({ code: "SESSION_ENDED" });
+  });
+
   it("keeps every event once, never moves back, and never overwrites a terminal state", () => {
     const db = openTestSidecar();
     const { actId } = act(db, "a1");

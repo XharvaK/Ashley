@@ -131,6 +131,15 @@ export function syncDomusActs(db: DatabaseSync, input: {
       append.run(String(row.act_id), "expired", input.nowMs, input.nowMs, "{}");
       move.run("expired", input.nowMs, String(row.act_id));
     }
+    // Live 2026-10-06: a meal pushed in one game session never finished, and she still waited
+    // for it the next day. Only an act's own helper session may report on it, so once another
+    // session syncs, an act still in flight from an earlier one can never be told: unknown.
+    const orphaned = db.prepare(`SELECT act_id FROM domus_acts WHERE attachment != ?
+      AND state IN ('received','accepted','pushed')`).all(input.helperSession) as Row[];
+    for (const row of orphaned) {
+      append.run(String(row.act_id), "unknown", input.nowMs, input.nowMs, JSON.stringify({ code: "SESSION_ENDED" }));
+      move.run("unknown", input.nowMs, String(row.act_id));
+    }
     const acts = (db.prepare(`SELECT act_id, object_id, guid64, expires_at_ms FROM domus_acts
       WHERE attachment = ? AND state = 'requested' AND expires_at_ms > ? ORDER BY requested_at_ms`).all(input.helperSession, input.nowMs) as Row[])
       .map(row => ({ act_id: String(row.act_id), object_id: String(row.object_id), guid64: String(row.guid64), expires_at_ms: Number(row.expires_at_ms) }));
