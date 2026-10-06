@@ -122,6 +122,7 @@ import { registerActiveThought } from "../cycle/active.js";
 import { adaptPerception } from "../perception/adapter.js";
 import { resolveAttachmentObservations } from "../perception/attachments.js";
 import { buildThoughtInput, captureThoughtSourcePackage, thoughtInputContainsSecret } from "./input.js";
+import { describeFieldShape } from "./field-shape.js";
 import { parseThoughtSemanticOutput, THOUGHT_SEMANTIC_PARSER_ID } from "./parse.js";
 import {
   concernDiscoverItemAuthorable,
@@ -1741,9 +1742,10 @@ export async function runThoughtModel(
         ...(lifeboat ? { lifeboat } : {}),
       };
     }
+    const semanticReferences = new Set(semanticReferencesForInput(input));
     const semanticResult = parseThoughtSemanticOutput(
       completion.text,
-      new Set(semanticReferencesForInput(input)),
+      semanticReferences,
       {
         concernInspectRefs: (options.concernInspectAuthority ?? concernInspectRefsForInput(input)).refs,
         concernDiscoverAllowed: (options.concernInspectAuthority ?? concernInspectRefsForInput(input)).discoverAllowed === true,
@@ -1751,8 +1753,9 @@ export async function runThoughtModel(
     );
     if (!semanticResult.ok) {
       const diagnosticCode = semanticResult.code as ThoughtParserFailureCode;
+      const shape = describeFieldShape(completion.text, semanticResult.field, semanticReferences);
       // The field path names a contract field, never her words; it is what a fix needs.
-      console.warn(`[thought] parse failure code=${diagnosticCode} field=${semanticResult.field ?? "-"} model=${completion.providerModel ?? "-"}`);
+      console.warn(`[thought] parse failure code=${diagnosticCode} field=${semanticResult.field ?? "-"} model=${completion.providerModel ?? "-"} shape=${shape}`);
       const previousFeedback = typeof options.structuralFeedback === "string"
         ? null
         : options.structuralFeedback;
