@@ -232,6 +232,9 @@ export function createDomusIngressApp(input: {
   botToken: string;
   now: () => number;
   onAdmitted?: () => void;
+  /** E4: the dispatch diagnostics and this build's commit, for the regime of each pass in the feed. */
+  observability?: DatabaseSync;
+  build?: string;
 }): express.Express {
   const app = express();
   app.use(express.json({ limit: BODY_LIMIT }));
@@ -339,7 +342,8 @@ export function createDomusIngressApp(input: {
   app.post("/domus/feed", (req, res) => {
     try {
       const parsed = parseFeed(req.body);
-      res.status(200).json({ status: "ok", items: domusFeed(input.db, { helperSession: parsed.helperSession, nowMs: input.now() }) });
+      res.status(200).json({ status: "ok", items: domusFeed(input.db, { helperSession: parsed.helperSession, nowMs: input.now(),
+        ...(input.observability ? { observability: input.observability } : {}), ...(input.build ? { build: input.build } : {}) }) });
     } catch (error) {
       const http = error as HttpError;
       if (http.status && http.code) {

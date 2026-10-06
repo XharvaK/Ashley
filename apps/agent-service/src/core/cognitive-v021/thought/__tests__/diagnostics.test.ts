@@ -972,6 +972,36 @@ describe("Thought Diagnostics & Observability DB", () => {
     }
   });
 
+  it("E4: keeps the provider request id of a healthy return in every mode", () => {
+    const obs = openObservabilityStore(":memory:");
+    try {
+      obs.recordDiagnostic({
+        cycleId: "cycle-request-id",
+        generation: 1,
+        requestId: "req-request-id",
+        pass: 1,
+        code: "provider_returned",
+        stage: "provider_dispatch",
+        dispatchTruth: "sent",
+        providerFailure: {
+          provider: "command_code",
+          providerRequestId: "chatcmpl-invented-1",
+          totalTokens: 1200,
+          dispatchTruth: "sent",
+          parserStatus: "passed",
+          validatorStatus: "passed",
+          structuralRetryStatus: "not_applicable",
+        },
+      });
+      const raw = obs.db.prepare(
+        "SELECT provider_request_id, total_tokens, cf_ray FROM thought_dispatch_diagnostics WHERE request_id = ?",
+      ).get("req-request-id") as { provider_request_id: string | null; total_tokens: number | null; cf_ray: string | null };
+      expect(raw).toEqual({ provider_request_id: "chatcmpl-invented-1", total_tokens: 1200, cf_ray: null });
+    } finally {
+      obs.close();
+    }
+  });
+
   it("round-trips provider HTTP status through the bounded failure allowlist", () => {
     const obs = openObservabilityStore(":memory:");
     try {

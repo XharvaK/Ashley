@@ -12,6 +12,11 @@ export const DOMUS_FEED_WINDOW_MS = 2 * 60 * 60 * 1000;
 
 export type DomusFeedStep = { label: string; state: string; reason?: string };
 export type DomusFeedAct = { label: string; state: string; how?: string };
+/** E4: what produced the pass, for the private proof trace (never shown on the overlay). */
+export type DomusFeedRegime = {
+  build: string; model?: string; provider?: string; request_id?: string;
+  input_tokens?: number; output_tokens?: number; cached_tokens?: number; latency_ms?: number;
+};
 export type DomusFeedItem = {
   pass: string;
   at_ms: number;
@@ -21,6 +26,7 @@ export type DomusFeedItem = {
   quiet?: true;
   act?: DomusFeedAct;
   plan?: DomusFeedStep[];
+  regime?: DomusFeedRegime;
 };
 
 type Row = Record<string, unknown>;
@@ -60,7 +66,37 @@ function howOf(state: string, detail: Row): string | undefined {
   return undefined;
 }
 
-export function domusFeed(db: DatabaseSync, input: { helperSession: string; nowMs: number }): DomusFeedItem[] {
+function count(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : undefined;
+}
+
+/** The model call that settled a pass, as the dispatch diagnostics recorded it. */
+function regimeOf(observability: DatabaseSync | undefined, cycleId: string, build: string): DomusFeedRegime {
+  const regime: DomusFeedRegime = { build };
+  if (!observability) return regime;
+  let row: Row | undefined;
+  try {
+    row = observability.prepare(`SELECT model_id, primary_provider, provider_request_id, cached_tokens, latency_ms, provider_failure_json
+      FROM thought_dispatch_diagnostics WHERE cycle_id = ? AND code = 'provider_returned' ORDER BY id DESC LIMIT 1`).get(cycleId) as Row | undefined;
+  } catch { return regime; }
+  if (!row) return regime;
+  const capture = detailOf(row.provider_failure_json);
+  const provider = typeof row.primary_provider === "string" && row.primary_provider ? row.primary_provider : capture.provider;
+  if (typeof row.model_id === "string" && row.model_id) regime.model = row.model_id;
+  if (typeof provider === "string" && provider) regime.provider = provider;
+  if (typeof row.provider_request_id === "string" && row.provider_request_id) regime.request_id = row.provider_request_id;
+  const tokens: Array<[keyof DomusFeedRegime, unknown]> = [["input_tokens", capture.inputTokens], ["output_tokens", capture.completionTokens],
+    ["cached_tokens", row.cached_tokens], ["latency_ms", row.latency_ms]];
+  for (const [key, value] of tokens) {
+    const n = count(value);
+    if (n !== undefined) (regime as Record<string, unknown>)[key] = n;
+  }
+  return regime;
+}
+
+export function domusFeed(db: DatabaseSync, input: {
+  helperSession: string; nowMs: number; observability?: DatabaseSync; build?: string;
+}): DomusFeedItem[] {
   const rows = db.prepare(`SELECT j.entry_id, j.cycle_id, j.entry, j.data_classification, j.created_at_ms
       FROM inbox_events e JOIN activity_journal j ON j.cycle_id = json_extract(e.payload_json, '$.cycleId')
      WHERE e.kind = 'domus_notification' AND e.created_at_ms >= ? AND json_valid(e.payload_json)
@@ -76,7 +112,8 @@ export function domusFeed(db: DatabaseSync, input: { helperSession: string; nowM
   const stepsOf = db.prepare("SELECT step, label, state, reason, act_id FROM domus_plan_steps WHERE plan_id = ? ORDER BY step");
   const stepAct = db.prepare("SELECT label, state FROM domus_acts WHERE act_id = ?");
   return rows.reverse().map((row): DomusFeedItem => {
-    const item: DomusFeedItem = { pass: String(row.entry_id), at_ms: Number(row.created_at_ms), inputs: DOMUS_GAME_ONLY };
+    const item: DomusFeedItem = { pass: String(row.entry_id), at_ms: Number(row.created_at_ms), inputs: DOMUS_GAME_ONLY,
+      regime: regimeOf(input.observability, String(row.cycle_id), input.build ?? "unknown") };
     const line = typeof row.entry === "string" ? row.entry.trim() : "";
     if (!line) item.quiet = true;
     else if (row.data_classification !== "ordinary" || heldLine(line, names)) item.held = true;

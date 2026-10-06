@@ -3,6 +3,7 @@ import { homeRootFor } from "./core/home/home.js";
 import { vaultDirFor } from "./core/reach/vault-dir.js";
 import { createSelfChangeResultMaintenance, type SelfChangeResultMaintenance } from "./core/cognitive-v021/growth/self-change-results.js";
 import { configureEmbodimentBudget } from "./core/domus/notification.js";
+import { execFileSync } from "node:child_process";
 import { createDomusIngressApp, decideDomusIngress } from "./core/domus/ingress.js";
 import type { AgentManager } from "./agent.js";
 import { AFTERGLOW_POLL_MS } from "./core/cognitive-v021/initiative/afterglow.js";
@@ -890,6 +891,8 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
         botToken: process.env.DISCORD_BOT_TOKEN ?? "",
         now: () => Date.now(),
         onAdmitted: () => onDomusArrival(),
+        ...(observabilityDb ? { observability: observabilityDb } : {}),
+        build: agentBuild(),
       }).listen(env.domusIngressPort, "127.0.0.1");
     } else if (!domusDecision.enabled) {
       console.log(`[domus-ingress] disabled: ${domusDecision.reason}`);
@@ -925,4 +928,12 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
     });
     throw error;
   }
+}
+
+/** E4: the commit this agent runs (the deploy checks it out), carried on each pass's regime. */
+function agentBuild(): string {
+  try {
+    return execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 5_000 })
+      .trim().slice(0, 40) || "unknown";
+  } catch { return "unknown"; }
 }

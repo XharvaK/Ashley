@@ -1265,7 +1265,8 @@ export class ObservabilityStore {
       diagnosticPayload(diag),
       providerFailurePayload(diag.providerFailure),
       boundedPublicationReason(diag.publicationReason),
-      s5?.providerRequestId ?? null,
+      // E4: the provider request id holds no prompt text: kept in every mode, like usage.
+      s5?.providerRequestId ?? usageS5?.providerRequestId ?? null,
       s5?.cfRay ?? null,
       s5?.totalTokens ?? usageS5?.totalTokens ?? null,
       s5?.cachedSource ?? usageS5?.cachedSource ?? null,

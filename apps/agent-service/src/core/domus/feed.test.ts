@@ -6,6 +6,7 @@ import { recordJournalEntry } from "../cognitive-v021/initiative/journal.js";
 import { domusLaneId } from "./lane.js";
 import { DOMUS_FEED_LIMIT, domusFeed, heldLine } from "./feed.js";
 import { parseFeed } from "./ingress.js";
+import { openObservabilityStore } from "../cognitive-v021/thought/diagnostics.js";
 
 const NOW = 50_000_000;
 const LANE = domusLaneId("owner");
@@ -88,5 +89,23 @@ describe("E3 the overlay feed", () => {
       expect(() => parseFeed({ v: 1, helper_session: "helper-a", since: 1 })).toThrow();
       expect(() => parseFeed({ v: 2, helper_session: "helper-a" })).toThrow();
     } finally { db.close(); }
+  });
+
+  it("E4: each pass carries the model call that settled it, for the private trace", () => {
+    const db = openTestSidecar();
+    const obs = openObservabilityStore(":memory:");
+    try {
+      pass(db, { cycle: "c1", at: NOW - 2000, entry: "Toast." });
+      pass(db, { cycle: "c2", at: NOW - 1000, entry: "No call recorded." });
+      obs.recordDiagnostic({ cycleId: "c1", generation: 1, requestId: "r1", pass: 1, code: "provider_returned", stage: "provider_dispatch",
+        dispatchTruth: "sent", providerFailure: { provider: "command_code", model: "deepseek/invented-flash", providerRequestId: "chatcmpl-invented-2",
+          inputTokens: 9000, completionTokens: 300, cachedInputTokens: 4000, totalTokens: 9300, elapsedMs: 2800,
+          dispatchTruth: "sent", parserStatus: "passed", validatorStatus: "passed", structuralRetryStatus: "not_applicable" } });
+      const items = domusFeed(db, { helperSession: "helper-a", nowMs: NOW, observability: obs.db, build: "abc123" });
+      expect(items[0]!.regime).toEqual({ build: "abc123", model: "deepseek/invented-flash", provider: "command_code",
+        request_id: "chatcmpl-invented-2", input_tokens: 9000, output_tokens: 300, cached_tokens: 4000, latency_ms: 2800 });
+      expect(items[1]!.regime).toEqual({ build: "abc123" });
+      expect(domusFeed(db, { helperSession: "helper-a", nowMs: NOW })[0]!.regime).toEqual({ build: "unknown" });
+    } finally { db.close(); obs.close(); }
   });
 });
