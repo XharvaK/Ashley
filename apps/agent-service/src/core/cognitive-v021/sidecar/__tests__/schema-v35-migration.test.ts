@@ -10,9 +10,9 @@ describe("cognitive sidecar Schema V35 migration", () => {
 
     openCognitiveSidecarDb(db, { dataPlane: { kind: "isolated" } });
 
-    expect(COGNITIVE_SIDECAR_SCHEMA_VERSION).toBe(65);
+    expect(COGNITIVE_SIDECAR_SCHEMA_VERSION).toBe(66);
     expect((db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version)
-      .toBe(65);
+      .toBe(66);
     expect(db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?")
       .get("owner_discord_transport_captures")).toBeTruthy();
     expect(db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?")

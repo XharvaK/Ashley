@@ -2375,3 +2375,26 @@ CREATE TABLE IF NOT EXISTS lessons (
 CREATE INDEX IF NOT EXISTS idx_lessons_at ON lessons(at_ms);
 UPDATE cognitive_sidecar_meta SET schema_version=65 WHERE id=1;
 `;
+
+/** H0.5: her short plans in the house. The first act is an ordinary act; the rest wait here until the one before finishes. */
+export const COGNITIVE_SIDECAR_SCHEMA_V66 = String.raw`
+CREATE TABLE IF NOT EXISTS domus_plan_steps (
+  plan_id TEXT NOT NULL REFERENCES domus_acts(act_id),
+  step INTEGER NOT NULL CHECK (step >= 1),
+  world TEXT NOT NULL,
+  attachment TEXT NOT NULL,
+  option_ref TEXT NOT NULL,
+  object_id TEXT,
+  guid64 TEXT,
+  label TEXT NOT NULL,
+  state TEXT NOT NULL CHECK (state IN ('planned','released','dropped','invalid')),
+  act_id TEXT,
+  reason TEXT,
+  planned_at_ms INTEGER NOT NULL,
+  updated_at_ms INTEGER NOT NULL,
+  PRIMARY KEY (plan_id, step)
+);
+CREATE INDEX IF NOT EXISTS idx_domus_plan_steps_attachment_state ON domus_plan_steps(attachment, state);
+CREATE INDEX IF NOT EXISTS idx_domus_plan_steps_world_state ON domus_plan_steps(world, state);
+UPDATE cognitive_sidecar_meta SET schema_version=66 WHERE id=1;
+`;

@@ -42,7 +42,7 @@ import express from "express";
 import type { DatabaseSync } from "node:sqlite";
 import { markDomusSpanUndone } from "../cognitive-v021/memory/undo.js";
 import { admitObservation, canonicalJson, observationDigest, upsertHeartbeat } from "./store.js";
-import { isDomusActPhase, syncDomusActs, type DomusActEvent } from "./acts.js";
+import { interruptDomusPlans, isDomusActPhase, syncDomusActs, type DomusActEvent } from "./acts.js";
 
 const BODY_LIMIT = 64 * 1024;
 const MAX_WINDOW_MS = 600_000;
@@ -264,6 +264,13 @@ export function createDomusIngressApp(input: {
         observation_id: parsed.observationId,
         receipt_time_ms: result.receiptTimeMs,
       });
+      if (result.status === "admitted") {
+        // H0.5: something new woke her; what still waits in her plan is dropped before she thinks.
+        try {
+          interruptDomusPlans(input.db, { attachment: parsed.fields.attachment,
+            percepts: (parsed.normalized as { percepts?: unknown[] }).percepts ?? [], nowMs: now });
+        } catch { /* the plan keeps; she still sees the wake */ }
+      }
       if (result.status === "admitted" && input.onAdmitted) {
         try { input.onAdmitted(); } catch { /* the minute poll still evaluates it */ }
       }
@@ -299,7 +306,7 @@ export function createDomusIngressApp(input: {
     try {
       const parsed = parseActSync(req.body);
       const result = syncDomusActs(input.db, { helperSession: parsed.helperSession, events: parsed.events, nowMs: input.now() });
-      res.status(200).json({ status: "ok", applied: result.applied, acts: result.acts });
+      res.status(200).json({ status: "ok", applied: result.applied, acts: result.acts, planned: result.planned });
     } catch (error) {
       const http = error as HttpError;
       if (http.status && http.code) {

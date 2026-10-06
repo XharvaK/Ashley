@@ -3,7 +3,8 @@ import type { DatabaseSync } from "node:sqlite";
 import { openTestSidecar } from "../cognitive-v021/test-support.js";
 import { admitObservation, observationDigest } from "./store.js";
 import {
-  domusActBinding, optionsOf, recentDomusActs, recordDomusAct, syncDomusActs, DOMUS_ACT_TTL_MS, type DomusOptionObject,
+  domusActBinding, interruptDomusPlans, isDomusActClaim, optionsOf, recentDomusActs, recordDomusAct, syncDomusActs, DOMUS_ACT_TTL_MS,
+  type DomusActClaim, type DomusOptionObject,
 } from "./acts.js";
 import { parseActSync, parseObservation } from "./ingress.js";
 import { domusForThought } from "./notification.js";
@@ -34,10 +35,11 @@ function observe(db: DatabaseSync, seq: number, input: { world?: string; attachm
   return observationId;
 }
 
-function act(db: DatabaseSync, option: string, cycleId = "cycle-1", nowMs = NOW) {
+function act(db: DatabaseSync, option: string, cycleId = "cycle-1", nowMs = NOW, then?: string[]) {
   observe(db, 1, { options: OPTIONS });
   const binding = domusActBinding(db, { world: "slot8", observationIds: ["helper-a.1"] })!;
-  return recordDomusAct(db, { binding, claim: { option }, cycleId, nowMs });
+  const claim: DomusActClaim = then ? { option, then } : { option };
+  return recordDomusAct(db, { binding, claim, cycleId, nowMs });
 }
 
 function row(db: DatabaseSync, actId: string) {
@@ -96,7 +98,7 @@ describe("8f the helper round trip", () => {
     // Another helper's report about her act changes nothing.
     expect(syncDomusActs(db, { helperSession: "helper-b", events: [{ actId, phase: "received", atMs: NOW }], nowMs: NOW }).applied).toBe(0);
     const result = syncDomusActs(db, { helperSession: "helper-a", events: [{ actId, phase: "received", atMs: NOW }], nowMs: NOW + 1 });
-    expect(result).toEqual({ acts: [], applied: 1 });
+    expect(result).toEqual({ acts: [], applied: 1, planned: 0 });
     expect(row(db, actId).state).toBe("received");
   });
 
@@ -137,6 +139,81 @@ describe("8f the helper round trip", () => {
     expect(row(db, actId).state).toBe("expired");
     syncDomusActs(db, { helperSession: "helper-a", events: [{ actId, phase: "received", atMs: NOW }], nowMs: NOW + DOMUS_ACT_TTL_MS + 1 });
     expect(row(db, actId).state).toBe("expired");
+  });
+});
+
+describe("H0.5 her short plans", () => {
+  const sync = (db: DatabaseSync, events: Array<{ actId: string; phase: "pushed" | "finished" | "rejected" }>, nowMs: number, helperSession = "helper-a") =>
+    syncDomusActs(db, { helperSession, events: events.map(item => ({ ...item, atMs: nowMs })), nowMs });
+
+  it("runs a plan of three end to end: each step starts in the round trip that reports the one before finished", () => {
+    const db = openTestSidecar();
+    const { actId } = act(db, "a1", "cycle-1", NOW, ["a2", "a3"]);
+    const first = sync(db, [], NOW + 1);
+    expect(first.acts.map(item => item.act_id)).toEqual([actId]);
+    expect(first.planned).toBe(2);
+    expect(sync(db, [{ actId, phase: "pushed" }], NOW + 2)).toMatchObject({ acts: [], planned: 2 });
+    const second = sync(db, [{ actId, phase: "finished" }], NOW + 3);
+    expect(second.acts.map(item => [item.object_id, item.guid64])).toEqual([["1002", "14001"]]);
+    expect(second.planned).toBe(1);
+    const third = sync(db, [{ actId: second.acts[0]!.act_id, phase: "finished" }], NOW + 4);
+    expect(third.acts.map(item => item.guid64)).toEqual(["14002"]);
+    expect(third.planned).toBe(0);
+    sync(db, [{ actId: third.acts[0]!.act_id, phase: "finished" }], NOW + 5);
+    expect(recentDomusActs(db, "slot8", NOW + 6).map(item => [item.option, item.state])).toEqual([["a1", "finished"], ["a2", "finished"], ["a3", "finished"]]);
+  });
+
+  it("ends a plan where the game refused a step, and shows her why", () => {
+    const db = openTestSidecar();
+    const { actId } = act(db, "a1", "cycle-1", NOW, ["a2", "a3"]);
+    sync(db, [], NOW + 1);
+    expect(sync(db, [{ actId, phase: "rejected" }], NOW + 2)).toMatchObject({ acts: [], planned: 0 });
+    expect(recentDomusActs(db, "slot8", NOW + 3).map(item => [item.option, item.state, item.detail?.reason])).toEqual([
+      ["a1", "rejected", undefined], ["a2", "dropped", "after_rejected"], ["a3", "dropped", "after_dropped"]]);
+  });
+
+  it("drops the rest when something new wakes her mid-plan (a visitor), but not for her own idle or a slow check", () => {
+    const db = openTestSidecar();
+    const { actId } = act(db, "a1", "cycle-1", NOW, ["a2", "a3"]);
+    sync(db, [], NOW + 1);
+    const idle = { kind: "interaction", salience: 0.5, facts: { urgency: "wake", bucket: "idle" } };
+    const check = { kind: "env", salience: 0.1, facts: { urgency: "normal", object: "check", bucket: "busy" } };
+    expect(interruptDomusPlans(db, { attachment: "helper-a", percepts: [idle, check], nowMs: NOW + 2 })).toBe(0);
+    expect(interruptDomusPlans(db, { attachment: "helper-b", percepts: [{ kind: "presence", salience: 1, facts: { urgency: "wake", bucket: "on_lot" } }], nowMs: NOW + 2 })).toBe(0);
+    const visitor = { kind: "presence", salience: 1, facts: { urgency: "wake", bucket: "on_lot", name: "Summer" } };
+    expect(interruptDomusPlans(db, { attachment: "helper-a", percepts: [idle, visitor], nowMs: NOW + 3 })).toBe(2);
+    expect(sync(db, [{ actId, phase: "finished" }], NOW + 4)).toMatchObject({ acts: [], planned: 0 });
+    expect(recentDomusActs(db, "slot8", NOW + 5).slice(1).map(item => [item.state, item.detail?.reason])).toEqual([
+      ["dropped", "woken_by:presence:on_lot"], ["dropped", "woken_by:presence:on_lot"]]);
+  });
+
+  it("lets a new choice replace what still waited, and a session that ended drop it", () => {
+    const db = openTestSidecar();
+    act(db, "a1", "cycle-1", NOW, ["a2"]);
+    act(db, "a3", "cycle-2", NOW + 10);
+    expect(recentDomusActs(db, "slot8", NOW + 20).map(item => [item.option, item.state, item.detail?.reason]))
+      .toEqual([["a1", "requested", undefined], ["a3", "requested", undefined], ["a2", "dropped", "replaced"]]);
+    const db2 = openTestSidecar();
+    act(db2, "a1", "cycle-1", NOW, ["a2"]);
+    expect(sync(db2, [], NOW + 1, "helper-b").planned).toBe(0);
+    expect(recentDomusActs(db2, "slot8", NOW + 2).at(-1)).toMatchObject({ option: "a2", state: "dropped", detail: { reason: "session_ended" } });
+  });
+
+  it("keeps a step that is not on the list invalid and lets the rest go; a plan never guesses", () => {
+    const db = openTestSidecar();
+    act(db, "a1", "cycle-1", NOW, ["a9", "a2"]);
+    expect(recentDomusActs(db, "slot8", NOW + 1).map(item => [item.option, item.state])).toEqual([["a1", "requested"], ["a9", "invalid"], ["a2", "dropped"]]);
+    const db2 = openTestSidecar();
+    act(db2, "a9", "cycle-1", NOW, ["a1"]);
+    expect(recentDomusActs(db2, "slot8", NOW + 1).map(item => [item.option, item.state])).toEqual([["a9", "invalid"], ["a1", "dropped"]]);
+  });
+
+  it("validates the plan claim", () => {
+    expect(isDomusActClaim({ option: "a1", then: ["a2", "a3"] })).toBe(true);
+    expect(isDomusActClaim({ option: "a1", then: [] })).toBe(false);
+    expect(isDomusActClaim({ option: "a1", then: ["a2", "a3", "a4"] })).toBe(false);
+    expect(isDomusActClaim({ option: "a1", then: ["bad ref"] })).toBe(false);
+    expect(isDomusActClaim({ option: "a1", next: ["a2"] })).toBe(false);
   });
 });
 

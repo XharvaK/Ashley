@@ -127,6 +127,21 @@ describe("domus ingress", () => {
     expect(db.prepare("SELECT COUNT(*) AS n FROM domus_observations").get()).toEqual({ n: 1 });
   });
 
+  it("H0.5: a newly admitted wake drops what still waits in her plan in that attachment", async () => {
+    const { db, base } = await start();
+    db.prepare(`INSERT INTO domus_acts (act_id, cycle_id, world, attachment, observation_id, option_ref, label, state,
+      requested_at_ms, expires_at_ms, updated_at_ms) VALUES ('p1', 'c1', 'world', 'attachment', 'o', 'a1', 'x', 'pushed', 1, 2, 1)`).run();
+    db.prepare(`INSERT INTO domus_plan_steps (plan_id, step, world, attachment, option_ref, label, state, planned_at_ms, updated_at_ms)
+      VALUES ('p1', 1, 'world', 'attachment', 'a2', 'y', 'planned', 1, 1)`).run();
+    const state = () => (db.prepare("SELECT state, reason FROM domus_plan_steps").get() as { state: string; reason: string | null });
+    await post(base, "/domus/observation", observation({ observation_id: "obs-idle",
+      percepts: [{ kind: "interaction", salience: 0.5, facts: { urgency: "wake", bucket: "idle" } }] }), TOKEN);
+    expect(state().state).toBe("planned");
+    await post(base, "/domus/observation", observation({ observation_id: "obs-asked",
+      percepts: [{ kind: "env", salience: 1, facts: { urgency: "wake", bucket: "asked", subject: "dialog" } }] }), TOKEN);
+    expect(state()).toEqual({ state: "dropped", reason: "woken_by:env:asked" });
+  });
+
   it("asks for an evaluation only when an observation is newly admitted", async () => {
     let calls = 0;
     const { base } = await start(() => { calls++; });
