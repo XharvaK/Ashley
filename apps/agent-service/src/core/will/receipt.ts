@@ -2,6 +2,7 @@
 // own time went to, what she read, her pursuits, her acts in each place, what she made in her home,
 // and the interests she lived. A receipt, not a score: nothing here is judged or ranked.
 import type { DatabaseSync } from "node:sqlite";
+import { placeLabel } from "../places/places.js";
 
 export const LIFE_RECEIPT_WINDOW_MS = 7 * 24 * 60 * 60_000;
 
@@ -67,7 +68,7 @@ export function lifeReceipt(sidecar: DatabaseSync, nowMs: number): LifeReceipt {
   if (tableExists(sidecar, "place_intents")) {
     receipt.places = (sidecar.prepare(`SELECT place_ref, sum(state = 'posted') AS posted, sum(state = 'refused') AS refused
       FROM place_intents WHERE requested_at_ms > ? GROUP BY place_ref ORDER BY posted DESC, place_ref`).all(since) as Row[])
-      .map(row => ({ place: String(row.place_ref), posted: Number(row.posted ?? 0), refused: Number(row.refused ?? 0) }));
+      .map(row => ({ place: placeLabel(sidecar, String(row.place_ref)), posted: Number(row.posted ?? 0), refused: Number(row.refused ?? 0) }));
   }
   if (tableExists(sidecar, "home_ops")) {
     receipt.home = {

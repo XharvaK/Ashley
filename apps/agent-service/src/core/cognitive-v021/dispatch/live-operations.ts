@@ -1,4 +1,4 @@
-import { executeWebRequest, isValidWebRequest } from "../../reach/web.js";
+import { executeWebRequest, isValidWebRequest, ownerWordsForCycle } from "../../reach/web.js";
 import type { DatabaseSync } from "node:sqlite";
 import { env } from "../../../env.js";
 import {
@@ -1223,7 +1223,8 @@ export function createV021LiveOperationExecutors(
       if (req.kind === "web.request") {
         if (req.audience?.kind !== "owner_private" || !options.sidecar || !options.vaultDir) throw new CapabilityUnavailableError("web_request_unavailable");
         if (!isValidWebRequest(req.request)) throw new CapabilityUnavailableError("web_request_invalid");
-        const outcome = await executeWebRequest(options.sidecar, { request: req.request, vaultDir: options.vaultDir, cycleId: req.cycleId, nowMs: nowMs() });
+        const outcome = await executeWebRequest(options.sidecar, { request: req.request, vaultDir: options.vaultDir, cycleId: req.cycleId, nowMs: nowMs(),
+          ownerWords: ownerWordsForCycle(options.sidecar, req.cycleId) });
         return {
           observationId: `v021:observation:${req.requestId}`,
           cycleId: req.cycleId,

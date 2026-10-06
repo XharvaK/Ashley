@@ -38,7 +38,8 @@ describe("I1 websites as her places", () => {
     const { sidecar, vaultDir, close } = world();
     try {
       expect(normalizeOrigin("agents.example.org/path")).toBe(SITE);
-      expect(normalizeOrigin("http://agents.example.org")).toBeNull();
+      expect(normalizeOrigin("http://agents.example.org./")).toBe(SITE);
+      expect(normalizeOrigin("ftp://agents.example.org")).toBeNull();
       expect(recordWebPlaceClaims(sidecar, { claims: [{ origin: "https://other.example.net", reason: "curious" }], ownerTurn: false, nowMs: NOW }))
         .toEqual([{ origin: "https://other.example.net", state: "requested" }]);
       expect(recordWebPlaceClaims(sidecar, { claims: [{ origin: SITE, reason: "the Owner asked me to join" }], ownerTurn: true, basisRef: "row-1", nowMs: NOW }))
@@ -90,6 +91,24 @@ describe("I1 websites as her places", () => {
       }
       expect(await executeWebRequest(sidecar, { request: { url: `${SITE}/last` }, vaultDir, nowMs: NOW + 200, fetcher, resolve }))
         .toMatchObject({ error: "place_fuse" });
+    } finally { close(); }
+  });
+
+  it("lets her use a site the Owner named in this turn's message, and no other", async () => {
+    const { sidecar, vaultDir, close } = world();
+    try {
+      const seen: Seen[] = [];
+      const fetcher = fakeSite(seen, () => ({ status: 200, json: { ok: true } }));
+      const words = "i got a thing for you. can you read http://agents.example.org./ and become a citizen?";
+      expect(await executeWebRequest(sidecar, { request: { url: "http://agents.example.org./api/join" }, vaultDir, nowMs: NOW, fetcher, resolve, ownerWords: words }))
+        .toMatchObject({ status: 200 });
+      expect(seen[0]!.url).toBe(`${SITE}/api/join`);
+      expect(webPlacesForThought(sidecar, vaultDir, NOW + 1).map(place => [place.origin, place.state])).toEqual([[SITE, "approved"]]);
+      expect(await executeWebRequest(sidecar, { request: { url: "https://elsewhere.example.net/x" }, vaultDir, nowMs: NOW, fetcher, resolve, ownerWords: words }))
+        .toMatchObject({ error: "not_an_approved_place" });
+      setWebPlaceState(sidecar, SITE, "closed", NOW + 2);
+      expect(await executeWebRequest(sidecar, { request: { url: `${SITE}/again` }, vaultDir, nowMs: NOW + 3, fetcher, resolve, ownerWords: words }))
+        .toMatchObject({ error: "not_an_approved_place" });
     } finally { close(); }
   });
 

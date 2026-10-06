@@ -133,6 +133,19 @@ function placeName(sidecar: DatabaseSync, entry: PlaceEntry): string {
   return discordName(sidecar, "user", entry.target.principalId) ?? "a contact";
 }
 
+/** A place's name for people: #channel in Server, a contact's name, or the ref when no name was seen. */
+export function placeLabel(sidecar: DatabaseSync, ref: string): string {
+  const room = /^room:([^:]+):([^:]+)$/.exec(ref);
+  if (room) {
+    const channel = discordName(sidecar, "channel", room[2]!);
+    const guild = discordName(sidecar, "guild", room[1]!);
+    return channel ? `#${channel}${guild ? ` in ${guild}` : ""}` : "a room";
+  }
+  const contact = /^contact:(.+)$/.exec(ref);
+  if (contact) return discordName(sidecar, "user", contact[1]!) ?? "a contact";
+  return ref;
+}
+
 function speakerName(sidecar: DatabaseSync, row: Row, ownerLabel: string): string {
   const role = text(row.role);
   if (role === "ashley") return "you";

@@ -83,6 +83,8 @@ $activate = @(
   'cd apps/agent-service',
   'node --import tsx src/scripts/backup-daily.ts',
   "cd $RepoDir",
+  '# Slash commands are registered with Discord from the checkout (idempotent; ids are not printed).',
+  '(cd apps/discord-bot && npx tsx scripts/deploy-commands.ts 2>&1 | sed -E "s/[0-9]{15,}/<id>/g") || echo "slash command registration failed; the deploy continues"',
   'exec bash deploy/linux-mint/update.sh'
 )
 

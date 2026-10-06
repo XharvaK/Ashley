@@ -38,14 +38,44 @@ const VAULT_NAME = /^[A-Za-z0-9_.-]{1,48}$/;
 const SECRET_KEY = /(^|[_\-.])(secret|token|api[_-]?key|apikey|password|passwd|private[_-]?key|access[_-]?key|bearer|credential)s?($|[_\-.])/i;
 const SECRET_SHAPE = /\b[A-Za-z0-9]{2,16}_(?:sk|secret|token|key)_[A-Za-z0-9_\-]{12,}\b/;
 
-/** https://host[:port], lowercased; anything else is not a web place. */
+/**
+ * https://host[:port], lowercased. http is upgraded (she only ever talks https) and a trailing dot on the
+ * host is dropped (live 2026-10-06: the Owner wrote "http://1f916.ai./"); anything else is not a web place.
+ */
 export function normalizeOrigin(value: unknown): string | null {
+  const url = httpsUrl(value);
+  return url ? url.origin.toLowerCase() : null;
+}
+
+/** The URL as she will reach it: https, no credentials, no trailing dot on the host. */
+export function httpsUrl(value: unknown): URL | null {
   if (typeof value !== "string") return null;
   try {
     const url = new URL(value.trim().includes("://") ? value.trim() : `https://${value.trim()}`);
-    if (url.protocol !== "https:" || url.username || url.password || !url.hostname.includes(".")) return null;
-    return url.origin.toLowerCase();
+    if (url.protocol === "http:") url.protocol = "https:";
+    if (url.protocol !== "https:" || url.username || url.password) return null;
+    url.hostname = url.hostname.replace(/\.+$/, "");
+    if (!url.hostname.includes(".")) return null;
+    return url;
   } catch { return null; }
+}
+
+/** The host as a person writes it: no "www.", no trailing dot. */
+function bareHost(origin: string): string {
+  return new URL(origin).hostname.replace(/^www\./, "");
+}
+
+/** The Owner's own words in the turn that started this cycle (empty outside an Owner turn). */
+export function ownerWordsForCycle(sidecar: DatabaseSync, cycleId: string | undefined): string {
+  if (!cycleId) return "";
+  const cycle = sidecar.prepare("SELECT trigger_kind, compose_log_ids_json FROM cycle_records WHERE cycle_id = ?").get(cycleId) as Row | undefined;
+  if (!cycle || cycle.trigger_kind !== "owner_message") return "";
+  let ids: unknown;
+  try { ids = JSON.parse(String(cycle.compose_log_ids_json ?? "[]")); } catch { return ""; }
+  if (!Array.isArray(ids) || !ids.length) return "";
+  const marks = ids.map(() => "?").join(",");
+  return (sidecar.prepare(`SELECT text FROM conversation_evidence_log WHERE role = 'owner' AND row_id IN (${marks})`)
+    .all(...ids.map(String)) as Row[]).map(row => String(row.text ?? "")).join(" ");
 }
 
 export function isWebPlaceClaims(value: unknown): value is WebPlaceClaim[] {
@@ -264,13 +294,21 @@ export type WebRequestOutcome = {
 /** Execute one web.request in an approved place; every attempt is logged (it counts toward the fuse). */
 export async function executeWebRequest(sidecar: DatabaseSync, input: {
   request: WebRequest; vaultDir: string; cycleId?: string; nowMs: number; fetcher?: FetchLike; resolve?: ResolveHost;
+  /** The Owner's words in the turn that started this cycle; a site named there is approved on first use. */
+  ownerWords?: string;
 }): Promise<WebRequestOutcome> {
   const method = input.request.method ?? (input.request.json !== undefined || input.request.body !== undefined ? "POST" : "GET");
-  let url: URL;
-  try { url = new URL(input.request.url); } catch { return { url: input.request.url, error: "invalid_url" }; }
+  const url = httpsUrl(input.request.url);
+  if (!url) return { url: input.request.url, error: "invalid_url" };
   const origin = normalizeOrigin(url.origin);
   const log = (status: number | null, error: string | null) => sidecar.prepare(`INSERT INTO web_requests (origin, method, path, status, error, cycle_id, at_ms)
     VALUES (?, ?, ?, ?, ?, ?, ?)`).run(origin ?? url.origin, method, `${url.pathname}`.slice(0, 200), status, error, input.cycleId ?? null, input.nowMs);
+  // "I tell her, she does it" (User 2026-10-06): a site the Owner names in the message that started
+  // this turn is approved there and then, so she can join it in the same turn.
+  if (origin && webPlaceState(sidecar, origin) === null && input.ownerWords
+    && input.ownerWords.toLowerCase().includes(bareHost(origin))) {
+    recordWebPlaceClaims(sidecar, { claims: [{ origin, reason: "the Owner asked me to go there" }], ownerTurn: true, nowMs: input.nowMs });
+  }
   if (!origin || webPlaceState(sidecar, origin) !== "approved") return { url: url.toString(), error: "not_an_approved_place" };
   if (requestCount(sidecar, origin, input.nowMs - 3_600_000) >= WEB_REQUESTS_PER_HOUR
     || requestCount(sidecar, origin, input.nowMs - 86_400_000) >= WEB_REQUESTS_PER_DAY) {

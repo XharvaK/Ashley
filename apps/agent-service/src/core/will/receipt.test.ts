@@ -26,7 +26,7 @@ describe("F1 her weekly life receipt", () => {
       expect(receipt.ownTime).toEqual({ passes: 2, spoke: 1, activities: { rest: 1, reach_out: 1 } });
       expect(receipt.night).toBe(1);
       expect(receipt.pursuits).toMatchObject({ started: 1, activeNow: 1, finished: 0 });
-      expect(receipt.places).toEqual([{ place: "room:g:c", posted: 0, refused: 1 }]);
+      expect(receipt.places).toEqual([{ place: "a room", posted: 0, refused: 1 }]);
       expect(receipt.home).toEqual({ changes: 1, files: ["notes/sites.md"] });
       const lines = renderLifeReceipt(receipt);
       expect(lines[0]).toBe("Her week: 2 own-time passes (rest 1, reach_out 1), 1 reached out, 1 nights");
