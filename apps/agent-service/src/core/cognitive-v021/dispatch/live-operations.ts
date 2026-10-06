@@ -168,6 +168,8 @@ export type V021LiveOperationExecutorOptions = {
   nuclear: DatabaseSync;
   sidecar?: DatabaseSync;
   ownerId?: string;
+  /** E1: her home folder (home.read). */
+  homeRoot?: string;
   nowMs?: () => number;
   registry?: V2ProjectReadRegistry;
   workspaceManager?: WorkspaceManager;
@@ -1252,6 +1254,7 @@ export function createV021LiveOperationExecutors(
             ownerId: options.ownerId,
             nowMs,
             webSearchProvider,
+            ...(options.homeRoot ? { homeRoot: options.homeRoot } : {}),
           });
           if (inspected) return inspected;
           throw new CapabilityUnavailableError("inspect_request_invalid");

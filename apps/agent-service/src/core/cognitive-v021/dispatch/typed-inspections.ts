@@ -1,3 +1,4 @@
+import { readHomeFile } from "../../home/home.js";
 import type { DatabaseSync } from "node:sqlite";
 import { searchEpisodes, toThoughtEpisode } from "../memory/episodes.js";
 import { WORKSPACE_WORKER_REQUEST_SCHEMA_ID } from "@composer-assistant/sandbox-v2";
@@ -483,6 +484,8 @@ export function executeTypedInspection(input: {
   ownerId?: string;
   nowMs: () => number;
   webSearchProvider?: Pick<WebSearchProvider, "available">;
+  /** E1: her home folder, when the host has one. */
+  homeRoot?: string;
 }): Observation | null {
   const { req } = input;
   if (!isValidTypedInspectionRequest(req.kind, req.request)) return null;
@@ -499,6 +502,14 @@ export function executeTypedInspection(input: {
   }
   if (req.kind === "memory.lookup") {
     return lookupMemory(req, input.sidecar, scope, input.nowMs);
+  }
+  if (req.kind === "home.read") {
+    if (!input.homeRoot) throw new CapabilityUnavailableError("home_unavailable");
+    try {
+      return { ...observation(req, "home.read", readHomeFile(input.homeRoot, String(req.request.path))), secretOmitted: false };
+    } catch (error) {
+      throw new CapabilityUnavailableError(error instanceof Error && error.message === "home_path_invalid" ? "home_path_invalid" : "home_file_missing");
+    }
   }
   return inspectWork(req, input.sidecar, scope, input.nowMs);
 }

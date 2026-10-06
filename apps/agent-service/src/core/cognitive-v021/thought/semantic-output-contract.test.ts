@@ -751,11 +751,11 @@ describe("Thought semantic output contract", () => {
     // the A2 forget field, and A9 expectation basisRefs;
     // T3 attention adds structured watches, wake feedback and resting; 8f adds domusAct; parser identity remains v2.
     expect(THOUGHT_SEMANTIC_SCHEMA_FINGERPRINT).toBe(
-      "sha256:6e63e3d224f00ab847cca46f6a1c6f7873da25a890ac1fa5a4dc94ec9acb177e",
+      "sha256:23d5c56816df30b01ab0370b0cfb5920bcf30ce8c44dd5970197236af1a64d36",
     );
     const zeroOp = constrainThoughtOutputSchema(buildOperationalEffectNamespaceFromRefs([]));
     expect(zeroOp.wireSchemaFingerprint).toBe(
-      "sha256:c86c3bc733c8c6105474c8b40830e600ab0f9dc7ae89e2cd20e40d22c19ff7d5",
+      "sha256:15698610c9d6416fd07cad874597e1b0fe34925c91362511506f21859c434512",
     );
     expect(zeroOp.namespaceConstraintFingerprint).toBe(
       "sha256:d277b3804b25361994107886d1f33f779a7501298b01fe483ebe7c795b6e19c6",

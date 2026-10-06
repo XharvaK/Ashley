@@ -143,6 +143,10 @@ export type BuildThoughtInputOptions = {
   innerPass?: ThoughtInnerPass;
   /** 8d: a Domus pass's portrait (kept only for Owner-private audiences). */
   domus?: import("../../domus/notification.js").DomusForThought;
+  /** A1/B1: her places and her recent acts there, computed by the caller (Owner-private only). */
+  places?: import("../../places/thought.js").ThoughtPlaces;
+  /** E1: her home folder, computed by the caller (Owner-private only). */
+  home?: import("../../home/home.js").ThoughtHome;
   /** Growth V1 G4: mood, opinions, open revisions and expectations (kept only for Owner-private audiences). */
   growth?: import("../growth/growth.js").ThoughtGrowth;
   senses?: import("../senses/senses.js").ThoughtSenses;
@@ -1251,6 +1255,8 @@ export function buildThoughtInput(options: BuildThoughtInputOptions): ThoughtInp
     ...(options.innerPass && audience.kind === "owner_private" ? { innerPass: options.innerPass } : {}),
     ...(options.domus && audience.kind === "owner_private" ? { domus: options.domus } : {}),
     ...(domusNow ? { domusNow } : {}),
+    ...(options.places && audience.kind === "owner_private" && !domusPass ? { places: options.places } : {}),
+    ...(options.home && audience.kind === "owner_private" && !domusPass ? { home: options.home } : {}),
     ...(options.growth && audience.kind === "owner_private" ? { growth: options.growth } : {}),
     ...(options.senses && audience.kind === "owner_private" ? { senses: options.senses } : {}),
     ...(options.attention && audience.kind === "owner_private" ? { attention: options.attention } : {}),

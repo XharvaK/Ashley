@@ -1,5 +1,8 @@
 import { selfChangeResultForThought } from "../growth/self-change-results.js";
-import { domusActBindingFor, domusChannelFor, domusForThought } from "../../domus/notification.js";
+import { domusActBindingFor, domusChannelFor, domusForThought, domusNowForThought } from "../../domus/notification.js";
+import { thoughtPlaces } from "../../places/thought.js";
+import { placesSeenMarks } from "../../places/places.js";
+import { homeForThought, homeRootFor } from "../../home/home.js";
 import { readThoughtAttention } from "../thalamus/store.js";
 import { randomUUID } from "node:crypto";
 import { env } from "../../../env.js";
@@ -1435,6 +1438,8 @@ function materializeSemanticSettlement(
   if (semantic.reflection) result.reflection = semantic.reflection;
   if (semantic.journal) result.journal = { ...semantic.journal };
   if (semantic.domusAct) result.domusAct = { ...semantic.domusAct };
+  if (semantic.intents) result.intents = semantic.intents.map((intent) => ({ ...intent }));
+  if (semantic.home) result.home = semantic.home.map((op) => ({ ...op }));
   if (semantic.interests) result.interests = semantic.interests.map((touch) => ({ ...touch }));
   (result as ThoughtSettlementDraft).sawSecret = sawSecret;
   if (semantic.growth) result.growth = structuredClone(semantic.growth);
@@ -3334,6 +3339,15 @@ export async function runCognitiveCycle(
       ...(originProfile.triggerKind === "self_change_result" ? { selfChangeResult: selfChangeResultForThought(sidecar, event, originProfile.originCycleId) } : {}),
       ...(originProfile.triggerKind === "domus_notification" && effectiveThoughtAudience.kind === "owner_private"
         ? { domus: domusForThought(sidecar, event, originProfile.originCycleId, { enabled: env.domusActEnabled, nowMs: deps.nowMs() }) } : {}),
+      ...(effectiveThoughtAudience.kind === "owner_private" && !externalCycle && originProfile.triggerKind !== "domus_notification"
+        ? (() => {
+            const nowMs = deps.nowMs();
+            const game = domusNowForThought(sidecar, nowMs);
+            const places = thoughtPlaces(sidecar, nuclear, { nowMs, ...(cycle.triggerKind === "owner_message" ? { here: "owner_dm" as const } : {}),
+              ...(game ? { game: { world: game.world, live: game.live } } : {}) });
+            const home = deps.dataDir ? homeForThought(sidecar, homeRootFor(deps.dataDir), nowMs) : undefined;
+            return { ...(places ? { places } : {}), ...(home ? { home } : {}) };
+          })() : {}),
       triggerText: ownerMessage,
       triggerEvidence,
       ...(continuityRecovery ? { continuityRecovery } : {}),
@@ -4547,6 +4561,7 @@ export async function runCognitiveCycle(
           nightPass: nightPass ?? null,
           ...(originProfile.triggerKind === "domus_notification" ? domusChannelFor(sidecar, event, originProfile.originCycleId) : {}),
           ...(allocated.projected.domus?.changes?.quiet === true ? { domusQuiet: true as const } : {}),
+          ...(allocated.projected.places ? { placesSeen: placesSeenMarks(allocated.projected.places.list) } : {}),
           ...(originProfile.triggerKind === "domus_notification" && env.domusActEnabled
             ? (() => { const binding = domusActBindingFor(sidecar, event, originProfile.originCycleId); return binding ? { domusAct: binding } : {}; })()
             : {}),

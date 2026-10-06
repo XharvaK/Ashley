@@ -19,6 +19,8 @@ import {
   SOCIAL_VISIBILITY_GUIDANCE,
   SOCIAL_TRUST_GUIDANCE,
   GROUP_CHAT_GUIDANCE,
+  PLACES_GUIDANCE,
+  HOME_GUIDANCE,
   constrainThoughtOutputSchema,
   thoughtContractProfile,
   thoughtContractProfileKey,
@@ -45,7 +47,8 @@ const INQUIRY_LAW = "A bounded inquiry pairs M3 workspace steps";
  */
 // Explicit durableNominations guidance, including one worked nomination, is on every chat prefix.
 // M5 (2026-10-06): her life in the game is on every Owner-private prefix (+~150).
-const CHAT_PREFIX_TOKEN_BUDGET = 9_600;
+// A guard against unnoticed growth, not a limit on her (User 2026-10-06: 16K); the stable prefix is cached.
+const CHAT_PREFIX_TOKEN_BUDGET = 16_000;
 
 function settlementFields(profile: ReturnType<typeof thoughtContractProfile>): string[] {
   const namespace = { allowedOperationalEffectRefs: [], fingerprint: "sha256:test" } as unknown as OperationalEffectNamespace;
@@ -161,6 +164,20 @@ describe("I1 profile-scoped Thought contract", () => {
     expect(settlementFields(thoughtContractProfile(pass("night")))).toEqual(expect.arrayContaining(["night", "journal"]));
     expect(settlementFields(thoughtContractProfile(pass("night")))).not.toContain("reflection");
     expect(settlementFields(thoughtContractProfile({ ...chat, audience: { kind: "room" } }))).not.toContain("growth");
+  });
+
+  it("B1: her places and intents are Owner-private; a room turn never offers them", () => {
+    for (const source of [chat, pass("awake"), pass("night")]) {
+      expect(thoughtOutputCompatibilityInstruction(thoughtContractProfile(source))).toContain(PLACES_GUIDANCE);
+      expect(settlementFields(thoughtContractProfile(source))).toContain("intents");
+      expect(settlementFields(thoughtContractProfile(source))).toContain("home");
+      expect(thoughtOutputCompatibilityInstruction(thoughtContractProfile(source))).toContain(HOME_GUIDANCE);
+    }
+    const room = { ...chat, audience: { kind: "room" } };
+    expect(thoughtOutputCompatibilityInstruction(thoughtContractProfile(room))).not.toContain(PLACES_GUIDANCE);
+    expect(settlementFields(thoughtContractProfile(room))).not.toContain("intents");
+    expect(settlementFields(thoughtContractProfile(room))).not.toContain("home");
+    expect(PLACES_GUIDANCE).toMatch(/not that it is up/);
   });
 
   it("shares a stable instruction prefix across chat, awake, and afterglow", () => {

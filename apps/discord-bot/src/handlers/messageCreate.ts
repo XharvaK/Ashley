@@ -14,6 +14,7 @@ import { channelQueue } from "../chat/channel-queue.js";
 import {
   MAX_IMAGES,
   describeIntake,
+  messageNames,
   hasIngestibleTextAttachment,
   type ExternalEnvelopeTransport,
   type Intake,
@@ -91,7 +92,7 @@ export function createMessageCreateHandler(options: {
   captureExternalChat?: (
     envelope: ExternalEnvelopeTransport,
     message: string,
-    options?: { gateHint?: GateVerdict; conversationKey?: string },
+    options?: { gateHint?: GateVerdict; conversationKey?: string; names?: { speaker?: string; guild?: string; channel?: string } },
   ) => Promise<ExternalCaptureResult>;
   ingressExternalBatch?: (
     captureRefs: string[],
@@ -207,7 +208,7 @@ export function createMessageCreateHandler(options: {
           const captured = await (options.captureExternalChat ?? captureExternalChat)(
             envelope,
             intake.text,
-            { gateHint: context.gateVerdict, conversationKey },
+            { gateHint: context.gateVerdict, conversationKey, names: messageNames(message) },
           );
           if (!captured.captureRef || captured.conversationKey !== conversationKey) {
             throw new Error("external_capture_receipt_invalid");

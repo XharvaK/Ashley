@@ -39,6 +39,10 @@ describe("A3c senses", () => {
     expect([0, 1, 5].map(n => senseBand("delivery_backlog", n))).toEqual(["clear", "pending", "backlogged"]);
     expect([0, 1, 2].map(n => senseBand("private_budget", n))).toEqual(["empty", "low", "available"]);
     expect([0, DAY, 3*DAY, null].map(n => senseBand("backup", n))).toEqual(["fresh", "aging", "stale", "unknown"]);
+    expect([0.2, 0.7, 1.5].map(n => senseBand("cpu", n))).toEqual(["calm", "busy", "strained"]);
+    expect([0.5, 0.2, 0.05].map(n => senseBand("memory", n))).toEqual(["ok", "tight", "critical"]);
+    expect([0.5, 0.1, 0.02].map(n => senseBand("disk", n))).toEqual(["ok", "low", "critical"]);
+    expect([45, 70, 80, 95, null].map(n => senseBand("temperature", n))).toEqual(["cool", "warm", "hot", "overheating", "unknown"]);
   });
   it.each(["band", "time"])("a decline hides then re-raises once on %s", async mode => {
     const { sensesForThought, recordSenseDeclines } = await api(); const db = openTestSidecar();
@@ -61,7 +65,7 @@ describe("A3c senses", () => {
         recordExpectations(db, { cycleId: `c${n}`, statements: [content], nowMs: T, dataClassification: "ordinary" });
         recordFriction(db, { kind: "self_reported", note: content, nowMs: T, dataClassification: "ordinary" });
         const lines = sensesForThought(db, { nowMs: T, conversationId: "t" }).lines;
-        expect(lines.length).toBeLessThanOrEqual(8);
+        expect(lines.length).toBeLessThanOrEqual(12);
         expect(lines.join("\n")).not.toContain(content);
         expect(lines.every(line => !line.includes("\n"))).toBe(true);
       }
@@ -114,5 +118,30 @@ describe("GS1 sense projection labels", () => {
       recordSenseDeclines(db, { decline: [{ sense: "backup", rationale: "considered" }] }, { nowMs: T, conversationId: "t", dataClassification: "never_public" }, { backup: "unknown" });
       expect(sensesForThought(db, { nowMs: T+1, conversationId: "t" }).lines).not.toContain("backup: unknown");
     } finally { db.close(); }
+  });
+});
+
+describe("H1 her machine as senses", () => {
+  it("reads her computer's vitals as bands with plain details", async () => {
+    const { readSenseFacts } = await api();
+    const db = openTestSidecar();
+    try {
+      const machine = { load1: 6, cores: 4, memAvailableFraction: 0.25, memTotalBytes: 16 * 1024 ** 3, diskFreeFraction: 0.05,
+        diskFreeBytes: 5 * 1024 ** 3, tempC: 71, uptimeS: 3 * 86400 };
+      const readings = readSenseFacts(db, { nowMs: T, conversationId: "t", machine });
+      expect(readings.filter(r => ["cpu", "memory", "disk", "temperature"].includes(r.sense))).toEqual([
+        { sense: "cpu", band: "strained", detail: "load=6.00 on 4 cores; up 3d" },
+        { sense: "memory", band: "tight", detail: "available=25% of 16.0GiB" },
+        { sense: "disk", band: "critical", detail: "free=5.0GiB (5%)" },
+        { sense: "temperature", band: "warm", detail: "hottest=71°C" },
+      ]);
+    } finally { db.close(); }
+  });
+
+  it("reads the live machine without failing", async () => {
+    const { readMachineVitals } = await import("./machine.js");
+    const vitals = readMachineVitals();
+    expect(vitals.cores).toBeGreaterThan(0);
+    expect(vitals.memTotalBytes).toBeGreaterThan(0);
   });
 });

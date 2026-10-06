@@ -11,6 +11,7 @@ export const TYPED_INSPECTION_OPERATION_KINDS = [
   "temporal.inspect",
   "work.inspect",
   "memory.lookup",
+  "home.read",
 ] as const;
 
 export const MEMORY_LOOKUP_MAX_QUERY_CHARS = 200;
@@ -262,6 +263,10 @@ export function isValidTypedInspectionRequest(
     return onlyKeys(value, ["operationKind"])
       && typeof value.operationKind === "string"
       && /^[a-z][a-z0-9_.-]{0,95}$/.test(value.operationKind);
+  }
+
+  if (operationKind === "home.read") {
+    return onlyKeys(value, ["path"]) && typeof value.path === "string" && value.path.trim().length > 0 && value.path.length <= 240;
   }
 
   if (operationKind === "memory.lookup") {

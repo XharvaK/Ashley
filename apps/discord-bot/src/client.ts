@@ -18,6 +18,7 @@ import { handleMessage } from "./handlers/messageCreate.js";
 import { handleReaction } from "./handlers/reactionAdd.js";
 import { startSchedulerHandoff } from "./initiative/scheduler.js";
 import { startFulfillmentPump } from "./initiative/fulfillment-pump.js";
+import { startPlacePostPump } from "./places/post-pump.js";
 import { reconcilePresence, startPresence } from "./presence.js";
 import { querySocialEligibility } from "./agent-client.js";
 import { createOwnerTransportReconciler } from "./chat/owner-transport-recovery.js";
@@ -46,6 +47,7 @@ export function createClient(): Client {
     });
     startSchedulerHandoff(c.user.id);
     startFulfillmentPump(client);
+    startPlacePostPump(client);
     startPresence(client);
   });
 

@@ -29,7 +29,7 @@ export type { SourceSupportRef } from "./evidence/interpretation-envelope.js";
 export const ARCHITECTURE_EPOCH = "v0.2.1" as const;
 export const IMPLEMENTATION_SPEC_VERSION = "0.2.1.r6" as const;
 export const THOUGHT_CONTRACT_VERSION = 2 as const;
-export const COGNITIVE_SIDECAR_SCHEMA_VERSION = 62 as const;
+export const COGNITIVE_SIDECAR_SCHEMA_VERSION = 63 as const;
 
 /**
  * Hard bound on cognition-facing concern discovery windows and pages. The
@@ -1053,6 +1053,10 @@ export type SettlementSemanticOutput = {
   journal?: import("./initiative/journal.js").JournalClaim;
   /** 8f Domus passes: one listed game action she chooses (Host-resolved; carries no execution authority). */
   domusAct?: import("../domus/acts.js").DomusActClaim;
+  /** B1 Owner-private turns: what she says in another of her places (Host-checked at hand-over). */
+  intents?: readonly import("../places/intents.js").PlaceIntentClaim[];
+  /** E1 Owner-private turns: changes to her home folder (Host-applied after publication). */
+  home?: readonly import("../home/home.js").HomeOp[];
   /** Interests Ashley lived in this turn or pass (Owner-private). */
   interests?: readonly import("./memory/interests.js").InterestTouch[];
   /** Growth V1 G4: appraisal, expectations, revisions (Owner-private). */
@@ -1339,6 +1343,10 @@ export type ThoughtSettlementDraft = {
   journal?: import("./initiative/journal.js").JournalClaim;
   /** 8f: stored by the Host after publication as a requested act (domus/acts.ts). */
   domusAct?: import("../domus/acts.js").DomusActClaim;
+  /** B1: stored by the Host after publication as requested posts (places/intents.ts). */
+  intents?: import("../places/intents.js").PlaceIntentClaim[];
+  /** E1: applied by the Host after publication (home/home.ts). */
+  home?: import("../home/home.js").HomeOp[];
   /** Stored by the Host after publication (memory/interests.ts). */
   interests?: import("./memory/interests.js").InterestTouch[];
   /** Stored by the Host after publication (growth/growth.ts). */
@@ -1752,6 +1760,10 @@ export type ThoughtInput = {
   domus?: import("../domus/notification.js").DomusForThought;
   /** M5: outside a Domus pass, Owner-private only: her body in the game as last seen. */
   domusNow?: import("../domus/notification.js").DomusNow;
+  /** A1/B1: the places she is present in, and what became of her recent acts there (Owner-private). */
+  places?: import("../places/thought.js").ThoughtPlaces;
+  /** E1: her home folder and her latest changes there (Owner-private). */
+  home?: import("../home/home.js").ThoughtHome;
   /** Present only for an autonomous idle-opportunity Thought. */
   publicPresence?: PublicPresenceContext;
   /** Host factual context for the single Ashley-authored capacity-wait turn. */

@@ -137,6 +137,18 @@ function attributedEnvelope(
   };
 }
 
+/** A1: the names Discord shows for the author and, in a server, the server and channel. Names only; identity stays the ids. */
+export function messageNames(message: Message): { speaker?: string; guild?: string; channel?: string } {
+  const names: { speaker?: string; guild?: string; channel?: string } = {};
+  const speaker = message.member?.displayName ?? message.author?.globalName ?? message.author?.username;
+  if (typeof speaker === "string" && speaker.trim()) names.speaker = speaker.trim().slice(0, 100);
+  const guild = message.guild?.name;
+  if (typeof guild === "string" && guild.trim()) names.guild = guild.trim().slice(0, 100);
+  const channel = message.channel && "name" in message.channel ? (message.channel as { name?: unknown }).name : undefined;
+  if (typeof channel === "string" && channel.trim()) names.channel = channel.trim().slice(0, 100);
+  return names;
+}
+
 export function describeIntake(message: Message): Intake {
   const attachments: AttachmentRef[] = [];
   const notes: string[] = [];

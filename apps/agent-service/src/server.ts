@@ -17,6 +17,7 @@ import {isThalamusEnabled,schedulerContract,observeGatewayUserId} from "./core/c
 import {thalamusStatus} from "./core/cognitive-v021/thalamus/status.js";
 import { createTransportAuth } from "./transport-auth.js";
 import { assertRegisteredRoutes } from "./route-surface.js";
+import { parsePlaceSyncReports, syncPlacePosts } from "./core/places/intents.js";
 import { openCognitiveSidecarDb } from "./core/cognitive-v021/sidecar/db.js";
 import {
   createCognitiveIngressHandler,
@@ -1876,6 +1877,21 @@ export function createServer(
       }
     },
   );
+
+  // B1: the bot pulls her due posts in her other places and reports what became of them.
+  app.post("/places/posts/sync", (req, res) => {
+    try {
+      requireReady();
+      requireBotService(req);
+      const reports = parsePlaceSyncReports(req.body);
+      const result = syncPlacePosts(getCognitiveSidecar(), manager.core.getDatabase(), { reports, nowMs: Date.now() });
+      res.status(200).json({ status: "ok", applied: result.applied, posts: result.posts });
+    } catch (err) {
+      const { status, body } = toErrorResponse(err instanceof Error && err.message === "place_sync_invalid"
+        ? new AppError("bad_request", "invalid place sync", 400) : err);
+      res.status(status).json(body);
+    }
+  });
 
   const ownerTransportHttpOptions = () => ({
     sidecar: getCognitiveSidecar(),

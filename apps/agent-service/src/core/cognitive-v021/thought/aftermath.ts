@@ -1,3 +1,6 @@
+import { recordPlaceIntents, type PlaceIntentClaim } from "../../places/intents.js";
+import { recordPlacesSeen } from "../../places/places.js";
+import { applyHomeOps, homeRootFor, type HomeOp } from "../../home/home.js";
 import { recordPublishedAttention } from "../thalamus/store.js";
 import type { AttentionClaim } from "../thalamus/attention.js";
 import type { DatabaseSync } from "node:sqlite";
@@ -29,6 +32,8 @@ export type AftermathContext = {
   channel?: `domus:${string}`;
   /** H0.4: nothing she read had changed since her last Domus pass (domus.changes.quiet). */
   domusQuiet?: true;
+  /** A1: the newest line she was shown in each of her places. */
+  placesSeen?: Record<string, number>;
   /** 8f: acting was on and these were the options she read; her domusAct is resolved against them. */
   domusAct?: DomusActBinding;
   nightPass: NightPass | null;
@@ -50,6 +55,8 @@ type StoredSettlement = {
   interests?: InterestTouch[];
   journal?: JournalClaim;
   domusAct?: DomusActClaim;
+  intents?: PlaceIntentClaim[];
+  home?: HomeOp[];
   growth?: GrowthClaim;
   senses?: SenseClaim;
   attention?: AttentionClaim;
@@ -131,6 +138,13 @@ export function recordSettlementAftermath(
         dataClassification,
         nowMs: options.nowMs,
       });
+    }
+    if (context.ownerPrivate !== false) recordPlacesSeen(db, context.placesSeen, options.nowMs);
+    if (standing && context.ownerPrivate !== false && settlement.intents?.length) {
+      recordPlaceIntents(db, { cycleId, claims: settlement.intents, sawSecret: settlement.sawSecret !== false, nowMs: options.nowMs });
+    }
+    if (standing && context.ownerPrivate !== false && settlement.home?.length && options.dataDir) {
+      applyHomeOps(db, homeRootFor(options.dataDir), { cycleId, ops: settlement.home, nowMs: options.nowMs });
     }
     if (standing && context.domusAct && settlement.domusAct) {
       recordDomusAct(db, { binding: context.domusAct, claim: settlement.domusAct, cycleId, nowMs: options.nowMs });

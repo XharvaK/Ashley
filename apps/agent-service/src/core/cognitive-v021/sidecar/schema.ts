@@ -2221,3 +2221,47 @@ CREATE TABLE IF NOT EXISTS domus_act_events (
 );
 UPDATE cognitive_sidecar_meta SET schema_version=62 WHERE id=1;
 `;
+
+/** Autonomy pack: names the platform reports, the places she has looked at, and her acts in other places. */
+export const COGNITIVE_SIDECAR_SCHEMA_V63 = String.raw`
+CREATE TABLE IF NOT EXISTS discord_names (
+  kind TEXT NOT NULL CHECK (kind IN ('user','guild','channel')),
+  id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  updated_at_ms INTEGER NOT NULL,
+  PRIMARY KEY (kind, id)
+);
+CREATE TABLE IF NOT EXISTS place_seen (
+  place_ref TEXT PRIMARY KEY,
+  seen_through_ms INTEGER NOT NULL,
+  updated_at_ms INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS place_intents (
+  intent_id TEXT PRIMARY KEY,
+  cycle_id TEXT NOT NULL,
+  ordinal INTEGER NOT NULL,
+  place_ref TEXT NOT NULL,
+  interaction TEXT NOT NULL CHECK (interaction IN ('initiate','continue')),
+  say TEXT NOT NULL,
+  state TEXT NOT NULL CHECK (state IN ('requested','sending','posted','refused','failed','expired')),
+  reason TEXT,
+  discord_message_id TEXT,
+  due_at_ms INTEGER NOT NULL,
+  requested_at_ms INTEGER NOT NULL,
+  updated_at_ms INTEGER NOT NULL,
+  UNIQUE (cycle_id, ordinal)
+);
+CREATE INDEX IF NOT EXISTS idx_place_intents_state_due ON place_intents(state, due_at_ms);
+CREATE INDEX IF NOT EXISTS idx_place_intents_place ON place_intents(place_ref, requested_at_ms);
+CREATE TABLE IF NOT EXISTS home_ops (
+  cycle_id TEXT NOT NULL,
+  ordinal INTEGER NOT NULL,
+  op TEXT NOT NULL,
+  path TEXT NOT NULL,
+  ok INTEGER NOT NULL,
+  reason TEXT,
+  at_ms INTEGER NOT NULL,
+  PRIMARY KEY (cycle_id, ordinal)
+);
+UPDATE cognitive_sidecar_meta SET schema_version=63 WHERE id=1;
+`;

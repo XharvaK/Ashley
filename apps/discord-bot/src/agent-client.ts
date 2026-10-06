@@ -271,7 +271,7 @@ export type ExternalCaptureResult = {
 export async function captureExternalChat(
   envelope: ExternalEnvelopeTransport,
   message: string,
-  options?: { gateHint?: GateVerdict; conversationKey?: string },
+  options?: { gateHint?: GateVerdict; conversationKey?: string; names?: { speaker?: string; guild?: string; channel?: string } },
 ): Promise<ExternalCaptureResult> {
   return agentFetch<ExternalCaptureResult>("/chat/ingress-external/capture", {
     method: "POST",
@@ -283,8 +283,25 @@ export async function captureExternalChat(
       attachments: envelope.attachmentRefs,
       gateHint: options?.gateHint,
       conversationKey: options?.conversationKey,
+      ...(options?.names ? { names: options.names } : {}),
     }),
   });
+}
+
+export type PlacePost = {
+  intent_id: string;
+  target: { kind: "room"; guildId: string; channelId: string } | { kind: "contact"; principalId: string };
+  text: string;
+};
+export type PlacePostReport = { intent_id: string; outcome: "posted" | "failed"; discord_message_id?: string; reason?: string };
+
+/** B1: report what became of earlier posts and take the ones now due. */
+export async function syncPlacePosts(reports: PlacePostReport[]): Promise<{ posts: PlacePost[] }> {
+  return agentFetch<{ posts: PlacePost[] }>("/places/posts/sync", {
+    method: "POST",
+    headers: botServiceHeaders(),
+    body: JSON.stringify({ reports }),
+  }, 10_000);
 }
 
 export type ExternalBatchResult = {

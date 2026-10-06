@@ -1,3 +1,4 @@
+import { homeRootFor } from "./core/home/home.js";
 import { createSelfChangeResultMaintenance, type SelfChangeResultMaintenance } from "./core/cognitive-v021/growth/self-change-results.js";
 import { configureEmbodimentBudget } from "./core/domus/notification.js";
 import { createDomusIngressApp, decideDomusIngress } from "./core/domus/ingress.js";
@@ -358,6 +359,7 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
       nuclear,
       ownerId,
       sidecar,
+      ...(manager.dataPlane?.dataDir ? { homeRoot: homeRootFor(manager.dataPlane.dataDir) } : {}),
       adapters: { webFetchProvider, webSearchProvider },
     });
     const projector = createOutboxProjector(sidecar, nuclear, {

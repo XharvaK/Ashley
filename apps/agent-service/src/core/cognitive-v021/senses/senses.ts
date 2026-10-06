@@ -3,6 +3,7 @@ import {readLearning} from "../thalamus/learning.js";
 import type { DataClassification } from "../../privacy/classification.js";
 // A sense states the truth at proportionate volume and then stops; a reasoned no quiets it.
 import { join } from "node:path";
+import { machineDetails, readMachineVitals, type MachineVitals } from "./machine.js";
 import { detectCredentialShape } from "../../privacy/secrets.js";
 import type { DatabaseSync } from "node:sqlite";
 import { readBackupStatus } from "../../../scripts/backup-lib.js";
@@ -10,11 +11,11 @@ import { frictionForThought, FRICTION_KINDS } from "../growth/friction.js";
 import { listOpenExpectations } from "../growth/expectations.js";
 import { listOccupancy } from "../concerns/occupancy.js";
 import { getPrivateBudgetProjection, PRIVATE_THOUGHT_POLICY_ID } from "../private-budget/ledger.js";
-export const SENSE_NAMES = ["friction", "expectations", "stale_concerns", "delivery_backlog", "private_budget", "backup"] as const;
+export const SENSE_NAMES = ["friction", "expectations", "stale_concerns", "delivery_backlog", "private_budget", "backup", "cpu", "memory", "disk", "temperature"] as const;
 export type SenseName = typeof SENSE_NAMES[number];
 export type SenseClaim = { decline: Array<{ sense: SenseName; rationale: string; untilMs?: number }> };
 export type ThoughtSenses = { lines: string[] };
-export type SenseOptions = { nowMs: number; conversationId: string; ownerId?:string; dataDir?: string; dataClassification?: DataClassification };
+export type SenseOptions = { nowMs: number; conversationId: string; ownerId?:string; dataDir?: string; dataClassification?: DataClassification; machine?: MachineVitals };
 export type SenseReading = { sense: SenseName; band: string; detail?: string };
 const DAY = 86400000;
 const DECLINE_MAX_MS = 7 * DAY;
@@ -27,6 +28,11 @@ export function senseBand(sense: SenseName, amount: number | null): string {
     case "delivery_backlog": return amount === 0 ? "clear" : amount < 5 ? "pending" : "backlogged";
     case "private_budget": return amount === 0 ? "empty" : amount < 2 ? "low" : "available";
     case "backup": return amount < DAY ? "fresh" : amount < 3 * DAY ? "aging" : "stale";
+    // H1: her machine. cpu is the 1-minute load per core; memory and disk are the fractions still free; temperature in °C.
+    case "cpu": return amount < 0.5 ? "calm" : amount < 1 ? "busy" : "strained";
+    case "memory": return amount > 0.3 ? "ok" : amount > 0.1 ? "tight" : "critical";
+    case "disk": return amount > 0.2 ? "ok" : amount > 0.08 ? "low" : "critical";
+    case "temperature": return amount < 60 ? "cool" : amount < 75 ? "warm" : amount < 85 ? "hot" : "overheating";
   }
 }
 export function readSenseFacts(db: DatabaseSync, options: SenseOptions): SenseReading[] {
@@ -56,6 +62,18 @@ export function readSenseFacts(db: DatabaseSync, options: SenseOptions): SenseRe
     { sense: "delivery_backlog", band: senseBand("delivery_backlog", backlog), detail: `count=${backlog}` },
     { sense: "private_budget", band: senseBand("private_budget", budget.clockState === "clock_reconciliation" ? null : budget.remaining), detail: `left_this_hour=${budget.remaining}` },
     { sense: "backup", band: senseBand("backup", backupAge) },
+    ...machineReadings(options.machine ?? readMachineVitals(options.dataDir)),
+  ];
+}
+function machineReadings(vitals: MachineVitals): SenseReading[] {
+  const details = machineDetails(vitals);
+  const reading = (sense: SenseName, amount: number | null, detail?: string): SenseReading =>
+    ({ sense, band: senseBand(sense, amount), ...(detail ? { detail } : {}) });
+  return [
+    reading("cpu", vitals.load1 === null ? null : vitals.load1 / vitals.cores, details.cpu),
+    reading("memory", vitals.memAvailableFraction, details.memory),
+    reading("disk", vitals.diskFreeFraction, details.disk),
+    reading("temperature", vitals.tempC, details.temperature),
   ];
 }
 export function senseBandsForDeclines(readings: readonly SenseReading[]): Partial<Record<SenseName, string>> {
@@ -81,7 +99,7 @@ export function sensesForThought(db: DatabaseSync, options: SenseOptions, readin
     const learning=readLearning(db,options.ownerId);
     lines.push(`attention sensitivity: nucleus gains=${JSON.stringify(learning.gains)}; family gains=${JSON.stringify(learning.familyGains)}; habituation=${JSON.stringify(learning.habituation)}`);
   }
-  return { lines: lines.slice(0, 8) };
+  return { lines: lines.slice(0, 12) };
 }
 export function recordSenseDeclines(db: DatabaseSync, claim: SenseClaim, options: SenseOptions, bands = senseBandsForDeclines(readSenseFacts(db, options))): void {
   if (!isValidSenseClaim(claim)) return;

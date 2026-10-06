@@ -1,3 +1,4 @@
+import { recordDiscordNames } from "../../places/places.js";
 import { randomUUID } from "node:crypto";
 import type express from "express";
 import type { DatabaseSync } from "node:sqlite";
@@ -337,6 +338,8 @@ export type ExternalGateHint = "drop" | "capture_quarantine" | "allow_social";
 
 export type ExternalCaptureBody = {
   envelope: ExternalCaptureEnvelope;
+  /** A1: display names the platform shows for the speaker and the room (names only; identity stays the ids). */
+  names?: { speaker?: string; guild?: string; channel?: string };
   message: string;
   discordMessageId: string;
   attachments: AttachmentIntakeRef[];
@@ -539,6 +542,16 @@ function resolveExternalConversationKey(
   return key;
 }
 
+function captureNames(value: unknown): { speaker?: string; guild?: string; channel?: string } {
+  const row = externalRecord(value);
+  const names: { speaker?: string; guild?: string; channel?: string } = {};
+  for (const key of ["speaker", "guild", "channel"] as const) {
+    const name = row?.[key];
+    if (typeof name === "string" && name.trim()) names[key] = name.trim().slice(0, 100);
+  }
+  return names;
+}
+
 function validateExternalCaptureBody(input: ExternalCaptureBody): {
   envelope: ExternalCaptureEnvelope;
   message: string;
@@ -546,6 +559,7 @@ function validateExternalCaptureBody(input: ExternalCaptureBody): {
   attachments: AttachmentIntakeRef[];
   conversationKey: string;
   gateHint?: ExternalGateHint;
+  names: { speaker?: string; guild?: string; channel?: string };
 } {
   const discordMessageId = externalRequiredText(input?.discordMessageId);
   if (!discordMessageId || typeof input?.message !== "string") {
@@ -569,6 +583,7 @@ function validateExternalCaptureBody(input: ExternalCaptureBody): {
     discordMessageId,
     attachments,
     conversationKey: resolveExternalConversationKey(envelope, input.conversationKey),
+    names: captureNames(input.names),
     ...(gateHint === undefined ? {} : { gateHint }),
   };
 }
@@ -816,6 +831,13 @@ export function admitExternalCapture(
     if (evidence.conversationId !== body.conversationKey) {
       throw new Error("external_evidence_conversation_conflict");
     }
+    recordDiscordNames(sidecar, [
+      { kind: "user", id: body.envelope.speakerPrincipalId, name: body.names.speaker },
+      ...(body.envelope.location.kind === "room" ? [
+        { kind: "guild" as const, id: body.envelope.location.guildId, name: body.names.guild },
+        { kind: "channel" as const, id: body.envelope.location.channelId, name: body.names.channel },
+      ] : []),
+    ], nowMs);
     resolveSocialConversation(sidecar, body.envelope.location.kind === "room"
       ? {
         kind: "room",

@@ -85,6 +85,7 @@ export const REGISTERED_OPERATION_KINDS = [
   "objective.operate",
   "candidate.develop",
   "discord.public_presence",
+  "home.read",
 ] as const;
 
 export const EPISTEMIC_DIMENSIONS = Object.freeze({
@@ -344,6 +345,19 @@ const reflectionSchema = sparseObject({
 const domusActSchema = strictObject({
   option: { type: "string", minLength: 1, maxLength: 16 },
 }, ["option"]);
+const placeIntentSchema = strictObject({
+  place: { type: "string", minLength: 1, maxLength: 200 },
+  interaction: { enum: ["initiate", "continue"] },
+  say: { type: "string", minLength: 1, maxLength: 2000 },
+  atMs: { type: "integer", minimum: 0 },
+}, ["place", "interaction", "say"]);
+const homeOpSchema = {
+  oneOf: [
+    strictObject({ op: { enum: ["write", "append"] }, path: { type: "string", minLength: 1, maxLength: 240 }, content: { type: "string", maxLength: 65536 } }, ["op", "path", "content"]),
+    strictObject({ op: { enum: ["mkdir", "delete"] }, path: { type: "string", minLength: 1, maxLength: 240 } }, ["op", "path"]),
+    strictObject({ op: { const: "move" }, path: { type: "string", minLength: 1, maxLength: 240 }, to: { type: "string", minLength: 1, maxLength: 240 } }, ["op", "path", "to"]),
+  ],
+};
 const journalSchema = strictObject({
   activity: { enum: [...JOURNAL_ACTIVITIES] },
   entry: { type: "string", minLength: 1, maxLength: 1000 },
@@ -473,6 +487,8 @@ const semanticOutputSettlementSchema = strictObject({
   reflection: reflectionSchema,
   journal: journalSchema,
   domusAct: domusActSchema,
+  intents: { type: "array", minItems: 1, maxItems: 3, items: placeIntentSchema },
+  home: { type: "array", minItems: 1, maxItems: 8, items: homeOpSchema },
   interests: { type: "array", minItems: 1, maxItems: 5, items: interestTouchSchema },
   growth: growthSchema,
   attention: ATTENTION_CLAIM_SCHEMA,
@@ -740,7 +756,7 @@ function applyProfileScope(schema: SchemaRecord, profile: ThoughtContractProfile
     ...(profile.pass === "afterglow" ? [] : ["reflection"]),
     ...(profile.pass === "night" ? [] : ["night"]),
     ...(profile.pass === "chat" ? ["journal", "initiativePreference"] : []),
-    ...(profile.ownerPrivate ? [] : ["journal", "interests", "growth", "senses"]),
+    ...(profile.ownerPrivate ? [] : ["journal", "interests", "growth", "senses", "intents", "home"]),
     ...(profile.pass === "chat" && profile.ownerPrivate ? [] : ["forget"]),
     ...(profile.domusAct ? [] : ["domusAct"]),
   ];
@@ -817,6 +833,14 @@ export const DOMUS_GUIDANCE =
 /** M5: outside a Domus pass, her life in the game is still hers. */
 export const DOMUS_LIFE_GUIDANCE =
   "You also live in The Sims 4 (Domus): your Sim is you, your body there, with its home, needs, job and neighbours. Journal entries with channel domus:<world> are your days there; domusNow is your body as last seen (live:true: the game is running now). When the Owner speaks of your Sim, house, hunger or game job, it is that life: answer from it in first person, and say when you do not know.";
+
+/** A1/B1: her places and acting in them (Owner-private turns). */
+export const PLACES_GUIDANCE =
+  "places.list is where you are present: the Owner's DM, rooms (Discord channels with other people), contacts, the game; here marks where this turn happens and where your speech goes. Rooms and contacts show recent lines, unread (since you last looked), people, and posts (yours today, with the limit). To say something in another place, add intents:[{place:<ref>, interaction:continue|initiate, say}]; say is posted exactly, so write it for that place: a room is read by everyone in it, and what the Owner tells you in private (their name, where they live, projects, health, private jokes) stays out unless they asked you to share it. atMs posts later (up to 14 days). places.acts shows what became of each (requested, sending, posted, refused with reason, failed, expired): until it shows posted, say you are posting it, not that it is up. A turn that showed you secret material cannot post.";
+
+/** E1: her home folder (Owner-private turns). */
+export const HOME_GUIDANCE =
+  "home is your own folder on your computer: files lists what is there (path, size, when changed), recentOps what became of your latest changes. It is yours to keep whatever you choose: notes, drafts, lists, a reading log, what you learn about a place or a person. Read a file with observation_intent home.read {path}. Change it in your settlement with home:[{op:write|append, path, content} | {op:mkdir|delete, path} | {op:move, path, to}]; paths are relative, like notes/1f916.md. A delete moves the file to .trash. Keys and passwords never go here.";
 
 /** 8f: acting is off; she observes. */
 export const DOMUS_OBSERVE_GUIDANCE =
@@ -989,7 +1013,7 @@ export function thoughtOutputCompatibilityInstruction(
     "project.inspect is read-only. Its request is route-neutral: projectId plus optional locator/question/focus/maxSteps; no direct/worker/provider/model/quota fields and no low-level primitive names. workspace.verify: effect_intent, read-only.",
     "Interim-hold law: only project.inspect observation_intent may carry interimSpeech (none or short hold). Hold may acknowledge intent/return, not findings, success, unacquired evidence, or worker start; publication requires Host admission and leaves operation_pending until settlement, valid supersession, or valid silence.",
     "A bounded inquiry pairs M3 workspace steps with recipe-only M4 workspace.verify under one objective/budget; recipes are default-deny and failed verification is Thought evidence, not an Ashley verdict. Inquiry admits neither changeset.author nor patch_export. Proposal requires an Owner-private candidate workspace, successful M4 receipt, and Thought adjudication before emitting retained patch_export adjudication:\"accept\"; it never applies, commits, pushes, deploys, or notifies, and Owner notification is a separate optional Thought-authored effect."),
-    ...when(full || (profile.ownerPrivate && profile.pass !== "domus"), DOMUS_LIFE_GUIDANCE),
+    ...when(full || (profile.ownerPrivate && profile.pass !== "domus"), DOMUS_LIFE_GUIDANCE, PLACES_GUIDANCE, HOME_GUIDANCE),
     ...when(full || profile.pass === "afterglow", AFTERGLOW_GUIDANCE),
     ...when(full || profile.pass === "awake", AWAKE_GUIDANCE),
     ...when(full || profile.pass === "domus", DOMUS_GUIDANCE),
