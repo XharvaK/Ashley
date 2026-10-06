@@ -4,9 +4,10 @@ import { placesForThought, type ThoughtPlace } from "./places.js";
 import { recentPlaceActs, type PlaceAct } from "./intents.js";
 import { webPlacesForThought, type WebPlaceView } from "../reach/web.js";
 import { listPlaceRules, type PlaceRule } from "./rules.js";
+import { lessonsForThought, type ThoughtLesson } from "../teach/lessons.js";
 
 /** rules: your own standing rules, in your words, by place ("everywhere" for all of them). */
-export type ThoughtPlaces = { list: ThoughtPlace[]; acts?: PlaceAct[]; web?: WebPlaceView[]; rules?: PlaceRule[] };
+export type ThoughtPlaces = { list: ThoughtPlace[]; acts?: PlaceAct[]; web?: WebPlaceView[]; rules?: PlaceRule[]; lessons?: ThoughtLesson[] };
 
 export function thoughtPlaces(sidecar: DatabaseSync, nuclear: DatabaseSync, input: {
   nowMs: number; here?: "owner_dm"; game?: { world: string; live: boolean }; vaultDir?: string;
@@ -16,7 +17,9 @@ export function thoughtPlaces(sidecar: DatabaseSync, nuclear: DatabaseSync, inpu
     const acts = recentPlaceActs(sidecar, input.nowMs);
     const web = webPlacesForThought(sidecar, input.vaultDir, input.nowMs);
     const rules = listPlaceRules(sidecar);
-    return { list, ...(acts.length ? { acts } : {}), ...(web.length ? { web } : {}), ...(rules.length ? { rules } : {}) };
+    const lessons = lessonsForThought(sidecar, input.nowMs);
+    return { list, ...(acts.length ? { acts } : {}), ...(web.length ? { web } : {}), ...(rules.length ? { rules } : {}),
+      ...(lessons.length ? { lessons } : {}) };
   } catch {
     return undefined;
   }

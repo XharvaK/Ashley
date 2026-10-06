@@ -2353,3 +2353,25 @@ CREATE TABLE IF NOT EXISTS place_wishes (
 CREATE INDEX IF NOT EXISTS idx_place_wishes_state_due ON place_wishes(state, due_at_ms);
 UPDATE cognitive_sidecar_meta SET schema_version=64 WHERE id=1;
 `;
+
+/** T: the people the Owner made her teachers, and what she kept from people who taught her. */
+export const COGNITIVE_SIDECAR_SCHEMA_V65 = String.raw`
+CREATE TABLE IF NOT EXISTS teachers (
+  principal_id TEXT PRIMARY KEY,
+  subject TEXT NOT NULL,
+  set_at_ms INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS lessons (
+  lesson_id TEXT PRIMARY KEY,
+  cycle_id TEXT NOT NULL,
+  ordinal INTEGER NOT NULL,
+  from_principal TEXT NOT NULL,
+  place_ref TEXT NOT NULL,
+  what TEXT NOT NULL,
+  curious_about TEXT,
+  at_ms INTEGER NOT NULL,
+  UNIQUE (cycle_id, ordinal)
+);
+CREATE INDEX IF NOT EXISTS idx_lessons_at ON lessons(at_ms);
+UPDATE cognitive_sidecar_meta SET schema_version=65 WHERE id=1;
+`;

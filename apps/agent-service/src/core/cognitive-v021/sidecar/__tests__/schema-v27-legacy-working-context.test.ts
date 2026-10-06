@@ -43,8 +43,8 @@ describe("cognitive sidecar Schema V27 legacy Working Context", () => {
 
       openCognitiveSidecarDb(db, { dataPlane: { kind: "isolated" } });
 
-      expect(COGNITIVE_SIDECAR_SCHEMA_VERSION).toBe(64);
-      expect(db.prepare("PRAGMA user_version").get()).toMatchObject({ user_version: 64 });
+      expect(COGNITIVE_SIDECAR_SCHEMA_VERSION).toBe(65);
+      expect(db.prepare("PRAGMA user_version").get()).toMatchObject({ user_version: 65 });
       const stored = db.prepare(
         `SELECT payload_json, superseded, updated_cycle, updated_generation,
                 applicability_lifecycle, audience_state, legacy_scope

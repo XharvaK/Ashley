@@ -29,7 +29,7 @@ export type { SourceSupportRef } from "./evidence/interpretation-envelope.js";
 export const ARCHITECTURE_EPOCH = "v0.2.1" as const;
 export const IMPLEMENTATION_SPEC_VERSION = "0.2.1.r6" as const;
 export const THOUGHT_CONTRACT_VERSION = 2 as const;
-export const COGNITIVE_SIDECAR_SCHEMA_VERSION = 64 as const;
+export const COGNITIVE_SIDECAR_SCHEMA_VERSION = 65 as const;
 
 /**
  * Hard bound on cognition-facing concern discovery windows and pages. The
@@ -1067,6 +1067,8 @@ export type SettlementSemanticOutput = {
   placeRules?: readonly import("../places/rules.js").PlaceRuleClaim[];
   /** G1 a contact's own turn: what that person asked of her (the Host binds it to the speaker). */
   contactStop?: import("../places/rules.js").ContactStop;
+  /** T a room or contact turn: what she kept from this person's teaching (the Host binds it to the speaker). */
+  learned?: readonly import("../teach/lessons.js").LearnedClaim[];
   /** Interests Ashley lived in this turn or pass (Owner-private). */
   interests?: readonly import("./memory/interests.js").InterestTouch[];
   /** Growth V1 G4: appraisal, expectations, revisions (Owner-private). */
@@ -1365,6 +1367,7 @@ export type ThoughtSettlementDraft = {
   /** G1: kept by the Host after publication (places/rules.ts). */
   placeRules?: import("../places/rules.js").PlaceRuleClaim[];
   contactStop?: import("../places/rules.js").ContactStop;
+  learned?: import("../teach/lessons.js").LearnedClaim[];
   /** Stored by the Host after publication (memory/interests.ts). */
   interests?: import("./memory/interests.js").InterestTouch[];
   /** Stored by the Host after publication (growth/growth.ts). */
@@ -1786,6 +1789,8 @@ export type ThoughtInput = {
   will?: import("../will/pursuits.js").ThoughtWill;
   /** B3: a Thought held in one of her places to write what she wished to say there (places/compose.ts). */
   placeWish?: import("../places/compose.js").ThoughtPlaceWish;
+  /** T: in a turn with one of her teachers, who they are to her (the Owner made them her teacher). */
+  teacher?: import("../teach/lessons.js").ThoughtTeacher;
   /** Present only for an autonomous idle-opportunity Thought. */
   publicPresence?: PublicPresenceContext;
   /** Host factual context for the single Ashley-authored capacity-wait turn. */

@@ -644,18 +644,18 @@ export async function memorySummary(includePrivate = false) {
 }
 
 
-export type TrustedContact = { principalId: string; scope: "dm_only" | "person_wide"; grantedAt: string; expiresAt: string | null };
+export type TrustedContact = { principalId: string; scope: "dm_only" | "person_wide"; grantedAt: string; expiresAt: string | null; teaches?: string };
 
 /** A3: the Owner's trusted contacts. Writes are admin acts (Owner actor). */
 export async function listContacts() {
   return agentFetch<{ contacts: TrustedContact[] }>("/social/contacts");
 }
 
-export async function addContact(principalId: string, scope: TrustedContact["scope"]) {
-  return agentFetch<{ contact: Pick<TrustedContact, "principalId" | "scope" | "grantedAt"> }>("/social/contacts", {
+export async function addContact(principalId: string, scope: TrustedContact["scope"], teaches?: string) {
+  return agentFetch<{ contact: Pick<TrustedContact, "principalId" | "scope" | "grantedAt" | "teaches"> }>("/social/contacts", {
     headers: ownerActorHeaders(),
     method: "POST",
-    body: JSON.stringify({ userId: config.ownerId, principalId, scope }),
+    body: JSON.stringify({ userId: config.ownerId, principalId, scope, ...(teaches ? { teaches } : {}) }),
   });
 }
 

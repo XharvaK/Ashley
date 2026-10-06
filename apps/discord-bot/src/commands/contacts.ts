@@ -8,14 +8,17 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
     const { contacts } = await listContacts();
     await interaction.editReply(contacts.length === 0
       ? "No trusted contacts yet."
-      : contacts.map((contact) => `<@${contact.principalId}> (${contact.scope === "person_wide" ? "DMs and trusted rooms" : "DMs only"})`).join("\n"));
+      : contacts.map((contact) => `<@${contact.principalId}> (${contact.scope === "person_wide" ? "DMs and trusted rooms" : "DMs only"})`
+        + `${contact.teaches ? `, teaches her ${contact.teaches}` : ""}`).join("\n"));
     return;
   }
   const user = interaction.options.getUser("user", true);
   if (subcommand === "add") {
     const scope = (interaction.options.getString("scope") ?? "dm_only") as TrustedContact["scope"];
-    await addContact(user.id, scope);
-    await interaction.editReply(`<@${user.id}> can now talk with Ashley (${scope === "person_wide" ? "DMs and trusted rooms" : "DMs only"}). Anything they tell her, you can read.`);
+    const teaches = interaction.options.getString("teaches")?.trim() || undefined;
+    await addContact(user.id, scope, teaches);
+    await interaction.editReply(`<@${user.id}> can now talk with Ashley (${scope === "person_wide" ? "DMs and trusted rooms" : "DMs only"})`
+      + `${teaches ? ` and is one of her teachers (${teaches})` : ""}. Anything they tell her, you can read.`);
     return;
   }
   const { revoked } = await removeContact(user.id);

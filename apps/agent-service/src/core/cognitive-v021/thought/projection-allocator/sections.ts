@@ -79,6 +79,7 @@ export const INNER_LIFE_SECTIONS = [
   { section: "home", field: "home", canonicalStore: "home_ops" },
   { section: "will", field: "will", canonicalStore: "pursuits" },
   { section: "place_wish", field: "placeWish", canonicalStore: "place_wishes" },
+  { section: "teacher", field: "teacher", canonicalStore: "teachers" },
   { section: "pending_forget", field: "pendingForget", canonicalStore: "forget_proposals" },
 ] as const;
 

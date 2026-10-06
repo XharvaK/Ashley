@@ -66,6 +66,8 @@ describe("G1 limits by who owns them", () => {
     expect(owner).not.toContain("contactStop");
     expect(dm).toContain("contactStop");
     expect(dm).not.toContain("placeRules");
+    expect(dm).toContain("learned");
+    expect(owner).not.toContain("learned");
     expect(thoughtOutputCompatibilityInstruction(thoughtContractProfile({ ...chat, audience: { kind: "dm" } }))).toContain("contactStop no_initiation");
   });
 });

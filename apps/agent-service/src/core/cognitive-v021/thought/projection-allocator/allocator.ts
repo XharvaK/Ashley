@@ -742,6 +742,7 @@ export function allocateThoughtProjection(
       ...(input.home === undefined ? {} : { home: input.home }),
       ...(input.will === undefined ? {} : { will: input.will }),
       ...(input.placeWish === undefined ? {} : { placeWish: input.placeWish }),
+      ...(input.teacher === undefined ? {} : { teacher: input.teacher }),
       observations: includeObservations ? boundedRequiredSectionData.observations : [],
       inFlight: projectedInFlight,
       effectBudget: input.effectBudget ?? {
@@ -1164,6 +1165,7 @@ export function allocateThoughtProjection(
     "home",
     "will",
     "placeWish",
+    "teacher",
     "pendingForget",
     "rawConversation",
     "deskEntries",

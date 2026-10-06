@@ -1,3 +1,4 @@
+import { listTeachers, setTeacher } from "./core/teach/lessons.js";
 import { ownerPlacesView, ownerSwitchPlace } from "./core/places/owner.js";
 import { lifeReceipt, renderLifeReceipt } from "./core/will/receipt.js";
 import { listGrowthDimensions, revertAshleyDimensionEdit, seedGrowthDimension } from "./core/cognitive-v021/growth/dimensions.js";
@@ -730,8 +731,10 @@ export function createServer(
    */
   app.get("/social/contacts", (_req, res) => {
     try {
+      const teachers = new Map(listTeachers(getCognitiveSidecar()).map((item) => [item.principalId, item.teaches]));
       const contacts = listActiveSocialPermits(manager.core.getDatabase(), Date.now())
-        .map((item) => ({ principalId: item.principalId, scope: item.scope, grantedAt: item.grantedAt, expiresAt: item.expiresAt }));
+        .map((item) => ({ principalId: item.principalId, scope: item.scope, grantedAt: item.grantedAt, expiresAt: item.expiresAt,
+          ...(teachers.has(item.principalId) ? { teaches: teachers.get(item.principalId) } : {}) }));
       res.json({ ok: true, contacts });
     } catch (err) {
       const { status, body } = toErrorResponse(err);
@@ -753,7 +756,10 @@ export function createServer(
         sourceSpan: { kind: "owner_control", route: "/social/contacts", ownerId },
         nowMs: Date.now(),
       });
-      res.json({ ok: true, contact: { principalId: permit.principalId, scope: permit.scope, grantedAt: permit.grantedAt } });
+      // T: the Owner may make a contact one of her teachers, with what they teach.
+      const teaches = typeof body.teaches === "string" ? body.teaches.trim().slice(0, 80) : "";
+      if (teaches) setTeacher(getCognitiveSidecar(), principalId, teaches, Date.now());
+      res.json({ ok: true, contact: { principalId: permit.principalId, scope: permit.scope, grantedAt: permit.grantedAt, ...(teaches ? { teaches } : {}) } });
     } catch (err) {
       const { status, body } = toErrorResponse(err);
       res.status(status).json(body);
@@ -769,6 +775,7 @@ export function createServer(
       const revoked = listActiveSocialPermits(db, Date.now())
         .filter((item) => item.principalId === principalId)
         .map((item) => revokePerson(db, { entityUuid: item.entityUuid, nowMs: Date.now() }));
+      setTeacher(getCognitiveSidecar(), principalId, null, Date.now());
       res.json({ ok: true, revoked: revoked.length });
     } catch (err) {
       const { status, body } = toErrorResponse(err);

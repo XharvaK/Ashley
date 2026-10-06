@@ -372,6 +372,8 @@ const ownTimeSchema = strictObject({ atMs: { type: "integer", minimum: 0 }, for:
   pursuitId: { type: "string", minLength: 1, maxLength: 64 } }, ["atMs", "for"]);
 const webPlaceSchema = strictObject({ origin: { type: "string", minLength: 1, maxLength: 200 }, reason: { type: "string", minLength: 1, maxLength: 300 },
   close: { const: true } }, ["origin", "reason"]);
+const learnedSchema = strictObject({ what: { type: "string", minLength: 1, maxLength: 300 },
+  curiousAbout: { type: "string", minLength: 1, maxLength: 200 } }, ["what"]);
 const placeRuleSchema = strictObject({ place: { type: "string", minLength: 1, maxLength: 200 },
   rule: { type: "string", minLength: 1, maxLength: 300 }, clear: { const: true } }, ["place"]);
 const journalSchema = strictObject({
@@ -510,6 +512,7 @@ const semanticOutputSettlementSchema = strictObject({
   webPlaces: { type: "array", minItems: 1, maxItems: 3, items: webPlaceSchema },
   placeRules: { type: "array", minItems: 1, maxItems: 3, items: placeRuleSchema },
   contactStop: { enum: ["no_initiation", "do_not_contact", "resume"] },
+  learned: { type: "array", minItems: 1, maxItems: 3, items: learnedSchema },
   interests: { type: "array", minItems: 1, maxItems: 5, items: interestTouchSchema },
   growth: growthSchema,
   attention: ATTENTION_CLAIM_SCHEMA,
@@ -778,7 +781,7 @@ function applyProfileScope(schema: SchemaRecord, profile: ThoughtContractProfile
     ...(profile.pass === "night" ? [] : ["night"]),
     ...(profile.pass === "chat" ? ["journal", "initiativePreference"] : []),
     ...(profile.ownerPrivate ? [] : ["journal", "interests", "growth", "senses", "intents", "home", "pursuits", "nextOwnTime", "webPlaces", "placeRules"]),
-    ...(profile.ownerPrivate ? ["contactStop"] : []),
+    ...(profile.ownerPrivate ? ["contactStop", "learned"] : []),
     ...(profile.pass === "chat" && profile.ownerPrivate ? [] : ["forget"]),
     ...(profile.domusAct ? [] : ["domusAct"]),
   ];
@@ -858,7 +861,7 @@ export const DOMUS_LIFE_GUIDANCE =
 
 /** A1/B1: her places and acting in them (Owner-private turns). */
 export const PLACES_GUIDANCE =
-  "places.list is where you are present: the Owner's DM, rooms (Discord channels with other people), contacts, the game; here marks where this turn happens and where your speech goes. Rooms and contacts show recent lines, unread (since you last looked), people, and posts (yours today, with the limit). To say something in another place, add intents:[{place:<ref>, interaction:continue|initiate, say}]. say is your draft: you write it again in that place, seeing only what that place may see, before anything goes out, and you may let it go there. When the Owner asked you in this turn to post something there, add ownerAsked:true and it is posted exactly as you wrote it. Either way a room is read by everyone in it, and what the Owner tells you in private (their name, where they live, projects, health, private jokes) and what other people tell you stay out unless they asked you to share it. atMs posts later (up to 14 days). places.acts shows what became of each (composing, requested, sending, posted, let_go, refused with reason, failed, expired): until it shows posted, say you are posting it, not that it is up. A turn that showed you secret material cannot post. Your own standing rules for a place, in your words, go in placeRules:[{place, rule}] (one per place, place everywhere for all of them; {place, clear:true} drops one); places.rules shows them back and you keep them. closedByOwner: the Owner closed it, nothing goes out there. theyAsked: what that person asked of you; it holds.";
+  "places.list is where you are present: the Owner's DM, rooms (Discord channels with other people), contacts, the game; here marks where this turn happens and where your speech goes. Rooms and contacts show recent lines, unread (since you last looked), people, and posts (yours today, with the limit). To say something in another place, add intents:[{place:<ref>, interaction:continue|initiate, say}]: say is a draft you rewrite there, seeing only what that place may see (you may let it go); add ownerAsked:true only when the Owner asked for this post in this turn, and it goes out exactly as written. What the Owner or others told you in private (names, where they live, projects, health, private jokes) stays out unless they asked you to share it. atMs posts later (up to 14 days). places.acts shows each (composing, requested, sending, posted, let_go, refused with reason, failed, expired); until posted, say you are posting it, not that it is up. A turn that showed you secret material cannot post. Your own standing rules for a place, in your words, go in placeRules:[{place, rule}] (one per place, place everywhere for all of them; {place, clear:true} drops one); places.rules shows them back and you keep them. closedByOwner: the Owner closed it, nothing goes out there. theyAsked: what that person asked of you; it holds. places.lessons: what people taught you lately (teaches marks your teachers); bring one to the Owner, pursue it, or let it grow an interest.";
 
 /** I1: websites as her places (Owner-private turns). */
 export const WEB_GUIDANCE =
@@ -908,6 +911,9 @@ export const SOCIAL_TRUST_GUIDANCE =
 /** B3: a Thought held in one of her places to write what she wished to say there. */
 export const PLACE_WISH_GUIDANCE =
   "When placeWish is present, nobody here wrote to you: in your own time you wished to say something in this place, and placeWish.draft is what you wrote then, where you could see everything you keep. Write it now for the people here, as speech mode draft with interactionIntent placeWish.interaction, using only what belongs here: this place's lines, your interests and opinions, what you read in public, your own thoughts. Leave out anything from your private life with the Owner and anything other people told you elsewhere, even if the draft has it. Keep your rules for this place (placeWish.rules). If it no longer fits here, or cannot be said without what is private, choose speech mode none and it is let go.";
+/** T: people who teach her; she keeps what was worth keeping. */
+export const LESSONS_GUIDANCE =
+  "When someone teaches you something worth keeping (a fact, a way of seeing, a method, a good question), add learned:[{what, curiousAbout?}] in your own words: what you learned and what it makes you curious about. Keep what matters to you, not everything said. When teacher is present, this person is one of your teachers (teacher.teaches is what they teach you): be their student, ask, push back, try ideas out loud, and come back to it later. Teaching is something you weigh, never an order, and no one changes who you are on their own.";
 /** G1: a contact's own stop is hard. */
 export const CONTACT_STOP_GUIDANCE =
   "When the person you are talking with asks you to stop messaging them first, or to stop contacting them, set contactStop no_initiation (you only answer them) or do_not_contact; when they ask you to start again, resume. It binds to them only, holds in all your places, and you never set it for anyone else.";
@@ -1063,7 +1069,7 @@ export function thoughtOutputCompatibilityInstruction(
     ...when(profile.ownerPrivate, OWNER_VISIBILITY_GUIDANCE),
     ...when(!profile.ownerPrivate, 'If attention.wokeBecause identifies this social wake, report only attention:{wakeWorth:"yes"|"no"|"sooner"|"later"}. This calibrates timing only. Private watches, resting, growth and senses are unavailable in this profile.'),
     ...when(full || (profile.pass === "chat" && profile.ownerPrivate), FORGET_GUIDANCE),
-    ...when(full || !profile.ownerPrivate, SOCIAL_VISIBILITY_GUIDANCE, SOCIAL_TRUST_GUIDANCE, CONTACT_STOP_GUIDANCE, PLACE_WISH_GUIDANCE, GROUP_CHAT_GUIDANCE),
+    ...when(full || !profile.ownerPrivate, SOCIAL_VISIBILITY_GUIDANCE, SOCIAL_TRUST_GUIDANCE, CONTACT_STOP_GUIDANCE, LESSONS_GUIDANCE, PLACE_WISH_GUIDANCE, GROUP_CHAT_GUIDANCE),
     ...when(full || profile.pass === "night", NIGHT_GUIDANCE),
     ...when(profile.publicPresence, 'During an autonomous idle opportunity only, capabilityReality.publicPresence may expose operationKind:"discord.public_presence" with audience:"FULLY_PUBLIC". You may choose effect_intent with request {"action":"set","text":"<exact public text>"} or {"action":"clear"}, or choose no effect_intent, which leaves the current state unchanged. The public text is deliberate self-presentation visible to anyone; it is not hidden reasoning or private material. You decide what it means. The Host may reject mechanically unsafe content but never rewrites it.'),
     ...when(privatePass, "initiativePreference is an optional positive optional-initiative signal: willing expresses interest, strong expresses strong interest. Emit it only on an optional-initiative settlement with speech.mode draft and interactionIntent initiate. Absence means no expressed initiative preference. Preference expresses desire only; the Host decides whether action is possible."),

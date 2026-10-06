@@ -6,6 +6,7 @@ import { homeForThought, homeRootFor } from "../../home/home.js";
 import { willForThought } from "../../will/pursuits.js";
 import { vaultDirFor } from "../../reach/vault-dir.js";
 import { applyContactStop } from "../../places/rules.js";
+import { recordLessons, teacherForThought } from "../../teach/lessons.js";
 import { readThoughtAttention } from "../thalamus/store.js";
 import { randomUUID } from "node:crypto";
 import { env } from "../../../env.js";
@@ -1358,6 +1359,7 @@ function materializeSemanticSettlement(
   if (semantic.webPlaces) result.webPlaces = semantic.webPlaces.map((claim) => ({ ...claim }));
   if (semantic.placeRules) result.placeRules = semantic.placeRules.map((claim) => ({ ...claim }));
   if (semantic.contactStop) result.contactStop = semantic.contactStop;
+  if (semantic.learned) result.learned = semantic.learned.map((claim) => ({ ...claim }));
   if (semantic.interests) result.interests = semantic.interests.map((touch) => ({ ...touch }));
   (result as ThoughtSettlementDraft).sawSecret = sawSecret;
   if (semantic.growth) result.growth = structuredClone(semantic.growth);
@@ -3268,6 +3270,10 @@ export async function runCognitiveCycle(
             const will = willForThought(sidecar, nowMs);
             return { ...(places ? { places } : {}), ...(home ? { home } : {}), ...(will ? { will } : {}) };
           })() : {}),
+      ...(externalCycle && externalParticipantId ? (() => {
+        const teacher = teacherForThought(sidecar, externalParticipantId);
+        return teacher ? { teacher } : {};
+      })() : {}),
       triggerText: ownerMessage,
       triggerEvidence,
       ...(continuityRecovery ? { continuityRecovery } : {}),
@@ -4397,6 +4403,17 @@ export async function runCognitiveCycle(
           stop: settlement.contactStop, sourceMessageRef: triggerEvidence.rowId, nowMs: deps.nowMs() });
       } catch (error) {
         console.warn("[contact-stop] not recorded", error instanceof Error ? error.message : error);
+      }
+    }
+    // T: what she kept from this person's teaching, bound to the human whose message started the turn.
+    if (externalCycle && deps.origin !== "shadow" && settlement.learned?.length && externalDestination
+      && triggerEvidence?.speakerKind === "external_human" && triggerEvidence.speakerPrincipalId?.trim()) {
+      try {
+        recordLessons(sidecar, { cycleId: cycle.cycleId, fromPrincipal: triggerEvidence.speakerPrincipalId.trim(),
+          placeRef: externalDestination.kind === "external_dm" ? `contact:${externalDestination.principalId}` : externalDestination.roomId,
+          claims: settlement.learned, nowMs: deps.nowMs() });
+      } catch (error) {
+        console.warn("[lessons] not kept", error instanceof Error ? error.message : error);
       }
     }
     if (externalCycle) {
