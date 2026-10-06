@@ -40,7 +40,105 @@ export type DomusForThought = {
   options?: DomusOptionObject[];
   /** 8f: her own recent acts in this world and the latest thing known about each. */
   acts?: DomusRecentAct[];
+  /** M3: what the game taught her in this world (memories with game supports only), best match first. */
+  lessons?: DomusLesson[];
 };
+
+export type DomusLesson = { key: string; lesson: string; kind: string; seen: number };
+export const DOMUS_LESSONS_MAX = 5;
+export const DOMUS_LESSONS_BYTES = 1536;
+
+const LESSON_STOP = new Set(["the", "and", "for", "with", "from", "your", "you", "her", "his", "this", "that"]);
+
+/** Words of length ≥ 3, lowercased, stop words dropped. Splits on non-alphanumerics and camelCase. */
+function lessonWords(text: string): string[] {
+  const split = text.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2");
+  const words: string[] = [];
+  for (const raw of split.split(/[^A-Za-z0-9]+/)) {
+    const word = raw.toLowerCase();
+    if (word.length >= 3 && !LESSON_STOP.has(word)) words.push(word);
+  }
+  return words;
+}
+
+function pushStrings(value: unknown, into: string[]): void {
+  if (typeof value === "string") into.push(value);
+  else if (Array.isArray(value)) { for (const item of value) pushStrings(item, into); }
+  else if (value && typeof value === "object") {
+    for (const item of Object.values(value as Record<string, unknown>)) {
+      if (typeof item === "string") into.push(item);
+    }
+  }
+}
+
+/** Words that say what is in front of her: her options (objects and acts), what her body is doing or
+ * queued, who is with her, her moodlets and their reasons, and what the game is asking. */
+export function domusSceneTerms(domus: Pick<DomusForThought, "portrait" | "options">): Set<string> {
+  const portrait = domus.portrait ?? {};
+  const texts: string[] = [];
+  pushStrings(portrait.running, texts);
+  pushStrings(portrait.queued, texts);
+  const company = portrait.company;
+  if (Array.isArray(company)) for (const person of company) {
+    if (person && typeof person === "object" && typeof (person as Row).name === "string") texts.push(String((person as Row).name));
+  }
+  const moodlets = portrait.moodlets;
+  if (Array.isArray(moodlets)) for (const mood of moodlets) {
+    if (!mood || typeof mood !== "object") continue;
+    const row = mood as Row;
+    if (typeof row.text === "string") texts.push(row.text);
+    if (typeof row.reason === "string") texts.push(row.reason);
+  }
+  const asked = portrait.asked;
+  if (Array.isArray(asked)) for (const item of asked) {
+    if (item && typeof item === "object" && typeof (item as Row).title === "string") texts.push(String((item as Row).title));
+  }
+  const notebook = portrait.notebook;
+  if (notebook && typeof notebook === "object") {
+    const procedures = (notebook as Row).procedures;
+    if (Array.isArray(procedures)) for (const procedure of procedures) {
+      if (procedure && typeof procedure === "object" && typeof (procedure as Row).interaction === "string") {
+        texts.push(String((procedure as Row).interaction));
+      }
+    }
+  }
+  for (const option of domus.options ?? []) {
+    texts.push(option.object);
+    if (option.where) texts.push(option.where);
+    for (const act of option.acts) texts.push(act.text);
+  }
+  return new Set(texts.flatMap(lessonWords));
+}
+
+/** Her lessons from this world: live memories on `domus:<world>` that no Discord support touches. */
+export function domusLessonsFor(db: DatabaseSync, world: string, terms: Set<string>): DomusLesson[] {
+  try {
+    const columns = db.prepare("PRAGMA table_info(sidecar_memory_assertions)").all() as Array<{ name?: string }>;
+    const lineage = columns.some(column => column.name === "lineage_class");
+    const rows = db.prepare(`SELECT a.assertion_key, a.statement, a.memory_kind,
+       (SELECT COUNT(*) FROM sidecar_memory_supports s WHERE s.assertion_key = a.assertion_key) AS seen
+  FROM sidecar_memory_assertions a
+ WHERE a.live = 1 AND a.channel = ? AND a.data_classification <> 'secret'
+   ${lineage ? "AND a.lineage_class = 'current'" : ""}
+   AND NOT EXISTS (SELECT 1 FROM sidecar_memory_supports s
+                    WHERE s.assertion_key = a.assertion_key AND s.channel = 'discord')`).all(`domus:${world}`) as Row[];
+    const ranked = rows.map(row => {
+      const words = new Set(lessonWords(String(row.statement ?? "")));
+      let score = 0;
+      for (const term of terms) if (words.has(term)) score += 1;
+      return { row, score, seen: Number(row.seen) || 0, key: String(row.assertion_key) };
+    });
+    ranked.sort((left, right) => right.score - left.score || right.seen - left.seen || (left.key < right.key ? -1 : left.key > right.key ? 1 : 0));
+    const lessons: DomusLesson[] = ranked.slice(0, DOMUS_LESSONS_MAX).map(item => ({
+      key: item.key,
+      lesson: String(item.row.statement ?? "").slice(0, 300),
+      kind: String(item.row.memory_kind ?? ""),
+      seen: item.seen,
+    }));
+    while (lessons.length && Buffer.byteLength(JSON.stringify(lessons)) > DOMUS_LESSONS_BYTES) lessons.pop();
+    return lessons;
+  } catch { return []; }
+}
 
 type Row = Record<string, unknown>;
 type Percept = { kind: string; salience: number; facts: Record<string, unknown> };
@@ -294,6 +392,7 @@ export function domusForThought(db: DatabaseSync, event: { id: string; conversat
   }
   const options = acting.enabled ? domusOptionsFor(db, domusActBinding(db, bound)) : [];
   const acts = acting.enabled ? recentDomusActs(db, bound.world, acting.nowMs) : [];
+  const lessons = domusLessonsFor(db, bound.world, domusSceneTerms({ portrait, options }));
   let changes: DomusChanges = { first: true };
   const previous = bound.attachment ? previousDomusRead(db, { conversationId: event.conversationId, eventId: bound.eventId,
     attachment: bound.attachment, createdAtMs: bound.createdAtMs }) : undefined;
@@ -313,5 +412,6 @@ export function domusForThought(db: DatabaseSync, event: { id: string; conversat
     ...(all.length > events.length ? { omittedEvents: all.length - events.length } : {}),
     ...(options.length ? { options } : {}),
     ...(acts.length ? { acts } : {}),
+    ...(lessons.length ? { lessons } : {}),
   };
 }
