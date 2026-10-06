@@ -202,7 +202,7 @@ function memoryLineageClass(value: unknown): MemoryLineageClass {
  * A journal lane: one channel, or every game lane (`domus`). spokenToo (M1) adds an entry of
  * another lane whose pass delivered speech: what she said to someone always shows.
  */
-export type JournalLane = { channel?: MemoryChannel | "domus"; spokenToo?: boolean };
+export type JournalLane = { channel?: MemoryChannel | "domus"; spokenToo?: boolean; gameOnly?: boolean };
 
 /** Recent live entries, newest first. Secret entries never leave the store. */
 export function listRecentJournal(
@@ -218,11 +218,13 @@ export function listRecentJournal(
        ) AS delivered_speech
        FROM activity_journal j
       WHERE j.forgotten_at_ms IS NULL AND j.created_at_ms >= ? AND j.data_classification != 'secret' AND j.lineage_class = 'current'
+        AND (? = 0 OR EXISTS (SELECT 1 FROM inbox_events e WHERE e.kind = 'domus_notification' AND json_valid(e.payload_json)
+          AND json_extract(e.payload_json, '$.cycleId') = j.cycle_id AND json_extract(e.payload_json, '$.inputs') = 'game_only'))
         AND (((? IS NULL OR j.channel = ?) AND (? = 0 OR j.channel LIKE 'domus:%'))
           OR (? = 1 AND EXISTS (SELECT 1 FROM conversation_evidence_log e
                WHERE e.producing_cycle_id = j.cycle_id AND e.role = 'ashley' AND e.delivered = 1)))
       ORDER BY j.created_at_ms DESC, j.entry_id DESC LIMIT ?`,
-  ).all(input.sinceMs ?? 0, channel, channel, domus, input.spokenToo ? 1 : 0, Math.max(1, input.limit)) as Row[]).map(mapEntry);
+  ).all(input.sinceMs ?? 0, input.gameOnly ? 1 : 0, channel, channel, domus, input.gameOnly ? 0 : input.spokenToo ? 1 : 0, Math.max(1, input.limit)) as Row[]).map(mapEntry);
 }
 
 export function toThoughtJournalEntry(entry: JournalEntry): ThoughtJournalEntry {
@@ -290,8 +292,9 @@ export function recentJournalCollapsed(
  * Discord entry out of her Discord turns). The game reaches those turns as domusNow and, once a
  * stretch of play is over, its session episode.
  */
-export function journalForThought(db: DatabaseSync, nowMs: number, channel?: MemoryChannel): ThoughtJournalEntry[] {
-  const lane: JournalLane = channel ? { channel } : { channel: "discord", spokenToo: true };
+/** E1b gameOnly: only entries her game-only passes wrote, so nothing from a conversation comes back through her journal. */
+export function journalForThought(db: DatabaseSync, nowMs: number, channel?: MemoryChannel, gameOnly = false): ThoughtJournalEntry[] {
+  const lane: JournalLane = channel ? { channel, gameOnly } : { channel: "discord", spokenToo: true };
   return recentJournalCollapsed(db, { sinceMs: nowMs - JOURNAL_THOUGHT_WINDOW_MS, limit: JOURNAL_THOUGHT_LIMIT, ...lane });
 }
 

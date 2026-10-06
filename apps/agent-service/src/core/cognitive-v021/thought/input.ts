@@ -145,6 +145,11 @@ export type BuildThoughtInputOptions = {
   domus?: import("../../domus/notification.js").DomusForThought;
   /** E1: a game-lane pass reads its last turns, thread story and log search from the Owner's thread. */
   homeConversationId?: string;
+  /**
+   * E1b: a pass admitted with game-only inputs. It reads the game, the journal its game-only passes
+   * wrote, and who she is; nothing from her conversations, memories, desk, concerns or growth.
+   */
+  domusGameOnly?: boolean;
   /** A1/B1: her places and her recent acts there, computed by the caller (Owner-private only). */
   places?: import("../../places/thought.js").ThoughtPlaces;
   /** E1: her home folder, computed by the caller (Owner-private only). */
@@ -1049,6 +1054,7 @@ export const DOMUS_LAST_N_TURNS = 6;
 
 export function buildThoughtInput(options: BuildThoughtInputOptions): ThoughtInputWithC2 {
   const domusPass = (options.triggerKindOverride ?? options.cycle.triggerKind) === "domus_notification";
+  const gameOnly = domusPass && options.domusGameOnly === true;
   const lastNTurns = domusPass
     ? DOMUS_LAST_N_TURNS
     : Math.max(1, Math.min(100, options.lastNTurns ?? DEFAULT_LAST_N_TURNS));
@@ -1061,10 +1067,12 @@ export function buildThoughtInput(options: BuildThoughtInputOptions): ThoughtInp
     options.cycle.conversationId,
   );
   // E1: the game lane has no turns of its own; its pass reads the Owner's thread, read-only.
-  const home = domusPass && options.homeConversationId && options.homeConversationId !== options.cycle.conversationId
+  const home = domusPass && !gameOnly && options.homeConversationId && options.homeConversationId !== options.cycle.conversationId
     ? options.homeConversationId : undefined;
   const evidenceConversationId = home ?? options.cycle.conversationId;
-  const conversationSelection = home
+  const conversationSelection = gameOnly
+    ? frontierAwareEvidenceSelection(options.sidecar, options.cycle.conversationId, { lastNTurns, suppliedEvidence: [] })
+    : home
     ? frontierAwareEvidenceSelection(options.sidecar, home, { lastNTurns })
     : frontierAwareEvidenceSelection(
       options.sidecar,
@@ -1088,9 +1096,9 @@ export function buildThoughtInput(options: BuildThoughtInputOptions): ThoughtInp
     conversationSelection.recencyExcludedEvidence,
     audience,
   ).length;
-  const workingContext = filterStructured(sourceCapture.workingContext, audience, licenses);
-  const deskEntries = sourceCapture.deskEntries.filter((entry) => isDeskEntryAudienceEligible(entry, audience));
-  const selectedOccupancy = filterStructured(sourceCapture.occupancy, audience, licenses);
+  const workingContext = gameOnly ? [] : filterStructured(sourceCapture.workingContext, audience, licenses);
+  const deskEntries = gameOnly ? [] : sourceCapture.deskEntries.filter((entry) => isDeskEntryAudienceEligible(entry, audience));
+  const selectedOccupancy = gameOnly ? [] : filterStructured(sourceCapture.occupancy, audience, licenses);
   const occupancy = enrichOccupancyForThought(
     selectedOccupancy,
     sourceCapture.occupiedConcernProjection.filter((item) =>
@@ -1140,7 +1148,7 @@ export function buildThoughtInput(options: BuildThoughtInputOptions): ThoughtInp
       cycleId: options.cycle.cycleId,
       generation: options.cycle.generation,
       obligationFrontierId: activeFrontier?.frontierId,
-      enabled: options.c3AdapterEnabled,
+      enabled: gameOnly ? false : options.c3AdapterEnabled,
     },
   );
   const triggerText = options.triggerText ?? options.cycle.triggerRef;
@@ -1164,7 +1172,7 @@ export function buildThoughtInput(options: BuildThoughtInputOptions): ThoughtInp
     licenses,
   ) ? options.rememberDirective : null;
 
-  const retrieval = retrieveCandidates(
+  const retrieved = retrieveCandidates(
     options.sidecar,
     {
       conversationId: evidenceConversationId,
@@ -1192,18 +1200,19 @@ export function buildThoughtInput(options: BuildThoughtInputOptions): ThoughtInp
       ...(options.queryVector ? { queryVector: options.queryVector } : {}),
     },
   );
+  const retrieval = gameOnly ? { ...retrieved, hits: [] } : retrieved;
   // Memories are Owner-private: the core profile never enters another audience.
-  const coreProfile = audience.kind === "owner_private"
+  const coreProfile = audience.kind === "owner_private" && !gameOnly
     ? buildCoreProfile(options.sidecar, options.clock?.nowMs ?? Date.now())
     : { owner: [], self: [] };
-  const threadStory = audience.kind === "owner_private"
+  const threadStory = audience.kind === "owner_private" && !gameOnly
     ? getThreadStory(options.sidecar, evidenceConversationId)
     : null;
   const episodes = audience.kind === "owner_private" && !domusPass
     ? episodesForThought(options.sidecar, query.rawTriggerTerms, undefined, options.clock?.nowMs ?? Date.now())
     : [];
   const activityJournal = audience.kind === "owner_private"
-    ? journalForThought(options.sidecar, options.clock?.nowMs ?? Date.now(), domusPass && options.domus ? `domus:${options.domus.world}` : undefined)
+    ? journalForThought(options.sidecar, options.clock?.nowMs ?? Date.now(), domusPass && options.domus ? `domus:${options.domus.world}` : undefined, gameOnly)
     : [];
   const domusNow = audience.kind === "owner_private" && !domusPass
     ? domusNowForThought(options.sidecar, options.clock?.nowMs ?? Date.now())
@@ -1274,10 +1283,10 @@ export function buildThoughtInput(options: BuildThoughtInputOptions): ThoughtInp
     ...(options.will && audience.kind === "owner_private" && !domusPass ? { will: options.will } : {}),
     ...(options.placeWish && (audience.kind === "room" || audience.kind === "dm") ? { placeWish: options.placeWish } : {}),
     ...(options.teacher && (audience.kind === "room" || audience.kind === "dm") ? { teacher: options.teacher } : {}),
-    ...(options.growth && audience.kind === "owner_private" ? { growth: options.growth } : {}),
+    ...(options.growth && audience.kind === "owner_private" && !gameOnly ? { growth: options.growth } : {}),
     ...(options.senses && audience.kind === "owner_private" ? { senses: options.senses } : {}),
-    ...(options.attention && audience.kind === "owner_private" ? { attention: options.attention } : {}),
-    ...(options.pendingForget && audience.kind === "owner_private" ? { pendingForget: options.pendingForget } : {}),
+    ...(options.attention && audience.kind === "owner_private" && !gameOnly ? { attention: options.attention } : {}),
+    ...(options.pendingForget && audience.kind === "owner_private" && !gameOnly ? { pendingForget: options.pendingForget } : {}),
     ...(options.clock === undefined ? {} : {
       clock: buildThoughtClock({
         nowMs: options.clock.nowMs,

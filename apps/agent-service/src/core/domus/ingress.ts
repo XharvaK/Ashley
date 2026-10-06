@@ -16,7 +16,8 @@
  * {error:"observation_conflict"}.
  *
  * POST /domus/heartbeat accepts only v=1, helper_session (1..64), sent_at_ms (safe
- * non-negative integer), attached (boolean), optional world (0..64) and probe_version (0..16).
+ * non-negative integer), attached (boolean), optional world (0..64), probe_version (0..16) and
+ * inputs (full | game_only: E1b, whether her game passes keep the Owner's conversations out).
  * Unknown keys are 400. The response is 200 {status:"ok"}.
  *
  * POST /domus/undo accepts only v=1, world/branch/session (1..64), after_source_time_ms
@@ -189,7 +190,7 @@ export function parseActSync(body: unknown): { helperSession: string; events: Do
   return { helperSession: text(body.helper_session, 1, 64), events };
 }
 
-const HEARTBEAT_KEYS = new Set(["v", "helper_session", "sent_at_ms", "attached", "world", "probe_version"]);
+const HEARTBEAT_KEYS = new Set(["v", "helper_session", "sent_at_ms", "attached", "world", "probe_version", "inputs"]);
 
 export function parseHeartbeat(body: unknown): Record<string, unknown> {
   if (!isRecord(body)) fail(400, "invalid_body");
@@ -203,6 +204,10 @@ export function parseHeartbeat(body: unknown): Record<string, unknown> {
   };
   if ("world" in body) normalized.world = text(body.world, 0, 64);
   if ("probe_version" in body) normalized.probe_version = text(body.probe_version, 0, 16);
+  if ("inputs" in body) {
+    if (body.inputs !== "full" && body.inputs !== "game_only") fail(400, "invalid_body");
+    normalized.inputs = body.inputs;
+  }
   return normalized;
 }
 

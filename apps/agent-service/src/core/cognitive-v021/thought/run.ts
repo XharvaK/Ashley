@@ -1,5 +1,5 @@
 import { selfChangeResultForThought } from "../growth/self-change-results.js";
-import { domusActBindingFor, domusChannelFor, domusForThought, domusHomeFor, domusNowForThought } from "../../domus/notification.js";
+import { domusActBindingFor, domusChannelFor, domusForThought, domusGameOnlyFor, domusHomeFor, domusNowForThought } from "../../domus/notification.js";
 import { domusSessionForThought } from "../../domus/session.js";
 import { thoughtPlaces } from "../../places/thought.js";
 import { placesSeenMarks } from "../../places/places.js";
@@ -3262,8 +3262,9 @@ export async function runCognitiveCycle(
       ...(originProfile.triggerKind === "domus_notification" && effectiveThoughtAudience.kind === "owner_private"
         ? (() => {
             const home = domusHomeFor(sidecar, event, originProfile.originCycleId);
+            const gameOnly = domusGameOnlyFor(sidecar, event, originProfile.originCycleId);
             return { domus: domusForThought(sidecar, event, originProfile.originCycleId, { enabled: env.domusActEnabled, nowMs: deps.nowMs() }),
-              ...(home ? { homeConversationId: home } : {}) };
+              ...(home && !gameOnly ? { homeConversationId: home } : {}), ...(gameOnly ? { domusGameOnly: true } : {}) };
           })() : {}),
       ...(effectiveThoughtAudience.kind === "owner_private" && !externalCycle && originProfile.triggerKind !== "domus_notification"
         ? (() => {

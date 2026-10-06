@@ -58,6 +58,15 @@ export function embodimentBudgetAvailable(db: DatabaseSync, nowMs: number): bool
   } catch { return false; }
 }
 
+/** E1b: the Owner can keep his conversations out of her game passes. The helper on his PC carries
+ * the switch in its heartbeat; a pass admitted while it is on is stamped game-only for good. */
+export const DOMUS_GAME_ONLY = "game_only";
+
+export function gameOnlyInputs(db: DatabaseSync, attachment: string): boolean {
+  const row = db.prepare("SELECT last_json FROM domus_heartbeats WHERE helper_session = ?").get(attachment) as Row | undefined;
+  try { return (JSON.parse(String(row?.last_json)) as { inputs?: unknown }).inputs === DOMUS_GAME_ONLY; } catch { return false; }
+}
+
 /** Helper sessions whose latest heartbeat said attached and is recent. */
 export function armedAttachments(db: DatabaseSync, nowMs: number): Set<string> {
   const armed = new Set<string>();
@@ -125,6 +134,7 @@ export function selectDomusNotification(db: DatabaseSync, input: {
     const observationIds = included.map(row => String(row.observation_id));
     event = appendInboxEventInTransaction(db, { id, conversationId: input.conversationId, kind: "domus_notification",
       payload: { domus: { world: String(newest.world), attachment, observationIds }, occupantId: input.ownerId, authorityEpoch: input.authorityEpoch,
+        ...(gameOnlyInputs(db, attachment) ? { inputs: DOMUS_GAME_ONLY } : {}),
         ...(input.homeConversationId && input.homeConversationId !== input.conversationId
           ? { channel: "discord", threadId: input.homeConversationId } : {}) },
       createdAtMs: input.nowMs }, id);
@@ -182,6 +192,14 @@ export function domusHomeFor(db: DatabaseSync, event: { id: string; conversation
     const threadId = (persisted?.payload as Row | undefined)?.threadId;
     return typeof threadId === "string" && threadId && threadId !== event.conversationId ? threadId : undefined;
   } catch { return undefined; }
+}
+
+/** E1b: whether this pass was admitted with game-only inputs. */
+export function domusGameOnlyFor(db: DatabaseSync, event: { id: string; conversationId: string }, originCycleId?: string): boolean {
+  try {
+    const persisted = getInboxEvent(db, boundNotification(db, event, originCycleId).eventId);
+    return (persisted?.payload as Row | undefined)?.inputs === DOMUS_GAME_ONLY;
+  } catch { return false; }
 }
 
 /** The memory channel of a Domus pass, for its journal entry. */

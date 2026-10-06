@@ -10,7 +10,10 @@ import { domus } from "../cognitive-v021/thalamus/nuclei/domus.js";
 import { runThalamusPass } from "../cognitive-v021/thalamus/integration.js";
 import { buildThoughtInput } from "../cognitive-v021/thought/input.js";
 import { admitObservation, observationDigest, upsertHeartbeat } from "./store.js";
-import { configureEmbodimentBudget, domusHomeFor, selectDomusNotification } from "./notification.js";
+import { configureEmbodimentBudget, domusGameOnlyFor, domusHomeFor, selectDomusNotification } from "./notification.js";
+import { parseHeartbeat } from "./ingress.js";
+import { recordJournalEntry } from "../cognitive-v021/initiative/journal.js";
+import { writeThreadStory } from "../cognitive-v021/memory/episodes.js";
 import { DOMUS_LANE_PREFIX, domusLaneId, isDomusLane } from "./lane.js";
 
 const NOW = 10_000_000;
@@ -18,10 +21,10 @@ const HOME = "owner-thread";
 const LANE = domusLaneId("owner");
 const context = { budgetAvailable: true, conversationClaimHeld: false, spentFraction: 0, energy: 0.5, tension: 0, circadianPhase: 0 };
 
-function armed(db: DatabaseSync) {
+function armed(db: DatabaseSync, gameOnly = false) {
   configureEmbodimentBudget(db, { limit: 5, version: 1 });
   upsertHeartbeat(db, { helperSession: "helper-a", receivedAtMs: NOW - 1000, sentAtMs: NOW - 1000,
-    json: JSON.stringify({ v: 1, helper_session: "helper-a", sent_at_ms: NOW - 1000, attached: true }) });
+    json: JSON.stringify({ v: 1, helper_session: "helper-a", sent_at_ms: NOW - 1000, attached: true, ...(gameOnly ? { inputs: "game_only" } : {}) }) });
   const observationId = "helper-a.1";
   const payload = { v: 1, observation_id: observationId, world: "slot0", branch: "g1", session: "s1", attachment: "helper-a",
     body: "sim1", snapshot: "1", seq: 1, source_time_ms: NOW - 2000, expires_at_ms: NOW + 600_000, lineage_class: "CURRENT",
@@ -32,8 +35,8 @@ function armed(db: DatabaseSync) {
   return observationId;
 }
 
-function selectInLane(db: DatabaseSync) {
-  const selected = selectDomusNotification(db, { observationId: armed(db), conversationId: LANE, homeConversationId: HOME, ownerId: "owner",
+function selectInLane(db: DatabaseSync, gameOnly = false) {
+  const selected = selectDomusNotification(db, { observationId: armed(db, gameOnly), conversationId: LANE, homeConversationId: HOME, ownerId: "owner",
     authorityEpoch: 1, nowMs: NOW, bind: () => undefined });
   if (selected.kind !== "selected") throw new Error(`not selected: ${selected.kind}`);
   return selected.event;
@@ -124,6 +127,65 @@ describe("E1 the game lane", () => {
       expect(homed.rawConversation.map(row => row.text)).toEqual(["message 0", "message 1", "message 2"]);
       expect(homed.rawConversation.every(row => row.conversationId === HOME)).toBe(true);
       expect(buildThoughtInput(base).rawConversation).toEqual([]);
+    } finally { db.close(); }
+  });
+});
+
+const constitution = { constitutional: ["truth before performance"], stableSelf: ["curious"] };
+const noEngineering = { vision: false, attachmentText: false, conversationalRead: false, webSearch: false, canOfferProjectInspection: false,
+  canOfferWorkspace: false, canOfferVerification: false, canOfferAuthorship: false, canOfferBoundedOperation: false, canOfferInquiry: false,
+  canOfferPatchExport: false, approvedProjectIds: [] };
+
+describe("E1b game-only inputs", () => {
+  it("the helper's heartbeat carries the switch; anything else is refused", () => {
+    const base = { v: 1, helper_session: "helper-a", sent_at_ms: NOW, attached: true };
+    expect(parseHeartbeat({ ...base, inputs: "game_only" }).inputs).toBe("game_only");
+    expect(parseHeartbeat({ ...base, inputs: "full" }).inputs).toBe("full");
+    expect(parseHeartbeat(base).inputs).toBeUndefined();
+    expect(() => parseHeartbeat({ ...base, inputs: "partial" })).toThrow();
+  });
+
+  it("a pass admitted while the switch is on is stamped game-only for good", () => {
+    const db = openTestSidecar();
+    try {
+      const guarded = selectInLane(db, true);
+      expect(guarded.payload).toMatchObject({ inputs: "game_only", threadId: HOME });
+      expect(domusGameOnlyFor(db, guarded)).toBe(true);
+      upsertHeartbeat(db, { helperSession: "helper-a", receivedAtMs: NOW, sentAtMs: NOW,
+        json: JSON.stringify({ v: 1, helper_session: "helper-a", sent_at_ms: NOW, attached: true }) });
+      expect(domusGameOnlyFor(db, guarded)).toBe(true);
+    } finally { db.close(); }
+  });
+
+  it("a game-only pass reads no conversation, story, profile or memories, and only the journal game-only passes wrote", () => {
+    const db = openTestSidecar();
+    try {
+      for (let i = 0; i < 3; i += 1) appendOwnerUtterance(db, { conversationId: HOME, text: `private ${i}`, discordMessageIds: [`m-${i}`], nowMs: NOW - 100 + i });
+      writeThreadStory(db, { conversationId: HOME, story: "a private story", throughRowId: null, cycleId: "c-story", dataClassification: "never_public", nowMs: NOW - 50 });
+      writeThreadStory(db, { conversationId: LANE, story: "a lane story", throughRowId: null, cycleId: "c-lane-story", dataClassification: "never_public", nowMs: NOW - 50 });
+      const guarded = selectInLane(db, true);
+      const guardedCycle = String((guarded.payload as Record<string, unknown>).cycleId);
+      const open = admitTestCycle(db, { cycleId: "open-pass", conversationId: LANE, triggerKind: "domus_notification", triggerRef: "open", occupantId: "owner", nowMs: NOW - 40 });
+      recordJournalEntry(db, { conversationId: LANE, cycleId: open.cycleId, passKind: "private", claim: { activity: "think", entry: "said to the Owner earlier" },
+        spoke: false, nowMs: NOW - 30, channel: "domus:slot0" });
+      recordJournalEntry(db, { conversationId: LANE, cycleId: guardedCycle, passKind: "private", claim: { activity: "think", entry: "the kitchen smells good" },
+        spoke: false, nowMs: NOW - 20, channel: "domus:slot0" });
+      const cycle = getCurrentCycle(db, LANE)!;
+      const domusInput = { world: "slot0", asOfMs: NOW, observationIds: [], changes: { quiet: false } as never, events: [] };
+      const base = { sidecar: db, cycle, constitution, capabilityReality: noEngineering, learnedSelfSlice: { dispositions: [], interests: [] },
+        triggerKindOverride: "domus_notification" as const, domus: domusInput, clock: { nowMs: NOW, timeZone: "UTC" } };
+      const input = buildThoughtInput({ ...base, homeConversationId: HOME, domusGameOnly: true });
+      expect(input.rawConversation).toEqual([]);
+      expect(input.threadStory).toBeUndefined();
+      expect(input.coreProfile).toBeUndefined();
+      expect(input.retrieval.hits).toEqual([]);
+      expect(input.workingContext).toEqual([]);
+      expect(input.occupancy).toEqual([]);
+      expect((input.activityJournal ?? []).map(entry => entry.entry)).toEqual(["the kitchen smells good"]);
+      const open2 = buildThoughtInput({ ...base, homeConversationId: HOME });
+      expect(open2.rawConversation.map(row => row.text)).toEqual(["private 0", "private 1", "private 2"]);
+      expect(open2.threadStory?.story).toBe("a private story");
+      expect((open2.activityJournal ?? []).map(entry => entry.entry)).toEqual(["the kitchen smells good", "said to the Owner earlier"]);
     } finally { db.close(); }
   });
 });
