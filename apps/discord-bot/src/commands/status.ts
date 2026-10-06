@@ -15,6 +15,7 @@ export async function execute(
     `Sent today: ${status.initiative.sentToday}/${status.initiative.maxPerDay}`,
     `relationship_state: ${status.relationshipState?.state ?? "unknown"}`,
     `Continuity: ${status.continuity.available ? status.continuity.lineageId : "unavailable"}`,
+    ...(status.life?.length ? ["", ...status.life] : []),
   ];
   await interaction.editReply(lines.join("\n"));
 }

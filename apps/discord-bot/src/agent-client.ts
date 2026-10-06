@@ -978,6 +978,8 @@ export async function getNuclearStatus() {
     };
     relationshipState?: { state: string };
     thalamus?: ThalamusStatus;
+    /** F1: her weekly life receipt, as lines. */
+    life?: string[];
   }>(`/nuclear/status?owner_id=${encodeURIComponent(config.ownerId)}`);
 }
 

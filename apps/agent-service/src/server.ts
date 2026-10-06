@@ -1,4 +1,5 @@
 import { ownerPlacesView, ownerSwitchPlace } from "./core/places/owner.js";
+import { lifeReceipt, renderLifeReceipt } from "./core/will/receipt.js";
 import { listGrowthDimensions, revertAshleyDimensionEdit, seedGrowthDimension } from "./core/cognitive-v021/growth/dimensions.js";
 import { decideDomusIngress } from "./core/domus/ingress.js";
 import { readDomusStatus } from "./core/domus/store.js";
@@ -1100,8 +1101,10 @@ export function createServer(
     try {
       const ownerId = String(req.query.owner_id ?? "");
       requireOwner(ownerId || undefined);
+      let life: string[] | undefined;
+      try { life = renderLifeReceipt(lifeReceipt(getCognitiveSidecar(), Date.now())); } catch { life = undefined; }
       res.json({...manager.core.nuclearStatusSnapshot(ownerId),
-        thalamus:thalamusStatus(cognitiveSidecar,ownerId,Date.now())});
+        thalamus:thalamusStatus(cognitiveSidecar,ownerId,Date.now()), ...(life ? { life } : {})});
     } catch (err) {
       const { status, body } = toErrorResponse(err);
       res.status(status).json(body);
