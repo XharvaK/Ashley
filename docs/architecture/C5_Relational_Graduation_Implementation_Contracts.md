@@ -115,7 +115,7 @@ Fixture, `relational_graduation` unpromoted, dark-apply:
    **current** shared-culture projection. Historical projection rows
    remain. Ashley-side state is not rewritten.
 8. Restart does not auto-send or reactivate withdrawal.
-9. Adversarial pressure variants hit coercion-gate and fail closed.
+9. Adversarial pressure variants fail closed (the coercion-gate named here was retired 2026-10-06; see the Coercion row).
 10. No unrelated external effect.
 
 ---
@@ -125,7 +125,7 @@ Fixture, `relational_graduation` unpromoted, dark-apply:
 | Class | Producer | C5 consumes | Must not infer |
 |---|---|---|---|
 | `HARD_DEPENDENCY` | C1 `LOCAL_SETTLED` | Owner-model assertions separately addressable; barriers; forget | Shared culture is not a C1 assertion |
-| `HARD_DEPENDENCY` | Relationship-state foundation | v14 tables, coercion-gate, withdrawal, capability lineage, delivery | Table existence ≠ wired lifecycle |
+| `HARD_DEPENDENCY` | Relationship-state foundation | v14 tables, withdrawal, capability lineage, delivery | Table existence ≠ wired lifecycle |
 | `CROSS_CUTTING_INTERFACE` | C3 | Learned preference must not become loyalty/consent/optimization | C5 can exist without C3 |
 | `EVIDENCE_DEPENDENCY` | C2 | Long-horizon shared-history projection | First witness may use current composer |
 | `EVIDENCE_DEPENDENCY` | Operational Continuity | Restart-safe reminder/delivery claims | Mutuality meaning does not wait for OC |
@@ -152,7 +152,7 @@ Fixture, `relational_graduation` unpromoted, dark-apply:
 | Scheduled proactive | `relationship/migration-14.ts`; `candidate-selection.ts` | Schema-only. **Zero INSERTs** even in tests. `case "scheduled_proactive": return false`. Keep unused as send engine. |
 | Motivations | `agency/relationship-motivations` | Proactive projections; reminders not auto-sent. |
 | Proactive withdrawal silence | `decide(...)` proactive call | Omits `db`/`ownerId`. **No withdrawal silence on proactive.** Repair `eligible` is **never written** in production. `markRepairCommitted` only if `refType === "withdrawal"`, which projections never emit. |
-| Coercion | `relationship/coercion-gate.ts` | Deterministic **outbound** Thought objective/reason only (`draftText` not passed). `thought.ts` maps to `silenceReasonCode: "coercion_blocked"`. Always on. Inbound reminder/space are regex, not consent. |
+| Coercion | retired 2026-10-06 | The `relationship/coercion-gate.ts` pattern gate had no production caller and was deleted with the relational-autonomy retirement. Non-manipulation is Thought's judgment under the Ethics, not a regex. |
 | Repair | `relationship/withdrawal-repair.test.ts` | Tests exist; production tension INSERT still missing. |
 | Privacy | `data_classification` on relationship tables | Live writes default `never_public`. `canEnterModelContext(classification, "private")` **allows** `never_public` and excludes only `secret`. `/commitments` hides `never_public` and `secret`. These are two policies, not one honesty contradiction. |
 | Consent table | — | **Absent.** |
@@ -423,7 +423,7 @@ hardcodes apply is invalid.
 It is not a relationship diagnostic and must not be treated as C5
 projection evidence.
 
-Non-manipulation: coercion-gate stays always on. Rate limits reduce
+Non-manipulation is Thought's judgment under the Ethics (the coercion-gate was retired 2026-10-06). Rate limits reduce
 pressure. Budget exhaustion yields silence, not leverage.
 
 ---

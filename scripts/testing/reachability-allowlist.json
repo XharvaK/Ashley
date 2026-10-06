@@ -16,8 +16,6 @@
     "core/rollout/recall-epoch-test-util.ts": "test support",
     "core/sandbox/v2-license-audit.ts": "test support: license audit formatter used by sandbox tests",
     "core/relationship/authority.ts": "review with A3 (contact pressure is a real social risk)",
-    "core/relationship/coercion-gate.ts": "review with A3 (contact pressure is a real social risk)",
-    "core/relationship/source-release.ts": "review with A3 (contact pressure is a real social risk)",
     "core/honesty/finalize.ts": "review: legacy honesty finalizer still exercised by sandbox M4/M5 honesty tests",
     "core/honesty/activity-license.ts": "review: dependency of the legacy honesty finalizer",
     "core/sandbox/bounded-operation-store.ts": "review: exercised by the schema v31 migration test",

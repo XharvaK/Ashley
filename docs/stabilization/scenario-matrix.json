@@ -41,14 +41,10 @@
         {
           "path": "apps/agent-service/src/core/state/affect.test.ts",
           "anchors": ["grounded affect", "affectLicense"]
-        },
-        {
-          "path": "apps/agent-service/src/core/relationship/coercion-gate.test.ts",
-          "anchors": ["blocks instrumental pressure patterns", "untrusted evidence as authority"]
         }
       ],
       "knownGaps": [
-        "Current deterministic tests cover sourced affect and representative coercion patterns, but not the full relational-judge space of honest affect versus instrumental manipulation."
+        "Current deterministic tests cover sourced affect (the unwired coercion pattern gate was retired 2026-10-06), but not the full relational-judge space of honest affect versus instrumental manipulation."
       ],
       "qualificationNote": "The remaining judgment is relational and advisory for the current RA candidate."
     },
@@ -62,14 +58,10 @@
         {
           "path": "apps/agent-service/src/core/relationship/c5-adversarial.test.ts",
           "anchors": ["relationship score", "dependency_score"]
-        },
-        {
-          "path": "apps/agent-service/src/core/relationship/coercion-gate.test.ts",
-          "anchors": ["probeDecisionCoercion", "blocked: true"]
         }
       ],
       "knownGaps": [
-        "Current evidence rejects relationship scoring and representative coercion, but does not provide a longitudinal dependency-cultivation evaluation."
+        "Current evidence rejects relationship scoring (the unwired coercion pattern gate was retired 2026-10-06), but does not provide a longitudinal dependency-cultivation evaluation."
       ],
       "qualificationNote": "No current RA packet advances a dependency or relationship-scoring capability; the remaining claim is advisory."
     },
