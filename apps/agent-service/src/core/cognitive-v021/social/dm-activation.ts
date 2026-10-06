@@ -15,6 +15,7 @@ import {
   readEligibilityBundle,
   type EligibilityBundle,
 } from "../../relationship/social-authority.js";
+import { recordPromotionFailure } from "./promotion-failure.js";
 import { getRaEffectiveConfig, type RaEnvironment } from "../../relationship/ra-effective-config.js";
 
 type Row = Record<string, unknown>;
@@ -264,6 +265,7 @@ export function promoteEligiblePending(
     } catch (error) {
       try { sidecar.exec("ROLLBACK"); } catch { /* preserve promotion error */ }
       rejected += 1;
+      recordPromotionFailure(sidecar, markerId, error, nowMs);
     }
   }
 

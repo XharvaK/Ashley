@@ -261,7 +261,9 @@ export class AgentManager {
         roomId:input.kind==="room"?input.conversationId:undefined,nowMs}).accepted});
     const dm=promoteEligiblePending(sidecar,nuclear,{ownerId,nowMs,timing});
     const room=promoteEligibleRoomPending(sidecar,nuclear,{ownerId,nowMs,timing});
-    if(dm.rejected || room.rejected)throw new Error("thalamus_social_promotion_deferred");
+    // AG0: a marker that failed to promote is retried next tick and quarantined after a few
+    // failures (promotion-failure.ts); it never holds up her other inner life.
+    if(dm.rejected || room.rejected)console.warn(`[cognitive-v021] social promotion failed dm=${dm.rejected} room=${room.rejected}; inner life continues`);
     if(dm.promoted || room.promoted)return {kind:"social",promoted:dm.promoted+room.promoted} as const;
     // The periodic master owns AWAKE/NIGHT, not independent social or prospective obligations.
     if(!periodicEnabled)current.candidates=current.candidates.filter(candidate=>!["sleep","boredom","interoceptive"].includes(candidate.source));

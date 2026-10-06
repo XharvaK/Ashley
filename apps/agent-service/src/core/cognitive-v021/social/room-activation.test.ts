@@ -15,6 +15,7 @@ import {
   buildRoomAuthorityBinding,
   promoteEligibleRoomPending,
 } from "./room-activation.js";
+import { PROMOTION_ATTEMPTS } from "./promotion-failure.js";
 
 const ownerId = "doc";
 const guildId = "guild-1";
@@ -77,6 +78,30 @@ function seedRoom(nuclear: DatabaseSync): void {
     nowMs,
   });
 }
+
+describe("AG0 a marker that cannot promote", () => {
+  it("is retried, then quarantined with its error, and never stays pending", () => {
+    const sidecar = openTestSidecar();
+    const nuclear = openNuclearDb(new DatabaseSync(":memory:"));
+    try {
+      seedRoom(nuclear);
+      const captured = admitExternalCapture(sidecar, nuclear, captureInput("room-stuck", "human-1"), { nowMs });
+      admitExternalBatch(sidecar, nuclear, { captureRefs: [captured.captureRef], conversationKey: roomId },
+        { nowMs, ownerId, roomSeedActive: true });
+      const timing = { beforePromotion: () => true, afterPromotion: () => { throw new Error("wake_terminal"); } };
+      const promote = (at: number) => promoteEligibleRoomPending(sidecar, nuclear, { nowMs: at, ownerId, timing,
+        env: { RA_ROOM_SEED_ACTIVE: "true", RA_ROOM_PUBLICATION: channelId } });
+      for (let attempt = 0; attempt < PROMOTION_ATTEMPTS; attempt++) expect(promote(nowMs + attempt)).toMatchObject({ promoted: 0, rejected: 1 });
+      expect(promote(nowMs + 10)).toMatchObject({ promoted: 0, rejected: 0, waiting: 0 });
+      expect(sidecar.prepare("SELECT state, status, quarantine_reason, last_error, attempt_count FROM inbox_events WHERE kind = 'external_eligible_pending'").get())
+        .toEqual({ state: "quarantined", status: "failed_terminal", quarantine_reason: "promotion_failed", last_error: "wake_terminal", attempt_count: PROMOTION_ATTEMPTS });
+      expect(sidecar.prepare("SELECT COUNT(*) AS count FROM cycle_records").get()).toMatchObject({ count: 0 });
+    } finally {
+      nuclear.close();
+      sidecar.close();
+    }
+  });
+});
 
 describe("RA-P16 trusted room activation", () => {
   it("keeps room captures non-cognitive until the staged room gate, then promotes once per capture", () => {

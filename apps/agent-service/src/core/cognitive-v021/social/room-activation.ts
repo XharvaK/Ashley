@@ -8,6 +8,7 @@ import { absorbFreshMessagesInTransaction } from "../cycle/fence.js";
 import { getEvidenceByRowId } from "../evidence/conversation-log.js";
 import type { ConversationEvidenceRecord } from "../types.js";
 import type { DepRef, HardDependencyBundle } from "./types.js";
+import { recordPromotionFailure } from "./promotion-failure.js";
 import { getRaEffectiveConfig, type RaEnvironment } from "../../relationship/ra-effective-config.js";
 import {
   classifyEligibility,
@@ -275,9 +276,10 @@ export function promoteEligibleRoomPending(
       sidecar.exec("COMMIT");
       promoted.push(cycleId);
       eventIds.push(event.id);
-    } catch {
+    } catch (error) {
       try { sidecar.exec("ROLLBACK"); } catch { /* preserve promotion failure */ }
       rejected += 1;
+      recordPromotionFailure(sidecar, markerId, error, nowMs);
     }
   }
 
