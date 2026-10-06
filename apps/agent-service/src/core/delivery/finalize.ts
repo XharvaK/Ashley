@@ -187,15 +187,21 @@ export function finalizeDelivery(
 
     if (deliveredText && reservation.threadId) {
       // Ensure thread exists for archival: weekly placeholder 'dm' may not be a real mem_threads row.
+      // A room thread (room:<guild>:<channel>) is never the Owner's one active thread: with an
+      // active thread already present it is archived, else OR IGNORE would skip it and the
+      // message insert below would fail its foreign key.
       const existingThread = db
         .prepare(`SELECT id FROM mem_threads WHERE id = ?`)
         .get(reservation.threadId) as { id?: unknown } | undefined;
       if (!existingThread) {
         const nowIsoThread = new Date().toISOString();
         db.prepare(
-          `INSERT OR IGNORE INTO mem_threads (id, owner_id, status, channel, created_at, updated_at) VALUES (?, ?, 'active', ?, ?, ?)`,
+          `INSERT OR IGNORE INTO mem_threads (id, owner_id, status, channel, created_at, updated_at)
+           VALUES (?, ?, CASE WHEN EXISTS (SELECT 1 FROM mem_threads WHERE owner_id = ? AND status = 'active')
+                              THEN 'archived' ELSE 'active' END, ?, ?, ?)`,
         ).run(
           reservation.threadId,
+          input.ownerId,
           input.ownerId,
           reservation.channel === "discord" ? "discord" : "discord",
           nowIsoThread,

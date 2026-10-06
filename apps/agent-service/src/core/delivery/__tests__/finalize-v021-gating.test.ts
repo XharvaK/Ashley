@@ -147,4 +147,22 @@ describe("v021 delivery finalization", () => {
     }
   });
 
+  it("archives a room delivery beside the Owner's one active thread", () => {
+    const { db, reservationId } = prepareReceiptedDelivery();
+    try {
+      const active = db.prepare("SELECT id FROM mem_threads WHERE owner_id = 'doc' AND status = 'active'").all();
+      expect(active).toHaveLength(1);
+      db.prepare("UPDATE delivery_reservations SET thread_id = 'room:g:c' WHERE id = ?").run(reservationId);
+
+      const result = finalizeDelivery(db, { reservationId, ownerId: "doc", cause: "complete" });
+
+      expect(result.state).toBe("committed");
+      expect(db.prepare("SELECT status FROM mem_threads WHERE id = 'room:g:c'").get()).toEqual({ status: "archived" });
+      expect(db.prepare("SELECT id FROM mem_threads WHERE owner_id = 'doc' AND status = 'active'").all()).toEqual(active);
+      expect(db.prepare("SELECT COUNT(*) AS count FROM mem_messages WHERE thread_id = 'room:g:c' AND role = 'assistant'").get()).toEqual({ count: 1 });
+    } finally {
+      db.close();
+    }
+  });
+
 });
