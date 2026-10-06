@@ -1748,6 +1748,8 @@ export type ThoughtInput = {
   innerPass?: ThoughtInnerPass;
   /** 8d: present only during an Owner-private Domus pass; facts from the game, rebuilt from durable rows. */
   domus?: import("../domus/notification.js").DomusForThought;
+  /** M5: outside a Domus pass, Owner-private only: her body in the game as last seen. */
+  domusNow?: import("../domus/notification.js").DomusNow;
   /** Present only for an autonomous idle-opportunity Thought. */
   publicPresence?: PublicPresenceContext;
   /** Host factual context for the single Ashley-authored capacity-wait turn. */

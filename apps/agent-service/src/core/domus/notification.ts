@@ -15,6 +15,15 @@ export const DOMUS_PENDING_LIMIT = 32;
 /** The events since the last pass, within this many bytes; newest kept. */
 export const DOMUS_EVENTS_BYTES = 4096;
 
+/** M5: how long after the game's last word a conversation still carries her body's state. */
+export const DOMUS_NOW_WINDOW_MS = 12 * 60 * 60 * 1000;
+/** M5: the compact now, within this many bytes (the least essential parts go first). */
+export const DOMUS_NOW_BYTES = 2048;
+
+/** M5 (live 2026-10-06: told on Discord to get off the PC and asked about her job, she knew
+ * nothing of her Sim): her body in the game as last seen, for turns outside a Domus pass. */
+export type DomusNow = { world: string; asOfMs: number; live: boolean; body: Record<string, unknown> };
+
 export type DomusEvent = { observationId: string; atMs: number; kind: string; facts: Record<string, unknown> };
 export type DomusForThought = {
   world: string;
@@ -168,6 +177,59 @@ export function domusActBindingFor(db: DatabaseSync, event: { id: string; conver
 }
 
 /** Re-read the bound inbox event and the durable rows; never project the caller's payload. Undone rows are left out. */
+function textList(value: unknown, key: string | null, limit: number): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.map(item => key === null ? item : item && typeof item === "object" ? (item as Row)[key] : undefined)
+    .filter((item): item is string => typeof item === "string" && item.length > 0).slice(0, limit).map(item => item.slice(0, 120));
+}
+
+/** The facts of a portrait a conversation needs: when and where, how her body feels, what it is doing,
+ * who is there, her jobs, and what the game is asking her. The game's own words; nothing added. */
+export function compactDomusBody(portrait: Record<string, unknown>): Record<string, unknown> {
+  const body: Record<string, unknown> = {};
+  for (const key of ["time", "place", "mood", "paused"]) if (portrait[key] !== undefined) body[key] = portrait[key];
+  const needs = portrait.needs;
+  if (needs && typeof needs === "object" && !Array.isArray(needs)) {
+    body.needs = Object.fromEntries(Object.entries(needs as Row)
+      .map(([need, value]) => [need, value && typeof value === "object" ? (value as Row).band : undefined])
+      .filter(([, band]) => typeof band === "string"));
+  }
+  const feelings = textList(portrait.moodlets, "text", 6);
+  if (feelings.length) body.feelings = feelings;
+  const doing = textList(portrait.running, null, 4);
+  if (doing.length) body.doing = doing;
+  const company = textList(portrait.company, "name", 6);
+  if (company.length) body.with = company;
+  const self = portrait.self;
+  const jobs = self && typeof self === "object" ? (self as Row).jobs : undefined;
+  if (Array.isArray(jobs) && jobs.length) body.jobs = jobs.slice(0, 4);
+  const asked = textList(portrait.asked, "title", 2);
+  if (asked.length) body.asked = asked;
+  for (const key of ["with", "feelings", "doing"]) {
+    if (bytes(body) <= DOMUS_NOW_BYTES) break;
+    delete body[key];
+  }
+  return bytes(body) <= DOMUS_NOW_BYTES ? body : {};
+}
+
+/** M5: the newest word from the game within DOMUS_NOW_WINDOW_MS, or nothing. live: the game is attached now. */
+export function domusNowForThought(db: DatabaseSync, nowMs: number): DomusNow | undefined {
+  let row: Row | undefined;
+  try {
+    row = db.prepare(`SELECT world, attachment, source_time_ms, payload_json FROM domus_observations
+      WHERE admission_state != 'dropped' AND undone_at_ms IS NULL AND receipt_time_ms >= ? AND receipt_time_ms <= ?
+      ORDER BY receipt_time_ms DESC, seq DESC LIMIT 1`).get(nowMs - DOMUS_NOW_WINDOW_MS, nowMs) as Row | undefined;
+  } catch { return undefined; }
+  if (!row) return undefined;
+  let portrait: unknown;
+  try { portrait = (JSON.parse(String(row.payload_json)) as { portrait?: unknown }).portrait; } catch { return undefined; }
+  if (!portrait || typeof portrait !== "object" || Array.isArray(portrait)) return undefined;
+  const body = compactDomusBody(portrait as Record<string, unknown>);
+  if (!Object.keys(body).length) return undefined;
+  return { world: String(row.world), asOfMs: Number(row.source_time_ms),
+    live: armedAttachments(db, nowMs).has(String(row.attachment)), body };
+}
+
 export function domusForThought(db: DatabaseSync, event: { id: string; conversationId: string }, originCycleId?: string,
   acting: { enabled: boolean; nowMs: number } = { enabled: false, nowMs: 0 }): DomusForThought {
   const bound = boundNotification(db, event, originCycleId);

@@ -737,6 +737,7 @@ export function allocateThoughtProjection(
       ...(input.previousInvocationDelta === undefined ? {} : { previousInvocationDelta: input.previousInvocationDelta }),
       ...(input.innerPass === undefined ? {} : { innerPass: input.innerPass }),
       ...(input.domus === undefined ? {} : { domus: input.domus }),
+      ...(input.domusNow === undefined ? {} : { domusNow: input.domusNow }),
       observations: includeObservations ? boundedRequiredSectionData.observations : [],
       inFlight: projectedInFlight,
       effectBudget: input.effectBudget ?? {
@@ -1154,6 +1155,7 @@ export function allocateThoughtProjection(
     "growth",
     "innerPass",
     "domus",
+    "domusNow",
     "pendingForget",
     "rawConversation",
     "deskEntries",

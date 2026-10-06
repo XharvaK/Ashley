@@ -43,7 +43,8 @@ const INQUIRY_LAW = "A bounded inquiry pairs M3 workspace steps";
  * profiles the single contract estimated about 11.3k tokens.
  */
 // Explicit durableNominations guidance, including one worked nomination, is on every chat prefix.
-const CHAT_PREFIX_TOKEN_BUDGET = 9_400;
+// M5 (2026-10-06): her life in the game is on every Owner-private prefix (+~150).
+const CHAT_PREFIX_TOKEN_BUDGET = 9_600;
 
 function settlementFields(profile: ReturnType<typeof thoughtContractProfile>): string[] {
   const namespace = { allowedOperationalEffectRefs: [], fingerprint: "sha256:test" } as unknown as OperationalEffectNamespace;

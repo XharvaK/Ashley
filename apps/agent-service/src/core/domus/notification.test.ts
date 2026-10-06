@@ -8,6 +8,7 @@ import { admitObservation, observationDigest, upsertHeartbeat } from "./store.js
 import {
   armedAttachments, configureEmbodimentBudget, domusChannelFor, domusForThought, embodimentBudgetAvailable,
   pendingDomus, repairDomusReservations, selectDomusNotification, DOMUS_ARMED_MS, DOMUS_EVENTS_BYTES, EMBODIMENT_POLICY_ID,
+  domusNowForThought, DOMUS_NOW_BYTES, DOMUS_NOW_WINDOW_MS,
 } from "./notification.js";
 
 const NOW = 10_000_000;
@@ -292,5 +293,42 @@ describe("8d Domus journal channel", () => {
       expect(recordSettlementAftermath(db, "domus-settlement", { identityStore: null, timeZone: "UTC", nowMs: NOW })).toBe("recorded");
       expect(listRecentJournal(db, { limit: 1 })[0]).toMatchObject({ cycleId: "domus-cycle", channel: "domus:slot0", entry: "Travis came over." });
     } finally { db.close(); }
+  });
+});
+
+describe("M5 domusNow: her body in the game, outside a Domus pass", () => {
+  const portrait = {
+    time: { weekday: "Monday", hour: 16, minute: 5 }, place: { her_home: true, venue: "venue_residential" },
+    mood: "Mood_Uncomfortable", paused: false, posture: "standExclusive",
+    needs: { hunger: { band: "distress", value: 15 }, energy: { band: "ok", value: 83 } },
+    moodlets: [{ text: "Hungry", name: "Buff_Motives_Hunger_Hungry" }, { text: "Lonely" }],
+    running: ["si_Career_Culinary", "sim-standExclusive"], company: [{ name: "Don Lothario", relationship: {} }],
+    self: { traits: ["Foodie"], skills: [], funds: 25000, jobs: [{ job: "Culinary", title: "Dishwasher", level: 1, at_work: true }] },
+    asked: [{ dialog_id: "3", title: "Dish Undercooked!", text: "long text", choices: [] }],
+  };
+
+  it("carries the newest portrait, compact, and whether the game is running now", () => {
+    const db = openTestSidecar();
+    observe(db, 1, { portrait: { ...portrait, mood: "Mood_Happy" } });
+    observe(db, 2, { portrait });
+    heartbeat(db);
+    const now = domusNowForThought(db, NOW)!;
+    expect(now).toMatchObject({ world: "slot0", live: true });
+    expect(now.body).toEqual({
+      time: portrait.time, place: portrait.place, mood: "Mood_Uncomfortable", paused: false,
+      needs: { hunger: "distress", energy: "ok" }, feelings: ["Hungry", "Lonely"],
+      doing: ["si_Career_Culinary", "sim-standExclusive"], with: ["Don Lothario"],
+      jobs: [{ job: "Culinary", title: "Dishwasher", level: 1, at_work: true }], asked: ["Dish Undercooked!"],
+    });
+    expect(Buffer.byteLength(JSON.stringify(now.body))).toBeLessThanOrEqual(DOMUS_NOW_BYTES);
+  });
+
+  it("is not live without an attached helper, and absent after the window or when undone", () => {
+    const db = openTestSidecar();
+    observe(db, 1, { portrait });
+    expect(domusNowForThought(db, NOW)!.live).toBe(false);
+    expect(domusNowForThought(db, NOW + DOMUS_NOW_WINDOW_MS)).toBeUndefined();
+    db.prepare("UPDATE domus_observations SET undone_at_ms = ?").run(NOW);
+    expect(domusNowForThought(db, NOW)).toBeUndefined();
   });
 });

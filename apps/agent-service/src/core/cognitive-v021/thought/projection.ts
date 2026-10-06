@@ -147,6 +147,7 @@ export type ProjectedThoughtInput = {
   attention?: ThoughtInput["attention"];
   innerPass?: ThoughtInput["innerPass"];
   domus?: ThoughtInput["domus"];
+  domusNow?: ThoughtInput["domusNow"];
   /** Current public state is model-visible only during autonomous cognition. */
   publicPresence?: PublicPresenceContext;
   availableDestinations?: readonly AvailableSocialDestination[];
@@ -479,6 +480,7 @@ export function projectThoughtInput(
     ...(fullInput.attention === undefined ? {} : { attention: fullInput.attention }),
     ...(fullInput.innerPass === undefined ? {} : { innerPass: fullInput.innerPass }),
     ...(fullInput.domus === undefined ? {} : { domus: fullInput.domus }),
+    ...(fullInput.domusNow === undefined ? {} : { domusNow: fullInput.domusNow }),
     ...(fullInput.publicPresence === undefined ? {} : { publicPresence: fullInput.publicPresence }),
     ...(fullInput.availableDestinations === undefined ? {} : {
       availableDestinations: [...fullInput.availableDestinations],

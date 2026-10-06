@@ -74,6 +74,7 @@ export const INNER_LIFE_SECTIONS = [
   { section: "growth", field: "growth", canonicalStore: "growth_revisions+mood_state+expectations+diary_entries" },
   { section: "inner_pass", field: "innerPass", canonicalStore: "inbox_events" },
   { section: "domus", field: "domus", canonicalStore: "domus_observations" },
+  { section: "domus_now", field: "domusNow", canonicalStore: "domus_observations" },
   { section: "pending_forget", field: "pendingForget", canonicalStore: "forget_proposals" },
 ] as const;
 

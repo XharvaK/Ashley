@@ -71,6 +71,7 @@ import {
 import { isDeskEntryAudienceEligible, listDeskEntries } from "../desk/store.js";
 import { episodesForThought, getThreadStory } from "../memory/episodes.js";
 import { journalForThought } from "../initiative/journal.js";
+import { domusNowForThought } from "../../domus/notification.js";
 import { getThoughtAttemptCounters } from "./counters.js";
 
 export type BuildThoughtInputOptions = {
@@ -1164,6 +1165,9 @@ export function buildThoughtInput(options: BuildThoughtInputOptions): ThoughtInp
   const activityJournal = audience.kind === "owner_private"
     ? journalForThought(options.sidecar, options.clock?.nowMs ?? Date.now())
     : [];
+  const domusNow = audience.kind === "owner_private" && !domusPass
+    ? domusNowForThought(options.sidecar, options.clock?.nowMs ?? Date.now())
+    : undefined;
 
   const thoughtInput: ThoughtInputWithC2 = {
     cycleId: options.cycle.cycleId,
@@ -1224,6 +1228,7 @@ export function buildThoughtInput(options: BuildThoughtInputOptions): ThoughtInp
     ...(activityJournal.length === 0 ? {} : { activityJournal }),
     ...(options.innerPass && audience.kind === "owner_private" ? { innerPass: options.innerPass } : {}),
     ...(options.domus && audience.kind === "owner_private" ? { domus: options.domus } : {}),
+    ...(domusNow ? { domusNow } : {}),
     ...(options.growth && audience.kind === "owner_private" ? { growth: options.growth } : {}),
     ...(options.senses && audience.kind === "owner_private" ? { senses: options.senses } : {}),
     ...(options.attention && audience.kind === "owner_private" ? { attention: options.attention } : {}),
