@@ -5,9 +5,50 @@ import type {
 import { buildReferenceAllowlist } from "./reference-allowlist.js";
 import {
   EPISTEMIC_DIMENSIONS,
+  THOUGHT_OUTPUT_SCHEMA,
   type EpistemicDimension,
   type EpistemicDimensionRepair,
 } from "./output-contract.js";
+
+const EXPECTED_FORM_CAP = 700;
+const SCHEMA_PROSE = new Set(["description", "title", "$id", "$schema", "$comment"]);
+
+function compactSchema(node: unknown): unknown {
+  if (Array.isArray(node)) return node.map(compactSchema);
+  if (!record(node)) return node;
+  return Object.fromEntries(Object.entries(node)
+    .filter(([key]) => !SCHEMA_PROSE.has(key))
+    .map(([key, value]) => [key, compactSchema(value)]));
+}
+
+/**
+ * The contract's own schema for a failing settlement path (e.g. domusAct, durableNominations[0].sourceRefs),
+ * without its prose, so a structural retry sees the exact form it missed. Null when the path is not in it.
+ */
+export function expectedFormFor(field: string | null | undefined): string | null {
+  if (!field) return null;
+  let node: unknown = (THOUGHT_OUTPUT_SCHEMA.oneOf as unknown[])[0];
+  for (const segment of field.split(".")) {
+    const match = /^([A-Za-z][A-Za-z0-9_]*)(\[\d+\])?$/.exec(segment);
+    if (!match || !record(node) || !record(node.properties) || !Object.hasOwn(node.properties, match[1]!)) return null;
+    node = node.properties[match[1]!];
+    if (match[2]) {
+      if (!record(node) || node.items === undefined) return null;
+      node = node.items;
+    }
+  }
+  const text = JSON.stringify(compactSchema(node));
+  if (text.length <= EXPECTED_FORM_CAP) return text;
+  // Too large to show whole: the object's allowed keys, so a stray key is plain to see.
+  if (record(node) && record(node.properties)) {
+    return JSON.stringify({
+      type: "object",
+      onlyTheseKeys: Object.keys(node.properties),
+      required: Array.isArray(node.required) ? node.required : [],
+    });
+  }
+  return null;
+}
 
 export type ThoughtStructuralCandidate = Readonly<Record<string, unknown>>;
 
@@ -324,12 +365,14 @@ export function formatThoughtStructuralFeedback(
   const allowlist = feedback.code === "reference_not_allowlisted"
     ? ` Host allowlisted reference IDs: ${JSON.stringify(feedback.allowlistedReferences)}.`
     : "";
+  const form = feedback.code === "wrong_type" ? expectedFormFor(feedback.field) : null;
+  const expected = form ? ` Expected form of ${feedback.field} (JSON Schema): ${form}.` : "";
   const scope = feedback.correctionScope === "localized" && feedback.allowedRepairPaths.length > 1
     ? ` Only these paths may change: ${feedback.allowedRepairPaths.join(", ")}; preserve the semantic kind and every other field exactly.`
     : feedback.correctionScope === "localized" && feedback.allowedRepairPath
       ? ` Only ${feedback.allowedRepairPath} may change; preserve the semantic kind and every other field exactly.`
     : " This is a bounded global structural regeneration; no prior semantic candidate is supplied as a repair target.";
-  return `The previous response failed bounded structural validation (${feedback.code}).${field} ${STRUCTURAL_FEEDBACK[feedback.code]}${epistemicRepairText}${allowlist}${scope} Do not change the semantic answer or invent authority.`;
+  return `The previous response failed bounded structural validation (${feedback.code}).${field} ${STRUCTURAL_FEEDBACK[feedback.code]}${epistemicRepairText}${allowlist}${expected}${scope} Do not change the semantic answer or invent authority.`;
 }
 
 export function formatThoughtStructuralCorrectionData(
@@ -349,6 +392,7 @@ export function formatThoughtStructuralCorrectionData(
       failureCode: feedback.code,
       failingPath: feedback.field,
       constraint: STRUCTURAL_FEEDBACK[feedback.code],
+      ...(feedback.code === "wrong_type" && expectedFormFor(feedback.field) ? { expectedForm: expectedFormFor(feedback.field) } : {}),
       epistemicRepairs: feedback.epistemicRepairs,
       allowedRepairScope: {
         kind: "localized",

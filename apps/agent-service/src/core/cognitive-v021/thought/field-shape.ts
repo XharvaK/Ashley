@@ -1,3 +1,24 @@
+import { THOUGHT_OUTPUT_SCHEMA } from "./output-contract.js";
+
+let vocabulary: Set<string> | undefined;
+/** Every property name the Thought output schema defines, at any depth. */
+function contractVocabulary(): Set<string> {
+  if (vocabulary) return vocabulary;
+  const names = new Set<string>();
+  const walk = (node: unknown): void => {
+    if (Array.isArray(node)) { node.forEach(walk); return; }
+    if (node === null || typeof node !== "object") return;
+    const record = node as Record<string, unknown>;
+    if (record.properties && typeof record.properties === "object") {
+      for (const name of Object.keys(record.properties as object)) names.add(name);
+    }
+    for (const child of Object.values(record)) walk(child);
+  };
+  walk(THOUGHT_OUTPUT_SCHEMA);
+  vocabulary = names;
+  return names;
+}
+
 /** The shape of one field of a model's JSON output, for a parse-failure log: types, lengths and counts only, never content. */
 export function describeFieldShape(text: string, field: string | undefined, refs?: ReadonlySet<string>): string {
   let root: unknown;
@@ -53,7 +74,12 @@ function describeValue(value: unknown, refs: ReadonlySet<string> | undefined): s
     return `array(len ${value.length}; types ${types.join(",")}${knownSuffix})`;
   }
   if (typeof value === "object") {
-    return `object(keys ${Object.keys(value as Record<string, unknown>).length})`;
+    // Keys are named only when they are contract vocabulary; any other key may carry content and is only counted.
+    const keys = Object.keys(value as Record<string, unknown>);
+    const known = keys.filter((key) => contractVocabulary().has(key));
+    const unknown = keys.length - known.length;
+    const parts = [...known.slice(0, 8), ...(unknown > 0 ? [`+${unknown} unknown`] : [])];
+    return `object(keys ${keys.length}${parts.length ? `: ${parts.join(",")}` : ""})`;
   }
   return typeof value;
 }

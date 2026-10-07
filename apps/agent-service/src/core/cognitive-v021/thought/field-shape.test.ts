@@ -12,9 +12,11 @@ describe("describeFieldShape", () => {
     expect(describeFieldShape(JSON.stringify({ note: "x" }), "missing")).toBe("absent");
   });
 
-  it("counts object keys without naming them", () => {
+  it("counts object keys without naming them, unless they are contract vocabulary", () => {
     const shape = describeFieldShape(JSON.stringify({ note: { [SECRET]: 1, other: true } }), "note");
-    expect(shape).toBe("object(keys 2)");
+    expect(shape).toBe("object(keys 2: +2 unknown)");
+    expect(describeFieldShape(JSON.stringify({ domusAct: { option: "a1", forOwner: true, [SECRET]: 1 } }), "domusAct"))
+      .toBe("object(keys 3: option,forOwner,+1 unknown)");
   });
 
   it("reports string length without the characters", () => {

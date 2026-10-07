@@ -30,6 +30,7 @@ import {
 import type { CognitiveDispatchResult, HandlerResult, InboxEvent, KernelRunResult, PrivateBudgetReservation } from "../types.js";
 import { assessOwnerAnswerHold, captureOwnerDispatchCoverage, ownerAnswerAlreadySettled } from "./owner-coverage.js";
 import { isOwnerObligationEventKind } from "../owner-obligation.js";
+import { retireOwnerlessCycles } from "./reconcile.js";
 
 /**
  * P0 steady-state reconciliation bounds (R7 §22.2, frozen). The opportunity
@@ -542,6 +543,14 @@ export function startInboxConsumer(
         cursor: reconciliationCursor,
       });
       reconciliationCursor = outcome.nextCursor;
+    } catch (error) {
+      options.onError?.(error, null);
+    }
+    try {
+      // A cycle left open with no owner holds the conversation lane; retire it without a restart.
+      for (const cycleId of retireOwnerlessCycles(db, { nowMs })) {
+        console.warn(`[cycle] retired ownerless cycle=${cycleId}`);
+      }
     } catch (error) {
       // Reconciliation truth failure must never fail the consumer loop or
       // cognition: report through the existing error seam and advance the

@@ -249,6 +249,71 @@ function convergedCoveredSiblingEvents(sidecar: DatabaseSync, nowMs: number): st
   return converged;
 }
 
+function retireZombieCycleInTransaction(
+  sidecar: DatabaseSync,
+  cycle: NonNullable<ReturnType<typeof getCycle>>,
+  nowMs: number,
+): void {
+  suppressUndeliveredOutbox(sidecar, {
+    conversationId: cycle.conversationId,
+    generation: cycle.generation,
+    reason: "preempted_zombie_cycle",
+  });
+  sidecar.prepare("UPDATE cycle_records SET state = 'silent', updated_at_ms = ? WHERE cycle_id = ?").run(nowMs, cycle.cycleId);
+  if (cycle.wakeId) {
+    const wake = getWake(sidecar, cycle.wakeId);
+    if (wake && wake.state !== "terminal") {
+      recordWakeCancellationInTransaction(sidecar, { wakeId: cycle.wakeId, nowMs });
+      if (wake.state !== "reconciling" && wake.state !== "consequence_pending") {
+        finishWakeInTransaction(sidecar, cycle.wakeId, wake.leaseToken, "cancelled", nowMs);
+      }
+    }
+  }
+}
+
+/** A cycle with no continuation owner for this long is retired while the service runs. */
+export const ZOMBIE_CYCLE_GRACE_MS = 5 * 60_000;
+
+/**
+ * Steady-state counterpart of startup step 1, for Owner-era cycles only. Live 2026-10-07: an
+ * Owner pass outlived its claim, settling threw after her reply was delivered and its wake had
+ * ended, and the cycle stayed open: the conversation hold kept every afterglow, game-session
+ * reflection and own-time pass waiting 51 minutes, until a restart retired it. A cycle is
+ * retired only when it has had no continuation owner (no live wake, no undelivered speech,
+ * no waiting frontier, no Owner worker) and has not changed for ZOMBIE_CYCLE_GRACE_MS.
+ * Social conversations keep the startup path, which proves their dispatch side first.
+ */
+export function retireOwnerlessCycles(
+  sidecar: DatabaseSync,
+  options: { nowMs: number; graceMs?: number },
+): string[] {
+  const graceMs = options.graceMs ?? ZOMBIE_CYCLE_GRACE_MS;
+  const rows = sidecar.prepare(
+    `SELECT cycle_id FROM cycle_records
+      WHERE state NOT IN ('silent', 'idle') AND COALESCE(disposition, '') != 'intentional_silence'
+        AND updated_at_ms <= ?
+      ORDER BY admitted_at_ms ASC LIMIT 20`,
+  ).all(options.nowMs - graceMs) as Array<{ cycle_id: string }>;
+  const retired: string[] = [];
+  for (const row of rows) {
+    sidecar.exec("BEGIN IMMEDIATE");
+    try {
+      const cycle = getCycle(sidecar, row.cycle_id);
+      if (cycle && cycle.state !== "silent" && cycle.state !== "idle"
+        && !isSocialConversation(cycle.conversationId, cycle.triggerKind)
+        && !hasValidDurableContinuationOwner(sidecar, cycle)) {
+        retireZombieCycleInTransaction(sidecar, cycle, options.nowMs);
+        retired.push(cycle.cycleId);
+      }
+      sidecar.exec("COMMIT");
+    } catch (error) {
+      try { sidecar.exec("ROLLBACK"); } catch { /* keep the original error */ }
+      throw error;
+    }
+  }
+  return retired;
+}
+
 /**
  * Authority-reconciles startup ownership:
  * 1. Discovers occupying cycles with missing durable continuation owners (zombie cycles)
@@ -307,21 +372,7 @@ export function reconcileStartupOwnership(
             // intentionally not converted into a terminal input outcome.
           }
         } else {
-          suppressUndeliveredOutbox(sidecar, {
-            conversationId: cycle.conversationId,
-            generation: cycle.generation,
-            reason: "preempted_zombie_cycle",
-          });
-          sidecar.prepare("UPDATE cycle_records SET state = 'silent', updated_at_ms = ? WHERE cycle_id = ?").run(nowMs, cycle.cycleId);
-          if (cycle.wakeId) {
-            const wake = getWake(sidecar, cycle.wakeId);
-            if (wake && wake.state !== "terminal") {
-              recordWakeCancellationInTransaction(sidecar, { wakeId: cycle.wakeId, nowMs });
-              if (wake.state !== "reconciling" && wake.state !== "consequence_pending") {
-                finishWakeInTransaction(sidecar, cycle.wakeId, wake.leaseToken, "cancelled", nowMs);
-              }
-            }
-          }
+          retireZombieCycleInTransaction(sidecar, cycle, nowMs);
         }
         retiredCycleIds.push(cycle.cycleId);
       }

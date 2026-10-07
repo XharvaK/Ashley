@@ -142,11 +142,33 @@ export function isValidGrowthClaim(value: unknown): value is GrowthClaim {
   return true;
 }
 
+/** P7b weekly gaps, exactly as the contract's night.gaps schema offers them. */
+function validGaps(value: unknown): boolean {
+  const gaps = record(value);
+  if (!gaps || Object.keys(gaps).length === 0 || !onlyKeys(gaps, ["dimensions", "choose", "edits"])) return false;
+  if (gaps.dimensions !== undefined && !(boundedArray(gaps.dimensions, 8) && gaps.dimensions.every((item) => {
+    const entry = record(item);
+    return entry !== null && onlyKeys(entry, ["id", "score", "note", "supportRefs"]) && text(entry.id, 200)
+      && Number.isInteger(entry.score) && Number(entry.score) >= 0 && Number(entry.score) <= 5 && text(entry.note, 500)
+      && boundedArray(entry.supportRefs, 8) && entry.supportRefs.every((ref) => text(ref, 200));
+  }))) return false;
+  if (gaps.choose !== undefined && !text(gaps.choose, 200)) return false;
+  if (gaps.edits !== undefined && !(boundedArray(gaps.edits, 8) && gaps.edits.every((item) => {
+    const entry = record(item);
+    return entry !== null && onlyKeys(entry, ["op", "id", "name", "question", "reason"])
+      && ["add", "rename", "retire"].includes(String(entry.op)) && text(entry.reason, 400)
+      && (entry.id === undefined || text(entry.id, 200)) && (entry.name === undefined || text(entry.name, 80))
+      && (entry.question === undefined || text(entry.question, 240));
+  }))) return false;
+  return true;
+}
+
 /** Structural check for the settlement's `night` field (NIGHT pass only). */
 export function isValidNightClaim(value: unknown): value is NightClaim {
   const night = record(value);
   if (!night || Object.keys(night).length === 0) return false;
-  if (!onlyKeys(night, ["diary", "salience", "closeQuestions", "narrative"])) return false;
+  if (!onlyKeys(night, ["diary", "salience", "closeQuestions", "narrative", "gaps"])) return false;
+  if (night.gaps !== undefined && !validGaps(night.gaps)) return false;
   if (night.diary !== undefined && !text(night.diary, DIARY_MAX_CHARS)) return false;
   if (night.narrative !== undefined && !text(night.narrative, NARRATIVE_MAX_CHARS)) return false;
   if (night.salience !== undefined && !(boundedArray(night.salience, NIGHT_SALIENCE_MAX) && night.salience.every((item) => {
