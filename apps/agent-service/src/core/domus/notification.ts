@@ -391,9 +391,11 @@ export function domusForThought(db: DatabaseSync, event: { id: string; conversat
     } catch { /* a row without a readable portrait offers none */ }
   }
   const listed = acting.enabled ? domusOptionsFor(db, domusActBinding(db, bound)) : [];
-  // An object where an act of hers never began because the game found no way there says so, until something there runs.
+  // An object where an act of hers never began because the game found no way there says so, until something there runs;
+  // the helper's own noWay (the game sees no way there now) is kept as it came.
   const noWay = listed.length ? domusNoWayObjects(db, bound.world, acting.nowMs) : new Map<string, string>();
-  const options = listed.map(item => noWay.has(item.object_id) ? { ...item, noWay: `last time ${noWay.get(item.object_id)}` } : item);
+  const options = listed.map(item => noWay.has(item.object_id) && item.noWay === undefined
+    ? { ...item, noWay: `last time ${noWay.get(item.object_id)}` } : item);
   const acts = acting.enabled ? recentDomusActs(db, bound.world, acting.nowMs) : [];
   const lessons = domusLessonsFor(db, bound.world, domusSceneTerms({ portrait, options }));
   let changes: DomusChanges = { first: true };

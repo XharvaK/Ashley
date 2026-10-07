@@ -455,3 +455,19 @@ describe("OWNERFIRST an object the game found no way to", () => {
     expect(domusNoWayObjects(db, "slot8", NOW).size).toBe(0);
   });
 });
+
+describe("2.25.0 the game sees no way to an object now", () => {
+  it("keeps the helper's live noWay rather than the last-time note", () => {
+    const db = openTestSidecar();
+    const live = "the game sees no way for her to get there from where she is now";
+    observe(db, 1, { options: [{ ...OPTIONS[0]!, noWay: live }, OPTIONS[1]!] });
+    const binding = domusActBinding(db, { world: "slot8", observationIds: ["helper-a.1"] })!;
+    const tried = recordDomusAct(db, { binding, claim: { option: "a1" }, cycleId: "cycle-1", nowMs: NOW - 2000 });
+    syncDomusActs(db, { helperSession: "helper-a", events: [{ actId: tried.actId, phase: "finished", atMs: NOW - 1500,
+      detail: { finishing_type: "INTERACTION_INCOMPATIBILITY", started: false } }], nowMs: NOW - 1500 });
+    const event = appendInboxEvent(db, { id: "domus-notification:helper-a.1", conversationId: "c", kind: "domus_notification",
+      payload: { domus: { world: "slot8", attachment: "helper-a", observationIds: ["helper-a.1"] }, occupantId: "o", authorityEpoch: 1 }, createdAtMs: NOW });
+    const on = domusForThought(db, { id: event.id, conversationId: "c" }, undefined, { enabled: true, nowMs: NOW });
+    expect(on.options![0]!.noWay).toBe(live);
+  });
+});
