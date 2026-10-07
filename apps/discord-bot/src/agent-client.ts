@@ -491,6 +491,19 @@ export type PublicPresenceRemoteState = {
   projectionState: "pending" | "projected" | "failed" | "unknown" | null;
 };
 
+export type PresencePhaseName = "conversation" | "awake" | "afterglow" | "night" | "idle";
+
+export type PresencePhaseReport = {
+  phase: PresencePhaseName;
+  healthy: boolean;
+  sinceMs: number;
+};
+
+export async function presencePhase(): Promise<PresencePhaseReport> {
+  const query = new URLSearchParams({ owner_id: config.ownerId });
+  return agentFetch<PresencePhaseReport>(`/presence/phase?${query.toString()}`);
+}
+
 export async function publicPresenceState(): Promise<PublicPresenceRemoteState> {
   const query = new URLSearchParams({ owner_id: config.ownerId });
   return agentFetch<PublicPresenceRemoteState>(`/discord/public-presence?${query.toString()}`);

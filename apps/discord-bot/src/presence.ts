@@ -22,6 +22,20 @@ type KnownProjection = ProjectionMetadata & {
 let timer: ReturnType<typeof setInterval> | null = null;
 let inFlight: Promise<void> | null = null;
 let lastKnown: KnownProjection | null = null;
+let pinnedStatus: "online" | "idle" | null = null;
+
+export async function applyStatusDot(
+  client: Client,
+  status: "online" | "idle",
+): Promise<boolean> {
+  if (pinnedStatus === status) return false;
+  pinnedStatus = status;
+  if (!client.user) return true;
+  // setStatus sends no activity list, so a public-presence activity already
+  // on the client stays. An empty list would clear it.
+  client.user.setStatus(status);
+  return true;
+}
 
 export function discordActivities(publicText: string | null): Array<{
   name: string;
@@ -122,7 +136,7 @@ async function reconcile(client: Client, cause: string): Promise<void> {
   }
 
   const presence = {
-    status: operationalDiscordStatus(healthy),
+    status: pinnedStatus ?? operationalDiscordStatus(healthy),
     activities: discordActivities(publicText),
   } as const;
   try {
