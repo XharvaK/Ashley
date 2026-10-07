@@ -100,7 +100,7 @@ import {
   persistCommitmentProposals,
   settlePersistedCommitmentProposals,
 } from "../../relationship/commitment-admission.js";
-import { captureOwnerDispatchCoverage, proveExactOwnerSupersession } from "../cycle/owner-coverage.js";
+import { assessOwnerAnswerHold, captureOwnerDispatchCoverage, proveExactOwnerSupersession } from "../cycle/owner-coverage.js";
 import { getConversationEvidence, listConversationEvidence } from "../evidence/conversation-log.js";
 import {
   futureTriggerWakeContext,
@@ -327,6 +327,8 @@ export type ThoughtInvocation = {
   providerUsageCapture?: ThoughtProviderFailureCapture;
   /** Physical execution evidence projected from the canonical Model Fabric receipt. */
   thoughtExecutionProvenance?: ThoughtExecutionProvenance;
+  /** The Owner event was answered elsewhere before another model call. */
+  ownerAnswerStopped?: boolean;
   /** HA2: set when the pass's own model failed and the lifeboat model was dispatched. */
   lifeboat?: {
     fromModelId: string;
@@ -1578,6 +1580,8 @@ export async function runThoughtModel(
     concernInspectAuthority?: ConcernInspectAuthority;
     /** Last structural attempt: prune a faulty optional part instead of failing the pass. */
     salvageOnFailure?: boolean;
+    /** False when the Owner event was answered elsewhere and another model call must not start. */
+    beforeRedispatch?: () => boolean;
   },
 ): Promise<ThoughtInvocation> {
   const pass = options.pass ?? 1;
@@ -1788,6 +1792,24 @@ export async function runThoughtModel(
         console.warn(`[thought] circuit open model=${ownModelId} for=${thoughtModelCircuit.windowMs(ownModelId) / 60_000}m streak=${thoughtModelCircuit.streak(ownModelId)}`);
       }
       if (lifeboatLaunchBlocked() || !qualifies) throw primaryError;
+      if (options.beforeRedispatch && !options.beforeRedispatch()) {
+        return {
+          output: {
+            kind: "failure",
+            cycleId: input.cycleId,
+            generation: input.generation,
+            pass,
+            requestId,
+            occupantId: input.occupantId,
+            reason: "cancelled",
+          },
+          attempts: 1,
+          requestId,
+          ownerAnswerStopped: true,
+          inputTokens: estimatedInputTokens,
+          thoughtExecutionProvenance: NOT_SENT_EXECUTION_PROVENANCE,
+        };
+      }
       const target = thoughtLifeboatForTrigger(input.trigger?.kind);
       const primaryCapture = providerFailureCaptureForError(primaryError, dispatchOptions, undefined, true);
       const primaryEvidence = commandCodeThoughtEvidenceFromError(primaryError);
@@ -3380,6 +3402,33 @@ export async function runCognitiveCycle(
   let lastThoughtPass = pass;
   let lastDispatchTruth: ThoughtExecutionDispatchTruth = "unknown";
   const discoveredAuthorableConcernIds = new Set<string>();
+  const stopForOwnerAnswer = (stopCounters: ThoughtAttemptCounters): KernelRunResult | null => {
+    const loss = assessOwnerAnswerHold(sidecar, event);
+    if (!loss) return null;
+    if (loss.kind === "superseded") {
+      console.warn(`[cycle] superseded event=${loss.eventId} by=${loss.by}`);
+      return resultWithCounters(cycle.cycleId, cycle.generation, null, stopCounters, {
+        thoughtExecutionProvenance: currentExecutionProvenance(),
+        ownerObligationResolution: {
+          attemptOutcome: "abstained",
+          ownerObligationOutcome: "not_applicable",
+          primaryEventId: event.id,
+          coveredOwnerEventIds: [...(event.dispatchCoverage?.coveredOwnerEventIds ?? [event.id])],
+          uncoveredOwnerEventIds: [],
+          coverageHash: event.dispatchCoverage?.coverageHash ?? null,
+          semanticCommitment: null,
+          settlementId: null,
+          successorIdentity: null,
+          remainingResponsibility: null,
+          deliveryDisposition: "not_applicable",
+        },
+      });
+    }
+    return resultWithCounters(cycle.cycleId, cycle.generation, null, stopCounters, {
+      thoughtExecutionProvenance: currentExecutionProvenance(),
+      ownerObligationResolution: ownerResolutionFor("abstained"),
+    });
+  };
 
   try {
     for (;;) {
@@ -3411,6 +3460,8 @@ export async function runCognitiveCycle(
     if (!currentLifecycleIs(sidecar, cycle, attemptLifecycleBinding, deps.origin !== "shadow")) {
       return resultWithCounters(cycle.cycleId, cycle.generation, null, counters, staleOwnerResultOptions());
     }
+    const ownerAnswerStop = stopForOwnerAnswer(counters);
+    if (ownerAnswerStop) return ownerAnswerStop;
     if (socialResourcePrecheck && !socialResourcePrecheck.accepted) {
       const fact: OperationalExhaustion = socialResourcePrecheck.fact;
       return emitFailure(
@@ -3684,6 +3735,7 @@ export async function runCognitiveCycle(
         discoverAllowed: thoughtAudience === undefined,
       },
       salvageOnFailure: !structuralRetryWouldSchedule,
+      beforeRedispatch: () => assessOwnerAnswerHold(sidecar, event) === null,
     });
     lastThoughtRequestId = invocation.requestId;
     lastThoughtPass = pass;
@@ -3697,6 +3749,10 @@ export async function runCognitiveCycle(
     }
     const cancellationReason = activeThought.cancellationReason;
     activeThought.unregister();
+    if (invocation.ownerAnswerStopped) {
+      const stopped = stopForOwnerAnswer(getThoughtAttemptCounters(sidecar, cycle.cycleId, cycle.generation));
+      if (stopped) return stopped;
+    }
     const nowAfterThoughtMs = deps.nowMs();
     storeThoughtStep(sidecar, invocation.output, nowAfterThoughtMs);
     const providerCapture = invocation.providerFailureCapture ?? invocation.providerUsageCapture;
@@ -4792,6 +4848,8 @@ export async function runCognitiveCycle(
         }
       : deps.origin!=="shadow" && externalCycle && settlement.attention?.wakeWorth
         ? {conversationId:cycle.conversationId,ownerPrivate:false,timingOnly:true,passKind:null,nightPass:null} : null;
+    const ownerSpeechStop = stopForOwnerAnswer(counters);
+    if (ownerSpeechStop) return ownerSpeechStop;
     const publication = publishSemanticTransaction(sidecar, settlement, {
       ...(aftermathContext ? { aftermath: aftermathContext } : {}),
       nowMs: deps.nowMs(),
@@ -4826,8 +4884,11 @@ export async function runCognitiveCycle(
       wakeLeaseToken: event.claimToken,
       semanticPass: pass,
       allowQueuedDetachedCompletion: deps.origin !== "shadow",
+      ...((event.claimToken || event.durableAttemptId) ? { ownerAnswerEvent: event } : {}),
     });
     if (!publication.published) {
+      const raced = stopForOwnerAnswer(getThoughtAttemptCounters(sidecar, cycle.cycleId, cycle.generation));
+      if (raced) return raced;
       counters = getThoughtAttemptCounters(sidecar, cycle.cycleId, cycle.generation);
       const thoughtExecutionProvenance = currentExecutionProvenance();
       const publicationReason = publication.reason;

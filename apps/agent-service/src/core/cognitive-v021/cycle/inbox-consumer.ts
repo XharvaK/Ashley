@@ -23,7 +23,7 @@ import {
   PERIODIC_RECOVERY_DISPATCH_BLOCKED,
 } from "../dispatch/live.js";
 import type { CognitiveDispatchResult, HandlerResult, InboxEvent, KernelRunResult, PrivateBudgetReservation } from "../types.js";
-import { captureOwnerDispatchCoverage } from "./owner-coverage.js";
+import { captureOwnerDispatchCoverage, ownerAnswerAlreadySettled } from "./owner-coverage.js";
 import { isOwnerObligationEventKind } from "../owner-obligation.js";
 
 /**
@@ -150,6 +150,47 @@ function toHandlerResult(result: InboxConsumerHandlerResult, event: InboxEvent):
   return { kind: "completed" };
 }
 
+function inboxDisposition(db: DatabaseSync, eventId: string): {
+  state: string;
+  terminalReason: string | null;
+  nextEligibleAtMs: number | null;
+} | null {
+  const row = db.prepare(
+    "SELECT state, terminal_reason, next_eligible_at_ms FROM inbox_events WHERE id = ? LIMIT 1",
+  ).get(eventId) as { state?: unknown; terminal_reason?: unknown; next_eligible_at_ms?: unknown } | undefined;
+  if (!row || typeof row.state !== "string") return null;
+  const nextEligibleAtMs = typeof row.next_eligible_at_ms === "number" ? row.next_eligible_at_ms : null;
+  return {
+    state: row.state,
+    terminalReason: typeof row.terminal_reason === "string" ? row.terminal_reason : null,
+    nextEligibleAtMs,
+  };
+}
+
+function logSuperseded(eventId: string, by: string): void {
+  console.warn(`[cycle] superseded event=${eventId} by=${by}`);
+}
+
+/** The claim is already gone. Settle as stale when another pass answered; otherwise leave the row. */
+function outcomeWithoutOpenAttempt(
+  db: DatabaseSync,
+  event: InboxEvent,
+  nowMs: number,
+): DurableSettlementOutcome {
+  const row = inboxDisposition(db, event.id);
+  if (row?.state === "terminal" || row?.state === "quarantined") {
+    return {
+      kind: "terminal",
+      reason: row.terminalReason === "superseded" ? "superseded" : "stale",
+    };
+  }
+  if (row?.state === "reconciling") return { kind: "reconciling" };
+  if (row?.state === "pending" || row?.state === "retry_wait") {
+    return { kind: "retry_wait", nextEligibleAtMs: row.nextEligibleAtMs ?? nowMs };
+  }
+  throw new Error("inbox_durable_attempt_missing");
+}
+
 function settledOutcomeOrThrow(
   db: DatabaseSync,
   event: InboxEvent,
@@ -157,11 +198,9 @@ function settledOutcomeOrThrow(
   nowMs: number,
   coveredSiblingEventIds: readonly string[] = [],
 ): DurableSettlementOutcome {
-  const attempt = event.durableAttemptId
-    ? getOpenDurableAttempt(db, event.id)
-    : getOpenDurableAttempt(db, event.id);
+  const attempt = getOpenDurableAttempt(db, event.id);
   if (!attempt || (event.durableAttemptId && attempt.attemptId !== event.durableAttemptId)) {
-    throw new Error("inbox_durable_attempt_missing");
+    return outcomeWithoutOpenAttempt(db, event, nowMs);
   }
   return settleDurableAttempt(db, {
     eventId: event.id,
@@ -182,6 +221,15 @@ export async function consumeInboxEvent(
 ): Promise<DurableSettlementOutcome> {
   const attempt = getOpenDurableAttempt(db, event.id);
   if (!attempt || (event.durableAttemptId && attempt.attemptId !== event.durableAttemptId)) {
+    const answered = ownerAnswerAlreadySettled(db, event);
+    if (answered) {
+      logSuperseded(answered.eventId, answered.by);
+      const row = inboxDisposition(db, event.id);
+      return {
+        kind: "terminal",
+        reason: row?.terminalReason === "superseded" ? "superseded" : "stale",
+      };
+    }
     throw new Error("inbox_durable_attempt_missing");
   }
   const dispatchCoverage = captureOwnerDispatchCoverage(db, event);

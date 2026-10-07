@@ -19,6 +19,21 @@ const DROPPABLE_KEYS = new Set([
   "domusAct",
 ]);
 
+/**
+ * Optional keys whose settlement requests an effect. Dropping one while
+ * keeping speech would leave words about an act nobody takes.
+ * Effect-bearing: domusAct, intents, home, pursuits, nextOwnTime, webPlaces, senses.
+ */
+const EFFECT_BEARING_KEYS = new Set([
+  "domusAct",
+  "intents",
+  "home",
+  "pursuits",
+  "nextOwnTime",
+  "webPlaces",
+  "senses",
+]);
+
 const CLOSED_CODES = new Set([
   "invalid_json",
   "root_not_object",
@@ -51,6 +66,12 @@ type ParseFailure = Extract<ThoughtSemanticParseResult, { ok: false }>;
 export type SalvageResult =
   | { ok: true; text: string; dropped: string[] }
   | { ok: false };
+
+function hasDraftSpeech(record: Record<string, unknown>): boolean {
+  const speech = record.speech;
+  if (typeof speech !== "object" || speech === null || Array.isArray(speech)) return false;
+  return (speech as Record<string, unknown>).mode === "draft";
+}
 
 function settlementObject(text: string): Record<string, unknown> | null {
   let value: unknown;
@@ -134,6 +155,7 @@ export function salvageSettlement(
     if (!removal) return { ok: false };
     const record = settlementObject(currentText);
     if (!record || !removal.apply(record)) return { ok: false };
+    if (EFFECT_BEARING_KEYS.has(removal.dropped) && hasDraftSpeech(record)) return { ok: false };
     dropped.push(removal.dropped);
     currentText = JSON.stringify(record);
     currentFailure = reparse(currentText);

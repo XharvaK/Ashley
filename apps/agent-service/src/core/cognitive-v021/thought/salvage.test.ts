@@ -186,6 +186,18 @@ describe("salvageSettlement", () => {
     expect(result).toEqual({ ok: false });
   });
 
+  it("refuses speech written beside a dropped effect", () => {
+    expect(salvage(makeSemanticSettlement({ domusAct: { option: "bad ref" } }))).toEqual({ ok: false });
+  });
+
+  it("still drops a malformed non-effect key when the settlement speaks", () => {
+    const result = salvage(makeSemanticSettlement({ journal: { activity: "nope", entry: "aside" } }));
+    expect(result).toMatchObject({ ok: true, dropped: ["journal"] });
+    if (!result.ok) return;
+    expect(JSON.parse(result.text).speech).toMatchObject({ mode: "draft", surfaceDraft: "hello" });
+    expect(JSON.parse(result.text)).not.toHaveProperty("journal");
+  });
+
   it("does not salvage an alias fault", () => {
     const text = JSON.stringify(settlement());
     expect(salvageSettlement(text, {

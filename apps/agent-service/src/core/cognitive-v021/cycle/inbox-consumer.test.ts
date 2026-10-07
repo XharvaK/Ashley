@@ -7,6 +7,7 @@ import { appendAshleyEvidence, appendOwnerUtterance } from "../evidence/conversa
 import { frontierAwareEvidenceSelection } from "../thought/input.js";
 import {
   claimNextInboxEvent,
+  consumeInboxEvent,
   consumeNextInboxEvent,
   startInboxConsumer,
   STEADY_STATE_RECONCILIATION_MAX_INVOCATION_GAP_MS,
@@ -15,6 +16,8 @@ import {
 } from "./inbox-consumer.js";
 import { PERIODIC_RECOVERY_DISPATCH_BLOCKED } from "../dispatch/live.js";
 import { startDurableAttempt, settleDurableAttempt } from "../retry/ledger.js";
+import { captureOwnerDispatchCoverage } from "./owner-coverage.js";
+import { insertOutboxPending } from "../speech/outbox.js";
 import { reconcileStrandedOutcomeUnknownAtStartup } from "../retry/startup-outcome-recovery.js";
 import { reservePrivateThought, releasePrivateReservation } from "../private-budget/ledger.js";
 import { reconcilePolicyClock } from "../private-budget/policy-time-ledger.js";
@@ -804,6 +807,93 @@ describe("P0 steady-state reconciliation (R7 §22.2)", () => {
     } finally {
       db.close();
       vi.unstubAllEnvs();
+    }
+  });
+});
+
+describe("one Owner message gets one answer", () => {
+  it("publishes no second speech when another pass already covered the owner event", async () => {
+    const db = openTestSidecar();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const conversationId = "conversation:one-answer";
+      const admitted = admitWake(db, {
+        occurrenceId: "occurrence:one-answer",
+        triggerRef: "trigger:one-answer",
+        sourceKind: "inbox",
+        conversationId,
+        cycleId: "cycle:one-answer",
+        generation: 1,
+        capturedAuthorityRevision: 1,
+        nowMs: 1,
+      });
+      if (admitted.kind !== "created" && admitted.kind !== "existing") throw new Error("wake");
+      db.prepare("UPDATE cycle_records SET compose_log_ids_json = ? WHERE cycle_id = ?")
+        .run(JSON.stringify(["evidence:owner"]), "cycle:one-answer");
+      const answerer = appendInboxEvent(db, {
+        id: "event:domus-answer",
+        wakeId: admitted.wake.wakeId,
+        conversationId,
+        kind: "domus_notification",
+        payload: { cycleId: "cycle:one-answer" },
+        createdAtMs: 2,
+      });
+      const owner = appendInboxEvent(db, {
+        id: "event:owner",
+        wakeId: admitted.wake.wakeId,
+        conversationId,
+        kind: "owner_message",
+        payload: { cycleId: "cycle:one-answer", evidenceRowId: "evidence:owner" },
+        createdAtMs: 3,
+      });
+      const coverage = captureOwnerDispatchCoverage(db, answerer);
+      expect(coverage.coveredOwnerEventIds).toEqual(["event:owner"]);
+      const answererClaim = startDurableAttempt(db, { eventId: answerer.id, workerId: "domus", nowMs: 10 });
+      db.prepare(
+        `UPDATE inbox_events
+            SET lane = 'domus', state = 'leased', claim_token = 'owner-claim', worker_id = 'chat'
+          WHERE id = ?`,
+      ).run(owner.id);
+      insertOutboxPending(db, {
+        settlementId: "settlement:domus",
+        cycleId: "cycle:one-answer",
+        generation: 1,
+        conversationId,
+        licensedText: "first answer",
+      });
+      expect(settleDurableAttempt(db, {
+        eventId: answerer.id,
+        attemptId: answererClaim.attemptId,
+        claimToken: answererClaim.claimToken,
+        result: { kind: "completed" },
+        nowMs: 20,
+        coveredSiblingEventIds: coverage.coveredOwnerEventIds,
+      })).toMatchObject({ kind: "completed" });
+      expect(db.prepare("SELECT state, terminal_reason FROM inbox_events WHERE id = 'event:owner'").get()).toMatchObject({
+        state: "terminal",
+        terminal_reason: "completed",
+      });
+      const handler = vi.fn(async () => publishedResult({
+        attemptOutcome: "published",
+        ownerObligationOutcome: "transferred",
+        primaryEventId: owner.id,
+        coveredOwnerEventIds: [owner.id],
+        uncoveredOwnerEventIds: [],
+        coverageHash: "coverage",
+        semanticCommitment: null,
+        settlementId: "settlement:chat",
+        successorIdentity: null,
+        remainingResponsibility: null,
+        deliveryDisposition: "handed_to_delivery",
+      }));
+      const settled = await consumeInboxEvent(db, owner, handler, 30);
+      expect(handler).not.toHaveBeenCalled();
+      expect(settled).toMatchObject({ kind: "terminal", reason: "stale" });
+      expect(db.prepare("SELECT COUNT(*) AS count FROM speech_outbox").get()).toMatchObject({ count: 1 });
+      expect(warn).toHaveBeenCalledWith("[cycle] superseded event=event:owner by=domus_notification");
+    } finally {
+      warn.mockRestore();
+      db.close();
     }
   });
 });
