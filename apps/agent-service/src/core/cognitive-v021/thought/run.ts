@@ -1503,6 +1503,11 @@ function semanticReferenceTargetsForInput(
   return targets;
 }
 
+/** The breaker's clock: the injected one when present, else the wall clock (some harnesses inject none). */
+function circuitNowMs(deps: { nowMs?: () => number }): number {
+  return typeof deps.nowMs === "function" ? deps.nowMs() : Date.now();
+}
+
 const thoughtPrefixMeter = createPrefixMeter();
 
 function thoughtPrefixMeterEnabled(): boolean {
@@ -1753,7 +1758,7 @@ export async function runThoughtModel(
       };
     };
     // The lifeboat dispatch itself is never consulted against the breaker.
-    if (thoughtModelCircuit.isOpen(ownModelId, deps.nowMs()) && !lifeboatLaunchBlocked()) {
+    if (thoughtModelCircuit.isOpen(ownModelId, circuitNowMs(deps)) && !lifeboatLaunchBlocked()) {
       const target = thoughtLifeboatForTrigger(input.trigger?.kind);
       const primaryCapture: ThoughtProviderFailureCapture = {
         dispatchTruth: "not_sent",
@@ -1774,12 +1779,12 @@ export async function runThoughtModel(
       completion = await invokeThoughtComplete(messages, dispatchOptions, deps.completeChat);
     } else try {
       completion = await invokeThoughtComplete(messages, dispatchOptions, deps.completeChat);
-      if (thoughtModelCircuit.noteSuccess(ownModelId, deps.nowMs())) {
+      if (thoughtModelCircuit.noteSuccess(ownModelId, circuitNowMs(deps))) {
         console.warn(`[thought] circuit closed model=${ownModelId}`);
       }
     } catch (primaryError) {
       const qualifies = lifeboatQualifies(primaryError);
-      if (thoughtModelCircuit.noteFailure(ownModelId, qualifies, deps.nowMs())) {
+      if (thoughtModelCircuit.noteFailure(ownModelId, qualifies, circuitNowMs(deps))) {
         console.warn(`[thought] circuit open model=${ownModelId} for=${THOUGHT_MODEL_CIRCUIT_MS / 60_000}m`);
       }
       if (lifeboatLaunchBlocked() || !qualifies) throw primaryError;
