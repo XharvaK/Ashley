@@ -176,6 +176,7 @@ async function pass(options: {
   disableThoughtTransportFailover?: boolean;
   observe?: boolean;
   nowMs?: () => number;
+  beforeRedispatch?: () => boolean;
 }) {
   delete process.env.ASHLEY_PHASE0_OFFLINE;
   env.commandCodeApiKey = "test-command-code-key";
@@ -186,6 +187,7 @@ async function pass(options: {
   const invocation = await runThoughtModel(input, deps(attentionDb, store?.db, options.nowMs), {
     deadlineAtMs: options.deadlineAtMs ?? Date.now() + ORDINARY_THOUGHT_BUDGET_MS,
     ...(options.disableThoughtTransportFailover ? { disableThoughtTransportFailover: true } : {}),
+    ...(options.beforeRedispatch ? { beforeRedispatch: options.beforeRedispatch } : {}),
   });
   return { invocation, store };
 }
@@ -237,6 +239,20 @@ describe("HA2 provider lifeboat", () => {
     const { invocation } = await pass({ cycleId: "cycle-lifeboat-429" });
     expect(commandCodeState.dispatch).toHaveBeenCalledTimes(2);
     expect(invocation.lifeboat?.toModelId).toBe(FLASH);
+  });
+
+  it("does not dispatch a second model when the redispatch is no longer allowed", async () => {
+    const seen = arm((call) => {
+      if (call === 1) throw new AppError("provider_unavailable", "command_code_http_503", 503);
+      return ok();
+    });
+    const { invocation } = await pass({
+      cycleId: "cycle-lifeboat-stopped",
+      beforeRedispatch: () => false,
+    });
+    expect(seen).toEqual([{ modelId: MUSE, effort: "xhigh", lifeboat: undefined }]);
+    expect(invocation.ownerAnswerStopped).toBe(true);
+    expect(invocation.lifeboat).toBeUndefined();
   });
 
   it("does not launch the lifeboat when the answer will not parse", async () => {

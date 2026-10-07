@@ -424,7 +424,7 @@ function convergeCoveredSiblingEvents(
               lease_expires_at_ms = NULL,
               last_error = NULL, last_failure_class = NULL
         WHERE id = ? AND wake_id = ?
-          AND state IN ('pending', 'retry_wait')`,
+          AND state IN ('pending', 'retry_wait', 'leased')`,
     ).run(nowMs, siblingId, current.wake_id);
   }
 }

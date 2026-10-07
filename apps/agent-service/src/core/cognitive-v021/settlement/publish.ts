@@ -5,6 +5,7 @@ import { getSpeechOutbox, insertOutboxPending } from "../speech/outbox.js";
 import { getSystemNotice } from "../speech/infrastructure-notice.js";
 import { recheckInterimPublicationReservation } from "../operation/interim.js";
 import { getCurrentCycle } from "../cycle/inbox.js";
+import { assessOwnerAnswerHold } from "../cycle/owner-coverage.js";
 import { activeThoughtMayFinishWhileDetachedCompletionQueued } from "../cycle/cognition-claim.js";
 import type {
   CognitiveStatus,
@@ -12,6 +13,7 @@ import type {
   DeliveryIntent,
   DurableNomination,
   FutureTriggerDelta,
+  InboxEvent,
   OutboxOrigin,
   PublishedCognitiveSettlement,
   PublicationRejectionReason,
@@ -78,6 +80,11 @@ export type PublicationOptions = {
   allowQueuedDetachedCompletion?: boolean;
   /** R13: record the settlement's inner-life aftermath as pending in this transaction. */
   aftermath?: AftermathContext;
+  /**
+   * Owner inbox event this publication would answer. Re-checked inside the
+   * speech transaction so a pass another lane already answered cannot enqueue.
+   */
+  ownerAnswerEvent?: InboxEvent;
 };
 
 export type PublicationResult = {
@@ -427,6 +434,12 @@ export function publishSemanticTransaction(
       sidecarTransactionOpen = false;
       commitAuthority();
       return { published: true, replayed: true, settlementId: existingSettlementId, outboxId: outbox };
+    }
+    if (options.ownerAnswerEvent && assessOwnerAnswerHold(db, options.ownerAnswerEvent)) {
+      db.exec("ROLLBACK");
+      sidecarTransactionOpen = false;
+      rollbackAuthority();
+      return { published: false, replayed: false, reason: "stale_generation", settlementId: null, outboxId: null };
     }
     const semanticPass = options.semanticPass ?? 1;
     if (!Number.isInteger(semanticPass) || semanticPass < 1) {

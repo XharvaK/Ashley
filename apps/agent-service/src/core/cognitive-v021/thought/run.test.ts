@@ -33,6 +33,7 @@ import { promoteEligibleRoomPending } from "../social/room-activation.js";
 import { validateThoughtSettlementDraft } from "../settlement/validate.js";
 import { parseThoughtSemanticOutput } from "./parse.js";
 import { getThoughtAttemptCounters } from "./counters.js";
+import { startDurableAttempt } from "../retry/ledger.js";
 import { computeDispatchMessagesHash } from "./projection.js";
 import { initObservabilitySchema, openObservabilityStore } from "./diagnostics.js";
 import { applyConcernDelta, listConcerns } from "../concerns/lineage.js";
@@ -2148,6 +2149,74 @@ describe("v0.2.1 Thought run", () => {
     expect(systemMessages[1]).toContain("structural validation");
     sidecar.close();
     attentionDb.close();
+  });
+
+  it("does not dispatch again when the owner event is covered between attempts", async () => {
+    const sidecar = openTestSidecar();
+    const attentionDb = openTestSidecar();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const cycle = admitTestCycle(sidecar, {
+      cycleId: "cycle-one-answer",
+      conversationId: "thread-one-answer",
+      triggerKind: "owner_message",
+      triggerRef: "owner-one-answer",
+      occupantId: "doc",
+      authorityEpoch: 1,
+      nowMs: 1,
+    });
+    const evidence = appendOwnerUtterance(sidecar, {
+      conversationId: "thread-one-answer",
+      text: "hello",
+      discordMessageIds: ["one-answer-message"],
+      nowMs: 2,
+    });
+    const event = appendInboxEvent(sidecar, {
+      wakeId: cycle.wakeId,
+      conversationId: "thread-one-answer",
+      kind: "owner_message",
+      payload: {
+        cycleId: cycle.cycleId,
+        evidenceRowId: evidence.rowId,
+        ownerMessage: "hello",
+      },
+      createdAtMs: 2,
+    });
+    const started = startDurableAttempt(sidecar, { eventId: event.id, workerId: "chat", nowMs: 1_000 });
+    const claimed = getInboxEvent(sidecar, event.id);
+    if (!claimed) throw new Error("claim missing");
+    let calls = 0;
+    try {
+      const result = await runCognitiveCycle(sidecar, attentionDb, {
+        ...claimed,
+        durableAttemptId: started.attemptId,
+        claimToken: started.claimToken,
+      }, deps({
+        attentionDb,
+        nowMs: () => 1_000,
+        completeChat: vi.fn(async () => {
+          calls += 1;
+          sidecar.prepare(
+            `UPDATE inbox_events
+                SET state = 'terminal', status = 'consumed', terminal_reason = 'completed',
+                    claim_token = NULL, worker_id = NULL
+              WHERE id = ?`,
+          ).run(event.id);
+          return { text: "not json", model: "fake", modelAlias: "thought", resolvedModelId: null };
+        }),
+      }));
+      expect(calls).toBe(1);
+      expect(result.published).toBe(false);
+      expect(result.ownerObligationResolution).toMatchObject({
+        attemptOutcome: "abstained",
+        ownerObligationOutcome: "not_applicable",
+      });
+      expect(sidecar.prepare("SELECT COUNT(*) AS count FROM speech_outbox").get()).toMatchObject({ count: 0 });
+      expect(warn).toHaveBeenCalledWith(`[cycle] superseded event=${event.id} by=covered`);
+    } finally {
+      warn.mockRestore();
+      sidecar.close();
+      attentionDb.close();
+    }
   });
 
   it("carries the prior model-authored candidate into a localized correction without changing the pass", async () => {

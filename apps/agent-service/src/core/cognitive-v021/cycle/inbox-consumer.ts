@@ -4,10 +4,15 @@ import {
   getInboxEvent,
 } from "./inbox.js";
 import {
+  DURABLE_WORK_COORDINATION_LEASE_MS,
   getOpenDurableAttempt,
+  recoverDurableWork,
+  renewDurableWorkClaimInTransaction,
   settleDurableAttempt,
+  type DurableAttempt,
   type DurableSettlementOutcome,
 } from "../retry/ledger.js";
+import { getWake, renewWakeLeaseInTransaction } from "../wake/ledger.js";
 import {
   reconcileStrandedOutcomeUnknownAtStartup,
   type OutcomeUnknownScanCursor,
@@ -23,7 +28,7 @@ import {
   PERIODIC_RECOVERY_DISPATCH_BLOCKED,
 } from "../dispatch/live.js";
 import type { CognitiveDispatchResult, HandlerResult, InboxEvent, KernelRunResult, PrivateBudgetReservation } from "../types.js";
-import { captureOwnerDispatchCoverage } from "./owner-coverage.js";
+import { assessOwnerAnswerHold, captureOwnerDispatchCoverage, ownerAnswerAlreadySettled } from "./owner-coverage.js";
 import { isOwnerObligationEventKind } from "../owner-obligation.js";
 
 /**
@@ -38,6 +43,10 @@ export const STEADY_STATE_RECONCILIATION_MAX_INVOCATION_GAP_MS = 60_000 as const
 export const STEADY_STATE_RECONCILIATION_OPPORTUNISTIC_FLOOR_MS = 1_000 as const;
 /** Bounded work per pass: <= the existing 500 clamp, small enough to never stall the loop. */
 export const STEADY_STATE_RECONCILIATION_BATCH_LIMIT = 5 as const;
+/** How often an in-flight pass renews the durable claim it still holds. */
+export const OWNER_THOUGHT_HOLD_RENEW_MS = 60_000 as const;
+/** A pass may not keep the Owner's message past twenty minutes from the claim start. */
+export const MAX_OWNER_THOUGHT_HOLD_MS = 1_200_000 as const;
 
 export type InboxConsumerHandlerResult = HandlerResult | CognitiveDispatchResult | undefined;
 
@@ -150,6 +159,47 @@ function toHandlerResult(result: InboxConsumerHandlerResult, event: InboxEvent):
   return { kind: "completed" };
 }
 
+function inboxDisposition(db: DatabaseSync, eventId: string): {
+  state: string;
+  terminalReason: string | null;
+  nextEligibleAtMs: number | null;
+} | null {
+  const row = db.prepare(
+    "SELECT state, terminal_reason, next_eligible_at_ms FROM inbox_events WHERE id = ? LIMIT 1",
+  ).get(eventId) as { state?: unknown; terminal_reason?: unknown; next_eligible_at_ms?: unknown } | undefined;
+  if (!row || typeof row.state !== "string") return null;
+  const nextEligibleAtMs = typeof row.next_eligible_at_ms === "number" ? row.next_eligible_at_ms : null;
+  return {
+    state: row.state,
+    terminalReason: typeof row.terminal_reason === "string" ? row.terminal_reason : null,
+    nextEligibleAtMs,
+  };
+}
+
+function logSuperseded(eventId: string, by: string): void {
+  console.warn(`[cycle] superseded event=${eventId} by=${by}`);
+}
+
+/** The claim is already gone. Settle as stale when another pass answered; otherwise leave the row. */
+function outcomeWithoutOpenAttempt(
+  db: DatabaseSync,
+  event: InboxEvent,
+  nowMs: number,
+): DurableSettlementOutcome {
+  const row = inboxDisposition(db, event.id);
+  if (row?.state === "terminal" || row?.state === "quarantined") {
+    return {
+      kind: "terminal",
+      reason: row.terminalReason === "superseded" ? "superseded" : "stale",
+    };
+  }
+  if (row?.state === "reconciling") return { kind: "reconciling" };
+  if (row?.state === "pending" || row?.state === "retry_wait") {
+    return { kind: "retry_wait", nextEligibleAtMs: row.nextEligibleAtMs ?? nowMs };
+  }
+  throw new Error("inbox_durable_attempt_missing");
+}
+
 function settledOutcomeOrThrow(
   db: DatabaseSync,
   event: InboxEvent,
@@ -157,11 +207,9 @@ function settledOutcomeOrThrow(
   nowMs: number,
   coveredSiblingEventIds: readonly string[] = [],
 ): DurableSettlementOutcome {
-  const attempt = event.durableAttemptId
-    ? getOpenDurableAttempt(db, event.id)
-    : getOpenDurableAttempt(db, event.id);
+  const attempt = getOpenDurableAttempt(db, event.id);
   if (!attempt || (event.durableAttemptId && attempt.attemptId !== event.durableAttemptId)) {
-    throw new Error("inbox_durable_attempt_missing");
+    return outcomeWithoutOpenAttempt(db, event, nowMs);
   }
   return settleDurableAttempt(db, {
     eventId: event.id,
@@ -173,27 +221,151 @@ function settledOutcomeOrThrow(
   });
 }
 
+function claimTokenFor(event: InboxEvent, attempt: DurableAttempt): string {
+  return event.claimToken ?? attempt.claimToken;
+}
+
+/** Extend the durable claim and the wake lease that was taken with the same token. */
+function renewCoupledThoughtHold(
+  db: DatabaseSync,
+  event: InboxEvent,
+  attempt: DurableAttempt,
+  nowMs: number,
+  leaseMs: number,
+): boolean {
+  const claimToken = claimTokenFor(event, attempt);
+  const wakeId = event.wakeId || attempt.wakeId;
+  if (!wakeId || !claimToken) return false;
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    const wake = getWake(db, wakeId);
+    if (!wake) throw new Error("owner_thought_hold_lost");
+    const wakeHeld = renewWakeLeaseInTransaction(db, {
+      wakeId,
+      conversationId: event.conversationId,
+      cycleId: wake.cycleId,
+      workerId: attempt.workerId,
+      leaseToken: claimToken,
+      nowMs,
+      leaseMs,
+    });
+    const durableHeld = renewDurableWorkClaimInTransaction(db, {
+      eventId: event.id,
+      conversationId: event.conversationId,
+      wakeId,
+      attemptId: attempt.attemptId,
+      workerId: attempt.workerId,
+      claimToken,
+      nowMs,
+      leaseMs,
+    });
+    if (!wakeHeld || !durableHeld) throw new Error("owner_thought_hold_lost");
+    db.exec("COMMIT");
+    return true;
+  } catch {
+    try { db.exec("ROLLBACK"); } catch { /* preserve the renewal failure */ }
+    return false;
+  }
+}
+
+/** Drop a claim that has reached the hold ceiling so the answer fence can see it is gone. */
+function releaseThoughtHold(db: DatabaseSync, event: InboxEvent, claimToken: string, nowMs: number): void {
+  db.prepare(
+    `UPDATE inbox_events
+        SET lease_expires_at_ms = ?
+      WHERE id = ? AND state = 'leased' AND claim_token = ?`,
+  ).run(nowMs, event.id, claimToken);
+  recoverDurableWork(db, nowMs);
+}
+
+/**
+ * Keep a live pass's claim until it settles. Renewal stops on settlement,
+ * on a reported loss, when renewal itself fails, or at the hold ceiling.
+ */
+function holdThoughtClaim(
+  db: DatabaseSync,
+  event: InboxEvent,
+  attempt: DurableAttempt,
+  readNow: () => number,
+): { stop: () => void } {
+  const claimStartedAtMs = attempt.startedAtMs;
+  const ceilingAtMs = claimStartedAtMs + MAX_OWNER_THOUGHT_HOLD_MS;
+  let closed = false;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const finish = (reason?: "ceiling" | "lost"): void => {
+    if (closed) return;
+    closed = true;
+    if (timer) clearTimeout(timer);
+    timer = null;
+    if (reason) console.warn(`[cycle] hold released event=${event.id} reason=${reason}`);
+  };
+  const tick = (): void => {
+    timer = null;
+    if (closed) return;
+    const now = readNow();
+    if (!Number.isSafeInteger(now) || now < 0) {
+      finish("lost");
+      return;
+    }
+    if (assessOwnerAnswerHold(db, event)) {
+      finish("lost");
+      return;
+    }
+    if (now >= ceilingAtMs) {
+      releaseThoughtHold(db, event, claimTokenFor(event, attempt), now);
+      finish("ceiling");
+      return;
+    }
+    const leaseMs = Math.min(DURABLE_WORK_COORDINATION_LEASE_MS, ceilingAtMs - now);
+    if (!renewCoupledThoughtHold(db, event, attempt, now, leaseMs)) {
+      finish("lost");
+      return;
+    }
+    arm(now);
+  };
+  const arm = (fromMs: number): void => {
+    if (closed) return;
+    const remaining = ceilingAtMs - fromMs;
+    const delay = remaining <= 0 ? 0 : Math.min(OWNER_THOUGHT_HOLD_RENEW_MS, remaining);
+    timer = setTimeout(tick, delay);
+  };
+  arm(readNow());
+  return { stop: () => finish() };
+}
+
 /** Run a handler and settle the durable attempt. Exceptions are outcome-unknown. */
 export async function consumeInboxEvent(
   db: DatabaseSync,
   event: InboxEvent,
   handler: InboxConsumerHandler,
   nowMs = Date.now(),
+  readNow: () => number = () => Date.now(),
 ): Promise<DurableSettlementOutcome> {
   const attempt = getOpenDurableAttempt(db, event.id);
   if (!attempt || (event.durableAttemptId && attempt.attemptId !== event.durableAttemptId)) {
+    const answered = ownerAnswerAlreadySettled(db, event);
+    if (answered) {
+      logSuperseded(answered.eventId, answered.by);
+      const row = inboxDisposition(db, event.id);
+      return {
+        kind: "terminal",
+        reason: row?.terminalReason === "superseded" ? "superseded" : "stale",
+      };
+    }
     throw new Error("inbox_durable_attempt_missing");
   }
   const dispatchCoverage = captureOwnerDispatchCoverage(db, event);
+  const heldEvent: InboxEvent = { ...event, dispatchCoverage };
+  const hold = holdThoughtClaim(db, heldEvent, attempt, readNow);
   try {
-    const result = await handler({ ...event, dispatchCoverage });
-    const settlementResult = toHandlerResult(result, event);
+    const result = await handler(heldEvent);
+    const settlementResult = toHandlerResult(result, heldEvent);
     return settledOutcomeOrThrow(
       db,
-      event,
+      heldEvent,
       settlementResult,
       nowMs,
-      isSuccessfulCognitiveDispatch(result, event) ? dispatchCoverage.coveredOwnerEventIds : [],
+      isSuccessfulCognitiveDispatch(result, heldEvent) ? dispatchCoverage.coveredOwnerEventIds : [],
     );
   } catch (error) {
     const currentAttempt = getOpenDurableAttempt(db, event.id);
@@ -211,6 +383,8 @@ export async function consumeInboxEvent(
       });
     }
     throw error;
+  } finally {
+    hold.stop();
   }
 }
 
@@ -309,7 +483,7 @@ export async function consumeNextInboxEvent(
       });
       return { outcome: "failed", eventId: event.id, error: PERIODIC_RECOVERY_DISPATCH_BLOCKED };
     }
-    const settled = await consumeInboxEvent(db, event, options.handler, nowMs);
+    const settled = await consumeInboxEvent(db, event, options.handler, nowMs, options.nowMs ?? (() => Date.now()));
     if (settled.kind === "completed") return { outcome: "consumed", eventId: event.id };
     return { outcome: "failed", eventId: event.id, error: settled.kind === "terminal" ? settled.reason : settled.kind };
   } catch (error) {

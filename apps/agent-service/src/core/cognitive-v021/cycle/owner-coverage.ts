@@ -2,6 +2,7 @@ import type { DatabaseSync } from "node:sqlite";
 import type { HandlerResult, InboxEvent, OwnerDispatchCoverage } from "../types.js";
 import { getCycle, getCurrentCycle } from "./inbox.js";
 import { ownerCoverageHash, isOwnerObligationEventKind } from "../owner-obligation.js";
+import { getOpenDurableAttempt } from "../retry/ledger.js";
 
 type Row = Record<string, unknown>;
 
@@ -105,6 +106,102 @@ export function captureOwnerDispatchCoverage(
     uncoveredOwnerEventIds,
   } satisfies Omit<OwnerDispatchCoverage, "coverageHash">;
   return Object.freeze({ ...fields, coverageHash: ownerCoverageHash(fields) });
+}
+
+const ANSWERED_TERMINAL_REASONS = new Set(["completed", "superseded", "stale"]);
+
+export type OwnerAnswerLoss =
+  | { kind: "superseded"; eventId: string; by: string }
+  | { kind: "attempt_lost"; eventId: string };
+
+type HoldRow = {
+  state: string;
+  terminal_reason: string | null;
+  kind: string;
+};
+
+function holdRow(db: DatabaseSync, eventId: string): HoldRow | null {
+  const row = db.prepare(
+    "SELECT state, terminal_reason, kind FROM inbox_events WHERE id = ? LIMIT 1",
+  ).get(eventId) as { state?: unknown; terminal_reason?: unknown; kind?: unknown } | undefined;
+  if (!row || typeof row.state !== "string") return null;
+  return {
+    state: row.state,
+    terminal_reason: typeof row.terminal_reason === "string" ? row.terminal_reason : null,
+    kind: typeof row.kind === "string" ? row.kind : "",
+  };
+}
+
+function answeredTerminal(row: HoldRow | null): boolean {
+  return Boolean(row && row.state === "terminal" && row.terminal_reason && ANSWERED_TERMINAL_REASONS.has(row.terminal_reason));
+}
+
+/** Pass kind of the settlement that already answered this wake, when one is visible. */
+export function coveringPassKind(db: DatabaseSync, event: InboxEvent, coveredEventId: string): string {
+  if (event.wakeId) {
+    const row = db.prepare(
+      `SELECT kind FROM inbox_events
+        WHERE wake_id = ? AND id != ?
+          AND state = 'terminal' AND terminal_reason = 'completed'
+        ORDER BY consumed_at_ms DESC, id ASC
+        LIMIT 1`,
+    ).get(event.wakeId, coveredEventId) as { kind?: unknown } | undefined;
+    if (typeof row?.kind === "string" && row.kind.trim()) return row.kind;
+  }
+  return "covered";
+}
+
+function ownerEventIds(event: InboxEvent): string[] {
+  const ids: string[] = [];
+  if (isOwnerObligationEventKind(event.kind)) ids.push(event.id);
+  for (const id of event.dispatchCoverage?.coveredOwnerEventIds ?? []) {
+    if (id && !ids.includes(id)) ids.push(id);
+  }
+  return ids;
+}
+
+function attemptStillHeld(db: DatabaseSync, event: InboxEvent): boolean {
+  const open = getOpenDurableAttempt(db, event.id);
+  if (!open) return false;
+  if (event.durableAttemptId && open.attemptId !== event.durableAttemptId) return false;
+  if (event.claimToken && open.claimToken !== event.claimToken) return false;
+  return true;
+}
+
+/**
+ * Whether this pass may still answer the Owner events in its trigger.
+ * Direct cycles with no durable claim are not fenced. A lost claim whose
+ * event was already answered is superseded; a lost claim that is still
+ * unanswered is attempt_lost so a later claim can answer it.
+ */
+export function assessOwnerAnswerHold(db: DatabaseSync, event: InboxEvent): OwnerAnswerLoss | null {
+  if (!event.claimToken && !event.durableAttemptId) return null;
+  const ids = ownerEventIds(event);
+  if (ids.length === 0) return null;
+  const held = attemptStillHeld(db, event);
+  for (const id of ids) {
+    const row = holdRow(db, id);
+    if (id !== event.id && answeredTerminal(row)) {
+      return { kind: "superseded", eventId: id, by: coveringPassKind(db, event, id) };
+    }
+    if (id === event.id && !held && answeredTerminal(row)) {
+      return { kind: "superseded", eventId: id, by: coveringPassKind(db, event, id) };
+    }
+  }
+  if (!held) return { kind: "attempt_lost", eventId: event.id };
+  return null;
+}
+
+/** An Owner event another pass already answered, including one this pass never claimed. */
+export function ownerAnswerAlreadySettled(
+  db: DatabaseSync,
+  event: InboxEvent,
+): { eventId: string; by: string } | null {
+  if (!isOwnerObligationEventKind(event.kind)) return null;
+  const row = holdRow(db, event.id);
+  if (!answeredTerminal(row)) return null;
+  if (event.claimToken && attemptStillHeld(db, event)) return null;
+  return { eventId: event.id, by: coveringPassKind(db, event, event.id) };
 }
 
 type SupersessionResult = Extract<HandlerResult, { kind: "superseded" }>;
