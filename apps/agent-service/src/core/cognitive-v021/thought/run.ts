@@ -22,7 +22,7 @@ import {
 import type { ChatMessage } from "../../model-routing/types.js";
 import { commandCodeThoughtEvidenceFromError } from "../../command-code/evidence.js";
 import { thoughtLifeboatForTrigger, thoughtModelForTrigger } from "../../command-code/policy.js";
-import { THOUGHT_MODEL_CIRCUIT_MS, thoughtModelCircuit } from "./model-circuit.js";
+import { thoughtModelCircuit } from "./model-circuit.js";
 import {
   ORDINARY_THOUGHT_BUDGET_MS,
   MAX_AUTHORITY_REVISIONS,
@@ -1785,7 +1785,7 @@ export async function runThoughtModel(
     } catch (primaryError) {
       const qualifies = lifeboatQualifies(primaryError);
       if (thoughtModelCircuit.noteFailure(ownModelId, qualifies, circuitNowMs(deps))) {
-        console.warn(`[thought] circuit open model=${ownModelId} for=${THOUGHT_MODEL_CIRCUIT_MS / 60_000}m`);
+        console.warn(`[thought] circuit open model=${ownModelId} for=${thoughtModelCircuit.windowMs(ownModelId) / 60_000}m streak=${thoughtModelCircuit.streak(ownModelId)}`);
       }
       if (lifeboatLaunchBlocked() || !qualifies) throw primaryError;
       const target = thoughtLifeboatForTrigger(input.trigger?.kind);
