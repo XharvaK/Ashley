@@ -6,8 +6,8 @@ import {
   writeFileSync,
 } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
-import { homedir } from "node:os";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
+import { reservedProductionDataDir } from "../../data-plane.js";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import { loadEnvFile, env } from "../../../env.js";
@@ -3022,7 +3022,7 @@ async function runLiveQualification(
 
 function isolatedOutputDirectory(value: string): string {
   const output = resolve(value);
-  const productionRoot = resolve(join(homedir(), ".composer-assistant"));
+  const productionRoot = reservedProductionDataDir();
   const relation = relative(productionRoot, output);
   if (
     relation === ""
@@ -3121,7 +3121,7 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
   try {
     if (args.live) {
       if (!outputDir) throw new Error("qualification_live_output_required");
-      loadEnvFile(join(homedir(), ".composer-assistant", ".env"));
+      loadEnvFile(join(reservedProductionDataDir(), ".env"));
     }
     const result = await runThoughtCapabilityQualification({
       environment: args.live ? "isolated_live" : "fixture",

@@ -4,8 +4,8 @@ import { admitWakeInTransaction, getWake, type WakeAdmissionResult } from "../wa
 import { occurrenceIdFor } from "../wake/identity.js";
 import { getCycle } from "../cycle/inbox.js";
 import { getActiveDeferredFrontier } from "../frontier/ledger.js";
+import { activePrivateThoughtPolicyId } from "../private-budget/policies.js";
 import {
-  PRIVATE_THOUGHT_POLICY_ID,
   getPrivateBudgetProjection,
   getPrivateReservationForWake,
   listPrivateAttemptHistory,
@@ -936,7 +936,7 @@ export async function evaluatePeriodicPoll(
   const nowMs = input.nowMs ?? Date.now();
   const enabled = resolveEnabled(input.enabled);
   const authorityEpoch = input.authorityEpoch ?? 1;
-  const policyId = input.policyId ?? PRIVATE_THOUGHT_POLICY_ID;
+  const policyId = input.policyId ?? activePrivateThoughtPolicyId(db);
   let subscriptionItems = input.subscriptionItems ?? [];
   if (input.externalWatchPoll !== undefined) {
     try {

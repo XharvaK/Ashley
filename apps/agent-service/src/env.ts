@@ -1,6 +1,6 @@
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
-import { homedir } from "node:os";
+import { reservedProductionDataDir } from "./core/data-plane.js";
 function applyDotEnvFile(envPath: string): void {
   if (!existsSync(envPath)) return;
   const content = readFileSync(envPath, "utf-8");
@@ -142,11 +142,14 @@ function createEnv() {
   domusIngressPort: numericEnv("DOMUS_INGRESS_PORT", 3711, 1, 65_535, true),
   domusHelperToken: process.env.DOMUS_HELPER_TOKEN ?? "",
   /** E4: the User's private word watch (a file of words, never committed) and its review webhook (a secret). */
-  wordWatchFile: process.env.ASHLEY_WORD_WATCH_FILE?.trim() || join(homedir(), ".composer-assistant", "word_watch.txt"),
+  wordWatchFile: process.env.ASHLEY_WORD_WATCH_FILE?.trim() || join(reservedProductionDataDir(), "word_watch.txt"),
   wordWatchWebhook: process.env.ASHLEY_WORD_WATCH_WEBHOOK?.trim() ?? "",
   /** 8d E3-B1: Domus passes per rolling hour, set by the Owner. 0 (unset) leaves the embodiment budget unconfigured. */
   embodimentBudgetLimit: numericEnv("ASHLEY_EMBODIMENT_BUDGET_LIMIT", 0, 0, 3600, true),
   embodimentBudgetVersion: numericEnv("ASHLEY_EMBODIMENT_BUDGET_VERSION", 1, 1, 1_000_000, true),
+  /** N0.7: private Thought calls per rolling hour. 0 keeps the default 12/h policy. */
+  privateThoughtBudgetLimit: numericEnv("ASHLEY_PRIVATE_THOUGHT_BUDGET_LIMIT", 0, 0, 3600, true),
+  privateThoughtBudgetVersion: numericEnv("ASHLEY_PRIVATE_THOUGHT_BUDGET_VERSION", 1, 1, 1_000_000, true),
   /** 8f embodiment_actuation: Domus passes may choose one listed game action. Default off; the Owner turns it on. */
   domusActEnabled: process.env.ASHLEY_DOMUS_ACT_ENABLED?.trim().toLowerCase() === "true",
   agentBindHost: process.env.AGENT_BIND_HOST ?? "127.0.0.1",
@@ -215,19 +218,19 @@ function createEnv() {
   commandCodeWorkerEnabled: strictBoolean("ASHLEY_COMMAND_CODE_WORKER_ENABLED", false),
   commandCodeRuntimeRoot: strictTrimmed(
     "ASHLEY_COMMAND_CODE_RUNTIME_ROOT",
-    join(homedir(), ".composer-assistant", "sandbox", "command-code", "current"),
+    join(reservedProductionDataDir(), "sandbox", "command-code", "current"),
   ),
   commandCodeBinaryPath: process.env.ASHLEY_COMMAND_CODE_BIN?.trim()
     || join(
       process.env.ASHLEY_COMMAND_CODE_RUNTIME_ROOT?.trim()
-        || join(homedir(), ".composer-assistant", "sandbox", "command-code", "current"),
+        || join(reservedProductionDataDir(), "sandbox", "command-code", "current"),
       "bin",
       "command-code",
     ),
   commandCodeNodePath: process.env.ASHLEY_COMMAND_CODE_NODE?.trim()
     || join(
       process.env.ASHLEY_COMMAND_CODE_RUNTIME_ROOT?.trim()
-        || join(homedir(), ".composer-assistant", "sandbox", "command-code", "current"),
+        || join(reservedProductionDataDir(), "sandbox", "command-code", "current"),
       "bin",
       "node",
     ),
@@ -235,7 +238,7 @@ function createEnv() {
   commandCodeMinimumVersion: strictTrimmed("ASHLEY_COMMAND_CODE_MIN_VERSION", "1.64.0"),
   commandCodeQualificationStatePath: strictTrimmed(
     "ASHLEY_COMMAND_CODE_QUALIFICATION_STATE",
-    join(homedir(), ".composer-assistant", "sandbox", "command-code-state.json"),
+    join(reservedProductionDataDir(), "sandbox", "command-code-state.json"),
   ),
   commandCodeUpdateEnabled: strictBoolean("ASHLEY_COMMAND_CODE_UPDATE_ENABLED", false),
   commandCodeUpdateIntervalHours: numericEnv(
@@ -303,7 +306,7 @@ function createEnv() {
   // model-writable). Empty/unset => no project authority.
   sandboxProjectRegistryPath: strictTrimmed(
     "ASHLEY_SANDBOX_PROJECT_REGISTRY",
-    join(homedir(), ".composer-assistant", "sandbox", "project-roots.json"),
+    join(reservedProductionDataDir(), "sandbox", "project-roots.json"),
   ),
   };
 }

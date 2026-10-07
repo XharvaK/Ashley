@@ -186,8 +186,14 @@ export type WorkspaceManagerOptions = {
   managedRoot?: string;
 };
 
+/** Mirrors agent-service reservedProductionDataDir. */
+function ashleyDataDir(): string {
+  const configured = process.env.ASHLEY_DATA_DIR?.trim();
+  return configured ? resolve(configured) : join(homedir(), ".composer-assistant");
+}
+
 export function resolveDefaultManagedWorkspaceRoot(): string {
-  return join(homedir(), ".composer-assistant", "sandbox", "workspaces");
+  return join(ashleyDataDir(), "sandbox", "workspaces");
 }
 
 function computeDirectorySize(dirPath: string): { totalBytes: number; fileCount: number } {

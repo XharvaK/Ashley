@@ -8,8 +8,8 @@ import {
   renameSync,
   writeFileSync,
 } from "node:fs";
-import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { reservedProductionDataDir } from "../data-plane.js";
 import {
   loadFabricCatalog,
   loadTargetPortfolio,
@@ -118,7 +118,7 @@ export type OwnerAuthorization = Readonly<{
 function defaultControlDir(): string {
   return (
     process.env.ASHLEY_MODEL_FABRIC_CONTROL_DIR?.trim() ||
-    join(homedir(), ".composer-assistant", "control", "model-fabric")
+    join(reservedProductionDataDir(), "control", "model-fabric")
   );
 }
 

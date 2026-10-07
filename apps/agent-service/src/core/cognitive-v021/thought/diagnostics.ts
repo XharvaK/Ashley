@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync } from "node:fs";
-import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { reservedProductionDataDir } from "../../data-plane.js";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import type {
   AllocationFailureDiagnostic,
@@ -732,7 +732,7 @@ function parseProviderFailureCapture(value: unknown): ThoughtProviderFailureCapt
 }
 
 export function defaultObservabilityDbPath(): string {
-  return join(homedir(), ".composer-assistant", "cognitive-v021-observability.db");
+  return join(reservedProductionDataDir(), "cognitive-v021-observability.db");
 }
 
 const OBSERVABILITY_SCHEMA_VERSION = 2;

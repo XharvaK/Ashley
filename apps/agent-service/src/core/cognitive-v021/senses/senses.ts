@@ -10,7 +10,8 @@ import { readBackupStatus } from "../../../scripts/backup-lib.js";
 import { frictionForThought, FRICTION_KINDS } from "../growth/friction.js";
 import { listOpenExpectations } from "../growth/expectations.js";
 import { listOccupancy } from "../concerns/occupancy.js";
-import { getPrivateBudgetProjection, PRIVATE_THOUGHT_POLICY_ID } from "../private-budget/ledger.js";
+import { activePrivateThoughtPolicyId } from "../private-budget/policies.js";
+import { getPrivateBudgetProjection } from "../private-budget/ledger.js";
 export const SENSE_NAMES = ["friction", "expectations", "stale_concerns", "delivery_backlog", "private_budget", "backup", "cpu", "memory", "disk", "temperature"] as const;
 export type SenseName = typeof SENSE_NAMES[number];
 export type SenseClaim = { decline: Array<{ sense: SenseName; rationale: string; untilMs?: number }> };
@@ -49,7 +50,7 @@ export function readSenseFacts(db: DatabaseSync, options: SenseOptions): SenseRe
     if (Number(cycle.admitted_at_ms) <= options.nowMs - 7 * DAY) stale++;
   }
   const backlog = Number(db.prepare("SELECT count(*) AS n FROM speech_outbox WHERE origin = 'live' AND suppressed = 0 AND send_status IN ('pending', 'projecting', 'projected', 'sending')").get()!.n);
-  const budget = getPrivateBudgetProjection(db, { policyId: PRIVATE_THOUGHT_POLICY_ID, wallClockNowMs: options.nowMs });
+  const budget = getPrivateBudgetProjection(db, { policyId: activePrivateThoughtPolicyId(db), wallClockNowMs: options.nowMs });
   let backupAge: number | null = null;
   if (options.dataDir) {
     const last = readBackupStatus(join(options.dataDir, "backups", "status.json")).last_ok_ms;

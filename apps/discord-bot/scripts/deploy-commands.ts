@@ -1,10 +1,10 @@
 import { REST, Routes } from "discord.js";
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
-import { homedir } from "node:os";
+import { ashleyDataDir } from "../src/data-root.js";
 import { buildCommandDefinitions } from "../src/commands/definitions.js";
 
-const ENV_PATH = join(homedir(), ".composer-assistant", ".env");
+const ENV_PATH = join(ashleyDataDir(), ".env");
 if (existsSync(ENV_PATH)) {
   for (const line of readFileSync(ENV_PATH, "utf-8").split(/\r?\n/)) {
     const t = line.trim();

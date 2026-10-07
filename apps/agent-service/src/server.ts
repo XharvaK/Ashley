@@ -55,7 +55,7 @@ import {
   recheckOwnerPublicationReservation,
 } from "./core/cognitive-v021/settlement/publish.js";
 import { reconcilePolicyClock } from "./core/cognitive-v021/private-budget/policy-time-ledger.js";
-import { PRIVATE_THOUGHT_POLICY_ID } from "./core/cognitive-v021/private-budget/ledger.js";
+import { activePrivateThoughtPolicyId } from "./core/cognitive-v021/private-budget/policies.js";
 import { getContinuityFor } from "./core/continuity/registry.js";
 import {
   admitV021RememberCommand,
@@ -3143,7 +3143,7 @@ export function createServer(
         : Date.now();
       const policyId = typeof body.policyId === "string" && body.policyId.trim()
         ? body.policyId.trim()
-        : PRIVATE_THOUGHT_POLICY_ID;
+        : activePrivateThoughtPolicyId(getCognitiveSidecar());
       const outcome = reconcilePolicyClock(getCognitiveSidecar(), {
         policyId,
         wallClockNowMs,

@@ -53,7 +53,10 @@ export function canonicalPathIdentity(input: string): string {
   return abs.replace(/\\/g, "/").toLowerCase();
 }
 
+/** Process env ASHLEY_DATA_DIR, read on each call. Empty or unset keeps the historical default. */
 export function reservedProductionDataDir(): string {
+  const configured = process.env.ASHLEY_DATA_DIR?.trim();
+  if (configured) return resolve(configured);
   return resolve(join(homedir(), ".composer-assistant"));
 }
 

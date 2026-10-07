@@ -1,11 +1,11 @@
 import { readFileSync, existsSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { join } from "node:path";
-import { homedir } from "node:os";
+import { ashleyDataDir } from "./data-root.js";
 
 const ENV_PATH =
   process.env.COMPOSER_ENV_FILE ??
-  join(homedir(), ".composer-assistant", ".env");
+  join(ashleyDataDir(), ".env");
 
 function loadDotEnv(): void {
   if (!existsSync(ENV_PATH)) return;

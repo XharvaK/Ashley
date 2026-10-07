@@ -29,6 +29,7 @@ import {
   type IdleThoughtRunner,
   type IdleTickResult,
 } from "./core/cognitive-v021/initiative/idle.js";
+import { activePrivateThoughtPolicyId } from "./core/cognitive-v021/private-budget/policies.js";
 import { tickAfterglow, type AfterglowTickResult } from "./core/cognitive-v021/initiative/afterglow.js";
 import { tickAwake, type AwakeTickResult } from "./core/cognitive-v021/initiative/awake.js";
 import { tickNight, type NightTickResult } from "./core/cognitive-v021/initiative/night.js";
@@ -344,6 +345,7 @@ export class AgentManager {
       occupantId: ownerId,
       authorityEpoch: readCognitiveSidecarMeta(sidecar).authority_epoch,
       nowMs,
+      privateBudgetPolicyId: activePrivateThoughtPolicyId(sidecar),
       timing:selected?.timing,
       thought: this.privateThoughtRunner(sidecar, ownerId,selected?.bind,selected?.observations),
     });
@@ -365,6 +367,7 @@ export class AgentManager {
       authorityEpoch: readCognitiveSidecarMeta(sidecar).authority_epoch,
       nowMs,
       afterglowEnabled,
+      privateBudgetPolicyId: activePrivateThoughtPolicyId(sidecar),
       timing:selected?.timing,
       thought: this.privateThoughtRunner(sidecar, ownerId,selected?.bind,selected?.observations),
     });
@@ -387,6 +390,7 @@ export class AgentManager {
       timeZone: env.ownerTimeZone || DEFAULT_OWNER_TIME_ZONE,
       nowMs,
       afterglowEnabled,
+      privateBudgetPolicyId: activePrivateThoughtPolicyId(sidecar),
       timing:selected?.timing,
       thought: this.privateThoughtRunner(sidecar, ownerId,selected?.bind,selected?.observations),
     });

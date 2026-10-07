@@ -3,6 +3,7 @@ import { homeRootFor } from "./core/home/home.js";
 import { vaultDirFor } from "./core/reach/vault-dir.js";
 import { createSelfChangeResultMaintenance, type SelfChangeResultMaintenance } from "./core/cognitive-v021/growth/self-change-results.js";
 import { configureEmbodimentBudget } from "./core/domus/notification.js";
+import { configurePrivateThoughtBudget } from "./core/cognitive-v021/private-budget/policies.js";
 import { execFileSync } from "node:child_process";
 import { loadWatchTerms, notifyWatch, scanWordWatch } from "./core/oversight/word-watch.js";
 import { createDomusIngressApp, decideDomusIngress } from "./core/domus/ingress.js";
@@ -715,6 +716,13 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
         });
     };
     onDomusArrival = () => pollDomusLane(Date.now(), true);
+    if (env.privateThoughtBudgetLimit > 0) {
+      try {
+        configurePrivateThoughtBudget(sidecar, { limit: env.privateThoughtBudgetLimit, version: env.privateThoughtBudgetVersion });
+      } catch (error) {
+        console.warn(`[initiative] private_thought_budget_unconfigured code=${error instanceof Error ? error.message : "unknown"}`);
+      }
+    }
     if (env.embodimentBudgetLimit > 0) {
       try {
         configureEmbodimentBudget(sidecar, { limit: env.embodimentBudgetLimit, version: env.embodimentBudgetVersion });

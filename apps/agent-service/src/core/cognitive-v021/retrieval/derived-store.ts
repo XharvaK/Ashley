@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync } from "node:fs";
-import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { reservedProductionDataDir } from "../../data-plane.js";
 import { DatabaseSync } from "node:sqlite";
 import { hasAuthorityBarrier, requireCurrentAuthorityBinding, requireStableAuthorityBarrier } from "../authority/barrier.js";
 import { hasPendingDerivedInvalidation } from "../authority/journal.js";
@@ -12,7 +12,7 @@ import { stableJson } from "../../model-fabric/hash.js";
 export const DERIVED_INDEX_SCHEMA_VERSION = 2;
 
 export function defaultDerivedIndexDbPath(): string {
-  return join(homedir(), ".composer-assistant", "cognitive-v021-derived-index.db");
+  return join(reservedProductionDataDir(), "cognitive-v021-derived-index.db");
 }
 
 function sha256(data: string): string {

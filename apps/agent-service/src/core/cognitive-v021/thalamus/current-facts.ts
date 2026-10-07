@@ -7,7 +7,8 @@ import {readInnerState} from "../initiative/awake.js";
 import {readNightState,quietestHour} from "../initiative/night.js";
 import {readMood} from "../growth/mood.js";
 import {readSenseFacts} from "../senses/senses.js";
-import {getPrivateBudgetProjection,PRIVATE_THOUGHT_POLICY_ID} from "../private-budget/ledger.js";
+import {activePrivateThoughtPolicyId} from "../private-budget/policies.js";
+import {getPrivateBudgetProjection} from "../private-budget/ledger.js";
 import {readAttentionFlags,readThalamusCheckpoint} from "./store.js";
 import {reflective, sessionReflective} from "./nuclei/reflective.js";
 import {sleep} from "./nuclei/sleep.js";
@@ -25,7 +26,7 @@ export function innerContext(db:DatabaseSync,options:{conversationId:string;nowM
  const quietHour=readNightState(db,conversationId)?.quietHour ?? quietestHour(db,{nowMs,timeZone:options.timeZone});
  const parts=new Intl.DateTimeFormat("en-US",{timeZone:options.timeZone,hour:"numeric",hourCycle:"h23"}).formatToParts(nowMs);
  const localHour=Number(parts.find(part=>part.type==="hour")!.value);
- const budget=getPrivateBudgetProjection(db,{policyId:PRIVATE_THOUGHT_POLICY_ID,wallClockNowMs:nowMs});
+ const budget=getPrivateBudgetProjection(db,{policyId:activePrivateThoughtPolicyId(db),wallClockNowMs:nowMs});
  return {budgetAvailable:budget.remaining>0 && budget.clockState!=="clock_reconciliation",conversationClaimHeld:false,
   spentFraction:budget.limit>0?budget.consumingCount/budget.limit:1,energy:mood.energy,tension:mood.tension,
   circadianPhase:Math.cos(2*Math.PI*(localHour-quietHour)/P.hoursPerDay.default)};

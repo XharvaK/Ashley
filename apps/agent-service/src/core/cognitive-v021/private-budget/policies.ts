@@ -3,6 +3,8 @@ import { createHash } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { PRIVATE_THOUGHT_MAX_CALLS_PER_HOUR, type PrivateBudgetPolicy } from "../types.js";
 export const PRIVATE_THOUGHT_POLICY_ID = "ashley.private_thought.v1" as const;
+/** N0.7: a Host-configured private Thought limit lives under its own policy id; the default policy stays immutable. */
+export const CONFIGURED_PRIVATE_THOUGHT_POLICY_ID = "ashley.private_thought.configured" as const;
 export const PRIVATE_THOUGHT_WINDOW_MS = 3600000 as const;
 export const PRIVATE_THOUGHT_CLOCK_DISCONTINUITY_MS = 300000 as const;
 export const DEFAULT_PRIVATE_THOUGHT_POLICY: PrivateBudgetPolicy = Object.freeze({ policyId: PRIVATE_THOUGHT_POLICY_ID, limit: PRIVATE_THOUGHT_MAX_CALLS_PER_HOUR, windowMs: PRIVATE_THOUGHT_WINDOW_MS, clockDiscontinuityMs: PRIVATE_THOUGHT_CLOCK_DISCONTINUITY_MS });
@@ -51,6 +53,19 @@ export function configureBudgetPolicy(db: DatabaseSync, policy: VersionedBudgetP
     catch (error) {
         db.exec("ROLLBACK TO configure_budget_policy; RELEASE configure_budget_policy");
         throw error;
+    }
+}
+export function configurePrivateThoughtBudget(db: DatabaseSync, input: { limit: number; version: number }): BudgetPolicySnapshot {
+    return configureBudgetPolicy(db, { policyId: CONFIGURED_PRIVATE_THOUGHT_POLICY_ID, version: input.version, limit: input.limit, windowMs: PRIVATE_THOUGHT_WINDOW_MS, clockDiscontinuityMs: PRIVATE_THOUGHT_CLOCK_DISCONTINUITY_MS });
+}
+/** The private Thought policy in force: the configured one when the Host configured it, else the default. */
+export function activePrivateThoughtPolicyId(db: DatabaseSync): string {
+    try {
+        const row = db.prepare("SELECT policy_id FROM private_budget_policies WHERE policy_id=? AND is_current=1").get(CONFIGURED_PRIVATE_THOUGHT_POLICY_ID);
+        return row ? CONFIGURED_PRIVATE_THOUGHT_POLICY_ID : PRIVATE_THOUGHT_POLICY_ID;
+    }
+    catch {
+        return PRIVATE_THOUGHT_POLICY_ID;
     }
 }
 /** A missing policy never borrows private Thought defaults. Reads are pure. */
