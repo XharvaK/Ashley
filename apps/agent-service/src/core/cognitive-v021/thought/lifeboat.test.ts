@@ -37,6 +37,7 @@ import { appendOwnerUtterance } from "../evidence/conversation-log.js";
 import { buildThoughtInput } from "./input.js";
 import { admitTestCycle, makeSemanticSettlement, openTestSidecar } from "../test-support.js";
 import { runThoughtModel } from "./run.js";
+import { THOUGHT_MODEL_CIRCUIT_MS, thoughtModelCircuit } from "./model-circuit.js";
 import { COMMAND_CODE_LIFEBOAT, COMMAND_CODE_POLICY, COMMAND_CODE_DOMUS_POLICY } from "../../command-code/policy.js";
 import { buildProviderS5, openObservabilityStore } from "./diagnostics.js";
 
@@ -82,9 +83,13 @@ function commandCodeText(
   };
 }
 
-function deps(attentionDb: DatabaseSync, observabilityDb?: DatabaseSync): KernelDeps {
+function deps(
+  attentionDb: DatabaseSync,
+  observabilityDb?: DatabaseSync,
+  nowMs: () => number = () => Date.now(),
+): KernelDeps {
   return {
-    nowMs: () => Date.now(),
+    nowMs,
     attentionDb,
     ...(observabilityDb ? { observabilityDb } : {}),
     completeChat,
@@ -142,6 +147,7 @@ function thoughtInput(cycleId: string, triggerKind: "owner_message" | "domus_not
 }
 
 afterEach(() => {
+  thoughtModelCircuit.reset();
   commandCodeState.dispatch.mockReset();
   resetAdapterCache();
   env.commandCodeApiKey = savedCommandCodeKey;
@@ -169,6 +175,7 @@ async function pass(options: {
   deadlineAtMs?: number;
   disableThoughtTransportFailover?: boolean;
   observe?: boolean;
+  nowMs?: () => number;
 }) {
   delete process.env.ASHLEY_PHASE0_OFFLINE;
   env.commandCodeApiKey = "test-command-code-key";
@@ -176,7 +183,7 @@ async function pass(options: {
   const input = thoughtInput(options.cycleId, options.triggerKind ?? "owner_message");
   const attentionDb = openNuclearDb(new DatabaseSync(":memory:"));
   const store = options.observe ? openObservabilityStore(new DatabaseSync(":memory:")) : undefined;
-  const invocation = await runThoughtModel(input, deps(attentionDb, store?.db), {
+  const invocation = await runThoughtModel(input, deps(attentionDb, store?.db, options.nowMs), {
     deadlineAtMs: options.deadlineAtMs ?? Date.now() + ORDINARY_THOUGHT_BUDGET_MS,
     ...(options.disableThoughtTransportFailover ? { disableThoughtTransportFailover: true } : {}),
   });
@@ -290,6 +297,92 @@ describe("HA2 provider lifeboat", () => {
     });
     expect(commandCodeState.dispatch).toHaveBeenCalledTimes(1);
     expect(invocation.lifeboat).toBeUndefined();
+  });
+
+  it("skips a model that just failed and tries it again after ten minutes", async () => {
+    let now = Date.now();
+    let museFailures = 1;
+    const warns: string[] = [];
+    const spy = vi.spyOn(console, "warn").mockImplementation((message?: unknown) => {
+      warns.push(String(message));
+    });
+    const seen = arm((_call, args) => {
+      if (args.modelId === MUSE && museFailures > 0) {
+        museFailures -= 1;
+        throw new AppError("provider_unavailable", "command_code_http_503", 503);
+      }
+      return { ...ok(), providerModel: args.modelId };
+    });
+    try {
+      const first = await pass({ cycleId: "cycle-circuit-open", nowMs: () => now });
+      expect(seen.map((item) => item.modelId)).toEqual([MUSE, FLASH]);
+      expect(first.invocation.lifeboat?.primaryFailureClass).not.toBe("circuit_open");
+      expect(warns).toContain(`[thought] circuit open model=${MUSE} for=10m`);
+
+      seen.length = 0;
+      const second = await pass({ cycleId: "cycle-circuit-skip", nowMs: () => now, observe: true });
+      expect(seen).toEqual([{ modelId: FLASH, effort: "max", lifeboat: true }]);
+      expect(second.invocation.lifeboat).toMatchObject({
+        fromModelId: MUSE,
+        toModelId: FLASH,
+        toEffort: "max",
+        primaryFailureClass: "circuit_open",
+        primaryDispatchTruth: "not_sent",
+        primaryAttemptId: null,
+        primaryProviderAttempts: 0,
+      });
+      expect(warns).toContain(`[thought] lifeboat from=${MUSE} class=circuit_open to=${FLASH} effort=max`);
+      const row = second.store!.db.prepare(
+        `SELECT code, provider_failure_json FROM thought_dispatch_diagnostics WHERE cycle_id = ? AND code = 'provider_unavailable'`,
+      ).get("cycle-circuit-skip") as { code: string; provider_failure_json: string };
+      expect(row.code).toBe("provider_unavailable");
+      expect(row.provider_failure_json).toContain("circuit_open");
+
+      now += THOUGHT_MODEL_CIRCUIT_MS;
+      seen.length = 0;
+      const third = await pass({ cycleId: "cycle-circuit-half-open", nowMs: () => now });
+      expect(seen).toEqual([{ modelId: MUSE, effort: "xhigh", lifeboat: undefined }]);
+      expect(third.invocation.lifeboat).toBeUndefined();
+      expect(warns).toContain(`[thought] circuit closed model=${MUSE}`);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("does not open the circuit when the failure does not qualify", async () => {
+    let now = Date.now();
+    const seen = arm(() => {
+      throw new AppError("timeout", "Thought provider deadline exceeded", 408);
+    });
+    await pass({ cycleId: "cycle-circuit-timeout-1", nowMs: () => now });
+    expect(seen.map((item) => item.modelId)).toEqual([MUSE]);
+    seen.length = 0;
+    await pass({ cycleId: "cycle-circuit-timeout-2", nowMs: () => now });
+    expect(seen[0]?.modelId).toBe(MUSE);
+  });
+
+  it("still dispatches an open model when that model is the lifeboat", async () => {
+    let now = Date.now();
+    let museFailures = 1;
+    const seen = arm((_call, args) => {
+      if (args.modelId === MUSE && museFailures > 0) {
+        museFailures -= 1;
+        throw new AppError("provider_unavailable", "command_code_http_503", 503);
+      }
+      if (args.modelId === FLASH_FAST) {
+        throw new AppError("provider_unavailable", "command_code_http_503", 503);
+      }
+      return { ...ok(), providerModel: args.modelId };
+    });
+    await pass({ cycleId: "cycle-circuit-muse-down", nowMs: () => now });
+    seen.length = 0;
+    await pass({
+      cycleId: "cycle-circuit-domus",
+      triggerKind: "domus_notification",
+      nowMs: () => now,
+    });
+    expect(seen.map((item) => item.modelId)).toEqual([FLASH_FAST, MUSE]);
+    expect(seen[1]).toMatchObject({ modelId: MUSE, effort: "medium", lifeboat: true });
   });
 
   it("names the answering model on the provider diagnostic", () => {
