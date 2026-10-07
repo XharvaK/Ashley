@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { Agent } from "undici";
 import { env } from "../../../env.js";
 import { AppError } from "../../../errors.js";
 import { thoughtOutputDeepSeekJsonObjectInstruction } from "../../cognitive-v021/thought/output-contract.js";
@@ -35,6 +36,14 @@ import type { StructuredOutputRequest } from "../../model-fabric/types.js";
 export const COMMAND_CODE_MUSE_MODEL = COMMAND_CODE_POLICY.modelId;
 export const COMMAND_CODE_CHAT_COMPLETIONS_URL =
   "https://api.commandcode.ai/provider/v1/chat/completions" as const;
+/** HA2b: Command Code answers can take longer than undici's 300 s default before headers; the pass deadline
+ *  (the request's AbortSignal) is the bound, not the HTTP client. */
+export const COMMAND_CODE_RESPONSE_WAIT_MS = 1_800_000;
+const commandCodeDispatcher = new Agent({
+  headersTimeout: COMMAND_CODE_RESPONSE_WAIT_MS,
+  bodyTimeout: COMMAND_CODE_RESPONSE_WAIT_MS,
+});
+type CommandCodeRequestInit = RequestInit & { dispatcher?: unknown };
 const MAX_OUTPUT_TOKENS = 65_536;
 
 type CommandCodeResponse = {
@@ -326,7 +335,7 @@ export function createCommandCodeAdapter(
         const providerRequestHash = sha256(serializedBody);
         boundary.requestHash = providerRequestHash;
         boundary.transportOutcome = "sent_outcome_unknown";
-        const response = await fetcher(COMMAND_CODE_CHAT_COMPLETIONS_URL, {
+        const requestInit: CommandCodeRequestInit = {
           method: "POST",
           headers: {
             authorization: `Bearer ${apiKey}`,
@@ -334,7 +343,9 @@ export function createCommandCodeAdapter(
           },
           body: serializedBody,
           signal: args.signal ?? args.options.signal,
-        });
+          dispatcher: commandCodeDispatcher,
+        };
+        const response = await fetcher(COMMAND_CODE_CHAT_COMPLETIONS_URL, requestInit);
         boundary.transportOutcome = "response_received";
         boundary.providerHttpStatus = response.status;
         boundary.providerRequestId = response.headers.get("x-request-id");

@@ -8,7 +8,7 @@ import {
 import { COMMAND_CODE_DOMUS_POLICY, COMMAND_CODE_LIFEBOAT, COMMAND_CODE_POLICY } from "../../command-code/policy.js";
 import { commandCodeBoundaryEvidenceFromError } from "../../command-code/evidence.js";
 import type { ChatMessage } from "../types.js";
-import { createCommandCodeAdapter } from "./command-code-adapter.js";
+import { COMMAND_CODE_RESPONSE_WAIT_MS, createCommandCodeAdapter } from "./command-code-adapter.js";
 
 const originalKey = env.commandCodeApiKey;
 const MODEL = COMMAND_CODE_POLICY.modelId;
@@ -97,6 +97,33 @@ describe("command-code-adapter", () => {
         emittedEnforcementMode: "json_object_compatibility",
       },
     });
+  });
+
+  it("gives Command Code its own dispatcher so a slow answer waits on the pass deadline", async () => {
+    env.commandCodeApiKey = "test-command-code-key";
+    let init: (RequestInit & { dispatcher?: unknown }) | undefined;
+    const fetcher = vi.fn(async (_input: RequestInfo | URL, requestInit?: RequestInit) => {
+      init = requestInit as RequestInit & { dispatcher?: unknown };
+      return fakeResponse({
+        id: "response-dispatcher",
+        model: MODEL,
+        choices: [{ message: { content: "{\"kind\":\"abstain\"}" }, finish_reason: "stop" }],
+        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+      });
+    });
+
+    await createCommandCodeAdapter(fetcher).dispatch({
+      messages,
+      modelId: MODEL,
+      options: {
+        maxTokens: 65_536,
+        reasoningEffort: COMMAND_CODE_POLICY.effort,
+        structuredOutput: thoughtOutputStructuredRequest(),
+      },
+    });
+
+    expect(COMMAND_CODE_RESPONSE_WAIT_MS).toBe(1_800_000);
+    expect(init).toEqual(expect.objectContaining({ dispatcher: expect.anything() }));
   });
 
   it("reads both documented usage shapes, including cached tokens", async () => {
