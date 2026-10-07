@@ -194,6 +194,8 @@ describe("I1 profile-scoped Thought contract", () => {
     }
     const room = { ...chat, audience: { kind: "room" } };
     expect(thoughtOutputCompatibilityInstruction(thoughtContractProfile(room))).not.toContain(PLACES_GUIDANCE);
+    expect(thoughtOutputCompatibilityInstruction(thoughtContractProfile(room))).not.toContain("the weather where the Owner is");
+    expect(thoughtOutputCompatibilityInstruction(thoughtContractProfile(chat))).toContain("the weather where the Owner is");
     expect(settlementFields(thoughtContractProfile(room))).not.toContain("intents");
     expect(settlementFields(thoughtContractProfile(room))).not.toContain("home");
     expect(settlementFields(thoughtContractProfile(room))).not.toContain("pursuits");

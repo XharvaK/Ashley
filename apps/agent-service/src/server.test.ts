@@ -47,7 +47,11 @@ function openPair(): { nuclear: DatabaseSync; sidecar: DatabaseSync } {
       created_at_ms INTEGER NOT NULL,
       status TEXT NOT NULL
     );
-    CREATE TABLE night_state (conversation_id TEXT PRIMARY KEY, updated_at_ms INTEGER NOT NULL);
+    CREATE TABLE night_state (
+      conversation_id TEXT PRIMARY KEY,
+      updated_at_ms INTEGER NOT NULL,
+      last_night_at_ms INTEGER
+    );
     CREATE TABLE inner_state (conversation_id TEXT PRIMARY KEY, updated_at_ms INTEGER NOT NULL);
     CREATE TABLE afterglow_state (conversation_id TEXT PRIMARY KEY, updated_at_ms INTEGER NOT NULL);
   `);
@@ -85,7 +89,7 @@ function insertPass(
 }
 
 describe("presence phase derivation", () => {
-  it("names each inner phase from the live pass, and idle when none is live", () => {
+  it("names a live afterglow or awake pass, and idle when the night period has ended", () => {
     const pair = openPair();
     try {
       pair.sidecar.prepare("INSERT INTO night_state (conversation_id, updated_at_ms) VALUES (?, ?)").run(CONV, 40);
@@ -95,6 +99,7 @@ describe("presence phase derivation", () => {
       insertPass(pair.sidecar, "afterglow:conv:a:1", "pending", 100);
       expect(phaseOf(pair)).toEqual({ phase: "afterglow", healthy: true, sinceMs: 100 });
 
+      pair.sidecar.prepare("UPDATE inbox_events SET status = 'consumed' WHERE id = 'afterglow:conv:a:1'").run();
       insertPass(pair.sidecar, "night:conv:1", "claimed", 200);
       expect(phaseOf(pair)).toEqual({ phase: "night", healthy: true, sinceMs: 200 });
 
@@ -103,6 +108,57 @@ describe("presence phase derivation", () => {
 
       pair.sidecar.prepare("UPDATE inbox_events SET status = 'consumed'").run();
       expect(phaseOf(pair)).toMatchObject({ phase: "idle", healthy: true });
+    } finally {
+      pair.nuclear.close();
+      pair.sidecar.close();
+    }
+  });
+
+  it("keeps night after the pass has finished until a later awake or afterglow pass", () => {
+    const pair = openPair();
+    try {
+      insertPass(pair.sidecar, "awake:conv:early", "consumed", 100);
+      insertPass(pair.sidecar, "night:conv:1", "consumed", 200);
+      expect(phaseOf(pair)).toEqual({ phase: "night", healthy: true, sinceMs: 200 });
+
+      const recent = NOW - OWNER_CONVERSATION_WINDOW_MS + 1_000;
+      pair.sidecar.prepare(
+        `INSERT INTO conversation_evidence_log (row_id, conversation_id, role, created_at_ms)
+         VALUES ('m-night', ?, 'owner', ?)`,
+      ).run(CONV, recent);
+      expect(phaseOf(pair)).toEqual({ phase: "conversation", healthy: true, sinceMs: recent });
+      expect(pair.sidecar.prepare(
+        "SELECT id, status, created_at_ms AS at_ms FROM inbox_events WHERE id = 'night:conv:1'",
+      ).get()).toEqual({ id: "night:conv:1", status: "consumed", at_ms: 200 });
+
+      expect(phaseOf(pair, true, recent + OWNER_CONVERSATION_WINDOW_MS + 1)).toEqual({
+        phase: "night",
+        healthy: true,
+        sinceMs: 200,
+      });
+
+      insertPass(pair.sidecar, "awake:conv:later", "consumed", 400);
+      expect(phaseOf(pair, true, recent + OWNER_CONVERSATION_WINDOW_MS + 1)).toMatchObject({ phase: "idle" });
+
+      pair.sidecar.prepare("DELETE FROM inbox_events WHERE id = 'awake:conv:later'").run();
+      pair.sidecar.prepare("DELETE FROM conversation_evidence_log").run();
+      insertPass(pair.sidecar, "afterglow:conv:later", "consumed", 500);
+      expect(phaseOf(pair)).toMatchObject({ phase: "idle" });
+    } finally {
+      pair.nuclear.close();
+      pair.sidecar.close();
+    }
+  });
+
+  it("reads the night period from night_state when that start is ahead of the inbox", () => {
+    const pair = openPair();
+    try {
+      pair.sidecar.prepare(
+        "INSERT INTO night_state (conversation_id, updated_at_ms, last_night_at_ms) VALUES (?, ?, ?)",
+      ).run(CONV, 200, 200);
+      expect(phaseOf(pair)).toEqual({ phase: "night", healthy: true, sinceMs: 200 });
+      insertPass(pair.sidecar, "awake:conv:after", "consumed", 250);
+      expect(phaseOf(pair)).toMatchObject({ phase: "idle" });
     } finally {
       pair.nuclear.close();
       pair.sidecar.close();

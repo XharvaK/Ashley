@@ -208,6 +208,26 @@ function withSyntheticC2(input: ThoughtInput): ThoughtInput & {
 }
 
 describe("Whole-Thought Projection Allocator", () => {
+  it("places owner weather after the stable prefix as an optional volatile section", () => {
+    const ownerWeather = { sky: "cloudy" as const, tempC: 1, isDay: false, observedAtMs: 10 };
+    const input = makeThoughtInput({ ownerWeather });
+    const candidate = buildAllocationCandidates(input, []).find((item) => item.section === "owner_weather");
+    expect(candidate?.required).toBe(false);
+    expect(candidate?.requiredness?.overflow).toBe("shed_optional");
+    const allocated = allocateThoughtProjection({
+      thoughtInput: input,
+      semanticBudgetTokens: 32_768,
+      requestId: "req-owner-weather",
+    });
+    const visible = modelVisibleThoughtProjection(allocated.projected);
+    const keys = Object.keys(visible);
+    expect(keys.indexOf("ownerWeather")).toBeGreaterThan(keys.indexOf("authorityEpoch"));
+    expect(keys.indexOf("ownerWeather")).toBeGreaterThan(keys.indexOf("learnedSelfSlice"));
+    expect(visible.ownerWeather).toEqual(ownerWeather);
+    expect(String(allocated.messages[0]?.content)).toContain("the weather where the Owner is");
+    expect(JSON.stringify(visible)).not.toMatch(/latitude|longitude/i);
+  });
+
   it("degrades ordinary recent history while retaining the exact current trigger", () => {
     // Fixture calibration (same class as the E2b 16_384 -> 17_000 accommodation):
     // C1 + concern.inspect instruction growth pushes the disclosed final wire
@@ -776,7 +796,7 @@ describe("Whole-Thought Projection Allocator", () => {
     const allocated = allocateThoughtProjection({
       thoughtInput: makeThoughtInput(innerLife),
       quotaBucket: "groq:openai/gpt-oss-20b",
-      semanticProjectionEnvelope: { id: "test-envelope", version: 1, maxInputTokens: 13_000 },
+      semanticProjectionEnvelope: { id: "test-envelope", version: 1, maxInputTokens: 13_100 },
       requestId: "req-inner-life",
     });
     expect(allocated.receipt.tokenBreakdown.inner_life_tokens).toBeGreaterThan(0);
@@ -1758,7 +1778,7 @@ describe("E2a recency loss honesty (allocator)", () => {
 
     const allocated = allocateThoughtProjection({
       thoughtInput: input,
-      semanticBudgetTokens: 13_500,
+      semanticBudgetTokens: 13_600,
       requestId: "req-e2a-carry",
     });
 
@@ -1842,12 +1862,12 @@ describe("E2a recency loss honesty (allocator)", () => {
 
     const complete = allocateThoughtProjection({
       thoughtInput: base,
-      semanticBudgetTokens: 13_500,
+      semanticBudgetTokens: 13_600,
       requestId: "req-e2a-hash-complete",
     });
     const lossyAllocated = allocateThoughtProjection({
       thoughtInput: lossy,
-      semanticBudgetTokens: 13_500,
+      semanticBudgetTokens: 13_600,
       requestId: "req-e2a-hash-lossy",
     });
 
@@ -1860,7 +1880,7 @@ describe("E2a recency loss honesty (allocator)", () => {
     // Deterministic: the same lossy input hashes identically.
     const lossyAgain = allocateThoughtProjection({
       thoughtInput: lossy,
-      semanticBudgetTokens: 13_500,
+      semanticBudgetTokens: 13_600,
       requestId: "req-e2a-hash-lossy-again",
     });
     expect(lossyAgain.hashes).toEqual(lossyAllocated.hashes);

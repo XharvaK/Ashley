@@ -160,6 +160,8 @@ export type BuildThoughtInputOptions = {
   placeWish?: import("../../places/compose.js").ThoughtPlaceWish;
   /** T: kept only for a room or contact audience. */
   teacher?: import("../../teach/lessons.js").ThoughtTeacher;
+  /** The weather where the Owner is. Kept only for an Owner-private audience. */
+  ownerWeather?: import("../world/weather.js").OwnerWeather;
   /** Growth V1 G4: mood, opinions, open revisions and expectations (kept only for Owner-private audiences). */
   growth?: import("../growth/growth.js").ThoughtGrowth;
   senses?: import("../senses/senses.js").ThoughtSenses;
@@ -1283,6 +1285,7 @@ export function buildThoughtInput(options: BuildThoughtInputOptions): ThoughtInp
     ...(options.will && audience.kind === "owner_private" && !domusPass ? { will: options.will } : {}),
     ...(options.placeWish && (audience.kind === "room" || audience.kind === "dm") ? { placeWish: options.placeWish } : {}),
     ...(options.teacher && (audience.kind === "room" || audience.kind === "dm") ? { teacher: options.teacher } : {}),
+    ...(options.ownerWeather && audience.kind === "owner_private" ? { ownerWeather: options.ownerWeather } : {}),
     ...(options.growth && audience.kind === "owner_private" && !gameOnly ? { growth: options.growth } : {}),
     ...(options.senses && audience.kind === "owner_private" ? { senses: options.senses } : {}),
     ...(options.attention && audience.kind === "owner_private" && !gameOnly ? { attention: options.attention } : {}),

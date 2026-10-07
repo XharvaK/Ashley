@@ -971,6 +971,22 @@ describe("E2a conversation recency loss honesty", () => {
 });
 
 
+describe("owner weather input", () => {
+  it("keeps the section on an Owner-private pass and omits it for a room or a contact", () => {
+    const db = openTestSidecar();
+    try {
+      const cycle = admitTestCycle(db, { conversationId: "t", triggerKind: "owner_message", triggerRef: "e", occupantId: "doc", nowMs: 1 });
+      const ownerWeather = { sky: "clear" as const, tempC: 0, isDay: true, observedAtMs: 5 };
+      expect(makeInput(db, cycle, { ownerWeather }).ownerWeather).toEqual(ownerWeather);
+      expect(makeInput(db, cycle, { ownerWeather, innerPass: { kind: "night", agenda: {} } as never }).ownerWeather).toEqual(ownerWeather);
+      expect(makeInput(db, cycle, { ownerWeather, audience: { kind: "dm", principalId: "contact" } })).not.toHaveProperty("ownerWeather");
+      expect(makeInput(db, cycle, { ownerWeather, audience: { kind: "room", roomId: "room" } })).not.toHaveProperty("ownerWeather");
+    } finally {
+      db.close();
+    }
+  });
+});
+
 describe("A3c private senses input", () => {
   it("includes the block only on Owner-private passes", () => {
     const db = openTestSidecar();

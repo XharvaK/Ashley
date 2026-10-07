@@ -153,6 +153,8 @@ export type ProjectedThoughtInput = {
   will?: ThoughtInput["will"];
   placeWish?: ThoughtInput["placeWish"];
   teacher?: ThoughtInput["teacher"];
+  /** The weather where the Owner is. Optional, and only on an Owner-private pass. */
+  ownerWeather?: ThoughtInput["ownerWeather"];
   /** Current public state is model-visible only during autonomous cognition. */
   publicPresence?: PublicPresenceContext;
   availableDestinations?: readonly AvailableSocialDestination[];
@@ -491,6 +493,7 @@ export function projectThoughtInput(
     ...(fullInput.will === undefined ? {} : { will: fullInput.will }),
     ...(fullInput.placeWish === undefined ? {} : { placeWish: fullInput.placeWish }),
     ...(fullInput.teacher === undefined ? {} : { teacher: fullInput.teacher }),
+    ...(fullInput.ownerWeather === undefined ? {} : { ownerWeather: fullInput.ownerWeather }),
     ...(fullInput.publicPresence === undefined ? {} : { publicPresence: fullInput.publicPresence }),
     ...(fullInput.availableDestinations === undefined ? {} : {
       availableDestinations: [...fullInput.availableDestinations],

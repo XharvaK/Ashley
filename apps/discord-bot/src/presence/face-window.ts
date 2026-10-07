@@ -5,11 +5,7 @@ import { presencePhase, type PresencePhaseName } from "../agent-client.js";
 import { ashleyDataDir } from "../data-root.js";
 import { applyStatusDot } from "../presence.js";
 
-/** Same fixed default as the agent clock when ASHLEY_OWNER_TIME_ZONE is empty. */
-export const DEFAULT_OWNER_TIME_ZONE = "Etc/GMT-3";
-
 export const POLL_MS = 60_000;
-export const WEATHER_EVERY_MS = 30 * 60_000;
 export const AVATAR_CHANGES_PER_DAY = 4;
 export const AVATAR_DAY_MS = 24 * 60 * 60_000;
 export const AVATAR_BACKOFF_MS = 60 * 60_000;
@@ -17,8 +13,6 @@ export const AVATAR_BACKOFF_MS = 60 * 60_000;
 export const AVATAR_ASLEEP = "avatar/day-asleep.png";
 export const AVATAR_AWAKE = "avatar/day-awake.png";
 
-export type TimeBucket = "morning" | "noon" | "night";
-export type Sky = "sunny" | "raining" | "snowing";
 export type StatusDot = "online" | "idle";
 
 export type FaceMemory = {
@@ -27,9 +21,6 @@ export type FaceMemory = {
   avatarChangeAtMs: number[];
   backoffUntilMs: number;
   dot: StatusDot | null;
-  sky: Sky;
-  bannerId: string | null;
-  weatherAtMs: number;
 };
 
 export function emptyFaceMemory(): FaceMemory {
@@ -39,9 +30,6 @@ export function emptyFaceMemory(): FaceMemory {
     avatarChangeAtMs: [],
     backoffUntilMs: 0,
     dot: null,
-    sky: "sunny",
-    bannerId: null,
-    weatherAtMs: 0,
   };
 }
 
@@ -62,9 +50,6 @@ export function loadFaceMemory(dataDir = ashleyDataDir()): FaceMemory {
         : [],
       backoffUntilMs: typeof parsed.backoffUntilMs === "number" ? parsed.backoffUntilMs : 0,
       dot: parsed.dot === "online" || parsed.dot === "idle" ? parsed.dot : null,
-      sky: parsed.sky === "raining" || parsed.sky === "snowing" ? parsed.sky : "sunny",
-      bannerId: typeof parsed.bannerId === "string" ? parsed.bannerId : null,
-      weatherAtMs: typeof parsed.weatherAtMs === "number" ? parsed.weatherAtMs : 0,
     };
   } catch {
     return emptyFaceMemory();
@@ -81,43 +66,6 @@ export function statusDot(phase: PresencePhaseName, healthy: boolean): StatusDot
   if (!healthy) return "idle";
   if (phase === "conversation" || phase === "awake" || phase === "afterglow") return "online";
   return "idle";
-}
-
-export function timeBucket(hour: number, minute: number): TimeBucket {
-  const mins = hour * 60 + minute;
-  if (mins >= 5 * 60 && mins < 11 * 60) return "morning";
-  if (mins >= 11 * 60 && mins < 18 * 60) return "noon";
-  return "night";
-}
-
-export function skyFromWmo(code: number): Sky {
-  if ((code >= 71 && code <= 77) || code === 85 || code === 86) return "snowing";
-  if ((code >= 51 && code <= 67) || (code >= 80 && code <= 82) || (code >= 95 && code <= 99)) return "raining";
-  return "sunny";
-}
-
-export function bannerFileId(bucket: TimeBucket, sky: Sky): string {
-  return `banner/${bucket}-${sky}.png`;
-}
-
-export function ownerLocalParts(nowMs: number, timeZone: string): { hour: number; minute: number } {
-  const formatted = new Intl.DateTimeFormat("en-GB", {
-    timeZone,
-    hour: "2-digit",
-    minute: "2-digit",
-    hourCycle: "h23",
-  }).formatToParts(new Date(nowMs));
-  const hour = Number(formatted.find((part) => part.type === "hour")?.value);
-  const minute = Number(formatted.find((part) => part.type === "minute")?.value);
-  if (!Number.isInteger(hour) || !Number.isInteger(minute)) {
-    throw new Error("local_clock_unavailable");
-  }
-  return { hour, minute };
-}
-
-export function weatherSwitchOn(env: NodeJS.ProcessEnv = process.env): boolean {
-  const raw = env.ASHLEY_WEATHER_SWITCH?.trim().toLowerCase();
-  return raw === "true" || raw === "1" || raw === "on";
 }
 
 export function avatarChoice(
@@ -144,14 +92,10 @@ export type FaceReconcileInput = {
   phase: PresencePhaseName | null;
   healthy: boolean;
   memory: FaceMemory;
-  local: { hour: number; minute: number };
-  weatherSwitch: boolean;
   loggedMissing: Set<string>;
   readArt: (id: string) => Buffer | null;
-  fetchWeatherCode: () => Promise<number>;
   setDot: (dot: StatusDot) => Promise<void>;
   setAvatar: (bytes: Buffer) => Promise<void>;
-  setBanner: (bytes: Buffer) => Promise<void>;
   logMissing: (id: string) => void;
 };
 
@@ -190,32 +134,6 @@ async function applyAvatar(input: FaceReconcileInput, phase: PresencePhaseName):
   input.memory.avatarChangeAtMs = [...recent, input.nowMs];
 }
 
-async function applySky(input: FaceReconcileInput): Promise<void> {
-  if (!input.weatherSwitch) {
-    input.memory.sky = "sunny";
-    return;
-  }
-  if (input.memory.weatherAtMs !== 0 && input.nowMs - input.memory.weatherAtMs < WEATHER_EVERY_MS) return;
-  try {
-    input.memory.sky = skyFromWmo(await input.fetchWeatherCode());
-    input.memory.weatherAtMs = input.nowMs;
-  } catch {
-    input.memory.weatherAtMs = input.nowMs;
-  }
-}
-
-async function applyBanner(input: FaceReconcileInput): Promise<void> {
-  const id = bannerFileId(timeBucket(input.local.hour, input.local.minute), input.memory.sky);
-  if (id === input.memory.bannerId) return;
-  const bytes = input.readArt(id);
-  if (!bytes) {
-    noteMissing(input, id);
-    return;
-  }
-  await input.setBanner(bytes);
-  input.memory.bannerId = id;
-}
-
 export async function reconcileFaceWindow(input: FaceReconcileInput): Promise<void> {
   const phase = input.phase;
   const healthy = phase !== null && input.healthy;
@@ -225,8 +143,6 @@ export async function reconcileFaceWindow(input: FaceReconcileInput): Promise<vo
     input.memory.dot = dot;
   }
   if (phase !== null) await applyAvatar(input, phase);
-  await applySky(input);
-  await applyBanner(input);
 }
 
 export function readArtFile(artDir: string | undefined, id: string): Buffer | null {
@@ -237,43 +153,14 @@ export function readArtFile(artDir: string | undefined, id: string): Buffer | nu
   return readFileSync(full);
 }
 
-export async function fetchWeatherCode(
-  env: NodeJS.ProcessEnv = process.env,
-  fetchImpl: typeof fetch = fetch,
-): Promise<number> {
-  const latitude = env.ASHLEY_WEATHER_LAT?.trim() ?? "";
-  const longitude = env.ASHLEY_WEATHER_LON?.trim() ?? "";
-  if (!latitude || !longitude || !Number.isFinite(Number(latitude)) || !Number.isFinite(Number(longitude))) {
-    throw new Error("weather_unavailable");
-  }
-  const url = new URL("https://api.open-meteo.com/v1/forecast");
-  url.searchParams.set("latitude", latitude);
-  url.searchParams.set("longitude", longitude);
-  url.searchParams.set("current", "weather_code");
-  const response = await fetchImpl(url, { signal: AbortSignal.timeout(8_000) });
-  if (!response.ok) throw new Error("weather_unavailable");
-  const body = await response.json() as { current?: { weather_code?: unknown } };
-  const code = body.current?.weather_code;
-  if (typeof code !== "number" || !Number.isFinite(code)) throw new Error("weather_unavailable");
-  return code;
-}
-
 let timer: ReturnType<typeof setInterval> | null = null;
 let loggedMissing = new Set<string>();
-
-
-
-function ownerZone(env: NodeJS.ProcessEnv): string {
-  const configured = env.ASHLEY_OWNER_TIME_ZONE?.trim();
-  return configured || DEFAULT_OWNER_TIME_ZONE;
-}
 
 export function startFaceWindow(
   client: Client,
   options: {
     env?: NodeJS.ProcessEnv;
     dataDir?: string;
-    fetchImpl?: typeof fetch;
     nowMs?: () => number;
   } = {},
 ): void {
@@ -294,32 +181,19 @@ export function startFaceWindow(
       phase = null;
       healthy = false;
     }
-    let local = { hour: 0, minute: 0 };
-    try {
-      local = ownerLocalParts(now, ownerZone(env));
-    } catch {
-      local = ownerLocalParts(now, DEFAULT_OWNER_TIME_ZONE);
-    }
     await reconcileFaceWindow({
       nowMs: now,
       phase,
       healthy,
       memory,
-      local,
-      weatherSwitch: weatherSwitchOn(env),
       loggedMissing,
       readArt: (id) => readArtFile(env.ASHLEY_ART_DIR, id),
-      fetchWeatherCode: () => fetchWeatherCode(env, options.fetchImpl),
       setDot: async (dot) => {
         await applyStatusDot(client, dot);
       },
       setAvatar: async (bytes) => {
         if (!client.user) return;
         await client.user.setAvatar(bytes);
-      },
-      setBanner: async (bytes) => {
-        if (!client.user) return;
-        await client.user.setBanner(bytes);
       },
       logMissing: (id) => {
         console.warn(`[face] missing ${id}`);

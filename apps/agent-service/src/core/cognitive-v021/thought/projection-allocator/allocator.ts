@@ -559,6 +559,7 @@ export function allocateThoughtProjection(
   let orientationKernelIncluded = false;
   let domainPointersIncluded = false;
   let c3ExperiencesIncluded = false;
+  let ownerWeatherIncluded = false;
   let compression = false;
 
   const c2Input = input as ThoughtInput & {
@@ -604,6 +605,7 @@ export function allocateThoughtProjection(
     // exact allocator-stage omission count. No speculative disclosure exists.
     finalizeDisclosure = false,
     includeObservations = observationsIncluded,
+    includeOwnerWeather = ownerWeatherIncluded,
   ): ProjectedThoughtInput & {
     c3Experiences?: {
       version: 1;
@@ -753,6 +755,7 @@ export function allocateThoughtProjection(
       },
       ...(input.thoughtLegDeadlineAtMs === undefined ? {} : { thoughtLegDeadlineAtMs: input.thoughtLegDeadlineAtMs }),
       ...(input.clock === undefined ? {} : { clock: input.clock }),
+      ...(includeOwnerWeather && input.ownerWeather !== undefined ? { ownerWeather: input.ownerWeather } : {}),
     };
 
     if (input.audience !== undefined) {
@@ -810,6 +813,7 @@ export function allocateThoughtProjection(
     let tentativeOrientationKernel = orientationKernelIncluded;
     let tentativeDomainPointers = domainPointersIncluded;
     let tentativeC3Experiences = c3ExperiencesIncluded;
+    let tentativeOwnerWeather = ownerWeatherIncluded;
 
     if (candidate.section === "recent_raw") {
       tentativeConversation = [...conversationIncluded, candidate.data as ThoughtInput["rawConversation"][number]];
@@ -827,6 +831,8 @@ export function allocateThoughtProjection(
       tentativeDomainPointers = true;
     } else if (candidate.section === "c3_terminal_experiences") {
       tentativeC3Experiences = true;
+    } else if (candidate.section === "owner_weather") {
+      tentativeOwnerWeather = true;
     }
 
     const tentativeProjected = renderTentative(
@@ -839,6 +845,7 @@ export function allocateThoughtProjection(
       tentativeC3Experiences,
       false,
       tentativeObservationsIncluded,
+      tentativeOwnerWeather,
     );
     thoughtMessagesForProjectionCallCount += 1;
     const tentativeMessages = thoughtMessagesForProjection(
@@ -876,6 +883,8 @@ export function allocateThoughtProjection(
         domainPointersIncluded = true;
       } else if (candidate.section === "c3_terminal_experiences") {
         c3ExperiencesIncluded = true;
+      } else if (candidate.section === "owner_weather") {
+        ownerWeatherIncluded = true;
       }
     } else {
       // Exceeds TPM budget
@@ -951,6 +960,7 @@ export function allocateThoughtProjection(
       c3ExperiencesIncluded,
       true,
       observationsIncluded,
+      ownerWeatherIncluded,
     );
     thoughtMessagesForProjectionCallCount += 1;
     const messages = thoughtMessagesForProjection(projected, undefined, messageMemo);
@@ -977,7 +987,7 @@ export function allocateThoughtProjection(
     workingContext: [...workingContextIncluded],
     deskEntries: [...deskEntriesIncluded],
     retrieval: [...retrievalHitsIncluded],
-    flags: { observationsIncluded, orientationKernelIncluded, domainPointersIncluded, c3ExperiencesIncluded, compression },
+    flags: { observationsIncluded, orientationKernelIncluded, domainPointersIncluded, c3ExperiencesIncluded, ownerWeatherIncluded, compression },
     omitted: omittedCandidates.length,
     omittedData: omittedCandidateData.length,
   };
@@ -1011,6 +1021,8 @@ export function allocateThoughtProjection(
       domainPointersIncluded = false;
     } else if (evicted.section === "c3_terminal_experiences") {
       c3ExperiencesIncluded = false;
+    } else if (evicted.section === "owner_weather") {
+      ownerWeatherIncluded = false;
     }
     compression = true;
     omittedCandidateData.push(evicted);
@@ -1034,7 +1046,7 @@ export function allocateThoughtProjection(
     replace(workingContextIncluded, snapshot.workingContext);
     replace(deskEntriesIncluded, snapshot.deskEntries);
     replace(retrievalHitsIncluded, snapshot.retrieval);
-    ({ observationsIncluded, orientationKernelIncluded, domainPointersIncluded, c3ExperiencesIncluded, compression } = snapshot.flags);
+    ({ observationsIncluded, orientationKernelIncluded, domainPointersIncluded, c3ExperiencesIncluded, ownerWeatherIncluded, compression } = snapshot.flags);
     omittedCandidates.length = snapshot.omitted;
     omittedCandidateData.length = snapshot.omittedData;
     final = unfitted;
@@ -1178,6 +1190,7 @@ export function allocateThoughtProjection(
     "runtimeCondition",
     "rememberDirective",
     "conversationSelection",
+    "ownerWeather",
   ]);
   const firstVolatileField = Object.keys(visibleProjection).find((key) => volatileFields.has(key)) ?? null;
   const firstVolatileMarker = firstVolatileField === null

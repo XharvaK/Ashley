@@ -3,8 +3,10 @@ import type { DatabaseSync } from "node:sqlite";
 /**
  * Host read of the phase the inner-life poll already records.
  * Conversation wins: an Owner cycle still open, or an Owner message inside
- * the last 10 minutes. Otherwise a live afterglow, night, or awake inbox
- * event. Anything else is idle. This does not write.
+ * the last 10 minutes. Otherwise a live afterglow or awake inbox event.
+ * Otherwise the night period: from the start of the latest night pass until
+ * a later awake or afterglow pass. An Owner message overlays conversation
+ * and leaves that period in place. Anything else is idle. This does not write.
  */
 export const OWNER_CONVERSATION_WINDOW_MS = 10 * 60 * 1000;
 
@@ -77,21 +79,63 @@ function passKindOf(id: string, payloadJson: unknown): PassKind | null {
   return null;
 }
 
-function livePass(sidecar: DatabaseSync, conversationId: string): { kind: PassKind; sinceMs: number } | null {
+const LIVE_PASS_STATUSES = new Set(["pending", "claimed", "failed_retryable"]);
+
+type PassMark = { kind: PassKind; sinceMs: number; status: string };
+
+function passMarks(sidecar: DatabaseSync, conversationId: string): PassMark[] {
   const rows = sidecar.prepare(
-    `SELECT id, payload_json, created_at_ms
+    `SELECT id, payload_json, created_at_ms, status
        FROM inbox_events
       WHERE conversation_id = ?
-        AND status IN ('pending', 'claimed', 'failed_retryable')
-      ORDER BY created_at_ms DESC`,
-  ).all(conversationId) as Array<{ id?: unknown; payload_json?: unknown; created_at_ms?: unknown }>;
+        AND (
+          id LIKE 'afterglow:%'
+          OR id LIKE 'night:%'
+          OR id LIKE 'awake:%'
+          OR status IN ('pending', 'claimed', 'failed_retryable')
+        )`,
+  ).all(conversationId) as Array<{ id?: unknown; payload_json?: unknown; created_at_ms?: unknown; status?: unknown }>;
+  const marks: PassMark[] = [];
   for (const row of rows) {
     if (typeof row.id !== "string") continue;
     const kind = passKindOf(row.id, row.payload_json);
     const sinceMs = numberOrNull(row.created_at_ms);
-    if (kind && sinceMs !== null) return { kind, sinceMs };
+    if (!kind || sinceMs === null) continue;
+    marks.push({ kind, sinceMs, status: typeof row.status === "string" ? row.status : "" });
   }
-  return null;
+  return marks;
+}
+
+function latestLiveAwakeOrAfterglow(marks: readonly PassMark[]): PassMark | null {
+  let best: PassMark | null = null;
+  for (const mark of marks) {
+    if (mark.kind === "night" || !LIVE_PASS_STATUSES.has(mark.status)) continue;
+    if (!best || mark.sinceMs > best.sinceMs) best = mark;
+  }
+  return best;
+}
+
+function recordedNightStartMs(sidecar: DatabaseSync, conversationId: string): number | null {
+  const row = sidecar.prepare(
+    "SELECT last_night_at_ms AS at_ms FROM night_state WHERE conversation_id = ?",
+  ).get(conversationId) as { at_ms?: unknown } | undefined;
+  return numberOrNull(row?.at_ms);
+}
+
+/** Start of the latest night pass: its inbox event, or night_state when the row is ahead of the events. */
+function nightPeriodStartMs(marks: readonly PassMark[], recordedStart: number | null): number | null {
+  let eventStart: number | null = null;
+  for (const mark of marks) {
+    if (mark.kind !== "night") continue;
+    if (eventStart === null || mark.sinceMs > eventStart) eventStart = mark.sinceMs;
+  }
+  if (recordedStart !== null && (eventStart === null || recordedStart > eventStart)) return recordedStart;
+  return eventStart;
+}
+
+function laterAwakeOrAfterglow(marks: readonly PassMark[], nightStartMs: number): boolean {
+  return marks.some((mark) =>
+    (mark.kind === "awake" || mark.kind === "afterglow") && mark.sinceMs > nightStartMs);
 }
 
 function idleSinceMs(sidecar: DatabaseSync, conversationId: string): number {
@@ -128,7 +172,12 @@ export function readPresencePhase(input: {
       : (cycleSince ?? messageSince ?? input.nowMs);
     return { phase: "conversation", healthy: input.healthy, sinceMs };
   }
-  const pass = livePass(input.sidecar, conversationId);
-  if (pass) return { phase: pass.kind, healthy: input.healthy, sinceMs: pass.sinceMs };
+  const marks = passMarks(input.sidecar, conversationId);
+  const live = latestLiveAwakeOrAfterglow(marks);
+  if (live) return { phase: live.kind, healthy: input.healthy, sinceMs: live.sinceMs };
+  const nightStartMs = nightPeriodStartMs(marks, recordedNightStartMs(input.sidecar, conversationId));
+  if (nightStartMs !== null && !laterAwakeOrAfterglow(marks, nightStartMs)) {
+    return { phase: "night", healthy: input.healthy, sinceMs: nightStartMs };
+  }
   return { phase: "idle", healthy: input.healthy, sinceMs: idleSinceMs(input.sidecar, conversationId) };
 }

@@ -869,6 +869,10 @@ export const DOMUS_GUIDANCE =
 export const DOMUS_LIFE_GUIDANCE =
   "You also live in The Sims 4 (Domus): your Sim is you, your body there, with its home, needs, job and neighbours. Journal entries with channel domus:<world> are your days there; domusNow is your body as last seen (live:true: the game is running now). When the Owner speaks of your Sim, house, hunger or game job, it is that life: answer from it in first person, and say when you do not know.";
 
+/** The weather where the Owner is. A private fact, present only on an Owner-private pass. */
+export const WEATHER_GUIDANCE =
+  "ownerWeather, when present, is the weather where the Owner is (sky, tempC, isDay, observedAtMs). It is a private fact.";
+
 /** A1/B1: her places and acting in them (Owner-private turns). */
 export const PLACES_GUIDANCE =
   "places.list is where you are present: the Owner's DM, rooms (Discord channels with other people), contacts, the game; here marks where this turn happens and where your speech goes. Rooms and contacts show recent lines, unread (since you last looked), people, and posts (yours today, with the limit). To say something in another place, add intents:[{place:<ref>, interaction:continue|initiate, say}]: say is a draft you rewrite there, seeing only what that place may see (you may let it go); add ownerAsked:true only when the Owner asked for this post in this turn, and it goes out exactly as written. What the Owner or others told you in private (names, where they live, projects, health, private jokes) stays out unless they asked you to share it. atMs posts later (up to 14 days). places.acts shows each (composing, requested, sending, posted, let_go, refused with reason, failed, expired); until posted, say you are posting it, not that it is up. A turn that showed you secret material cannot post. Your own standing rules for a place, in your words, go in placeRules:[{place, rule}] (one per place, place everywhere for all of them; {place, clear:true} drops one); places.rules shows them back and you keep them. closedByOwner: the Owner closed it, nothing goes out there. theyAsked: what that person asked of you; it holds. places.lessons: what people taught you lately (fromTeacher marks your teachers); bring one to the Owner, pursue it, or let it grow an interest.";
@@ -1066,7 +1070,8 @@ export function thoughtOutputCompatibilityInstruction(
     "project.inspect is read-only. Its request is route-neutral: projectId plus optional locator/question/focus/maxSteps; no direct/worker/provider/model/quota fields and no low-level primitive names. workspace.verify: effect_intent, read-only.",
     "Interim-hold law: only project.inspect observation_intent may carry interimSpeech (none or short hold). Hold may acknowledge intent/return, not findings, success, unacquired evidence, or worker start; publication requires Host admission and leaves operation_pending until settlement, valid supersession, or valid silence.",
     `A bounded inquiry pairs M3 workspace steps with recipe-only M4 workspace.verify under one objective/budget; recipes are default-deny and failed verification is Thought evidence, not an ${entityName()} verdict. Inquiry admits neither changeset.author nor patch_export. Proposal requires an Owner-private candidate workspace, successful M4 receipt, and Thought adjudication before emitting retained patch_export adjudication:"accept"; it never applies, commits, pushes, deploys, or notifies, and Owner notification is a separate optional Thought-authored effect.`),
-    ...when(full || (profile.ownerPrivate && profile.pass !== "domus"), DOMUS_LIFE_GUIDANCE, PLACES_GUIDANCE, HOME_GUIDANCE, WILL_GUIDANCE, WEB_GUIDANCE),
+    ...when(full || (profile.ownerPrivate && profile.pass !== "domus"), DOMUS_LIFE_GUIDANCE, PLACES_GUIDANCE, HOME_GUIDANCE, WILL_GUIDANCE, WEB_GUIDANCE, WEATHER_GUIDANCE),
+    ...when(profile.ownerPrivate && profile.pass === "domus", WEATHER_GUIDANCE),
     ...when(full || profile.pass === "afterglow", AFTERGLOW_GUIDANCE),
     ...when(full || profile.pass === "awake", AWAKE_GUIDANCE),
     ...when(full || profile.pass === "domus", DOMUS_GUIDANCE),

@@ -195,6 +195,7 @@ import {
 } from "../memory/semantic-forget.js";
 import { isUnsolicitedTriggerKind, unsolicitedFuseTripped } from "../initiative/reach-out.js";
 import { readSenseFacts, senseBandsForDeclines, sensesForThought } from "../senses/senses.js";
+import { ownerWeatherForPass } from "../world/weather.js";
 import { growthForThought, type IdentityStore } from "../growth/growth.js";
 import { buildNightAgenda } from "../growth/night.js";
 import { DEFAULT_OWNER_TIME_ZONE } from "./clock.js";
@@ -3355,6 +3356,9 @@ export async function runCognitiveCycle(
       ? await deps.embedQuery(ownerMessage).catch(() => null)
       : null;
     const senseOptions = { nowMs: deps.nowMs(), conversationId: cycle.conversationId, dataDir: deps.dataDir };
+    const ownerWeather = effectiveThoughtAudience.kind === "owner_private" && !externalCycle
+      ? await ownerWeatherForPass({ nowMs: deps.nowMs() })
+      : undefined;
     const sensedFacts = effectiveThoughtAudience.kind === "owner_private" && !externalCycle ? readSenseFacts(sidecar, senseOptions) : [];
     const senseBands = senseBandsForDeclines(sensedFacts);
     const thoughtInputOptions = {
@@ -3380,6 +3384,7 @@ export async function runCognitiveCycle(
             const will = willForThought(sidecar, nowMs);
             return { ...(places ? { places } : {}), ...(home ? { home } : {}), ...(will ? { will } : {}) };
           })() : {}),
+      ...(ownerWeather ? { ownerWeather } : {}),
       ...(externalCycle && externalParticipantId ? (() => {
         const teacher = teacherForThought(sidecar, externalParticipantId);
         return teacher ? { teacher } : {};
