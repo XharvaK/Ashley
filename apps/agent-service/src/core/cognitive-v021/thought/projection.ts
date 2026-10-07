@@ -343,7 +343,11 @@ export function modelVisibleThoughtProjection(
   const visibleObservations = modelVisibleObservations(projected.observations);
   const occupiedConcernProjection = getOccupiedConcernProjection(projected.occupancy);
   if (projected.orientationKernel === undefined) {
-    if (visibleObservations === projected.observations && occupiedConcernProjection === undefined) {
+    if (
+      visibleObservations === projected.observations
+      && occupiedConcernProjection === undefined
+      && projected.domainPointers === undefined
+    ) {
       return projected;
     }
     const result: Record<string, unknown> = {
@@ -351,6 +355,9 @@ export function modelVisibleThoughtProjection(
       observations: visibleObservations,
       ...(occupiedConcernProjection === undefined ? {} : { occupancy: occupiedConcernProjection }),
     };
+    if (projected.domainPointers !== undefined) {
+      result.domainPointers = modelVisibleDomainPointers(projected.domainPointers);
+    }
     for (const key of Object.getOwnPropertyNames(projected)) {
       const descriptor = Object.getOwnPropertyDescriptor(projected, key);
       if (descriptor && !descriptor.enumerable) {
@@ -367,10 +374,28 @@ export function modelVisibleThoughtProjection(
   if (occupiedConcernProjection !== undefined) {
     visibleProjection.occupancy = occupiedConcernProjection;
   }
+  if (projected.domainPointers !== undefined) {
+    visibleProjection.domainPointers = modelVisibleDomainPointers(projected.domainPointers);
+  }
   return {
     ...visibleProjection,
     orientationKernel: modelVisibleOrientationKernel(projected.orientationKernel),
   };
+}
+
+/**
+ * Model-visible domain pointers. `cycleId` repeats the volatile top-level
+ * cycle id. The in-process section is not mutated.
+ */
+export function modelVisibleDomainPointers(
+  section: DomainPointersSection,
+): Record<string, unknown> {
+  const visible: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(section)) {
+    if (key === "cycleId") continue;
+    visible[key] = value;
+  }
+  return visible;
 }
 
 /**

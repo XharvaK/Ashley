@@ -4,6 +4,7 @@ import { mintEffectRef } from "../../effect/effect-ref.js";
 import {
   projectThoughtInput,
   projectRetrievalHit,
+  modelVisibleDomainPointers,
   modelVisibleThoughtProjection,
   computeSemanticProjectionHash,
   computeDispatchMessagesHash,
@@ -11,6 +12,8 @@ import {
   type CompactConversationEvidence,
   type ProjectedThoughtInput,
 } from "../projection.js";
+import { buildCoverageManifest } from "../coverage-manifest.js";
+import type { DomainPointersSection } from "../domain-pointers.js";
 import { ALLOCATOR_OMISSION_GUIDANCE, RECENCY_OMISSION_GUIDANCE, thoughtMessagesForProjection, WC_OPTIONAL_OMISSION_GUIDANCE } from "../projection-allocator/allocator.js";
 
 function makeThoughtInput(overrides: Partial<ThoughtInput> = {}): ThoughtInput {
@@ -707,5 +710,45 @@ describe("W1-P4 worker summary source projection", () => {
 
     expect((visible.observations[0]?.payload as Record<string, unknown>).steps)
       .toEqual([{ observationId: stepObservationId, observation: { content: "raw step" } }]);
+  });
+});
+
+describe("modelVisibleDomainPointers", () => {
+  it("drops cycleId and keeps every other enumerable field in order", () => {
+    const coverageManifest = buildCoverageManifest([{
+      domain: "synthetic_domain",
+      disposition: "POINTER_ONLY",
+      sourceRecordCount: 1,
+      eligibleRecordCount: 1,
+      candidateIds: ["synthetic-entity"],
+      required: false,
+      pointerOnly: true,
+    }]);
+    const pointers = [{
+      domain: "synthetic_domain",
+      canonicalStore: "synthetic.db:domain",
+      entityIds: ["synthetic-entity"],
+      status: "active",
+      updatedAtMs: 1,
+      disposition: "POINTER_ONLY" as const,
+      pointerOnly: true,
+    }];
+    const section: DomainPointersSection = {
+      version: 1,
+      conversationId: "conv-1",
+      cycleId: "cycle-1",
+      pointers,
+      coverageManifest,
+    };
+
+    const visible = modelVisibleDomainPointers(section);
+
+    expect(Object.keys(visible)).toEqual(["version", "conversationId", "pointers", "coverageManifest"]);
+    expect(visible).not.toHaveProperty("cycleId");
+    expect(visible.version).toBe(1);
+    expect(visible.conversationId).toBe("conv-1");
+    expect(visible.pointers).toBe(pointers);
+    expect(visible.coverageManifest).toBe(coverageManifest);
+    expect(section.cycleId).toBe("cycle-1");
   });
 });
