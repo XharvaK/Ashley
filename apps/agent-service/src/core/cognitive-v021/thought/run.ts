@@ -22,6 +22,7 @@ import {
 import type { ChatMessage } from "../../model-routing/types.js";
 import { commandCodeThoughtEvidenceFromError } from "../../command-code/evidence.js";
 import { thoughtLifeboatForTrigger, thoughtModelForTrigger } from "../../command-code/policy.js";
+import { THOUGHT_MODEL_CIRCUIT_MS, thoughtModelCircuit } from "./model-circuit.js";
 import {
   ORDINARY_THOUGHT_BUDGET_MS,
   MAX_AUTHORITY_REVISIONS,
@@ -1707,30 +1708,17 @@ export async function runThoughtModel(
 
     dispatchStarted = true;
     let completion: Awaited<ReturnType<typeof completeChat>>;
-    try {
-      completion = await invokeThoughtComplete(messages, dispatchOptions, deps.completeChat);
-    } catch (primaryError) {
-      const remainingMs = options.deadlineAtMs - Date.now();
-      if (
-        options.signal?.aborted === true
-        || options.disableThoughtTransportFailover === true
-        || !lifeboatQualifies(primaryError)
-        || remainingMs < THOUGHT_LIFEBOAT_MIN_REMAINING_MS
-      ) throw primaryError;
-      const target = thoughtLifeboatForTrigger(input.trigger?.kind);
-      const primaryCapture = providerFailureCaptureForError(primaryError, dispatchOptions, undefined, true);
-      const primaryEvidence = commandCodeThoughtEvidenceFromError(primaryError);
-      const primaryProvenance = executionProvenanceForError(primaryError, undefined);
-      lifeboat = {
-        fromModelId: thoughtModelForTrigger(input.trigger?.kind),
-        toModelId: target.modelId,
-        toEffort: target.effort,
-        primaryFailureClass: primaryCapture.failureClass ?? "provider_unavailable",
-        primaryDispatchTruth: primaryCapture.dispatchTruth,
-        primaryAttemptId: primaryEvidence?.providerAttemptId ?? null,
-        primaryProviderAttempts: primaryProvenance.providerAttempts,
-      };
-      console.warn(`[thought] lifeboat from=${lifeboat.fromModelId} class=${lifeboat.primaryFailureClass} to=${lifeboat.toModelId} effort=${lifeboat.toEffort}`);
+    const ownModelId = thoughtModelForTrigger(input.trigger?.kind);
+    const lifeboatLaunchBlocked = () =>
+      options.signal?.aborted === true
+      || options.disableThoughtTransportFailover === true
+      || options.deadlineAtMs - Date.now() < THOUGHT_LIFEBOAT_MIN_REMAINING_MS;
+    const armLifeboat = (
+      record: NonNullable<ThoughtInvocation["lifeboat"]>,
+      primaryCapture: ThoughtProviderFailureCapture,
+    ) => {
+      lifeboat = record;
+      console.warn(`[thought] lifeboat from=${record.fromModelId} class=${record.primaryFailureClass} to=${record.toModelId} effort=${record.toEffort}`);
       if (deps.observabilityDb) {
         try {
           recordDiagnostic(deps.observabilityDb, {
@@ -1738,16 +1726,17 @@ export async function runThoughtModel(
             generation: input.generation,
             requestId,
             pass,
+            // Frozen CHECK on thought_dispatch_diagnostics.code has no circuit_open.
             code: "provider_unavailable",
             stage: "provider_dispatch",
             dispatchTruth: primaryCapture.dispatchTruth,
             semanticProjectionHash,
             dispatchMessagesHash,
             primaryProvider: "command_code",
-            primaryAttemptId: lifeboat.primaryAttemptId,
+            primaryAttemptId: record.primaryAttemptId,
             primaryDispatchTruth: primaryCapture.dispatchTruth,
             fallbackAttemptOrdinal: 2,
-            fallbackFromAttemptId: lifeboat.primaryAttemptId,
+            fallbackFromAttemptId: record.primaryAttemptId,
             providerFailure: primaryCapture,
             createdAtMs: deps.nowMs(),
           });
@@ -1761,6 +1750,51 @@ export async function runThoughtModel(
         ...thoughtInvocationContext,
         invocationId: randomUUID(),
       };
+    };
+    // The lifeboat dispatch itself is never consulted against the breaker.
+    if (thoughtModelCircuit.isOpen(ownModelId, deps.nowMs()) && !lifeboatLaunchBlocked()) {
+      const target = thoughtLifeboatForTrigger(input.trigger?.kind);
+      const primaryCapture: ThoughtProviderFailureCapture = {
+        dispatchTruth: "not_sent",
+        parserStatus: "not_run",
+        validatorStatus: "not_run",
+        failureClass: "circuit_open",
+        structuralRetryStatus: "not_applicable",
+      };
+      armLifeboat({
+        fromModelId: ownModelId,
+        toModelId: target.modelId,
+        toEffort: target.effort,
+        primaryFailureClass: "circuit_open",
+        primaryDispatchTruth: "not_sent",
+        primaryAttemptId: null,
+        primaryProviderAttempts: 0,
+      }, primaryCapture);
+      completion = await invokeThoughtComplete(messages, dispatchOptions, deps.completeChat);
+    } else try {
+      completion = await invokeThoughtComplete(messages, dispatchOptions, deps.completeChat);
+      if (thoughtModelCircuit.noteSuccess(ownModelId, deps.nowMs())) {
+        console.warn(`[thought] circuit closed model=${ownModelId}`);
+      }
+    } catch (primaryError) {
+      const qualifies = lifeboatQualifies(primaryError);
+      if (thoughtModelCircuit.noteFailure(ownModelId, qualifies, deps.nowMs())) {
+        console.warn(`[thought] circuit open model=${ownModelId} for=${THOUGHT_MODEL_CIRCUIT_MS / 60_000}m`);
+      }
+      if (lifeboatLaunchBlocked() || !qualifies) throw primaryError;
+      const target = thoughtLifeboatForTrigger(input.trigger?.kind);
+      const primaryCapture = providerFailureCaptureForError(primaryError, dispatchOptions, undefined, true);
+      const primaryEvidence = commandCodeThoughtEvidenceFromError(primaryError);
+      const primaryProvenance = executionProvenanceForError(primaryError, undefined);
+      armLifeboat({
+        fromModelId: ownModelId,
+        toModelId: target.modelId,
+        toEffort: target.effort,
+        primaryFailureClass: primaryCapture.failureClass ?? "provider_unavailable",
+        primaryDispatchTruth: primaryCapture.dispatchTruth,
+        primaryAttemptId: primaryEvidence?.providerAttemptId ?? null,
+        primaryProviderAttempts: primaryProvenance.providerAttempts,
+      }, primaryCapture);
       completion = await invokeThoughtComplete(messages, dispatchOptions, deps.completeChat);
     }
     lastCompletion = completion;
