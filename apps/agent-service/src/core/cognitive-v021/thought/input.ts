@@ -148,6 +148,8 @@ export type BuildThoughtInputOptions = {
   domus?: import("../../domus/notification.js").DomusForThought;
   /** E1: a game-lane pass reads its last turns, thread story and log search from the Owner's thread. */
   homeConversationId?: string;
+  /** DPLAY: an Owner turn while the game is live: the menu she may act from (Owner-private only). */
+  domusLive?: import("../../domus/notification.js").DomusLive;
   /**
    * E1b: a pass admitted with game-only inputs. It reads the game, the journal its game-only passes
    * wrote, and who she is; nothing from her conversations, memories, desk, concerns or growth.
@@ -319,6 +321,17 @@ function filterEvidence(
     ? [...rows]
     : rows.filter((row) =>
       row.dataClassification !== "secret" && !row.secretOmitted && evidenceMatchesAudience(row, audience));
+}
+
+/**
+ * DPLAY: the Owner's messages that no reply of hers has followed yet belong to her Discord turn, which
+ * answers them and can act in the game from there. A game pass reading his thread leaves them out, so
+ * one message gets one answer and the game lane never answers Discord.
+ */
+export function withoutUnansweredOwnerRows<T extends { role: string }>(rows: readonly T[]): T[] {
+  let lastHers = -1;
+  rows.forEach((row, index) => { if (row.role === "ashley") lastHers = index; });
+  return rows.filter((row, index) => !(row.role === "owner" && index > lastHers));
 }
 
 /**
@@ -1094,7 +1107,10 @@ export function buildThoughtInput(options: BuildThoughtInputOptions): ThoughtInp
         suppliedEvidence: options.rawConversation,
       },
     );
-  const rawConversation = markRoomRowsToHer(filterEvidence(conversationSelection.selectedEvidence, audience), audience);
+  const selectedRows = domusPass
+    ? withoutUnansweredOwnerRows(conversationSelection.selectedEvidence)
+    : conversationSelection.selectedEvidence;
+  const rawConversation = markRoomRowsToHer(filterEvidence(selectedRows, audience), audience);
   // E2a recency-loss honesty: count the selector's same-read exclusion set
   // through the EXISTING lifecycle filterEvidence — the sole eligibility
   // definition. A row rejected by the lifecycle filter contributes zero and
@@ -1223,9 +1239,14 @@ export function buildThoughtInput(options: BuildThoughtInputOptions): ThoughtInp
   const activityJournal = audience.kind === "owner_private"
     ? journalForThought(options.sidecar, options.clock?.nowMs ?? Date.now(), domusPass && options.domus ? `domus:${options.domus.world}` : undefined, gameOnly)
     : [];
-  const domusNow = audience.kind === "owner_private" && !domusPass
+  const domusSeen = audience.kind === "owner_private" && !domusPass
     ? domusNowForThought(options.sidecar, options.clock?.nowMs ?? Date.now())
     : undefined;
+  // DPLAY: while the game is live, her Discord turn also reads what her body can do now and may act.
+  const live = options.domusLive;
+  const domusNow = domusSeen && live && domusSeen.live && domusSeen.world === live.binding.world && live.options.length
+    ? { ...domusSeen, options: live.options, ...(live.acts.length ? { acts: live.acts } : {}) }
+    : domusSeen;
 
   const thoughtInput: ThoughtInputWithC2 = {
     cycleId: options.cycle.cycleId,

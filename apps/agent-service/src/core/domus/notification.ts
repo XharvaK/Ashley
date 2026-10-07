@@ -6,7 +6,7 @@ import { appendInboxEventInTransaction, getCycle, getInboxEvent } from "../cogni
 import { configureBudgetPolicy, resolveBudgetPolicy, PRIVATE_THOUGHT_CLOCK_DISCONTINUITY_MS } from "../cognitive-v021/private-budget/policies.js";
 import { getPrivateBudgetProjection, getPrivateReservationForWake, reservePrivateThought } from "../cognitive-v021/private-budget/ledger.js";
 import type { DomusPending } from "../cognitive-v021/thalamus/nuclei/domus.js";
-import { domusActBinding, domusNoWayObjects, domusOptionsFor, recentDomusActs, type DomusActBinding, type DomusOptionObject, type DomusRecentAct } from "./acts.js";
+import { domusActBinding, domusNoWayObjects, domusOptionsFor, optionsOf, recentDomusActs, type DomusActBinding, type DomusOptionObject, type DomusRecentAct } from "./acts.js";
 import { compareDomusReads, domusActNewsSince, domusReadOf, previousDomusRead, type DomusChanges } from "./changes.js";
 
 export const EMBODIMENT_POLICY_ID = "ashley.embodiment.v1";
@@ -24,7 +24,14 @@ export const DOMUS_NOW_BYTES = 2048;
 
 /** M5 (live 2026-10-06: told on Discord to get off the PC and asked about her job, she knew
  * nothing of her Sim): her body in the game as last seen, for turns outside a Domus pass. */
-export type DomusNow = { world: string; asOfMs: number; live: boolean; body: Record<string, unknown> };
+export type DomusNow = {
+  world: string; asOfMs: number; live: boolean; body: Record<string, unknown>;
+  /** DPLAY: while the game is live, an Owner turn reads what her body can do now and what became of her acts. */
+  options?: DomusOptionObject[]; acts?: DomusRecentAct[];
+};
+/** DPLAY: the newest menu of a live game an Owner turn may act from (older menus are not offered). */
+export const DOMUS_LIVE_OPTIONS_MS = 10 * 60 * 1000;
+export type DomusLive = { binding: DomusActBinding; options: DomusOptionObject[]; acts: DomusRecentAct[] };
 
 export type DomusEvent = { observationId: string; atMs: number; kind: string; facts: Record<string, unknown> };
 export type DomusForThought = {
@@ -340,7 +347,10 @@ export function compactDomusBody(portrait: Record<string, unknown>): Record<stri
   if (Array.isArray(jobs) && jobs.length) body.jobs = jobs.slice(0, 4);
   const asked = textList(portrait.asked, "title", 2);
   if (asked.length) body.asked = asked;
-  for (const key of ["with", "feelings", "doing"]) {
+  // SS1: social talk as plain sentences where the phrase data has one (hers, then to her).
+  const said = [...textList(portrait.doing_said, "sentence", 3), ...textList(portrait.addressed_by, "sentence", 3)];
+  if (said.length) body.said = said;
+  for (const key of ["said", "with", "feelings", "doing"]) {
     if (bytes(body) <= DOMUS_NOW_BYTES) break;
     delete body[key];
   }
@@ -363,6 +373,33 @@ export function domusNowForThought(db: DatabaseSync, nowMs: number): DomusNow | 
   if (!Object.keys(body).length) return undefined;
   return { world: String(row.world), asOfMs: Number(row.source_time_ms),
     live: armedAttachments(db, nowMs).has(String(row.attachment)), body };
+}
+
+/**
+ * DPLAY: the User talks with her on Discord while she plays. Her Discord turn reads the newest menu of
+ * the game that is live now and may act from it, the same way a game pass does. Nothing when acting is
+ * off, no game is attached, or its newest menu is older than DOMUS_LIVE_OPTIONS_MS.
+ */
+export function domusLiveForOwner(db: DatabaseSync, nowMs: number): DomusLive | undefined {
+  const armed = armedAttachments(db, nowMs);
+  if (!armed.size) return undefined;
+  let rows: Row[];
+  try {
+    rows = db.prepare(`SELECT observation_id, world, attachment, payload_json FROM domus_observations
+      WHERE admission_state != 'dropped' AND undone_at_ms IS NULL AND receipt_time_ms >= ? AND receipt_time_ms <= ?
+      ORDER BY receipt_time_ms DESC, seq DESC LIMIT 64`).all(nowMs - DOMUS_LIVE_OPTIONS_MS, nowMs) as Row[];
+  } catch { return undefined; }
+  for (const row of rows) {
+    if (!armed.has(String(row.attachment))) continue;
+    const listed = optionsOf(row.payload_json);
+    if (!listed.length) continue;
+    const binding: DomusActBinding = { world: String(row.world), attachment: String(row.attachment), observationId: String(row.observation_id) };
+    const noWay = domusNoWayObjects(db, binding.world, nowMs);
+    const options = listed.map(item => noWay.has(item.object_id) && item.noWay === undefined
+      ? { ...item, noWay: `last time ${noWay.get(item.object_id)}` } : item);
+    return { binding, options, acts: recentDomusActs(db, binding.world, nowMs) };
+  }
+  return undefined;
 }
 
 export function domusForThought(db: DatabaseSync, event: { id: string; conversationId: string }, originCycleId?: string,

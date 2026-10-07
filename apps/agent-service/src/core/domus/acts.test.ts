@@ -7,7 +7,9 @@ import {
   DOMUS_ACT_TTL_MS, DOMUS_OWNER_OPEN_MS, type DomusActClaim, type DomusOptionObject,
 } from "./acts.js";
 import { parseActSync, parseObservation } from "./ingress.js";
-import { domusForThought } from "./notification.js";
+import { domusForThought, domusLiveForOwner, DOMUS_LIVE_OPTIONS_MS } from "./notification.js";
+import { upsertHeartbeat } from "./store.js";
+import { withoutUnansweredOwnerRows } from "../cognitive-v021/thought/input.js";
 import { appendInboxEvent } from "../cognitive-v021/cycle/inbox.js";
 import { thoughtContractProfile, thoughtContractProfileKey, thoughtOutputCompatibilityInstruction, DOMUS_ACT_GUIDANCE, DOMUS_OBSERVE_GUIDANCE } from "../cognitive-v021/thought/output-contract.js";
 import { parseThoughtSemanticOutput } from "../cognitive-v021/thought/parse.js";
@@ -469,5 +471,68 @@ describe("2.25.0 the game sees no way to an object now", () => {
       payload: { domus: { world: "slot8", attachment: "helper-a", observationIds: ["helper-a.1"] }, occupantId: "o", authorityEpoch: 1 }, createdAtMs: NOW });
     const on = domusForThought(db, { id: event.id, conversationId: "c" }, undefined, { enabled: true, nowMs: NOW });
     expect(on.options![0]!.noWay).toBe(live);
+  });
+});
+
+describe("DPLAY her Discord turn while she plays", () => {
+  function attach(db: DatabaseSync, session = "helper-a", attached = true) {
+    upsertHeartbeat(db, { helperSession: session, receivedAtMs: NOW - 1000, sentAtMs: NOW - 1000,
+      json: JSON.stringify({ v: 1, helper_session: session, sent_at_ms: NOW - 1000, attached }) });
+  }
+
+  it("reads the newest menu of the live game, stored or admitted, and acts from it as a game pass would", () => {
+    const db = openTestSidecar();
+    observe(db, 1, { options: OPTIONS });
+    observe(db, 2, { options: [OPTIONS[1]!], admitted: false });
+    observe(db, 3, {});
+    attach(db);
+    const live = domusLiveForOwner(db, NOW)!;
+    expect(live.binding).toEqual({ world: "slot8", attachment: "helper-a", observationId: "helper-a.2" });
+    expect(live.options).toEqual([OPTIONS[1]]);
+    const made = recordDomusAct(db, { binding: live.binding, claim: { option: "a3", forOwner: true }, cycleId: "owner-cycle", nowMs: NOW });
+    expect(row(db, made.actId)).toMatchObject({ state: "requested", guid64: "14002", for_owner: 1 });
+    expect(syncDomusActs(db, { helperSession: "helper-a", events: [], nowMs: NOW }).acts[0]).toMatchObject({ act_id: made.actId, owner: true });
+  });
+
+  it("offers nothing when no game is attached, a menu is too old, or it came from another session", () => {
+    const db = openTestSidecar();
+    observe(db, 1, { options: OPTIONS });
+    expect(domusLiveForOwner(db, NOW)).toBeUndefined();
+    attach(db, "helper-a", false);
+    expect(domusLiveForOwner(db, NOW)).toBeUndefined();
+    attach(db, "helper-b");
+    expect(domusLiveForOwner(db, NOW)).toBeUndefined();
+    attach(db);
+    expect(domusLiveForOwner(db, NOW)).toBeDefined();
+    expect(domusLiveForOwner(db, NOW - 9_000 + 1 + DOMUS_LIVE_OPTIONS_MS + 1)).toBeUndefined();
+  });
+
+  it("carries her recent acts and the no-way notes", () => {
+    const db = openTestSidecar();
+    const tried = act(db, "a1", "cycle-1", NOW - 2000);
+    syncDomusActs(db, { helperSession: "helper-a", events: [{ actId: tried.actId, phase: "finished", atMs: NOW - 1500,
+      detail: { finishing_type: "INTERACTION_INCOMPATIBILITY", started: false } }], nowMs: NOW - 1500 });
+    attach(db);
+    const live = domusLiveForOwner(db, NOW)!;
+    expect(live.acts[0]).toMatchObject({ option: "a1", state: "finished" });
+    expect(live.options[0]!.noWay).toBe("last time it never began: the game found no way for her to do it from where she was");
+  });
+
+  it("offers domusAct to an Owner turn only with live options", () => {
+    const chat = { audience: { kind: "owner_private" }, trigger: { kind: "owner_message" } };
+    expect(thoughtContractProfile({ ...chat, domusNow: { options: OPTIONS } }).domusAct).toBe(true);
+    expect(thoughtContractProfileKey(thoughtContractProfile({ ...chat, domusNow: { options: OPTIONS } }))).toBe("chat+owner+act");
+    expect(thoughtContractProfile({ ...chat, domusNow: {} }).domusAct).toBe(false);
+    expect(thoughtContractProfile({ audience: { kind: "owner_private" }, innerPass: { kind: "awake" }, domusNow: { options: OPTIONS } }).domusAct).toBe(false);
+    expect(thoughtOutputCompatibilityInstruction(thoughtContractProfile({ ...chat, domusNow: { options: OPTIONS } }))).toContain(DOMUS_ACT_GUIDANCE);
+  });
+
+  it("leaves the Owner's unanswered messages out of a game pass", () => {
+    const rows = [
+      { id: "1", role: "owner" }, { id: "2", role: "ashley" }, { id: "3", role: "owner" }, { id: "4", role: "system" }, { id: "5", role: "owner" },
+    ];
+    expect(withoutUnansweredOwnerRows(rows).map(item => item.id)).toEqual(["1", "2", "4"]);
+    expect(withoutUnansweredOwnerRows([{ id: "1", role: "owner" }])).toEqual([]);
+    expect(withoutUnansweredOwnerRows([])).toEqual([]);
   });
 });

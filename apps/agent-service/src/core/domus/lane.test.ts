@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { DatabaseSync } from "node:sqlite";
-import { appendOwnerUtterance } from "../cognitive-v021/evidence/conversation-log.js";
+import { appendAshleyEvidence, appendOwnerUtterance } from "../cognitive-v021/evidence/conversation-log.js";
 import { admitTestCycle, openTestSidecar } from "../cognitive-v021/test-support.js";
 import { claimNextInboxEvent } from "../cognitive-v021/cycle/inbox-consumer.js";
 import { appendInboxEvent, getCurrentCycle } from "../cognitive-v021/cycle/inbox.js";
@@ -117,6 +117,9 @@ describe("E1 the game lane", () => {
     const db = openTestSidecar();
     try {
       for (let i = 0; i < 3; i += 1) appendOwnerUtterance(db, { conversationId: HOME, text: `message ${i}`, discordMessageIds: [`m-${i}`], nowMs: 10 + i });
+      appendAshleyEvidence(db, { conversationId: HOME, text: "her reply", discordMessageIds: ["r-1"], nowMs: 20 });
+      // DPLAY: a message she has not answered yet is her Discord turn's, never the game pass's.
+      appendOwnerUtterance(db, { conversationId: HOME, text: "wash the plate please", discordMessageIds: ["m-9"], nowMs: 30 });
       const cycle = admitTestCycle(db, { cycleId: "lane-cycle", conversationId: LANE, triggerKind: "domus_notification", triggerRef: "lane-ref", occupantId: "owner", nowMs: 100 });
       const base = { sidecar: db, cycle, constitution: { constitutional: ["truth before performance"], stableSelf: ["curious"] },
         capabilityReality: { vision: false, attachmentText: false, conversationalRead: false, webSearch: false, canOfferProjectInspection: false,
@@ -124,7 +127,7 @@ describe("E1 the game lane", () => {
           canOfferPatchExport: false, approvedProjectIds: [] },
         learnedSelfSlice: { dispositions: [], interests: [] } };
       const homed = buildThoughtInput({ ...base, homeConversationId: HOME });
-      expect(homed.rawConversation.map(row => row.text)).toEqual(["message 0", "message 1", "message 2"]);
+      expect(homed.rawConversation.map(row => row.text)).toEqual(["message 0", "message 1", "message 2", "her reply"]);
       expect(homed.rawConversation.every(row => row.conversationId === HOME)).toBe(true);
       expect(buildThoughtInput(base).rawConversation).toEqual([]);
     } finally { db.close(); }
@@ -161,6 +164,7 @@ describe("E1b game-only inputs", () => {
     const db = openTestSidecar();
     try {
       for (let i = 0; i < 3; i += 1) appendOwnerUtterance(db, { conversationId: HOME, text: `private ${i}`, discordMessageIds: [`m-${i}`], nowMs: NOW - 100 + i });
+      appendAshleyEvidence(db, { conversationId: HOME, text: "private reply", discordMessageIds: ["r-1"], nowMs: NOW - 90 });
       writeThreadStory(db, { conversationId: HOME, story: "a private story", throughRowId: null, cycleId: "c-story", dataClassification: "never_public", nowMs: NOW - 50 });
       writeThreadStory(db, { conversationId: LANE, story: "a lane story", throughRowId: null, cycleId: "c-lane-story", dataClassification: "never_public", nowMs: NOW - 50 });
       const guarded = selectInLane(db, true);
@@ -183,7 +187,7 @@ describe("E1b game-only inputs", () => {
       expect(input.occupancy).toEqual([]);
       expect((input.activityJournal ?? []).map(entry => entry.entry)).toEqual(["the kitchen smells good"]);
       const open2 = buildThoughtInput({ ...base, homeConversationId: HOME });
-      expect(open2.rawConversation.map(row => row.text)).toEqual(["private 0", "private 1", "private 2"]);
+      expect(open2.rawConversation.map(row => row.text)).toEqual(["private 0", "private 1", "private 2", "private reply"]);
       expect(open2.threadStory?.story).toBe("a private story");
       expect((open2.activityJournal ?? []).map(entry => entry.entry)).toEqual(["the kitchen smells good", "said to the Owner earlier"]);
     } finally { db.close(); }

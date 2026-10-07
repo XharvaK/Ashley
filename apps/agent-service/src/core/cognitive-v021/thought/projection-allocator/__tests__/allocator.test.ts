@@ -769,15 +769,16 @@ describe("Whole-Thought Projection Allocator", () => {
     const allocated = allocateThoughtProjection({
       thoughtInput: makeThoughtInput(),
       quotaBucket: "groq:openai/gpt-oss-20b",
+      // Fixture calibration: DPLAY's live-game line in the chat guidance (+~40 tokens).
       semanticProjectionEnvelope: {
         id: "test-envelope",
         version: 1,
-        maxInputTokens: 13_000,
+        maxInputTokens: 13_200,
       },
       requestId: "req-breakdown",
     });
 
-    expect(allocated.receipt.semanticProjectionEnvelope.maxInputTokens).toBe(13_000);
+    expect(allocated.receipt.semanticProjectionEnvelope.maxInputTokens).toBe(13_200);
     expect(allocated.receipt.tokenBreakdown.static_contract_tokens).toBeGreaterThan(0);
     expect(allocated.receipt.tokenBreakdown.conversation_tokens).toBeGreaterThan(0);
     expect(allocated.receipt.tokenBreakdown.working_context_tokens).toBeGreaterThan(0);
@@ -796,7 +797,7 @@ describe("Whole-Thought Projection Allocator", () => {
     const allocated = allocateThoughtProjection({
       thoughtInput: makeThoughtInput(innerLife),
       quotaBucket: "groq:openai/gpt-oss-20b",
-      semanticProjectionEnvelope: { id: "test-envelope", version: 1, maxInputTokens: 13_100 },
+      semanticProjectionEnvelope: { id: "test-envelope", version: 1, maxInputTokens: 13_300 },
       requestId: "req-inner-life",
     });
     expect(allocated.receipt.tokenBreakdown.inner_life_tokens).toBeGreaterThan(0);

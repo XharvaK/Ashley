@@ -398,3 +398,13 @@ describe("H0.4 Domus changes and quiet check-ins", () => {
     } finally { db.close(); }
   });
 });
+
+describe("SS1 social sentences in domusNow", () => {
+  it("carry her own and those said to her, and go first when the body is too big", () => {
+    const db = openTestSidecar();
+    observe(db, 1, { portrait: { mood: "Mood_Happy",
+      doing_said: [{ interaction: "mixer_social_A", sentence: "Ashley is asking Don about his day.", state: "running" }],
+      addressed_by: [{ by: "7", interaction: "mixer_social_B", sentence: "Don compliments Ashley." }, { by: "7", interaction: "mixer_social_C" }] } });
+    expect(domusNowForThought(db, NOW)!.body.said).toEqual(["Ashley is asking Don about his day.", "Don compliments Ashley."]);
+  });
+});

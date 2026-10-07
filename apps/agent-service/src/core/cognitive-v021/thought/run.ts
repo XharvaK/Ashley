@@ -1,5 +1,5 @@
 import { selfChangeResultForThought } from "../growth/self-change-results.js";
-import { domusActBindingFor, domusChannelFor, domusForThought, domusGameOnlyFor, domusHomeFor, domusNowForThought } from "../../domus/notification.js";
+import { domusActBindingFor, domusChannelFor, domusForThought, domusGameOnlyFor, domusHomeFor, domusLiveForOwner, domusNowForThought } from "../../domus/notification.js";
 import { domusDiaryForThought } from "../../domus/diary.js";
 import { domusSessionForThought } from "../../domus/session.js";
 import { thoughtPlaces } from "../../places/thought.js";
@@ -3508,6 +3508,9 @@ export async function runCognitiveCycle(
     const sensedFacts = effectiveThoughtAudience.kind === "owner_private" && !externalCycle ? readSenseFacts(sidecar, senseOptions) : [];
     const senseBands = senseBandsForDeclines(sensedFacts);
     let shownReactionIds: string[] = [];
+    // DPLAY: an Owner message while the game is live: her Discord turn reads the live menu and may act from it.
+    const domusLive = originProfile.triggerKind === "owner_message" && effectiveThoughtAudience.kind === "owner_private"
+      && !externalCycle && env.domusActEnabled ? domusLiveForOwner(sidecar, deps.nowMs()) : undefined;
     const thoughtInputOptions = {
       sidecar,
       cycle,
@@ -3529,7 +3532,7 @@ export async function runCognitiveCycle(
               ...(game ? { game: { world: game.world, live: game.live } } : {}) });
             const home = deps.dataDir ? homeForThought(sidecar, homeRootFor(deps.dataDir), nowMs) : undefined;
             const will = willForThought(sidecar, nowMs);
-            return { ...(places ? { places } : {}), ...(home ? { home } : {}), ...(will ? { will } : {}) };
+            return { ...(places ? { places } : {}), ...(home ? { home } : {}), ...(will ? { will } : {}), ...(domusLive ? { domusLive } : {}) };
           })() : {}),
       ...(ownerWeather ? { ownerWeather } : {}),
       ...(externalCycle && externalParticipantId ? (() => {
@@ -4844,6 +4847,8 @@ export async function runCognitiveCycle(
           ...(originProfile.triggerKind === "domus_notification" && env.domusActEnabled
             ? (() => { const binding = domusActBindingFor(sidecar, event, originProfile.originCycleId); return binding ? { domusAct: binding } : {}; })()
             : {}),
+          // DPLAY: the menu her Owner turn read (only when it reached her input).
+          ...(domusLive && allocated.projected.domusNow?.options ? { domusAct: domusLive.binding } : {}),
           senseBands,
         }
       : deps.origin!=="shadow" && externalCycle && settlement.attention?.wakeWorth
