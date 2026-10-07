@@ -1,4 +1,12 @@
 import { listTeachers, setTeacher } from "./core/teach/lessons.js";
+import {
+  endQuietWindow,
+  openOwnerQuiet,
+  readOpenQuietWindow,
+  recordOwnerPresence,
+  setOwnerDnd,
+} from "./core/cognitive-v021/quiet/window.js";
+import { DEFAULT_OWNER_TIME_ZONE } from "./core/cognitive-v021/thought/clock.js";
 import { entityName, ownerName } from "./core/entity-names.js";
 import { ownerPlacesView, ownerSwitchPlace } from "./core/places/owner.js";
 import { lifeReceipt, renderLifeReceipt } from "./core/will/receipt.js";
@@ -2996,6 +3004,83 @@ export function createServer(
       const owner = requireOwner(userId);
       manager.core.resumeProactive(owner);
       res.json({ ok: true, paused: false });
+    } catch (err) {
+      const { status, body } = toErrorResponse(err);
+      res.status(status).json(body);
+    }
+  });
+
+  const quietZone = () => env.ownerTimeZone || DEFAULT_OWNER_TIME_ZONE;
+
+  app.post("/quiet", (req, res) => {
+    try {
+      const body = c1Body(req);
+      requireOwner(typeof body.userId === "string" ? body.userId : undefined);
+      const durationMs = body.durationMs === undefined ? undefined : c1OptionalInteger(body, "durationMs");
+      const window = openOwnerQuiet(getCognitiveSidecar(), {
+        nowMs: Date.now(),
+        ...(durationMs === undefined ? {} : { durationMs }),
+        timeZone: quietZone(),
+      });
+      res.json({ ok: true, window });
+    } catch (err) {
+      if (err instanceof Error && err.message === "quiet_duration_invalid") {
+        res.status(400).json({ error: "duration must be from 1 ms through 12 hours", code: "quiet_duration_invalid" });
+        return;
+      }
+      const { status, body } = toErrorResponse(err);
+      res.status(status).json(body);
+    }
+  });
+
+  app.post("/quiet/dnd", (req, res) => {
+    try {
+      const body = c1Body(req);
+      requireOwner(typeof body.userId === "string" ? body.userId : undefined);
+      if (typeof body.on !== "boolean") {
+        throw new AppError("bad_request", "on must be a boolean", 400);
+      }
+      const window = setOwnerDnd(getCognitiveSidecar(), body.on, Date.now(), quietZone());
+      res.json({ ok: true, open: window !== null, window });
+    } catch (err) {
+      const { status, body } = toErrorResponse(err);
+      res.status(status).json(body);
+    }
+  });
+
+  app.post("/quiet/presence", (req, res) => {
+    try {
+      const body = c1Body(req);
+      requireOwner(typeof body.userId === "string" ? body.userId : undefined);
+      const status = typeof body.status === "string" ? body.status : "";
+      const sinceMs = c1OptionalInteger(body, "sinceMs");
+      if (sinceMs === undefined) throw new AppError("bad_request", "sinceMs is required", 400);
+      const stored = recordOwnerPresence(getCognitiveSidecar(), { status, sinceMs }, env.ownerPresenceFacts);
+      res.json({ ok: true, stored });
+    } catch (err) {
+      const { status, body } = toErrorResponse(err);
+      res.status(status).json(body);
+    }
+  });
+
+  app.delete("/quiet", (req, res) => {
+    try {
+      const body = c1Body(req);
+      requireOwner(typeof body.userId === "string" ? body.userId : undefined);
+      endQuietWindow(getCognitiveSidecar());
+      res.json({ ok: true, open: false });
+    } catch (err) {
+      const { status, body } = toErrorResponse(err);
+      res.status(status).json(body);
+    }
+  });
+
+  app.get("/quiet", (req, res) => {
+    try {
+      const userId = typeof req.query.userId === "string" ? req.query.userId : undefined;
+      requireOwner(userId);
+      const window = readOpenQuietWindow(getCognitiveSidecar(), Date.now());
+      res.json({ ok: true, open: window !== null, window });
     } catch (err) {
       const { status, body } = toErrorResponse(err);
       res.status(status).json(body);

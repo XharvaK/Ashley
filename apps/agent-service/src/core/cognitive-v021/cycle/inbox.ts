@@ -1,4 +1,5 @@
 import { recordOwnerReply } from "../graduation/recorders.js";
+import { endQuietOnOwnerMessage } from "../quiet/window.js";
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { sha256, stableJson } from "../../model-fabric/hash.js";
@@ -535,7 +536,10 @@ function appendInboxEventInTransaction(db: DatabaseSync, input: AppendInboxEvent
   );
   const result = getInboxEvent(db, id);
   if (!result) throw new Error("inbox_append_lost");
-  if (input.kind === "owner_utterance") recordOwnerReply(db, createdAtMs, { conversationId: input.conversationId });
+  if (input.kind === "owner_utterance") {
+    recordOwnerReply(db, createdAtMs, { conversationId: input.conversationId });
+    endQuietOnOwnerMessage(db);
+  }
   return result;
 }
 

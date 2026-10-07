@@ -281,6 +281,7 @@ async function drainPendingDeliveries(
             undefined,
             {
               reservationId: delivery.reservationId,
+              ...(delivery.silent ? { silent: true } : {}),
               onBubbleSent: async (ordinal, msg) => {
                 await persistReceiptWithRetry(deps.receipt, delivery.reservationId, ordinal, msg.id);
               },

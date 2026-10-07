@@ -21,6 +21,8 @@ export type PendingCognitiveDelivery = {
   statusUrl: string;
   /** Destination binding is absent for legacy Owner-private rows. */
   destination?: unknown;
+  /** Quiet-window note: the bot must not notify. */
+  silent?: true;
 };
 
 export const COGNITIVE_DELIVERY_LEASE_MS = 120_000;
@@ -56,7 +58,15 @@ function deliveryForState(
     bubbles: listDeliveryBubbles(db, id),
     statusUrl: `/delivery/${id}`,
     ...(reservation.destination === undefined ? {} : { destination: reservation.destination }),
+    ...(deliverySilent(db, reservation.speechOutboxId) ? { silent: true as const } : {}),
   };
+}
+
+function deliverySilent(db: DatabaseSync, speechOutboxId: number | null): boolean {
+  if (speechOutboxId == null) return false;
+  const sidecar = getRegisteredCognitiveSidecar(db);
+  if (!sidecar) return false;
+  return getSpeechOutbox(sidecar, speechOutboxId)?.deliveryIntent.silent === true;
 }
 
 function projectionKind(row: unknown): ProjectionKind | null {

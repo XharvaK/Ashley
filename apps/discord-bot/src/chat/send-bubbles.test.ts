@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import type { SendableChannels } from "discord.js";
+import { MessageFlags, type SendableChannels } from "discord.js";
 import { sendBubbles } from "./send-bubbles.js";
 
 function mockChannel(sends: unknown[] = []): SendableChannels {
@@ -11,6 +11,16 @@ function mockChannel(sends: unknown[] = []): SendableChannels {
     },
   } as SendableChannels;
 }
+
+describe("sendBubbles quiet", () => {
+  it("sends a silent delivery with the suppress-notifications flag", async () => {
+    const sends: unknown[] = [];
+    const channel = mockChannel(sends);
+    await sendBubbles(channel, ["quiet note"], null, null, undefined, { silent: true });
+    assert.equal(MessageFlags.SuppressNotifications, 4096);
+    assert.deepEqual(sends, [{ content: "quiet note", flags: 4096 }]);
+  });
+});
 
 describe("sendBubbles onFirstSend", () => {
   it("receipts the first substantive bubble before sending the next bubble", async () => {

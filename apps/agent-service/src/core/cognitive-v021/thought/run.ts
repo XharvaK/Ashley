@@ -194,6 +194,7 @@ import {
   type ThoughtPendingForget,
 } from "../memory/semantic-forget.js";
 import { isUnsolicitedTriggerKind, unsolicitedFuseTripped } from "../initiative/reach-out.js";
+import { holdQuietDraft, noteQuietSilentSent, quietPublicationFor, recordQuietRefusal } from "../quiet/window.js";
 import { readSenseFacts, senseBandsForDeclines, sensesForThought } from "../senses/senses.js";
 import { growthForThought, type IdentityStore } from "../growth/growth.js";
 import { buildNightAgenda } from "../growth/night.js";
@@ -3397,6 +3398,7 @@ export async function runCognitiveCycle(
         timeZone: env.ownerTimeZone,
         currentRowIds: cycleOwnerRowIds(sidecar, payload, cycle),
       },
+      claimQuietFacts: deps.origin !== "shadow",
       ...(afterglowPass ? { innerPass: afterglowInnerPass(sidecar, afterglowPass) } : {}),
       ...(awakePass ? { innerPass: { kind: "awake" as const, agenda: buildInnerAgenda(sidecar, awakePass, deps.nowMs(),
         effectiveThoughtAudience.kind === "owner_private" && !externalCycle && deps.origin !== "shadow" && deps.identityOwnerId
@@ -4611,6 +4613,27 @@ export async function runCognitiveCycle(
         makeThoughtTerminal("budget_exhausted", { codes: ["unsolicited_fuse"], stage: "reach_out_fuse" }),
       );
     }
+    const quietPublication = deps.origin === "shadow"
+      ? { kind: "allow" as const }
+      : quietPublicationFor(sidecar, {
+          nowMs: deps.nowMs(),
+          external: externalCycle,
+          ownerPrivate: effectiveThoughtAudience.kind === "owner_private",
+          speechMode: settlement.speech.mode,
+          triggerKind: cycle.triggerKind,
+          interactionIntent: settlement.interactionIntent ?? null,
+          draftText: speechText ?? "",
+        });
+    if (quietPublication.kind === "hold") {
+      holdQuietDraft(sidecar, quietPublication.text, deps.nowMs());
+      recordQuietRefusal(sidecar, deps.nowMs());
+      return emitFailure(
+        "quiet_held",
+        null,
+        makeThoughtTerminal("budget_exhausted", { codes: ["quiet_held"], stage: "quiet_gate" }),
+      );
+    }
+    const quietSilent = quietPublication.kind === "silent";
     // R13: the inner-life records of an Owner-private settlement are owed from
     // the moment it publishes, so publication itself records them as pending.
     const aftermathContext: AftermathContext | null = deps.origin !== "shadow" && !externalCycle
@@ -4643,23 +4666,26 @@ export async function runCognitiveCycle(
       triggerKind: cycle.triggerKind,
       fidelity: validation.draft.speech.mode === "draft" ? "passed" : "skipped",
       origin: deps.origin,
-      deliveryIntent: deliveryIntentFor(
-        cycle,
-        payload,
-        "licensed_speech",
-        originProfile.triggerKind,
-        externalPublication,
-        externalCycle
-          ? {
-              consequenceChainId: wake.consequenceChainId ?? `wake:${wake.wakeId}`,
-              attemptId: attemptLifecycleBinding?.attemptId ?? null,
-            }
-          : undefined,
-        ownerRoomDestination ?? undefined,
-        triggerEvidence,
-        continuityRecovery,
-        sidecar,
-      ),
+      deliveryIntent: {
+        ...deliveryIntentFor(
+          cycle,
+          payload,
+          "licensed_speech",
+          originProfile.triggerKind,
+          externalPublication,
+          externalCycle
+            ? {
+                consequenceChainId: wake.consequenceChainId ?? `wake:${wake.wakeId}`,
+                attemptId: attemptLifecycleBinding?.attemptId ?? null,
+              }
+            : undefined,
+          ownerRoomDestination ?? undefined,
+          triggerEvidence,
+          continuityRecovery,
+          sidecar,
+        ),
+        ...(quietSilent ? { silent: true as const } : {}),
+      },
       authorityDb: authorityDbForPacks(deps, packs),
       expectedCurrentness: invocation.kernelEnvelope?.authorityCurrentness ?? packs.currentness.binding,
       currentness: currentnessPack,
@@ -4709,6 +4735,9 @@ export async function runCognitiveCycle(
         ownerObligationResolution: ownerResolutionFor("rejected"),
         ...(publicationReason ? { publicationReason } : {}),
       });
+    }
+    if (publication.published && !publication.replayed && quietSilent) {
+      noteQuietSilentSent(sidecar, deps.nowMs());
     }
     if (publication.settlementId !== null) {
       const memoryPass = afterglowPass ? "afterglow" : awakePass ? "awake" : nightPass ? "night" : "turn";

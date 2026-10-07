@@ -2435,3 +2435,36 @@ CREATE TABLE IF NOT EXISTS domus_diary_state (
 );
 UPDATE cognitive_sidecar_meta SET schema_version=68 WHERE id=1;
 `;
+
+/** W1 quiet: one Owner window, the notes held while it is open, and a presence fact. */
+export const COGNITIVE_SIDECAR_SCHEMA_V69 = String.raw`
+CREATE TABLE IF NOT EXISTS quiet_windows (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  source TEXT NOT NULL CHECK (source IN ('owner_command', 'owner_dnd', 'her_own')),
+  until_ms INTEGER NOT NULL,
+  opened_at_ms INTEGER NOT NULL,
+  silent_notes_sent INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS quiet_held_notes (
+  held_id INTEGER PRIMARY KEY AUTOINCREMENT,
+  text TEXT NOT NULL,
+  held_at_ms INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS quiet_held_state (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  dropped_count INTEGER NOT NULL DEFAULT 0,
+  shown_cycle_id TEXT
+);
+CREATE TABLE IF NOT EXISTS quiet_refusals (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  at_ms INTEGER NOT NULL,
+  shown_cycle_id TEXT
+);
+CREATE TABLE IF NOT EXISTS owner_presence_facts (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  status TEXT NOT NULL CHECK (status IN ('online', 'idle')),
+  since_ms INTEGER NOT NULL,
+  shown_cycle_id TEXT
+);
+UPDATE cognitive_sidecar_meta SET schema_version=69 WHERE id=1;
+`;
