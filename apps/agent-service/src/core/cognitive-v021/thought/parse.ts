@@ -488,7 +488,7 @@ function validateSpeech(value: unknown): ValidationResult {
   const record = semanticRecord(value);
   if (!record) return failure("wrong_type", "speech");
   const unknown = Object.keys(record).find((key) => ![
-    "mode", "surfaceDraft", "mustSay", "mustNotSay", "presentationDirectives", "shape", "bubbles", "afterthought",
+    "mode", "surfaceDraft", "mustSay", "mustNotSay", "presentationDirectives", "shape", "bubbles", "afterthought", "replyTo",
   ].includes(key));
   if (unknown) return failure("unknown_field", `speech.${unknown}`);
   if (!own(record, "mode")) return failure("required_field_missing", "speech.mode");

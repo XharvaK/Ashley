@@ -298,7 +298,7 @@ describe("Whole-Thought Projection Allocator", () => {
         rawConversation: rows,
         trigger: { kind: "owner_message", ref: rows.at(-1)!.rowId },
       }),
-      semanticBudgetTokens: 16_600,
+      semanticBudgetTokens: 17_200,
       requestId: "req-small-ordinary-conversation",
     });
 
@@ -474,7 +474,7 @@ describe("Whole-Thought Projection Allocator", () => {
       // tokens for count + guidance) participates in the final wire, so this
       // pressure scenario budgets slightly above its pre-E2b 16_384 tuning.
       // Trigger-lineage assertions below are unchanged.
-      semanticBudgetTokens: 22_500,
+      semanticBudgetTokens: 23_100,
       requestId: "req-trigger-lineage-pressure",
     });
     const candidateDefinitions = buildAllocationCandidates(input, []);
@@ -518,7 +518,7 @@ describe("Whole-Thought Projection Allocator", () => {
     try {
       allocateThoughtProjection({
         thoughtInput: input,
-        semanticBudgetTokens: 14_700,
+        semanticBudgetTokens: 15_300,
         requestId: "req-trigger-lineage-overflow",
       });
     } catch (caught) {
@@ -705,7 +705,7 @@ describe("Whole-Thought Projection Allocator", () => {
     try {
       allocateThoughtProjection({
         thoughtInput: input,
-        semanticBudgetTokens: 14_700,
+        semanticBudgetTokens: 15_300,
         requestId: "req-mandatory-overflow",
       });
     } catch (caught) {
@@ -738,7 +738,7 @@ describe("Whole-Thought Projection Allocator", () => {
       // Calibrated above the legacy 9_500 default for the code-owned Thought
       // contract and compatibility vocabulary. The pressure behavior below
       // (large rows trim, tiny rows fit) is unchanged.
-      semanticBudgetTokens: 17_600,
+      semanticBudgetTokens: 18_200,
       requestId: "req-token-driven-tiny-rows",
     });
 
@@ -773,12 +773,12 @@ describe("Whole-Thought Projection Allocator", () => {
       semanticProjectionEnvelope: {
         id: "test-envelope",
         version: 1,
-        maxInputTokens: 14_400,
+        maxInputTokens: 15_000,
       },
       requestId: "req-breakdown",
     });
 
-    expect(allocated.receipt.semanticProjectionEnvelope.maxInputTokens).toBe(14_400);
+    expect(allocated.receipt.semanticProjectionEnvelope.maxInputTokens).toBe(15_000);
     expect(allocated.receipt.tokenBreakdown.static_contract_tokens).toBeGreaterThan(0);
     expect(allocated.receipt.tokenBreakdown.conversation_tokens).toBeGreaterThan(0);
     expect(allocated.receipt.tokenBreakdown.working_context_tokens).toBeGreaterThan(0);
@@ -797,7 +797,7 @@ describe("Whole-Thought Projection Allocator", () => {
     const allocated = allocateThoughtProjection({
       thoughtInput: makeThoughtInput(innerLife),
       quotaBucket: "groq:openai/gpt-oss-20b",
-      semanticProjectionEnvelope: { id: "test-envelope", version: 1, maxInputTokens: 14_500 },
+      semanticProjectionEnvelope: { id: "test-envelope", version: 1, maxInputTokens: 15_100 },
       requestId: "req-inner-life",
     });
     expect(allocated.receipt.tokenBreakdown.inner_life_tokens).toBeGreaterThan(0);
@@ -1779,7 +1779,7 @@ describe("E2a recency loss honesty (allocator)", () => {
 
     const allocated = allocateThoughtProjection({
       thoughtInput: input,
-      semanticBudgetTokens: 14_800,
+      semanticBudgetTokens: 15_500,
       requestId: "req-e2a-carry",
     });
 
@@ -1839,7 +1839,7 @@ describe("E2a recency loss honesty (allocator)", () => {
 
     const allocated = allocateThoughtProjection({
       thoughtInput: input,
-      semanticBudgetTokens: 14_700,
+      semanticBudgetTokens: 15_300,
       requestId: "req-e2a-complete",
     });
 
@@ -1863,12 +1863,12 @@ describe("E2a recency loss honesty (allocator)", () => {
 
     const complete = allocateThoughtProjection({
       thoughtInput: base,
-      semanticBudgetTokens: 14_800,
+      semanticBudgetTokens: 15_500,
       requestId: "req-e2a-hash-complete",
     });
     const lossyAllocated = allocateThoughtProjection({
       thoughtInput: lossy,
-      semanticBudgetTokens: 14_800,
+      semanticBudgetTokens: 15_500,
       requestId: "req-e2a-hash-lossy",
     });
 
@@ -1881,7 +1881,7 @@ describe("E2a recency loss honesty (allocator)", () => {
     // Deterministic: the same lossy input hashes identically.
     const lossyAgain = allocateThoughtProjection({
       thoughtInput: lossy,
-      semanticBudgetTokens: 14_800,
+      semanticBudgetTokens: 15_500,
       requestId: "req-e2a-hash-lossy-again",
     });
     expect(lossyAgain.hashes).toEqual(lossyAllocated.hashes);
@@ -1972,7 +1972,7 @@ describe("E2b retrieval loss honesty (allocator)", () => {
   it("preserves a genuine source retrieval miss with no count and no guidance (A)", () => {
     const allocated = allocateThoughtProjection({
       thoughtInput: retrievalInput(0, 20, true),
-      semanticBudgetTokens: 14_700,
+      semanticBudgetTokens: 15_300,
       requestId: "req-e2b-genuine-miss",
     });
 
@@ -1988,7 +1988,7 @@ describe("E2b retrieval loss honesty (allocator)", () => {
     const input = retrievalInput(3, 4);
     const allocated = allocateThoughtProjection({
       thoughtInput: input,
-      semanticBudgetTokens: 14_700,
+      semanticBudgetTokens: 15_300,
       requestId: "req-e2b-all-fit",
     });
 
@@ -2002,7 +2002,7 @@ describe("E2b retrieval loss honesty (allocator)", () => {
     // Deterministic complete cycle (same input object: allocation is pure).
     const again = allocateThoughtProjection({
       thoughtInput: input,
-      semanticBudgetTokens: 14_700,
+      semanticBudgetTokens: 15_300,
       requestId: "req-e2b-all-fit-again",
     });
     expect(again.hashes).toEqual(allocated.hashes);
@@ -2089,7 +2089,7 @@ describe("E2b retrieval loss honesty (allocator)", () => {
     });
     const allocated = allocateThoughtProjection({
       thoughtInput: withHit,
-      semanticBudgetTokens: 14_700,
+      semanticBudgetTokens: 15_300,
       requestId: "req-e2b-unavailable-hit",
     });
     expect(allocated.projected.retrieval.state).toBe("unavailable");
@@ -2107,7 +2107,7 @@ describe("E2b retrieval loss honesty (allocator)", () => {
     });
     const emptyAllocated = allocateThoughtProjection({
       thoughtInput: empty,
-      semanticBudgetTokens: 14_700,
+      semanticBudgetTokens: 15_300,
       requestId: "req-e2b-unavailable-empty",
     });
     expect(emptyAllocated.projected.retrieval.state).toBe("unavailable");
@@ -2429,7 +2429,7 @@ describe("E2b retrieval loss honesty (allocator)", () => {
     const base = retrievalInput(3, 4);
     const complete = allocateThoughtProjection({
       thoughtInput: base,
-      semanticBudgetTokens: 14_700,
+      semanticBudgetTokens: 15_300,
       requestId: "req-e2b-hash-complete",
     });
     const heavy = retrievalInput(20, 60);
@@ -2534,7 +2534,7 @@ describe("E2c optional Working Context loss honesty (allocator)", () => {
     ];
     const allocated = allocateThoughtProjection({
       thoughtInput: wcInput(items),
-      semanticBudgetTokens: 14_700,
+      semanticBudgetTokens: 15_300,
       requestId: "req-e2c-complete",
     });
 
@@ -2555,7 +2555,7 @@ describe("E2c optional Working Context loss honesty (allocator)", () => {
         makeWcItem("wc-e2c-topic-1", "topic", 2),
         makeWcItem("wc-e2c-other-1", "owner_teaching", 2),
       ]),
-      semanticBudgetTokens: 14_700,
+      semanticBudgetTokens: 15_300,
       requestId: "req-e2c-complete-again",
     });
     expect(again.projected.workingContextSelection).toBeUndefined();
@@ -3177,7 +3177,7 @@ describe("E2c optional Working Context loss honesty (allocator)", () => {
     // HEAD bytes. Recreate all four from one base projection object.
     const base = allocateThoughtProjection({
       thoughtInput: wcInput([makeWcItem("wc-e2c-r-1", "topic", 2)]),
-      semanticBudgetTokens: 14_700,
+      semanticBudgetTokens: 15_300,
       requestId: "req-e2c-r-base",
     }).projected;
     const baseSystem = thoughtMessagesForProjection(base)[0]?.content ?? "";
@@ -3208,7 +3208,7 @@ describe("E2c optional Working Context loss honesty (allocator)", () => {
   it("moves hashes on lossy WC cycles and stays deterministic (S)", () => {
     const complete = allocateThoughtProjection({
       thoughtInput: wcInput([makeWcItem("wc-e2c-s-1", "topic", 2)]),
-      semanticBudgetTokens: 14_700,
+      semanticBudgetTokens: 15_300,
       requestId: "req-e2c-s-complete",
     });
     const heavy = wcInput(Array.from({ length: 12 }, (_, i) => makeWcItem(`wc-e2c-s-${i}`, "topic", 30)));
@@ -3290,7 +3290,7 @@ describe("W1-P1 directive Working Context projection", () => {
     expect(JSON.stringify(projectedDirective?.data)).not.toContain("standing");
     expect(() => allocateThoughtProjection({
       thoughtInput,
-      semanticBudgetTokens: 14_700,
+      semanticBudgetTokens: 15_300,
       requestId: "w1-p1-directive-oversize",
     })).toThrow(RequiredOverflowError);
   });

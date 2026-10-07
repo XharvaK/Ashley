@@ -1,7 +1,7 @@
 import { markSoftActsShown, softLayerForPass, wardrobeAvailable } from "../soft/acts.js";
 import { SOFT_KINDS } from "../soft/acts.js";
 import { selfChangeResultForThought } from "../growth/self-change-results.js";
-import { domusActBindingFor, domusChannelFor, domusForThought, domusGameOnlyFor, domusHomeFor, domusLiveForOwner, domusNowForThought } from "../../domus/notification.js";
+import { domusActBindingFor, domusChannelFor, domusForThought, domusGameOnlyFor, domusHomeFor, domusGameNow, domusLiveForOwner, domusNowForThought } from "../../domus/notification.js";
 import { domusDiaryForThought } from "../../domus/diary.js";
 import { domusSessionForThought } from "../../domus/session.js";
 import { thoughtPlaces } from "../../places/thought.js";
@@ -1060,12 +1060,13 @@ function materializeSemanticSettlement(
       ...(semantic.speech.mode === "draft" && semantic.speech.presentationDirectives
         ? { presentationDirectives: [...semantic.speech.presentationDirectives] }
         : {}),
-      ...(semantic.speech.mode === "draft" && (semantic.speech.shape || semantic.speech.bubbles || semantic.speech.afterthought)
+      ...(semantic.speech.mode === "draft" && (semantic.speech.shape || semantic.speech.bubbles || semantic.speech.afterthought || semantic.speech.replyTo)
         ? {
           rhythm: {
             ...(semantic.speech.shape ? { shape: semantic.speech.shape } : {}),
             ...(semantic.speech.bubbles ? { bubbles: [...semantic.speech.bubbles] } : {}),
             ...(semantic.speech.afterthought ? { afterthought: true as const } : {}),
+            ...(semantic.speech.replyTo ? { replyTo: semantic.speech.replyTo } : {}),
           },
         }
         : {}),
@@ -3603,7 +3604,7 @@ export async function runCognitiveCycle(
           surface.reactions = pending.facts;
         }
         const nowMs = deps.nowMs();
-        const returning = afterglowPass
+        const returning = afterglowPass || awakePass
           ? returningForThought(sidecar, { mode: "afterglow", conversationId: cycle.conversationId, nowMs })
           : !awakePass && !nightPass && originProfile.triggerKind === "owner_message"
             ? returningForThought(sidecar, {
@@ -3617,7 +3618,7 @@ export async function runCognitiveCycle(
         // UX W2: her soft acts and wardrobe, in the Owner's DM passes (not the game, not the night).
         if (originProfile.triggerKind !== "domus_notification" && !nightPass) {
           const wardrobe = wardrobeAvailable(sidecar, { sky: ownerWeather?.sky ?? null });
-          const soft = softLayerForPass(sidecar, { wardrobe });
+          const soft = softLayerForPass(sidecar, { wardrobe, gameLive: domusGameNow(sidecar, nowMs) !== undefined });
           shownSoftActIds = soft.actIds;
           surface.softLayer = soft.facts;
         }

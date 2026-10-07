@@ -198,6 +198,10 @@ export type LastExchangeEnd =
 export type ReturningFacts = {
   sinceOwnerLastMs: number;
   lastExchangeEnd: LastExchangeEnd;
+  /** UX W3: her messages since the Owner's last one (present when above 0). */
+  herSince?: number;
+  /** UX W3: her game stretches that ended in the gap (their summaries ride in episodes). */
+  playedMeanwhile?: number;
 };
 
 export type ExchangeRow = {
@@ -252,6 +256,7 @@ export function returningFromRows(input: {
     return {
       sinceOwnerLastMs: Math.max(0, input.nowMs - lastOwner.atMs),
       lastExchangeEnd: lastExchangeEnd(input.rows),
+      ...herSince(input.rows.slice(input.rows.lastIndexOf(lastOwner) + 1)),
     };
   }
   if (!input.currentRowId) return null;
@@ -267,7 +272,29 @@ export function returningFromRows(input: {
   return {
     sinceOwnerLastMs,
     lastExchangeEnd: lastExchangeEnd(prior),
+    ...herSince(prior.slice(prior.lastIndexOf(previousOwner) + 1)),
   };
+}
+
+function herSince(after: readonly ExchangeRow[]): { herSince?: number } {
+  const count = after.filter((row) => row.role === "ashley").length;
+  return count > 0 ? { herSince: count } : {};
+}
+
+/** UX W3: game stretches (M2 session episodes) that ended inside the gap. */
+function playedMeanwhile(sidecar: DatabaseSync, fromMs: number, toMs: number): { playedMeanwhile?: number } {
+  try {
+    const row = sidecar.prepare(
+      `SELECT COUNT(*) AS n FROM episodes_v2
+        WHERE channel LIKE 'domus:%' AND lineage_class = 'current' AND forgotten_at_ms IS NULL
+          AND ended_at_ms > ? AND ended_at_ms <= ?`,
+    ).get(fromMs, toMs) as { n?: unknown } | undefined;
+    const count = Number(row?.n ?? 0);
+    return count > 0 ? { playedMeanwhile: count } : {};
+  } catch (error) {
+    if (missingTable(error) || (error instanceof Error && /no such column/i.test(error.message))) return {};
+    throw error;
+  }
 }
 
 export function loadExchangeRows(sidecar: DatabaseSync, conversationId: string): ExchangeRow[] {
@@ -316,6 +343,7 @@ export function loadExchangeRows(sidecar: DatabaseSync, conversationId: string):
   return chronological;
 }
 
+/** afterglow mode also serves her awake time: how things stood since the Owner last wrote. */
 export function returningForThought(
   sidecar: DatabaseSync,
   input: {
@@ -325,10 +353,16 @@ export function returningForThought(
     nowMs: number;
   },
 ): ReturningFacts | null {
-  return returningFromRows({
+  const rows = loadExchangeRows(sidecar, input.conversationId);
+  const facts = returningFromRows({
     mode: input.mode,
-    rows: loadExchangeRows(sidecar, input.conversationId),
+    rows,
     currentRowId: input.currentRowId,
     nowMs: input.nowMs,
   });
+  if (!facts) return null;
+  const endMs = input.mode === "owner_message"
+    ? rows.find((row) => row.rowId === input.currentRowId)?.atMs ?? input.nowMs
+    : input.nowMs;
+  return { ...facts, ...playedMeanwhile(sidecar, endMs - facts.sinceOwnerLastMs, endMs) };
 }

@@ -48,7 +48,7 @@ export function isSoftClaim(kind: SoftKind, value: unknown): boolean {
   }
 }
 
-/** speech.shape / bubbles / afterthought on a draft. */
+/** speech.shape / bubbles / afterthought / replyTo on a draft. */
 export function speechRhythmFault(speech: Rec): string | null {
   if ("shape" in speech && !["single", "burst", "aside", "letter"].includes(String(speech.shape))) return "speech.shape";
   if ("bubbles" in speech) {
@@ -57,5 +57,6 @@ export function speechRhythmFault(speech: Rec): string | null {
       || !bubbles.every((bubble) => typeof bubble === "string" && bubble.trim().length > 0)) return "speech.bubbles";
   }
   if ("afterthought" in speech && speech.afterthought !== true) return "speech.afterthought";
+  if ("replyTo" in speech && (typeof speech.replyTo !== "string" || speech.replyTo.length === 0 || speech.replyTo.length > 128)) return "speech.replyTo";
   return null;
 }

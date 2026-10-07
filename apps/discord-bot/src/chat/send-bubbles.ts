@@ -87,6 +87,8 @@ export async function sendBubbles(
     silent?: boolean;
     /** UX W2: her shape, for the lead and the gaps. */
     shape?: BubbleShape;
+    /** UX W3: her first bubble replies to this message (sent plainly if it is gone). */
+    replyToMessageId?: string;
   },
 ): Promise<BubbleSendResult> {
   const nowMs = (): number => options?.clock?.nowMs() ?? Date.now();
@@ -169,6 +171,9 @@ export async function sendBubbles(
     const quietFlags = options?.silent
       ? { flags: MessageFlags.SuppressNotifications as 4096 }
       : {};
+    const reply = i === 0 && options?.replyToMessageId
+      ? { reply: { messageReference: options.replyToMessageId, failIfNotExists: false } }
+      : {};
     let msg: Message;
     try {
       msg = await channel.send(
@@ -177,9 +182,10 @@ export async function sendBubbles(
               content: bubble.text,
               files: [{ attachment: gifUrl, name: "ashley.gif" }],
               ...quietFlags,
+              ...reply,
             }
-          : options?.silent
-            ? { content: bubble.text, ...quietFlags }
+          : options?.silent || reply.reply
+            ? { content: bubble.text, ...quietFlags, ...reply }
             : bubble.text,
       );
     } catch (err) {
@@ -187,7 +193,7 @@ export async function sendBubbles(
       if (withGif) {
         try {
           msg = await channel.send(
-            options?.silent ? { content: bubble.text, ...quietFlags } : bubble.text,
+            options?.silent || reply.reply ? { content: bubble.text, ...quietFlags, ...reply } : bubble.text,
           );
         } catch (retryErr) {
           console.warn("[discord-bot] text-only retry failed:", retryErr);

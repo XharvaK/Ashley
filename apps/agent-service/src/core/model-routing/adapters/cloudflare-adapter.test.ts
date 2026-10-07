@@ -320,7 +320,7 @@ describe("cloudflare-adapter", () => {
       );
     }
     expect(wireMessages[0]?.content).toContain(
-      'Speech mode forms: mode="none", allowedFields=["mode"], requiredFields=["mode"], surfaceDraft=value; mode="draft", allowedFields=["mode","mustSay","mustNotSay","surfaceDraft","presentationDirectives","shape","bubbles","afterthought"], requiredFields=["mode","surfaceDraft"], surfaceDraft=string.',
+      'Speech mode forms: mode="none", allowedFields=["mode"], requiredFields=["mode"], surfaceDraft=value; mode="draft", allowedFields=["mode","mustSay","mustNotSay","surfaceDraft","presentationDirectives","shape","bubbles","afterthought","replyTo"], requiredFields=["mode","surfaceDraft"], surfaceDraft=string.',
     );
     expect(wireMessages[0]?.content).toContain(
       "Put user-facing language in speech.surfaceDraft; speech.text is not a canonical field.",

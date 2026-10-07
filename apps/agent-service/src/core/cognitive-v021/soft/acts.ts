@@ -50,7 +50,8 @@ export type SoftActFact = {
   atMs: number;
 };
 
-export type WardrobeFact = { current: string; available: string[] };
+/** followsGame (UX W3): a game is live, so her avatar is her Sim's mood until it ends. */
+export type WardrobeFact = { current: string; available: string[]; followsGame?: true };
 
 export type SoftLayerFacts = {
   acts?: SoftActFact[];
@@ -340,7 +341,7 @@ export function reportSoftAct(
 /** Her recent soft acts not yet shown, newest first, plus her wardrobe. */
 export function softLayerForPass(
   db: DatabaseSync,
-  input: { wardrobe?: readonly string[] },
+  input: { wardrobe?: readonly string[]; gameLive?: boolean },
 ): { facts: SoftLayerFacts; actIds: number[] } {
   let rows: Row[];
   try {
@@ -370,7 +371,9 @@ export function softLayerForPass(
   });
   const facts: SoftLayerFacts = {
     ...(acts.length ? { acts } : {}),
-    ...(input.wardrobe ? { face: { current: currentWardrobe(db), available: [...input.wardrobe] } } : {}),
+    ...(input.wardrobe ? { face: {
+      current: currentWardrobe(db), available: [...input.wardrobe], ...(input.gameLive ? { followsGame: true as const } : {}),
+    } } : {}),
   };
   // A waiting act stays to be shown again once it settles.
   const actIds = rows.filter((row) => row.status !== "queued" && row.status !== "claimed").map((row) => Number(row.act_id));

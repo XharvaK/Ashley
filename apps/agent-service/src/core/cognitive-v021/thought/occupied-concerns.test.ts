@@ -289,7 +289,7 @@ describe("P1 occupied-concern projection", () => {
         // matching headroom. The required orientation kernel alone now
         // estimates near 14k; shrinking it is improvement I0, not this test.
         // UX W2 (one contract change): the soft layer and rhythm add ~800 tokens of fixed contract.
-        semanticBudgetTokens: 17_000,
+        semanticBudgetTokens: 17_600,
         maxOutputTokens: 1_024,
       });
       const visible = JSON.parse(String(allocated.messages[1]?.content ?? "{}")) as Record<string, unknown>;
@@ -312,7 +312,7 @@ describe("P1 occupied-concern projection", () => {
     // objective facet fields, and instructions;
     // parser identity is unchanged.
     expect(THOUGHT_OUTPUT_SCHEMA_FINGERPRINT).toBe(
-      "sha256:c220f4bcfcf0cc368d1b2995efb45d55640ac2e57cb193b5a9e1cf4056136bb9",
+      "sha256:0d45f7ba36d93145350555ab64a9fad89c6f7c98e4bfb2a134acc5b94dad9ecd",
     );
   });
 });

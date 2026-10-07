@@ -533,7 +533,8 @@ const semanticOutputSettlementSchema = strictObject({
     strictObject({ mode: { const: "draft" }, mustSay: nonEmptyStringArraySchema, mustNotSay: nonEmptyStringArraySchema, surfaceDraft: { type: "string", minLength: 1 }, presentationDirectives: nonEmptyStringArraySchema,
       shape: { enum: ["single", "burst", "aside", "letter"] },
       bubbles: { type: "array", minItems: 2, maxItems: 5, items: { type: "string", minLength: 1 } },
-      afterthought: { const: true } }, ["mode", "surfaceDraft"]),
+      afterthought: { const: true },
+      replyTo: { type: "string", minLength: 1, maxLength: 128 } }, ["mode", "surfaceDraft"]),
   ] },
   workingContextDeltas: { type: "array", minItems: 1, items: workingContextDeltaSchema },
   deskDeltas: { type: "array", minItems: 1, items: deskDeltaSchema },
@@ -844,6 +845,10 @@ function applyProfileScope(schema: SchemaRecord, profile: ThoughtContractProfile
   if (profile.pass !== "afterglow") {
     for (const form of record(properties.speech).oneOf as unknown[]) delete record(record(form).properties).afterthought;
   }
+  // UX W3: a reply to an earlier message, in the Owner's DM passes only (as the soft acts).
+  if (!(profile.ownerPrivate && profile.pass !== "domus" && profile.pass !== "night")) {
+    for (const form of record(properties.speech).oneOf as unknown[]) delete record(record(form).properties).replyTo;
+  }
   if(!profile.ownerPrivate)properties.attention={type:"object",additionalProperties:false,required:["wakeWorth"],
     description:"Report only this wake's value. This does not grant permissions or change private watches or resting state.",properties:{wakeWorth:{enum:["yes","no","sooner","later"]}}};
 }
@@ -927,7 +932,11 @@ export const AFTERTHOUGHT_GUIDANCE =
 
 /** UX W2: the soft layer in the Owner's DM (Owner-private passes outside the game and the night). */
 export const SOFT_LAYER_GUIDANCE =
-  "In the Owner's DM you also have small acts besides words, each chosen for what it means, never by habit. touch:{emoji, rowId, meaning}: one plain Unicode emoji on one Owner message (rowId from rawConversation); meaning landed (it reached you), this_bit (this exact part) or did_it (you did what it asked; only after you opened its link with web.fetch). A touch may stand alone with speech.mode none, a reply without words; never echo an emoji the Owner just sent. correct:{rowId, bubble?, text}: you were wrong in one of your sent messages; the Host strikes the old text through and adds yours (bubble is its index when the row has several). callback:{memoryRef}: an inside joke returns, so the GIF from the conversation that memory came from goes back as a reply to it; callback:{gifQuery} works only if the Host can search GIFs. pin:{rowId, memoryRef?}: pin a moment worth keeping (few, far below Discord's 50). card:{kind: reading_note|question|letter, title, body, link?}: an object rather than talk. face:{wardrobeId}: your avatar, one of softLayer.face.available, at most once a day; when the Owner asks you to change it back, choose day-awake. quiet:{forMs, whose}: a quiet window, owner_asked when the Owner asked for quiet this turn (in any words) or her_own when you choose it; the Owner's next message ends it, and it lasts at most 12 hours and never past the next morning. softLayer.acts says what became of your recent acts (waiting, done, refused with reason, failed) and softLayer.quiet what your quiet window held back or refused. Say a thing is done only once it is.";
+  "In the Owner's DM you also have small acts besides words, each chosen for what it means, never by habit. touch:{emoji, rowId, meaning}: one plain Unicode emoji on one Owner message (rowId from rawConversation); meaning landed (it reached you), this_bit (this exact part) or did_it (you did what it asked; only after you opened its link with web.fetch). A touch may stand alone with speech.mode none, a reply without words; never echo an emoji the Owner just sent. correct:{rowId, bubble?, text}: you were wrong in one of your sent messages; the Host strikes the old text through and adds yours (bubble is its index when the row has several). callback:{memoryRef}: an inside joke returns, so the GIF from the conversation that memory came from goes back as a reply to it; callback:{gifQuery} works only if the Host can search GIFs. pin:{rowId, memoryRef?}: pin a moment worth keeping (few, far below Discord's 50). card:{kind: reading_note|question|letter, title, body, link?}: an object rather than talk. face:{wardrobeId}: your avatar, one of softLayer.face.available, at most once a day; when the Owner asks you to change it back, choose day-awake; while a game is live (softLayer.face.followsGame) your avatar is your Sim's mood, and a face you choose then is worn when the game ends. quiet:{forMs, whose}: a quiet window, owner_asked when the Owner asked for quiet this turn (in any words) or her_own when you choose it; the Owner's next message ends it, and it lasts at most 12 hours and never past the next morning. softLayer.acts says what became of your recent acts (waiting, done, refused with reason, failed) and softLayer.quiet what your quiet window held back or refused. Say a thing is done only once it is.";
+
+/** UX W3 Kept thinking: what stayed with her between talks, in the Owner's DM passes. */
+export const KEPT_THINKING_GUIDANCE =
+  "host_surface.returning, when present, is how things stood since the Owner last wrote: sinceOwnerLastMs; lastExchangeEnd (her_open_question: your question went unanswered; owner_brb or owner_goodnight: the Owner stepped away or went to sleep; owner_fragment: the Owner's last message was a short fragment; plain); herSince, your messages since the Owner's last one; playedMeanwhile, your game stretches that ended in the gap (their summary is in episodes). What you kept thinking about comes back in three forms, each only when you truly have it. On the Owner's return, pick up where things stopped: what the Owner said they were going to do (ask how it went, or carry on from it), and what happened in your house meanwhile if it is worth telling; never guess why the Owner was away. When your own time found something for an earlier topic (something you read, a thought that settled), bring it as a reply to the message it belongs to: speech.replyTo:<rowId from rawConversation>, with what you found. Rarely, come back to your own unanswered question with something new of yours, never a repeat or a reminder that you asked; while herSince is above 0, the next word is usually the Owner's. The fuse and the ban on contentless check-ins still apply.";
 
 /** The weather where the Owner is. A private fact, present only on an Owner-private pass. */
 export const WEATHER_GUIDANCE =
@@ -1134,7 +1143,7 @@ export function thoughtOutputCompatibilityInstruction(
     "Interim-hold law: only project.inspect observation_intent may carry interimSpeech (none or short hold). Hold may acknowledge intent/return, not findings, success, unacquired evidence, or worker start; publication requires Host admission and leaves operation_pending until settlement, valid supersession, or valid silence.",
     `A bounded inquiry pairs M3 workspace steps with recipe-only M4 workspace.verify under one objective/budget; recipes are default-deny and failed verification is Thought evidence, not an ${entityName()} verdict. Inquiry admits neither changeset.author nor patch_export. Proposal requires an Owner-private candidate workspace, successful M4 receipt, and Thought adjudication before emitting retained patch_export adjudication:"accept"; it never applies, commits, pushes, deploys, or notifies, and Owner notification is a separate optional Thought-authored effect.`),
     ...when(full || (profile.ownerPrivate && profile.pass !== "domus"), DOMUS_LIFE_GUIDANCE, PLACES_GUIDANCE, HOME_GUIDANCE, WILL_GUIDANCE, WEB_GUIDANCE, WEATHER_GUIDANCE),
-    ...when(full || (profile.ownerPrivate && profile.pass !== "domus" && profile.pass !== "night"), SOFT_LAYER_GUIDANCE),
+    ...when(full || (profile.ownerPrivate && profile.pass !== "domus" && profile.pass !== "night"), SOFT_LAYER_GUIDANCE, KEPT_THINKING_GUIDANCE),
     ...when(profile.ownerPrivate && profile.pass === "domus", WEATHER_GUIDANCE),
     ...when(full || profile.pass === "afterglow", AFTERGLOW_GUIDANCE, AFTERTHOUGHT_GUIDANCE),
     ...when(full || profile.pass === "awake", AWAKE_GUIDANCE),

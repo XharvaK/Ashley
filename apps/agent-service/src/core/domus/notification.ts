@@ -375,6 +375,24 @@ export function domusNowForThought(db: DatabaseSync, nowMs: number): DomusNow | 
     live: armedAttachments(db, nowMs).has(String(row.attachment)), body };
 }
 
+/** UX W3: a game attached now, and her Sim's mood as the game names it in that session's newest portrait. */
+export type DomusGameNow = { live: true; mood: string | null };
+
+export function domusGameNow(db: DatabaseSync, nowMs: number): DomusGameNow | undefined {
+  let armed: Set<string>;
+  try { armed = armedAttachments(db, nowMs); } catch { return undefined; }
+  if (!armed.size) return undefined;
+  let rows: Row[];
+  try {
+    rows = db.prepare(`SELECT attachment, json_extract(payload_json, '$.portrait.mood') AS mood FROM domus_observations
+      WHERE undone_at_ms IS NULL AND receipt_time_ms >= ? AND receipt_time_ms <= ?
+        AND json_extract(payload_json, '$.portrait.mood') IS NOT NULL
+      ORDER BY receipt_time_ms DESC, seq DESC LIMIT 64`).all(nowMs - DOMUS_NOW_WINDOW_MS, nowMs) as Row[];
+  } catch { return { live: true, mood: null }; }
+  const row = rows.find(item => armed.has(String(item.attachment)) && typeof item.mood === "string" && item.mood.length > 0);
+  return { live: true, mood: row ? String(row.mood).slice(0, 64) : null };
+}
+
 /**
  * DPLAY: the User talks with her on Discord while she plays. Her Discord turn reads the newest menu of
  * the game that is live now and may act from it, the same way a game pass does. Nothing when acting is

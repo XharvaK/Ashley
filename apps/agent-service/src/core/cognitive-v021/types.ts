@@ -391,6 +391,8 @@ export type SpeechRhythm = {
   shape?: "single" | "burst" | "aside" | "letter";
   bubbles?: string[];
   afterthought?: true;
+  /** UX W3 Kept thinking: the conversation row her first message replies to. */
+  replyTo?: string;
 };
 
 export type WorkingContextItemType =
@@ -929,6 +931,7 @@ export type ThoughtSpeechIntent =
       shape?: SpeechRhythm["shape"];
       bubbles?: readonly string[];
       afterthought?: true;
+      replyTo?: string;
     };
 
 export type WorkingContextItemSemantic = {

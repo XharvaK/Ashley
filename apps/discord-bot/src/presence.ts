@@ -23,6 +23,19 @@ let timer: ReturnType<typeof setInterval> | null = null;
 let inFlight: Promise<void> | null = null;
 let lastKnown: KnownProjection | null = null;
 let pinnedStatus: "online" | "idle" | null = null;
+let playing = false;
+
+/** UX W3: the game Discord shows her playing while a Domus session is live. */
+export const PLAYING_NAME = "The Sims 4";
+
+/** Live game on or off; a change reconciles the presence at once. */
+export function applyPlaying(client: Client, live: boolean): boolean {
+  if (playing === live) return false;
+  playing = live;
+  // After any reconcile already in flight, which may have read the old value.
+  void (inFlight ?? Promise.resolve()).then(() => reconcilePresence(client, live ? "playing" : "stopped_playing"));
+  return true;
+}
 
 export async function applyStatusDot(
   client: Client,
@@ -37,13 +50,15 @@ export async function applyStatusDot(
   return true;
 }
 
-export function discordActivities(publicText: string | null): Array<{
+/** Playing comes first while the game is live (a bot shows its first activity); her public text follows. */
+export function discordActivities(publicText: string | null, live = false): Array<{
   name: string;
   type: ActivityType;
 }> {
-  return publicText === null
-    ? []
-    : [{ name: publicText, type: ActivityType.Custom }];
+  return [
+    ...(live ? [{ name: PLAYING_NAME, type: ActivityType.Playing }] : []),
+    ...(publicText === null ? [] : [{ name: publicText, type: ActivityType.Custom }]),
+  ];
 }
 
 export function operationalDiscordStatus(healthy: boolean): "online" | "idle" {
@@ -137,7 +152,7 @@ async function reconcile(client: Client, cause: string): Promise<void> {
 
   const presence = {
     status: pinnedStatus ?? operationalDiscordStatus(healthy),
-    activities: discordActivities(publicText),
+    activities: discordActivities(publicText, playing),
   } as const;
   try {
     if (!client.user) return;

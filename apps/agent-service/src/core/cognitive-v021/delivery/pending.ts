@@ -25,6 +25,8 @@ export type PendingCognitiveDelivery = {
   silent?: true;
   /** UX W2: her shape for the pacing. */
   shape?: "single" | "burst" | "aside" | "letter";
+  /** UX W3: the Discord message her first bubble replies to. */
+  replyToMessageId?: string;
 };
 
 export const COGNITIVE_DELIVERY_LEASE_MS = 120_000;
@@ -62,7 +64,39 @@ function deliveryForState(
     ...(reservation.destination === undefined ? {} : { destination: reservation.destination }),
     ...(deliverySilent(db, reservation.speechOutboxId) ? { silent: true as const } : {}),
     ...deliveryShape(db, reservation.speechOutboxId),
+    ...deliveryReplyTo(db, reservation.speechOutboxId),
   };
+}
+
+/**
+ * UX W3: the row she replies to, resolved to its Discord message: a row of the same conversation,
+ * not forgotten, sent on Discord. Anything else and the message goes out as a plain message.
+ */
+export function replyToMessageIdFor(
+  sidecar: DatabaseSync,
+  outbox: Pick<SpeechOutboxRow, "conversationId" | "deliveryIntent">,
+): string | undefined {
+  const rowId = outbox.deliveryIntent.rhythm?.replyTo;
+  if (!rowId) return undefined;
+  const row = sidecar.prepare(
+    `SELECT conversation_id, discord_message_ids_json, source_status FROM conversation_evidence_log
+      WHERE row_id = ? ORDER BY version DESC LIMIT 1`,
+  ).get(rowId) as { conversation_id?: unknown; discord_message_ids_json?: unknown; source_status?: unknown } | undefined;
+  if (!row || row.conversation_id !== outbox.conversationId || row.source_status === "redacted") return undefined;
+  try {
+    const ids: unknown = JSON.parse(String(row.discord_message_ids_json ?? "[]"));
+    return Array.isArray(ids) ? ids.find((id): id is string => typeof id === "string" && /^\d{5,25}$/.test(id)) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function deliveryReplyTo(db: DatabaseSync, speechOutboxId: number | null): { replyToMessageId?: string } {
+  if (speechOutboxId == null) return {};
+  const sidecar = getRegisteredCognitiveSidecar(db);
+  const outbox = sidecar ? getSpeechOutbox(sidecar, speechOutboxId) : null;
+  const id = sidecar && outbox ? replyToMessageIdFor(sidecar, outbox) : undefined;
+  return id ? { replyToMessageId: id } : {};
 }
 
 function deliveryShape(db: DatabaseSync, speechOutboxId: number | null): { shape?: NonNullable<PendingCognitiveDelivery["shape"]> } {

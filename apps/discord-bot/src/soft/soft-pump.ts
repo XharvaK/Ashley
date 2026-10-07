@@ -53,7 +53,8 @@ async function wearFace(deps: SoftDeps, wardrobeId: string): Promise<SoftOutcome
   const recent = memory.avatarChangeAtMs.filter((at) => now - at < AVATAR_DAY_MS && now >= at);
   if (now < memory.backoffUntilMs || recent.length >= AVATAR_CHANGES_PER_DAY) return { status: "refused", reason: "avatar_rate_limited" };
   memory.chosenId = id;
-  if (!memory.sleeping) {
+  // Asleep, or while the game is live and her face is her Sim's mood: chosen now, worn after.
+  if (!memory.sleeping && !memory.bodyWorn) {
     try {
       await deps.setAvatar(bytes);
     } catch (error) {

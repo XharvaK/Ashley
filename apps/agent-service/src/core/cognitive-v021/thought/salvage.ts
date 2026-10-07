@@ -27,7 +27,7 @@ const DROPPABLE_KEYS = new Set([
 ]);
 
 /** UX W2: rendering hints on speech; dropping one changes how it arrives, never what it says. */
-const SPEECH_RHYTHM_FIELDS = new Set(["speech.shape", "speech.bubbles", "speech.afterthought"]);
+const SPEECH_RHYTHM_FIELDS = new Set(["speech.shape", "speech.bubbles", "speech.afterthought", "speech.replyTo"]);
 
 /**
  * Optional keys whose settlement requests an effect. Dropping one while

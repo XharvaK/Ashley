@@ -120,7 +120,7 @@ describe("MAT-II C3 allocator integration", () => {
       const allocated = allocateThoughtProjection({
         thoughtInput: input,
         requestId: "request-allocator-c3",
-        semanticBudgetTokens: 15_300,
+        semanticBudgetTokens: 16_300,
       });
       const projected = allocated.projected as typeof allocated.projected & {
         c3Experiences?: { version: 1; candidates: readonly unknown[] };
@@ -146,7 +146,7 @@ describe("MAT-II C3 allocator integration", () => {
       const allocated = allocateThoughtProjection({
         thoughtInput: input,
         requestId: "request-allocator-c3-unreachable",
-        semanticBudgetTokens: 15_100,
+        semanticBudgetTokens: 15_700,
       });
 
       expect(allocated.receipt.coverageManifest?.domains).toEqual(expect.arrayContaining([

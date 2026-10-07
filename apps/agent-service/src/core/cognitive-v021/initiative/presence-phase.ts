@@ -1,4 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
+import { domusGameNow, type DomusGameNow } from "../../domus/notification.js";
 
 /**
  * Host read of the phase the inner-life poll already records.
@@ -7,6 +8,7 @@ import type { DatabaseSync } from "node:sqlite";
  * Otherwise the night period: from the start of the latest night pass until
  * a later awake or afterglow pass. An Owner message overlays conversation
  * and leaves that period in place. Anything else is idle. This does not write.
+ * UX W3: game is present while a Domus game is attached, with her Sim's mood in the game's own name.
  */
 export const OWNER_CONVERSATION_WINDOW_MS = 10 * 60 * 1000;
 
@@ -16,6 +18,7 @@ export type PresencePhaseReport = {
   phase: PresencePhaseName;
   healthy: boolean;
   sinceMs: number;
+  game?: DomusGameNow;
 };
 
 type PassKind = "afterglow" | "night" | "awake";
@@ -152,7 +155,7 @@ function idleSinceMs(sidecar: DatabaseSync, conversationId: string): number {
   return latest;
 }
 
-export function readPresencePhase(input: {
+function readPhase(input: {
   sidecar: DatabaseSync;
   nuclear: DatabaseSync;
   ownerId: string;
@@ -180,4 +183,16 @@ export function readPresencePhase(input: {
     return { phase: "night", healthy: input.healthy, sinceMs: nightStartMs };
   }
   return { phase: "idle", healthy: input.healthy, sinceMs: idleSinceMs(input.sidecar, conversationId) };
+}
+
+export function readPresencePhase(input: {
+  sidecar: DatabaseSync;
+  nuclear: DatabaseSync;
+  ownerId: string;
+  nowMs: number;
+  healthy: boolean;
+}): PresencePhaseReport {
+  const report = readPhase(input);
+  const game = domusGameNow(input.sidecar, input.nowMs);
+  return game ? { ...report, game } : report;
 }

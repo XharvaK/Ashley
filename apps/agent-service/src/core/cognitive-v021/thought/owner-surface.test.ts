@@ -191,6 +191,7 @@ describe("returning facts", () => {
     expect(afterglow).toEqual({
       sinceOwnerLastMs: 5 * 60 * 1000,
       lastExchangeEnd: "her_open_question",
+      herSince: 1,
     });
 
     const base = projectThoughtInput(makeThoughtInput(), []).projected;
@@ -235,6 +236,7 @@ describe("returning facts", () => {
     })).toEqual({
       sinceOwnerLastMs: OWNER_RETURN_GAP_MS + 5,
       lastExchangeEnd: "her_open_question",
+      herSince: 1,
     });
     expect(returningForThought(sidecar, {
       mode: "afterglow",

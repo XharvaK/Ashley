@@ -347,6 +347,8 @@ export type PendingDelivery = {
   silent?: boolean;
   /** UX W2: her shape for the pacing. */
   shape?: "single" | "burst" | "aside" | "letter";
+  /** UX W3: the Discord message her first bubble replies to. */
+  replyToMessageId?: string;
 };
 
 export async function claimPendingDeliveries(options?: {
@@ -500,6 +502,8 @@ export type PresencePhaseReport = {
   phase: PresencePhaseName;
   healthy: boolean;
   sinceMs: number;
+  /** UX W3: a Domus game attached now, with her Sim's mood in the game's own name. */
+  game?: { live: true; mood: string | null };
 };
 
 export async function presencePhase(): Promise<PresencePhaseReport> {
