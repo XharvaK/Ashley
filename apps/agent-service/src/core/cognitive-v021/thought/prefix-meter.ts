@@ -147,12 +147,16 @@ function jsonBreakPath(content: string, targetByte: number): string {
   }
 }
 
+// A key that is not a plain identifier may be data (a map keyed by a name), so it is shown as "*".
+const CONTRACT_KEY = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/;
+
 function formatPath(segments: readonly Segment[]): string {
   let out = "";
   for (const segment of segments.slice(0, MAX_PATH_SEGMENTS)) {
+    const key = segment.kind === "index" ? "" : CONTRACT_KEY.test(segment.key) ? segment.key : "*";
     if (segment.kind === "index") out += `[${segment.index}]`;
-    else if (out.length === 0) out += segment.key;
-    else out += `.${segment.key}`;
+    else if (out.length === 0) out += key;
+    else out += `.${key}`;
   }
   return out.length === 0 ? "-" : out;
 }

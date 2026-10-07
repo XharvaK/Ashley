@@ -51,6 +51,14 @@ describe("thought prefix meter", () => {
     expect(report.breakMessage).toBe(0);
   });
 
+  it("shows a key that is not a plain identifier as a star", () => {
+    const report = observePair(
+      [user(JSON.stringify({ people: { "Testa Zubrin": { mood: 1 } } }))],
+      [user(JSON.stringify({ people: { "Testa Zubrin": { mood: 2 } } }))],
+    );
+    expect(report.breakPath).toBe("people.*.mood");
+  });
+
   it("names an array element with its index", () => {
     const report = observePair(
       [user(JSON.stringify({ items: ["one", "two", "three"] }))],
