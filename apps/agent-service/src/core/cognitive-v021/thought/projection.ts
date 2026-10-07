@@ -361,14 +361,34 @@ export function modelVisibleThoughtProjection(
   if (occupiedConcernProjection !== undefined) {
     visibleProjection.occupancy = occupiedConcernProjection;
   }
-  const visibleOrientationKernel = Object.fromEntries(
-    Object.entries(projected.orientationKernel)
-      .filter(([key]) => key !== "stableSelf" && key !== "stableSelfPointers"),
-  );
   return {
     ...visibleProjection,
-    orientationKernel: visibleOrientationKernel,
+    orientationKernel: modelVisibleOrientationKernel(projected.orientationKernel),
   };
+}
+
+/**
+ * Model-visible kernel. `capabilityReality.asOf.capturedAtMs` repeats the
+ * volatile `clock` and is provenance for the Host; the release rows stay.
+ * The in-process kernel is not mutated.
+ */
+function modelVisibleOrientationKernel(
+  kernel: IdentityOrientationKernel,
+): Record<string, unknown> {
+  const visibleKernel: Record<string, unknown> = Object.fromEntries(
+    Object.entries(kernel).filter(([key]) => key !== "stableSelf" && key !== "stableSelfPointers"),
+  );
+  const asOf = kernel.capabilityReality?.asOf;
+  if (asOf === undefined || !Object.prototype.hasOwnProperty.call(asOf, "capturedAtMs")) {
+    return visibleKernel;
+  }
+  const visibleAsOf: Record<string, unknown> = { ...asOf };
+  delete visibleAsOf.capturedAtMs;
+  visibleKernel.capabilityReality = {
+    ...kernel.capabilityReality,
+    asOf: visibleAsOf,
+  };
+  return visibleKernel;
 }
 
 function sha256(text: string): string {
