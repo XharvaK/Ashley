@@ -116,6 +116,37 @@ test("fulfillment pump drains, receipts and finalizes pending cognitive deliveri
   assert.equal(finalizations[1].cause, "complete");
 });
 
+test("fulfillment pump passes a silent delivery through to send", async () => {
+  let silent: boolean | undefined;
+  const pending: PendingDelivery[] = [{
+    reservationId: 161,
+    draftText: "quiet note",
+    silent: true,
+    bubbles: [{ ordinal: 0, text: "quiet note", discordMessageId: null }],
+    statusUrl: "/delivery/161",
+  }];
+  const deps: FulfillmentPumpDependencies = {
+    markDispatchStarted: dispatchBoundaryMarked,
+    claim: async () => ({ deliveries: pending }),
+    recheckOwnerDm: ownerDmAllowed,
+    receipt: async () => ({ ok: true }),
+    finalize: async () => ({ state: "committed", finalizationReason: "all_bubbles_delivered", deliveredText: "" }),
+    send: async (_channel, _chunks, _gif, _pacing, _onFirst, options) => {
+      silent = options?.silent;
+      return {
+        reservationId: 161,
+        attemptedOrdinal: 0,
+        receiptedOrdinals: [0],
+        failureCategory: null,
+        anySubstantiveContentVisible: true,
+        messages: [{ id: "quiet-msg" } as Message],
+      };
+    },
+  };
+  await drainPendingCognitiveDeliveries(makeFakeClient({ id: "dm-quiet" }), deps);
+  assert.equal(silent, true);
+});
+
 test("fulfillment pump uses the same receipt/finalize flow for cognitive deliveries", async () => {
   const events: string[] = [];
   const pending: PendingDelivery[] = [{

@@ -20,6 +20,7 @@ const IMPLEMENTED = [
   "delegation",
   "contacts",
   "places",
+  "quiet",
 ] as const;
 
 type CommandKey = (typeof IMPLEMENTED)[number];

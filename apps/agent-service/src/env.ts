@@ -131,6 +131,8 @@ function createEnv() {
   discordOwnerId: process.env.DISCORD_OWNER_ID ?? "",
   /** IANA zone for Ashley's clock; empty keeps the fixed UTC+3 default. */
   ownerTimeZone: process.env.ASHLEY_OWNER_TIME_ZONE?.trim() ?? "",
+  /** Owner online/idle as a Thought fact. Off: only DND reaches the quiet gate. */
+  ownerPresenceFacts: process.env.ASHLEY_OWNER_PRESENCE_FACTS?.trim() === "true",
   // A5 local embeddings: off unless enabled and a local model is named.
   localEmbeddingsEnabled: process.env.ASHLEY_LOCAL_EMBEDDINGS_ENABLED?.trim().toLowerCase() === "true",
   localEmbeddingModel: process.env.ASHLEY_LOCAL_EMBEDDING_MODEL?.trim() ?? "",

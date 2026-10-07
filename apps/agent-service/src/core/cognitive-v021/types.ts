@@ -30,7 +30,7 @@ export type { SourceSupportRef } from "./evidence/interpretation-envelope.js";
 export const ARCHITECTURE_EPOCH = "v0.2.1" as const;
 export const IMPLEMENTATION_SPEC_VERSION = "0.2.1.r6" as const;
 export const THOUGHT_CONTRACT_VERSION = 2 as const;
-export const COGNITIVE_SIDECAR_SCHEMA_VERSION = 68 as const;
+export const COGNITIVE_SIDECAR_SCHEMA_VERSION = 69 as const;
 
 /**
  * Hard bound on cognition-facing concern discovery windows and pages. The
@@ -1798,6 +1798,12 @@ export type ThoughtInput = {
   teacher?: import("../teach/lessons.js").ThoughtTeacher;
   /** Present only for an autonomous idle-opportunity Thought. */
   publicPresence?: PublicPresenceContext;
+  /** Host refusal: the previous unsolicited draft was held for quiet. Shown once. */
+  quietRefusal?: Readonly<{ code: "quiet_held"; atMs: number }>;
+  /** Notes held during a quiet window, shown once on the next Owner-private pass after it ends. */
+  heldWhileQuiet?: Readonly<{ count: number; items: readonly string[]; droppedCount: number }>;
+  /** Owner online or idle, only when the Owner opted in. Shown once. */
+  ownerPresence?: Readonly<{ status: "online" | "idle"; sinceMs: number }>;
   /** Host factual context for the single Ashley-authored capacity-wait turn. */
   capacityWait?: Readonly<{
     operationId: string;
@@ -2049,6 +2055,8 @@ export type DeliveryIntent = {
     consequenceChainId: string;
     attemptId: string | null;
   };
+  /** Owner delivery must not notify. Carried in the existing intent JSON. */
+  silent?: true;
 };
 export type OutboxSendStatus =
   | "pending"

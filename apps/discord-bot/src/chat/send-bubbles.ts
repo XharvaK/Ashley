@@ -1,4 +1,4 @@
-import type { SendableChannels, Message } from "discord.js";
+import { MessageFlags, type SendableChannels, type Message } from "discord.js";
 import { sendFailedLine } from "./fumble-lines.js";
 import {
   PACE_BUDGET_MS,
@@ -81,6 +81,8 @@ export async function sendBubbles(
     /** Recheck an external publication binding immediately before each send. */
     beforeBubbleSend?: (ordinal: number) => Promise<void>;
     clock?: { nowMs(): number };
+    /** Quiet note: deliver without a notification. */
+    silent?: boolean;
   },
 ): Promise<BubbleSendResult> {
   const nowMs = (): number => options?.clock?.nowMs() ?? Date.now();
@@ -159,6 +161,10 @@ export async function sendBubbles(
     }
 
     const withGif = i === 0 && gifUrl;
+    // The send API accepts this bit; the enum type is wider than that slot.
+    const quietFlags = options?.silent
+      ? { flags: MessageFlags.SuppressNotifications as 4096 }
+      : {};
     let msg: Message;
     try {
       msg = await channel.send(
@@ -166,14 +172,19 @@ export async function sendBubbles(
           ? {
               content: bubble.text,
               files: [{ attachment: gifUrl, name: "ashley.gif" }],
+              ...quietFlags,
             }
-          : bubble.text,
+          : options?.silent
+            ? { content: bubble.text, ...quietFlags }
+            : bubble.text,
       );
     } catch (err) {
       console.warn(`[discord-bot] bubble ${bubble.ordinal} send failed:`, err);
       if (withGif) {
         try {
-          msg = await channel.send(bubble.text);
+          msg = await channel.send(
+            options?.silent ? { content: bubble.text, ...quietFlags } : bubble.text,
+          );
         } catch (retryErr) {
           console.warn("[discord-bot] text-only retry failed:", retryErr);
           result.failureCategory = "discord_send_failed";
@@ -202,6 +213,7 @@ export async function sendBubbles(
     try {
       const msg = await channel.send({
         files: [{ attachment: gifUrl, name: "ashley.gif" }],
+        ...(options?.silent ? { flags: MessageFlags.SuppressNotifications as 4096 } : {}),
       });
       result.messages.push(msg);
       markFirst();

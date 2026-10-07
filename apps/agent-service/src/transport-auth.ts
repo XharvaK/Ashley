@@ -17,7 +17,7 @@ export const ACTOR_HEADER = "X-Ashley-Actor";
 const UNAUTHENTICATED_PATHS = new Set(["/health"]);
 
 /** Admin acts are Alex's alone (SC-ADM-01). Method + Express path pattern. */
-export const ADMIN_ROUTES: ReadonlyArray<readonly ["POST", string]> = [
+export const ADMIN_ROUTES: ReadonlyArray<readonly ["GET" | "POST" | "DELETE", string]> = [
   ["POST", "/memory/forget"],
   ["POST", "/memory/forget/bind"],
   ["POST", "/memory/forget/resolve"],
@@ -46,6 +46,11 @@ export const ADMIN_ROUTES: ReadonlyArray<readonly ["POST", string]> = [
   ["POST", "/nuclear/external/emergency-stop"],
   ["POST", "/initiative/pause"],
   ["POST", "/initiative/resume"],
+  ["POST", "/quiet"],
+  ["POST", "/quiet/dnd"],
+  ["POST", "/quiet/presence"],
+  ["DELETE", "/quiet"],
+  ["GET", "/quiet"],
   ["POST", "/initiative/periodic/debug/enable"],
 ];
 

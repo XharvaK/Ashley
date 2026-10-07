@@ -344,6 +344,7 @@ export type PendingDelivery = {
   }>;
   statusUrl: string;
   destination?: unknown;
+  silent?: boolean;
 };
 
 export async function claimPendingDeliveries(options?: {
@@ -737,6 +738,30 @@ export async function tickCognitiveIdle() {
   }>("/initiative/idle", {
     method: "POST",
     body: JSON.stringify({ userId: config.ownerId }),
+  });
+}
+
+export async function postQuiet(durationMs: number) {
+  return agentFetch<{ ok: boolean; window: { untilMs: number; source: string } }>("/quiet", {
+    headers: ownerActorHeaders(),
+    method: "POST",
+    body: JSON.stringify({ userId: config.ownerId, durationMs }),
+  });
+}
+
+export async function postQuietDnd(on: boolean) {
+  return agentFetch<{ ok: boolean; open: boolean }>("/quiet/dnd", {
+    headers: ownerActorHeaders(),
+    method: "POST",
+    body: JSON.stringify({ userId: config.ownerId, on }),
+  });
+}
+
+export async function postOwnerPresence(status: "online" | "idle", sinceMs: number) {
+  return agentFetch<{ ok: boolean; stored: boolean }>("/quiet/presence", {
+    headers: ownerActorHeaders(),
+    method: "POST",
+    body: JSON.stringify({ userId: config.ownerId, status, sinceMs }),
   });
 }
 

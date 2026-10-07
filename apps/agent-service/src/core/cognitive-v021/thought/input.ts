@@ -74,6 +74,7 @@ import { journalForThought } from "../initiative/journal.js";
 import { domusNowForThought } from "../../domus/notification.js";
 import { getThoughtAttemptCounters } from "./counters.js";
 import { currentGatewayUserId } from "../thalamus/scheduler.js";
+import { quietFactsForPass } from "../quiet/window.js";
 
 export type BuildThoughtInputOptions = {
   sidecar: DatabaseSync;
@@ -139,6 +140,8 @@ export type BuildThoughtInputOptions = {
   thoughtLegDeadlineAtMs?: number;
   /** When present, Thought receives a clock built over the selected rows. */
   clock?: { nowMs: number; timeZone?: string; currentRowIds?: readonly string[] };
+  /** Shadow passes may read quiet facts without consuming them. */
+  claimQuietFacts?: boolean;
   /** Afterglow or AWAKE only: what this private pass is about. */
   innerPass?: ThoughtInnerPass;
   /** 8d: a Domus pass's portrait (kept only for Owner-private audiences). */
@@ -1302,6 +1305,14 @@ export function buildThoughtInput(options: BuildThoughtInputOptions): ThoughtInp
       }),
     }),
     ...(options.publicPresence === undefined ? {} : { publicPresence: options.publicPresence }),
+    ...(audience.kind === "owner_private" && !gameOnly
+      ? quietFactsForPass(
+          options.sidecar,
+          options.cycle.cycleId,
+          options.clock?.nowMs ?? Date.now(),
+          options.claimQuietFacts !== false,
+        )
+      : {}),
     ...(options.effectContinuation === undefined ? {} : {
       effectContinuation: {
         ...options.effectContinuation,

@@ -98,6 +98,12 @@ describe("bot → agent transport authentication", () => {
     expect(isAdminRoute("POST", "/social/contacts/revoke")).toBe(true);
     expect(isAdminRoute("POST", "/social/contacts/teacher")).toBe(true);
     expect(isAdminRoute("POST", "/places/switch")).toBe(true);
+    expect(isAdminRoute("POST", "/quiet")).toBe(true);
+    expect(isAdminRoute("POST", "/quiet/dnd")).toBe(true);
+    expect(isAdminRoute("POST", "/quiet/presence")).toBe(true);
+    expect(isAdminRoute("DELETE", "/quiet")).toBe(true);
+    expect(isAdminRoute("GET", "/quiet")).toBe(true);
+    expect(isAdminRoute("GET", "/quiet/dnd")).toBe(false);
   });
 
   it("names only routes the agent actually serves", () => {

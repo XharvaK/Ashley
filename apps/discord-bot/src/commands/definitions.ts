@@ -9,6 +9,13 @@ export function buildCommandDefinitions(): RESTPostAPIChatInputApplicationComman
   return [
     new SlashCommandBuilder().setName(commandSurface.attention).setDescription("Show attention timing sensitivity and calibration").toJSON(),
     new SlashCommandBuilder()
+      .setName(commandSurface.quiet)
+      .setDescription("Ask for quiet")
+      .addStringOption((o) =>
+        o.setName("duration").setDescription("How long, such as 30m or 2h").setRequired(false),
+      )
+      .toJSON(),
+    new SlashCommandBuilder()
       .setName(commandSurface.remember)
       .setDescription("Pin something to long-term memory")
       .addStringOption((o) =>

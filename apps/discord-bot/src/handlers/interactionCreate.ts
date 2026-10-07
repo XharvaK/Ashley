@@ -13,6 +13,7 @@ import * as status from "../commands/status.js";
 import * as delegation from "../commands/delegation.js";
 import * as contacts from "../commands/contacts.js";
 import * as places from "../commands/places.js";
+import * as quiet from "../commands/quiet.js";
 
 export async function handleSlash(
   interaction: ChatInputCommandInteraction,
@@ -37,6 +38,7 @@ export async function handleSlash(
     interaction.commandName === "delegation" ||
     interaction.commandName === "contacts" ||
     interaction.commandName === "places" ||
+    interaction.commandName === "quiet" ||
     (interaction.commandName === "proactive" &&
       interaction.options.getString("action") === "status");
   if (!interaction.deferred && !interaction.replied) {
@@ -80,6 +82,9 @@ export async function handleSlash(
         break;
       case "places":
         await places.execute(interaction);
+        break;
+      case "quiet":
+        await quiet.execute(interaction);
         break;
     }
   } catch (err) {

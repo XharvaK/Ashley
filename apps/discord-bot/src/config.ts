@@ -171,6 +171,8 @@ export const config = {
   // Default on for the 3–10s bubble pacing ship; set DISCORD_PACE_ENABLED=false to disable.
   paceEnabled: process.env.DISCORD_PACE_ENABLED !== "false",
   reactPolicyEnabled: process.env.DISCORD_REACT_POLICY_ENABLED !== "false",
+  presenceIntent: process.env.DISCORD_PRESENCE_INTENT === "true",
+  ownerPresenceFacts: process.env.ASHLEY_OWNER_PRESENCE_FACTS === "true",
 };
 
 export function validateConfig(): void {
