@@ -196,6 +196,10 @@ import {
 import { isUnsolicitedTriggerKind, unsolicitedFuseTripped } from "../initiative/reach-out.js";
 import { readSenseFacts, senseBandsForDeclines, sensesForThought } from "../senses/senses.js";
 import { growthForThought, type IdentityStore } from "../growth/growth.js";
+import {
+  markOwnerBubbleReactionsShown,
+  unshownOwnerBubbleReactions,
+} from "./owner-surface.js";
 import { buildNightAgenda } from "../growth/night.js";
 import { DEFAULT_OWNER_TIME_ZONE } from "./clock.js";
 import {
@@ -3357,6 +3361,7 @@ export async function runCognitiveCycle(
     const senseOptions = { nowMs: deps.nowMs(), conversationId: cycle.conversationId, dataDir: deps.dataDir };
     const sensedFacts = effectiveThoughtAudience.kind === "owner_private" && !externalCycle ? readSenseFacts(sidecar, senseOptions) : [];
     const senseBands = senseBandsForDeclines(sensedFacts);
+    let shownReactionIds: string[] = [];
     const thoughtInputOptions = {
       sidecar,
       cycle,
@@ -3417,6 +3422,15 @@ export async function runCognitiveCycle(
           && !afterglowPass && !awakePass && !nightPass && triggerEvidence?.role === "owner",
         nowMs: deps.nowMs(),
       }),
+      ...(() => {
+        const gameOnlySurface = originProfile.triggerKind === "domus_notification"
+          && domusGameOnlyFor(sidecar, event, originProfile.originCycleId);
+        if (effectiveThoughtAudience.kind !== "owner_private" || externalCycle || gameOnlySurface) return {};
+        const pending = unshownOwnerBubbleReactions(nuclear, sidecar);
+        if (pending.facts.length === 0) return {};
+        shownReactionIds = pending.ids;
+        return { reactions: pending.facts };
+      })(),
       ...(settlementOnly ? { settlementOnly: true } : {}),
       ...(effectContinuationInput ? { effectContinuation: effectContinuationInput } : {}),
       ...(capacityWait ? { capacityWait } : {}),
@@ -3475,6 +3489,9 @@ export async function runCognitiveCycle(
           observabilityDb: deps.observabilityDb,
         });
         projectionCache.set(passKey, allocated);
+      }
+      if (shownReactionIds.length > 0 && allocated.projected.reactions !== undefined) {
+        markOwnerBubbleReactionsShown(nuclear, shownReactionIds);
       }
     } catch (err) {
       if (err instanceof RequiredOverflowError) {

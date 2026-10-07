@@ -61,6 +61,7 @@ export type AllocationSectionId =
   | "in_flight_receipt"
   | "authority_objections"
   | "remember_directive"
+  | "host_surface"
   | InnerLifeSectionId;
 
 /** Growth V1 inner-life sections, each a required, byte-bounded pass-through (R15). */
@@ -157,6 +158,8 @@ export function requirednessContractFor(
       return { owner: "authority_adapter", predicate: "authority_objections_nonempty", overflow: "fail_closed" };
     case "remember_directive":
       return { owner: "memory_directive_adapter", predicate: "owner_directive_present", overflow: "fail_closed" };
+    case "host_surface":
+      return { owner: "host_surface_adapter", predicate: "owner_surface_facts_present", overflow: "shed_optional" };
     case "occupancy_compact":
       return { owner: "mind_state_adapter", predicate: "occupancy_nonempty", overflow: "fail_closed" };
     case "constitution":
@@ -716,6 +719,18 @@ export function buildAllocationCandidates(
     });
   }
 
+  // Owner-private surface facts. Optional and last, so a tight budget sheds
+  // them before earlier optional sections.
+  if (input.reactions !== undefined) {
+    candidates.push({
+      id: "host_surface",
+      section: "host_surface",
+      required: false,
+      priority: 19,
+      data: { reactions: input.reactions },
+    });
+  }
+
   return candidates.map((candidate) => {
     const canonicalStore = canonicalStoreFor(candidate.section);
     const evidenceRefs = candidate.evidenceRefs ?? evidenceRefsFor(candidate.data);
@@ -769,6 +784,7 @@ function canonicalStoreFor(section: AllocationSectionId): string {
   if (section === "observations") return "observation_artifacts";
   if (section === "c3_terminal_experiences") return "cognitive-v021.db:c3_terminal_experiences";
   if (section === "in_flight_receipt") return "effect_receipts";
+  if (section === "host_surface") return "host_surface_facts";
   const innerLife = INNER_LIFE_SECTIONS.find((entry) => entry.section === section);
   if (innerLife) return innerLife.canonicalStore;
   return "authority_revision_feedback";

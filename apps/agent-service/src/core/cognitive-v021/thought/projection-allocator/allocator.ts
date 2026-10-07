@@ -559,6 +559,7 @@ export function allocateThoughtProjection(
   let orientationKernelIncluded = false;
   let domainPointersIncluded = false;
   let c3ExperiencesIncluded = false;
+  let hostSurfaceIncluded = false;
   let compression = false;
 
   const c2Input = input as ThoughtInput & {
@@ -604,6 +605,7 @@ export function allocateThoughtProjection(
     // exact allocator-stage omission count. No speculative disclosure exists.
     finalizeDisclosure = false,
     includeObservations = observationsIncluded,
+    includeHostSurface = hostSurfaceIncluded,
   ): ProjectedThoughtInput & {
     c3Experiences?: {
       version: 1;
@@ -753,6 +755,7 @@ export function allocateThoughtProjection(
       },
       ...(input.thoughtLegDeadlineAtMs === undefined ? {} : { thoughtLegDeadlineAtMs: input.thoughtLegDeadlineAtMs }),
       ...(input.clock === undefined ? {} : { clock: input.clock }),
+      ...(includeHostSurface && input.reactions !== undefined ? { reactions: input.reactions } : {}),
     };
 
     if (input.audience !== undefined) {
@@ -828,6 +831,7 @@ export function allocateThoughtProjection(
     } else if (candidate.section === "c3_terminal_experiences") {
       tentativeC3Experiences = true;
     }
+    const tentativeHostSurface = candidate.section === "host_surface" ? true : hostSurfaceIncluded;
 
     const tentativeProjected = renderTentative(
       tentativeWc,
@@ -839,6 +843,7 @@ export function allocateThoughtProjection(
       tentativeC3Experiences,
       false,
       tentativeObservationsIncluded,
+      tentativeHostSurface,
     );
     thoughtMessagesForProjectionCallCount += 1;
     const tentativeMessages = thoughtMessagesForProjection(
@@ -876,6 +881,8 @@ export function allocateThoughtProjection(
         domainPointersIncluded = true;
       } else if (candidate.section === "c3_terminal_experiences") {
         c3ExperiencesIncluded = true;
+      } else if (candidate.section === "host_surface") {
+        hostSurfaceIncluded = true;
       }
     } else {
       // Exceeds TPM budget
@@ -951,6 +958,7 @@ export function allocateThoughtProjection(
       c3ExperiencesIncluded,
       true,
       observationsIncluded,
+      hostSurfaceIncluded,
     );
     thoughtMessagesForProjectionCallCount += 1;
     const messages = thoughtMessagesForProjection(projected, undefined, messageMemo);
@@ -977,7 +985,7 @@ export function allocateThoughtProjection(
     workingContext: [...workingContextIncluded],
     deskEntries: [...deskEntriesIncluded],
     retrieval: [...retrievalHitsIncluded],
-    flags: { observationsIncluded, orientationKernelIncluded, domainPointersIncluded, c3ExperiencesIncluded, compression },
+    flags: { observationsIncluded, orientationKernelIncluded, domainPointersIncluded, c3ExperiencesIncluded, hostSurfaceIncluded, compression },
     omitted: omittedCandidates.length,
     omittedData: omittedCandidateData.length,
   };
@@ -1011,6 +1019,8 @@ export function allocateThoughtProjection(
       domainPointersIncluded = false;
     } else if (evicted.section === "c3_terminal_experiences") {
       c3ExperiencesIncluded = false;
+    } else if (evicted.section === "host_surface") {
+      hostSurfaceIncluded = false;
     }
     compression = true;
     omittedCandidateData.push(evicted);
@@ -1034,7 +1044,7 @@ export function allocateThoughtProjection(
     replace(workingContextIncluded, snapshot.workingContext);
     replace(deskEntriesIncluded, snapshot.deskEntries);
     replace(retrievalHitsIncluded, snapshot.retrieval);
-    ({ observationsIncluded, orientationKernelIncluded, domainPointersIncluded, c3ExperiencesIncluded, compression } = snapshot.flags);
+    ({ observationsIncluded, orientationKernelIncluded, domainPointersIncluded, c3ExperiencesIncluded, hostSurfaceIncluded, compression } = snapshot.flags);
     omittedCandidates.length = snapshot.omitted;
     omittedCandidateData.length = snapshot.omittedData;
     final = unfitted;
@@ -1178,6 +1188,7 @@ export function allocateThoughtProjection(
     "runtimeCondition",
     "rememberDirective",
     "conversationSelection",
+    "reactions",
   ]);
   const firstVolatileField = Object.keys(visibleProjection).find((key) => volatileFields.has(key)) ?? null;
   const firstVolatileMarker = firstVolatileField === null

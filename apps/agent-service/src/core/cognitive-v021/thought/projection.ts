@@ -171,6 +171,8 @@ export type ProjectedThoughtInput = {
     remainingEffectRounds: number;
   }>;
   settlementOnly?: boolean;
+  /** Owner reactions on her bubbles. Optional, and only after they are packed. */
+  reactions?: ThoughtInput["reactions"];
 };
 
 export type ThoughtModelProjection = {
@@ -522,6 +524,7 @@ export function projectThoughtInput(
       remainingEffectRounds: MAX_EFFECT_ROUNDS,
     },
     ...(fullInput.settlementOnly === undefined ? {} : { settlementOnly: fullInput.settlementOnly }),
+    ...(fullInput.reactions === undefined ? {} : { reactions: fullInput.reactions }),
   };
 
   if (fullInput.audience !== undefined) {

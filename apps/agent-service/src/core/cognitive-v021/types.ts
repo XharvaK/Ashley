@@ -9,6 +9,7 @@ import type {
 import type { DataClassification } from "../privacy/classification.js";
 import type { SandboxV2CapabilitySpec } from "@composer-assistant/sandbox-v2";
 import type { ThoughtSourceCurrentness } from "./thought/source-currentness.js";
+import type { HerBubbleReactionFact } from "./thought/owner-surface.js";
 import type { EffectExecutionControl } from "./effect/execution-control.js";
 import type {
   SourceSupportRef,
@@ -1775,6 +1776,8 @@ export type ThoughtInput = {
   attention?: import("./thalamus/attention.js").ThoughtAttention;
   /** Forgets she proposed that the Owner has not answered (Owner-private chat only). */
   pendingForget?: readonly import("./memory/semantic-forget.js").ThoughtPendingForget[];
+  /** Owner reactions on her bubbles since they were last shown (Owner-private only). */
+  reactions?: readonly HerBubbleReactionFact[];
   /** Present only during an afterglow or AWAKE pass. */
   innerPass?: ThoughtInnerPass;
   /** 8d: present only during an Owner-private Domus pass; facts from the game, rebuilt from durable rows. */
