@@ -721,13 +721,16 @@ export function buildAllocationCandidates(
 
   // Owner-private surface facts. Optional and last, so a tight budget sheds
   // them before earlier optional sections.
-  if (input.reactions !== undefined) {
+  if (input.reactions !== undefined || input.returning !== undefined) {
     candidates.push({
       id: "host_surface",
       section: "host_surface",
       required: false,
       priority: 19,
-      data: { reactions: input.reactions },
+      data: {
+        ...(input.reactions === undefined ? {} : { reactions: input.reactions }),
+        ...(input.returning === undefined ? {} : { returning: input.returning }),
+      },
     });
   }
 

@@ -756,6 +756,7 @@ export function allocateThoughtProjection(
       ...(input.thoughtLegDeadlineAtMs === undefined ? {} : { thoughtLegDeadlineAtMs: input.thoughtLegDeadlineAtMs }),
       ...(input.clock === undefined ? {} : { clock: input.clock }),
       ...(includeHostSurface && input.reactions !== undefined ? { reactions: input.reactions } : {}),
+      ...(includeHostSurface && input.returning !== undefined ? { returning: input.returning } : {}),
     };
 
     if (input.audience !== undefined) {
@@ -1189,6 +1190,7 @@ export function allocateThoughtProjection(
     "rememberDirective",
     "conversationSelection",
     "reactions",
+    "returning",
   ]);
   const firstVolatileField = Object.keys(visibleProjection).find((key) => volatileFields.has(key)) ?? null;
   const firstVolatileMarker = firstVolatileField === null

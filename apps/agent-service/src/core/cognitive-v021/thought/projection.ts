@@ -173,6 +173,8 @@ export type ProjectedThoughtInput = {
   settlementOnly?: boolean;
   /** Owner reactions on her bubbles. Optional, and only after they are packed. */
   reactions?: ThoughtInput["reactions"];
+  /** Gap and end-shape. Same optional surface as reactions. */
+  returning?: ThoughtInput["returning"];
 };
 
 export type ThoughtModelProjection = {
@@ -525,6 +527,7 @@ export function projectThoughtInput(
     },
     ...(fullInput.settlementOnly === undefined ? {} : { settlementOnly: fullInput.settlementOnly }),
     ...(fullInput.reactions === undefined ? {} : { reactions: fullInput.reactions }),
+    ...(fullInput.returning === undefined ? {} : { returning: fullInput.returning }),
   };
 
   if (fullInput.audience !== undefined) {

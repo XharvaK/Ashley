@@ -198,6 +198,7 @@ import { readSenseFacts, senseBandsForDeclines, sensesForThought } from "../sens
 import { growthForThought, type IdentityStore } from "../growth/growth.js";
 import {
   markOwnerBubbleReactionsShown,
+  returningForThought,
   unshownOwnerBubbleReactions,
 } from "./owner-surface.js";
 import { buildNightAgenda } from "../growth/night.js";
@@ -3426,10 +3427,28 @@ export async function runCognitiveCycle(
         const gameOnlySurface = originProfile.triggerKind === "domus_notification"
           && domusGameOnlyFor(sidecar, event, originProfile.originCycleId);
         if (effectiveThoughtAudience.kind !== "owner_private" || externalCycle || gameOnlySurface) return {};
+        const surface: {
+          reactions?: ReturnType<typeof unshownOwnerBubbleReactions>["facts"];
+          returning?: NonNullable<ReturnType<typeof returningForThought>>;
+        } = {};
         const pending = unshownOwnerBubbleReactions(nuclear, sidecar);
-        if (pending.facts.length === 0) return {};
-        shownReactionIds = pending.ids;
-        return { reactions: pending.facts };
+        if (pending.facts.length > 0) {
+          shownReactionIds = pending.ids;
+          surface.reactions = pending.facts;
+        }
+        const nowMs = deps.nowMs();
+        const returning = afterglowPass
+          ? returningForThought(sidecar, { mode: "afterglow", conversationId: cycle.conversationId, nowMs })
+          : !awakePass && !nightPass && originProfile.triggerKind === "owner_message"
+            ? returningForThought(sidecar, {
+              mode: "owner_message",
+              conversationId: cycle.conversationId,
+              currentRowId: triggerEvidence?.rowId ?? null,
+              nowMs,
+            })
+            : null;
+        if (returning) surface.returning = returning;
+        return surface;
       })(),
       ...(settlementOnly ? { settlementOnly: true } : {}),
       ...(effectContinuationInput ? { effectContinuation: effectContinuationInput } : {}),

@@ -9,7 +9,7 @@ import type {
 import type { DataClassification } from "../privacy/classification.js";
 import type { SandboxV2CapabilitySpec } from "@composer-assistant/sandbox-v2";
 import type { ThoughtSourceCurrentness } from "./thought/source-currentness.js";
-import type { HerBubbleReactionFact } from "./thought/owner-surface.js";
+import type { HerBubbleReactionFact, ReturningFacts } from "./thought/owner-surface.js";
 import type { EffectExecutionControl } from "./effect/execution-control.js";
 import type {
   SourceSupportRef,
@@ -1778,6 +1778,8 @@ export type ThoughtInput = {
   pendingForget?: readonly import("./memory/semantic-forget.js").ThoughtPendingForget[];
   /** Owner reactions on her bubbles since they were last shown (Owner-private only). */
   reactions?: readonly HerBubbleReactionFact[];
+  /** Gap and end-shape, on the Owner's return and in afterglow. */
+  returning?: ReturningFacts;
   /** Present only during an afterglow or AWAKE pass. */
   innerPass?: ThoughtInnerPass;
   /** 8d: present only during an Owner-private Domus pass; facts from the game, rebuilt from durable rows. */

@@ -167,6 +167,8 @@ export type BuildThoughtInputOptions = {
   pendingForget?: readonly import("../memory/semantic-forget.js").ThoughtPendingForget[];
   /** Owner reactions on her bubbles, already bounded by the caller. */
   reactions?: ThoughtInput["reactions"];
+  /** Gap and last-exchange end-shape, when this pass should see them. */
+  returning?: ThoughtInput["returning"];
   /** Fire-time commitment meaning and three-state evidence completeness. */
   commitmentDue?: CommitmentDueProjection;
   /** Active disclosure-license entity UUIDs already resolved by the Host. */
@@ -1290,6 +1292,7 @@ export function buildThoughtInput(options: BuildThoughtInputOptions): ThoughtInp
     ...(options.attention && audience.kind === "owner_private" && !gameOnly ? { attention: options.attention } : {}),
     ...(options.pendingForget && audience.kind === "owner_private" && !gameOnly ? { pendingForget: options.pendingForget } : {}),
     ...(options.reactions && audience.kind === "owner_private" && !gameOnly ? { reactions: options.reactions } : {}),
+    ...(options.returning && audience.kind === "owner_private" && !gameOnly ? { returning: options.returning } : {}),
     ...(options.clock === undefined ? {} : {
       clock: buildThoughtClock({
         nowMs: options.clock.nowMs,
