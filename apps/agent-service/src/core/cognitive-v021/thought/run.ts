@@ -124,6 +124,7 @@ import { resolveAttachmentObservations } from "../perception/attachments.js";
 import { buildThoughtInput, captureThoughtSourcePackage, thoughtInputContainsSecret } from "./input.js";
 import { describeFieldShape } from "./field-shape.js";
 import { parseThoughtSemanticOutput, THOUGHT_SEMANTIC_PARSER_ID } from "./parse.js";
+import { salvageSettlement } from "./salvage.js";
 import {
   concernDiscoverItemAuthorable,
   concernInspectRefsForInput,
@@ -1530,6 +1531,8 @@ export async function runThoughtModel(
     privateBudgetBinding?: PrivateBudgetDispatchBinding;
     nowMs?: number;
     concernInspectAuthority?: ConcernInspectAuthority;
+    /** Last structural attempt: prune a faulty optional part instead of failing the pass. */
+    salvageOnFailure?: boolean;
   },
 ): Promise<ThoughtInvocation> {
   const pass = options.pass ?? 1;
@@ -1743,14 +1746,28 @@ export async function runThoughtModel(
       };
     }
     const semanticReferences = new Set(semanticReferencesForInput(input));
-    const semanticResult = parseThoughtSemanticOutput(
+    const semanticParseOptions = {
+      concernInspectRefs: (options.concernInspectAuthority ?? concernInspectRefsForInput(input)).refs,
+      concernDiscoverAllowed: (options.concernInspectAuthority ?? concernInspectRefsForInput(input)).discoverAllowed === true,
+    };
+    let semanticResult = parseThoughtSemanticOutput(
       completion.text,
       semanticReferences,
-      {
-        concernInspectRefs: (options.concernInspectAuthority ?? concernInspectRefsForInput(input)).refs,
-        concernDiscoverAllowed: (options.concernInspectAuthority ?? concernInspectRefsForInput(input)).discoverAllowed === true,
-      },
+      semanticParseOptions,
     );
+    if (!semanticResult.ok && options.salvageOnFailure === true) {
+      const firstFailure = semanticResult;
+      const salvaged = salvageSettlement(completion.text, firstFailure, (candidate) =>
+        parseThoughtSemanticOutput(candidate, semanticReferences, semanticParseOptions));
+      if (salvaged.ok) {
+        const reparsed = parseThoughtSemanticOutput(salvaged.text, semanticReferences, semanticParseOptions);
+        if (reparsed.ok) {
+          console.warn(`[thought] salvaged code=${firstFailure.code} dropped=${salvaged.dropped.join(",")} model=${completion.providerModel ?? "-"}`);
+          completion = { ...completion, text: salvaged.text };
+          semanticResult = reparsed;
+        }
+      }
+    }
     if (!semanticResult.ok) {
       const diagnosticCode = semanticResult.code as ThoughtParserFailureCode;
       const shape = describeFieldShape(completion.text, semanticResult.field, semanticReferences);
@@ -3530,6 +3547,8 @@ export async function runCognitiveCycle(
     const controller = new AbortController();
     const activeThought = registerActiveThought(cycle.conversationId, cycle.cycleId, cycle.generation, controller);
     incrementThoughtAttemptCounter(sidecar, cycle.cycleId, cycle.generation, "thoughtModelAttempts");
+    const structuralRetryWouldSchedule =
+      structuralRetriesForPass < 2 && counters.thoughtModelAttempts < MAX_THOUGHT_MODEL_ATTEMPTS;
     const invocation = await runThoughtModel(allocated.projected, deps, {
       pass,
       signal: activeThought.signal,
@@ -3549,6 +3568,7 @@ export async function runCognitiveCycle(
         expectations: sourceCapture.concernInspectDependencies,
         discoverAllowed: thoughtAudience === undefined,
       },
+      salvageOnFailure: !structuralRetryWouldSchedule,
     });
     lastThoughtRequestId = invocation.requestId;
     lastThoughtPass = pass;
@@ -3659,8 +3679,7 @@ export async function runCognitiveCycle(
           field: invocation.output.kind === "failure" ? invocation.output.diagnosticField : undefined,
           allowlistedReferences: semanticReferencesForInput(allocated.projected),
         });
-      const retryScheduled =
-        structuralRetriesForPass < 2 && counters.thoughtModelAttempts < MAX_THOUGHT_MODEL_ATTEMPTS;
+      const retryScheduled = structuralRetryWouldSchedule;
       const providerFailure = invocation.providerFailureCapture
         ? {
             ...invocation.providerFailureCapture,

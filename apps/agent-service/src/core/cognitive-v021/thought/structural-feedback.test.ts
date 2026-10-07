@@ -219,4 +219,30 @@ describe("Thought structural correction scope", () => {
       speech: { mode: "draft", surfaceDraft: "Changed semantic answer." },
     })).toMatchObject({ ok: false, violation: { changedPaths: ["speech.surfaceDraft"] } });
   });
+
+  it("accepts deletion of the array element that contains the allowed repair path", () => {
+    const previous = {
+      kind: "settlement",
+      speech: { mode: "none" },
+      durableNominations: [{ memoryKind: "bad" }, { memoryKind: "good" }],
+    };
+    const feedback = createThoughtStructuralFeedback({
+      code: "wrong_type",
+      field: "durableNominations[0].memoryKind",
+      previousCandidate: previous,
+    });
+    expect(validateThoughtStructuralCorrectionScope(feedback, {
+      ...previous,
+      durableNominations: [{ memoryKind: "good" }],
+    })).toEqual({ ok: true });
+    expect(validateThoughtStructuralCorrectionScope(feedback, {
+      ...previous,
+      speech: { mode: "draft", surfaceDraft: "other" },
+      durableNominations: [{ memoryKind: "good" }],
+    }).ok).toBe(false);
+    expect(validateThoughtStructuralCorrectionScope(feedback, {
+      ...previous,
+      durableNominations: [{ memoryKind: "bad" }],
+    }).ok).toBe(false);
+  });
 });

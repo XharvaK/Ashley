@@ -195,6 +195,43 @@ function renderPath(path: readonly (string | number)[]): string {
   "");
 }
 
+function indexCoveredByAllowedRepair(
+  path: readonly (string | number)[],
+  index: number,
+  allowedPaths: readonly (readonly (string | number)[])[],
+): boolean {
+  const depth = path.length;
+  return allowedPaths.some((allowed) =>
+    allowed.length > depth
+    && allowed[depth] === index
+    && path.every((segment, at) => segment === allowed[at]));
+}
+
+/**
+ * A shorter array stays in scope when every removed index sits inside an
+ * allowed repair path and the kept elements still match in order.
+ */
+function sameJsonValue(left: unknown, right: unknown): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function keptElementsMatchAfterCoveredRemovals(
+  previous: readonly unknown[],
+  corrected: readonly unknown[],
+  path: readonly (string | number)[],
+  allowedPaths: readonly (readonly (string | number)[])[],
+): boolean {
+  let kept = 0;
+  for (let index = 0; index < previous.length; index += 1) {
+    if (kept < corrected.length && sameJsonValue(previous[index], corrected[kept])) {
+      kept += 1;
+      continue;
+    }
+    if (!indexCoveredByAllowedRepair(path, index, allowedPaths)) return false;
+  }
+  return kept === corrected.length;
+}
+
 function collectChangedPaths(
   previous: unknown,
   corrected: unknown,
@@ -206,13 +243,19 @@ function collectChangedPaths(
   if (Object.is(previous, corrected)) return;
 
   if (Array.isArray(previous) && Array.isArray(corrected)) {
-    if (previous.length !== corrected.length) {
-      changed.push(renderPath(path));
+    if (previous.length === corrected.length) {
+      for (let index = 0; index < previous.length; index += 1) {
+        collectChangedPaths(previous[index], corrected[index], [...path, index], allowedPaths, changed);
+      }
       return;
     }
-    for (let index = 0; index < previous.length; index += 1) {
-      collectChangedPaths(previous[index], corrected[index], [...path, index], allowedPaths, changed);
+    if (
+      corrected.length < previous.length
+      && keptElementsMatchAfterCoveredRemovals(previous, corrected, path, allowedPaths)
+    ) {
+      return;
     }
+    changed.push(renderPath(path));
     return;
   }
 

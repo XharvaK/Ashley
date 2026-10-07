@@ -8,7 +8,6 @@ import { MEMORY_KINDS } from "../memory/kinds.js";
 import { admitTestCycle, makeSemanticSettlement, openTestSidecar } from "../test-support.js";
 import { appendInboxEvent } from "../cycle/inbox.js";
 import { appendOwnerUtterance } from "../evidence/conversation-log.js";
-import { getCycle } from "../cycle/inbox.js";
 import { getWake } from "../wake/ledger.js";
 import { runCognitiveCycle } from "./run.js";
 import type { CapabilityReality, IdentitySlice, KernelDeps, Observation } from "../types.js";
@@ -211,7 +210,7 @@ describe("nomination MemoryKind structural boundary", () => {
     }
   });
 
-  it("fails closed on persistent invalid output without reconciling limbo", async () => {
+  it("drops a persistently invalid nomination on the last attempt without reconciling limbo", async () => {
     const sidecar = openTestSidecar();
     const attentionDb = openTestSidecar();
     try {
@@ -244,11 +243,10 @@ describe("nomination MemoryKind structural boundary", () => {
         resolvedModelId: null,
       }));
       const result = await runCognitiveCycle(sidecar, attentionDb, event, deps({ attentionDb, completeChat }));
-      expect(result.published).toBe(false);
-      expect(sidecar.prepare("SELECT COUNT(*) AS count FROM settlements").get()).toMatchObject({ count: 0 });
-      expect(sidecar.prepare("SELECT COUNT(*) AS count FROM speech_outbox").get()).toMatchObject({ count: 0 });
-      // Lawful terminal failure path: cycle silent, no reconciling limbo.
-      expect(getCycle(sidecar, cycle.cycleId)?.state).toBe("silent");
+      expect(result.published).toBe(true);
+      expect(sidecar.prepare("SELECT COUNT(*) AS count FROM settlements").get()).toMatchObject({ count: 1 });
+      expect(sidecar.prepare("SELECT COUNT(*) AS count FROM speech_outbox").get()).toMatchObject({ count: 1 });
+      expect(sidecar.prepare("SELECT COUNT(*) AS count FROM durable_nominations").get()).toMatchObject({ count: 0 });
       expect(getWake(sidecar, cycle.wakeId)?.state).not.toBe("reconciling");
       expect(sidecar.prepare("SELECT state FROM inbox_events WHERE id = ?").get(event.id)).not.toMatchObject({
         state: "reconciling",

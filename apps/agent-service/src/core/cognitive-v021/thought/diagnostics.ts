@@ -1210,6 +1210,10 @@ export class ObservabilityStore {
     const s5 = reducible ? builtS5 : null;
     // provider_returned usage columns hold no prompt text and persist in every mode.
     const usageS5 = !reducible && diag.code === "provider_returned" ? builtS5 : null;
+    // The answering model on a malformed reply is the same providerModel ?? model
+    // source as a success row, and it holds no prompt text, so it persists in every mode.
+    const modelId = s5?.modelId ?? usageS5?.modelId
+      ?? (diag.code === "parser_malformed" ? builtS5?.modelId ?? null : null);
     const stmt = this.db.prepare(`
       INSERT INTO thought_dispatch_diagnostics (
         cycle_id, generation, request_id, pass, code, stage,
@@ -1283,7 +1287,7 @@ export class ObservabilityStore {
       s5?.policyVersion ?? null,
       s5?.outputTokenLimit ?? null,
       s5?.resourcePolicyFingerprint ?? null,
-      s5?.modelId ?? usageS5?.modelId ?? null,
+      modelId,
       s5?.attemptOrdinal ?? usageS5?.attemptOrdinal ?? null,
       // Timing and finish hold no prompt text: kept in every mode, like usage.
       s5?.latencyMs ?? usageS5?.latencyMs ?? null,

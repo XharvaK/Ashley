@@ -10,6 +10,7 @@ import { admitTestCycle, makeSemanticSettlement, openTestSidecar } from "../test
 import type { CapabilityReality, KernelDeps, Observation, ThoughtInput } from "../types.js";
 import { checkAuthority as deterministicCheckAuthority } from "../authority/check.js";
 import { getThoughtAttemptCounters } from "./counters.js";
+import { initObservabilitySchema } from "./diagnostics.js";
 import { runCognitiveCycle } from "./run.js";
 import { AppError } from "../../../errors.js";
 
@@ -159,6 +160,98 @@ describe("v0.2.1 durable Thought accounting", () => {
       structuralRetries: 2,
     });
     expect(sidecar.prepare("SELECT COUNT(*) AS count FROM speech_outbox").get()).toMatchObject({ count: 0 });
+    sidecar.close();
+  });
+
+  function nomination(statement: string, memoryKind = "owner_preference") {
+    return {
+      statement,
+      memoryKind,
+      dimensions: {
+        source: "owner_utterance",
+        status: "asserted",
+        time: "historical",
+        reliability: "owner_supplied",
+      },
+      dataClassification: "ordinary",
+      sourceRefs: [] as string[],
+      supersedesRef: null,
+      concernRef: null,
+    };
+  }
+
+  function reply(overrides: Record<string, unknown>, providerModel = "model:ha3b-test") {
+    return {
+      text: JSON.stringify(makeSemanticSettlement({
+        speech: { mode: "draft", surfaceDraft: "kept line", mustSay: ["kept line"] },
+        ...overrides,
+      })),
+      model: "fake",
+      modelAlias: "thought",
+      providerModel,
+      resolvedModelId: null,
+    };
+  }
+
+  it("settles the last attempt when one nomination entry stays malformed", async () => {
+    const { sidecar, cycle, event } = setup();
+    const completeChat = vi.fn(async () => reply({
+      durableNominations: [
+        nomination("kept fact"),
+        nomination("bad fact", "not-a-kind"),
+      ],
+    }));
+    const result = await runCognitiveCycle(sidecar, sidecar, event, deps(sidecar, completeChat));
+    expect(completeChat).toHaveBeenCalledTimes(3);
+    expect(result).toMatchObject({ published: true, thoughtModelAttempts: 3, acceptedThoughtPasses: 1 });
+    expect(getThoughtAttemptCounters(sidecar, cycle.cycleId, cycle.generation)).toMatchObject({
+      structuralRetries: 2,
+    });
+    expect(sidecar.prepare("SELECT COUNT(*) AS count FROM speech_outbox").get()).toMatchObject({ count: 1 });
+    const statements = (sidecar.prepare("SELECT statement FROM durable_nominations").all() as Array<{ statement: string }>)
+      .map((row) => row.statement);
+    expect(statements).toEqual(["kept fact"]);
+    const payload = sidecar.prepare("SELECT payload_json FROM settlements").get() as { payload_json: string };
+    expect(payload.payload_json).toContain("kept line");
+    expect(payload.payload_json).not.toContain("bad fact");
+    sidecar.close();
+  });
+
+  it("still exhausts when speech stays malformed through every retry", async () => {
+    const { sidecar, event } = setup();
+    const completeChat = vi.fn(async () => reply({ speech: { mode: "draft" } }));
+    const result = await runCognitiveCycle(sidecar, sidecar, event, deps(sidecar, completeChat));
+    expect(completeChat).toHaveBeenCalledTimes(3);
+    expect(result).toMatchObject({ published: false, infrastructureNotice: null });
+    expect(sidecar.prepare("SELECT COUNT(*) AS count FROM speech_outbox").get()).toMatchObject({ count: 0 });
+    const ledger = sidecar.prepare("SELECT payload_json FROM causal_ledger").get() as { payload_json: string };
+    expect(JSON.parse(ledger.payload_json).thoughtTerminal).toMatchObject({ family: "structural_exhausted" });
+    sidecar.close();
+  });
+
+  it("retries the first malformed attempt and records the model on that diagnostic", async () => {
+    const { sidecar, cycle, event } = setup();
+    const obsDb = new DatabaseSync(":memory:");
+    initObservabilitySchema(obsDb);
+    let calls = 0;
+    const completeChat = vi.fn(async () => {
+      calls += 1;
+      return calls === 1
+        ? reply({ durableNominations: [nomination("kept fact", "not-a-kind")] })
+        : reply({ durableNominations: [nomination("kept fact")] });
+    });
+    const result = await runCognitiveCycle(sidecar, sidecar, event, deps(sidecar, completeChat, { observabilityDb: obsDb }));
+    expect(calls).toBe(2);
+    expect(result).toMatchObject({ published: true, thoughtModelAttempts: 2 });
+    expect(getThoughtAttemptCounters(sidecar, cycle.cycleId, cycle.generation)).toMatchObject({
+      structuralRetries: 1,
+    });
+    const malformed = obsDb.prepare(
+      "SELECT model_id, code FROM thought_dispatch_diagnostics WHERE code = 'parser_malformed'",
+    ).all() as Array<{ model_id: string | null; code: string }>;
+    expect(malformed).toHaveLength(1);
+    expect(malformed[0]?.model_id).toBe("model:ha3b-test");
+    obsDb.close();
     sidecar.close();
   });
 
