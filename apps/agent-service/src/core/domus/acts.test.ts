@@ -143,24 +143,58 @@ describe("8f the helper round trip", () => {
 });
 
 describe("H0.5 her short plans", () => {
-  const sync = (db: DatabaseSync, events: Array<{ actId: string; phase: "pushed" | "finished" | "rejected" }>, nowMs: number, helperSession = "helper-a") =>
+  const sync = (db: DatabaseSync, events: Array<{ actId: string; phase: "pushed" | "finished" | "rejected"; detail?: Record<string, unknown> }>, nowMs: number, helperSession = "helper-a") =>
     syncDomusActs(db, { helperSession, events: events.map(item => ({ ...item, atMs: nowMs })), nowMs });
 
-  it("runs a plan of three end to end: each step starts in the round trip that reports the one before finished", () => {
+  it("runs a plan of three end to end: each step starts when the one before completed", () => {
     const db = openTestSidecar();
     const { actId } = act(db, "a1", "cycle-1", NOW, ["a2", "a3"]);
+    const done = { finishing_type: "NATURAL" };
     const first = sync(db, [], NOW + 1);
     expect(first.acts.map(item => item.act_id)).toEqual([actId]);
     expect(first.planned).toBe(2);
     expect(sync(db, [{ actId, phase: "pushed" }], NOW + 2)).toMatchObject({ acts: [], planned: 2 });
-    const second = sync(db, [{ actId, phase: "finished" }], NOW + 3);
+    const second = sync(db, [{ actId, phase: "finished", detail: done }], NOW + 3);
     expect(second.acts.map(item => [item.object_id, item.guid64])).toEqual([["1002", "14001"]]);
     expect(second.planned).toBe(1);
-    const third = sync(db, [{ actId: second.acts[0]!.act_id, phase: "finished" }], NOW + 4);
+    const third = sync(db, [{ actId: second.acts[0]!.act_id, phase: "finished", detail: done }], NOW + 4);
     expect(third.acts.map(item => item.guid64)).toEqual(["14002"]);
     expect(third.planned).toBe(0);
-    sync(db, [{ actId: third.acts[0]!.act_id, phase: "finished" }], NOW + 5);
+    sync(db, [{ actId: third.acts[0]!.act_id, phase: "finished", detail: done }], NOW + 5);
     expect(recentDomusActs(db, "slot8", NOW + 6).map(item => [item.option, item.state])).toEqual([["a1", "finished"], ["a2", "finished"], ["a3", "finished"]]);
+  });
+
+  it("drops the rest of a plan when the game cuts the first act short, and requests nothing", () => {
+    const db = openTestSidecar();
+    const { actId } = act(db, "a1", "cycle-1", NOW, ["a2", "a3"]);
+    sync(db, [], NOW + 1);
+    const result = sync(db, [{ actId, phase: "finished", detail: { finishing_type: "FinishingType.INTERACTION_INCOMPATIBILITY" } }], NOW + 2);
+    expect(result).toMatchObject({ acts: [], planned: 0 });
+    const recent = recentDomusActs(db, "slot8", NOW + 3);
+    expect(recent.map(item => [item.option, item.state, item.detail?.reason])).toEqual([
+      ["a1", "finished", undefined], ["a2", "dropped", "after_cut_short"], ["a3", "dropped", "after_cut_short"]]);
+    const stored = db.prepare("SELECT detail_json FROM domus_act_events WHERE act_id = ? AND phase = 'finished'").get(actId) as { detail_json: string };
+    expect(JSON.parse(stored.detail_json)).toEqual({ finishing_type: "FinishingType.INTERACTION_INCOMPATIBILITY" });
+  });
+
+  it("releases the next step when the first act completed, and when it opened or answered the game's question", () => {
+    for (const finishing_type of ["NATURAL", "ASKED", "ANSWERED"]) {
+      const db = openTestSidecar();
+      const { actId } = act(db, "a1", "cycle-1", NOW, ["a2"]);
+      sync(db, [], NOW + 1);
+      const released = sync(db, [{ actId, phase: "finished", detail: { finishing_type } }], NOW + 2);
+      expect(released.acts.map(item => item.guid64)).toEqual(["14001"]);
+      expect(released.planned).toBe(0);
+    }
+  });
+
+  it("treats a finished act with no ending as cut short and ends the plan", () => {
+    const db = openTestSidecar();
+    const { actId } = act(db, "a1", "cycle-1", NOW, ["a2", "a3"]);
+    sync(db, [], NOW + 1);
+    expect(sync(db, [{ actId, phase: "finished" }], NOW + 2)).toMatchObject({ acts: [], planned: 0 });
+    expect(recentDomusActs(db, "slot8", NOW + 3).map(item => [item.option, item.state, item.detail?.reason])).toEqual([
+      ["a1", "finished", undefined], ["a2", "dropped", "after_cut_short"], ["a3", "dropped", "after_cut_short"]]);
   });
 
   it("ends a plan where the game refused a step, and shows her why", () => {
@@ -228,6 +262,22 @@ describe("8f what she reads back", () => {
     expect(recent.map(item => [item.option, item.state])).toEqual([["a1", "rejected"], ["a9", "invalid"]]);
     expect(recent[0]!.detail).toEqual({ reason: "BODY_UNAVAILABLE" });
     expect(recentDomusActs(db, "slot0", NOW)).toEqual([]);
+  });
+
+  it("shows a finished act as completed or cut short, and not the raw finishing type", () => {
+    const db = openTestSidecar();
+    const cut = act(db, "a1", "cycle-1", NOW - 2000);
+    const done = act(db, "a2", "cycle-2", NOW - 1000);
+    syncDomusActs(db, { helperSession: "helper-a", events: [
+      { actId: cut.actId, phase: "finished", atMs: NOW, detail: { finishing_type: "INTERACTION_INCOMPATIBILITY", interaction_id: "kept" } },
+      { actId: done.actId, phase: "finished", atMs: NOW, detail: { finishing_type: "NATURAL", interaction_id: "kept" } },
+    ], nowMs: NOW });
+    const recent = recentDomusActs(db, "slot8", NOW);
+    expect(recent.find(item => item.option === "a1")!.detail).toEqual({
+      interaction_id: "kept", ended: "cut_short", why: "something the game had to do first took its place",
+    });
+    expect(recent.find(item => item.option === "a2")!.detail).toEqual({ interaction_id: "kept", ended: "completed" });
+    expect(JSON.stringify(recent)).not.toContain("finishing_type");
   });
 
   it("carries options and acts into her Domus pass only when acting is on", () => {

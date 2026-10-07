@@ -61,7 +61,8 @@ const DENY_TABLES = [
 const INBOX_WAKE_TABLES = ["inbox_events", "wakes", "wake_legacy_quarantine", "wakes_v12"];
 
 // growing it requires keeping the deny checks green and an Architect-reviewed reason
-const MAX_INGRESS_CLOSURE = 8;
+// 2026-10-07: endings.ts, the plain reading of a finished act, reached from acts.ts and feed.ts
+const MAX_INGRESS_CLOSURE = 9;
 
 const SQL_DENY = new RegExp(
   `\\b(INSERT(\\s+OR\\s+\\w+)?\\s+INTO|UPDATE|DELETE\\s+FROM|REPLACE\\s+INTO)\\s+["\`]?(${DENY_TABLES.join("|")})["\`]?\\b`,

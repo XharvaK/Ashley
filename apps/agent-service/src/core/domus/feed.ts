@@ -4,6 +4,7 @@
 // in the feed, whatever it wrote. A line the Host cannot show (not ordinary, or naming someone she
 // knows from Discord, a handle, an id or a link) is held: the pass is listed, its words are not.
 import type { DatabaseSync } from "node:sqlite";
+import { endingOf } from "./endings.js";
 import { DOMUS_GAME_ONLY } from "./lane.js";
 
 /** The feed lists this many passes, from this far back. */
@@ -57,9 +58,14 @@ function detailOf(json: unknown): Row {
   } catch { return {}; }
 }
 
-/** How an act ended or why it did not run, in the game's own words where it gave some. */
+/** How an act ended in plain words, or why it did not run, in the game's own words where it gave some. */
 function howOf(state: string, detail: Row): string | undefined {
-  for (const key of state === "finished" ? ["finishing_type"] : ["code", "detail"]) {
+  if (state === "finished") {
+    const ending = endingOf(detail.finishing_type);
+    const shown = ending.ended === "completed" ? "completed" : (ending.why ?? ending.ended);
+    return shown.slice(0, 80);
+  }
+  for (const key of ["code", "detail"]) {
     const value = detail[key];
     if (typeof value === "string" && value) return value.slice(0, 80);
   }

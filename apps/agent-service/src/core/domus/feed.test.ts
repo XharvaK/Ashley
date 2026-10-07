@@ -73,8 +73,34 @@ describe("E3 the overlay feed", () => {
       step.run(1, "Play (Piano)", "released", "act2", null);
       step.run(2, "Read (Book)", "dropped", null, "woken_by:env:asked");
       const [item] = domusFeed(db, { helperSession: "helper-a", nowMs: NOW });
-      expect(item!.act).toEqual({ label: "Cook (Stove)", state: "finished", how: "NATURAL" });
+      expect(item!.act).toEqual({ label: "Cook (Stove)", state: "finished", how: "completed" });
       expect(item!.plan).toEqual([{ label: "Play (Piano)", state: "pushed" }, { label: "Read (Book)", state: "dropped", reason: "woken_by:env:asked" }]);
+    } finally { db.close(); }
+  });
+
+  it("shows a finished act as completed, or the plain why when the game cut it short or asked", () => {
+    const db = openTestSidecar();
+    try {
+      pass(db, { cycle: "c1", at: NOW - 4000, entry: "One." });
+      pass(db, { cycle: "c2", at: NOW - 3000, entry: "Two." });
+      pass(db, { cycle: "c3", at: NOW - 2000, entry: "Three." });
+      pass(db, { cycle: "c4", at: NOW - 1000, entry: "Four." });
+      act(db, "c1", "act1", "Sit (Chair)", "finished");
+      act(db, "c2", "act2", "Mend (Fence)", "finished");
+      act(db, "c3", "act3", "Choose (Board)", "finished");
+      act(db, "c4", "act4", "Nope (Door)", "rejected");
+      const event = db.prepare(`INSERT INTO domus_act_events (act_id, phase, at_ms, received_at_ms, detail_json) VALUES (?, ?, ?, ?, ?)`);
+      event.run("act1", "finished", NOW, NOW, JSON.stringify({ finishing_type: "NATURAL" }));
+      event.run("act2", "finished", NOW, NOW, JSON.stringify({ finishing_type: "DISPLACED" }));
+      event.run("act3", "finished", NOW, NOW, JSON.stringify({ finishing_type: "ASKED" }));
+      event.run("act4", "rejected", NOW, NOW, JSON.stringify({ code: "BODY_UNAVAILABLE" }));
+      const items = domusFeed(db, { helperSession: "helper-a", nowMs: NOW });
+      expect(items.map(item => item.act?.how)).toEqual([
+        "completed",
+        "another action replaced it",
+        "it opened the game's question; answering it is what starts the action",
+        "BODY_UNAVAILABLE",
+      ]);
     } finally { db.close(); }
   });
 
