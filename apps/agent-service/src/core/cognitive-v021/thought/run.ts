@@ -145,7 +145,9 @@ import { routeProjectInspectionRequest } from "../operation/project-inspection-r
 import {
   thoughtOutputStructuredRequest,
   thoughtContractProfile,
+  thoughtContractProfileKey,
 } from "./output-contract.js";
+import { createPrefixMeter } from "./prefix-meter.js";
 import {
   ProjectionCache,
   semanticPassKey,
@@ -1493,6 +1495,36 @@ function semanticReferenceTargetsForInput(
   return targets;
 }
 
+const thoughtPrefixMeter = createPrefixMeter();
+
+function thoughtPrefixMeterEnabled(): boolean {
+  const raw = process.env.ASHLEY_THOUGHT_PREFIX_METER?.trim().toLowerCase();
+  return raw !== "0" && raw !== "false";
+}
+
+function recordThoughtPrefix(
+  input: ThoughtInput | ProjectedThoughtInput,
+  messages: ChatMessage[] | undefined,
+): void {
+  try {
+    if (!thoughtPrefixMeterEnabled() || messages === undefined) return;
+    let profileKey = "unknown";
+    try {
+      profileKey = thoughtContractProfileKey(thoughtContractProfile(input));
+    } catch {
+      profileKey = "unknown";
+    }
+    if (profileKey.length === 0) profileKey = "unknown";
+    const report = thoughtPrefixMeter.observe(profileKey, messages);
+    if (!report) return;
+    const breakPath = report.breakPath.replace(/[\r\n]/g, "");
+    const profile = profileKey.replace(/[\r\n]/g, "");
+    console.log(`[thought] prefix profile=${profile} stable=${report.stableBytes}/${report.totalBytes} prev=${report.previousTotalBytes} break=${report.breakMessage}:${breakPath}`);
+  } catch {
+    // Measurement must not affect dispatch.
+  }
+}
+
 function operationalNamespaceForThoughtInput(
   input: ThoughtInput | ProjectedThoughtInput,
 ) {
@@ -1607,6 +1639,7 @@ export async function runThoughtModel(
       });
       dispatchMessagesHash = computeDispatchMessagesHash(messages);
     }
+    recordThoughtPrefix(input, messages);
     if (semanticProjectionHash && dispatchMessagesHash) {
       dispatchOptions.projectionIdentity = {
         semanticProjectionHash,
