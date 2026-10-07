@@ -2,11 +2,15 @@
 // pass she read; the Host resolves it from that durable row (no matcher), keeps it as a requested
 // act, and the helper pulls it. What happened comes back as append-only events: the helper received
 // it, the probe accepted or rejected it, the game ran it and how it finished, or nobody knows.
+// A finished act is read as completed or cut short (with why); the stored event keeps the game's
+// finishing type.
 // H0.5: she may plan up to two more acts after the first (`then`). Each waits until the one before
-// finished and is then requested like any act; a refusal or an unknown ends the plan, a wake (someone
-// arrives, the game asks, a need drops) drops the rest, and a new choice replaces it.
+// completed, or handed over to a game question, and is then requested like any act; a refusal, an
+// unknown, or an act cut short ends the plan, a wake (someone arrives, the game asks, a need drops)
+// drops the rest, and a new choice replaces it.
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
+import { endingOf } from "./endings.js";
 
 /** A requested act not picked up by its helper within this time expires; the game never sees it. */
 export const DOMUS_ACT_TTL_MS = 90_000;
@@ -155,36 +159,63 @@ export function interruptDomusPlans(db: DatabaseSync, input: { attachment: strin
   return dropPlannedSteps(db, { attachment: input.attachment, reason: `woken_by:${what}`, nowMs: input.nowMs });
 }
 
-/** Release the next step of each plan whose previous act finished; a plan whose previous act failed ends there. */
+/** Release the next step when the previous act completed, or handed the game a question; an act cut short ends the plan. */
 function releasePlanSteps(db: DatabaseSync, helperSession: string, nowMs: number): void {
   const steps = db.prepare(`SELECT s.plan_id, s.step, s.option_ref, s.object_id, s.guid64, s.label, a.cycle_id, a.world,
     a.attachment, a.observation_id FROM domus_plan_steps s JOIN domus_acts a ON a.act_id = s.plan_id
     WHERE s.attachment = ? AND s.state = 'planned' ORDER BY s.plan_id, s.step`).all(helperSession) as Row[];
-  const previous = db.prepare(`SELECT a.state FROM domus_plan_steps s JOIN domus_acts a ON a.act_id = s.act_id
+  const previous = db.prepare(`SELECT a.act_id, a.state FROM domus_plan_steps s JOIN domus_acts a ON a.act_id = s.act_id
     WHERE s.plan_id = ? AND s.step = ?`);
-  const head = db.prepare("SELECT state FROM domus_acts WHERE act_id = ?");
+  const head = db.prepare("SELECT act_id, state FROM domus_acts WHERE act_id = ?");
   const prevStep = db.prepare("SELECT state FROM domus_plan_steps WHERE plan_id = ? AND step = ?");
+  const finished = db.prepare("SELECT detail_json FROM domus_act_events WHERE act_id = ? AND phase = 'finished' ORDER BY at_ms DESC LIMIT 1");
   const insert = db.prepare(`INSERT INTO domus_acts (act_id, cycle_id, world, attachment, observation_id, option_ref, object_id,
     guid64, label, state, requested_at_ms, expires_at_ms, updated_at_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'requested', ?, ?, ?)`);
   const mark = db.prepare("UPDATE domus_plan_steps SET state = ?, act_id = ?, reason = ?, updated_at_ms = ? WHERE plan_id = ? AND step = ?");
+  const cutShort = new Set<string>();
+  const endingOfFinished = (actId: string | undefined) => {
+    if (!actId) return endingOf(undefined);
+    const row = finished.get(actId) as Row | undefined;
+    if (!row) return endingOf(undefined);
+    try {
+      const parsed = JSON.parse(String(row.detail_json)) as { finishing_type?: unknown };
+      return endingOf(parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed.finishing_type : undefined);
+    } catch { return endingOf(undefined); }
+  };
   for (const row of steps) {
     const planId = String(row.plan_id);
     const step = Number(row.step);
+    if (cutShort.has(planId)) {
+      mark.run("dropped", null, "after_cut_short", nowMs, planId, step);
+      continue;
+    }
     let before: string | undefined;
-    if (step === 1) before = (head.get(planId) as Row | undefined)?.state as string | undefined;
-    else {
+    let beforeId: string | undefined;
+    if (step === 1) {
+      const ran = head.get(planId) as Row | undefined;
+      before = ran?.state as string | undefined;
+      beforeId = ran ? String(ran.act_id) : undefined;
+    } else {
       const stepState = (prevStep.get(planId, step - 1) as Row | undefined)?.state;
       if (stepState !== "released") {
         if (stepState === "dropped" || stepState === "invalid") mark.run("dropped", null, `after_${String(stepState)}`, nowMs, planId, step);
         continue;
       }
-      before = (previous.get(planId, step - 1) as Row | undefined)?.state as string | undefined;
+      const ran = previous.get(planId, step - 1) as Row | undefined;
+      before = ran?.state as string | undefined;
+      beforeId = ran?.act_id ? String(ran.act_id) : undefined;
     }
     if (before === "finished") {
-      const actId = randomUUID().replaceAll("-", "");
-      insert.run(actId, `${String(row.cycle_id)}:step${step}`, String(row.world), String(row.attachment), String(row.observation_id), String(row.option_ref),
-        row.object_id as string | null, row.guid64 as string | null, String(row.label), nowMs, nowMs + DOMUS_ACT_TTL_MS, nowMs);
-      mark.run("released", actId, null, nowMs, planId, step);
+      const ending = endingOfFinished(beforeId);
+      if (ending.ended === "completed" || ending.ended === "asked" || ending.ended === "answered") {
+        const actId = randomUUID().replaceAll("-", "");
+        insert.run(actId, `${String(row.cycle_id)}:step${step}`, String(row.world), String(row.attachment), String(row.observation_id), String(row.option_ref),
+          row.object_id as string | null, row.guid64 as string | null, String(row.label), nowMs, nowMs + DOMUS_ACT_TTL_MS, nowMs);
+        mark.run("released", actId, null, nowMs, planId, step);
+      } else {
+        cutShort.add(planId);
+        mark.run("dropped", null, "after_cut_short", nowMs, planId, step);
+      }
     } else if (before !== undefined && TERMINAL.has(before)) {
       mark.run("dropped", null, `after_${before}`, nowMs, planId, step);
     }
@@ -260,6 +291,13 @@ export function recentDomusActs(db: DatabaseSync, world: string, nowMs: number):
       const parsed = found ? JSON.parse(String(found.detail_json)) as Record<string, unknown> : {};
       if (Object.keys(parsed).length) extra = parsed;
     } catch { /* no detail */ }
+    if (String(row.state) === "finished") {
+      const rest = { ...(extra ?? {}) };
+      const finishingType = rest.finishing_type;
+      delete rest.finishing_type;
+      const ending = endingOf(finishingType);
+      extra = { ...rest, ended: ending.ended, ...(ending.why ? { why: ending.why } : {}) };
+    }
     return {
       option: String(row.option_ref), label: String(row.label), state: String(row.state),
       requestedAtMs: Number(row.requested_at_ms), updatedAtMs: Number(row.updated_at_ms), ...(extra ? { detail: extra } : {}),
