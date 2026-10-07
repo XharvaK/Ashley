@@ -1,6 +1,6 @@
 import { configurePrivateBudgetFixture } from "../private-budget/__tests__/configured-policy.js";
 import { describe, expect, it, vi } from "vitest";
-import { appendInboxEvent, getCycle, updateCycleState } from "./inbox.js";
+import { appendInboxEvent, getCycle, getInboxEvent, updateCycleState } from "./inbox.js";
 import { admitWake } from "../wake/ledger.js";
 import { putInFlight } from "../effect/in-flight.js";
 import { appendAshleyEvidence, appendOwnerUtterance } from "../evidence/conversation-log.js";
@@ -10,13 +10,15 @@ import {
   consumeInboxEvent,
   consumeNextInboxEvent,
   startInboxConsumer,
+  MAX_OWNER_THOUGHT_HOLD_MS,
+  OWNER_THOUGHT_HOLD_RENEW_MS,
   STEADY_STATE_RECONCILIATION_MAX_INVOCATION_GAP_MS,
   STEADY_STATE_RECONCILIATION_OPPORTUNISTIC_FLOOR_MS,
   STEADY_STATE_RECONCILIATION_BATCH_LIMIT,
 } from "./inbox-consumer.js";
 import { PERIODIC_RECOVERY_DISPATCH_BLOCKED } from "../dispatch/live.js";
-import { startDurableAttempt, settleDurableAttempt } from "../retry/ledger.js";
-import { captureOwnerDispatchCoverage } from "./owner-coverage.js";
+import { DURABLE_WORK_COORDINATION_LEASE_MS, recoverDurableWork, startDurableAttempt, settleDurableAttempt } from "../retry/ledger.js";
+import { assessOwnerAnswerHold, captureOwnerDispatchCoverage } from "./owner-coverage.js";
 import { insertOutboxPending } from "../speech/outbox.js";
 import { reconcileStrandedOutcomeUnknownAtStartup } from "../retry/startup-outcome-recovery.js";
 import { reservePrivateThought, releasePrivateReservation } from "../private-budget/ledger.js";
@@ -891,6 +893,221 @@ describe("one Owner message gets one answer", () => {
       expect(settled).toMatchObject({ kind: "terminal", reason: "stale" });
       expect(db.prepare("SELECT COUNT(*) AS count FROM speech_outbox").get()).toMatchObject({ count: 1 });
       expect(warn).toHaveBeenCalledWith("[cycle] superseded event=event:owner by=domus_notification");
+    } finally {
+      warn.mockRestore();
+      db.close();
+    }
+  });
+
+  function claimOwner(db: ReturnType<typeof openTestSidecar>, tag: string, nowMs: number) {
+    const conversationId = `conversation:${tag}`;
+    const cycleId = `cycle:${tag}`;
+    const admitted = admitWake(db, {
+      occurrenceId: `occurrence:${tag}`,
+      triggerRef: `trigger:${tag}`,
+      sourceKind: "inbox",
+      conversationId,
+      cycleId,
+      generation: 1,
+      capturedAuthorityRevision: 1,
+      nowMs,
+    });
+    if (admitted.kind !== "created" && admitted.kind !== "existing") throw new Error("wake");
+    appendInboxEvent(db, {
+      id: `event:${tag}`,
+      wakeId: admitted.wake.wakeId,
+      conversationId,
+      kind: "owner_message",
+      payload: { cycleId, evidenceRowId: `evidence:${tag}` },
+      createdAtMs: nowMs,
+    });
+    const started = startDurableAttempt(db, { eventId: `event:${tag}`, workerId: "chat", nowMs });
+    const claimed = getInboxEvent(db, `event:${tag}`);
+    if (!claimed) throw new Error("claim missing");
+    return {
+      conversationId,
+      cycleId,
+      started,
+      event: { ...claimed, durableAttemptId: started.attemptId, claimToken: started.claimToken },
+    };
+  }
+
+  function holdLogs(warn: { mock: { calls: unknown[][] } }): string[] {
+    return warn.mock.calls
+      .map((call) => String(call[0]))
+      .filter((line) => line.includes("hold released"));
+  }
+
+  async function withFrozenClock(nowMs: number, run: () => Promise<void>): Promise<void> {
+    vi.useFakeTimers();
+    vi.setSystemTime(nowMs);
+    try {
+      await run();
+    } finally {
+      vi.useRealTimers();
+    }
+  }
+
+  it("keeps the claim and publishes when the pass outlives the coordination lease", async () => {
+    const db = openTestSidecar();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const startedAt = 1_700_000_000_000;
+    try {
+      await withFrozenClock(startedAt, async () => {
+        const claimed = claimOwner(db, "long-thought", startedAt);
+        let release!: () => void;
+        const gate = new Promise<void>((resolve) => { release = resolve; });
+        const timersAtStart = vi.getTimerCount();
+        const pending = consumeInboxEvent(db, claimed.event, async () => {
+          await gate;
+          expect(assessOwnerAnswerHold(db, claimed.event)).toBeNull();
+          recoverDurableWork(db, Date.now());
+          expect(assessOwnerAnswerHold(db, claimed.event)).toBeNull();
+          const inbox = db.prepare(
+            "SELECT claim_token, lease_expires_at_ms FROM inbox_events WHERE id = ?",
+          ).get(claimed.event.id) as { claim_token: string; lease_expires_at_ms: number };
+          const wake = db.prepare(
+            "SELECT lease_token, lease_expires_at_ms FROM wakes WHERE wake_id = ?",
+          ).get(claimed.event.wakeId) as { lease_token: string; lease_expires_at_ms: number };
+          expect(inbox.claim_token).toBe(claimed.started.claimToken);
+          expect(wake.lease_token).toBe(claimed.started.claimToken);
+          expect(inbox.lease_expires_at_ms).toBeGreaterThan(startedAt + DURABLE_WORK_COORDINATION_LEASE_MS);
+          expect(wake.lease_expires_at_ms).toBe(inbox.lease_expires_at_ms);
+          expect(inbox.lease_expires_at_ms).toBeGreaterThan(Date.now());
+          insertOutboxPending(db, {
+            settlementId: "settlement:long-thought",
+            cycleId: claimed.cycleId,
+            generation: 1,
+            conversationId: claimed.conversationId,
+            licensedText: "still with you",
+          });
+          return publishedResult({
+            attemptOutcome: "published",
+            ownerObligationOutcome: "resolved",
+            primaryEventId: claimed.event.id,
+            coveredOwnerEventIds: [claimed.event.id],
+            uncoveredOwnerEventIds: [],
+            coverageHash: "coverage",
+            semanticCommitment: null,
+            settlementId: "settlement:long-thought",
+            successorIdentity: null,
+            remainingResponsibility: null,
+            deliveryDisposition: "handed_to_delivery",
+          });
+        }, startedAt);
+        await vi.advanceTimersByTimeAsync(DURABLE_WORK_COORDINATION_LEASE_MS + 10_000);
+        release();
+        await expect(pending).resolves.toEqual({ kind: "completed" });
+        expect(db.prepare("SELECT COUNT(*) AS count FROM speech_outbox").get()).toMatchObject({ count: 1 });
+        expect(db.prepare("SELECT state FROM inbox_events WHERE id = ?").get(claimed.event.id)).toMatchObject({
+          state: "terminal",
+        });
+        expect(holdLogs(warn)).toEqual([]);
+        expect(vi.getTimerCount()).toBe(timersAtStart);
+        await vi.advanceTimersByTimeAsync(OWNER_THOUGHT_HOLD_RENEW_MS);
+        expect(vi.getTimerCount()).toBe(timersAtStart);
+        expect(holdLogs(warn)).toEqual([]);
+      });
+    } finally {
+      warn.mockRestore();
+      db.close();
+    }
+  });
+
+  it("stops renewing when the pass settles", async () => {
+    const db = openTestSidecar();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const startedAt = 1_700_000_100_000;
+    try {
+      await withFrozenClock(startedAt, async () => {
+        const claimed = claimOwner(db, "settled-hold", startedAt);
+        let release!: () => void;
+        const gate = new Promise<void>((resolve) => { release = resolve; });
+        const timersAtStart = vi.getTimerCount();
+        const pending = consumeInboxEvent(db, claimed.event, async () => {
+          await gate;
+          return publishedResult({
+            attemptOutcome: "published",
+            ownerObligationOutcome: "resolved",
+            primaryEventId: claimed.event.id,
+            coveredOwnerEventIds: [claimed.event.id],
+            uncoveredOwnerEventIds: [],
+            coverageHash: "coverage",
+            semanticCommitment: null,
+            settlementId: null,
+            successorIdentity: null,
+            remainingResponsibility: null,
+            deliveryDisposition: "handed_to_delivery",
+          });
+        }, startedAt);
+        await vi.advanceTimersByTimeAsync(OWNER_THOUGHT_HOLD_RENEW_MS * 2);
+        const extended = db.prepare(
+          "SELECT lease_expires_at_ms FROM inbox_events WHERE id = ?",
+        ).get(claimed.event.id) as { lease_expires_at_ms: number };
+        expect(extended.lease_expires_at_ms).toBeGreaterThan(startedAt + DURABLE_WORK_COORDINATION_LEASE_MS);
+        release();
+        await expect(pending).resolves.toEqual({ kind: "completed" });
+        expect(vi.getTimerCount()).toBe(timersAtStart);
+        await vi.advanceTimersByTimeAsync(MAX_OWNER_THOUGHT_HOLD_MS);
+        expect(vi.getTimerCount()).toBe(timersAtStart);
+        expect(holdLogs(warn)).toEqual([]);
+        expect(db.prepare("SELECT state, claim_token FROM inbox_events WHERE id = ?").get(claimed.event.id)).toMatchObject({
+          state: "terminal",
+          claim_token: null,
+        });
+      });
+    } finally {
+      warn.mockRestore();
+      db.close();
+    }
+  });
+
+  it("releases the hold at the twenty minute ceiling and the fence treats it as lost", async () => {
+    const db = openTestSidecar();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const startedAt = 1_700_000_200_000;
+    try {
+      await withFrozenClock(startedAt, async () => {
+        const claimed = claimOwner(db, "ceiling-hold", startedAt);
+        let release!: () => void;
+        const gate = new Promise<void>((resolve) => { release = resolve; });
+        const pending = consumeInboxEvent(db, claimed.event, async () => {
+          await gate;
+          expect(assessOwnerAnswerHold(db, claimed.event)).toEqual({
+            kind: "attempt_lost",
+            eventId: claimed.event.id,
+          });
+          return publishedResult({
+            attemptOutcome: "published",
+            ownerObligationOutcome: "resolved",
+            primaryEventId: claimed.event.id,
+            coveredOwnerEventIds: [claimed.event.id],
+            uncoveredOwnerEventIds: [],
+            coverageHash: "coverage",
+            semanticCommitment: null,
+            settlementId: "settlement:ceiling",
+            successorIdentity: null,
+            remainingResponsibility: null,
+            deliveryDisposition: "handed_to_delivery",
+          });
+        }, startedAt);
+        await vi.advanceTimersByTimeAsync(MAX_OWNER_THOUGHT_HOLD_MS);
+        expect(holdLogs(warn)).toEqual([
+          `[cycle] hold released event=${claimed.event.id} reason=ceiling`,
+        ]);
+        release();
+        const settled = await pending;
+        expect(settled.kind).not.toBe("completed");
+        expect(db.prepare("SELECT COUNT(*) AS count FROM speech_outbox").get()).toMatchObject({ count: 0 });
+        expect(assessOwnerAnswerHold(db, claimed.event)).toEqual({
+          kind: "attempt_lost",
+          eventId: claimed.event.id,
+        });
+        await vi.advanceTimersByTimeAsync(OWNER_THOUGHT_HOLD_RENEW_MS);
+        expect(holdLogs(warn)).toEqual([
+          `[cycle] hold released event=${claimed.event.id} reason=ceiling`,
+        ]);
+      });
     } finally {
       warn.mockRestore();
       db.close();
