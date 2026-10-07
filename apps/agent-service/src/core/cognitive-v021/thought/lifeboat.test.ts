@@ -317,7 +317,7 @@ describe("HA2 provider lifeboat", () => {
       const first = await pass({ cycleId: "cycle-circuit-open", nowMs: () => now });
       expect(seen.map((item) => item.modelId)).toEqual([MUSE, FLASH]);
       expect(first.invocation.lifeboat?.primaryFailureClass).not.toBe("circuit_open");
-      expect(warns).toContain(`[thought] circuit open model=${MUSE} for=10m`);
+      expect(warns).toContain(`[thought] circuit open model=${MUSE} for=10m streak=1`);
 
       seen.length = 0;
       const second = await pass({ cycleId: "cycle-circuit-skip", nowMs: () => now, observe: true });
