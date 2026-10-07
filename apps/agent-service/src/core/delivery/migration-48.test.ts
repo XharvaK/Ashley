@@ -6,7 +6,7 @@ describe("nuclear v48 commitment identity migration", () => {
   it("adds nullable reservation identity columns and remains idempotent", () => {
     const db = openNuclearDb(new DatabaseSync(":memory:"));
     try {
-      expect(NUCLEAR_SUPPORTED_VERSION).toBe(56);
+      expect(NUCLEAR_SUPPORTED_VERSION).toBe(57);
       expect(nuclearSchemaVersion(db)).toBe(NUCLEAR_SUPPORTED_VERSION);
       expect(db.prepare("PRAGMA table_info(delivery_reservations)").all()).toEqual(expect.arrayContaining([
         expect.objectContaining({ name: "commitment_id" }),

@@ -13,8 +13,8 @@ describe("nuclear v55 C4 retirement", () => {
   it("upgrades a fresh database and reaches current retirement with a preserved C5 contract marker", () => {
     const db = openNuclearDb(new DatabaseSync(":memory:"));
     try {
-      expect(NUCLEAR_SUPPORTED_VERSION).toBe(56);
-      expect(db.prepare("PRAGMA user_version").get()).toEqual({ user_version: 56 });
+      expect(NUCLEAR_SUPPORTED_VERSION).toBe(57);
+      expect(db.prepare("PRAGMA user_version").get()).toEqual({ user_version: 57 });
       for (const table of tables) expect(db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get(table)).toBeUndefined();
       expect(db.prepare("SELECT highest_contract_version,state FROM relationship_contract_state WHERE wave='c5'").get()).toEqual({ highest_contract_version: 1, state: "observe" });
       expect(db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
@@ -26,7 +26,7 @@ describe("nuclear v55 C4 retirement", () => {
       legacy(db);
       const marker = db.prepare("SELECT * FROM cognitive_maturation_contract_state WHERE wave='c5'").all();
       openNuclearDb(db);
-      expect(db.prepare("PRAGMA user_version").get()).toEqual({ user_version: 56 });
+      expect(db.prepare("PRAGMA user_version").get()).toEqual({ user_version: 57 });
       expect(db.prepare("SELECT * FROM relationship_contract_state ORDER BY wave").all()).toEqual(marker);
       for (const table of tables) expect(db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get(table)).toBeUndefined();
     } finally { db.close(); }

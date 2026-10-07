@@ -91,7 +91,7 @@ describe("R-2 permit-only pre-V53 database migrates to V53 without minting opera
       expect(readPermits(db)).toEqual(permitsBefore);
 
       openNuclearDb(db, { continuity });
-      expect(userVersion(db)).toBe(56);
+      expect(userVersion(db)).toBe(57);
       expect(delegationTableExists(db)).toBe(true);
       expect(db.prepare(
         "SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'idx_social_operation_delegations_live'",

@@ -99,6 +99,17 @@ describe("route surface registry", () => {
         ["GET", "/nuclear/identity/reviews"],
         ["POST", "/nuclear/identity/reviews/ashley"],
         ["POST", "/nuclear/identity/reviews/doc"],
+        ["GET", "/nuclear/identity/proposals"],
+        ["GET", "/nuclear/identity/proposals/abc"],
+        ["POST", "/nuclear/identity/proposals"],
+        ["POST", "/nuclear/identity/proposals/abc/approve"],
+        ["POST", "/nuclear/identity/proposals/abc/reject"],
+        ["POST", "/nuclear/identity/proposals/abc/withdraw"],
+        ["GET", "/nuclear/change-proposals"],
+        ["GET", "/nuclear/change-proposals/abc"],
+        ["POST", "/nuclear/change-proposals/ashley-position"],
+        ["POST", "/nuclear/change-proposals/doc-decision"],
+        ["POST", "/nuclear/change-proposals/external-outcome"],
       ]) {
         const response = await fetch(`${url}${path}`, { method });
         expect(response.status, `${method} ${path}`).toBe(404);

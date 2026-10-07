@@ -12,8 +12,8 @@ describe("nuclear migration 47 relational bindings", () => {
   it("lands V47 columns/table and preserves legacy NULL/default behavior", () => {
     const db = openNuclearDb(new DatabaseSync(":memory:"));
     try {
-      expect(NUCLEAR_SUPPORTED_VERSION).toBe(56);
-      expect((db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(56);
+      expect(NUCLEAR_SUPPORTED_VERSION).toBe(57);
+      expect((db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(57);
       validateNuclearV47Schema(db);
 
       for (const [table, columns] of Object.entries(V47_TABLE_COLUMNS)) {
