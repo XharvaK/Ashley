@@ -4,7 +4,35 @@ import {
   PACE_BUDGET_MS,
   bubbleDelayMs,
   sleepAbortable,
+  typingLeadMs,
 } from "./pacing.js";
+
+const TYPING_REFRESH_MS = 3_000;
+
+/** Typing while a known gap elapses. No call when the gap is empty. */
+async function typeFor(
+  channel: SendableChannels,
+  ms: number,
+  signal: AbortSignal,
+): Promise<void> {
+  if (ms <= 0 || signal.aborted) return;
+  let stopped = false;
+  const send = () => {
+    if (stopped || signal.aborted) return;
+    const typing = channel as SendableChannels & { sendTyping?: () => Promise<unknown> };
+    if (typeof typing.sendTyping === "function") {
+      void typing.sendTyping().catch(() => {});
+    }
+  };
+  send();
+  const id = setInterval(send, TYPING_REFRESH_MS);
+  try {
+    await sleepAbortable(ms, signal);
+  } finally {
+    stopped = true;
+    clearInterval(id);
+  }
+}
 
 export type BubbleSendFailureCategory =
   | "discord_send_failed"
@@ -107,14 +135,17 @@ export async function sendBubbles(
       throw new DeliverySendError("final_delivery_deadline_expired", result);
     }
 
-    if (i > 0 && pacing && !pacing.signal.aborted) {
+    if (i === 0) {
+      const leadSignal = pacing?.signal ?? new AbortController().signal;
+      await typeFor(channel, typingLeadMs(bubble.text.length), leadSignal);
+    } else if (pacing && !pacing.signal.aborted) {
       const delay = bubbleDelayMs({
         tempoGapMs: pacing.tempoGapMs,
         chars: bubble.text.length,
         remainingBudgetMs: budget,
       });
       budget -= delay;
-      await sleepAbortable(delay, pacing.signal);
+      await typeFor(channel, delay, pacing.signal);
     }
 
     try {

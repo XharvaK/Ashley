@@ -3,6 +3,18 @@ import { describe, it } from "node:test";
 import type { SendableChannels } from "discord.js";
 import { sendBubbles } from "./send-bubbles.js";
 
+function typingChannel(events: string[]): SendableChannels {
+  return {
+    sendTyping: async () => {
+      events.push("typing");
+    },
+    send: async (payload: unknown) => {
+      events.push(`send:${String(payload)}`);
+      return { id: String(payload) } as never;
+    },
+  } as SendableChannels;
+}
+
 function mockChannel(sends: unknown[] = []): SendableChannels {
   return {
     send: async (payload: unknown) => {
@@ -105,5 +117,63 @@ describe("sendBubbles onFirstSend", () => {
       called += 1;
     });
     assert.equal(called, 1);
+  });
+});
+
+describe("sendBubbles typing", () => {
+  it("does not type during the Thought wait, only after a draft is delivered", async () => {
+    const events: Array<{ kind: string; at: number }> = [];
+    const channel = {
+      sendTyping: async () => {
+        events.push({ kind: "typing", at: Date.now() });
+      },
+      send: async () => {
+        events.push({ kind: "send", at: Date.now() });
+        return { id: "m1" } as never;
+      },
+    } as SendableChannels;
+
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    const thoughtFinishedAt = Date.now();
+    assert.equal(events.length, 0);
+
+    await sendBubbles(channel, ["hi"], null, null);
+
+    const typings = events.filter((event) => event.kind === "typing");
+    assert.ok(typings.length >= 1);
+    assert.ok(typings[0]!.at >= thoughtFinishedAt);
+    assert.ok(typings.every((event) => event.at >= thoughtFinishedAt));
+  });
+
+  it("types during the gap between bubbles", async () => {
+    const events: string[] = [];
+    const signal = new AbortController().signal;
+    await sendBubbles(
+      typingChannel(events),
+      ["hello", "there"],
+      null,
+      { tempoGapMs: 1_000, signal },
+    );
+    const first = events.indexOf("send:hello");
+    const second = events.indexOf("send:there");
+    assert.ok(first > 0);
+    assert.ok(second > first);
+    assert.ok(events.slice(0, first).includes("typing"));
+    assert.ok(events.slice(first + 1, second).includes("typing"));
+  });
+
+  it("sends no typing for a silent settlement", async () => {
+    const events: string[] = [];
+    const channel = typingChannel(events);
+    const signal = new AbortController().signal;
+    await assert.rejects(
+      sendBubbles(channel, [], null, { tempoGapMs: null, signal }),
+      /empty_send_plan/,
+    );
+    await sendBubbles(channel, [], "https://example.invalid/quiet.gif", {
+      tempoGapMs: null,
+      signal,
+    });
+    assert.equal(events.includes("typing"), false);
   });
 });

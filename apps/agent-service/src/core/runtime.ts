@@ -60,6 +60,7 @@ import {
   processPendingReflectionEvents,
   recordInitiativeReaction,
 } from "./reflection/initiative.js";
+import { recordOwnerBubbleReaction } from "./cognitive-v021/thought/owner-surface.js";
 import type { OpenCognitiveReviewAdjudicator } from "./reflection/initiative.js";
 import type { ReflectionMode } from "./types.js";
 import { getAffectiveState } from "./state/affect.js";
@@ -902,6 +903,11 @@ export class AshleyCore {
         at: new Date().toISOString(),
       }),
     );
+    recordOwnerBubbleReaction(this.db, {
+      messageId: input.messageId,
+      emoji: input.emoji,
+      atMs: Date.now(),
+    });
     const reflection = recordInitiativeReaction(this.db, ownerId, input);
     return {
       feedback,

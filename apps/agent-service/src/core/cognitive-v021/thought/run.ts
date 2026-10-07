@@ -199,6 +199,11 @@ import {
 import { isUnsolicitedTriggerKind, unsolicitedFuseTripped } from "../initiative/reach-out.js";
 import { readSenseFacts, senseBandsForDeclines, sensesForThought } from "../senses/senses.js";
 import { growthForThought, type IdentityStore } from "../growth/growth.js";
+import {
+  markOwnerBubbleReactionsShown,
+  returningForThought,
+  unshownOwnerBubbleReactions,
+} from "./owner-surface.js";
 import { buildNightAgenda } from "../growth/night.js";
 import { DEFAULT_OWNER_TIME_ZONE } from "./clock.js";
 import {
@@ -3407,6 +3412,7 @@ export async function runCognitiveCycle(
     const senseOptions = { nowMs: deps.nowMs(), conversationId: cycle.conversationId, dataDir: deps.dataDir };
     const sensedFacts = effectiveThoughtAudience.kind === "owner_private" && !externalCycle ? readSenseFacts(sidecar, senseOptions) : [];
     const senseBands = senseBandsForDeclines(sensedFacts);
+    let shownReactionIds: string[] = [];
     const thoughtInputOptions = {
       sidecar,
       cycle,
@@ -3467,6 +3473,33 @@ export async function runCognitiveCycle(
           && !afterglowPass && !awakePass && !nightPass && triggerEvidence?.role === "owner",
         nowMs: deps.nowMs(),
       }),
+      ...(() => {
+        const gameOnlySurface = originProfile.triggerKind === "domus_notification"
+          && domusGameOnlyFor(sidecar, event, originProfile.originCycleId);
+        if (effectiveThoughtAudience.kind !== "owner_private" || externalCycle || gameOnlySurface) return {};
+        const surface: {
+          reactions?: ReturnType<typeof unshownOwnerBubbleReactions>["facts"];
+          returning?: NonNullable<ReturnType<typeof returningForThought>>;
+        } = {};
+        const pending = unshownOwnerBubbleReactions(nuclear, sidecar);
+        if (pending.facts.length > 0) {
+          shownReactionIds = pending.ids;
+          surface.reactions = pending.facts;
+        }
+        const nowMs = deps.nowMs();
+        const returning = afterglowPass
+          ? returningForThought(sidecar, { mode: "afterglow", conversationId: cycle.conversationId, nowMs })
+          : !awakePass && !nightPass && originProfile.triggerKind === "owner_message"
+            ? returningForThought(sidecar, {
+              mode: "owner_message",
+              conversationId: cycle.conversationId,
+              currentRowId: triggerEvidence?.rowId ?? null,
+              nowMs,
+            })
+            : null;
+        if (returning) surface.returning = returning;
+        return surface;
+      })(),
       ...(settlementOnly ? { settlementOnly: true } : {}),
       ...(effectContinuationInput ? { effectContinuation: effectContinuationInput } : {}),
       ...(capacityWait ? { capacityWait } : {}),
@@ -3525,6 +3558,9 @@ export async function runCognitiveCycle(
           observabilityDb: deps.observabilityDb,
         });
         projectionCache.set(passKey, allocated);
+      }
+      if (shownReactionIds.length > 0 && allocated.projected.reactions !== undefined) {
+        markOwnerBubbleReactionsShown(nuclear, shownReactionIds);
       }
     } catch (err) {
       if (err instanceof RequiredOverflowError) {

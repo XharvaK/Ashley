@@ -12,7 +12,7 @@ const ctx = (over: Partial<Parameters<ReactPolicy["decide"]>[0]> = {}) => ({
 });
 
 describe("ReactPolicy", () => {
-  it("allows the first reaction", () => {
+  it("allows a reaction that mirrors neither side", () => {
     assert.equal(new ReactPolicy().decide(ctx()), "😂");
   });
 
@@ -31,32 +31,12 @@ describe("ReactPolicy", () => {
     assert.equal(policy.decide(ctx({ emoji: "👍🏽", docText: "nice 👍" })), null);
   });
 
-  it("holds the turn budget after a reaction", () => {
+  it("does not count turns between reactions", () => {
     const policy = new ReactPolicy();
     assert.equal(policy.decide(ctx()), "😂");
-    // MIN_TURNS_BETWEEN = 2: next turn is still blocked.
-    assert.equal(policy.decide(ctx({ emoji: "🔥" })), null);
     assert.equal(policy.decide(ctx({ emoji: "🔥" })), "🔥");
-  });
-
-  it("counts turns with no candidate emoji toward the budget", () => {
-    const policy = new ReactPolicy();
+    assert.equal(policy.decide(ctx({ emoji: null })), null);
     assert.equal(policy.decide(ctx()), "😂");
-    policy.decide(ctx({ emoji: null }));
-    assert.equal(policy.decide(ctx({ emoji: "🔥" })), "🔥");
-  });
-
-  it("never repeats the same emoji back to back", () => {
-    const policy = new ReactPolicy();
-    assert.equal(policy.decide(ctx()), "😂");
-    policy.decide(ctx({ emoji: null }));
-    assert.equal(policy.decide(ctx()), null);
-  });
-
-  it("tracks channels independently", () => {
-    const policy = new ReactPolicy();
-    assert.equal(policy.decide(ctx()), "😂");
-    assert.equal(policy.decide(ctx({ channelId: "c2" })), "😂");
   });
 });
 

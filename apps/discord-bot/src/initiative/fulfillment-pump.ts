@@ -20,6 +20,7 @@ import {
   type ExternalPublicationRecheckResult,
 } from "../agent-client.js";
 import { DeliverySendError, sendBubbles } from "../chat/send-bubbles.js";
+import { tempoTracker } from "../chat/pacing.js";
 
 type FulfillmentDelivery = Awaited<
   ReturnType<typeof claimPendingCognitiveDeliveries>
@@ -275,7 +276,7 @@ async function drainPendingDeliveries(
             bubbles,
             null,
             {
-              tempoGapMs: null,
+              tempoGapMs: tempoTracker.lastGapMs(channel.id),
               signal,
             },
             undefined,
