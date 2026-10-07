@@ -1,3 +1,15 @@
+// Historical change-proposal DDL remains only for ordered nuclear upgrades.
+export const CHANGE_PROPOSAL_TABLES = [
+  "change_proposals",
+  "change_proposal_events",
+] as const;
+
+export const CHANGE_PROPOSAL_INDEXES = [
+  "idx_change_proposals_owner_state",
+  "idx_change_proposals_proposal_id",
+  "idx_change_proposal_events_proposal",
+] as const;
+
 export const MIGRATION_16_CHANGE_PROPOSAL_DDL = `
 CREATE TABLE IF NOT EXISTS change_proposals (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

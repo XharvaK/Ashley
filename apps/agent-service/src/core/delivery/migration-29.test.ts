@@ -41,7 +41,7 @@ describe("nuclear schema v29 phase lifecycle telemetry", () => {
   it("installs Migration 29 on fresh databases", () => {
     const db = openNuclearDb(new DatabaseSync(":memory:"));
     try {
-      expect(NUCLEAR_SUPPORTED_VERSION).toBe(56);
+      expect(NUCLEAR_SUPPORTED_VERSION).toBe(57);
       expect(schemaVersion(db)).toBe(NUCLEAR_SUPPORTED_VERSION);
       expect(
         columnExists(db, "delivery_reservations", "phase_lifecycle_json"),

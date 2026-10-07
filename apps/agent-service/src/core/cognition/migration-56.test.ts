@@ -12,7 +12,7 @@ function objects(db:DatabaseSync){return db.prepare("SELECT type,name,tbl_name,s
 describe("nuclear56 C3 retirement",()=>{
  it("drops empty C3/shared state without manufacturing a third identity or shared-culture organ",()=>{
   const db=openNuclearDb(new DatabaseSync(":memory:"));try{
-   expect(NUCLEAR_SUPPORTED_VERSION).toBe(56);expect(db.prepare("PRAGMA user_version").get()).toEqual({user_version:56});
+   expect(NUCLEAR_SUPPORTED_VERSION).toBe(57);expect(db.prepare("PRAGMA user_version").get()).toEqual({user_version:57});
    for(const table of [...tables,"cognitive_maturation_contract_state","identity_similarity","shared_culture"])expect(db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(table)).toBeUndefined();
    expect(()=>assertC5ContractCompatible(db)).not.toThrow();expect(getCurrentSharedCulture(db,"fixture-owner")).toBeNull();
    expect(()=>recomputeSharedCulture(db,"fixture-owner")).not.toThrow();expect(db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);

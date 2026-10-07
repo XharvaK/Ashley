@@ -89,8 +89,8 @@ describe("bot → agent transport authentication", () => {
   });
 
   it("matches parameterised admin paths and nothing else", () => {
-    expect(isAdminRoute("POST", "/nuclear/identity/proposals/abc-123/approve")).toBe(true);
-    expect(isAdminRoute("POST", "/nuclear/identity/proposals/abc-123/withdraw")).toBe(false);
+    expect(isAdminRoute("POST", "/nuclear/external/actions/abc-123/cancel")).toBe(true);
+    expect(isAdminRoute("POST", "/nuclear/external/actions/abc-123/reconcile")).toBe(false);
     expect(isAdminRoute("GET", "/memory/forget")).toBe(false);
     expect(isAdminRoute("POST", "/memory/forget/")).toBe(true);
     // A3: only the Owner grants or revokes a trusted contact.

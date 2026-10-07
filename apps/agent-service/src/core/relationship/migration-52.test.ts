@@ -7,8 +7,8 @@ describe("nuclear schema v52 commitment timing", () => {
   it("adds timing fields with reconsider defaults and leaves old rows readable", () => {
     const db = openNuclearDb(new DatabaseSync(":memory:"));
     try {
-      expect(NUCLEAR_SUPPORTED_VERSION).toBe(56);
-      expect(db.prepare("PRAGMA user_version").get()).toEqual({ user_version: 56 });
+      expect(NUCLEAR_SUPPORTED_VERSION).toBe(57);
+      expect(db.prepare("PRAGMA user_version").get()).toEqual({ user_version: 57 });
       validateNuclearV52Schema(db);
       db.prepare(
         `INSERT INTO ashley_self_commitments
