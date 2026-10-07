@@ -2,6 +2,7 @@ import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
 import { Agent, fetch as undiciFetch } from "undici";
 import { assertOutboundAllowed } from "../continuity/process-guards.js";
+import { entityName } from "../entity-names.js";
 
 export const MAX_REDIRECTS = 5;
 export const MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
@@ -11,10 +12,12 @@ export const MAX_AGGREGATE_BYTES = MAX_RESPONSE_BYTES * MAX_AGGREGATE_PAGES;
 export const MAX_AGGREGATE_REDIRECTS = MAX_REDIRECTS * MAX_AGGREGATE_PAGES;
 export const MAX_AGGREGATE_SUBREQUESTS =
   MAX_AGGREGATE_PAGES * (MAX_REDIRECTS + 1);
-export const AGGREGATE_TRUNCATION_MARKER =
-  "[Ashley external read truncated: finite envelope limit reached]";
-export const AGGREGATE_INCOMPLETE_MARKER =
-  "[Ashley external read incomplete: capture deadline reached]";
+export function aggregateTruncationMarker(): string {
+  return `[${entityName()} external read truncated: finite envelope limit reached]`;
+}
+export function aggregateIncompleteMarker(): string {
+  return `[${entityName()} external read incomplete: capture deadline reached]`;
+}
 
 export type ResolveHost = (
   hostname: string,
@@ -555,9 +558,9 @@ export async function fetchWithAggregateLimits(
       truncated,
       incomplete,
       truncationMarker: truncated
-        ? AGGREGATE_TRUNCATION_MARKER
+        ? aggregateTruncationMarker()
         : incomplete
-          ? AGGREGATE_INCOMPLETE_MARKER
+          ? aggregateIncompleteMarker()
           : null,
     },
   };

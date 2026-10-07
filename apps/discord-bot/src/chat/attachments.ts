@@ -1,4 +1,5 @@
 import type { Message } from "discord.js";
+import { ownerName } from "../entity-names.js";
 
 export type ExternalEnvelopeTransport = {
   speakerPrincipalId: string;
@@ -264,7 +265,7 @@ export function describeIntake(message: Message): Intake {
     parts.push(`(shared ${imageCount} image(s))`);
   }
   if (notes.length > 0) {
-    parts.push(`(Alex sent ${notes.join(", ")}.)`);
+    parts.push(`(${ownerName()} sent ${notes.join(", ")}.)`);
   }
 
   const result: Intake = {

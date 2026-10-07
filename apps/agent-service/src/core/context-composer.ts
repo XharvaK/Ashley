@@ -1,4 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
+import { entityName } from "./entity-names.js";
 import { buildQuestionsBlock } from "./state/questions.js";
 import {
   loadNuclearSystemPrompt,
@@ -70,7 +71,7 @@ export function stableIdentityBlock(db: DatabaseSync, ownerId: string): string {
   if (entries.length === 0) return "";
   const lines = entries.map((entry) => `- ${entry.kind}: ${entry.text}`);
   return [
-    "## Ashley's stable identity",
+    `## ${entityName()}'s stable identity`,
     ...lines,
     "These are stable constitutional identity constraints.",
   ].join("\n");
@@ -395,7 +396,7 @@ export function projectInspectionEvidenceBlock(
     options.thoughtError === "attention_deadline";
   const availableLine = `capabilityAvailable = ${capabilityAvailable}`;
   const semanticsAvailable = [
-    "Semantics: capabilityAvailable is the authoritative current capability state; inspectionStatus is what Ashley actually did or observed this turn.",
+    `Semantics: capabilityAvailable is the authoritative current capability state; inspectionStatus is what ${entityName()} actually did or observed this turn.`,
   ];
   if (license?.profile === "project_investigation") {
     const truth = deriveOperationalTruth(license);
@@ -416,7 +417,7 @@ export function projectInspectionEvidenceBlock(
         "verifiedRepositoryEvidence = true",
         ...semanticsAvailable,
         ...interpretationLines,
-        "Semantics: Ashley inspected an approved project this turn and holds verified evidence.",
+        `Semantics: ${entityName()} inspected an approved project this turn and holds verified evidence.`,
       ].join("\n");
     }
     if (license.state === "failed") {
@@ -450,8 +451,8 @@ export function projectInspectionEvidenceBlock(
     "verifiedRepositoryEvidence = false",
     ...semanticsAvailable,
     capabilityAvailable
-      ? "Semantics: capabilityAvailable = true with inspectionStatus = not_performed means Ashley CAN inspect approved projects but did not inspect this turn; this is not an inability and must never be expressed as one."
-      : "Semantics: Ashley cannot inspect this turn because the inspection capability is not active; this is the only case in which an inspection inability may be expressed.",
+      ? `Semantics: capabilityAvailable = true with inspectionStatus = not_performed means ${entityName()} CAN inspect approved projects but did not inspect this turn; this is not an inability and must never be expressed as one.`
+      : `Semantics: ${entityName()} cannot inspect this turn because the inspection capability is not active; this is the only case in which an inspection inability may be expressed.`,
   ].join("\n");
 }
 
@@ -483,7 +484,7 @@ export function candidateWorkspaceEvidenceBlock(
   const capabilityAvailable = options.capabilityAvailable === true;
   const availableLine = `capabilityAvailable = ${capabilityAvailable}`;
   const semanticsAvailable = [
-    "Semantics: capabilityAvailable is the authoritative current capability state; workspaceStatus is what Ashley actually did or observed this turn.",
+    `Semantics: capabilityAvailable is the authoritative current capability state; workspaceStatus is what ${entityName()} actually did or observed this turn.`,
   ];
   if (license?.profile === "project_experimentation") {
     const truth = deriveOperationalTruth(license);
@@ -497,7 +498,7 @@ export function candidateWorkspaceEvidenceBlock(
         `candidateWorkspaceChanged = ${candidateChanged}`,
         "liveRepositoryUnchanged = true",
         ...semanticsAvailable,
-        "Semantics: Ashley executed a candidate workspace operation this turn and holds verified evidence.",
+        `Semantics: ${entityName()} executed a candidate workspace operation this turn and holds verified evidence.`,
         candidateChanged
           ? "Semantics: the private candidate workspace changed; the live repository did not."
           : "Semantics: this verified candidate-workspace observation did not mutate the live repository.",
@@ -524,8 +525,8 @@ export function candidateWorkspaceEvidenceBlock(
     "verifiedWorkspaceEffect = false",
     ...semanticsAvailable,
     capabilityAvailable
-      ? "Semantics: capabilityAvailable = true with workspaceStatus = not_performed means Ashley CAN offer a candidate workspace this turn but did not; this is not an inability and must never be expressed as one."
-      : "Semantics: Ashley cannot offer a candidate workspace this turn because the workspace capability is not active or candidateWorkspaceAllowed is closed; this is the only case in which a workspace inability may be expressed.",
+      ? `Semantics: capabilityAvailable = true with workspaceStatus = not_performed means ${entityName()} CAN offer a candidate workspace this turn but did not; this is not an inability and must never be expressed as one.`
+      : `Semantics: ${entityName()} cannot offer a candidate workspace this turn because the workspace capability is not active or candidateWorkspaceAllowed is closed; this is the only case in which a workspace inability may be expressed.`,
   ].join("\n");
 }
 
@@ -540,7 +541,7 @@ export function candidateVerificationEvidenceBlock(
   const capabilityAvailable = options.capabilityAvailable === true;
   const availableLine = `capabilityAvailable = ${capabilityAvailable}`;
   const semanticsAvailable = [
-    "Semantics: capabilityAvailable is the authoritative current capability state; verificationStatus is what Ashley actually did or observed this turn.",
+    `Semantics: capabilityAvailable is the authoritative current capability state; verificationStatus is what ${entityName()} actually did or observed this turn.`,
     "Semantics: a licensed verification outcome is a mechanical recipe result for a named snapshot. It is not engineering judgment, quality, approval, merge, deployment, or self-improvement.",
   ];
   if (license?.profile === "candidate_verification") {
@@ -605,8 +606,8 @@ export function candidateVerificationEvidenceBlock(
     "verifiedMechanicalOutcome = false",
     ...semanticsAvailable,
     capabilityAvailable
-      ? "Semantics: capabilityAvailable = true with verificationStatus = not_performed means Ashley CAN run an admitted verification recipe this turn but did not; this is not an inability and must never be expressed as one."
-      : "Semantics: Ashley cannot run candidate verification this turn because candidate_verification is not active or verificationAllowed/recipe allowlist is closed.",
+      ? `Semantics: capabilityAvailable = true with verificationStatus = not_performed means ${entityName()} CAN run an admitted verification recipe this turn but did not; this is not an inability and must never be expressed as one.`
+      : `Semantics: ${entityName()} cannot run candidate verification this turn because candidate_verification is not active or verificationAllowed/recipe allowlist is closed.`,
   ].join("\n");
 }
 
@@ -621,7 +622,7 @@ export function candidateAuthorshipEvidenceBlock(
   const capabilityAvailable = options.capabilityAvailable === true;
   const availableLine = `capabilityAvailable = ${capabilityAvailable}`;
   const semanticsAvailable = [
-    "Semantics: capabilityAvailable is the authoritative current capability state; authorshipStatus is what Ashley actually did or observed this turn.",
+    `Semantics: capabilityAvailable is the authoritative current capability state; authorshipStatus is what ${entityName()} actually did or observed this turn.`,
     "Semantics: a licensed authorship outcome is a sealed advisory candidate change-set. It is not apply, merge, deployment, Identity change, or self-improvement.",
   ];
   if (license?.profile === "candidate_authorship") {
@@ -660,8 +661,8 @@ export function candidateAuthorshipEvidenceBlock(
     "sealedAdvisoryChangeset = false",
     ...semanticsAvailable,
     capabilityAvailable
-      ? "Semantics: capabilityAvailable = true with authorshipStatus = not_performed means Ashley CAN seal an admitted candidate change-set this turn but did not; this is not an inability and must never be expressed as one."
-      : "Semantics: Ashley cannot seal a candidate change-set this turn because candidate_authorship is not active or authorshipAllowed is closed.",
+      ? `Semantics: capabilityAvailable = true with authorshipStatus = not_performed means ${entityName()} CAN seal an admitted candidate change-set this turn but did not; this is not an inability and must never be expressed as one.`
+      : `Semantics: ${entityName()} cannot seal a candidate change-set this turn because candidate_authorship is not active or authorshipAllowed is closed.`,
   ].join("\n");
 }
 
@@ -710,7 +711,7 @@ export function boundedOperationEvidenceBlock(
     ...semantics,
     capabilityAvailable
       ? "Semantics: M6 is offerable this turn but no bounded operation ran."
-      : "Semantics: Ashley cannot run a bounded operation this turn because bounded_operation is not active or operationAllowed is closed.",
+      : `Semantics: ${entityName()} cannot run a bounded operation this turn because bounded_operation is not active or operationAllowed is closed.`,
   ].join("\n");
 }
 
@@ -722,7 +723,7 @@ export function patchExportEvidenceBlock(
   const availableLine = `capabilityAvailable = ${capabilityAvailable}`;
   const semantics = [
     "Semantics: capabilityAvailable is the authoritative current M7 grant; exportStatus is what actually ran.",
-    "Semantics: a licensed patch_export is a witnessed copy of a sealed M5 artifact to the operator review location. It is not apply, merge, Git, deploy, or Ashley.",
+    `Semantics: a licensed patch_export is a witnessed copy of a sealed M5 artifact to the operator review location. It is not apply, merge, Git, deploy, or ${entityName()}.`,
   ];
   if (license?.profile === "patch_export") {
     const effect = license.patchExportClaimEffect;
@@ -758,7 +759,7 @@ export function patchExportEvidenceBlock(
     ...semantics,
     capabilityAvailable
       ? "Semantics: M7 patch_export is offerable this turn but no export ran."
-      : "Semantics: Ashley cannot export a patch this turn because patch_export is not active or patchExportAllowed is closed.",
+      : `Semantics: ${entityName()} cannot export a patch this turn because patch_export is not active or patchExportAllowed is closed.`,
   ].join("\n");
 }
 

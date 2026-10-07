@@ -91,7 +91,7 @@ describe("Growth V1 G4 through the kernel", () => {
       expect(run.outboxId).not.toBeNull();
 
       const request = JSON.stringify(completeChat.mock.calls[0]?.[0]);
-      expect(request).toContain(JSON.stringify(GROWTH_GUIDANCE).slice(1, -1));
+      expect(request).toContain(JSON.stringify(GROWTH_GUIDANCE()).slice(1, -1));
       expect(request).toContain('\\"growth\\"');
       // She sees her revisable identity by entry id, from the live nuclear store.
       expect(request).toContain("comfortable with uncertainty");

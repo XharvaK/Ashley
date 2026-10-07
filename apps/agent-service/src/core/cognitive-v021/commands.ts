@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { entityName } from "../entity-names.js";
 import { bumpForgetEpoch } from "./memory/forget-epoch.js";
 import type { DatabaseSync } from "node:sqlite";
 import { getThreadStory, listRecentEpisodes } from "./memory/episodes.js";
@@ -272,7 +273,7 @@ export function admitV021RememberCommand(
 
 function narrativeLabel(role: ConversationEvidenceRecord["role"]): string {
   if (role === "owner") return "Owner";
-  if (role === "ashley") return "Ashley";
+  if (role === "ashley") return entityName();
   return "System";
 }
 

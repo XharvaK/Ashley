@@ -3,6 +3,7 @@ import {
   type RESTPostAPIChatInputApplicationCommandsJSONBody,
 } from "discord.js";
 import { commandSurface } from "../command-surface.js";
+import { entityName } from "../entity-names.js";
 
 export function buildCommandDefinitions(): RESTPostAPIChatInputApplicationCommandsJSONBody[] {
   return [
@@ -177,10 +178,10 @@ export function buildCommandDefinitions(): RESTPostAPIChatInputApplicationComman
       .toJSON(),
     new SlashCommandBuilder()
       .setName(commandSurface.contacts)
-      .setDescription("Who may talk with Ashley (trusted contacts)")
+      .setDescription(`Who may talk with ${entityName()} (trusted contacts)`)
       .addSubcommand((subcommand) => subcommand
         .setName("add")
-        .setDescription("Let a person talk with Ashley")
+        .setDescription(`Let a person talk with ${entityName()}`)
         .addUserOption((o) => o.setName("user").setDescription("The person").setRequired(true))
         .addStringOption((o) => o
           .setName("scope")
@@ -196,7 +197,7 @@ export function buildCommandDefinitions(): RESTPostAPIChatInputApplicationComman
         .addBooleanOption((o) => o.setName("on").setDescription("Teacher on or off").setRequired(true)))
       .addSubcommand((subcommand) => subcommand
         .setName("remove")
-        .setDescription("Stop a person talking with Ashley")
+        .setDescription(`Stop a person talking with ${entityName()}`)
         .addUserOption((o) => o.setName("user").setDescription("The person").setRequired(true)))
       .addSubcommand((subcommand) => subcommand
         .setName("list")
@@ -204,7 +205,7 @@ export function buildCommandDefinitions(): RESTPostAPIChatInputApplicationComman
       .toJSON(),
     new SlashCommandBuilder()
       .setName(commandSurface.places)
-      .setDescription("Ashley's places: rooms, contacts, websites")
+      .setDescription(`${entityName()}'s places: rooms, contacts, websites`)
       .addSubcommand((subcommand) => subcommand
         .setName("list")
         .setDescription("List her places and her own rules"))

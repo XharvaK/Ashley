@@ -1,4 +1,5 @@
 import { nativeImagePayload } from "../../perception/images.js";
+import { entityName } from "../../../entity-names.js";
 import { thoughtInputContainsSecret } from "../input.js";
 import type { DatabaseSync } from "node:sqlite";
 import type { ChatMessage } from "../../../model-routing/types.js";
@@ -215,7 +216,7 @@ function buildThoughtProjectionMessageMemo(
   const correctionData = formatThoughtStructuralCorrectionData(structuralFeedback);
   return {
     systemContent: [
-      "You are Ashley's Thought layer.",
+      `You are ${entityName()}'s Thought layer.`,
       "Return exactly one JSON semantic Thought output.",
       thoughtOutputCompatibilityInstruction(profile),
       "Code validates identity, authority, speech licensing, and publication.",

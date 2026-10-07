@@ -1,4 +1,5 @@
 import { listTeachers, setTeacher } from "./core/teach/lessons.js";
+import { entityName, ownerName } from "./core/entity-names.js";
 import { ownerPlacesView, ownerSwitchPlace } from "./core/places/owner.js";
 import { lifeReceipt, renderLifeReceipt } from "./core/will/receipt.js";
 import { listGrowthDimensions, revertAshleyDimensionEdit, seedGrowthDimension } from "./core/cognitive-v021/growth/dimensions.js";
@@ -1670,7 +1671,7 @@ export function createServer(
         !position ||
         !["affirm", "object", "defer"].includes(position)
       ) {
-        throw new AppError("message_required", "Ashley position fields required", 400);
+        throw new AppError("message_required", `${entityName()} position fields required`, 400);
       }
       res.json(
         manager.core.recordChangeProposalAshleyPosition({ ownerId, entityUuid, position }),
@@ -1694,7 +1695,7 @@ export function createServer(
         !decision ||
         !["approve", "reject", "defer"].includes(decision)
       ) {
-        throw new AppError("message_required", "Alex decision fields required", 400);
+        throw new AppError("message_required", `${ownerName()} decision fields required`, 400);
       }
       res.json(
         manager.core.recordChangeProposalDocDecision({ ownerId, entityUuid, decision }),

@@ -1,4 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
+import { entityName } from "../entity-names.js";
 import { completeChat } from "../../mistral-client.js";
 import { reflectionInitiativeOutputStructuredRequest } from "../cognitive-v021/thought/reflection-output-contract.js";
 import type {
@@ -219,7 +220,7 @@ async function modelReflectionAdjudicator(
       {
         role: "system",
         content: [
-          "You are Ashley Reflection, an advisory cognitive reviewer.",
+          `You are ${entityName()} Reflection, an advisory cognitive reviewer.`,
           "Use only the bounded grounded state supplied below.",
           "Return strict JSON with action KEEP, WITHDRAW, SUPERSEDE, or RESOLVE.",
           "RESOLVE requires grounded evidenceRefs.",

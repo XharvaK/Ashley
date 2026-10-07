@@ -94,7 +94,7 @@ describe("I1 profile-scoped Thought contract", () => {
   it("gives a chat turn memory and growth, and no pass or engineering law", () => {
     const text = thoughtOutputCompatibilityInstruction(thoughtContractProfile(chat));
     for (const paragraph of MEMORY_FORMATION_GUIDANCE) expect(text).toContain(paragraph);
-    expect(text).toContain(GROWTH_GUIDANCE);
+    expect(text).toContain(GROWTH_GUIDANCE());
     expect(text).toContain(JOURNAL_READING_GUIDANCE);
     for (const absent of [AFTERGLOW_GUIDANCE, AWAKE_GUIDANCE, NIGHT_GUIDANCE, JOURNAL_SETTLE_GUIDANCE, INQUIRY_LAW, "initiativePreference", "During an autonomous idle opportunity only"]) {
       expect(text).not.toContain(absent);
@@ -121,7 +121,7 @@ describe("I1 profile-scoped Thought contract", () => {
     }));
     expect(engineering).toContain(INQUIRY_LAW);
     const room = thoughtOutputCompatibilityInstruction(thoughtContractProfile({ ...chat, audience: { kind: "room" } }));
-    expect(room).not.toContain(GROWTH_GUIDANCE);
+    expect(room).not.toContain(GROWTH_GUIDANCE());
     expect(room).not.toContain(JOURNAL_READING_GUIDANCE);
   });
 
@@ -158,7 +158,7 @@ describe("I1 profile-scoped Thought contract", () => {
     expect(plain).not.toContain("payload.budgetPolicyId=ashley.self_change.v1");
     expect(engineering).toContain("payload.budgetPolicyId=ashley.self_change.v1");
     expect(thoughtOutputCompatibilityInstruction()).toContain("payload.budgetPolicyId=ashley.self_change.v1");
-    expect(plain).toContain(GROWTH_GUIDANCE);
+    expect(plain).toContain(GROWTH_GUIDANCE());
   });
 
   it("holds the chat prefix under its budget and every profile below the full contract", () => {
@@ -210,7 +210,7 @@ describe("I1 profile-scoped Thought contract", () => {
     let shared = 0;
     while (shared < shortest && chatText[shared] === awakeText[shared] && chatText[shared] === afterglowText[shared]) shared += 1;
     expect(shared / shortest).toBeGreaterThanOrEqual(0.8);
-    const markers = [AFTERGLOW_GUIDANCE, AWAKE_GUIDANCE, GROWTH_GUIDANCE, NIGHT_GUIDANCE, MEMORY_FORMATION_GUIDANCE[0]!];
+    const markers = [AFTERGLOW_GUIDANCE, AWAKE_GUIDANCE, GROWTH_GUIDANCE(), NIGHT_GUIDANCE, MEMORY_FORMATION_GUIDANCE[0]!];
     for (const text of [chatText, awakeText, afterglowText]) {
       for (const marker of markers) {
         if (text.includes(marker)) expect(text.split(marker).length - 1).toBe(1);

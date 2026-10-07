@@ -1,4 +1,5 @@
 import type { ChatInputCommandInteraction } from "discord.js";
+import { entityName } from "../entity-names.js";
 import { addContact, listContacts, removeContact, setContactTeacher, type TrustedContact } from "../agent-client.js";
 
 /** A3: Alex decides who may talk with Ashley. Contacts get no admin. */
@@ -16,13 +17,13 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
   if (subcommand === "add") {
     const scope = (interaction.options.getString("scope") ?? "dm_only") as TrustedContact["scope"];
     await addContact(user.id, scope);
-    await interaction.editReply(`<@${user.id}> can now talk with Ashley (${scope === "person_wide" ? "DMs and trusted rooms" : "DMs only"}). Anything they tell her, you can read.`);
+    await interaction.editReply(`<@${user.id}> can now talk with ${entityName()} (${scope === "person_wide" ? "DMs and trusted rooms" : "DMs only"}). Anything they tell her, you can read.`);
     return;
   }
   if (subcommand === "teacher") {
     const on = interaction.options.getBoolean("on", true);
     await setContactTeacher(user.id, on);
-    await interaction.editReply(on ? `<@${user.id}> is now one of Ashley's teachers.` : `<@${user.id}> is no longer one of Ashley's teachers.`);
+    await interaction.editReply(on ? `<@${user.id}> is now one of ${entityName()}'s teachers.` : `<@${user.id}> is no longer one of ${entityName()}'s teachers.`);
     return;
   }
   const { revoked } = await removeContact(user.id);

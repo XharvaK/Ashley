@@ -15,6 +15,7 @@ import {
   type V2ProjectReadRegistry,
 } from "./project-registry.js";
 import { uniqueCurrentWorkspaceId } from "./verification-binding.js";
+import { entityName } from "../entity-names.js";
 
 export type AuthorshipBindingError =
   | "no_current_workspace"
@@ -110,6 +111,6 @@ export function describeAuthorshipGrounding(
   return [
     "Grounded authorship resolvability (operator-owned control-plane facts; not owner-supplied magic words; opaque workspaceId is not for the owner and need not appear in Thought output when currently resolvable):",
     ...rows,
-    "A sealed change-set is advisory candidate work. It is not applied, merged, or Ashley.",
+    `A sealed change-set is advisory candidate work. It is not applied, merged, or ${entityName()}.`,
   ].join(" ");
 }

@@ -1,4 +1,5 @@
 import type { ChatInputCommandInteraction } from "discord.js";
+import { ownerName } from "../entity-names.js";
 import {
   getRelationshipSummary,
   ownerTemporalControl,
@@ -76,7 +77,7 @@ export async function execute(
   const offset = interaction.options.getInteger("offset") ?? 0;
   const summary = await getRelationshipSummary(offset);
   const lines = [
-    `Alex reminders: ${summary.docReminders}`,
+    `${ownerName()} reminders: ${summary.docReminders}`,
     `Self commitments: ${summary.selfCommitments}`,
     `Mutual active: ${summary.mutualActive} (proposed: ${summary.mutualProposed})`,
     `Open tensions: ${summary.tensions}`,

@@ -1,4 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
+import { entityName, ownerName } from "../entity-names.js";
 import { seedIdentity } from "./seed.js";
 import type {
   IdentityEntry,
@@ -225,9 +226,9 @@ export function buildIdentityBlock(db: DatabaseSync, ownerId: string): string {
     return `- ${entry.kind}: ${entry.text}${source}`;
   });
   return [
-    "## Ashley's identity",
+    `## ${entityName()}'s identity`,
     ...lines,
-    "These are Ashley's own values and tastes. They can change, but never silently.",
+    `These are ${entityName()}'s own values and tastes. They can change, but never silently.`,
   ].join("\n");
 }
 
@@ -389,11 +390,11 @@ export function buildOpinionsBlock(db: DatabaseSync, ownerId: string): string {
   const opinions = listOpinions(db, ownerId);
   if (opinions.length === 0) return "";
   return [
-    "## Ashley's current opinions",
+    `## ${entityName()}'s current opinions`,
     ...opinions.map(
       (opinion) =>
         `- ${opinion.topic}: ${opinion.stance} (${Math.round(opinion.confidence * 100)}% confidence)`,
     ),
-    "Opinions are hers, not facts about Alex. Disagreement is allowed.",
+    `Opinions are hers, not facts about ${ownerName()}. Disagreement is allowed.`,
   ].join("\n");
 }

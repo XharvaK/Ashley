@@ -7,6 +7,7 @@ import type {
   StructuredOutputRequest,
   StructuredOutputSchemaFingerprint,
 } from "../../model-fabric/types.js";
+import { entityName } from "../../entity-names.js";
 
 /**
  * Wire schema for the Reflection/Initiative adjudication contract.
@@ -19,7 +20,9 @@ import type {
 export const REFLECTION_INITIATIVE_OUTPUT_SCHEMA: Readonly<Record<string, unknown>> = {
   $schema: "https://json-schema.org/draft/2020-12/schema",
   $id: REFLECTION_INITIATIVE_OUTPUT_SCHEMA_ID,
-  title: "Ashley Reflection/Initiative adjudication output v1",
+  get title() {
+    return `${entityName()} Reflection/Initiative adjudication output v1`;
+  },
   type: "object",
   additionalProperties: false,
   required: ["action"],
@@ -45,20 +48,24 @@ export const REFLECTION_INITIATIVE_OUTPUT_SCHEMA: Readonly<Record<string, unknow
   },
 };
 
-export const REFLECTION_INITIATIVE_SCHEMA_FINGERPRINT =
-  `sha256:${sha256(REFLECTION_INITIATIVE_OUTPUT_SCHEMA)}` as StructuredOutputSchemaFingerprint;
+export function reflectionInitiativeSchemaFingerprint(): StructuredOutputSchemaFingerprint {
+  return `sha256:${sha256(REFLECTION_INITIATIVE_OUTPUT_SCHEMA)}` as StructuredOutputSchemaFingerprint;
+}
+
+export const REFLECTION_INITIATIVE_SCHEMA_FINGERPRINT = reflectionInitiativeSchemaFingerprint();
 
 export function reflectionInitiativeOutputStructuredRequest(): StructuredOutputRequest {
   return {
     contractId: REFLECTION_INITIATIVE_OUTPUT_CONTRACT_ID,
     schemaId: REFLECTION_INITIATIVE_OUTPUT_SCHEMA_ID,
-    schemaFingerprint: REFLECTION_INITIATIVE_SCHEMA_FINGERPRINT,
+    schemaFingerprint: reflectionInitiativeSchemaFingerprint(),
     schema: REFLECTION_INITIATIVE_OUTPUT_SCHEMA,
   };
 }
 
-const REFLECTION_JSON_OBJECT_PROTOCOL = [
-  "JSON_OBJECT compatibility protocol for Ashley Reflection/Initiative adjudication.",
+function reflectionJsonObjectProtocol(): string {
+  return [
+  `JSON_OBJECT compatibility protocol for ${entityName()} Reflection/Initiative adjudication.`,
   "Return exactly one JSON object and no Markdown, prose, code fence, or second object.",
   "This is a bounded advisory adjudication, not a Thought turn.",
   "Do not emit a Thought semantic envelope and do not use the fields kind, speech, settlement, observation_intent, effect_intent, or abstain.",
@@ -68,8 +75,9 @@ const REFLECTION_JSON_OBJECT_PROTOCOL = [
   'You may include an optional string "replacementEntityUuid".',
   "Emit no field that is not listed above.",
   "Answer with the object only.",
-].join("\n");
+  ].join("\n");
+}
 
 export function reflectionInitiativeJsonObjectInstruction(): string {
-  return REFLECTION_JSON_OBJECT_PROTOCOL;
+  return reflectionJsonObjectProtocol();
 }

@@ -1,15 +1,16 @@
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, type ButtonInteraction, type ChatInputCommandInteraction } from "discord.js";
+import { entityName, ownerName } from "../entity-names.js";
 import { isOwner } from "../security/gate.js";
 import { decideIdentityReview, identityReviews, currentPractices, revertPractice, growthDimensions, seedGrowthDimension, revertGrowthDimension, type Practice, type GrowthDimensionView, type GrowthDimensionHistoryView } from "../agent-client.js";
 
 export function renderReview(review: Awaited<ReturnType<typeof identityReviews>>["reviews"][number]): string {
   const status = review.appliedAt
     ? "applied"
-    : `Ashley: ${review.ashleyPosition ?? "pending"}; Alex: ${review.docDecision ?? "pending"}`;
+    : `${entityName()}: ${review.ashleyPosition ?? "pending"}; ${ownerName()}: ${review.docDecision ?? "pending"}`;
   const lines = [`#${review.id} ${review.targetKind}: ${review.targetKey}`];
   if (review.previousValue) lines.push(`was: ${review.previousValue}`);
   lines.push(review.proposedValue);
-  if (review.ashleyRationale) lines.push(`Ashley: ${review.ashleyRationale}`);
+  if (review.ashleyRationale) lines.push(`${entityName()}: ${review.ashleyRationale}`);
   lines.push(review.evidenceCount === undefined ? status : `${status}; evidence: ${review.evidenceCount}`);
   return lines.join("\n");
 }
@@ -58,7 +59,7 @@ export async function execute(
       return;
     }
     const result = await revertGrowthDimension(dimensionId);
-    await interaction.editReply(result.reverted ? "Reverted Ashley's latest edit on that dimension." : "There was no Ashley edit to revert.");
+    await interaction.editReply(result.reverted ? `Reverted ${entityName()}'s latest edit on that dimension.` : `There was no ${entityName()} edit to revert.`);
     return;
   }
   if (action === "review") {
@@ -79,7 +80,7 @@ export async function execute(
   const result = await decideIdentityReview(reviewId, decision, rationale);
   await interaction.editReply(
     result.recorded
-      ? `Recorded Alex's ${decision} decision for identity review #${reviewId}.${result.applied ? " Ashley had affirmed it, so it is now part of her identity." : ""}`
+      ? `Recorded ${ownerName()}'s ${decision} decision for identity review #${reviewId}.${result.applied ? ` ${entityName()} had affirmed it, so it is now part of her identity.` : ""}`
       : `Identity review #${reviewId} was not found or is no longer open.`,
   );
 }

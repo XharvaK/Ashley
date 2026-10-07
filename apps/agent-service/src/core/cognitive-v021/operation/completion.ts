@@ -1,4 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
+import { entityName } from "../../entity-names.js";
 import { appendInboxEvent, getInboxEvent } from "../cycle/inbox.js";
 import { appendSystemEvent, getConversationEvidence } from "../evidence/conversation-log.js";
 import {
@@ -54,7 +55,7 @@ function completionSummary(input: {
     `Evidence need: ${truncate(input.evidenceNeed, 200)}.`,
   ];
   if (input.interimText) {
-    parts.push(`Ashley interim: "${truncate(input.interimText, 300)}".`);
+    parts.push(`${entityName()} interim: "${truncate(input.interimText, 300)}".`);
   }
   const refs = [
     input.observationRef ? `observation ${input.observationRef}` : null,

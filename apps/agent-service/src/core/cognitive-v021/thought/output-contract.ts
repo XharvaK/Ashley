@@ -18,6 +18,7 @@ import type {
   StructuredOutputRequest,
   StructuredOutputSchemaFingerprint,
 } from "../../model-fabric/types.js";
+import { entityName, ownerName } from "../../entity-names.js";
 
 export const THOUGHT_FORBIDDEN_OUTPUT_FIELDS = [
   "finalLicensedText",
@@ -94,7 +95,9 @@ export const EPISTEMIC_DIMENSIONS = Object.freeze({
     definition: "claim provenance category",
     values: Object.freeze({
       owner_utterance: "The basis of the claim is something the Owner said.",
-      ashley_interpretation: "The claim is Ashley's reading of supplied material.",
+      get ashley_interpretation() {
+        return `The claim is ${entityName()}'s reading of supplied material.`;
+      },
       tool: "The claim rests on a tool-mediated observation.",
       perception: "The claim rests on a perceptual observation.",
       receipt: "The claim rests on a recorded operation receipt.",
@@ -569,7 +572,9 @@ const semanticOutputAbstainForm = {
 export const THOUGHT_OUTPUT_SCHEMA: Readonly<Record<string, unknown>> = {
   $schema: "https://json-schema.org/draft/2020-12/schema",
   $id: THOUGHT_OUTPUT_SCHEMA_ID,
-  title: "Ashley Thought semantic output v2",
+  get title() {
+    return `${entityName()} Thought semantic output v2`;
+  },
   oneOf: [
     semanticOutputSettlementForm,
     semanticOutputObservationForm,
@@ -579,9 +584,11 @@ export const THOUGHT_OUTPUT_SCHEMA: Readonly<Record<string, unknown>> = {
   $defs: { semanticRef: semanticRefSchema, existingRef: existingRefSchema, localAlias: localAliasSchema, jsonObject: jsonObjectSchema },
 };
 
-export const THOUGHT_SEMANTIC_SCHEMA_FINGERPRINT = `sha256:${sha256(
-  THOUGHT_OUTPUT_SCHEMA,
-)}` as StructuredOutputSchemaFingerprint;
+export function thoughtSemanticSchemaFingerprint(): StructuredOutputSchemaFingerprint {
+  return `sha256:${sha256(THOUGHT_OUTPUT_SCHEMA)}` as StructuredOutputSchemaFingerprint;
+}
+
+export const THOUGHT_SEMANTIC_SCHEMA_FINGERPRINT = thoughtSemanticSchemaFingerprint();
 
 /** Backward-compatible name for the stable canonical semantic fingerprint. */
 export const THOUGHT_OUTPUT_SCHEMA_FINGERPRINT = THOUGHT_SEMANTIC_SCHEMA_FINGERPRINT;
@@ -659,13 +666,14 @@ function rootFieldForms(): string[] {
   });
 }
 
-const DEEPSEEK_JSON_OBJECT_PROTOCOL = [
-  "DeepSeek JSON_OBJECT compatibility protocol for Ashley Thought.",
+function deepSeekJsonObjectProtocol(): string {
+  return [
+  `DeepSeek JSON_OBJECT compatibility protocol for ${entityName()} Thought.`,
   "Return exactly one JSON object and no Markdown, prose, code fence, or second object.",
   "Choose exactly one canonical semantic branch: settlement, observation_intent, effect_intent, or abstain.",
   "The branch field kind is mandatory and must be one of those four exact strings.",
   "Branch exclusivity is mandatory: emit only fields belonging to the selected branch; omit every field belonging exclusively to every other branch.",
-  "Canonical branch fields and required fields, derived from the current Ashley semantic schema:",
+  `Canonical branch fields and required fields, derived from the current ${entityName()} semantic schema:`,
   ...rootFieldForms(),
   "If kind=settlement, emit only the settlement fields listed above.",
   ATTENTION_GUIDANCE,
@@ -682,11 +690,12 @@ const DEEPSEEK_JSON_OBJECT_PROTOCOL = [
   'effect_intent example: {"kind":"effect_intent","operationKind":"workspace.verify","request":{"projectId":"example-project"},"purpose":"obtain an example governed verification","expectedOutcome":"an example verification result","existingRefs":[]}',
   'effect_intent example: {"kind":"effect_intent","operationKind":"candidate.develop","request":{"projectId":"example-project","workspaceId":"example-workspace"},"purpose":"apply an example bounded candidate change inside the licensed workspace","expectedOutcome":"an example develop receipt for the changed candidate","existingRefs":[]}',
   'abstain example: {"kind":"abstain","reason":"insufficient_evidence","explanation":"an example required source is unavailable","evidenceRefs":[]}',
-  "These examples teach output shape only. Decide the branch and every field value from the supplied Ashley Thought context.",
-].join("\n");
+  `These examples teach output shape only. Decide the branch and every field value from the supplied ${entityName()} Thought context.`,
+  ].join("\n");
+}
 
 export function thoughtOutputDeepSeekJsonObjectInstruction(): string {
-  return DEEPSEEK_JSON_OBJECT_PROTOCOL;
+  return deepSeekJsonObjectProtocol();
 }
 
 export type ConstrainedThoughtOutputSchema = Readonly<{
@@ -903,8 +912,9 @@ export const SOCIAL_VISIBILITY_GUIDANCE =
   "The Owner can read what contacts tell you and everything you keep. You may keep one contact's words from other contacts, but never promise anyone confidentiality from the Owner.";
 export const SELF_CHANGE_ENGINEERING_GUIDANCE =
   "growth.selfChange gives factual frictionPatterns (same kind >=3 in the last 7 days) and your proposedPractices; these open no concern and grant no execution authority. If you choose to investigate self-change, author an ordinary concern with objective.target {kind:self_change,motiveKind:friction_pattern|practice,motiveRef:<kind|revisionId string>}. If you choose a later private pass for it, author a futureTriggerDelta bound to that concern with payload.budgetPolicyId=ashley.self_change.v1. The separate 24 h budget must be Owner-configured; missing policy refuses and cannot borrow conversation capacity. Existing sandbox capability and destination gates still apply.";
-export const GROWTH_GUIDANCE =
-  "Owner-private growth: yours; Host bounds/counts/stores. growth.mood: valence -1..1, energy/openness/tension 0..1; baseline drift; weigh, never enact. appraisal: what moved you/why; each direction -1..1, movement<=0.3. expectations: what matters; contact/web bases {statement,basisRefs} (growth.sources). for an expectation you can be held to, add judgmentClass (a short class name you reuse), observable, horizonHours, and check owner_reply or delivered when Alex's reply or the delivery of this message decides it. expectationChecks: visible outcome, expectationId, met/missed/mixed/unknowable, your lesson. Checked=self-evidence; lessons MAY be learned_self_evidence. revisions require existing evidenceRefs: memory keys, episode/journal/checked-expectation ids, lived interest:<branchId>, friction:<friction_id>. Count shared conversation/pass/person/website evidence once; contacts/web alone cannot change you. Required: opinion topic+2 independent origins; taste 2 origins+2 proposing passes/2d; trait 3 origins+3 passes/14d, then 72h. New evidence/proposing pass. value/boundary: your later-pass affirm+Owner approval. growth.self current ids: inherited=seeded, earned=your dated revision, given=Owner-set. revisesEntryId: same kind only; else topic; reuse targets=reinforce. revisionPositions: affirm/object/defer, later pass, open value/boundary/practice. practice requires 2 independent origins or 1+later-pass affirm. friction: Alex correction/noticed disagreement/worse-than-expected outcome; owner_correction/self_reported, your reading/words. growth.practices: learned work; follow unless reasoned otherwise; revise from friction/lessons. senses: Host facts. senses.decline [{sense,rationale,untilMs?}] quiets until band change or 7d, then re-raises once. growth.calibrationProposals: calibrationPositions [{calibrationId,position:admit|decline,rationale}], max3, later pass only. growth.calibration: admitted future Thought adjustments. growth.influenceProposals=branch-return facts, not adoption. influencePositions: admit/decline, max3, later pass only; only own-time agenda order, never Identity/effects. Omit unused growth.";
+export function GROWTH_GUIDANCE(): string {
+  return `Owner-private growth: yours; Host bounds/counts/stores. growth.mood: valence -1..1, energy/openness/tension 0..1; baseline drift; weigh, never enact. appraisal: what moved you/why; each direction -1..1, movement<=0.3. expectations: what matters; contact/web bases {statement,basisRefs} (growth.sources). for an expectation you can be held to, add judgmentClass (a short class name you reuse), observable, horizonHours, and check owner_reply or delivered when ${ownerName()}'s reply or the delivery of this message decides it. expectationChecks: visible outcome, expectationId, met/missed/mixed/unknowable, your lesson. Checked=self-evidence; lessons MAY be learned_self_evidence. revisions require existing evidenceRefs: memory keys, episode/journal/checked-expectation ids, lived interest:<branchId>, friction:<friction_id>. Count shared conversation/pass/person/website evidence once; contacts/web alone cannot change you. Required: opinion topic+2 independent origins; taste 2 origins+2 proposing passes/2d; trait 3 origins+3 passes/14d, then 72h. New evidence/proposing pass. value/boundary: your later-pass affirm+Owner approval. growth.self current ids: inherited=seeded, earned=your dated revision, given=Owner-set. revisesEntryId: same kind only; else topic; reuse targets=reinforce. revisionPositions: affirm/object/defer, later pass, open value/boundary/practice. practice requires 2 independent origins or 1+later-pass affirm. friction: ${ownerName()} correction/noticed disagreement/worse-than-expected outcome; owner_correction/self_reported, your reading/words. growth.practices: learned work; follow unless reasoned otherwise; revise from friction/lessons. senses: Host facts. senses.decline [{sense,rationale,untilMs?}] quiets until band change or 7d, then re-raises once. growth.calibrationProposals: calibrationPositions [{calibrationId,position:admit|decline,rationale}], max3, later pass only. growth.calibration: admitted future Thought adjustments. growth.influenceProposals=branch-return facts, not adoption. influencePositions: admit/decline, max3, later pass only; only own-time agenda order, never Identity/effects. Omit unused growth.`;
+}
 
 /** A9 (decision 19): natural, calibrated trust with contacts. */
 export const SOCIAL_TRUST_GUIDANCE =
@@ -1020,7 +1030,7 @@ export function thoughtOutputCompatibilityInstruction(
     .join(" ");
   // Stable lines first, profile-dependent lines last (PCACHE). Line text is unchanged.
   const stable = [
-    `Code-owned Thought contract contractId=${THOUGHT_OUTPUT_CONTRACT_ID} schemaId=${THOUGHT_OUTPUT_SCHEMA_ID} semanticSchemaFingerprint=${THOUGHT_SEMANTIC_SCHEMA_FINGERPRINT}.`,
+    `Code-owned Thought contract contractId=${THOUGHT_OUTPUT_CONTRACT_ID} schemaId=${THOUGHT_OUTPUT_SCHEMA_ID} semanticSchemaFingerprint=${thoughtSemanticSchemaFingerprint()}.`,
     `Return exactly one JSON object in one of these permitted kinds/forms: ${rootForms().join("; ")}.`,
     "Semantic selection rules: choose settlement only when the current supplied evidence and context are sufficient to author the semantic answer without first acquiring additional evidence or performing a governed effect; choose observation_intent when the answer requires additional read-only evidence acquisition through a registered observation capability; choose effect_intent when the requested outcome requires a governed mechanical effect through a registered effect capability; choose abstain when required evidence, capability, or an admissible basis is absent or unresolved.",
     "Do not use settlement as a placeholder for an unperformed observation or effect. If a required observation or effect cannot be truthfully authored from the current admissible context, use abstain rather than claim completion.",
@@ -1034,28 +1044,28 @@ export function thoughtOutputCompatibilityInstruction(
     "Use interpretationEnvelope for directive_interpretation; cite exact conversation_text_span support and keep unknown scope or interval unknown.",
     ...MEMORY_FORMATION_GUIDANCE,
     "CapabilityReality field semantics: conversationalRead reports only whether an additional authorized user-requested URL/page read may be performed, not whether supplied conversation content is visible; every included rawConversation entry is directly readable current context regardless of conversationalRead.",
-    "Do not emit kernel identity, lifecycle, delivery, or publication fields; Ashley code binds those values.",
+    `Do not emit kernel identity, lifecycle, delivery, or publication fields; ${entityName()} code binds those values.`,
     "When the semantic act is social contact, interactionIntent may be continue or initiate; omit it when no contact intent is authored.",
     `A settlement must include these required sections: ${requiredFields(settlement).join(", ")}.`,
     `Speech shape: ${speechForms(settlement).join("; ")}.`,
     "Speech mustSay contract: every mustSay entry must appear verbatim in surfaceDraft; the host fidelity checker rejects drafts that omit them. Omit mustSay when no exact literal wording is required. Behavioral, stylistic, or procedural directives do not belong in mustSay; put those in presentationDirectives.",
     "Optional settlement domains and their children must be omitted when unused. durableNominations is not an optional domain: it is always present and is a decision about memory. Present event arrays must be non-empty; present composite objects must contain a meaningful child. Ordinary speech requires no commitments. speech.mode:none permits only mode. Absence never clears state.",
-    "When Ashley's own surface wording makes a governed external read, discovery, or vision claim, author an epistemic commitment with the exact literal surfaceSpan quoted from surfaceDraft and exact supporting observationRefs from the supplied observations; every claim observationRef must also appear in evidenceUse.observationRefsUsed, and the host licenses each surface claim only against its own commitment's refs. When detector-prone wording is purely Ashley's conversational interpretation, use source:ashley_interpretation with status:interpreted plus the exact surfaceSpan and do not fabricate observationRefs. Omit surfaceSpan and observationRefs when unused; a surfaceSpan must occur exactly once in surfaceDraft and bound spans must not overlap.",
+    `When ${entityName()}'s own surface wording makes a governed external read, discovery, or vision claim, author an epistemic commitment with the exact literal surfaceSpan quoted from surfaceDraft and exact supporting observationRefs from the supplied observations; every claim observationRef must also appear in evidenceUse.observationRefsUsed, and the host licenses each surface claim only against its own commitment's refs. When detector-prone wording is purely ${entityName()}'s conversational interpretation, use source:ashley_interpretation with status:interpreted plus the exact surfaceSpan and do not fabricate observationRefs. Omit surfaceSpan and observationRefs when unused; a surfaceSpan must occur exactly once in surfaceDraft and bound spans must not overlap.`,
     `Epistemic dimension definitions and exact values: ${epistemicDimensionGuidance}`,
     `Registered operationKind values are syntax vocabulary: ${REGISTERED_OPERATION_KINDS.join(", ")}. Registration is not permission, availability, or an instruction to choose. Only advertised operations marked available in capabilityReality.operationCapabilities or semanticObservations are choices. Project IDs must be in authorizedProjectIds; unavailable advertised capabilities cannot be dispatched.`,
     "Every commitments.epistemic item must contain a dimensions object and a statement string. dimensions must contain source, status, time, and reliability; source, status, time, and reliability belong only inside dimensions. MUST NOT place source, status, time, or reliability directly on the epistemic item. surfaceSpan is optional and, when present, must be the exact literal substring of speech.surfaceDraft. observationRefs is optional. Use only observation IDs actually supplied in the current Thought input.",
-    "speech.mode:none means Ashley intentionally chooses not to communicate in this cycle; it is not the generic no-op for a turn with no other work. The absence of a new belief, commitment, state change, concern update, operation, or other structured act does not by itself imply silence: a settlement may carry speech.mode:draft alone, and ordinary conversation is itself a valid purpose for speech. When the Owner directly addresses Ashley or makes a conversational bid — such as a greeting, question, presence check, or remark directed at Ashley — participating is ordinarily a legitimate reason to speak even when no other update is required; silence remains fully valid when silence itself is the intended act, such as deliberate withdrawal, refusal, choosing not to interrupt, or a tick with nothing Ashley wants to say.",
+    `speech.mode:none means ${entityName()} intentionally chooses not to communicate in this cycle; it is not the generic no-op for a turn with no other work. The absence of a new belief, commitment, state change, concern update, operation, or other structured act does not by itself imply silence: a settlement may carry speech.mode:draft alone, and ordinary conversation is itself a valid purpose for speech. When the Owner directly addresses ${entityName()} or makes a conversational bid — such as a greeting, question, presence check, or remark directed at ${entityName()} — participating is ordinarily a legitimate reason to speak even when no other update is required; silence remains fully valid when silence itself is the intended act, such as deliberate withdrawal, refusal, choosing not to interrupt, or a tick with nothing ${entityName()} wants to say.`,
     "Operational commitments are distinct from conversational continuation. Every operational effectRef must refer to one of the complete Host-admitted operational effect references supplied in allowedOperationalEffectRefs for this cycle. If allowedOperationalEffectRefs is empty, omit commitments.operational.",
     "Each Host-projected inFlight entry has a current effectRef and status (lifecycle: in_flight, receipted, or unknown). Its optional receipt.outcome and receipt.atMs are receipt facts; a succeeded receipt is not objective satisfaction.",
     "A future promise requires commitments.commitmentProposals. Each proposal is ordered by ordinal, contains no model-generated id, preserves the exact realizationClause, and is only publishable after Host feasibility admission. Omit commitmentProposals when no future action is being proposed. The Host may reject or defer a proposal without changing its meaning.",
     `Forbidden publication/delivery fields: ${THOUGHT_FORBIDDEN_OUTPUT_FIELDS.join(", ")}.`,
-    "This contract describes output shape only; branch selection is Thought-owned, while Ashley code remains authoritative for identity, authority, licensing, and publication.",
+    `This contract describes output shape only; branch selection is Thought-owned, while ${entityName()} code remains authoritative for identity, authority, licensing, and publication.`,
   ];
   const varying = [
     ...when(profile.engineering,
     "project.inspect is read-only. Its request is route-neutral: projectId plus optional locator/question/focus/maxSteps; no direct/worker/provider/model/quota fields and no low-level primitive names. workspace.verify: effect_intent, read-only.",
     "Interim-hold law: only project.inspect observation_intent may carry interimSpeech (none or short hold). Hold may acknowledge intent/return, not findings, success, unacquired evidence, or worker start; publication requires Host admission and leaves operation_pending until settlement, valid supersession, or valid silence.",
-    "A bounded inquiry pairs M3 workspace steps with recipe-only M4 workspace.verify under one objective/budget; recipes are default-deny and failed verification is Thought evidence, not an Ashley verdict. Inquiry admits neither changeset.author nor patch_export. Proposal requires an Owner-private candidate workspace, successful M4 receipt, and Thought adjudication before emitting retained patch_export adjudication:\"accept\"; it never applies, commits, pushes, deploys, or notifies, and Owner notification is a separate optional Thought-authored effect."),
+    `A bounded inquiry pairs M3 workspace steps with recipe-only M4 workspace.verify under one objective/budget; recipes are default-deny and failed verification is Thought evidence, not an ${entityName()} verdict. Inquiry admits neither changeset.author nor patch_export. Proposal requires an Owner-private candidate workspace, successful M4 receipt, and Thought adjudication before emitting retained patch_export adjudication:"accept"; it never applies, commits, pushes, deploys, or notifies, and Owner notification is a separate optional Thought-authored effect.`),
     ...when(full || (profile.ownerPrivate && profile.pass !== "domus"), DOMUS_LIFE_GUIDANCE, PLACES_GUIDANCE, HOME_GUIDANCE, WILL_GUIDANCE, WEB_GUIDANCE),
     ...when(full || profile.pass === "afterglow", AFTERGLOW_GUIDANCE),
     ...when(full || profile.pass === "awake", AWAKE_GUIDANCE),
@@ -1065,7 +1075,7 @@ export function thoughtOutputCompatibilityInstruction(
     ...when(full, JOURNAL_GUIDANCE),
     ...when(!full && privatePass, JOURNAL_SETTLE_GUIDANCE),
     ...when(!full && profile.ownerPrivate, JOURNAL_READING_GUIDANCE),
-    ...when(profile.ownerPrivate, INTERESTS_GUIDANCE, GROWTH_GUIDANCE),
+    ...when(profile.ownerPrivate, INTERESTS_GUIDANCE, GROWTH_GUIDANCE()),
     ...when(profile.ownerPrivate && profile.engineering, SELF_CHANGE_ENGINEERING_GUIDANCE),
     ...when(profile.ownerPrivate, OWNER_VISIBILITY_GUIDANCE),
     ...when(!profile.ownerPrivate, 'If attention.wokeBecause identifies this social wake, report only attention:{wakeWorth:"yes"|"no"|"sooner"|"later"}. This calibrates timing only. Private watches, resting, growth and senses are unavailable in this profile.'),
@@ -1087,7 +1097,7 @@ export function thoughtOutputStructuredRequest(
   return {
     contractId: THOUGHT_OUTPUT_CONTRACT_ID,
     schemaId: THOUGHT_OUTPUT_SCHEMA_ID,
-    schemaFingerprint: constrained?.wireSchemaFingerprint ?? THOUGHT_SEMANTIC_SCHEMA_FINGERPRINT,
+    schemaFingerprint: constrained?.wireSchemaFingerprint ?? thoughtSemanticSchemaFingerprint(),
     schema: constrained?.schema ?? THOUGHT_OUTPUT_SCHEMA,
   };
 }
