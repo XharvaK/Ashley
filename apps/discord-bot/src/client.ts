@@ -1,10 +1,11 @@
 import {
   Client,
-  GatewayIntentBits,
   Partials,
   Events,
   type Message,
+  type Presence,
 } from "discord.js";
+import { applyOwnerPresence, gatewayIntentList, liveOwnerPresenceDeps } from "./presence-filter.js";
 import { config } from "./config.js";
 import {
   classifySocialSender,
@@ -25,16 +26,7 @@ import { createOwnerTransportReconciler } from "./chat/owner-transport-recovery.
 
 export function createClient(): Client {
   const client = new Client({
-    intents: [
-      GatewayIntentBits.Guilds,
-      GatewayIntentBits.GuildMessages,
-      GatewayIntentBits.DirectMessages,
-      GatewayIntentBits.MessageContent,
-      GatewayIntentBits.GuildMessageReactions,
-      // Without this, a laugh reaction on her message in a DM never arrives at
-      // all, which is most of where Alex actually talks to her.
-      GatewayIntentBits.DirectMessageReactions,
-    ],
+    intents: gatewayIntentList(config.presenceIntent),
     partials: [Partials.Channel, Partials.Message, Partials.Reaction],
   });
   const ownerTransportReconciler = createOwnerTransportReconciler(client);
@@ -138,6 +130,16 @@ export function createClient(): Client {
         console.error("[discord-bot] messageCreate error:", err);
       }
     })();
+  });
+
+  client.on(Events.PresenceUpdate, (_previous: Presence | null, update: Presence) => {
+    const userId = update.userId ?? update.user?.id ?? "";
+    void applyOwnerPresence(
+      { userId, status: update.status ?? null },
+      liveOwnerPresenceDeps(config.ownerId, config.ownerPresenceFacts),
+    ).catch((error) => {
+      console.error("[discord-bot] owner presence call failed", error);
+    });
   });
 
   client.on(Events.MessageReactionAdd, (reaction, user) => {
