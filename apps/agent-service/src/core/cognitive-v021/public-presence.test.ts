@@ -77,17 +77,19 @@ describe("autonomous public presence", () => {
   });
 
   it("exposes the capability only for a fully public idle opportunity", () => {
-    expect(
-      isAutonomousPublicPresenceOpportunity({
-        cycleTriggerKind: "idle_opportunity",
-        wakeSourceKind: "idle",
-        eventKind: "idle_opportunity",
-        channel: "discord",
-        occupantId: "owner",
-        configuredOwnerId: "owner",
-        reconciling: false,
-      }),
-    ).toBe(true);
+    const idle = {
+      cycleTriggerKind: "idle_opportunity",
+      wakeSourceKind: "idle",
+      eventKind: "idle_opportunity",
+      channel: "discord",
+      occupantId: "owner",
+      configuredOwnerId: "owner",
+      reconciling: false,
+    };
+    expect(isAutonomousPublicPresenceOpportunity(idle)).toBe(true);
+    expect(isAutonomousPublicPresenceOpportunity({ ...idle, passKind: "awake" })).toBe(true);
+    expect(isAutonomousPublicPresenceOpportunity({ ...idle, passKind: "afterglow" })).toBe(true);
+    expect(isAutonomousPublicPresenceOpportunity({ ...idle, passKind: "night" })).toBe(true);
 
     expect(
       isAutonomousPublicPresenceOpportunity({

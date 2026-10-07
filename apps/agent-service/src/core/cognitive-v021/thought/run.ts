@@ -2925,7 +2925,7 @@ export async function runCognitiveCycle(
     occupantId: cycle.occupantId,
     configuredOwnerId: payload.ownerId,
     reconciling: wake.state === "reconciling",
-    afterglow: afterglowPass !== null,
+    passKind: afterglowPass ? "afterglow" : awakePass ? "awake" : nightPass ? "night" : null,
   });
   const publicPresence = publicPresenceEnabled
     ? readPublicPresenceContext(sidecar, deps.nowMs())

@@ -1,5 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
-import { afterglowPassFromPayload } from "./initiative/inner-pass.js";
+import { afterglowPassFromPayload, awakePassFromPayload, nightPassFromPayload } from "./initiative/inner-pass.js";
 import { evaluatePublicDisclosure, type EthPubProtectedCategory } from "../privacy/disclosure.js";
 import { detectCredentialShape } from "../privacy/secrets.js";
 import type {
@@ -51,6 +51,14 @@ export type PublicPresenceDisclosureFacts = Readonly<{
   thoughtAuthorized?: boolean;
 }>;
 
+/**
+ * Inner passes that may see discord.public_presence.
+ * An idle opportunity with no inner pass stays included.
+ * Afterglow and awake were added beside night, which was already included.
+ */
+export const PUBLIC_PRESENCE_PASS_KINDS = ["awake", "afterglow", "night"] as const;
+export type PublicPresencePassKind = (typeof PUBLIC_PRESENCE_PASS_KINDS)[number];
+
 export type PublicPresenceOpportunityInput = Readonly<{
   cycleTriggerKind: CycleTriggerKind | string;
   wakeSourceKind: string;
@@ -59,8 +67,8 @@ export type PublicPresenceOpportunityInput = Readonly<{
   occupantId: unknown;
   configuredOwnerId: unknown;
   reconciling: boolean;
-  /** An afterglow is private reflection, not an opportunity to present in public. */
-  afterglow?: boolean;
+  /** Null when the idle opportunity carries no inner pass. */
+  passKind?: PublicPresencePassKind | null;
 }>;
 
 export type PublicPresenceProjectionOutcome = "succeeded" | "failed" | "unknown";
@@ -134,6 +142,9 @@ export function withPublicPresenceCapability(
 export function isAutonomousPublicPresenceOpportunity(
   input: PublicPresenceOpportunityInput,
 ): boolean {
+  const passKind = input.passKind ?? null;
+  const passAllowed = passKind === null
+    || (PUBLIC_PRESENCE_PASS_KINDS as readonly string[]).includes(passKind);
   return input.cycleTriggerKind === "idle_opportunity"
     && input.wakeSourceKind === "idle"
     && input.eventKind === "idle_opportunity"
@@ -141,7 +152,7 @@ export function isAutonomousPublicPresenceOpportunity(
     && nonEmptyString(input.configuredOwnerId)
     && input.occupantId === input.configuredOwnerId
     && !input.reconciling
-    && input.afterglow !== true;
+    && passAllowed;
 }
 
 function disclosureCode(reason: string): PublicPresenceValidationCode {
@@ -462,6 +473,10 @@ export function isAutonomousPublicPresenceProposal(
   `).get(originEventId) as RecordValue | undefined;
   if (!wake || !event) return false;
   const payload = eventPayload(event.payload_json);
+  const passKind = afterglowPassFromPayload(payload) ? "afterglow" as const
+    : awakePassFromPayload(payload) ? "awake" as const
+    : nightPassFromPayload(payload) ? "night" as const
+    : null;
   return isAutonomousPublicPresenceOpportunity({
     cycleTriggerKind: textValue(cycle.trigger_kind) ?? "",
     wakeSourceKind: textValue(wake.source_kind) ?? "",
@@ -470,7 +485,7 @@ export function isAutonomousPublicPresenceProposal(
     occupantId: cycle.occupant_id,
     configuredOwnerId,
     reconciling: wake.state === "reconciling" || event.kind === "reconciling",
-    afterglow: afterglowPassFromPayload(payload) !== null,
+    passKind,
   }) && payload.ownerId === configuredOwnerId;
 }
 
