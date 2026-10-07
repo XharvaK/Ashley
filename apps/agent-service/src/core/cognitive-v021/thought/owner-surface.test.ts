@@ -150,6 +150,8 @@ describe("returning facts", () => {
     expect(onReturn([exchange("o1", "owner", "See you tomorrow.", 0)])).toMatchObject({ lastExchangeEnd: "plain" });
     expect(ownerMessageShape("back soon")).toBe("owner_brb");
     expect(ownerMessageShape("good night")).toBe("owner_goodnight");
+    expect(ownerMessageShape("Good night! 🌙")).toBe("owner_goodnight");
+    expect(ownerMessageShape("brb...")).toBe("owner_brb");
     expect(ownerMessageShape("one two three")).toBe("owner_fragment");
     expect(ownerMessageShape("one two three four")).toBe("plain");
     expect(ownerMessageShape("ok.")).toBe("plain");

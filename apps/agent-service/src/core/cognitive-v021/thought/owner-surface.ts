@@ -211,6 +211,11 @@ function mechanicalText(text: string): string {
   return text.trim().toLowerCase().replace(/\s+/g, " ");
 }
 
+/** For the fixed lists: trailing punctuation, emoji and symbols don't change the shape ("good night!" is a goodnight). */
+function listText(text: string): string {
+  return mechanicalText(text).replace(/[\s\p{P}\p{S}\p{Extended_Pictographic}]+$/u, "");
+}
+
 function endsWithQuestion(text: string): boolean {
   return text.trimEnd().endsWith("?");
 }
@@ -218,8 +223,8 @@ function endsWithQuestion(text: string): boolean {
 /** Shape of one Owner message. Lists win over the short-fragment rule. */
 export function ownerMessageShape(text: string): Exclude<LastExchangeEnd, "her_open_question"> {
   const normalized = mechanicalText(text);
-  if ((OWNER_BRB_TEXTS as readonly string[]).includes(normalized)) return "owner_brb";
-  if ((OWNER_GOODNIGHT_TEXTS as readonly string[]).includes(normalized)) return "owner_goodnight";
+  if ((OWNER_BRB_TEXTS as readonly string[]).includes(listText(normalized))) return "owner_brb";
+  if ((OWNER_GOODNIGHT_TEXTS as readonly string[]).includes(listText(normalized))) return "owner_goodnight";
   const words = normalized.length === 0 ? [] : normalized.split(" ");
   const endPunctuation = /[.!?…]$/.test(text.trim());
   if (words.length <= 3 && !endPunctuation) return "owner_fragment";
