@@ -21,6 +21,7 @@ import {
 } from "../chat/attachments.js";
 import { config } from "../config.js";
 import { agentErrorMessage } from "../chat/agent-errors.js";
+import { readMedia, type MediaReading } from "../chat/media-reading.js";
 import { readKillSwitch } from "../chat/kill-switch.js";
 import { tempoTracker } from "../chat/pacing.js";
 import { TurnBuffer } from "../chat/turn-buffer.js";
@@ -106,7 +107,11 @@ export function createMessageCreateHandler(options: {
   onFirstFragment?: (channelId: string) => void;
   quietMs?: number;
   hardCapMs?: number;
+  /** UX Wave 2 Perception: GIF links and stickers read before the message is buffered. */
+  readMedia?: (message: Message) => Promise<MediaReading>;
 }): MessageCreateHandler {
+  // A GIF lookup takes a moment; messages in one channel still reach the buffer in the order sent.
+  const ordered = new Map<string, Promise<unknown>>();
   let lastReadyPromise = Promise.resolve();
   let drain: (channelId: string) => Promise<void>;
   let externalCaptureFailures = 0;
@@ -195,73 +200,17 @@ export function createMessageCreateHandler(options: {
     async handleMessage(message: Message, context?: MessageSocialContext): Promise<void> {
       if (message.content.trim().startsWith("/")) return;
       if (context?.gateVerdict === "drop") return;
-      const intake = describeIntake(message);
-      if (!context?.gateVerdict && !intake.text && !hasIngestibleTextAttachment(intake)) return;
-      if (context?.gateVerdict) {
-        try {
-          const envelope = intake.envelope;
-          if (!envelope) throw new Error("external_envelope_unattributable");
-          const conversationKey = externalConversationKey(
-            envelope,
-            options.botId ?? messageClientUserId(message),
-          );
-          const captured = await (options.captureExternalChat ?? captureExternalChat)(
-            envelope,
-            intake.text,
-            { gateHint: context.gateVerdict, conversationKey, names: messageNames(message) },
-          );
-          if (!captured.captureRef || captured.conversationKey !== conversationKey) {
-            throw new Error("external_capture_receipt_invalid");
-          }
-          const first = localTurns.push(conversationKey, {
-            text: "",
-            attachments: [],
-            hasMedia: false,
-            hasIngestibleTextAttachment: false,
-            messageId: intake.messageId,
-            gateVerdict: context.gateVerdict,
-            captureRef: captured.captureRef,
-            conversationKey,
-          }, { kind: "external", conversationKey });
-          if (first) options.channelQueue?.abort(conversationKey);
-        } catch (error) {
-          externalCaptureFailures += 1;
-          console.error(
-            `[discord-bot] external capture failed; reference not buffered count=${externalCaptureFailures}`,
-            error,
-          );
-        }
-        return;
-      }
-      const channelId = message.channel.id;
-      const sentAtMs = Number.isSafeInteger(message.createdTimestamp) && message.createdTimestamp >= 0
-        ? message.createdTimestamp
-        : Date.now();
-      const fragment: BufferedFragment = context?.ownerRoomContext
-        ? { ...intake, ownerRoomContext: context.ownerRoomContext, sentAtMs }
-        : { ...intake, sentAtMs };
-      if (options.captureOwnerTransport) {
-        try {
-          await options.captureOwnerTransport({
-            discordMessageId: intake.messageId,
-            channelId,
-            ...(message.guild?.id ? { guildId: message.guild.id } : {}),
-            message: intake.text,
-            attachments: intake.attachments,
-            sentAtMs,
-            capturedAtMs: Date.now(),
-            ...(context?.ownerRoomContext ? { ownerRoomContext: context.ownerRoomContext } : {}),
-          });
-        } catch (error) {
-          console.error("[discord-bot] Owner transport capture failed; history reconciliation remains authoritative:", error);
-          return;
-        }
-      }
-      const first = localTurns.push(channelId, fragment, message);
-      if (first) {
-        options.onFirstFragment?.(channelId);
-        options.channelQueue?.abort(channelId);
-      }
+      const key = typeof message.channel?.id === "string" ? message.channel.id : "";
+      const reading = (options.readMedia ?? readMedia)(message).catch(() => undefined);
+      const mine = (ordered.get(key) ?? Promise.resolve())
+        .then(() => reading)
+        .then((read) => handleRead(message, context, read));
+      const settled = mine.catch(() => undefined);
+      ordered.set(key, settled);
+      void settled.then(() => {
+        if (ordered.get(key) === settled) ordered.delete(key);
+      });
+      await mine;
     },
     async flushForTest(channelId: string): Promise<void> {
       const previous = lastReadyPromise;
@@ -270,6 +219,80 @@ export function createMessageCreateHandler(options: {
       await lastReadyPromise;
     },
   };
+
+  async function handleRead(
+    message: Message,
+    context: MessageSocialContext | undefined,
+    reading: MediaReading | undefined,
+  ): Promise<void> {
+    const intake = describeIntake(message, reading);
+    if (!context?.gateVerdict && !intake.text && !hasIngestibleTextAttachment(intake)) return;
+    if (context?.gateVerdict) {
+      try {
+        const envelope = intake.envelope;
+        if (!envelope) throw new Error("external_envelope_unattributable");
+        const conversationKey = externalConversationKey(
+          envelope,
+          options.botId ?? messageClientUserId(message),
+        );
+        const captured = await (options.captureExternalChat ?? captureExternalChat)(
+          envelope,
+          intake.text,
+          { gateHint: context.gateVerdict, conversationKey, names: messageNames(message) },
+        );
+        if (!captured.captureRef || captured.conversationKey !== conversationKey) {
+          throw new Error("external_capture_receipt_invalid");
+        }
+        const first = localTurns.push(conversationKey, {
+          text: "",
+          attachments: [],
+          hasMedia: false,
+          hasIngestibleTextAttachment: false,
+          messageId: intake.messageId,
+          gateVerdict: context.gateVerdict,
+          captureRef: captured.captureRef,
+          conversationKey,
+        }, { kind: "external", conversationKey });
+        if (first) options.channelQueue?.abort(conversationKey);
+      } catch (error) {
+        externalCaptureFailures += 1;
+        console.error(
+          `[discord-bot] external capture failed; reference not buffered count=${externalCaptureFailures}`,
+          error,
+        );
+      }
+      return;
+    }
+    const channelId = message.channel.id;
+    const sentAtMs = Number.isSafeInteger(message.createdTimestamp) && message.createdTimestamp >= 0
+      ? message.createdTimestamp
+      : Date.now();
+    const fragment: BufferedFragment = context?.ownerRoomContext
+      ? { ...intake, ownerRoomContext: context.ownerRoomContext, sentAtMs }
+      : { ...intake, sentAtMs };
+    if (options.captureOwnerTransport) {
+      try {
+        await options.captureOwnerTransport({
+          discordMessageId: intake.messageId,
+          channelId,
+          ...(message.guild?.id ? { guildId: message.guild.id } : {}),
+          message: intake.text,
+          attachments: intake.attachments,
+          sentAtMs,
+          capturedAtMs: Date.now(),
+          ...(context?.ownerRoomContext ? { ownerRoomContext: context.ownerRoomContext } : {}),
+        });
+      } catch (error) {
+        console.error("[discord-bot] Owner transport capture failed; history reconciliation remains authoritative:", error);
+        return;
+      }
+    }
+    const first = localTurns.push(channelId, fragment, message);
+    if (first) {
+      options.onFirstFragment?.(channelId);
+      options.channelQueue?.abort(channelId);
+    }
+  }
 }
 
 function messageClientUserId(message: Message): string | undefined {

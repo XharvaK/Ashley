@@ -12,8 +12,10 @@ import { noteGifReaction } from "../chat/gif-search.js";
 async function reportOwnMessageReaction(
   reaction: MessageReaction | PartialMessageReaction,
 ): Promise<void> {
-  const emoji = reaction.emoji.name;
-  if (!emoji) return;
+  // A custom emoji reads as :name:, the way it is written, not as a bare word.
+  const name = reaction.emoji.name;
+  if (!name) return;
+  const emoji = reaction.emoji.id ? `:${name}:` : name;
   try {
     const message = reaction.message.partial
       ? await reaction.message.fetch()

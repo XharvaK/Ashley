@@ -1,5 +1,12 @@
 import type { Message } from "discord.js";
 import { ownerName } from "../entity-names.js";
+import {
+  gifFrameRef,
+  gifLine,
+  readableEmoji,
+  stickerPhrase,
+  type MediaReading,
+} from "./media-reading.js";
 
 export type ExternalEnvelopeTransport = {
   speakerPrincipalId: string;
@@ -150,7 +157,15 @@ export function messageNames(message: Message): { speaker?: string; guild?: stri
   return names;
 }
 
-export function describeIntake(message: Message): Intake {
+/** Whose message this is, for the notes: the Owner by name, anyone else by the name Discord shows. */
+function senderName(message: Message): string {
+  const ownerId = process.env.DISCORD_OWNER_ID?.trim();
+  const authorId = typeof message.author?.id === "string" ? message.author.id : "";
+  if (!ownerId || !authorId || authorId === ownerId) return ownerName();
+  return messageNames(message).speaker ?? "They";
+}
+
+export function describeIntake(message: Message, reading?: MediaReading): Intake {
   const attachments: AttachmentRef[] = [];
   const notes: string[] = [];
   let hasIngestibleText = false;
@@ -245,12 +260,27 @@ export function describeIntake(message: Message): Intake {
     );
   }
 
-  for (const sticker of message.stickers.values()) {
-    notes.push(`the "${sticker.name}" sticker`);
+  const frames: AttachmentRef[] = [];
+  for (const [id, sticker] of message.stickers.entries()) {
+    const read = reading?.stickers.get(String(id));
+    if (!read) {
+      notes.push(`the "${sticker.name}" sticker`);
+      continue;
+    }
+    notes.push(stickerPhrase(read));
+    if (read.frame && acceptedImageCount + frames.length < MAX_IMAGES) frames.push(read.frame);
+  }
+
+  const sender = senderName(message);
+  const gifLines: string[] = [];
+  for (const [index, gif] of (reading?.gifs ?? []).entries()) {
+    const frame = acceptedImageCount + frames.length < MAX_IMAGES ? gifFrameRef(gif, message.id ?? "", index + 1) : null;
+    if (frame) frames.push(frame);
+    gifLines.push(gifLine(gif, sender, frame !== null));
   }
 
   const parts: string[] = [];
-  let content = message.content.trim();
+  let content = readableEmoji(message.content.trim());
   if (!/https:\/\//i.test(content)) {
     for (const embed of message.embeds) {
       const embedUrl = embed.url?.trim();
@@ -265,16 +295,18 @@ export function describeIntake(message: Message): Intake {
     parts.push(`(shared ${imageCount} image(s))`);
   }
   if (notes.length > 0) {
-    parts.push(`(${ownerName()} sent ${notes.join(", ")}.)`);
+    parts.push(`(${sender} sent ${notes.join(", ")}.)`);
   }
+  parts.push(...gifLines);
 
   const result: Intake = {
     text: parts.join("\n"),
-    attachments,
-    hasMedia: notes.length > 0,
+    attachments: [...attachments, ...frames],
+    hasMedia: notes.length > 0 || gifLines.length > 0,
     hasIngestibleTextAttachment: hasIngestibleText,
     messageId: message.id,
   };
+  // The frames are her reading of a link or sticker, not files the sender attached.
   const envelope = attributedEnvelope(message, attachments);
   if (envelope) result.envelope = envelope;
   return result;
