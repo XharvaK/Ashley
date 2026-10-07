@@ -102,12 +102,13 @@ function thoughtInput(options: {
   clockNow: string;
   deadlineAtMs: number;
   rows: ThoughtInput["rawConversation"];
+  cycleId?: string;
 }): ThoughtInput & {
   orientationKernel: ReturnType<typeof buildOrientationKernel>;
   domainPointers: DomainPointersSection;
 } {
   const input: ThoughtInput = {
-    cycleId: "cycle-prefix",
+    cycleId: options.cycleId ?? "cycle-prefix",
     generation: 1,
     occupantId: "occupant-1",
     authorityEpoch: 1,
@@ -252,6 +253,15 @@ describe("thought prompt prefix stability", () => {
     ]);
     const firstVolatileKey = visibleKeys.findIndex((key) => VOLATILE_FIELDS.has(key));
     expect(firstVolatileKey).toBeGreaterThanOrEqual(4);
+    const firstPointers = (JSON.parse(first.messages[1]?.content ?? "{}") as {
+      domainPointers?: Record<string, unknown>;
+    }).domainPointers;
+    const secondPointers = (JSON.parse(second.messages[1]?.content ?? "{}") as {
+      domainPointers?: Record<string, unknown>;
+    }).domainPointers;
+    expect(firstPointers).not.toHaveProperty("cycleId");
+    expect(JSON.stringify(firstPointers)).toBe(JSON.stringify(secondPointers));
+    expect(first.projected.domainPointers?.cycleId).toBe("cycle-prefix");
     expect(visible.orientationKernel?.capabilityReality?.asOf).not.toHaveProperty("capturedAtMs");
     expect(visible.orientationKernel?.capabilityReality?.asOf).toMatchObject({
       releaseId: "rel-prefix",
@@ -274,5 +284,39 @@ describe("thought prompt prefix stability", () => {
     expect(report!.stableBytes).toBeGreaterThanOrEqual(
       systemBytes + (volatileOffset as number) - JSON_KEY_SLACK,
     );
+  });
+
+  it("keeps visible domainPointers byte-identical when only the cycle id changes", () => {
+    const shared = {
+      capturedAtMs: 1_700_000_000_000,
+      clockNow: "Tuesday 29 September 2026, 22:13",
+      deadlineAtMs: 1_700_000_000_000,
+      rows: [BASE_ROW],
+    };
+    const first = allocateThoughtProjection({
+      thoughtInput: thoughtInput({ ...shared, cycleId: "cycle-prefix-a" }),
+      requestId: "req-prefix-cycle-a",
+    });
+    const second = allocateThoughtProjection({
+      thoughtInput: thoughtInput({ ...shared, cycleId: "cycle-prefix-b" }),
+      requestId: "req-prefix-cycle-b",
+    });
+
+    expect(first.projected.domainPointers?.cycleId).toBe("cycle-prefix-a");
+    expect(second.projected.domainPointers?.cycleId).toBe("cycle-prefix-b");
+    const firstVisible = JSON.parse(first.messages[1]?.content ?? "{}") as {
+      domainPointers?: Record<string, unknown>;
+    };
+    const secondVisible = JSON.parse(second.messages[1]?.content ?? "{}") as {
+      domainPointers?: Record<string, unknown>;
+    };
+    expect(firstVisible.domainPointers).not.toHaveProperty("cycleId");
+    expect(Object.keys(firstVisible.domainPointers ?? {})).toEqual([
+      "version",
+      "conversationId",
+      "pointers",
+      "coverageManifest",
+    ]);
+    expect(JSON.stringify(firstVisible.domainPointers)).toBe(JSON.stringify(secondVisible.domainPointers));
   });
 });
