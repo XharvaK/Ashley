@@ -1796,6 +1796,8 @@ export type ThoughtInput = {
   placeWish?: import("../places/compose.js").ThoughtPlaceWish;
   /** T: in a turn with one of her teachers, who they are to her (the Owner made them her teacher). */
   teacher?: import("../teach/lessons.js").ThoughtTeacher;
+  /** The weather where the Owner is. Owner-private passes only; absent for a room or a contact. */
+  ownerWeather?: import("./world/weather.js").OwnerWeather;
   /** Present only for an autonomous idle-opportunity Thought. */
   publicPresence?: PublicPresenceContext;
   /** Host refusal: the previous unsolicited draft was held for quiet. Shown once. */

@@ -62,6 +62,7 @@ export type AllocationSectionId =
   | "authority_objections"
   | "remember_directive"
   | "host_surface"
+  | "owner_weather"
   | InnerLifeSectionId;
 
 /** Growth V1 inner-life sections, each a required, byte-bounded pass-through (R15). */
@@ -170,6 +171,8 @@ export function requirednessContractFor(
       return { owner: "retrieval_adapter", predicate: "bounded_hit_eligible", overflow: "shed_optional" };
     case "c3_terminal_experiences":
       return { owner: "c3_experience_adapter", predicate: "terminal_experience_candidate_eligible", overflow: "shed_optional" };
+    case "owner_weather":
+      return { owner: "world_adapter", predicate: "owner_weather_present", overflow: "shed_optional" };
     case "clock":
     case "core_profile":
     case "thread_story":
@@ -223,7 +226,7 @@ export function allocationTokenComponent(
   if (section === "c3_terminal_experiences") return "domain_pointer_tokens";
   if (section === "observations") return "observations_tokens";
   if (section === "in_flight_receipt") return "in_flight_effect_tokens";
-  if (isInnerLifeSection(section)) return "inner_life_tokens";
+  if (section === "owner_weather" || isInnerLifeSection(section)) return "inner_life_tokens";
   return "authority_revision_feedback_tokens";
 }
 
@@ -734,6 +737,17 @@ export function buildAllocationCandidates(
     });
   }
 
+  // The weather where the Owner is. Optional: absent when unset, shed when the envelope is full.
+  if (input.ownerWeather !== undefined) {
+    candidates.push({
+      id: "owner_weather",
+      section: "owner_weather",
+      required: false,
+      priority: 19,
+      data: input.ownerWeather,
+    });
+  }
+
   return candidates.map((candidate) => {
     const canonicalStore = canonicalStoreFor(candidate.section);
     const evidenceRefs = candidate.evidenceRefs ?? evidenceRefsFor(candidate.data);
@@ -788,6 +802,7 @@ function canonicalStoreFor(section: AllocationSectionId): string {
   if (section === "c3_terminal_experiences") return "cognitive-v021.db:c3_terminal_experiences";
   if (section === "in_flight_receipt") return "effect_receipts";
   if (section === "host_surface") return "host_surface_facts";
+  if (section === "owner_weather") return "host_weather_cache";
   const innerLife = INNER_LIFE_SECTIONS.find((entry) => entry.section === section);
   if (innerLife) return innerLife.canonicalStore;
   return "authority_revision_feedback";

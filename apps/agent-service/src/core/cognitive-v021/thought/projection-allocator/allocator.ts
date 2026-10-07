@@ -560,6 +560,7 @@ export function allocateThoughtProjection(
   let domainPointersIncluded = false;
   let c3ExperiencesIncluded = false;
   let hostSurfaceIncluded = false;
+  let ownerWeatherIncluded = false;
   let compression = false;
 
   const c2Input = input as ThoughtInput & {
@@ -606,6 +607,7 @@ export function allocateThoughtProjection(
     finalizeDisclosure = false,
     includeObservations = observationsIncluded,
     includeHostSurface = hostSurfaceIncluded,
+    includeOwnerWeather = ownerWeatherIncluded,
   ): ProjectedThoughtInput & {
     c3Experiences?: {
       version: 1;
@@ -757,6 +759,7 @@ export function allocateThoughtProjection(
       ...(input.clock === undefined ? {} : { clock: input.clock }),
       ...(includeHostSurface && input.reactions !== undefined ? { reactions: input.reactions } : {}),
       ...(includeHostSurface && input.returning !== undefined ? { returning: input.returning } : {}),
+      ...(includeOwnerWeather && input.ownerWeather !== undefined ? { ownerWeather: input.ownerWeather } : {}),
     };
 
     if (input.audience !== undefined) {
@@ -814,6 +817,7 @@ export function allocateThoughtProjection(
     let tentativeOrientationKernel = orientationKernelIncluded;
     let tentativeDomainPointers = domainPointersIncluded;
     let tentativeC3Experiences = c3ExperiencesIncluded;
+    let tentativeOwnerWeather = ownerWeatherIncluded;
 
     if (candidate.section === "recent_raw") {
       tentativeConversation = [...conversationIncluded, candidate.data as ThoughtInput["rawConversation"][number]];
@@ -831,6 +835,8 @@ export function allocateThoughtProjection(
       tentativeDomainPointers = true;
     } else if (candidate.section === "c3_terminal_experiences") {
       tentativeC3Experiences = true;
+    } else if (candidate.section === "owner_weather") {
+      tentativeOwnerWeather = true;
     }
     const tentativeHostSurface = candidate.section === "host_surface" ? true : hostSurfaceIncluded;
 
@@ -845,6 +851,7 @@ export function allocateThoughtProjection(
       false,
       tentativeObservationsIncluded,
       tentativeHostSurface,
+      tentativeOwnerWeather,
     );
     thoughtMessagesForProjectionCallCount += 1;
     const tentativeMessages = thoughtMessagesForProjection(
@@ -884,6 +891,8 @@ export function allocateThoughtProjection(
         c3ExperiencesIncluded = true;
       } else if (candidate.section === "host_surface") {
         hostSurfaceIncluded = true;
+      } else if (candidate.section === "owner_weather") {
+        ownerWeatherIncluded = true;
       }
     } else {
       // Exceeds TPM budget
@@ -960,6 +969,7 @@ export function allocateThoughtProjection(
       true,
       observationsIncluded,
       hostSurfaceIncluded,
+      ownerWeatherIncluded,
     );
     thoughtMessagesForProjectionCallCount += 1;
     const messages = thoughtMessagesForProjection(projected, undefined, messageMemo);
@@ -986,7 +996,7 @@ export function allocateThoughtProjection(
     workingContext: [...workingContextIncluded],
     deskEntries: [...deskEntriesIncluded],
     retrieval: [...retrievalHitsIncluded],
-    flags: { observationsIncluded, orientationKernelIncluded, domainPointersIncluded, c3ExperiencesIncluded, hostSurfaceIncluded, compression },
+    flags: { observationsIncluded, orientationKernelIncluded, domainPointersIncluded, c3ExperiencesIncluded, hostSurfaceIncluded, ownerWeatherIncluded, compression },
     omitted: omittedCandidates.length,
     omittedData: omittedCandidateData.length,
   };
@@ -1022,6 +1032,8 @@ export function allocateThoughtProjection(
       c3ExperiencesIncluded = false;
     } else if (evicted.section === "host_surface") {
       hostSurfaceIncluded = false;
+    } else if (evicted.section === "owner_weather") {
+      ownerWeatherIncluded = false;
     }
     compression = true;
     omittedCandidateData.push(evicted);
@@ -1045,7 +1057,7 @@ export function allocateThoughtProjection(
     replace(workingContextIncluded, snapshot.workingContext);
     replace(deskEntriesIncluded, snapshot.deskEntries);
     replace(retrievalHitsIncluded, snapshot.retrieval);
-    ({ observationsIncluded, orientationKernelIncluded, domainPointersIncluded, c3ExperiencesIncluded, hostSurfaceIncluded, compression } = snapshot.flags);
+    ({ observationsIncluded, orientationKernelIncluded, domainPointersIncluded, c3ExperiencesIncluded, hostSurfaceIncluded, ownerWeatherIncluded, compression } = snapshot.flags);
     omittedCandidates.length = snapshot.omitted;
     omittedCandidateData.length = snapshot.omittedData;
     final = unfitted;
@@ -1191,6 +1203,7 @@ export function allocateThoughtProjection(
     "conversationSelection",
     "reactions",
     "returning",
+    "ownerWeather",
   ]);
   const firstVolatileField = Object.keys(visibleProjection).find((key) => volatileFields.has(key)) ?? null;
   const firstVolatileMarker = firstVolatileField === null

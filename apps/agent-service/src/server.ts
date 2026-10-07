@@ -113,6 +113,7 @@ import {
   buildProactiveOperatorStatus,
   unavailableProactiveOperatorStatus,
 } from "./core/cognitive-v021/initiative/operator-status.js";
+import { readPresencePhase } from "./core/cognitive-v021/initiative/presence-phase.js";
 import {
   readPublicPresenceContext,
   readPublicPresenceState,
@@ -2675,6 +2676,25 @@ export function createServer(
   });
 
   app.post("/initiative/tick", gone);
+
+  app.get("/presence/phase", (req, res) => {
+    try {
+      const ownerId = requireOwner(
+        typeof req.query.owner_id === "string" ? req.query.owner_id : undefined,
+      );
+      const health = manager.core.getHealth();
+      res.json(readPresencePhase({
+        sidecar: getCognitiveSidecar(),
+        nuclear: manager.core.getDatabase(),
+        ownerId,
+        nowMs: Date.now(),
+        healthy: health.ok,
+      }));
+    } catch (err) {
+      const { status, body } = toErrorResponse(err);
+      res.status(status).json(body);
+    }
+  });
 
   app.get("/discord/public-presence", (req, res) => {
     try {
