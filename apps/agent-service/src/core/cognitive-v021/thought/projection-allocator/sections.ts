@@ -1,3 +1,4 @@
+import { softLayerView } from "../../soft/view.js";
 import { projectInFlightConsequence } from "../consequence-projection.js";
 import type {
   CompactRetrievalEvidence,
@@ -724,7 +725,8 @@ export function buildAllocationCandidates(
 
   // Owner-private surface facts. Optional and last, so a tight budget sheds
   // them before earlier optional sections.
-  if (input.reactions !== undefined || input.returning !== undefined) {
+  const softLayer = softLayerView(input);
+  if (input.reactions !== undefined || input.returning !== undefined || softLayer !== undefined) {
     candidates.push({
       id: "host_surface",
       section: "host_surface",
@@ -733,6 +735,7 @@ export function buildAllocationCandidates(
       data: {
         ...(input.reactions === undefined ? {} : { reactions: input.reactions }),
         ...(input.returning === undefined ? {} : { returning: input.returning }),
+        ...(softLayer === undefined ? {} : { softLayer }),
       },
     });
   }

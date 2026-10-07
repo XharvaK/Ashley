@@ -104,6 +104,8 @@
     { "method": "POST", "path": "/delivery/:id/finalize", "ownerScope": "owner_required", "lifecycle": "active" },
     { "method": "POST", "path": "/delivery/claim", "ownerScope": "owner_required", "lifecycle": "active" },
     { "method": "POST", "path": "/chat/preflight", "ownerScope": "internal", "lifecycle": "active" },
+    { "method": "POST", "path": "/soft/claim", "ownerScope": "owner_required", "lifecycle": "active" },
+    { "method": "POST", "path": "/soft/:id/result", "ownerScope": "owner_required", "lifecycle": "active" },
     { "method": "POST", "path": "/signals/reaction", "ownerScope": "owner_required", "lifecycle": "active" },
     { "method": "POST", "path": "/signals/gif-feedback", "ownerScope": "owner_required", "lifecycle": "active" },
     { "method": "GET", "path": "/signals/gif-queries", "ownerScope": "owner_required", "lifecycle": "active" },

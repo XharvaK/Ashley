@@ -345,6 +345,8 @@ export type PendingDelivery = {
   statusUrl: string;
   destination?: unknown;
   silent?: boolean;
+  /** UX W2: her shape for the pacing. */
+  shape?: "single" | "burst" | "aside" | "letter";
 };
 
 export async function claimPendingDeliveries(options?: {
@@ -529,6 +531,36 @@ export async function recordPublicPresenceProjection(input: {
       }),
     },
   );
+}
+
+/** UX W2: one of her soft acts, already bound to Discord ids by the agent. */
+export type SoftAct = {
+  actId: number;
+  request:
+    | { kind: "touch"; emoji: string; messageId: string; meaning: "landed" | "this_bit" | "did_it" }
+    | { kind: "correct"; messageId: string; text: string }
+    | { kind: "callback"; url: string; replyTo?: string }
+    | { kind: "callback"; gifQuery: string }
+    | { kind: "pin"; messageId: string }
+    | { kind: "card"; cardKind: "reading_note" | "question" | "letter"; title: string; body: string; link?: string }
+    | { kind: "face"; wardrobeId: string };
+};
+
+export async function claimSoftActs() {
+  return agentFetch<{ acts: SoftAct[] }>("/soft/claim", {
+    method: "POST",
+    body: JSON.stringify({ userId: config.ownerId }),
+  });
+}
+
+export async function reportSoftActResult(
+  actId: number,
+  outcome: { status: "done" | "refused" | "failed"; reason?: string },
+) {
+  return agentFetch<{ recorded: boolean }>(`/soft/${actId}/result`, {
+    method: "POST",
+    body: JSON.stringify({ userId: config.ownerId, ...outcome }),
+  });
 }
 
 export async function reportReaction(messageId: string, emoji: string) {

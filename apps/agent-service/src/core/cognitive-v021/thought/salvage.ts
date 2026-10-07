@@ -17,12 +17,22 @@ const DROPPABLE_KEYS = new Set([
   "home",
   "intents",
   "domusAct",
+  "touch",
+  "correct",
+  "callback",
+  "pin",
+  "card",
+  "face",
+  "quiet",
 ]);
+
+/** UX W2: rendering hints on speech; dropping one changes how it arrives, never what it says. */
+const SPEECH_RHYTHM_FIELDS = new Set(["speech.shape", "speech.bubbles", "speech.afterthought"]);
 
 /**
  * Optional keys whose settlement requests an effect. Dropping one while
  * keeping speech would leave words about an act nobody takes.
- * Effect-bearing: domusAct, intents, home, pursuits, nextOwnTime, webPlaces, senses.
+ * Effect-bearing: domusAct, intents, home, pursuits, nextOwnTime, webPlaces, senses, and the soft acts.
  */
 const EFFECT_BEARING_KEYS = new Set([
   "domusAct",
@@ -32,6 +42,13 @@ const EFFECT_BEARING_KEYS = new Set([
   "nextOwnTime",
   "webPlaces",
   "senses",
+  "touch",
+  "correct",
+  "callback",
+  "pin",
+  "card",
+  "face",
+  "quiet",
 ]);
 
 const CLOSED_CODES = new Set([
@@ -109,6 +126,19 @@ function removalFor(failure: ParseFailure): {
     };
   }
   if (field === "durableNominations" || field.startsWith("durableNominations.")) return null;
+  if (SPEECH_RHYTHM_FIELDS.has(field)) {
+    const key = field.slice("speech.".length);
+    return {
+      dropped: field,
+      apply(record) {
+        const speech = record.speech;
+        if (typeof speech !== "object" || speech === null || Array.isArray(speech)) return false;
+        if (!Object.prototype.hasOwnProperty.call(speech, key)) return false;
+        delete (speech as Record<string, unknown>)[key];
+        return true;
+      },
+    };
+  }
 
   if (failure.code === "unknown_field") {
     if (field.includes(".") || field.includes("[") || field.endsWith("Deltas")) return null;

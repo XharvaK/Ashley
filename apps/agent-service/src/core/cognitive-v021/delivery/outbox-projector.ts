@@ -2,7 +2,7 @@ import { recordDelivered, recordOwnerReply } from "../graduation/recorders.js";
 import { isDomusLane } from "../../domus/lane.js";
 import { recordHostFriction } from "../growth/friction.js";
 import type { DatabaseSync } from "node:sqlite";
-import { planContentBubbles } from "../../delivery/bubble-plan.js";
+import { planRhythmBubbles } from "../../delivery/bubble-plan.js";
 import {
   getDeliveryReservation,
   listDeliveryBubbles,
@@ -603,7 +603,7 @@ export class OutboxDeliveryProjector implements OutboxDeliveryProjectorContract 
     const now = this.options.nowMs?.() ?? Date.now();
     const nowIso = new Date(now).toISOString();
     const leaseIso = new Date(now + (this.options.leaseMs ?? 120_000)).toISOString();
-    const bubbles = planContentBubbles(textValue);
+    const bubbles = planRhythmBubbles(textValue, "outboxId" in row ? row.deliveryIntent.rhythm : undefined);
     const external = row.deliveryIntent.externalPublication;
     const destination = external?.destination ?? row.deliveryIntent.destination;
     const initialState = external ? "drafted" : "reserved";

@@ -15,6 +15,7 @@ import { recordGrowth, type IdentityStore } from "../growth/growth.js";
 import type { GrowthClaim } from "../growth/claim.js";
 import { recordNight, type NightClaim } from "../growth/night.js";
 import { recordDomusAct, type DomusActBinding, type DomusActClaim } from "../../domus/acts.js";
+import { recordSoftActs, softClaimsOf, SOFT_KINDS, type SoftClaims } from "../soft/acts.js";
 
 /**
  * R13: a settlement's inner-life aftermath (its journal entry, interest
@@ -44,6 +45,8 @@ export type AftermathContext = {
   domusAct?: DomusActBinding;
   nightPass: NightPass | null;
   senseBands?: Partial<Record<SenseName, string>>;
+  /** UX W2: the wardrobe ids offered to her this pass (her face may only take one of them). */
+  wardrobe?: string[];
 };
 
 export type AftermathOptions = {
@@ -55,7 +58,7 @@ export type AftermathOptions = {
 
 type Row = Record<string, unknown>;
 
-type StoredSettlement = {
+type StoredSettlement = SoftClaims & {
   sawSecret?: boolean;
   redacted?: unknown;
   interests?: InterestTouch[];
@@ -169,6 +172,20 @@ export function recordSettlementAftermath(
     }
     if (standing && context.ownerPrivate !== false && settlement.placeRules?.length) {
       applyPlaceRules(db, { cycleId, claims: settlement.placeRules, nowMs: options.nowMs });
+    }
+    // UX W2: her soft acts belong to the Owner's DM, never a game pass.
+    if (standing && context.ownerPrivate !== false && !context.channel && SOFT_KINDS.some((kind) => settlement[kind] !== undefined)) {
+      recordSoftActs(db, {
+        settlementId,
+        claims: softClaimsOf(settlement),
+        context: {
+          conversationId: context.conversationId,
+          ownerTurn: context.ownerTurn === true,
+          ...(context.wardrobe ? { wardrobe: context.wardrobe } : {}),
+          timeZone: options.timeZone,
+        },
+        nowMs: options.nowMs,
+      });
     }
     if (standing && context.domusAct && settlement.domusAct) {
       recordDomusAct(db, { binding: context.domusAct, claim: settlement.domusAct, cycleId, nowMs: options.nowMs });

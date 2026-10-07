@@ -57,6 +57,13 @@ describe("salvageSettlement", () => {
     ["home", [{ op: SECRET }]],
     ["intents", [{ place: SECRET }]],
     ["domusAct", { option: "bad ref" }],
+    ["touch", { emoji: SECRET, rowId: "r", meaning: "loved" }],
+    ["correct", { rowId: "r", text: SECRET, bubble: -1 }],
+    ["callback", { memoryRef: SECRET, gifQuery: SECRET }],
+    ["pin", { rowId: 5 }],
+    ["card", { kind: "poem", title: SECRET, body: SECRET }],
+    ["face", { wardrobeId: "" }],
+    ["quiet", { forMs: 1, whose: "her_own" }],
   ];
   it.each(droppable)("removes only a faulty %s", (key, value) => {
     const result = salvage(settlement({ [key]: value, durableNominations: [good] }));
@@ -205,5 +212,12 @@ describe("salvageSettlement", () => {
       code: "alias_invalid",
       field: "durableNominations[0].concernRef",
     }, reparse)).toEqual({ ok: false });
+  });
+  it("UX W2: a bad rhythm hint is dropped and the words go out as written", () => {
+    const result = salvage(makeSemanticSettlement({ speech: { mode: "draft", surfaceDraft: "kept words", shape: "poem", bubbles: ["only one"] } }));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.dropped).toEqual(["speech.shape", "speech.bubbles"]);
+    expect(JSON.parse(result.text).speech).toEqual({ mode: "draft", surfaceDraft: "kept words" });
   });
 });

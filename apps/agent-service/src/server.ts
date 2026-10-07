@@ -142,6 +142,7 @@ import {
   revokeSocialOperationDelegation,
   type SocialOperationClass,
 } from "./core/relationship/social-authority.js";
+import { claimSoftActs, reportSoftAct } from "./core/cognitive-v021/soft/acts.js";
 import { SOCIAL_OPERATION_DELEGATION_CLASSES } from "./core/relationship/migration-53.js";
 import { isRoomSeedActive } from "./core/relationship/room-seeding.js";
 import { getRaEffectiveConfig } from "./core/relationship/ra-effective-config.js";
@@ -2129,6 +2130,40 @@ export function createServer(
       const text = message?.trim() ?? "";
       if (!text) throw new AppError("message_required", "message required", 400);
       res.json({ lookup: manager.core.lookupPreflight(text) });
+    } catch (err) {
+      const { status, body } = toErrorResponse(err);
+      res.status(status).json(body);
+    }
+  });
+
+  // UX W2: the bot renders her soft acts in the Owner's DM and reports each outcome.
+  app.post("/soft/claim", (req, res) => {
+    try {
+      requireReady();
+      requireOwner((req.body as { userId?: string }).userId);
+      res.json({ acts: claimSoftActs(getCognitiveSidecar(), Date.now()) });
+    } catch (err) {
+      const { status, body } = toErrorResponse(err);
+      res.status(status).json(body);
+    }
+  });
+
+  app.post("/soft/:id/result", (req, res) => {
+    try {
+      const { userId, status, reason } = req.body as { userId?: string; status?: string; reason?: string };
+      requireOwner(userId);
+      const actId = Number(req.params.id);
+      if (!Number.isSafeInteger(actId) || actId <= 0) throw new AppError("not_found", "soft act not found", 404);
+      if (status !== "done" && status !== "refused" && status !== "failed") {
+        throw new AppError("bad_request", "status must be done, refused or failed", 400);
+      }
+      const recorded = reportSoftAct(getCognitiveSidecar(), {
+        actId,
+        status,
+        ...(typeof reason === "string" ? { reason } : {}),
+        nowMs: Date.now(),
+      });
+      res.json({ recorded });
     } catch (err) {
       const { status, body } = toErrorResponse(err);
       res.status(status).json(body);

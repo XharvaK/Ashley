@@ -2469,6 +2469,25 @@ CREATE TABLE IF NOT EXISTS owner_presence_facts (
 UPDATE cognitive_sidecar_meta SET schema_version=69 WHERE id=1;
 `;
 
+/** UX W2: her soft acts (a reaction, a correction, a callback, a pin, a card, her face, a quiet window) and what became of each. */
+export const COGNITIVE_SIDECAR_SCHEMA_V71 = String.raw`
+CREATE TABLE IF NOT EXISTS soft_acts (
+  act_id INTEGER PRIMARY KEY AUTOINCREMENT,
+  settlement_id TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('touch', 'correct', 'callback', 'pin', 'card', 'face', 'quiet')),
+  request_json TEXT NOT NULL CHECK (json_valid(request_json)),
+  status TEXT NOT NULL CHECK (status IN ('queued', 'claimed', 'done', 'refused', 'failed')),
+  reason TEXT,
+  created_at_ms INTEGER NOT NULL,
+  claimed_at_ms INTEGER,
+  settled_at_ms INTEGER,
+  shown_cycle_id TEXT,
+  UNIQUE (settlement_id, kind)
+);
+CREATE INDEX IF NOT EXISTS idx_soft_acts_status ON soft_acts (status, created_at_ms);
+UPDATE cognitive_sidecar_meta SET schema_version=71 WHERE id=1;
+`;
+
 /** OWNERFIRST: an act her Thought marked as one the User asked for. */
 export const COGNITIVE_SIDECAR_SCHEMA_V70 = String.raw`
 ALTER TABLE domus_acts ADD COLUMN for_owner INTEGER NOT NULL DEFAULT 0 CHECK (for_owner IN (0, 1));

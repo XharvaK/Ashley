@@ -30,7 +30,7 @@ export type { SourceSupportRef } from "./evidence/interpretation-envelope.js";
 export const ARCHITECTURE_EPOCH = "v0.2.1" as const;
 export const IMPLEMENTATION_SPEC_VERSION = "0.2.1.r6" as const;
 export const THOUGHT_CONTRACT_VERSION = 2 as const;
-export const COGNITIVE_SIDECAR_SCHEMA_VERSION = 70 as const;
+export const COGNITIVE_SIDECAR_SCHEMA_VERSION = 71 as const;
 
 /**
  * Hard bound on cognition-facing concern discovery windows and pages. The
@@ -382,6 +382,15 @@ export type ThoughtSpeechDraft = {
   acceptableRealizations?: string[];
   /** Omitted when Thought authors no presentation guidance. */
   presentationDirectives?: string[];
+  /** UX W2: how the thought arrives; the Host paces and splits by it. */
+  rhythm?: SpeechRhythm;
+};
+
+/** UX W2 Rhythm: Thought's own shape for a draft. */
+export type SpeechRhythm = {
+  shape?: "single" | "burst" | "aside" | "letter";
+  bubbles?: string[];
+  afterthought?: true;
 };
 
 export type WorkingContextItemType =
@@ -917,6 +926,9 @@ export type ThoughtSpeechIntent =
       mustNotSay?: readonly string[];
       surfaceDraft: string;
       presentationDirectives?: readonly string[];
+      shape?: SpeechRhythm["shape"];
+      bubbles?: readonly string[];
+      afterthought?: true;
     };
 
 export type WorkingContextItemSemantic = {
@@ -1054,6 +1066,14 @@ export type SettlementSemanticOutput = {
   journal?: import("./initiative/journal.js").JournalClaim;
   /** 8f Domus passes: one listed game action she chooses (Host-resolved; carries no execution authority). */
   domusAct?: import("../domus/acts.js").DomusActClaim;
+  /** UX W2 Owner-DM soft acts (Host-checked after publication; soft/acts.ts). */
+  touch?: import("./soft/acts.js").TouchClaim;
+  correct?: import("./soft/acts.js").CorrectClaim;
+  callback?: import("./soft/acts.js").CallbackClaim;
+  pin?: import("./soft/acts.js").PinClaim;
+  card?: import("./soft/acts.js").CardClaim;
+  face?: import("./soft/acts.js").FaceClaim;
+  quiet?: import("./soft/acts.js").QuietClaim;
   /** B1 Owner-private turns: what she says in another of her places (Host-checked at hand-over). */
   intents?: readonly import("../places/intents.js").PlaceIntentClaim[];
   /** E1 Owner-private turns: changes to her home folder (Host-applied after publication). */
@@ -1356,6 +1376,14 @@ export type ThoughtSettlementDraft = {
   journal?: import("./initiative/journal.js").JournalClaim;
   /** 8f: stored by the Host after publication as a requested act (domus/acts.ts). */
   domusAct?: import("../domus/acts.js").DomusActClaim;
+  /** UX W2: recorded by the Host after publication as her soft acts (soft/acts.ts). */
+  touch?: import("./soft/acts.js").TouchClaim;
+  correct?: import("./soft/acts.js").CorrectClaim;
+  callback?: import("./soft/acts.js").CallbackClaim;
+  pin?: import("./soft/acts.js").PinClaim;
+  card?: import("./soft/acts.js").CardClaim;
+  face?: import("./soft/acts.js").FaceClaim;
+  quiet?: import("./soft/acts.js").QuietClaim;
   /** B1: stored by the Host after publication as requested posts (places/intents.ts). */
   intents?: import("../places/intents.js").PlaceIntentClaim[];
   /** E1: applied by the Host after publication (home/home.ts). */
@@ -1780,6 +1808,8 @@ export type ThoughtInput = {
   reactions?: readonly HerBubbleReactionFact[];
   /** Gap and end-shape, on the Owner's return and in afterglow. */
   returning?: ReturningFacts;
+  /** UX W2: what became of her recent soft acts, and her wardrobe (Owner-private, outside the game). */
+  softLayer?: import("./soft/acts.js").SoftLayerFacts;
   /** Present only during an afterglow or AWAKE pass. */
   innerPass?: ThoughtInnerPass;
   /** 8d: present only during an Owner-private Domus pass; facts from the game, rebuilt from durable rows. */
@@ -2059,6 +2089,8 @@ export type DeliveryIntent = {
   };
   /** Owner delivery must not notify. Carried in the existing intent JSON. */
   silent?: true;
+  /** UX W2: her shape for this speech; the projector splits and the bot paces by it. */
+  rhythm?: SpeechRhythm;
 };
 export type OutboxSendStatus =
   | "pending"

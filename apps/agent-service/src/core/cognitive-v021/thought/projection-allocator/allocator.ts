@@ -1,3 +1,4 @@
+import { softLayerView } from "../../soft/view.js";
 import { nativeImagePayload } from "../../perception/images.js";
 import { entityName } from "../../../entity-names.js";
 import { thoughtInputContainsSecret } from "../input.js";
@@ -759,6 +760,10 @@ export function allocateThoughtProjection(
       ...(input.clock === undefined ? {} : { clock: input.clock }),
       ...(includeHostSurface && input.reactions !== undefined ? { reactions: input.reactions } : {}),
       ...(includeHostSurface && input.returning !== undefined ? { returning: input.returning } : {}),
+      ...(() => {
+        const softLayer = includeHostSurface ? softLayerView(input) : undefined;
+        return softLayer === undefined ? {} : { softLayer };
+      })(),
       ...(includeOwnerWeather && input.ownerWeather !== undefined ? { ownerWeather: input.ownerWeather } : {}),
     };
 
@@ -1203,6 +1208,7 @@ export function allocateThoughtProjection(
     "conversationSelection",
     "reactions",
     "returning",
+    "softLayer",
     "ownerWeather",
   ]);
   const firstVolatileField = Object.keys(visibleProjection).find((key) => volatileFields.has(key)) ?? null;

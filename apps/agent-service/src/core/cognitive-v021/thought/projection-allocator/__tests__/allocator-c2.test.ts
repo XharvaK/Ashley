@@ -99,7 +99,7 @@ describe("MAT-II C2 allocator integration", () => {
 
       const allocated = allocateThoughtProjection({
         thoughtInput: input,
-        semanticBudgetTokens: 14_000,
+        semanticBudgetTokens: 15_100,
         requestId: "c2-uniqueness-request",
       });
       const visible = JSON.parse(allocated.messages[1]?.content ?? "{}") as Record<string, unknown>;
@@ -240,11 +240,11 @@ describe("MAT-II C2 allocator integration", () => {
       const requiredOnly = allocateThoughtProjection({
         thoughtInput: { ...input, rawConversation: [current] },
         // The current required C2 sections exceed the historical 9,500
-        // fixture envelope; use a 20,000 comparison envelope (production: 262,144).
-        semanticBudgetTokens: 20_000,
+        // fixture envelope; use a 21,100 comparison envelope (20,000 before the UX W2 contract) (production: 262,144).
+        semanticBudgetTokens: 21_100,
         requestId: "c2-required-prefix-request",
       });
-      expect(requiredOnly.receipt.estimatedInputTokens).toBeLessThanOrEqual(20_000);
+      expect(requiredOnly.receipt.estimatedInputTokens).toBeLessThanOrEqual(21_100);
       expect(requiredOnly.receipt.decision.omitted.filter(
         (candidate) => candidate.section === "recent_raw",
       )).toHaveLength(0);
@@ -256,10 +256,10 @@ describe("MAT-II C2 allocator integration", () => {
         thoughtInput: input,
         // This comparison envelope is intentionally below the restoration
         // target but large enough to retain the four-message protected suffix.
-        semanticBudgetTokens: 20_000,
+        semanticBudgetTokens: 21_100,
         requestId: "c2-budget-request",
       });
-      expect(allocated.receipt.estimatedInputTokens).toBeLessThanOrEqual(20_000);
+      expect(allocated.receipt.estimatedInputTokens).toBeLessThanOrEqual(21_100);
       expect(allocated.receipt.requiredOverflow).toBe(false);
       expect(allocated.projected.rawConversation.map((row) => row.rowId)).toContain(current.rowId);
       expect(allocated.receipt.decision.included).toEqual(expect.arrayContaining([

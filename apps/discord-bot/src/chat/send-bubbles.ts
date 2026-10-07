@@ -3,8 +3,10 @@ import { sendFailedLine } from "./fumble-lines.js";
 import {
   PACE_BUDGET_MS,
   bubbleDelayMs,
+  shapedGapMs,
+  shapedLeadMs,
   sleepAbortable,
-  typingLeadMs,
+  type BubbleShape,
 } from "./pacing.js";
 
 const TYPING_REFRESH_MS = 3_000;
@@ -83,6 +85,8 @@ export async function sendBubbles(
     clock?: { nowMs(): number };
     /** Quiet note: deliver without a notification. */
     silent?: boolean;
+    /** UX W2: her shape, for the lead and the gaps. */
+    shape?: BubbleShape;
   },
 ): Promise<BubbleSendResult> {
   const nowMs = (): number => options?.clock?.nowMs() ?? Date.now();
@@ -139,13 +143,13 @@ export async function sendBubbles(
 
     if (i === 0) {
       const leadSignal = pacing?.signal ?? new AbortController().signal;
-      await typeFor(channel, typingLeadMs(bubble.text.length), leadSignal);
+      await typeFor(channel, shapedLeadMs(options?.shape, bubble.text.length), leadSignal);
     } else if (pacing && !pacing.signal.aborted) {
-      const delay = bubbleDelayMs({
+      const delay = shapedGapMs(options?.shape, bubbleDelayMs({
         tempoGapMs: pacing.tempoGapMs,
         chars: bubble.text.length,
         remainingBudgetMs: budget,
-      });
+      }), budget);
       budget -= delay;
       await typeFor(channel, delay, pacing.signal);
     }

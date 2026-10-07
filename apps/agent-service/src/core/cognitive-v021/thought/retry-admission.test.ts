@@ -76,7 +76,8 @@ const THOUGHT_BUCKET = `command_code:${THOUGHT_MODEL}`;
 // Growth V1 memory-formation guidance grew the contract ~900 tokens; the
 // seed eases 445_000 -> 443_000 so the retry stays at the admission edge.
 // G3 inner-life guidance and the interest-root enum add ~900 more: 443_000 -> 441_000.
-const SEEDED_CURRENT_TPM_USAGE = 441_000;
+// UX W2: 5_000 lower for the larger fixed contract (the retry boundary keeps its meaning).
+const SEEDED_CURRENT_TPM_USAGE = 436_000;
 const TPM_LIMIT = 524_288;
 const EXPECTED_RETRY_OUTPUT = STRUCTURAL_RETRY_MAX_OUTPUT_TOKENS;
 const savedCommandCodeKey = env.commandCodeApiKey;
@@ -244,12 +245,12 @@ describe("v0.2.1 structural Thought retry admission", () => {
        providerId: "command_code",
        quotaBucket: THOUGHT_BUCKET,
        modelAlias: THOUGHT_MODEL,
-       maxTokens: 436_000,
+       maxTokens: 431_000,
       deadlineAtMs: Date.now() + ORDINARY_THOUGHT_BUDGET_MS,
       ownerId: "doc",
       dispatch: async () => ({
          providerModel: THOUGHT_MODEL,
-        usage: { promptTokens: 5_000, completionTokens: 436_000 },
+        usage: { promptTokens: 5_000, completionTokens: 431_000 },
         result: { text: "seeded" },
       }),
     });

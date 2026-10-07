@@ -17,6 +17,8 @@ export type StatusDot = "online" | "idle";
 
 export type FaceMemory = {
   avatarId: string | null;
+  /** UX W2: the face she chose (avatar/<wardrobe id>.png); she wakes into it. */
+  chosenId?: string | null;
   sleeping: boolean;
   avatarChangeAtMs: number[];
   backoffUntilMs: number;
@@ -44,6 +46,7 @@ export function loadFaceMemory(dataDir = ashleyDataDir()): FaceMemory {
     const parsed = JSON.parse(readFileSync(path, "utf8")) as Partial<FaceMemory>;
     return {
       avatarId: typeof parsed.avatarId === "string" ? parsed.avatarId : null,
+      chosenId: typeof parsed.chosenId === "string" ? parsed.chosenId : null,
       sleeping: parsed.sleeping === true,
       avatarChangeAtMs: Array.isArray(parsed.avatarChangeAtMs)
         ? parsed.avatarChangeAtMs.filter((value) => typeof value === "number")
@@ -71,9 +74,10 @@ export function statusDot(phase: PresencePhaseName, healthy: boolean): StatusDot
 export function avatarChoice(
   phase: PresencePhaseName,
   sleeping: boolean,
+  chosenId?: string | null,
 ): { id: string; sleeping: boolean } | null {
   if (phase === "night" && !sleeping) return { id: AVATAR_ASLEEP, sleeping: true };
-  if (sleeping && (phase === "awake" || phase === "conversation")) return { id: AVATAR_AWAKE, sleeping: false };
+  if (sleeping && (phase === "awake" || phase === "conversation")) return { id: chosenId || AVATAR_AWAKE, sleeping: false };
   return null;
 }
 
@@ -106,7 +110,7 @@ function noteMissing(input: FaceReconcileInput, id: string): void {
 }
 
 async function applyAvatar(input: FaceReconcileInput, phase: PresencePhaseName): Promise<void> {
-  const choice = avatarChoice(phase, input.memory.sleeping);
+  const choice = avatarChoice(phase, input.memory.sleeping, input.memory.chosenId);
   if (!choice || choice.id === input.memory.avatarId) {
     if (choice) input.memory.sleeping = choice.sleeping;
     return;
@@ -166,10 +170,11 @@ export function startFaceWindow(
 ): void {
   const env = options.env ?? process.env;
   const dataDir = options.dataDir ?? ashleyDataDir();
-  const memory = loadFaceMemory(dataDir);
   const nowMs = options.nowMs ?? Date.now;
   loggedMissing = new Set<string>();
   const tick = async (): Promise<void> => {
+    // Read each tick: her soft acts may have changed her face since.
+    const memory = loadFaceMemory(dataDir);
     const now = nowMs();
     let phase: PresencePhaseName | null = null;
     let healthy = false;

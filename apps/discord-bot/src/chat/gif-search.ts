@@ -139,6 +139,7 @@ function biasQuery(query: string, successful: string[]): string {
 export async function searchGif(
   query: string,
   channelId: string,
+  options: { exact?: boolean } = {},
 ): Promise<string | null> {
   if (!config.gifEnabled) return null;
   const q = query.trim();
@@ -150,8 +151,8 @@ export async function searchGif(
   if (Date.now() - last < cooldownMs) return null;
 
   try {
-    const successful = await fetchSuccessfulGifQueries();
-    const biased = biasQuery(q, successful);
+    // UX W2: her own query goes out as she wrote it; the Host never picks for her.
+    const biased = options.exact ? q : biasQuery(q, await fetchSuccessfulGifQueries());
     const url = (await searchGiphy(biased)) ?? (await searchTenor(biased));
     if (!url) return null;
     lastGifAt.set(channelId, Date.now());

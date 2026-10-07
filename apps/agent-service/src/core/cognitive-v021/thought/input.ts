@@ -174,6 +174,8 @@ export type BuildThoughtInputOptions = {
   pendingForget?: readonly import("../memory/semantic-forget.js").ThoughtPendingForget[];
   /** Owner reactions on her bubbles, already bounded by the caller. */
   reactions?: ThoughtInput["reactions"];
+  /** UX W2: her soft acts and wardrobe, already bounded by the caller. */
+  softLayer?: ThoughtInput["softLayer"];
   /** Gap and last-exchange end-shape, when this pass should see them. */
   returning?: ThoughtInput["returning"];
   /** Fire-time commitment meaning and three-state evidence completeness. */
@@ -1320,6 +1322,7 @@ export function buildThoughtInput(options: BuildThoughtInputOptions): ThoughtInp
     ...(options.pendingForget && audience.kind === "owner_private" && !gameOnly ? { pendingForget: options.pendingForget } : {}),
     ...(options.reactions && audience.kind === "owner_private" && !gameOnly ? { reactions: options.reactions } : {}),
     ...(options.returning && audience.kind === "owner_private" && !gameOnly ? { returning: options.returning } : {}),
+    ...(options.softLayer && audience.kind === "owner_private" && !gameOnly ? { softLayer: options.softLayer } : {}),
     ...(options.clock === undefined ? {} : {
       clock: buildThoughtClock({
         nowMs: options.clock.nowMs,

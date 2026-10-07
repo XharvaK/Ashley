@@ -1,3 +1,5 @@
+import { SOFT_KINDS } from "../soft/acts.js";
+import { isSoftClaim, speechRhythmFault } from "../soft/claims.js";
 import { isValidAttentionClaim } from "../thalamus/attention.js";
 import type {
   AbstainSemanticOutput,
@@ -486,7 +488,7 @@ function validateSpeech(value: unknown): ValidationResult {
   const record = semanticRecord(value);
   if (!record) return failure("wrong_type", "speech");
   const unknown = Object.keys(record).find((key) => ![
-    "mode", "surfaceDraft", "mustSay", "mustNotSay", "presentationDirectives",
+    "mode", "surfaceDraft", "mustSay", "mustNotSay", "presentationDirectives", "shape", "bubbles", "afterthought",
   ].includes(key));
   if (unknown) return failure("unknown_field", `speech.${unknown}`);
   if (!own(record, "mode")) return failure("required_field_missing", "speech.mode");
@@ -498,6 +500,8 @@ function validateSpeech(value: unknown): ValidationResult {
   }
   if (!own(record, "surfaceDraft")) return failure("required_field_missing", "speech.surfaceDraft");
   if (!nonEmptyString(record.surfaceDraft)) return failure("wrong_type", "speech.surfaceDraft");
+  const rhythmFault = speechRhythmFault(record);
+  if (rhythmFault) return failure("wrong_type", rhythmFault);
   let result = prefixFailure(optionalArray(record, "mustSay", nonEmptyString), "speech");
   if (!result.ok) return result;
   result = prefixFailure(optionalArray(record, "mustNotSay", nonEmptyString), "speech");
@@ -894,7 +898,7 @@ function validInterests(value: unknown): boolean {
 function parseSettlementSemantic(value: SemanticRecord, allowlist: ReadonlySet<string>): ThoughtSemanticParseResult {
   const unknown = Object.keys(value).find((key) => ![
     "kind", "interactionIntent", "speech", "initiativePreference", "interpretation", "commitments", "workingContextDeltas", "deskDeltas", "concernDeltas",
-    "occupancyDeltas", "futureTriggerDeltas", "subscriptionDeltas", "durableNominations", "reflection", "journal", "domusAct", "intents", "home", "pursuits", "nextOwnTime", "webPlaces", "placeRules", "contactStop", "learned", "interests", "growth", "senses", "attention", "night", "forget", "evidenceUse",
+    "occupancyDeltas", "futureTriggerDeltas", "subscriptionDeltas", "durableNominations", "reflection", "journal", "domusAct", "touch", "correct", "callback", "pin", "card", "face", "quiet", "intents", "home", "pursuits", "nextOwnTime", "webPlaces", "placeRules", "contactStop", "learned", "interests", "growth", "senses", "attention", "night", "forget", "evidenceUse",
   ].includes(key));
   if (unknown) return semanticFailure("unknown_field", unknown);
   if (value.kind !== "settlement") return semanticFailure("wrong_kind", "kind");
@@ -951,6 +955,9 @@ function parseSettlementSemantic(value: SemanticRecord, allowlist: ReadonlySet<s
   }
   if (own(value, "domusAct") && !isDomusActClaim(value.domusAct)) {
     return semanticFailure("wrong_type", "domusAct");
+  }
+  for (const kind of SOFT_KINDS) {
+    if (own(value, kind) && !isSoftClaim(kind, value[kind])) return semanticFailure("wrong_type", kind);
   }
   if (own(value, "intents") && !isPlaceIntentClaims(value.intents)) {
     return semanticFailure("wrong_type", "intents");

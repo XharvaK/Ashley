@@ -1,3 +1,4 @@
+import { softLayerView } from "../soft/view.js";
 import { createHash } from "node:crypto";
 import {
   buildOperationalEffectNamespace,
@@ -177,6 +178,8 @@ export type ProjectedThoughtInput = {
   reactions?: ThoughtInput["reactions"];
   /** Gap and end-shape. Same optional surface as reactions. */
   returning?: ThoughtInput["returning"];
+  /** UX W2: her soft acts, wardrobe and quiet facts. Same optional surface as reactions. */
+  softLayer?: import("../soft/view.js").SoftLayerView;
 };
 
 export type ThoughtModelProjection = {
@@ -576,6 +579,10 @@ export function projectThoughtInput(
     ...(fullInput.settlementOnly === undefined ? {} : { settlementOnly: fullInput.settlementOnly }),
     ...(fullInput.reactions === undefined ? {} : { reactions: fullInput.reactions }),
     ...(fullInput.returning === undefined ? {} : { returning: fullInput.returning }),
+    ...(() => {
+      const softLayer = softLayerView(fullInput);
+      return softLayer === undefined ? {} : { softLayer };
+    })(),
   };
 
   if (fullInput.audience !== undefined) {

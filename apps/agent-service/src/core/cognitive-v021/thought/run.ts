@@ -1,3 +1,5 @@
+import { markSoftActsShown, softLayerForPass, wardrobeAvailable } from "../soft/acts.js";
+import { SOFT_KINDS } from "../soft/acts.js";
 import { selfChangeResultForThought } from "../growth/self-change-results.js";
 import { domusActBindingFor, domusChannelFor, domusForThought, domusGameOnlyFor, domusHomeFor, domusLiveForOwner, domusNowForThought } from "../../domus/notification.js";
 import { domusDiaryForThought } from "../../domus/diary.js";
@@ -1058,6 +1060,15 @@ function materializeSemanticSettlement(
       ...(semantic.speech.mode === "draft" && semantic.speech.presentationDirectives
         ? { presentationDirectives: [...semantic.speech.presentationDirectives] }
         : {}),
+      ...(semantic.speech.mode === "draft" && (semantic.speech.shape || semantic.speech.bubbles || semantic.speech.afterthought)
+        ? {
+          rhythm: {
+            ...(semantic.speech.shape ? { shape: semantic.speech.shape } : {}),
+            ...(semantic.speech.bubbles ? { bubbles: [...semantic.speech.bubbles] } : {}),
+            ...(semantic.speech.afterthought ? { afterthought: true as const } : {}),
+          },
+        }
+        : {}),
     },
     // These fields are internal mechanical bookkeeping. They remain present
     // even when the semantic evidenceUse domain is absent.
@@ -1400,6 +1411,9 @@ function materializeSemanticSettlement(
   if (semantic.reflection) result.reflection = semantic.reflection;
   if (semantic.journal) result.journal = { ...semantic.journal };
   if (semantic.domusAct) result.domusAct = { ...semantic.domusAct };
+  for (const kind of SOFT_KINDS) {
+    if (semantic[kind] !== undefined) (result as Record<string, unknown>)[kind] = structuredClone(semantic[kind]);
+  }
   if (semantic.intents) result.intents = semantic.intents.map((intent) => ({ ...intent }));
   if (semantic.home) result.home = semantic.home.map((op) => ({ ...op }));
   if (semantic.pursuits) result.pursuits = structuredClone(semantic.pursuits) as typeof result.pursuits;
@@ -3508,6 +3522,7 @@ export async function runCognitiveCycle(
     const sensedFacts = effectiveThoughtAudience.kind === "owner_private" && !externalCycle ? readSenseFacts(sidecar, senseOptions) : [];
     const senseBands = senseBandsForDeclines(sensedFacts);
     let shownReactionIds: string[] = [];
+    let shownSoftActIds: number[] = [];
     // DPLAY: an Owner message while the game is live: her Discord turn reads the live menu and may act from it.
     const domusLive = originProfile.triggerKind === "owner_message" && effectiveThoughtAudience.kind === "owner_private"
       && !externalCycle && env.domusActEnabled ? domusLiveForOwner(sidecar, deps.nowMs()) : undefined;
@@ -3580,6 +3595,7 @@ export async function runCognitiveCycle(
         const surface: {
           reactions?: ReturnType<typeof unshownOwnerBubbleReactions>["facts"];
           returning?: NonNullable<ReturnType<typeof returningForThought>>;
+          softLayer?: ReturnType<typeof softLayerForPass>["facts"];
         } = {};
         const pending = unshownOwnerBubbleReactions(nuclear, sidecar);
         if (pending.facts.length > 0) {
@@ -3598,6 +3614,13 @@ export async function runCognitiveCycle(
             })
             : null;
         if (returning) surface.returning = returning;
+        // UX W2: her soft acts and wardrobe, in the Owner's DM passes (not the game, not the night).
+        if (originProfile.triggerKind !== "domus_notification" && !nightPass) {
+          const wardrobe = wardrobeAvailable(sidecar, { sky: ownerWeather?.sky ?? null });
+          const soft = softLayerForPass(sidecar, { wardrobe });
+          shownSoftActIds = soft.actIds;
+          surface.softLayer = soft.facts;
+        }
         return surface;
       })(),
       ...(settlementOnly ? { settlementOnly: true } : {}),
@@ -3661,6 +3684,9 @@ export async function runCognitiveCycle(
       }
       if (shownReactionIds.length > 0 && allocated.projected.reactions !== undefined) {
         markOwnerBubbleReactionsShown(nuclear, shownReactionIds);
+      }
+      if (shownSoftActIds.length > 0 && allocated.projected.softLayer?.acts !== undefined) {
+        markSoftActsShown(sidecar, shownSoftActIds, cycle.cycleId);
       }
     } catch (err) {
       if (err instanceof RequiredOverflowError) {
@@ -4849,6 +4875,7 @@ export async function runCognitiveCycle(
             : {}),
           // DPLAY: the menu her Owner turn read (only when it reached her input).
           ...(domusLive && allocated.projected.domusNow?.options ? { domusAct: domusLive.binding } : {}),
+          ...(allocated.projected.softLayer?.face ? { wardrobe: [...allocated.projected.softLayer.face.available] } : {}),
           senseBands,
         }
       : deps.origin!=="shadow" && externalCycle && settlement.attention?.wakeWorth
@@ -4880,6 +4907,9 @@ export async function runCognitiveCycle(
           sidecar,
         ),
         ...(quietSilent ? { silent: true as const } : {}),
+        ...(validation.draft.speech.mode === "draft" && validation.draft.speech.rhythm
+          ? { rhythm: structuredClone(validation.draft.speech.rhythm) }
+          : {}),
       },
       authorityDb: authorityDbForPacks(deps, packs),
       expectedCurrentness: invocation.kernelEnvelope?.authorityCurrentness ?? packs.currentness.binding,

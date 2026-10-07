@@ -46,6 +46,32 @@ export function bubbleDelayMs(params: {
   return Math.min(ms, params.remainingBudgetMs);
 }
 
+/** UX W2 Rhythm: the shape she chose for a thought. */
+export type BubbleShape = "single" | "burst" | "aside" | "letter";
+
+export const BURST_GAP_MIN_MS = 700;
+export const BURST_GAP_MAX_MS = 2_000;
+export const ASIDE_LEAD_MAX_MS = 900;
+export const LETTER_LEAD_MS_PER_CHAR = 6;
+export const LETTER_LEAD_MAX_MS = 4_000;
+
+/** The typing lead before bubble 0: an aside comes quickly, a letter takes its time. */
+export function shapedLeadMs(shape: BubbleShape | undefined, chars: number): number {
+  const lead = typingLeadMs(chars);
+  if (shape === "aside") return Math.min(lead, ASIDE_LEAD_MAX_MS);
+  if (shape === "letter") {
+    return Math.max(lead, Math.min(LETTER_LEAD_MAX_MS, Math.max(0, chars) * LETTER_LEAD_MS_PER_CHAR));
+  }
+  return lead;
+}
+
+/** The gap before a later bubble: a burst runs fast; every other shape keeps the band. */
+export function shapedGapMs(shape: BubbleShape | undefined, gapMs: number, remainingBudgetMs: number): number {
+  if (shape !== "burst" || gapMs <= 0) return gapMs;
+  const fast = Math.min(BURST_GAP_MAX_MS, Math.max(BURST_GAP_MIN_MS, Math.round(gapMs * 0.25)));
+  return Math.min(fast, Math.max(0, remainingBudgetMs));
+}
+
 export function sleepAbortable(ms: number, signal: AbortSignal): Promise<void> {
   if (ms <= 0 || signal.aborted) return Promise.resolve();
   return new Promise((resolve) => {

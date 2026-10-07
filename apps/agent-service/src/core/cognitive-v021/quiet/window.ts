@@ -4,9 +4,8 @@ import { isUnsolicitedTriggerKind } from "../initiative/reach-out.js";
 
 /**
  * The Owner's quiet window. The Host records it and enforces the cap.
- * Thought owns what a held note means. Ashley cannot open her_own from a
- * settlement: no existing effect carries that without an output-contract
- * change, and Wave 2 owns that change.
+ * Thought owns what a held note means. Since Wave 2 her settlement may open
+ * one (quiet: the Owner's word, or her own), bounded the same way.
  */
 
 export const QUIET_DEFAULT_MS = 2 * 60 * 60 * 1000;
@@ -154,6 +153,11 @@ function writeWindow(db: DatabaseSync, source: QuietSource, untilMs: number, ope
   const written = readOpenQuietWindow(db, openedAtMs);
   if (!written) throw new Error("quiet_window_not_written");
   return written;
+}
+
+/** UX W2: a window opened from her settlement (the Owner's word, or her own), bounded like every other. */
+export function writeQuietWindow(db: DatabaseSync, source: QuietSource, untilMs: number, openedAtMs: number): QuietWindow {
+  return writeWindow(db, source, untilMs, openedAtMs);
 }
 
 export function openOwnerQuiet(

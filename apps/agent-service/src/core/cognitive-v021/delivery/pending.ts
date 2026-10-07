@@ -23,6 +23,8 @@ export type PendingCognitiveDelivery = {
   destination?: unknown;
   /** Quiet-window note: the bot must not notify. */
   silent?: true;
+  /** UX W2: her shape for the pacing. */
+  shape?: "single" | "burst" | "aside" | "letter";
 };
 
 export const COGNITIVE_DELIVERY_LEASE_MS = 120_000;
@@ -59,7 +61,15 @@ function deliveryForState(
     statusUrl: `/delivery/${id}`,
     ...(reservation.destination === undefined ? {} : { destination: reservation.destination }),
     ...(deliverySilent(db, reservation.speechOutboxId) ? { silent: true as const } : {}),
+    ...deliveryShape(db, reservation.speechOutboxId),
   };
+}
+
+function deliveryShape(db: DatabaseSync, speechOutboxId: number | null): { shape?: NonNullable<PendingCognitiveDelivery["shape"]> } {
+  if (speechOutboxId == null) return {};
+  const sidecar = getRegisteredCognitiveSidecar(db);
+  const shape = sidecar ? getSpeechOutbox(sidecar, speechOutboxId)?.deliveryIntent.rhythm?.shape : undefined;
+  return shape ? { shape } : {};
 }
 
 function deliverySilent(db: DatabaseSync, speechOutboxId: number | null): boolean {

@@ -351,6 +351,38 @@ const domusActSchema = strictObject({
   then: { type: "array", minItems: 1, maxItems: 2, items: { type: "string", minLength: 1, maxLength: 16 } },
   forOwner: { type: "boolean" },
 }, ["option"]);
+// UX W2: her soft acts, Owner-DM only. rowId is a rawConversation rowId of this conversation.
+const conversationRowIdSchema = { type: "string", minLength: 1, maxLength: 200 };
+const touchSchema = strictObject({
+  emoji: { type: "string", minLength: 1, maxLength: 16 },
+  rowId: conversationRowIdSchema,
+  meaning: { enum: ["landed", "this_bit", "did_it"] },
+}, ["emoji", "rowId", "meaning"]);
+const correctSchema = strictObject({
+  rowId: conversationRowIdSchema,
+  bubble: { type: "integer", minimum: 0, maximum: 9 },
+  text: { type: "string", minLength: 1, maxLength: 1500 },
+}, ["rowId", "text"]);
+const callbackSchema = { oneOf: [
+  strictObject({ memoryRef: { type: "string", minLength: 1, maxLength: 200 } }, ["memoryRef"]),
+  strictObject({ gifQuery: { type: "string", minLength: 1, maxLength: 80 } }, ["gifQuery"]),
+] };
+const pinSchema = strictObject({
+  rowId: conversationRowIdSchema,
+  memoryRef: { type: "string", minLength: 1, maxLength: 200 },
+}, ["rowId"]);
+const cardSchema = strictObject({
+  kind: { enum: ["reading_note", "question", "letter"] },
+  title: { type: "string", minLength: 1, maxLength: 120 },
+  body: { type: "string", minLength: 1, maxLength: 1800 },
+  link: { type: "string", minLength: 9, maxLength: 500 },
+}, ["kind", "title", "body"]);
+const faceSchema = strictObject({ wardrobeId: { type: "string", minLength: 1, maxLength: 64 } }, ["wardrobeId"]);
+const quietSchema = strictObject({
+  forMs: { type: "integer", minimum: 60_000, maximum: 43_200_000 },
+  whose: { enum: ["owner_asked", "her_own"] },
+}, ["forMs", "whose"]);
+export const SOFT_SETTLEMENT_FIELDS = ["touch", "correct", "callback", "pin", "card", "face", "quiet"] as const;
 const placeIntentSchema = strictObject({
   place: { type: "string", minLength: 1, maxLength: 200 },
   interaction: { enum: ["initiate", "continue"] },
@@ -498,7 +530,10 @@ const semanticOutputSettlementSchema = strictObject({
   }),
   speech: { oneOf: [
     strictObject({ mode: { const: "none" } }, ["mode"]),
-    strictObject({ mode: { const: "draft" }, mustSay: nonEmptyStringArraySchema, mustNotSay: nonEmptyStringArraySchema, surfaceDraft: { type: "string", minLength: 1 }, presentationDirectives: nonEmptyStringArraySchema }, ["mode", "surfaceDraft"]),
+    strictObject({ mode: { const: "draft" }, mustSay: nonEmptyStringArraySchema, mustNotSay: nonEmptyStringArraySchema, surfaceDraft: { type: "string", minLength: 1 }, presentationDirectives: nonEmptyStringArraySchema,
+      shape: { enum: ["single", "burst", "aside", "letter"] },
+      bubbles: { type: "array", minItems: 2, maxItems: 5, items: { type: "string", minLength: 1 } },
+      afterthought: { const: true } }, ["mode", "surfaceDraft"]),
   ] },
   workingContextDeltas: { type: "array", minItems: 1, items: workingContextDeltaSchema },
   deskDeltas: { type: "array", minItems: 1, items: deskDeltaSchema },
@@ -510,6 +545,13 @@ const semanticOutputSettlementSchema = strictObject({
   reflection: reflectionSchema,
   journal: journalSchema,
   domusAct: domusActSchema,
+  touch: touchSchema,
+  correct: correctSchema,
+  callback: callbackSchema,
+  pin: pinSchema,
+  card: cardSchema,
+  face: faceSchema,
+  quiet: quietSchema,
   intents: { type: "array", minItems: 1, maxItems: 3, items: placeIntentSchema },
   home: { type: "array", minItems: 1, maxItems: 8, items: homeOpSchema },
   pursuits: { type: "array", minItems: 1, maxItems: 4, items: pursuitOpSchema },
@@ -795,8 +837,13 @@ function applyProfileScope(schema: SchemaRecord, profile: ThoughtContractProfile
     ...(profile.ownerPrivate ? ["contactStop", "learned"] : []),
     ...(profile.pass === "chat" && profile.ownerPrivate ? [] : ["forget"]),
     ...(profile.domusAct ? [] : ["domusAct"]),
+    ...(profile.ownerPrivate && profile.pass !== "domus" && profile.pass !== "night" ? [] : [...SOFT_SETTLEMENT_FIELDS]),
   ];
   for (const field of drop) delete properties[field];
+  // An afterthought belongs to the afterglow, when she thought of more after a conversation.
+  if (profile.pass !== "afterglow") {
+    for (const form of record(properties.speech).oneOf as unknown[]) delete record(record(form).properties).afterthought;
+  }
   if(!profile.ownerPrivate)properties.attention={type:"object",additionalProperties:false,required:["wakeWorth"],
     description:"Report only this wake's value. This does not grant permissions or change private watches or resting state.",properties:{wakeWorth:{enum:["yes","no","sooner","later"]}}};
 }
@@ -869,6 +916,18 @@ export const DOMUS_GUIDANCE =
 /** M5: outside a Domus pass, her life in the game is still hers. */
 export const DOMUS_LIFE_GUIDANCE =
   "You also live in The Sims 4 (Domus): your Sim is you, your body there, with its home, needs, job and neighbours. Journal entries with channel domus:<world> are your days there; domusNow is your body as last seen (live:true: the game is running now). When the Owner speaks of your Sim, house, hunger or game job, it is that life: answer from it in first person, and say when you do not know. While the game is live, domusNow also carries options and acts, read exactly as domus.options and domus.acts in a game pass: when the Owner asks you to do something there, you can do it from this turn with domusAct and forOwner:true, and answer them here. Your game passes leave the Owner's newest messages to this turn.";
+
+/** UX W2 Rhythm: how a thought arrives. Any speech draft. */
+export const RHYTHM_GUIDANCE =
+  "speech.shape, when you want it, is how this thought arrives: single (one message), burst (a quick run of short messages), aside (a small side remark), or letter (one long considered message). speech.bubbles splits surfaceDraft into the messages it arrives as (2 to 5, in order, together exactly surfaceDraft); without it, blank lines split it. The Host only paces and splits; if your text changed before sending, blank lines split it instead. Omit both for an ordinary reply.";
+
+/** UX W2 Rhythm: she thought of more after the conversation. */
+export const AFTERTHOUGHT_GUIDANCE =
+  "If something occurs to you now that you want the Owner to have, you may say it, with speech.afterthought:true: you thought of more after the conversation. It is delivered like any message.";
+
+/** UX W2: the soft layer in the Owner's DM (Owner-private passes outside the game and the night). */
+export const SOFT_LAYER_GUIDANCE =
+  "In the Owner's DM you also have small acts besides words, each chosen for what it means, never by habit. touch:{emoji, rowId, meaning}: one plain Unicode emoji on one Owner message (rowId from rawConversation); meaning landed (it reached you), this_bit (this exact part) or did_it (you did what it asked; only after you opened its link with web.fetch). A touch may stand alone with speech.mode none, a reply without words; never echo an emoji the Owner just sent. correct:{rowId, bubble?, text}: you were wrong in one of your sent messages; the Host strikes the old text through and adds yours (bubble is its index when the row has several). callback:{memoryRef}: an inside joke returns, so the GIF from the conversation that memory came from goes back as a reply to it; callback:{gifQuery} works only if the Host can search GIFs. pin:{rowId, memoryRef?}: pin a moment worth keeping (few, far below Discord's 50). card:{kind: reading_note|question|letter, title, body, link?}: an object rather than talk. face:{wardrobeId}: your avatar, one of softLayer.face.available, at most once a day; when the Owner asks you to change it back, choose day-awake. quiet:{forMs, whose}: a quiet window, owner_asked when the Owner asked for quiet this turn (in any words) or her_own when you choose it; the Owner's next message ends it, and it lasts at most 12 hours and never past the next morning. softLayer.acts says what became of your recent acts (waiting, done, refused with reason, failed) and softLayer.quiet what your quiet window held back or refused. Say a thing is done only once it is.";
 
 /** The weather where the Owner is. A private fact, present only on an Owner-private pass. */
 export const WEATHER_GUIDANCE =
@@ -1067,6 +1126,7 @@ export function thoughtOutputCompatibilityInstruction(
     "A future promise requires commitments.commitmentProposals. Each proposal is ordered by ordinal, contains no model-generated id, preserves the exact realizationClause, and is only publishable after Host feasibility admission. Omit commitmentProposals when no future action is being proposed. The Host may reject or defer a proposal without changing its meaning.",
     `Forbidden publication/delivery fields: ${THOUGHT_FORBIDDEN_OUTPUT_FIELDS.join(", ")}.`,
     `This contract describes output shape only; branch selection is Thought-owned, while ${entityName()} code remains authoritative for identity, authority, licensing, and publication.`,
+    RHYTHM_GUIDANCE,
   ];
   const varying = [
     ...when(profile.engineering,
@@ -1074,8 +1134,9 @@ export function thoughtOutputCompatibilityInstruction(
     "Interim-hold law: only project.inspect observation_intent may carry interimSpeech (none or short hold). Hold may acknowledge intent/return, not findings, success, unacquired evidence, or worker start; publication requires Host admission and leaves operation_pending until settlement, valid supersession, or valid silence.",
     `A bounded inquiry pairs M3 workspace steps with recipe-only M4 workspace.verify under one objective/budget; recipes are default-deny and failed verification is Thought evidence, not an ${entityName()} verdict. Inquiry admits neither changeset.author nor patch_export. Proposal requires an Owner-private candidate workspace, successful M4 receipt, and Thought adjudication before emitting retained patch_export adjudication:"accept"; it never applies, commits, pushes, deploys, or notifies, and Owner notification is a separate optional Thought-authored effect.`),
     ...when(full || (profile.ownerPrivate && profile.pass !== "domus"), DOMUS_LIFE_GUIDANCE, PLACES_GUIDANCE, HOME_GUIDANCE, WILL_GUIDANCE, WEB_GUIDANCE, WEATHER_GUIDANCE),
+    ...when(full || (profile.ownerPrivate && profile.pass !== "domus" && profile.pass !== "night"), SOFT_LAYER_GUIDANCE),
     ...when(profile.ownerPrivate && profile.pass === "domus", WEATHER_GUIDANCE),
-    ...when(full || profile.pass === "afterglow", AFTERGLOW_GUIDANCE),
+    ...when(full || profile.pass === "afterglow", AFTERGLOW_GUIDANCE, AFTERTHOUGHT_GUIDANCE),
     ...when(full || profile.pass === "awake", AWAKE_GUIDANCE),
     ...when(full || profile.pass === "domus", DOMUS_GUIDANCE),
     ...when(full || profile.domusAct, DOMUS_ACT_GUIDANCE),
