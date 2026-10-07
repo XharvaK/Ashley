@@ -120,7 +120,7 @@ describe("MAT-II C3 allocator integration", () => {
       const allocated = allocateThoughtProjection({
         thoughtInput: input,
         requestId: "request-allocator-c3",
-        semanticBudgetTokens: 14_100,
+        semanticBudgetTokens: 14_200,
       });
       const projected = allocated.projected as typeof allocated.projected & {
         c3Experiences?: { version: 1; candidates: readonly unknown[] };

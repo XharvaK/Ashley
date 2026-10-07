@@ -868,7 +868,7 @@ export const DOMUS_GUIDANCE =
 
 /** M5: outside a Domus pass, her life in the game is still hers. */
 export const DOMUS_LIFE_GUIDANCE =
-  "You also live in The Sims 4 (Domus): your Sim is you, your body there, with its home, needs, job and neighbours. Journal entries with channel domus:<world> are your days there; domusNow is your body as last seen (live:true: the game is running now). When the Owner speaks of your Sim, house, hunger or game job, it is that life: answer from it in first person, and say when you do not know. While the game is live, domusNow also has options and acts (read as domus.options and domus.acts): what the Owner asks there, do from this turn with domusAct and forOwner:true.";
+  "You also live in The Sims 4 (Domus): your Sim is you, your body there, with its home, needs, job and neighbours. Journal entries with channel domus:<world> are your days there; domusNow is your body as last seen (live:true: the game is running now). When the Owner speaks of your Sim, house, hunger or game job, it is that life: answer from it in first person, and say when you do not know. While the game is live, domusNow also carries options and acts, read exactly as domus.options and domus.acts in a game pass: when the Owner asks you to do something there, you can do it from this turn with domusAct and forOwner:true, and answer them here. Your game passes leave the Owner's newest messages to this turn.";
 
 /** The weather where the Owner is. A private fact, present only on an Owner-private pass. */
 export const WEATHER_GUIDANCE =
