@@ -13,6 +13,7 @@ import {
   recheckOwnerDmPublication,
   type PendingDelivery,
 } from "../agent-client.js";
+import { tempoTracker } from "../chat/pacing.js";
 
 test("Discord RA parser: contact DMs are on unless switched off, the rest fails closed", () => {
   assert.equal(getRaEffectiveConfig({ RA_SOCIAL_CAPTURE: "true" }).socialCaptureEnabled, true);
@@ -155,6 +156,44 @@ test("fulfillment pump uses the same receipt/finalize flow for cognitive deliver
   );
   assert.equal(count, 1);
   assert.deepEqual(events, ["receipt", "finalize:complete"]);
+});
+
+test("fulfillment pump passes the conversation tempo to bubble pacing", async () => {
+  const channelId = "dm-tempo-gap";
+  tempoTracker.mark(channelId, 1_000);
+  tempoTracker.mark(channelId, 5_000);
+  let tempoGapMs: number | null | undefined;
+  const pending: PendingDelivery[] = [{
+    reservationId: 161,
+    draftText: "tempo draft",
+    bubbles: [{ ordinal: 0, text: "tempo draft", discordMessageId: null }],
+    statusUrl: "/delivery/161",
+  }];
+  const deps: FulfillmentPumpDependencies = {
+    markDispatchStarted: dispatchBoundaryMarked,
+    claim: async () => ({ deliveries: pending }),
+    recheckOwnerDm: ownerDmAllowed,
+    receipt: async () => ({ ok: true }),
+    finalize: async () => ({
+      state: "committed",
+      finalizationReason: "all_bubbles_delivered",
+      deliveredText: "tempo draft",
+    }),
+    send: async (_channel, _chunks, _gifUrl, pacing) => {
+      tempoGapMs = pacing?.tempoGapMs ?? null;
+      return {
+        reservationId: null,
+        attemptedOrdinal: null,
+        receiptedOrdinals: [0],
+        failureCategory: null,
+        anySubstantiveContentVisible: true,
+        messages: [{ id: "tempo-msg" } as Message],
+      };
+    },
+  };
+
+  assert.equal(await drainPendingCognitiveDeliveries(makeFakeClient({ id: channelId }), deps), 1);
+  assert.equal(tempoGapMs, 4_000);
 });
 
 test("fulfillment pump has a separate system-notice drain over the common transport lifecycle", async () => {

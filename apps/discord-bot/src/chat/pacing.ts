@@ -1,14 +1,23 @@
 /**
- * Gaps between her bubbles only. Nothing is added before the first one, because
- * Mistral already spends 1 to 5 seconds there and a human would have been typing
- * through it.
+ * Gaps between her bubbles. The wait before bubble 0 is the typing lead
+ * (`typingLeadMs`), not this band.
  *
  * Target band: 3–10s by next-bubble length (Alex locked 2026-08-01).
  */
 export const PACE_BUDGET_MS = 20_000;
 
+/** Typing lead before bubble 0: clamp(chars * 25 ms, 400, 2000). */
+export const TYPING_LEAD_MS_PER_CHAR = 25;
+export const TYPING_LEAD_MIN_MS = 400;
+export const TYPING_LEAD_MAX_MS = 2_000;
+
 const MIN_MS = 3_000;
 const MAX_MS = 10_000;
+
+export function typingLeadMs(chars: number): number {
+  const scaled = Math.max(0, chars) * TYPING_LEAD_MS_PER_CHAR;
+  return Math.min(TYPING_LEAD_MAX_MS, Math.max(TYPING_LEAD_MIN_MS, scaled));
+}
 
 /**
  * `tempoGapMs` is how long Alex took to send this message after his previous one.
