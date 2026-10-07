@@ -3,8 +3,8 @@ import type { DatabaseSync } from "node:sqlite";
 import { openTestSidecar } from "../cognitive-v021/test-support.js";
 import { admitObservation, observationDigest } from "./store.js";
 import {
-  domusActBinding, interruptDomusPlans, isDomusActClaim, optionsOf, recentDomusActs, recordDomusAct, syncDomusActs, DOMUS_ACT_TTL_MS,
-  type DomusActClaim, type DomusOptionObject,
+  domusActBinding, domusNoWayObjects, interruptDomusPlans, isDomusActClaim, optionsOf, recentDomusActs, recordDomusAct, syncDomusActs,
+  DOMUS_ACT_TTL_MS, DOMUS_OWNER_OPEN_MS, type DomusActClaim, type DomusOptionObject,
 } from "./acts.js";
 import { parseActSync, parseObservation } from "./ingress.js";
 import { domusForThought } from "./notification.js";
@@ -356,5 +356,102 @@ describe("8f her settled choice", () => {
       }
       expect(db.prepare("SELECT cycle_id, guid64, state FROM domus_acts").all()).toEqual([{ cycle_id: "acting-cycle", guid64: "14001", state: "requested" }]);
     } finally { db.close(); }
+  });
+});
+
+describe("OWNERFIRST an act the User asked for", () => {
+  function ownerAct(db: DatabaseSync, option: string, cycleId: string, nowMs: number, then?: string[]) {
+    observe(db, 1, { options: OPTIONS });
+    const binding = domusActBinding(db, { world: "slot8", observationIds: ["helper-a.1"] })!;
+    return recordDomusAct(db, { binding, claim: { option, forOwner: true, ...(then ? { then } : {}) }, cycleId, nowMs });
+  }
+
+  it("is marked only when her Thought said so, and goes to the helper as owner", () => {
+    const db = openTestSidecar();
+    const asked = ownerAct(db, "a1", "cycle-1", NOW);
+    const hers = act(db, "a2", "cycle-2", NOW);
+    expect(row(db, asked.actId).for_owner).toBe(1);
+    expect(row(db, hers.actId).for_owner).toBe(0);
+    const sent = syncDomusActs(db, { helperSession: "helper-a", events: [], nowMs: NOW }).acts;
+    expect(sent.find(item => item.act_id === asked.actId)!.owner).toBe(true);
+    expect(sent.find(item => item.act_id === hers.actId)).not.toHaveProperty("owner");
+  });
+
+  it("validates forOwner as a boolean in the claim", () => {
+    expect(isDomusActClaim({ option: "a1", forOwner: true })).toBe(true);
+    expect(isDomusActClaim({ option: "a1", forOwner: false })).toBe(true);
+    expect(isDomusActClaim({ option: "a1", forOwner: "yes" })).toBe(false);
+  });
+
+  it("passes the mark to each step of its plan", () => {
+    const db = openTestSidecar();
+    const first = ownerAct(db, "a1", "cycle-1", NOW, ["a2"]);
+    syncDomusActs(db, { helperSession: "helper-a", events: [
+      { actId: first.actId, phase: "finished", atMs: NOW, detail: { finishing_type: "NATURAL", started: true } }], nowMs: NOW });
+    const step = db.prepare("SELECT for_owner FROM domus_acts WHERE cycle_id = 'cycle-1:step1'").get() as { for_owner: number };
+    expect(step.for_owner).toBe(1);
+  });
+
+  it("stays open in her view until a later act on the same thing completes", () => {
+    const db = openTestSidecar();
+    const asked = ownerAct(db, "a1", "cycle-0", NOW - 60_000);
+    syncDomusActs(db, { helperSession: "helper-a", events: [{ actId: asked.actId, phase: "finished", atMs: NOW - 59_000,
+      detail: { finishing_type: "INTERACTION_INCOMPATIBILITY", started: false } }], nowMs: NOW - 59_000 });
+    for (let index = 1; index <= 7; index++) act(db, "a3", `cycle-${index}`, NOW - 50_000 + index);
+    const view = recentDomusActs(db, "slot8", NOW);
+    expect(view[0]).toMatchObject({ option: "a1", forOwner: true, stillOpen: true, state: "finished" });
+    expect(view[0]!.detail).toEqual({ ended: "cut_short", why: "it never began: the game found no way for her to do it from where she was" });
+    const again = ownerAct(db, "a1", "cycle-9", NOW - 1000);
+    syncDomusActs(db, { helperSession: "helper-a", events: [{ actId: again.actId, phase: "finished", atMs: NOW,
+      detail: { finishing_type: "NATURAL", started: true } }], nowMs: NOW });
+    const after = recentDomusActs(db, "slot8", NOW);
+    expect(after.some(item => item.stillOpen)).toBe(false);
+    expect(after.at(-1)).toMatchObject({ option: "a1", forOwner: true });
+  });
+
+  it("lets go of an open ask after its time", () => {
+    const db = openTestSidecar();
+    const asked = ownerAct(db, "a1", "cycle-0", NOW - DOMUS_OWNER_OPEN_MS - 1000);
+    syncDomusActs(db, { helperSession: "helper-a", events: [{ actId: asked.actId, phase: "rejected", atMs: NOW - DOMUS_OWNER_OPEN_MS,
+      detail: { code: "GAME_REFUSED" } }], nowMs: NOW - DOMUS_OWNER_OPEN_MS });
+    expect(recentDomusActs(db, "slot8", NOW)).toEqual([]);
+  });
+
+  it("never marks her own cut-short act as still open", () => {
+    const db = openTestSidecar();
+    const hers = act(db, "a1", "cycle-1", NOW - 1000);
+    syncDomusActs(db, { helperSession: "helper-a", events: [{ actId: hers.actId, phase: "finished", atMs: NOW,
+      detail: { finishing_type: "DISPLACED", started: true } }], nowMs: NOW });
+    const [item] = recentDomusActs(db, "slot8", NOW);
+    expect(item).not.toHaveProperty("stillOpen");
+    expect(item).not.toHaveProperty("forOwner");
+    expect(item!.detail).toEqual({ ended: "cut_short", why: "another action replaced it" });
+  });
+});
+
+describe("OWNERFIRST an object the game found no way to", () => {
+  it("is noted on her options until something there runs", () => {
+    const db = openTestSidecar();
+    const tried = act(db, "a1", "cycle-1", NOW - 2000);
+    syncDomusActs(db, { helperSession: "helper-a", events: [{ actId: tried.actId, phase: "finished", atMs: NOW - 1500,
+      detail: { finishing_type: "FinishingType.INTERACTION_INCOMPATIBILITY", started: false } }], nowMs: NOW - 1500 });
+    expect([...domusNoWayObjects(db, "slot8", NOW)]).toEqual([["1001", "it never began: the game found no way for her to do it from where she was"]]);
+    const event = appendInboxEvent(db, { id: "domus-notification:helper-a.1", conversationId: "c", kind: "domus_notification",
+      payload: { domus: { world: "slot8", attachment: "helper-a", observationIds: ["helper-a.1"] }, occupantId: "o", authorityEpoch: 1 }, createdAtMs: NOW });
+    const on = domusForThought(db, { id: event.id, conversationId: "c" }, undefined, { enabled: true, nowMs: NOW });
+    expect(on.options![0]).toMatchObject({ object_id: "1001", noWay: "last time it never began: the game found no way for her to do it from where she was" });
+    expect(on.options![1]).not.toHaveProperty("noWay");
+    const ran = act(db, "a1", "cycle-2", NOW - 1000);
+    syncDomusActs(db, { helperSession: "helper-a", events: [{ actId: ran.actId, phase: "finished", atMs: NOW - 500,
+      detail: { finishing_type: "NATURAL", started: true } }], nowMs: NOW - 500 });
+    expect(domusNoWayObjects(db, "slot8", NOW).size).toBe(0);
+  });
+
+  it("is not noted for an act that ran and was then cut short", () => {
+    const db = openTestSidecar();
+    const ran = act(db, "a1", "cycle-1", NOW - 2000);
+    syncDomusActs(db, { helperSession: "helper-a", events: [{ actId: ran.actId, phase: "finished", atMs: NOW - 1500,
+      detail: { finishing_type: "INTERACTION_INCOMPATIBILITY", started: true } }], nowMs: NOW - 1500 });
+    expect(domusNoWayObjects(db, "slot8", NOW).size).toBe(0);
   });
 });

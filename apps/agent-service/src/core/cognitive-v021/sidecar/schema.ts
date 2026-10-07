@@ -2468,3 +2468,9 @@ CREATE TABLE IF NOT EXISTS owner_presence_facts (
 );
 UPDATE cognitive_sidecar_meta SET schema_version=69 WHERE id=1;
 `;
+
+/** OWNERFIRST: an act her Thought marked as one the User asked for. */
+export const COGNITIVE_SIDECAR_SCHEMA_V70 = String.raw`
+ALTER TABLE domus_acts ADD COLUMN for_owner INTEGER NOT NULL DEFAULT 0 CHECK (for_owner IN (0, 1));
+UPDATE cognitive_sidecar_meta SET schema_version=70 WHERE id=1;
+`;

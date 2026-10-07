@@ -8,6 +8,9 @@
 // completed, or handed over to a game question, and is then requested like any act; a refusal, an
 // unknown, or an act cut short ends the plan, a wake (someone arrives, the game asks, a need drops)
 // drops the rest, and a new choice replaces it.
+// OWNERFIRST: her Thought may mark a choice as one the User asked for (forOwner). The Host never
+// infers it. The helper hands it to the probe, which puts it in first; until it completes it
+// stays in her view as still open, however many acts came after it.
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { endingOf } from "./endings.js";
@@ -19,15 +22,20 @@ export const DOMUS_RECENT_ACTS = 6;
 export const DOMUS_RECENT_ACTS_MS = 2 * 60 * 60 * 1000;
 /** A plan is the first act and at most this many more. */
 export const DOMUS_PLAN_MORE = 2;
+/** An act the User asked for that did not complete stays in her view this long. */
+export const DOMUS_OWNER_OPEN_MS = 6 * 60 * 60 * 1000;
+/** An object the game found no way to (an act there never began) carries that note this long. */
+export const DOMUS_NO_WAY_MS = 2 * 60 * 60 * 1000;
 
-export type DomusActClaim = { option: string; then?: string[] };
+export type DomusActClaim = { option: string; then?: string[]; forOwner?: boolean };
 export type DomusOptionAct = { ref: string; guid64: string; text: string };
-export type DomusOptionObject = { object: string; object_id: string; where?: string; acts: DomusOptionAct[] };
+export type DomusOptionObject = { object: string; object_id: string; where?: string; acts: DomusOptionAct[]; noWay?: string };
 export type DomusActBinding = { world: string; attachment: string; observationId: string };
 export type DomusActPhase = "received" | "accepted" | "rejected" | "pushed" | "finished" | "unknown" | "expired";
 export type DomusActEvent = { actId: string; phase: DomusActPhase; atMs: number; detail?: Record<string, unknown> };
 export type DomusRecentAct = {
-  option: string; label: string; state: string; requestedAtMs: number; updatedAtMs: number; detail?: Record<string, unknown>;
+  option: string; label: string; state: string; requestedAtMs: number; updatedAtMs: number;
+  forOwner?: true; stillOpen?: true; detail?: Record<string, unknown>;
 };
 
 const PHASES: ReadonlySet<string> = new Set(["received", "accepted", "rejected", "pushed", "finished", "unknown", "expired"]);
@@ -42,8 +50,8 @@ const REF = /^[A-Za-z0-9._-]{1,16}$/;
 export function isDomusActClaim(value: unknown): value is DomusActClaim {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const record = value as Record<string, unknown>;
-  return Object.keys(record).every(key => key === "option" || key === "then") && typeof record.option === "string"
-    && REF.test(record.option)
+  return Object.keys(record).every(key => key === "option" || key === "then" || key === "forOwner") && typeof record.option === "string"
+    && REF.test(record.option) && (record.forOwner === undefined || typeof record.forOwner === "boolean")
     && (record.then === undefined || (Array.isArray(record.then) && record.then.length >= 1 && record.then.length <= DOMUS_PLAN_MORE
       && record.then.every(ref => typeof ref === "string" && REF.test(ref))));
 }
@@ -106,11 +114,11 @@ export function recordDomusAct(db: DatabaseSync, input: {
   // A new choice replaces whatever was still waiting in an earlier plan.
   dropPlannedSteps(db, { world: input.binding.world, reason: "replaced", nowMs: input.nowMs });
   db.prepare(`INSERT INTO domus_acts (act_id, cycle_id, world, attachment, observation_id, option_ref, object_id, guid64,
-    label, state, requested_at_ms, expires_at_ms, updated_at_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+    label, state, requested_at_ms, expires_at_ms, updated_at_ms, for_owner) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
     actId, input.cycleId, input.binding.world, input.binding.attachment, input.binding.observationId, input.claim.option,
     found ? found.object.object_id : null, found ? found.act.guid64 : null,
     found ? labelOf(found) : "",
-    found ? "requested" : "invalid", input.nowMs, input.nowMs + DOMUS_ACT_TTL_MS, input.nowMs);
+    found ? "requested" : "invalid", input.nowMs, input.nowMs + DOMUS_ACT_TTL_MS, input.nowMs, input.claim.forOwner === true ? 1 : 0);
   const step = db.prepare(`INSERT INTO domus_plan_steps (plan_id, step, world, attachment, option_ref, object_id, guid64, label,
     state, reason, planned_at_ms, updated_at_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
   let broken: string | null = found ? null : "after_invalid";
@@ -162,7 +170,7 @@ export function interruptDomusPlans(db: DatabaseSync, input: { attachment: strin
 /** Release the next step when the previous act completed, or handed the game a question; an act cut short ends the plan. */
 function releasePlanSteps(db: DatabaseSync, helperSession: string, nowMs: number): void {
   const steps = db.prepare(`SELECT s.plan_id, s.step, s.option_ref, s.object_id, s.guid64, s.label, a.cycle_id, a.world,
-    a.attachment, a.observation_id FROM domus_plan_steps s JOIN domus_acts a ON a.act_id = s.plan_id
+    a.attachment, a.observation_id, a.for_owner FROM domus_plan_steps s JOIN domus_acts a ON a.act_id = s.plan_id
     WHERE s.attachment = ? AND s.state = 'planned' ORDER BY s.plan_id, s.step`).all(helperSession) as Row[];
   const previous = db.prepare(`SELECT a.act_id, a.state FROM domus_plan_steps s JOIN domus_acts a ON a.act_id = s.act_id
     WHERE s.plan_id = ? AND s.step = ?`);
@@ -170,7 +178,7 @@ function releasePlanSteps(db: DatabaseSync, helperSession: string, nowMs: number
   const prevStep = db.prepare("SELECT state FROM domus_plan_steps WHERE plan_id = ? AND step = ?");
   const finished = db.prepare("SELECT detail_json FROM domus_act_events WHERE act_id = ? AND phase = 'finished' ORDER BY at_ms DESC LIMIT 1");
   const insert = db.prepare(`INSERT INTO domus_acts (act_id, cycle_id, world, attachment, observation_id, option_ref, object_id,
-    guid64, label, state, requested_at_ms, expires_at_ms, updated_at_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'requested', ?, ?, ?)`);
+    guid64, label, state, requested_at_ms, expires_at_ms, updated_at_ms, for_owner) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'requested', ?, ?, ?, ?)`);
   const mark = db.prepare("UPDATE domus_plan_steps SET state = ?, act_id = ?, reason = ?, updated_at_ms = ? WHERE plan_id = ? AND step = ?");
   const cutShort = new Set<string>();
   const endingOfFinished = (actId: string | undefined) => {
@@ -178,8 +186,9 @@ function releasePlanSteps(db: DatabaseSync, helperSession: string, nowMs: number
     const row = finished.get(actId) as Row | undefined;
     if (!row) return endingOf(undefined);
     try {
-      const parsed = JSON.parse(String(row.detail_json)) as { finishing_type?: unknown };
-      return endingOf(parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed.finishing_type : undefined);
+      const parsed = JSON.parse(String(row.detail_json)) as { finishing_type?: unknown; started?: unknown };
+      const plain = parsed && typeof parsed === "object" && !Array.isArray(parsed);
+      return endingOf(plain ? parsed.finishing_type : undefined, plain ? parsed.started : undefined);
     } catch { return endingOf(undefined); }
   };
   for (const row of steps) {
@@ -210,7 +219,8 @@ function releasePlanSteps(db: DatabaseSync, helperSession: string, nowMs: number
       if (ending.ended === "completed" || ending.ended === "asked" || ending.ended === "answered") {
         const actId = randomUUID().replaceAll("-", "");
         insert.run(actId, `${String(row.cycle_id)}:step${step}`, String(row.world), String(row.attachment), String(row.observation_id), String(row.option_ref),
-          row.object_id as string | null, row.guid64 as string | null, String(row.label), nowMs, nowMs + DOMUS_ACT_TTL_MS, nowMs);
+          row.object_id as string | null, row.guid64 as string | null, String(row.label), nowMs, nowMs + DOMUS_ACT_TTL_MS, nowMs,
+          Number(row.for_owner) === 1 ? 1 : 0);
         mark.run("released", actId, null, nowMs, planId, step);
       } else {
         cutShort.add(planId);
@@ -234,7 +244,7 @@ function nextState(current: string, phase: string): string | null {
  */
 export function syncDomusActs(db: DatabaseSync, input: {
   helperSession: string; events: readonly DomusActEvent[]; nowMs: number;
-}): { acts: Array<{ act_id: string; object_id: string; guid64: string; expires_at_ms: number }>; applied: number; planned: number } {
+}): { acts: Array<{ act_id: string; object_id: string; guid64: string; expires_at_ms: number; owner?: true }>; applied: number; planned: number } {
   let applied = 0;
   db.exec("BEGIN IMMEDIATE");
   try {
@@ -266,9 +276,10 @@ export function syncDomusActs(db: DatabaseSync, input: {
     }
     dropPlannedSteps(db, { otherThan: input.helperSession, reason: "session_ended", nowMs: input.nowMs });
     releasePlanSteps(db, input.helperSession, input.nowMs);
-    const acts = (db.prepare(`SELECT act_id, object_id, guid64, expires_at_ms FROM domus_acts
+    const acts = (db.prepare(`SELECT act_id, object_id, guid64, expires_at_ms, for_owner FROM domus_acts
       WHERE attachment = ? AND state = 'requested' AND expires_at_ms > ? ORDER BY requested_at_ms`).all(input.helperSession, input.nowMs) as Row[])
-      .map(row => ({ act_id: String(row.act_id), object_id: String(row.object_id), guid64: String(row.guid64), expires_at_ms: Number(row.expires_at_ms) }));
+      .map(row => ({ act_id: String(row.act_id), object_id: String(row.object_id), guid64: String(row.guid64), expires_at_ms: Number(row.expires_at_ms),
+        ...(Number(row.for_owner) === 1 ? { owner: true as const } : {}) }));
     // The helper holds back its idle wake while a step still waits to follow.
     const planned = Number((db.prepare("SELECT COUNT(*) AS n FROM domus_plan_steps WHERE attachment = ? AND state = 'planned'")
       .get(input.helperSession) as Row).n);
@@ -277,14 +288,14 @@ export function syncDomusActs(db: DatabaseSync, input: {
   } catch (error) { db.exec("ROLLBACK"); throw error; }
 }
 
-/** Her own recent acts in this world, newest last, with the latest thing known about each; then what still waits in her plan (or was let go). */
+/** Her own recent acts in this world, newest last, with the latest thing known about each; then what still waits in her plan (or was let go). OWNERFIRST: an act the User asked for that did not complete is kept at the front, still open, until a later act on the same thing completes or DOMUS_OWNER_OPEN_MS passes. */
 export function recentDomusActs(db: DatabaseSync, world: string, nowMs: number): DomusRecentAct[] {
-  const rows = db.prepare(`SELECT act_id, option_ref, label, state, requested_at_ms, updated_at_ms FROM domus_acts
+  const rows = db.prepare(`SELECT act_id, option_ref, label, state, requested_at_ms, updated_at_ms, for_owner FROM domus_acts
     WHERE world = ? AND requested_at_ms >= ? ORDER BY requested_at_ms DESC LIMIT ?`).all(world, nowMs - DOMUS_RECENT_ACTS_MS, DOMUS_RECENT_ACTS) as Row[];
   const detail = db.prepare("SELECT detail_json FROM domus_act_events WHERE act_id = ? AND phase = ? ORDER BY at_ms DESC LIMIT 1");
   const steps = db.prepare(`SELECT option_ref, label, state, reason, step, planned_at_ms, updated_at_ms FROM domus_plan_steps
     WHERE plan_id = ? AND state != 'released' ORDER BY step`);
-  const acts: DomusRecentAct[] = rows.reverse().map(row => {
+  const shown = (row: Row, open: boolean): DomusRecentAct => {
     let extra: Record<string, unknown> | undefined;
     try {
       const found = detail.get(String(row.act_id), String(row.state)) as Row | undefined;
@@ -294,15 +305,25 @@ export function recentDomusActs(db: DatabaseSync, world: string, nowMs: number):
     if (String(row.state) === "finished") {
       const rest = { ...(extra ?? {}) };
       const finishingType = rest.finishing_type;
+      const started = rest.started;
       delete rest.finishing_type;
-      const ending = endingOf(finishingType);
+      delete rest.started;
+      const ending = endingOf(finishingType, started);
       extra = { ...rest, ended: ending.ended, ...(ending.why ? { why: ending.why } : {}) };
     }
     return {
       option: String(row.option_ref), label: String(row.label), state: String(row.state),
-      requestedAtMs: Number(row.requested_at_ms), updatedAtMs: Number(row.updated_at_ms), ...(extra ? { detail: extra } : {}),
+      requestedAtMs: Number(row.requested_at_ms), updatedAtMs: Number(row.updated_at_ms),
+      ...(Number(row.for_owner) === 1 ? { forOwner: true as const } : {}), ...(open ? { stillOpen: true as const } : {}),
+      ...(extra ? { detail: extra } : {}),
     };
-  });
+  };
+  const recent = new Set(rows.map(row => String(row.act_id)));
+  const opened = openOwnerActs(db, world, nowMs);
+  const acts: DomusRecentAct[] = [
+    ...opened.filter(row => !recent.has(String(row.act_id))).map(row => shown(row, true)),
+    ...rows.reverse().map(row => shown(row, opened.some(open => String(open.act_id) === String(row.act_id)))),
+  ];
   const waiting: DomusRecentAct[] = [];
   for (const row of rows) {
     for (const step of steps.all(String(row.act_id)) as Row[]) {
@@ -314,6 +335,46 @@ export function recentDomusActs(db: DatabaseSync, world: string, nowMs: number):
     }
   }
   return [...acts, ...waiting];
+}
+
+/** Whether an act reached its end as done: completed, or handed over to a game question it opened or answered. */
+function actDone(db: DatabaseSync, actId: string, state: string): boolean {
+  if (state !== "finished") return false;
+  const row = db.prepare("SELECT detail_json FROM domus_act_events WHERE act_id = ? AND phase = 'finished' ORDER BY at_ms DESC LIMIT 1")
+    .get(actId) as Row | undefined;
+  let parsed: Record<string, unknown> = {};
+  try { parsed = row ? JSON.parse(String(row.detail_json)) as Record<string, unknown> : {}; } catch { /* unreadable is not done */ }
+  return endingOf(parsed.finishing_type, parsed.started).ended !== "cut_short";
+}
+
+/** OWNERFIRST: acts the User asked for, oldest first, that ended without being done and that no later act on the same thing has since done. */
+function openOwnerActs(db: DatabaseSync, world: string, nowMs: number): Row[] {
+  const asked = db.prepare(`SELECT act_id, option_ref, label, state, requested_at_ms, updated_at_ms, for_owner, object_id, guid64 FROM domus_acts
+    WHERE world = ? AND for_owner = 1 AND requested_at_ms >= ? ORDER BY requested_at_ms`).all(world, nowMs - DOMUS_OWNER_OPEN_MS) as Row[];
+  const later = db.prepare(`SELECT act_id, state FROM domus_acts WHERE world = ? AND object_id = ? AND guid64 = ? AND requested_at_ms > ?`);
+  return asked.filter(row => {
+    const state = String(row.state);
+    if (!TERMINAL.has(state) || actDone(db, String(row.act_id), state)) return false;
+    if (row.object_id === null || row.guid64 === null) return true;
+    return !(later.all(world, String(row.object_id), String(row.guid64), Number(row.requested_at_ms)) as Row[])
+      .some(next => actDone(db, String(next.act_id), String(next.state)));
+  });
+}
+
+/** Objects where an act of hers ended before it ever began because the game found no way there, newest note per object. */
+export function domusNoWayObjects(db: DatabaseSync, world: string, nowMs: number): Map<string, string> {
+  const rows = db.prepare(`SELECT a.object_id, e.detail_json FROM domus_act_events e JOIN domus_acts a ON a.act_id = e.act_id
+    WHERE a.world = ? AND e.phase = 'finished' AND e.at_ms >= ? AND a.object_id IS NOT NULL ORDER BY e.at_ms`)
+    .all(world, nowMs - DOMUS_NO_WAY_MS) as Row[];
+  const found = new Map<string, string>();
+  for (const row of rows) {
+    let parsed: Record<string, unknown> = {};
+    try { parsed = JSON.parse(String(row.detail_json)) as Record<string, unknown>; } catch { continue; }
+    const ending = endingOf(parsed.finishing_type, parsed.started);
+    if (parsed.started === false && ending.ended === "cut_short" && ending.why) found.set(String(row.object_id), ending.why);
+    else found.delete(String(row.object_id));
+  }
+  return found;
 }
 
 export function isDomusActPhase(value: unknown): value is DomusActPhase {

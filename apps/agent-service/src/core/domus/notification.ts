@@ -6,7 +6,7 @@ import { appendInboxEventInTransaction, getCycle, getInboxEvent } from "../cogni
 import { configureBudgetPolicy, resolveBudgetPolicy, PRIVATE_THOUGHT_CLOCK_DISCONTINUITY_MS } from "../cognitive-v021/private-budget/policies.js";
 import { getPrivateBudgetProjection, getPrivateReservationForWake, reservePrivateThought } from "../cognitive-v021/private-budget/ledger.js";
 import type { DomusPending } from "../cognitive-v021/thalamus/nuclei/domus.js";
-import { domusActBinding, domusOptionsFor, recentDomusActs, type DomusActBinding, type DomusOptionObject, type DomusRecentAct } from "./acts.js";
+import { domusActBinding, domusNoWayObjects, domusOptionsFor, recentDomusActs, type DomusActBinding, type DomusOptionObject, type DomusRecentAct } from "./acts.js";
 import { compareDomusReads, domusActNewsSince, domusReadOf, previousDomusRead, type DomusChanges } from "./changes.js";
 
 export const EMBODIMENT_POLICY_ID = "ashley.embodiment.v1";
@@ -390,7 +390,10 @@ export function domusForThought(db: DatabaseSync, event: { id: string; conversat
       if (value && typeof value === "object" && !Array.isArray(value)) portrait = value as Record<string, unknown>;
     } catch { /* a row without a readable portrait offers none */ }
   }
-  const options = acting.enabled ? domusOptionsFor(db, domusActBinding(db, bound)) : [];
+  const listed = acting.enabled ? domusOptionsFor(db, domusActBinding(db, bound)) : [];
+  // An object where an act of hers never began because the game found no way there says so, until something there runs.
+  const noWay = listed.length ? domusNoWayObjects(db, bound.world, acting.nowMs) : new Map<string, string>();
+  const options = listed.map(item => noWay.has(item.object_id) ? { ...item, noWay: `last time ${noWay.get(item.object_id)}` } : item);
   const acts = acting.enabled ? recentDomusActs(db, bound.world, acting.nowMs) : [];
   const lessons = domusLessonsFor(db, bound.world, domusSceneTerms({ portrait, options }));
   let changes: DomusChanges = { first: true };

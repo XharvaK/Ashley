@@ -43,10 +43,10 @@ function pin(value: unknown): string {
 const EXPECTED = {
   "prompt.discord": "5393a9b97b0d63fa3ce8608d287c312a022de842263c710165ddd6d94aac0f2e",
   "prompt.proactive": "69514df99df10b018e7668ebeceb6ecb4c93ed40d706c45125e7fb0a0ddcb408",
-  "thought.schema": "8e4838daa1ce136d3c726abc03803a811ed3e50c608e26a0df56aacd1a5513f1",
+  "thought.schema": "76658253773bb19b32b86cad0421ee1d90c09e2c1673f2c8041edf87cc8a5ce1",
   "thought.deepseek": "ce9e7b590662ca9a1700f1116d9441b883be18c53a0785ea01723befa096e269",
   "thought.growth": "8c1138b2c18691a18c1f96a8897e666967c1ab9379fd37f8c1841adad0b80460",
-  "thought.compatibility": "0652b28597025643ebdb22a1a56caca6c501f30f91fb3fbf944ee0e676c322cc",
+  "thought.compatibility": "e4bf1cbc0f28ce57ea2a3de6f657f3834fec8ce8f9b36f74f5ae47b5e0bd2f79",
   "thought.epistemic": "ef2eb8d834badce08928cd933faa32711727bb0b3ec7e82f1ca74afc910216a4",
   "reflection.schema": "4e84eec80aec8b8354ac0ec0035d68463452686f9ae870816fd29befb01263a4",
   "reflection.protocol": "b485409c37d50424bba4484a8224fd41e6dd75668efc584a4fa05f00f7e65a07",

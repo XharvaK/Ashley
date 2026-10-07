@@ -56,3 +56,18 @@ describe("a finished act, read plainly", () => {
     expect(EARLY.why.length).toBeLessThan(80);
   });
 });
+
+describe("an act the game ended before it began (probe 2.24.0 started:false)", () => {
+  it("says it never began, with the game's no-way reading for incompatibility", () => {
+    expect(endingOf("FinishingType.INTERACTION_INCOMPATIBILITY", false)).toEqual({
+      ended: "cut_short", why: "it never began: the game found no way for her to do it from where she was" });
+    expect(endingOf("DISPLACED", false)).toEqual({ ended: "cut_short", why: "it never began: another action replaced it" });
+    expect(endingOf("SOMETHING_NEW", false)).toEqual({ ended: "cut_short", why: "it never began: the game ended it early" });
+  });
+
+  it("leaves a started or unreported act as before, and a completion is still a completion", () => {
+    expect(endingOf("INTERACTION_INCOMPATIBILITY", true)).toEqual({ ended: "cut_short", why: "something the game had to do first took its place" });
+    expect(endingOf("INTERACTION_INCOMPATIBILITY")).toEqual({ ended: "cut_short", why: "something the game had to do first took its place" });
+    expect(endingOf("NATURAL", false)).toEqual({ ended: "completed" });
+  });
+});

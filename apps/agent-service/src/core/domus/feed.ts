@@ -61,7 +61,7 @@ function detailOf(json: unknown): Row {
 /** How an act ended in plain words, or why it did not run, in the game's own words where it gave some. */
 function howOf(state: string, detail: Row): string | undefined {
   if (state === "finished") {
-    const ending = endingOf(detail.finishing_type);
+    const ending = endingOf(detail.finishing_type, detail.started);
     const shown = ending.ended === "completed" ? "completed" : (ending.why ?? ending.ended);
     return shown.slice(0, 80);
   }

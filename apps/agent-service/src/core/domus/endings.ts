@@ -21,12 +21,20 @@ const CUT_SHORT: Readonly<Record<string, string>> = {
 
 const EARLY = "the game ended it early";
 
-export function endingOf(finishingType: unknown): { ended: "completed" | "cut_short" | "asked" | "answered"; why?: string } {
+// Probe 2.24.0 says whether the game ever began a pushed act. One it ended before it began is
+// read from the game's own queue code: a queued act whose way there the game cannot find is
+// ended as incompatible before it starts.
+const NEVER_BEGAN: Readonly<Record<string, string>> = {
+  INTERACTION_INCOMPATIBILITY: "it never began: the game found no way for her to do it from where she was",
+};
+
+export function endingOf(finishingType: unknown, started?: unknown): { ended: "completed" | "cut_short" | "asked" | "answered"; why?: string } {
   const name = typeof finishingType === "string"
     ? (finishingType.startsWith("FinishingType.") ? finishingType.slice("FinishingType.".length) : finishingType)
     : "";
   if (COMPLETED.has(name)) return { ended: "completed" };
   if (name === "ASKED") return { ended: "asked", why: "it opened the game's question; answering it is what starts the action" };
   if (name === "ANSWERED") return { ended: "answered" };
+  if (started === false) return { ended: "cut_short", why: NEVER_BEGAN[name] ?? `it never began: ${CUT_SHORT[name] ?? EARLY}` };
   return { ended: "cut_short", why: CUT_SHORT[name] ?? EARLY };
 }
