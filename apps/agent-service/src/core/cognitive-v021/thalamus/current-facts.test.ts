@@ -3,7 +3,8 @@ import {recordAftermathPending} from "../thought/aftermath.js";
 import {recordThalamusDecision} from "./store.js";
 import {describe,it,expect} from "vitest";
 import {openTestSidecar,admitTestCycle} from "../test-support.js";
-import {appendOwnerUtterance} from "../evidence/conversation-log.js";
+import {appendAshleyEvidence,appendOwnerUtterance,markEvidenceDelivered} from "../evidence/conversation-log.js";
+import {evaluateAfterglow} from "../initiative/afterglow.js";
 async function collect(db:ReturnType<typeof openTestSidecar>,nowMs:number){
  const module=await import("./current-facts.js").catch(()=>null);
  return module?.collectInnerFacts(db,{ownerId:"owner",conversationId:"fixture:owner",nowMs,timeZone:"UTC",afterglowEnabled:true}) ?? null;
@@ -28,6 +29,24 @@ describe("current mechanical nucleus facts",()=>{
    // readAfterglowState is a pure reader; explicitly insert the watermark if it has not yet been established.
    db.prepare("INSERT OR IGNORE INTO afterglow_state(conversation_id,reflected_through_seq,updated_at_ms) VALUES(?,?,0)").run("fixture:owner",100000);
    expect((await collect(db,1000000))?.candidates.some(c=>c.source==="reflective")).toBe(false);
+  }finally{db.close();}
+ });
+ it("proposes no afterglow for delivered Ashley rows until an Owner row exists",async()=>{
+  const db=openTestSidecar();try{
+   const row=appendAshleyEvidence(db,{conversationId:"fixture:owner",text:"she wrote first",nowMs:100,audienceAtCapture:"owner_private"});
+   markEvidenceDelivered(db,row.rowId);
+   expect((await collect(db,1000000))?.candidates.some(c=>c.source==="reflective")).toBe(false);
+   appendOwnerUtterance(db,{conversationId:"fixture:owner",text:"owner replied",nowMs:200,audienceAtCapture:"owner_private"});
+   expect((await collect(db,1000000))?.candidates.some(c=>c.source==="reflective")).toBe(true);
+  }finally{db.close();}
+ });
+ it("agrees with evaluateAfterglow when only delivered Ashley rows are unreflected",async()=>{
+  const db=openTestSidecar();try{
+   const nowMs=1000000;
+   const row=appendAshleyEvidence(db,{conversationId:"fixture:owner",text:"she wrote first",nowMs:100,audienceAtCapture:"owner_private"});
+   markEvidenceDelivered(db,row.rowId);
+   expect(evaluateAfterglow(db,{conversationId:"fixture:owner",nowMs,timing:"thalamus"})).toMatchObject({kind:"nothing"});
+   expect((await collect(db,nowMs))?.candidates.some(c=>c.source==="reflective")).toBe(false);
   }finally{db.close();}
  });
  it("includes authored interest pressure without exposing labels or notes",async()=>{

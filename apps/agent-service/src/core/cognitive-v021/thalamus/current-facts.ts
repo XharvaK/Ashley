@@ -39,7 +39,7 @@ export function collectInnerFacts(db:DatabaseSync,options:Options){
  const mood=readMood(db,nowMs),flags=readAttentionFlags(db,ownerId);
  const state=readThalamusCheckpoint(db,ownerId,nowMs);
  const watermark=readAfterglowState(db,conversationId).reflectedThroughSeq;
- const rows=db.prepare(`SELECT rowid AS seq,row_id,created_at_ms FROM conversation_evidence_log
+ const rows=db.prepare(`SELECT rowid AS seq,row_id,role,created_at_ms FROM conversation_evidence_log
   WHERE conversation_id=? AND rowid>? AND role IN ('owner','ashley') AND text IS NOT NULL AND text!=''
   AND source_status!='redacted' AND (role='owner' OR delivered=1) ORDER BY rowid`).all(conversationId,watermark);
  const lastMessage=db.prepare("SELECT MAX(created_at_ms) AS at FROM conversation_evidence_log WHERE conversation_id=? AND role IN ('owner','ashley')").get(conversationId);
@@ -47,7 +47,8 @@ export function collectInnerFacts(db:DatabaseSync,options:Options){
  const appraisal=db.prepare(`SELECT valence_delta,energy_delta,openness_delta,tension_delta FROM mood_events
   WHERE forgotten_at_ms IS NULL AND data_classification!='secret' AND created_at_ms<=? ORDER BY created_at_ms DESC,event_id DESC LIMIT 1`).get(nowMs);
  const magnitude=appraisal ? Math.max(...Object.values(appraisal).map(value=>Math.abs(Number(value)))) : 0;
- if(options.afterglowEnabled && rows.length)push(reflective({eventId:`reflection:${conversationId}:${rows.at(-1)!.seq}`,observedAtMs:lastAt,
+ // Same rule as evaluateAfterglow: a stretch with no Owner message is not yet a conversation to reflect on.
+ if(options.afterglowEnabled && rows.some(row=>row.role==="owner"))push(reflective({eventId:`reflection:${conversationId}:${rows.at(-1)!.seq}`,observedAtMs:lastAt,
   refs:rows.map(row=>String(row.row_id)),unreflectedRows:rows.length,lastMessageAtMs:lastAt,appraisalMagnitude:magnitude},nowMs));
  // M2: a stretch of play that is over (or long) is due as it stands; the afterglow executor reflects it.
  if(options.afterglowEnabled)for(const session of domusSessionsDue(db,nowMs).slice(0,1))push(sessionReflective({
