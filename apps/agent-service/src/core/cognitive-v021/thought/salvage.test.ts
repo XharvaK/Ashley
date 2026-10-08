@@ -57,6 +57,8 @@ describe("salvageSettlement", () => {
     ["home", [{ op: SECRET }]],
     ["intents", [{ place: SECRET }]],
     ["domusAct", { option: "bad ref" }],
+    ["domusPromise", { text: "   " }],
+    ["domusPromiseSettled", [{ id: "p1", outcome: "done" }]],
     ["touch", { emoji: SECRET, rowId: "r", meaning: "loved" }],
     ["correct", { rowId: "r", text: SECRET, bubble: -1 }],
     ["callback", { memoryRef: SECRET, gifQuery: SECRET }],
@@ -195,6 +197,9 @@ describe("salvageSettlement", () => {
 
   it("refuses speech written beside a dropped effect", () => {
     expect(salvage(makeSemanticSettlement({ domusAct: { option: "bad ref" } }))).toEqual({ ok: false });
+    // DASK: a promise or a settlement she speaks beside is an effect too; she never speaks words about one nobody records.
+    expect(salvage(makeSemanticSettlement({ domusPromise: { text: "   " } }))).toEqual({ ok: false });
+    expect(salvage(makeSemanticSettlement({ domusPromiseSettled: [{ id: "p1", outcome: "done" }] }))).toEqual({ ok: false });
   });
 
   it("still drops a malformed non-effect key when the settlement speaks", () => {

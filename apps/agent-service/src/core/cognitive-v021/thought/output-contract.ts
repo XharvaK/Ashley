@@ -355,6 +355,14 @@ const domusActSchema = strictObject({
 const domusSnapshotSchema = strictObject({
   caption: { type: "string", minLength: 1, maxLength: 200 },
 }, ["caption"]);
+// DASK: a promise she makes the Owner about the house, in her own words; and what became of the promises she was shown.
+const domusPromiseSchema = strictObject({
+  text: { type: "string", minLength: 1, maxLength: 120 },
+}, ["text"]);
+const domusPromiseSettledSchema = { type: "array", minItems: 1, maxItems: 3, items: strictObject({
+  id: { type: "string", minLength: 1, maxLength: 64 },
+  outcome: { enum: ["kept", "let_go"] },
+}, ["id", "outcome"]) };
 // UX W2: her soft acts, Owner-DM only. rowId is a rawConversation rowId of this conversation.
 const conversationRowIdSchema = { type: "string", minLength: 1, maxLength: 200 };
 const touchSchema = strictObject({
@@ -551,6 +559,8 @@ const semanticOutputSettlementSchema = strictObject({
   journal: journalSchema,
   domusAct: domusActSchema,
   domusSnapshot: domusSnapshotSchema,
+  domusPromise: domusPromiseSchema,
+  domusPromiseSettled: domusPromiseSettledSchema,
   touch: touchSchema,
   correct: correctSchema,
   callback: callbackSchema,
@@ -843,6 +853,9 @@ function applyProfileScope(schema: SchemaRecord, profile: ThoughtContractProfile
     ...(profile.ownerPrivate ? ["contactStop", "learned"] : []),
     ...(profile.pass === "chat" && profile.ownerPrivate ? [] : ["forget"]),
     ...(profile.domusAct ? [] : ["domusAct", "domusSnapshot"]),
+    // DASK: she makes a promise in her Owner's DM only; she settles one wherever her promises are shown to her.
+    ...(profile.ownerPrivate && profile.pass === "chat" ? [] : ["domusPromise"]),
+    ...(profile.domusPromises ? [] : ["domusPromiseSettled"]),
     ...(profile.ownerPrivate && profile.pass !== "domus" && profile.pass !== "night" ? [] : [...SOFT_SETTLEMENT_FIELDS]),
   ];
   for (const field of drop) delete properties[field];
@@ -971,6 +984,14 @@ export const DOMUS_OBSERVE_GUIDANCE =
 export const DOMUS_SNAPSHOT_GUIDANCE =
   "To show the Owner what you see in the house, add domusSnapshot:{caption:<your words to them>}: the helper takes a picture of the game window and it goes to the Owner's DM with your words. domusNow.snapshots tells you what became of your recent ones.";
 
+/** DASK: in the Owner's DM, a promise about the house is kept for her game passes, which see it until it is settled. */
+export const DOMUS_PROMISE_GUIDANCE =
+  "When you tell the Owner you will do something in the house later, add domusPromise:{text:<what you will do, in your words>}: your game passes see it in domus.promises until you settle it. An act you choose now joins your queue in the game the way a player's click does, so something for after your current action can also be chosen now.";
+
+/** DASK: where her promises are shown (domus.promises in a game pass, domusNow.promises in an Owner turn): keeping one is an act; settling records it. */
+export const DOMUS_PROMISE_SETTLE_GUIDANCE =
+  "domus.promises are things you told the Owner you would do in the house, in your own words (domusNow.promises in an Owner turn). Keeping one is an act like any other (forOwner:true on it); when one is kept or you let it go, settle it with domusPromiseSettled:[{id, outcome}], outcome kept or let_go.";
+
 /** 8f: acting is on; she may choose one listed action per pass. */
 export const DOMUS_ACT_GUIDANCE =
   "domus.options is what you can do right now: things near you (object, where), each with the game's own actions (ref, text). To do one, add domusAct:{option:<ref>} to your settlement with a ref exactly as listed in this pass. To do a short series, put then inside domusAct, never beside it: domusAct:{option:<ref>, then:[<ref>, <ref>]} (up to two more, from this same list): each starts when the one before completed; a refusal or an act cut short ends the plan, something new (someone arriving, the game asking, a need dropping) drops the rest, and a new choice replaces it. The Host hands that exact action to the game; nothing is chosen for you. The game may refuse it or run it later, and domus.acts tells you what became of your recent choices: requested, received, accepted, pushed (in your queue), finished (ended: completed, or cut_short with why: the game stopped it before it was done, or it never began, so it did not happen), rejected (with the game's reason), expired (never reached the game), unknown (nobody can tell), invalid (the ref was not on the list), planned (waiting its turn) or dropped (let go, with why). An action lasts as long as the game runs it, so one choice can carry you for a while; while something you chose is still running you may let it run. Omit domusAct to do nothing new. When the Owner asked you to do something there, it comes before your own plans: add forOwner:true inside domusAct for that choice (and only then; never for your own). The game puts it in first, and until it is done it stays in domus.acts as forOwner with stillOpen, so you can try again another way or tell the Owner. An object in domus.options with noWay is one the game sees no way to from where you are, or where an act of yours never began for that reason; it is still listed. The Owner may sometimes be at the controls.";
@@ -1035,6 +1056,8 @@ export type ThoughtContractProfile = Readonly<{
   publicPresence: boolean;
   /** 8f: a Domus pass with listed game actions (domusAct is offered). DPLAY: or an Owner turn while the game is live. */
   domusAct: boolean;
+  /** DASK: her open promises about the house are shown (domus.promises in a game pass, domusNow.promises in an Owner turn). */
+  domusPromises: boolean;
 }>;
 
 /** The profile that carries every module; used when no turn is known. */
@@ -1044,6 +1067,7 @@ export const FULL_THOUGHT_CONTRACT_PROFILE: ThoughtContractProfile = Object.free
   engineering: true,
   publicPresence: true,
   domusAct: true,
+  domusPromises: true,
 });
 
 const ENGINEERING_OPERATION_PREFIXES = ["project.", "workspace.", "changeset.", "candidate.", "objective."];
@@ -1059,8 +1083,8 @@ export type ThoughtContractProfileSource = {
   innerPass?: { kind: string };
   capabilityReality?: Partial<CapabilityReality>;
   publicPresence?: unknown;
-  domus?: { options?: unknown };
-  domusNow?: { options?: unknown };
+  domus?: { options?: unknown; promises?: unknown };
+  domusNow?: { options?: unknown; promises?: unknown };
 };
 
 export function thoughtContractProfile(source: ThoughtContractProfileSource): ThoughtContractProfile {
@@ -1070,6 +1094,7 @@ export function thoughtContractProfile(source: ThoughtContractProfileSource): Th
     : source.trigger?.kind === "domus_notification" ? "domus"
     : UNSOLICITED_TRIGGER_KINDS.includes(source.trigger?.kind ?? "") ? "private" : "chat";
   const reality = source.capabilityReality ?? {};
+  const shown = (value: unknown): boolean => Array.isArray(value) && value.length > 0;
   const engineering = Boolean(
     reality.canOfferProjectInspection || reality.canOfferWorkspace || reality.canOfferVerification
       || reality.canOfferAuthorship || reality.canOfferBoundedOperation || reality.canOfferInquiry
@@ -1083,6 +1108,7 @@ export function thoughtContractProfile(source: ThoughtContractProfileSource): Th
     publicPresence: reality.publicPresence !== undefined || source.publicPresence !== undefined,
     domusAct: pass === "domus" ? Array.isArray(source.domus?.options) && source.domus.options.length > 0
       : pass === "chat" && Array.isArray(source.domusNow?.options) && source.domusNow.options.length > 0,
+    domusPromises: pass === "domus" ? shown(source.domus?.promises) : pass === "chat" && shown(source.domusNow?.promises),
   });
 }
 
@@ -1093,6 +1119,7 @@ export function thoughtContractProfileKey(profile: ThoughtContractProfile): stri
     ...(profile.engineering ? ["engineering"] : []),
     ...(profile.publicPresence ? ["public_presence"] : []),
     ...(profile.domusAct ? ["act"] : []),
+    ...(profile.domusPromises ? ["promise"] : []),
   ].join("+");
 }
 
@@ -1158,6 +1185,8 @@ export function thoughtOutputCompatibilityInstruction(
     ...when(full || profile.pass === "awake", AWAKE_GUIDANCE),
     ...when(full || profile.pass === "domus", DOMUS_GUIDANCE),
     ...when(full || profile.domusAct, DOMUS_ACT_GUIDANCE, DOMUS_SNAPSHOT_GUIDANCE),
+    ...when(full || (profile.ownerPrivate && profile.pass === "chat"), DOMUS_PROMISE_GUIDANCE),
+    ...when(full || profile.domusPromises, DOMUS_PROMISE_SETTLE_GUIDANCE),
     ...when(!full && profile.pass === "domus" && !profile.domusAct, DOMUS_OBSERVE_GUIDANCE),
     ...when(full, JOURNAL_GUIDANCE),
     ...when(!full && privatePass, JOURNAL_SETTLE_GUIDANCE),

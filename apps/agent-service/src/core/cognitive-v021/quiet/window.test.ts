@@ -51,7 +51,7 @@ describe("quiet window", () => {
       db.exec("DROP TABLE quiet_windows; DROP TABLE quiet_held_notes; DROP TABLE quiet_held_state; DROP TABLE quiet_refusals; DROP TABLE owner_presence_facts;");
       setTestSidecarVersion(db, 68);
       openCognitiveSidecarDb(db, { dataPlane: { kind: "isolated" } });
-      expect(db.prepare("PRAGMA user_version").get()).toMatchObject({ user_version: 72 });
+      expect(db.prepare("PRAGMA user_version").get()).toMatchObject({ user_version: 73 });
       expect(db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'quiet_windows'").get()).toEqual({ name: "quiet_windows" });
     } finally {
       db.close();

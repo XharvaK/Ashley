@@ -30,7 +30,7 @@ export type { SourceSupportRef } from "./evidence/interpretation-envelope.js";
 export const ARCHITECTURE_EPOCH = "v0.2.1" as const;
 export const IMPLEMENTATION_SPEC_VERSION = "0.2.1.r6" as const;
 export const THOUGHT_CONTRACT_VERSION = 2 as const;
-export const COGNITIVE_SIDECAR_SCHEMA_VERSION = 72 as const;
+export const COGNITIVE_SIDECAR_SCHEMA_VERSION = 73 as const;
 
 /**
  * Hard bound on cognition-facing concern discovery windows and pages. The
@@ -1071,6 +1071,10 @@ export type SettlementSemanticOutput = {
   domusAct?: import("../domus/acts.js").DomusActClaim;
   /** SNAPSHOT: a picture of her game she asked for, with her caption (domus/snapshots.ts). */
   domusSnapshot?: import("../domus/snapshots.js").DomusSnapshotClaim;
+  /** DASK: a promise she makes the Owner in her Owner's DM turn about the house (domus/promises.ts). */
+  domusPromise?: import("../domus/promises.js").DomusPromiseClaim;
+  /** DASK: what became of promises she was shown: kept or let go (domus/promises.ts). */
+  domusPromiseSettled?: import("../domus/promises.js").DomusPromiseSettlement[];
   /** UX W2 Owner-DM soft acts (Host-checked after publication; soft/acts.ts). */
   touch?: import("./soft/acts.js").TouchClaim;
   correct?: import("./soft/acts.js").CorrectClaim;
@@ -1383,6 +1387,10 @@ export type ThoughtSettlementDraft = {
   domusAct?: import("../domus/acts.js").DomusActClaim;
   /** SNAPSHOT: stored by the Host after publication as a requested picture (domus/snapshots.ts). */
   domusSnapshot?: import("../domus/snapshots.js").DomusSnapshotClaim;
+  /** DASK: stored by the Host after publication as her promise to the Owner (domus/promises.ts). */
+  domusPromise?: import("../domus/promises.js").DomusPromiseClaim;
+  /** DASK: stored by the Host after publication as what became of the promises she was shown. */
+  domusPromiseSettled?: import("../domus/promises.js").DomusPromiseSettlement[];
   /** UX W2: recorded by the Host after publication as her soft acts (soft/acts.ts). */
   touch?: import("./soft/acts.js").TouchClaim;
   correct?: import("./soft/acts.js").CorrectClaim;
