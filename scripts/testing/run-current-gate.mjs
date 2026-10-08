@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 
 const gate = process.argv[2];
 const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
+const pythonCommand = process.platform === "win32" ? "python" : "python3";
 const sandboxV2TestArgs = process.platform === "win32"
   ? [
       "test",
@@ -18,7 +19,7 @@ const sandboxV2TestArgs = process.platform === "win32"
 
 if (process.platform === "win32" && (gate === "current-sandbox-v2" || gate === "full-current")) {
   console.log(
-    "[current-gate:current-sandbox-v2] Windows host: deferring POSIX-canonical-path fixture tests to Mint physical qualification",
+    "[current-gate:current-sandbox-v2] Windows host: 2 sandbox-v2 suites excluded (src/authorship/executor.test.ts, src/export/executor.test.ts); POSIX-canonical-path fixtures run on Linux CI and Mint physical qualification",
   );
 }
 
@@ -34,7 +35,8 @@ const gates = {
     ["npm", sandboxV2TestArgs],
   ],
   "current-deployment": [
-    ["node", ["--test", "scripts/testing/current-gates.test.mjs", "scripts/testing/reachability.test.mjs", "scripts/mint/coherent-activation.test.mjs", "scripts/mint/backup-bootstrap.test.mjs"]],
+    ["node", ["--test", "scripts/testing/current-gates.test.mjs", "scripts/testing/reachability.test.mjs", "scripts/mint/coherent-activation.test.mjs", "scripts/mint/backup-bootstrap.test.mjs", "scripts/mint/remote-update-exit-code.test.mjs"]],
+    [pythonCommand, ["deploy/linux-mint/self_courier_test.py"]],
   ],
   "full-current": [
     ["npm", ["test", "--prefix", "apps/agent-service"]],
@@ -44,7 +46,8 @@ const gates = {
     ["npm", ["test", "--prefix", "apps/sandbox-m1"]],
     ["npm", ["test", "--prefix", "apps/sandbox-tree"]],
     ["npm", sandboxV2TestArgs],
-    ["node", ["--test", "scripts/testing/current-gates.test.mjs", "scripts/testing/reachability.test.mjs", "scripts/mint/coherent-activation.test.mjs", "scripts/mint/backup-bootstrap.test.mjs"]],
+    ["node", ["--test", "scripts/testing/current-gates.test.mjs", "scripts/testing/reachability.test.mjs", "scripts/mint/coherent-activation.test.mjs", "scripts/mint/backup-bootstrap.test.mjs", "scripts/mint/remote-update-exit-code.test.mjs"]],
+    [pythonCommand, ["deploy/linux-mint/self_courier_test.py"]],
   ],
 };
 
