@@ -418,7 +418,7 @@ export function completeAfterglow(
     reflection: AfterglowReflection | undefined;
     nowMs: number;
   },
-): "reflected" | "forget_race" | "written" | "abandoned" {
+): "reflected" | "forget_race" | "written" | "abandoned" | "pending" {
   if (input.pass.diary) {
     return completeDomusDiary(db, { cycleId: input.cycleId, conversationId: input.conversationId, diary: input.pass.diary,
       reflection: input.reflection, nowMs: input.nowMs });

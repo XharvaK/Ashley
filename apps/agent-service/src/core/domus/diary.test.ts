@@ -117,6 +117,44 @@ describe("8h the diary pass", () => {
     expect(listDomusDiary(undone)).toEqual([]);
   });
 
+  it("never marks a night written without an episode: it stays pending, and the third try without one abandons it", async () => {
+    const db = openTestSidecar();
+    observe(db, "night-1", T0, { slept: true });
+    const diary = { world: "willow", observationId: "night-1" };
+    const thought = vi.fn<IdleThoughtRunner>(async () => ({ published: true, acceptedSettlements: 1, thoughtModelAttempts: 1 }));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    type Reflection = Parameters<typeof completeDomusDiary>[1]["reflection"];
+    const tryWith = async (reflection: Reflection, nowMs: number) => {
+      expect(await tickDomusDiary(db, { conversationId: "owner-thread", occupantId: "doc", authorityEpoch: 1, nowMs, thought }))
+        .toMatchObject({ outcome: "ran", mode: "diary" });
+      settle(db);
+      return completeDomusDiary(db, { conversationId: "owner-thread", cycleId: `diary-try-${nowMs}`, diary, reflection, nowMs });
+    };
+    const stateRow = () => db.prepare("SELECT state, attempt_count FROM domus_diary_state WHERE observation_id = 'night-1'").get();
+    try {
+      // No reflection at all: the day stays due for the next eligible pass.
+      expect(await tryWith(undefined, T0 + 1)).toBe("pending");
+      expect(stateRow()).toEqual({ state: "pending", attempt_count: 1 });
+      expect(domusDiariesDue(db)).toEqual([diary]);
+      // A reflection with a thread story but no episode is not a diary either.
+      expect(await tryWith({ threadStory: "a story, not a diary" } as unknown as Reflection, T0 + 2)).toBe("pending");
+      expect(stateRow()).toEqual({ state: "pending", attempt_count: 2 });
+      // The third try without an episode records the night as abandoned.
+      expect(await tryWith(undefined, T0 + 3)).toBe("abandoned");
+      expect(stateRow()).toEqual({ state: "abandoned", attempt_count: 3 });
+      expect(domusDiariesDue(db)).toEqual([]);
+      expect(listRecentEpisodes(db, 5)).toEqual([]);
+      expect(listDomusDiary(db)).toEqual([]);
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining("[domus] diary_pending reason=no_reflection attempt=1"));
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining("[domus] diary_pending reason=no_episode attempt=2"));
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining("[domus] diary_abandoned reason=no_reflection attempts=3"));
+      // Diagnostics name the reason class only, never the reflection's words.
+      expect(warn.mock.calls.flat().join(" ")).not.toContain("story");
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   it("gives up after three failed attempts and does not retry", async () => {
     const db = openTestSidecar();
     observe(db, "night-1", T0, { slept: true });

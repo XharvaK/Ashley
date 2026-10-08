@@ -130,11 +130,13 @@ export function domusDiaryForThought(db: DatabaseSync, diary: DomusDiaryRef): Th
 
 /**
  * Keep her episode of the night. An undo that reached the observation first wins: nothing is
- * stored and the night is marked forget_race. A second call does nothing. Idempotent.
+ * stored and the night is marked forget_race. A night is never marked written without an episode:
+ * a try that produced none stays pending for the next eligible pass, and the third such try marks
+ * it abandoned. A second call does nothing. Idempotent.
  */
 export function completeDomusDiary(db: DatabaseSync, input: {
   cycleId: string; conversationId: string; diary: DomusDiaryRef; reflection: AfterglowReflection | undefined; nowMs: number;
-}): "written" | "forget_race" | "abandoned" {
+}): "written" | "forget_race" | "abandoned" | "pending" {
   db.exec("BEGIN IMMEDIATE");
   try {
     const existing = readState(db, input.diary.observationId);
@@ -146,20 +148,35 @@ export function completeDomusDiary(db: DatabaseSync, input: {
       .get(input.diary.observationId) as Row | undefined;
     const undone = !row || row.undone_at_ms != null;
     const world = row ? String(row.world) : input.diary.world;
-    if (!undone && input.reflection?.episode) {
-      recordEpisode(db, {
-        conversationId: input.conversationId,
-        cycleId: input.cycleId,
-        rows: [{ rowId: String(row!.observation_id), createdAtMs: Number(row!.receipt_time_ms), dataClassification: "ordinary" }],
-        reflection: input.reflection.episode,
-        nowMs: input.nowMs,
-        channel: lane(world),
-      });
+    if (undone) {
+      settleState(db, { world, observationId: input.diary.observationId }, "forget_race", null, input.cycleId, input.nowMs);
+      db.exec("COMMIT");
+      return "forget_race";
     }
-    const outcome = undone ? "forget_race" : "written";
-    settleState(db, { world, observationId: input.diary.observationId }, outcome, null, input.cycleId, input.nowMs);
+    if (!input.reflection?.episode) {
+      // Host facts only: the reason class, the try number. The reflection's words are never logged.
+      const reasonClass = input.reflection === undefined ? "no_reflection" : "no_episode";
+      if (existing.attemptCount >= DOMUS_DIARY_MAX_ATTEMPTS) {
+        settleState(db, { world, observationId: input.diary.observationId }, "abandoned", existing.failedAttempts, input.cycleId, input.nowMs);
+        db.exec("COMMIT");
+        console.warn(`[domus] diary_abandoned reason=${reasonClass} attempts=${existing.attemptCount}`);
+        return "abandoned";
+      }
+      db.exec("COMMIT");
+      console.warn(`[domus] diary_pending reason=${reasonClass} attempt=${existing.attemptCount}`);
+      return "pending";
+    }
+    recordEpisode(db, {
+      conversationId: input.conversationId,
+      cycleId: input.cycleId,
+      rows: [{ rowId: String(row!.observation_id), createdAtMs: Number(row!.receipt_time_ms), dataClassification: "ordinary" }],
+      reflection: input.reflection.episode,
+      nowMs: input.nowMs,
+      channel: lane(world),
+    });
+    settleState(db, { world, observationId: input.diary.observationId }, "written", null, input.cycleId, input.nowMs);
     db.exec("COMMIT");
-    return outcome;
+    return "written";
   } catch (error) {
     try { db.exec("ROLLBACK"); } catch { /* preserve the original error */ }
     throw error;
