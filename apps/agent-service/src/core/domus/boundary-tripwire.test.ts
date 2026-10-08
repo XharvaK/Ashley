@@ -63,7 +63,7 @@ const INBOX_WAKE_TABLES = ["inbox_events", "wakes", "wake_legacy_quarantine", "w
 // growing it requires keeping the deny checks green and an Architect-reviewed reason
 // 2026-10-07: endings.ts, the plain reading of a finished act, reached from acts.ts and feed.ts
 // SNAPSHOT (2026-10-08): snapshots.ts, the picture store (domus_snapshots rows and PNG files); imports no deny module.
-// Architect review of this growth is pending.
+// Architect-reviewed 2026-10-08: it imports only node builtins and its own rows.
 const MAX_INGRESS_CLOSURE = 10;
 
 const SQL_DENY = new RegExp(

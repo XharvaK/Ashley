@@ -38,7 +38,7 @@
  * Unknown keys, both or neither, or a bad value are 400 {error:"invalid_body"}. An unknown id is 404 {error:"unknown_snapshot"};
  * one that is not requested, or belongs to another attachment, is 409 {error:"not_requested"|"wrong_attachment"}. A PNG
  * over the limit is 413 {error:"too_large"}; one without the PNG signature is 400 {error:"not_png"}. Success is
- * 200 {status:"ok"}. This route accepts bodies up to about 9 MB; every other route keeps 64 KiB.
+ * 200 {status:"ok"}. This route accepts bodies up to about 9 MB, read only after the token check; every other route keeps 64 KiB.
  *
  * POST /domus/feed (E3) accepts only v=1 and helper_session (1..64). The response is 200
  * {status:"ok", items}: her settled game passes for that helper session that were stamped
@@ -282,6 +282,15 @@ export function createDomusIngressApp(input: {
   snapshotDir?: string;
 }): express.Express {
   const app = express();
+  // The token is checked before any body is read, so only the helper can make this listener parse a picture.
+  app.use((req, res, next) => {
+    const presented = req.get("X-Domus-Token") ?? "";
+    if (!presented || !tokenEqual(presented, input.token) || (input.botToken && tokenEqual(presented, input.botToken))) {
+      res.status(401).json({ error: "unauthorized" });
+      return;
+    }
+    next();
+  });
   app.use("/domus/snapshot", express.json({ limit: SNAPSHOT_BODY_LIMIT }));
   app.use(express.json({ limit: BODY_LIMIT }));
   app.use((error: { type?: string; status?: number }, _req: express.Request, res: express.Response, next: express.NextFunction) => {
@@ -294,14 +303,6 @@ export function createDomusIngressApp(input: {
       return;
     }
     next(error);
-  });
-  app.use((req, res, next) => {
-    const presented = req.get("X-Domus-Token") ?? "";
-    if (!presented || !tokenEqual(presented, input.token) || (input.botToken && tokenEqual(presented, input.botToken))) {
-      res.status(401).json({ error: "unauthorized" });
-      return;
-    }
-    next();
   });
   app.post("/domus/observation", (req, res) => {
     try {
