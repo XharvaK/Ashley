@@ -1106,3 +1106,15 @@ test("W8 discord-only deploy leaves agent running undisturbed", () => {
   assert.equal(readMarker(markerPath), SHA_B);
 });
 
+
+test("remote-update.ps1 refuses a wrong candidate before any side effect on the live host", () => {
+  const text = readFileSync(path.join(ROOT, "scripts", "mint", "remote-update.ps1"), "utf8");
+  const shaCheck = text.indexOf('!= "$ASHLEY_EXPECTED_SHA"');
+  const treeCheck = text.indexOf('!= "$ASHLEY_EXPECTED_TREE"');
+  const dirtyCheck = text.indexOf("refusing before any side effect");
+  const backup = text.indexOf("backup-daily.ts");
+  const slash = text.indexOf("deploy-commands.ts");
+  for (const at of [shaCheck, treeCheck, dirtyCheck]) {
+    assert.ok(at > 0 && at < backup && at < slash, "candidate checks precede backup and slash registration");
+  }
+});
