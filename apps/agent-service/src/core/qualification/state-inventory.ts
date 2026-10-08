@@ -256,8 +256,6 @@ const NON_LIVE: Record<string, NonLiveRule> = {
   attention_requests: { cls: "CONTROL_PLANE", reason: "Track M — attention dispatch side effects" },
   attention_daily_usage: { cls: "CONTROL_PLANE", reason: "Track M — attention dispatch side effects" },
   attention_dispatch_counter: { cls: "CONTROL_PLANE", reason: "Track M — attention dispatch side effects" },
-  change_proposals: { cls: "CONTROL_PLANE", reason: "design-only; not written by shadow" },
-  change_proposal_events: { cls: "CONTROL_PLANE", reason: "design-only; not written by shadow" },
   lineage_mirror: { cls: "CONTROL_PLANE", reason: "continuity lineage ledger; not written by shadow; in-memory sidecar in tests" },
   authority_transition_barrier: {
     cls: "CONTROL_PLANE",

@@ -37,8 +37,6 @@ export const TARGETABLE_TABLES: Array<{
   { table: "relationship_motivation_claims", idColumn: "id", ownerColumn: "owner_id", needsClassification: false },
   { table: "perception_artifacts", idColumn: "id", ownerColumn: "owner_id", needsClassification: true },
   { table: "conversational_reads", idColumn: "id", ownerColumn: "owner_id", needsClassification: true },
-  { table: "change_proposals", idColumn: "id", ownerColumn: "owner_id", needsClassification: true },
-  { table: "change_proposal_events", idColumn: "id", ownerColumn: "owner_id", needsClassification: true },
   { table: "external_actions", idColumn: "id", ownerColumn: "owner_id", needsClassification: true },
   { table: "external_action_events", idColumn: "id", ownerColumn: "owner_id", needsClassification: true },
   { table: "external_entity_notes", idColumn: "id", ownerColumn: "owner_id", needsClassification: true },

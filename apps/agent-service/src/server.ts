@@ -540,18 +540,6 @@ export function createServer(
     }
   });
 
-  app.get("/nuclear/reflections", (req, res) => {
-    try {
-      const ownerId = String(req.query.owner_id ?? "");
-      requireOwner(ownerId || undefined);
-      const limit = Math.min(100, Number(req.query.limit ?? 20) || 20);
-      res.json(manager.core.getReflections(ownerId, limit));
-    } catch (err) {
-      const { status, body } = toErrorResponse(err);
-      res.status(status).json(body);
-    }
-  });
-
   app.get("/nuclear/episodes", (req, res) => {
     try {
       const ownerId = String(req.query.owner_id ?? "");
