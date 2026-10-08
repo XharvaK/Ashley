@@ -22,6 +22,8 @@
     "core/sandbox/operational-job-store.ts": "review: dependency of the bounded-operation store",
     "core/continuity/backup-package.ts": "review: authenticated three-store backup, unwired; decide wire or delete",
     "scripts/backup-daily.ts": "operator/timer entry point run by systemd/deploy wrapper, not imported",
-    "scripts/backup-drill.ts": "operator/timer entry point run by systemd/deploy wrapper, not imported"
+    "scripts/backup-drill.ts": "operator/timer entry point run by systemd/deploy wrapper, not imported",
+    "core/cognitive-v021/thought/replay-summary.ts": "operator tool: the replay summary of scripts/replay-thought.ts (measuring Thought settings), not imported by the service",
+    "core/identity/classification.ts": "review with HA7: orphaned when 534249a retired the change-proposal module; only governance.test.ts uses it; decide wire or delete"
   }
 }
