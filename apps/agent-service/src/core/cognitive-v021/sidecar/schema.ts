@@ -2528,3 +2528,9 @@ export const COGNITIVE_SIDECAR_SCHEMA_V70 = String.raw`
 ALTER TABLE domus_acts ADD COLUMN for_owner INTEGER NOT NULL DEFAULT 0 CHECK (for_owner IN (0, 1));
 UPDATE cognitive_sidecar_meta SET schema_version=70 WHERE id=1;
 `;
+
+/** Domus answers: a question answered with several rows, counts or typed words, kept resolved as JSON (acts.ts answerFor). */
+export const COGNITIVE_SIDECAR_SCHEMA_V74 = String.raw`
+ALTER TABLE domus_acts ADD COLUMN answer_json TEXT NULL;
+UPDATE cognitive_sidecar_meta SET schema_version=74 WHERE id=1;
+`;

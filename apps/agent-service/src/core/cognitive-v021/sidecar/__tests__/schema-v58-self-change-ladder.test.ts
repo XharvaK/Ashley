@@ -9,7 +9,7 @@ it("preserves v57 result bytes and starts the new ladder at L1 exactly once",()=
   setTestSidecarVersion(db,57);openCognitiveSidecarDb(db,{dataPlane:{kind:"isolated"}});
   expect(db.prepare("SELECT * FROM self_change_result_receipts").all()).toEqual(before);
   expect(db.prepare("SELECT * FROM self_change_ladder").get()).toEqual({id:1,level:1,revision:0});
-  expect(db.prepare("PRAGMA user_version").get()!.user_version).toBe(73);
+  expect(db.prepare("PRAGMA user_version").get()!.user_version).toBe( 74);
   db.exec("UPDATE self_change_ladder SET level=0");openCognitiveSidecarDb(db,{dataPlane:{kind:"isolated"}});
   expect(db.prepare("SELECT level FROM self_change_ladder").get()!.level).toBe(0);
   expect(db.prepare("SELECT count(*) AS n FROM wakes").get()).toEqual({n:0});

@@ -20,7 +20,8 @@ describe("night.gaps is accepted as the contract offers it (P7b)", () => {
 
 describe("a wrong_type retry is shown the contract's own form for the field", () => {
   it("gives the schema of a small field, and the allowed keys of a large one", () => {
-    expect(JSON.parse(expectedFormFor("domusAct")!)).toMatchObject({ type: "object", required: ["option"], additionalProperties: false });
+    expect(JSON.parse(expectedFormFor("domusSnapshot")!)).toMatchObject({ type: "object", required: ["caption"], additionalProperties: false });
+    expect(JSON.parse(expectedFormFor("domusAct")!)).toMatchObject({ type: "object", required: ["option"], onlyTheseKeys: ["option", "then", "forOwner", "answer"] });
     expect(JSON.parse(expectedFormFor("durableNominations[0].sourceRefs")!)).toEqual({ type: "array", items: { type: "string" } });
     expect(JSON.parse(expectedFormFor("growth")!)).toMatchObject({ type: "object", onlyTheseKeys: expect.arrayContaining(["appraisal", "expectations"]) });
     expect(JSON.parse(expectedFormFor("night")!).onlyTheseKeys).toContain("gaps");
