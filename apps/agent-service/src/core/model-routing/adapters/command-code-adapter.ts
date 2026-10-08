@@ -15,7 +15,7 @@ import {
   VISION_MEDIA_OUTPUT_SCHEMA_ID,
   visionMediaJsonObjectInstruction,
 } from "../../cognitive-v021/perception/vision-output-contract.js";
-import { COMMAND_CODE_POLICY, thoughtLifeboatForTrigger, thoughtModelForTrigger, thoughtReasoningEffortForTrigger, type CommandCodeThoughtEffort } from "../../command-code/policy.js";
+import { COMMAND_CODE_POLICY, THOUGHT_EFFORT_BY_TRIGGER_KIND, thoughtLifeboatForTrigger, thoughtModelForTrigger, thoughtReasoningEffortForTrigger, type CommandCodeThoughtEffort } from "../../command-code/policy.js";
 import {
   attachCommandCodeBoundaryEvidence,
   type CommandCodeBoundaryEvidence,
@@ -238,7 +238,7 @@ function resolveThoughtEffort(args: ProviderDispatchArgs): CommandCodeThoughtEff
   return requested === COMMAND_CODE_POLICY.effort ? requested : undefined;
 }
 
-// Medium is only reachable through the Domus trigger map (Owner, 2026-10-04).
+// The lower Domus effort is only reachable through the Domus trigger map (Owner, 2026-10-04).
 function acceptedEffort(
   effort: CommandCodeThoughtEffort | undefined,
   contract: CommandCodeContract | null,
@@ -247,7 +247,9 @@ function acceptedEffort(
 ): effort is CommandCodeThoughtEffort {
   if (lifeboat && contract === "thought" && effort === thoughtLifeboatForTrigger(triggerKind).effort) return true;
   if (effort === COMMAND_CODE_POLICY.effort) return true;
-  return contract === "thought" && effort === "medium" && triggerKind === "domus_notification";
+  return contract === "thought"
+    && effort === THOUGHT_EFFORT_BY_TRIGGER_KIND.domus_notification
+    && triggerKind === "domus_notification";
 }
 
 function promptCacheKey(args: ProviderDispatchArgs): string | undefined {

@@ -230,7 +230,7 @@ describe("HA2 provider lifeboat", () => {
     });
     const { invocation } = await pass({ cycleId: "cycle-lifeboat-domus", triggerKind: "domus_notification" });
     expect(seen[0]?.modelId).toBe(FLASH_FAST);
-    expect(seen[1]).toMatchObject({ modelId: MUSE, effort: "medium", lifeboat: true });
+    expect(seen[1]).toMatchObject({ modelId: MUSE, effort: "low", lifeboat: true });
     expect(invocation.lifeboat?.toModelId).toBe(MUSE);
   });
 
@@ -401,7 +401,7 @@ describe("HA2 provider lifeboat", () => {
       nowMs: () => now,
     });
     expect(seen.map((item) => item.modelId)).toEqual([FLASH_FAST, MUSE]);
-    expect(seen[1]).toMatchObject({ modelId: MUSE, effort: "medium", lifeboat: true });
+    expect(seen[1]).toMatchObject({ modelId: MUSE, effort: "low", lifeboat: true });
   });
 
   it("names the answering model on the provider diagnostic", () => {

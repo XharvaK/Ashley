@@ -83,13 +83,13 @@ describe("buildThoughtReplayCaptureRecord", () => {
   it("records the policy model and effort for a Domus pass and for a lifeboat dispatch", () => {
     const domus = buildThoughtReplayCaptureRecord(fixtureInput(), 1);
     expect(domus.modelId).toBe("deepseek/deepseek-v4.1-flash-fast");
-    expect(domus.effort).toBe("medium");
+    expect(domus.effort).toBe("low");
     const lifeboat = buildThoughtReplayCaptureRecord(
       fixtureInput({ options: { ...fixtureInput().options, thoughtLifeboat: true } }),
       1,
     );
     expect(lifeboat.modelId).toBe("meta/muse-spark-1.3-contributor");
-    expect(lifeboat.effort).toBe("medium");
+    expect(lifeboat.effort).toBe("low");
     const chat = buildThoughtReplayCaptureRecord(
       fixtureInput({ options: { ...fixtureInput().options, thoughtTriggerKind: "owner_message", thoughtContractPass: "chat" } }),
       1,

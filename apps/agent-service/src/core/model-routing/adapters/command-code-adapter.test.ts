@@ -220,7 +220,7 @@ describe("command-code-adapter", () => {
       });
       return request?.reasoning_effort;
     };
-    expect(await effortFor("domus_notification")).toBe("medium");
+    expect(await effortFor("domus_notification")).toBe("low");
     expect(await effortFor("owner_message")).toBe("xhigh");
     expect(await effortFor("idle_opportunity")).toBe("xhigh");
     // Medium is a Domus-only setting; any other trigger asking for it fails closed.
@@ -256,7 +256,7 @@ describe("command-code-adapter", () => {
       return { request, result, calls: fetcher.mock.calls.length };
     };
     const domus = await run(DOMUS, "domus_notification", DOMUS);
-    expect(domus.request).toMatchObject({ model: DOMUS, reasoning_effort: "medium" });
+    expect(domus.request).toMatchObject({ model: DOMUS, reasoning_effort: "low" });
     expect(domus.result.providerModel).toBe(DOMUS);
     // The reply must come from the model that was asked.
     await expect(run(DOMUS, "domus_notification", MODEL)).rejects.toMatchObject({
@@ -304,7 +304,7 @@ describe("command-code-adapter", () => {
       reasoning_effort: "high",
     });
     const domusLane = await run(COMMAND_CODE_LIFEBOAT.domus.modelId, "domus_notification", true);
-    expect(domusLane.request).toMatchObject({ reasoning_effort: "medium" });
+    expect(domusLane.request).toMatchObject({ reasoning_effort: "low" });
     const wrongModel = vi.fn(async () => fakeResponse({}));
     await expect(createCommandCodeAdapter(wrongModel).dispatch({
       messages,

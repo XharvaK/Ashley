@@ -9,16 +9,17 @@ export const COMMAND_CODE_POLICY = Object.freeze({
  * Every trigger absent from this map keeps COMMAND_CODE_POLICY.effort.
  */
 export const THOUGHT_EFFORT_BY_TRIGGER_KIND = Object.freeze({
-  domus_notification: "medium",
+  domus_notification: "low",
 } as const);
 
 /**
  * The model for Domus (game-body) Thought passes (User, 2026-10-06; SC-CON-08): DeepSeek V4.1
- * Flash, fast variant, at medium effort. Every other Thought keeps COMMAND_CODE_POLICY.
+ * Flash, fast variant. Low effort since 2026-10-08 (User: try low and watch latency and play; at
+ * medium a game pass spent about 7k hidden tokens and 35 s). Every other Thought keeps COMMAND_CODE_POLICY.
  */
 export const COMMAND_CODE_DOMUS_POLICY = Object.freeze({
   modelId: "deepseek/deepseek-v4.1-flash-fast",
-  effort: "medium",
+  effort: THOUGHT_EFFORT_BY_TRIGGER_KIND.domus_notification,
 } as const);
 
 export function thoughtModelForTrigger(triggerKind: string | null | undefined): CommandCodeThoughtModelId {
@@ -35,13 +36,14 @@ export function thoughtReasoningEffortForTrigger(
 /**
  * HA2 provider lifeboat (User, 2026-10-06): one backup model per Thought pass, tried once, only
  * after the pass's own model failed because the provider was unavailable. Muse passes fall back
- * to DeepSeek V4.1 Flash at high; Domus passes fall back to Muse at medium. The effort was max until
+ * to DeepSeek V4.1 Flash at high; Domus passes fall back to Muse at low (2026-10-08, with the Domus
+ * seat). The Discord backup's effort was max until
  * 2026-10-08: at max the backup thought for 5 minutes on average and 7 of 43 answers spent the whole 65,536-token
  * output on reasoning with no answer left (User: try high).
  */
 export const COMMAND_CODE_LIFEBOAT = Object.freeze({
   thought: Object.freeze({ modelId: "deepseek/deepseek-v4.1-flash", effort: "high" } as const),
-  domus: Object.freeze({ modelId: "meta/muse-spark-1.3-contributor", effort: "medium" } as const),
+  domus: Object.freeze({ modelId: "meta/muse-spark-1.3-contributor", effort: "low" } as const),
 });
 
 export type CommandCodeLifeboat =
@@ -70,6 +72,7 @@ export type CommandCodeThoughtEffort =
 
 export const COMMAND_CODE_THOUGHT_EFFORTS: ReadonlySet<string> = new Set([
   COMMAND_CODE_POLICY.effort,
-  "medium",
+  THOUGHT_EFFORT_BY_TRIGGER_KIND.domus_notification,
   COMMAND_CODE_LIFEBOAT.thought.effort,
+  COMMAND_CODE_LIFEBOAT.domus.effort,
 ]);
