@@ -1,4 +1,9 @@
+import os from "node:os";
 import { configDefaults, defineConfig } from "vitest/config";
+
+// Same worker cap as vitest.config.ts: a saturated host misses worker RPC and the gate
+// ends red with `Timeout calling "onTaskUpdate"` although every test passed.
+const cpuCount = os.availableParallelism?.() ?? os.cpus().length;
 
 export default defineConfig({
   test: {
@@ -47,5 +52,7 @@ export default defineConfig({
     exclude: [...configDefaults.exclude],
     environment: "node",
     testTimeout: 20_000,
+    maxWorkers: Math.max(1, cpuCount - 2),
+    minWorkers: 1,
   },
 });
