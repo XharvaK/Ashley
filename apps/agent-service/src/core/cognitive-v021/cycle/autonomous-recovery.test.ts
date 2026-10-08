@@ -28,6 +28,33 @@ function waitFor(predicate: () => boolean, timeoutMs = 5_000): Promise<void> {
   });
 }
 
+/**
+ * Resolves once `count` has held still for `stablePolls` polls in a row: the loop has had its turns and
+ * nothing more was claimed. Waits on the event count, never on a guessed delay.
+ */
+function waitForQuiescence(count: () => number, stablePolls = 8, timeoutMs = 5_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  return new Promise((resolve, reject) => {
+    let last = count();
+    let stable = 0;
+    const poll = (): void => {
+      const now = count();
+      stable = now === last ? stable + 1 : 0;
+      last = now;
+      if (stable >= stablePolls) {
+        resolve();
+        return;
+      }
+      if (Date.now() >= deadline) {
+        reject(new Error("autonomous_recovery_not_quiet"));
+        return;
+      }
+      setTimeout(poll, 5);
+    };
+    setTimeout(poll, 5);
+  });
+}
+
 function seedSharedWakeBacklog(options: { includeC?: boolean } = {}): {
   db: ReturnType<typeof openTestSidecar>;
   conversationId: string;
@@ -230,7 +257,7 @@ describe("autonomous unanswered conversation recovery", () => {
       });
       expect(fixture.db.prepare("SELECT COUNT(*) AS count FROM durable_work_attempts").get()).toMatchObject({ count: 2 });
       expect(fixture.db.prepare("SELECT COUNT(*) AS count FROM speech_outbox").get()).toMatchObject({ count: 0 });
-      await new Promise((resolve) => setTimeout(resolve, 30));
+      await waitForQuiescence(() => claimedEventIds.length);
       expect(claimedEventIds).toEqual([fixture.eventB]);
       expect(fixture.db.prepare("SELECT COUNT(*) AS count FROM durable_work_attempts").get()).toMatchObject({ count: 2 });
     } finally {
@@ -408,7 +435,7 @@ describe("autonomous unanswered conversation recovery", () => {
       },
     });
     try {
-      await new Promise((resolve) => setTimeout(resolve, 30));
+      await waitForQuiescence(() => handlerCalls);
       expect(handlerCalls).toBe(0);
       expect(db.prepare("SELECT COUNT(*) AS count FROM durable_work_attempts").get()).toMatchObject({ count: 0 });
     } finally {
@@ -460,7 +487,7 @@ describe("autonomous unanswered conversation recovery", () => {
       },
     });
     try {
-      await new Promise((resolve) => setTimeout(resolve, 30));
+      await waitForQuiescence(() => handlerCalls);
       expect(handlerCalls).toBe(0);
       expect(db.prepare("SELECT state, status FROM inbox_events WHERE id = ?").get(event.id)).toMatchObject({ state: "terminal", status: "consumed" });
       expect(db.prepare("SELECT COUNT(*) AS count FROM durable_work_attempts WHERE event_id = ?").get(event.id)).toMatchObject({ count: 1 });
@@ -511,7 +538,7 @@ describe("autonomous unanswered conversation recovery", () => {
       },
     });
     try {
-      await new Promise((resolve) => setTimeout(resolve, 30));
+      await waitForQuiescence(() => handlerCalls);
       expect(handlerCalls).toBe(0);
       expect(db.prepare("SELECT state, status, terminal_reason FROM inbox_events WHERE id = ?").get(event.id)).toMatchObject({
         state: "terminal",

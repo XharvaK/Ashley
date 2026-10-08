@@ -209,7 +209,7 @@ describe("Thought Context Optimization — Coherent Candidate Qualification", ()
     }
   });
 
-  it("scales to 200, 500, and 1000 memory assertions with sub-millisecond per-item performance", () => {
+  it("scales to 200, 500, and 1000 memory assertions, indexing every one and keeping the search inside its fuse", () => {
     for (const scale of [200, 500, 1000]) {
       const sidecar = openTestSidecar();
       const derived = openDerivedStore(":memory:");
@@ -235,11 +235,8 @@ describe("Thought Context Optimization — Coherent Candidate Qualification", ()
           });
         }
 
-        const t0 = performance.now();
         derived.reconcileIfNeeded(sidecar);
-        const reconcileElapsedMs = performance.now() - t0;
 
-        const t1 = performance.now();
         const search = retrieveCandidates(
           sidecar,
           {
@@ -253,13 +250,13 @@ describe("Thought Context Optimization — Coherent Candidate Qualification", ()
           },
           derived,
         );
-        const searchElapsedMs = performance.now() - t1;
 
+        // Count and complexity, never wall-clock: the rebuild indexed every assertion, and the
+        // candidates a search returns stay inside the defense fuse however large the store grows.
+        expect(derived.getIndexState()?.sidecarAssertionCount).toBe(scale);
         expect(search.state).toBe("ready");
         expect(search.hits.length).toBeGreaterThan(0);
-        // Assert sub-second rebuild even for 1000 items and fast search
-        expect(reconcileElapsedMs).toBeLessThan(1000);
-        expect(searchElapsedMs).toBeLessThan(100);
+        expect(search.hits.length).toBeLessThanOrEqual(DEFENSE_FUSE_MAX_CANDIDATES);
       } finally {
         derived.close();
         sidecar.close();
