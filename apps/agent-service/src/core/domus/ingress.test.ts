@@ -257,6 +257,18 @@ describe("domus ingress", () => {
     expect(db.prepare("SELECT COUNT(*) AS n FROM cycle_records").get()).toEqual(beforeCycles);
   });
 
+  it("weighs the lane at once when a heartbeat newly arms the game, and only then", async () => {
+    let calls = 0;
+    const { base } = await start(() => { calls += 1; });
+    const body = { v: 1, helper_session: "helper-1", sent_at_ms: NOW, attached: false };
+    expect((await post(base, "/domus/heartbeat", body, TOKEN)).status).toBe(200);
+    expect(calls).toBe(0);
+    expect((await post(base, "/domus/heartbeat", { ...body, attached: true }, TOKEN)).status).toBe(200);
+    expect(calls).toBe(1);
+    expect((await post(base, "/domus/heartbeat", { ...body, attached: true }, TOKEN)).status).toBe(200);
+    expect(calls).toBe(1);
+  });
+
   it("does not write an inbox row for an observation", async () => {
     const { db, base } = await start();
     const before = db.prepare("SELECT COUNT(*) AS n FROM inbox_events").get();

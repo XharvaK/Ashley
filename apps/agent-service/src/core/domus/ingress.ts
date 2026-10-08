@@ -46,7 +46,8 @@
  * listed without their words.
  *
  * A newly admitted observation (202) calls onAdmitted, so the host can evaluate it now; a
- * duplicate, a conflict or a rejected body does not.
+ * duplicate, a conflict or a rejected body does not. A heartbeat that newly arms a helper
+ * session (attached:true, not armed before) calls it too.
  *
  * Auth header X-Domus-Token. Missing, wrong, or equal to the Discord bot token is 401
  * {error:"unauthorized"}. Any other path is 404 {error:"not_found"}. JSON bodies over
@@ -59,6 +60,7 @@ import { markDomusSpanUndone } from "../cognitive-v021/memory/undo.js";
 import { admitObservation, canonicalJson, observationDigest, upsertHeartbeat } from "./store.js";
 import { interruptDomusPlans, isDomusActPhase, syncDomusActs, type DomusActEvent } from "./acts.js";
 import { domusFeed } from "./feed.js";
+import { armedAttachments } from "./notification.js";
 import {
   DOMUS_SNAPSHOT_FAILURES, receiveDomusSnapshot, requestedDomusSnapshots, type DomusSnapshotFailure, type DomusSnapshotReceiptCode,
 } from "./snapshots.js";
@@ -356,13 +358,21 @@ export function createDomusIngressApp(input: {
   app.post("/domus/heartbeat", (req, res) => {
     try {
       const parsed = parseHeartbeat(req.body);
+      const now = input.now();
+      const session = String(parsed.helper_session);
+      // Live 2026-10-08: observations that arrived before the game attached waited a minute for the
+      // lane's own poll. The heartbeat that arms her game is weighed at once, like an observation.
+      const arming = parsed.attached === true && !armedAttachments(input.db, now).has(session);
       upsertHeartbeat(input.db, {
-        helperSession: String(parsed.helper_session),
-        receivedAtMs: input.now(),
+        helperSession: session,
+        receivedAtMs: now,
         sentAtMs: Number(parsed.sent_at_ms),
         json: canonicalJson(parsed),
       });
       res.status(200).json({ status: "ok" });
+      if (arming && input.onAdmitted) {
+        try { input.onAdmitted(); } catch { /* the minute poll still evaluates it */ }
+      }
     } catch (error) {
       const http = error as HttpError;
       if (http.status && http.code) {
