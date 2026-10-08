@@ -1469,6 +1469,17 @@ function semanticReferencesForInput(input: ThoughtInput | ProjectedThoughtInput)
   ];
 }
 
+/** Domus observation ids this pass shows her: the only ones a nomination may cite as support. */
+function domusObservationIdsForInput(input: ThoughtInput | ProjectedThoughtInput): Set<string> {
+  const ids = new Set<string>(input.domus?.observationIds ?? []);
+  const innerPass = input.innerPass;
+  if (innerPass?.kind === "afterglow" && innerPass.mode === "session") {
+    for (const observation of innerPass.session.observations) ids.add(observation.observationId);
+  }
+  if (innerPass?.kind === "afterglow" && innerPass.mode === "diary") ids.add(innerPass.diary.observationId);
+  return ids;
+}
+
 /** A2: the forgets she proposed and the Owner has not answered, on Owner chat turns only. */
 function pendingForgetInput(
   sidecar: DatabaseSync,
@@ -1887,6 +1898,7 @@ export async function runThoughtModel(
     const semanticParseOptions = {
       concernInspectRefs: (options.concernInspectAuthority ?? concernInspectRefsForInput(input)).refs,
       concernDiscoverAllowed: (options.concernInspectAuthority ?? concernInspectRefsForInput(input)).discoverAllowed === true,
+      domusObservationIds: domusObservationIdsForInput(input),
     };
     let semanticResult = parseThoughtSemanticOutput(
       completion.text,
@@ -1953,6 +1965,10 @@ export async function runThoughtModel(
         thoughtExecutionProvenance: withLifeboatAttempts(executionProvenanceForCompletion(completion), lifeboat),
         ...(lifeboat ? { lifeboat } : {}),
       };
+    }
+    // Host facts only: which nomination ref was re-filed or removed, by path and class, never the id.
+    for (const note of semanticResult.sourceRefNotes ?? []) {
+      console.warn(`[thought] nomination_ref path=${note.path} class=${note.class} action=${note.action}`);
     }
     const semantic = semanticResult.value;
     const correctionValidation = options.structuralFeedback

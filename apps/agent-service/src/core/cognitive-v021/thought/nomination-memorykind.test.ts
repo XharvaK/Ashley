@@ -153,7 +153,9 @@ describe("nomination MemoryKind structural boundary", () => {
       return result.ok ? null : result.field;
     };
     expect(fieldFor({}, "supersedesRef")).toBe("durableNominations[1].supersedesRef");
-    expect(fieldFor({ sourceRefs: ["not-on-the-list"] })).toBe("durableNominations[1].sourceRefs");
+    expect(fieldFor({ sourceRefs: "not-on-the-list" })).toBe("durableNominations[1].sourceRefs");
+    // An id outside the allowlist is re-filed or dropped by the Host, never a fault (see nomination-source-refs).
+    expect(fieldFor({ sourceRefs: ["not-on-the-list"] })).toBeNull();
     expect(fieldFor({ extra: 1 })).toBe("durableNominations[1].unknown_key");
     expect(fieldFor({ dataClassification: "public" })).toBe("durableNominations[1].dataClassification");
     expect(parseThoughtSemanticOutput({ ...validSettlement(), durableNominations: "none" }, refs))

@@ -89,7 +89,7 @@ describe("salvageSettlement", () => {
 
   it("removes a second fault after the first removal, including a shifted index", () => {
     const shifted = salvage(settlement({
-      durableNominations: [bad, nomination(SECRET, { sourceRefs: [SECRET] }), good],
+      durableNominations: [bad, nomination(SECRET, { dataClassification: "public" }), good],
     }));
     expect(shifted).toMatchObject({
       ok: true,
