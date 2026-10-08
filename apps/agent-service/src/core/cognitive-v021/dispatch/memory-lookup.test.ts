@@ -120,6 +120,41 @@ describe("memory.lookup", () => {
     }
   });
 
+  it("answers a house question from the game episode, ignoring function words", async () => {
+    const { sidecar, nuclear, executor } = setup();
+    try {
+      const gameRow = appendOwnerUtterance(sidecar, { conversationId: "thread-lookup", text: "the house", nowMs: 7, audienceAtCapture: "owner_private" });
+      recordEpisode(sidecar, {
+        conversationId: "thread-lookup",
+        cycleId: "cycle-game",
+        rows: [{ rowId: gameRow.rowId, createdAtMs: 7, dataClassification: "ordinary" }],
+        reflection: { summary: "Ashley cooked a meal in the house kitchen.", salience: 0.5 },
+        nowMs: 8,
+        channel: "domus:w1",
+      });
+      const talkRow = appendOwnerUtterance(sidecar, { conversationId: "thread-lookup", text: "what did you do", nowMs: 9, audienceAtCapture: "owner_private" });
+      recordEpisode(sidecar, {
+        conversationId: "thread-lookup",
+        cycleId: "cycle-talk",
+        rows: [{ rowId: talkRow.rowId, createdAtMs: 9, dataClassification: "ordinary" }],
+        reflection: { summary: "We talked about what you do for work.", salience: 0.5 },
+        nowMs: 10,
+      });
+      const house = await executor.executeObservation(request({ query: "What did you do in the house?" }));
+      const episodes = (house.payload as { episodes?: Array<{ summary: string; channel?: string }> }).episodes ?? [];
+      expect(episodes.map((episode) => episode.summary)).toEqual(["Ashley cooked a meal in the house kitchen."]);
+      expect(episodes[0]?.channel).toBe("domus:w1");
+
+      // Only function words left: nothing is searched, so no memory or episode comes back.
+      const empty = await executor.executeObservation(request({ query: "what did you do?" }));
+      expect(empty.payload).toMatchObject({ memories: [], matchedCount: 0 });
+      expect((empty.payload as { episodes?: unknown }).episodes).toBeUndefined();
+    } finally {
+      sidecar.close();
+      nuclear.close();
+    }
+  });
+
   it("narrows by kind and pages with a scoped cursor", async () => {
     const { sidecar, nuclear, executor } = setup();
     try {

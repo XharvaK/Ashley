@@ -1,6 +1,7 @@
 import { readHomeFile } from "../../home/home.js";
 import type { DatabaseSync } from "node:sqlite";
 import { searchEpisodes, toThoughtEpisode } from "../memory/episodes.js";
+import { lookupTerms } from "../memory/lookup-terms.js";
 import { WORKSPACE_WORKER_REQUEST_SCHEMA_ID } from "@composer-assistant/sandbox-v2";
 import { sha256 } from "../../model-fabric/hash.js";
 import { currentReleaseId } from "../../rollout/capabilities.js";
@@ -299,7 +300,7 @@ function lookupMemory(
   const kinds = request.kinds ? [...new Set(request.kinds)].sort() : null;
   const scopeHash = cursorScope(scope, "memory.lookup", { query: request.query, kinds });
   const offset = offsetFromCursor(request.cursor, scopeHash);
-  const terms = [...new Set(request.query.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((term) => term.length > 1))];
+  const terms = lookupTerms(request.query);
   const now = nowMs();
   const candidates = listLiveMemoryAssertions(sidecar).filter((assertion) =>
     assertion.statement !== REDACTED_MEMORY_STATEMENT
@@ -311,7 +312,7 @@ function lookupMemory(
       const text = assertion.statement.toLowerCase();
       return { assertion, hits: terms.filter((term) => text.includes(term)).length };
     })
-    .filter((item) => terms.length === 0 || item.hits > 0)
+    .filter((item) => item.hits > 0)
     .sort((a, b) => b.hits - a.hits
       || (scores.get(b.assertion.assertionKey) ?? 0) - (scores.get(a.assertion.assertionKey) ?? 0)
       || a.assertion.assertionKey.localeCompare(b.assertion.assertionKey));
