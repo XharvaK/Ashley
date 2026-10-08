@@ -64,6 +64,8 @@ import {
   REQUIRED_WC_PROJECTED_POOL_BYTES,
   inspectRequiredObservation,
   malformedObservationDetail,
+  unreadableObservationPlaceholder,
+  unreplacedMalformedObservationId,
   utf8JsonBytes,
 } from "./composition-contract.js";
 import {
@@ -358,6 +360,10 @@ export function allocateThoughtProjection(
       },
     );
   }
+  // A malformed observation with an id is replaced by an unreadable placeholder (disclosed in this section);
+  // every other observation failure still throws, as before.
+  const admittedObservations: unknown[] = [];
+  let replacedObservations = false;
   for (const observation of inputObservations) {
     if (typeof observation !== "object" || observation === null || Array.isArray(observation)) {
       throw new RequiredOverflowError(
@@ -377,16 +383,27 @@ export function allocateThoughtProjection(
       );
     }
     const inspection = inspectRequiredObservation(observation);
-    if (!inspection.ok) {
-      const { failure } = inspection;
-      const measurement = failure.measurementBasis === "lower_bound" ? "at least " : "";
-      throw new RequiredOverflowError(
-        `Required observation failed ${failure.constraint} (measured ${measurement}${failure.measuredValue} ${failure.unit}, limit ${failure.limit} ${failure.unit}, stage ${failure.stage}${malformedObservationDetail(failure)})`,
-        { section: "observations", failure },
-      );
+    if (inspection.ok) {
+      admittedObservations.push(observation);
+      continue;
     }
+    const { failure } = inspection;
+    const replacedId = unreplacedMalformedObservationId(observation, failure);
+    if (replacedId !== null) {
+      admittedObservations.push(unreadableObservationPlaceholder(replacedId, failure));
+      replacedObservations = true;
+      continue;
+    }
+    const measurement = failure.measurementBasis === "lower_bound" ? "at least " : "";
+    throw new RequiredOverflowError(
+      `Required observation failed ${failure.constraint} (measured ${measurement}${failure.measuredValue} ${failure.unit}, limit ${failure.limit} ${failure.unit}, stage ${failure.stage}${malformedObservationDetail(failure)})`,
+      { section: "observations", failure },
+    );
   }
-  const requiredSectionBounds = boundRequiredSectionData(input);
+  const boundInput = replacedObservations
+    ? { ...input, observations: admittedObservations as ThoughtInput["observations"] }
+    : input;
+  const requiredSectionBounds = boundRequiredSectionData(boundInput);
   if (requiredSectionBounds.learnedSelfSlice === null) {
     const learnedSelfBytes = utf8JsonBytes(input.learnedSelfSlice ?? null);
     throw new RequiredOverflowError(
