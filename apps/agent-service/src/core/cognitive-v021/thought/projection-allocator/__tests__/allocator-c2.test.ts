@@ -99,7 +99,7 @@ describe("MAT-II C2 allocator integration", () => {
 
       const allocated = allocateThoughtProjection({
         thoughtInput: input,
-        semanticBudgetTokens: 15_700,
+        semanticBudgetTokens: 16_100,
         requestId: "c2-uniqueness-request",
       });
       const visible = JSON.parse(allocated.messages[1]?.content ?? "{}") as Record<string, unknown>;

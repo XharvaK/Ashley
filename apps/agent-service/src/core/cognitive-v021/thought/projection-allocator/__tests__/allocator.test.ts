@@ -736,9 +736,9 @@ describe("Whole-Thought Projection Allocator", () => {
         trigger: { kind: "owner_message", ref: tinyRows.at(-1)!.rowId },
       }),
       // Calibrated above the legacy 9_500 default for the code-owned Thought
-      // contract and compatibility vocabulary. The pressure behavior below
-      // (large rows trim, tiny rows fit) is unchanged.
-      semanticBudgetTokens: 18_200,
+      // contract and compatibility vocabulary (DASK's promise guidance adds about 320 tokens).
+      // The pressure behavior below (large rows trim, tiny rows fit) is unchanged.
+      semanticBudgetTokens: 18_600,
       requestId: "req-token-driven-tiny-rows",
     });
 
@@ -797,7 +797,7 @@ describe("Whole-Thought Projection Allocator", () => {
     const allocated = allocateThoughtProjection({
       thoughtInput: makeThoughtInput(innerLife),
       quotaBucket: "groq:openai/gpt-oss-20b",
-      semanticProjectionEnvelope: { id: "test-envelope", version: 1, maxInputTokens: 15_100 },
+      semanticProjectionEnvelope: { id: "test-envelope", version: 1, maxInputTokens: 15_500 },
       requestId: "req-inner-life",
     });
     expect(allocated.receipt.tokenBreakdown.inner_life_tokens).toBeGreaterThan(0);
@@ -1781,7 +1781,7 @@ describe("E2a recency loss honesty (allocator)", () => {
 
     const allocated = allocateThoughtProjection({
       thoughtInput: input,
-      semanticBudgetTokens: 15_500,
+      semanticBudgetTokens: 15_900,
       requestId: "req-e2a-carry",
     });
 
@@ -1841,7 +1841,7 @@ describe("E2a recency loss honesty (allocator)", () => {
 
     const allocated = allocateThoughtProjection({
       thoughtInput: input,
-      semanticBudgetTokens: 15_300,
+      semanticBudgetTokens: 15_700,
       requestId: "req-e2a-complete",
     });
 
@@ -1865,12 +1865,12 @@ describe("E2a recency loss honesty (allocator)", () => {
 
     const complete = allocateThoughtProjection({
       thoughtInput: base,
-      semanticBudgetTokens: 15_500,
+      semanticBudgetTokens: 15_900,
       requestId: "req-e2a-hash-complete",
     });
     const lossyAllocated = allocateThoughtProjection({
       thoughtInput: lossy,
-      semanticBudgetTokens: 15_500,
+      semanticBudgetTokens: 15_900,
       requestId: "req-e2a-hash-lossy",
     });
 
@@ -1883,7 +1883,7 @@ describe("E2a recency loss honesty (allocator)", () => {
     // Deterministic: the same lossy input hashes identically.
     const lossyAgain = allocateThoughtProjection({
       thoughtInput: lossy,
-      semanticBudgetTokens: 15_500,
+      semanticBudgetTokens: 15_900,
       requestId: "req-e2a-hash-lossy-again",
     });
     expect(lossyAgain.hashes).toEqual(lossyAllocated.hashes);
@@ -1990,7 +1990,7 @@ describe("E2b retrieval loss honesty (allocator)", () => {
     const input = retrievalInput(3, 4);
     const allocated = allocateThoughtProjection({
       thoughtInput: input,
-      semanticBudgetTokens: 15_300,
+      semanticBudgetTokens: 15_700,
       requestId: "req-e2b-all-fit",
     });
 
@@ -2004,7 +2004,7 @@ describe("E2b retrieval loss honesty (allocator)", () => {
     // Deterministic complete cycle (same input object: allocation is pure).
     const again = allocateThoughtProjection({
       thoughtInput: input,
-      semanticBudgetTokens: 15_300,
+      semanticBudgetTokens: 15_700,
       requestId: "req-e2b-all-fit-again",
     });
     expect(again.hashes).toEqual(allocated.hashes);

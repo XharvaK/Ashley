@@ -16,6 +16,7 @@ import type { GrowthClaim } from "../growth/claim.js";
 import { recordNight, type NightClaim } from "../growth/night.js";
 import { recordDomusAct, type DomusActBinding, type DomusActClaim } from "../../domus/acts.js";
 import { recordDomusSnapshot, type DomusSnapshotClaim } from "../../domus/snapshots.js";
+import { recordDomusPromise, settleDomusPromises, type DomusPromiseClaim, type DomusPromiseSettlement } from "../../domus/promises.js";
 import { recordSoftActs, softClaimsOf, SOFT_KINDS, type SoftClaims } from "../soft/acts.js";
 
 /**
@@ -44,6 +45,10 @@ export type AftermathContext = {
   ownerEvidenceRowId?: string;
   /** 8f: acting was on and these were the options she read; her domusAct is resolved against them. */
   domusAct?: DomusActBinding;
+  /** DASK: an Owner-private chat turn, which was offered domusPromise (the contract profile's chat pass). */
+  ownerChat?: true;
+  /** DASK: her open promises were in the input she read this pass, so she may settle them. */
+  promisesShown?: true;
   nightPass: NightPass | null;
   senseBands?: Partial<Record<SenseName, string>>;
   /** UX W2: the wardrobe ids offered to her this pass (her face may only take one of them). */
@@ -66,6 +71,8 @@ type StoredSettlement = SoftClaims & {
   journal?: JournalClaim;
   domusAct?: DomusActClaim;
   domusSnapshot?: DomusSnapshotClaim;
+  domusPromise?: DomusPromiseClaim;
+  domusPromiseSettled?: DomusPromiseSettlement[];
   intents?: PlaceIntentClaim[];
   home?: HomeOp[];
   pursuits?: PursuitOp[];
@@ -140,7 +147,8 @@ export function recordSettlementAftermath(
     }
     // H0.4: a quiet Domus pass in which she neither acts nor speaks is a quiet check-in: the Host
     // keeps the fact that it happened, not words about a moment in which nothing changed.
-    const quietCheckIn = context.domusQuiet === true && !settlement.domusAct && !settlement.domusSnapshot && Number(pending.queued_speech) !== 1;
+    const quietCheckIn = context.domusQuiet === true && !settlement.domusAct && !settlement.domusSnapshot && !settlement.domusPromiseSettled
+      && Number(pending.queued_speech) !== 1;
     if (context.passKind) {
       recordJournalEntry(db, {
         conversationId: context.conversationId,
@@ -195,6 +203,13 @@ export function recordSettlementAftermath(
     // SNAPSHOT: her picture request, once per pass, against the attachment the pass saw.
     if (standing && context.domusAct && settlement.domusSnapshot) {
       recordDomusSnapshot(db, { attachment: context.domusAct.attachment, claim: settlement.domusSnapshot, cycleId, nowMs: options.nowMs });
+    }
+    // DASK: her promise to the Owner, once per Owner turn (the game's passes see it); and what became of the promises she was shown.
+    if (standing && context.ownerChat === true && settlement.domusPromise) {
+      recordDomusPromise(db, { claim: settlement.domusPromise, cycleId, nowMs: options.nowMs });
+    }
+    if (standing && context.promisesShown === true && settlement.domusPromiseSettled?.length) {
+      settleDomusPromises(db, { settlements: settlement.domusPromiseSettled, nowMs: options.nowMs });
     }
     if (standing && settlement.senses) recordSenseDeclines(db, settlement.senses, { nowMs: Number(pending.created_at_ms), conversationId: context.conversationId, dataDir: options.dataDir, dataClassification }, context.senseBands);
     if (standing && settlement.attention && options.identityStore?.ownerId) recordPublishedAttention(db,settlementId,options.identityStore.ownerId,options.nowMs);

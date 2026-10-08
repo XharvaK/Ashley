@@ -1308,6 +1308,7 @@ export function buildThoughtInput(options: BuildThoughtInputOptions): ThoughtInp
     ...(episodes.length === 0 ? {} : { episodes }),
     ...(activityJournal.length === 0 ? {} : { activityJournal }),
     ...(options.innerPass && audience.kind === "owner_private" ? { innerPass: options.innerPass } : {}),
+    // DASK: domus.promises (inside domus) are her own words, never the Owner's text, so a game-only pass keeps them.
     ...(options.domus && audience.kind === "owner_private" ? { domus: options.domus } : {}),
     ...(domusNow ? { domusNow } : {}),
     ...(options.places && audience.kind === "owner_private" && !domusPass ? { places: options.places } : {}),

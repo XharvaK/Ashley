@@ -13,10 +13,10 @@ describe("cognitive sidecar Schema V29 effect continuations", () => {
 
       openCognitiveSidecarDb(db, { dataPlane: { kind: "isolated" } });
 
-      expect(COGNITIVE_SIDECAR_SCHEMA_VERSION).toBe(72);
-      expect(db.prepare("PRAGMA user_version").get()).toMatchObject({ user_version: 72 });
+      expect(COGNITIVE_SIDECAR_SCHEMA_VERSION).toBe(73);
+      expect(db.prepare("PRAGMA user_version").get()).toMatchObject({ user_version: 73 });
       expect(db.prepare("SELECT schema_version FROM cognitive_sidecar_meta WHERE id = 1").get())
-        .toMatchObject({ schema_version: 72 });
+        .toMatchObject({ schema_version: 73 });
       expect(db.prepare("PRAGMA table_info(effect_continuations)").all()).toEqual(expect.arrayContaining([
         expect.objectContaining({ name: "effect_id" }),
         expect.objectContaining({ name: "deadline_at_ms" }),

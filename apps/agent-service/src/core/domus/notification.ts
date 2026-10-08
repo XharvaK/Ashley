@@ -9,6 +9,7 @@ import type { DomusPending } from "../cognitive-v021/thalamus/nuclei/domus.js";
 import { domusActBinding, domusNoWayObjects, domusOptionsFor, optionsOf, recentDomusActs, type DomusActBinding, type DomusOptionObject, type DomusRecentAct } from "./acts.js";
 import { compareDomusReads, domusActNewsSince, domusReadOf, previousDomusRead, type DomusChanges } from "./changes.js";
 import { domusSnapshotFacts, type DomusSnapshotFact } from "./snapshots.js";
+import { domusPromisesOpen, type DomusPromiseFact } from "./promises.js";
 
 export const EMBODIMENT_POLICY_ID = "ashley.embodiment.v1";
 export const EMBODIMENT_WINDOW_MS = 60 * 60 * 1000;
@@ -31,6 +32,8 @@ export type DomusNow = {
   options?: DomusOptionObject[]; acts?: DomusRecentAct[];
   /** SNAPSHOT: what became of her recent pictures of the game, when there were any. */
   snapshots?: DomusSnapshotFact[];
+  /** DASK: what she promised the Owner about the house and has not settled yet, when there is any (her own words). */
+  promises?: DomusPromiseFact[];
 };
 /** DPLAY: the newest menu of a live game an Owner turn may act from (older menus are not offered). */
 export const DOMUS_LIVE_OPTIONS_MS = 10 * 60 * 1000;
@@ -52,6 +55,8 @@ export type DomusForThought = {
   acts?: DomusRecentAct[];
   /** M3: what the game taught her in this world (memories with game supports only), best match first. */
   lessons?: DomusLesson[];
+  /** DASK: what she promised the Owner about the house and has not settled yet, oldest first (her own words). */
+  promises?: DomusPromiseFact[];
 };
 
 export type DomusLesson = { key: string; lesson: string; kind: string; seen: number };
@@ -375,8 +380,10 @@ export function domusNowForThought(db: DatabaseSync, nowMs: number): DomusNow | 
   const body = compactDomusBody(portrait as Record<string, unknown>);
   if (!Object.keys(body).length) return undefined;
   const snapshots = domusSnapshotFacts(db, nowMs);
+  const promises = domusPromisesOpen(db, nowMs);
   return { world: String(row.world), asOfMs: Number(row.source_time_ms),
-    live: armedAttachments(db, nowMs).has(String(row.attachment)), body, ...(snapshots.length ? { snapshots } : {}) };
+    live: armedAttachments(db, nowMs).has(String(row.attachment)), body, ...(snapshots.length ? { snapshots } : {}),
+    ...(promises.length ? { promises } : {}) };
 }
 
 /** UX W3: a game attached now, and her Sim's mood as the game names it in that session's newest portrait. */
@@ -457,6 +464,8 @@ export function domusForThought(db: DatabaseSync, event: { id: string; conversat
     ? { ...item, noWay: `last time ${noWay.get(item.object_id)}` } : item);
   const acts = acting.enabled ? recentDomusActs(db, bound.world, acting.nowMs) : [];
   const lessons = domusLessonsFor(db, bound.world, domusSceneTerms({ portrait, options }));
+  // DASK: her promises to the Owner are shown in every game pass, acting or watching, at the pass's own time.
+  const promises = domusPromisesOpen(db, acting.nowMs);
   let changes: DomusChanges = { first: true };
   const previous = bound.attachment ? previousDomusRead(db, { conversationId: event.conversationId, eventId: bound.eventId,
     attachment: bound.attachment, createdAtMs: bound.createdAtMs }) : undefined;
@@ -477,5 +486,6 @@ export function domusForThought(db: DatabaseSync, event: { id: string; conversat
     ...(options.length ? { options } : {}),
     ...(acts.length ? { acts } : {}),
     ...(lessons.length ? { lessons } : {}),
+    ...(promises.length ? { promises } : {}),
   };
 }

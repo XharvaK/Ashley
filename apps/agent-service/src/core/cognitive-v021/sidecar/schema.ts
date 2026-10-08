@@ -2508,6 +2508,21 @@ CREATE INDEX IF NOT EXISTS idx_domus_snapshots_cycle ON domus_snapshots (cycle_i
 UPDATE cognitive_sidecar_meta SET schema_version=72 WHERE id=1;
 `;
 
+/** DASK: a promise she made the Owner about her life in the house, in her own words, and what became of it (domus/promises.ts). */
+export const COGNITIVE_SIDECAR_SCHEMA_V73 = String.raw`
+CREATE TABLE IF NOT EXISTS domus_promises (
+  promise_id TEXT PRIMARY KEY,
+  cycle_id TEXT NOT NULL,
+  text TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('open', 'kept', 'let_go', 'expired')),
+  created_at_ms INTEGER NOT NULL,
+  settled_at_ms INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_domus_promises_status ON domus_promises (status, created_at_ms);
+CREATE INDEX IF NOT EXISTS idx_domus_promises_cycle ON domus_promises (cycle_id);
+UPDATE cognitive_sidecar_meta SET schema_version=73 WHERE id=1;
+`;
+
 /** OWNERFIRST: an act her Thought marked as one the User asked for. */
 export const COGNITIVE_SIDECAR_SCHEMA_V70 = String.raw`
 ALTER TABLE domus_acts ADD COLUMN for_owner INTEGER NOT NULL DEFAULT 0 CHECK (for_owner IN (0, 1));

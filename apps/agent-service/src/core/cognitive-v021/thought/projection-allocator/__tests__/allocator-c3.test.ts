@@ -146,7 +146,7 @@ describe("MAT-II C3 allocator integration", () => {
       const allocated = allocateThoughtProjection({
         thoughtInput: input,
         requestId: "request-allocator-c3-unreachable",
-        semanticBudgetTokens: 15_700,
+        semanticBudgetTokens: 16_100,
       });
 
       expect(allocated.receipt.coverageManifest?.domains).toEqual(expect.arrayContaining([

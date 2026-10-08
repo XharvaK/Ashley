@@ -1413,6 +1413,8 @@ function materializeSemanticSettlement(
   if (semantic.journal) result.journal = { ...semantic.journal };
   if (semantic.domusAct) result.domusAct = { ...semantic.domusAct };
   if (semantic.domusSnapshot) result.domusSnapshot = { ...semantic.domusSnapshot };
+  if (semantic.domusPromise) result.domusPromise = { ...semantic.domusPromise };
+  if (semantic.domusPromiseSettled) result.domusPromiseSettled = semantic.domusPromiseSettled.map((item) => ({ ...item }));
   for (const kind of SOFT_KINDS) {
     if (semantic[kind] !== undefined) (result as Record<string, unknown>)[kind] = structuredClone(semantic[kind]);
   }
@@ -4877,6 +4879,14 @@ export async function runCognitiveCycle(
             : {}),
           // DPLAY: the menu her Owner turn read (only when it reached her input).
           ...(domusLive && allocated.projected.domusNow?.options ? { domusAct: domusLive.binding } : {}),
+          // DASK: the contract profile of the input she read: her Owner turn offered domusPromise, and her promises were shown to settle.
+          ...(() => {
+            const shaped = thoughtContractProfile(allocated.projected);
+            return {
+              ...(shaped.ownerPrivate && shaped.pass === "chat" ? { ownerChat: true as const } : {}),
+              ...(shaped.domusPromises ? { promisesShown: true as const } : {}),
+            };
+          })(),
           ...(allocated.projected.softLayer?.face ? { wardrobe: [...allocated.projected.softLayer.face.available] } : {}),
           senseBands,
         }
