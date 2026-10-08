@@ -249,6 +249,44 @@ describe("Thought Diagnostics & Observability DB", () => {
     }
   });
 
+  it("round-trips the malformed observation path and cause", () => {
+    const obs = openObservabilityStore(":memory:");
+    try {
+      const allocationFailure = {
+        kind: "structural_safety" as const,
+        constraint: "malformed_json_structure",
+        measuredValue: 8,
+        unit: "nodes" as const,
+        limit: 524_160,
+        stage: "observation_validation" as const,
+        measurementBasis: "exact" as const,
+        path: "$.content[2].score",
+        cause: "non_finite_number" as const,
+      };
+      obs.recordDiagnostic({
+        cycleId: "cycle-observation-malformed",
+        generation: 2,
+        requestId: "req-observation-malformed",
+        pass: 1,
+        code: "context_allocation_required_overflow",
+        stage: "allocation",
+        dispatchTruth: "not_sent",
+        requiredOverflowSection: "observations",
+        allocationFailure,
+      });
+
+      const stored = obs.db.prepare(
+        "SELECT cycle_metrics_json FROM thought_dispatch_diagnostics WHERE request_id = ?",
+      ).get("req-observation-malformed") as { cycle_metrics_json: string };
+      expect(JSON.parse(stored.cycle_metrics_json)).toMatchObject({
+        allocation_failure: { path: "$.content[2].score", cause: "non_finite_number" },
+      });
+      expect(obs.listDiagnostics()[0]).toMatchObject({ allocationFailure });
+    } finally {
+      obs.close();
+    }
+  });
+
   it("round-trips bounded abort and affinity telemetry without prose", () => {
     const obs = openObservabilityStore(":memory:");
     try {

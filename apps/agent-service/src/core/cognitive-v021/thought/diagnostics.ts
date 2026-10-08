@@ -2,11 +2,13 @@ import { existsSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { reservedProductionDataDir } from "../../data-plane.js";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
-import type {
-  AllocationFailureDiagnostic,
-  AllocationDiagnostics,
-  AllocationReceipt,
-  AllocationTokenBreakdown,
+import {
+  MALFORMED_OBSERVATION_CAUSES,
+  type AllocationFailureDiagnostic,
+  type AllocationDiagnostics,
+  type AllocationReceipt,
+  type AllocationTokenBreakdown,
+  type MalformedObservationCause,
 } from "./projection-allocator/receipt.js";
 import { DEFAULT_SEMANTIC_PROJECTION_ENVELOPE, type SemanticProjectionEnvelope } from "./projection-allocator/budget.js";
 import type { RetrievalQuery } from "../retrieval/query.js";
@@ -450,6 +452,7 @@ function parseAllocationFailure(value: unknown): AllocationFailureDiagnostic | n
     "retained_detail_access",
   ]);
   const units = new Set(["bytes", "tokens", "items", "levels", "nodes"]);
+  const malformedCauses = new Set<string>(MALFORMED_OBSERVATION_CAUSES);
   const stages = new Set([
     "required_set_validation",
     "observation_validation",
@@ -476,6 +479,12 @@ function parseAllocationFailure(value: unknown): AllocationFailureDiagnostic | n
     measurementBasis: parsed.measurementBasis,
     ...(parsed.fallback === "retained_detail_access_unavailable"
       ? { fallback: "retained_detail_access_unavailable" as const }
+      : {}),
+    ...(typeof parsed.path === "string" && parsed.path.length <= 200
+      ? { path: parsed.path }
+      : {}),
+    ...(typeof parsed.cause === "string" && malformedCauses.has(parsed.cause)
+      ? { cause: parsed.cause as MalformedObservationCause }
       : {}),
   };
 }
