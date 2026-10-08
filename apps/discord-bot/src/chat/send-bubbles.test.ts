@@ -187,3 +187,19 @@ describe("sendBubbles typing", () => {
     assert.equal(events.includes("typing"), false);
   });
 });
+
+describe("sendBubbles abort", () => {
+  it("sends the rest of her burst at once when interrupted, never dropping it", async () => {
+    const events: string[] = [];
+    const controller = new AbortController();
+    controller.abort();
+    const result = await sendBubbles(
+      typingChannel(events),
+      ["one", "two", "three"],
+      null,
+      { tempoGapMs: 5_000, signal: controller.signal },
+    );
+    assert.deepEqual(events.filter((e) => e.startsWith("send:")), ["send:one", "send:two", "send:three"]);
+    assert.equal(result.failureCategory, null);
+  });
+});

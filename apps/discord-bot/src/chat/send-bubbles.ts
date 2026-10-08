@@ -123,10 +123,8 @@ export async function sendBubbles(
   for (let i = 0; i < planned.length; i++) {
     const bubble = planned[i]!;
     result.attemptedOrdinal = bubble.ordinal;
-    if (pacing?.signal.aborted) {
-      result.failureCategory = "aborted";
-      throw new DeliverySendError("send_aborted", result);
-    }
+    // An abort (a new message from him, a stop, a shutdown) only ends the waiting: every bubble
+    // is already hers in memory, so the rest still go out, back to back (see ChannelQueue).
     if (
       !firstSent &&
       options?.firstBubbleDeadlineAtMs !== undefined &&
