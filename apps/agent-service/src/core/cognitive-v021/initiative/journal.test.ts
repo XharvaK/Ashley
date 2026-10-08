@@ -129,6 +129,8 @@ describe("interest graph", () => {
     const db = openTestSidecar();
     try {
       const month = 30 * 24 * 60 * MINUTE;
+      // The seed migration stamps the real clock; pin the seeds to this test's time so it never drifts.
+      db.prepare("UPDATE interest_branches SET created_at_ms = ?, last_lived_at_ms = ? WHERE origin = 'seed'").run(T0, T0);
       const grown = recordInterestTouches(db, [
         { root: "Electronic music", branch: "dub techno", note: "Basic Channel" },
         { root: "Philosophy", branch: "compatibilism" },
