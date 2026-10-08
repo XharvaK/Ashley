@@ -3802,7 +3802,9 @@ export async function runCognitiveCycle(
         expectations: sourceCapture.concernInspectDependencies,
         discoverAllowed: thoughtAudience === undefined,
       },
-      salvageOnFailure: !structuralRetryWouldSchedule,
+      // Every attempt: salvage drops only optional parts (salvage.ts classifies them) and retries nothing for them;
+      // a failure in a required part still falls through to the structural retry as before.
+      salvageOnFailure: true,
       beforeRedispatch: () => assessOwnerAnswerHold(sidecar, event) === null,
     });
     lastThoughtRequestId = invocation.requestId;
