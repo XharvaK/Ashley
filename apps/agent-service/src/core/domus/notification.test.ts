@@ -8,7 +8,7 @@ import { admitObservation, observationDigest, upsertHeartbeat } from "./store.js
 import {
   armedAttachments, configureEmbodimentBudget, domusChannelFor, domusForThought, embodimentBudgetAvailable,
   pendingDomus, repairDomusReservations, selectDomusNotification, DOMUS_ARMED_MS, DOMUS_EVENTS_BYTES, EMBODIMENT_POLICY_ID,
-  domusNowForThought, DOMUS_NOW_BYTES, DOMUS_NOW_WINDOW_MS,
+  compactDomusBody, domusNowForThought, DOMUS_NOW_BYTES, DOMUS_NOW_WINDOW_MS,
 } from "./notification.js";
 
 const NOW = 10_000_000;
@@ -406,5 +406,28 @@ describe("SS1 social sentences in domusNow", () => {
       doing_said: [{ interaction: "mixer_social_A", sentence: "Ashley is asking Don about his day.", state: "running" }],
       addressed_by: [{ by: "7", interaction: "mixer_social_B", sentence: "Don compliments Ashley." }, { by: "7", interaction: "mixer_social_C" }] } });
     expect(domusNowForThought(db, NOW)!.body.said).toEqual(["Ashley is asking Don about his day.", "Don compliments Ashley."]);
+  });
+});
+
+describe("2.30.0 her wants and fears in domusNow", () => {
+  it("carry the game's words with fears marked, at most five, and skip entries without words", () => {
+    const wants = [{ want: "Read a book", fear: false, how: "Any book will do" }, { want: "Being alone at night", fear: true },
+      { want: 42 }, { fear: true }, ...["Cook", "Dance", "Paint", "Swim"].map(want => ({ want })), { want: "x".repeat(300) }];
+    const body = compactDomusBody({ mood: "Mood_Happy", self: { wants } });
+    expect(body.wants).toEqual([{ want: "Read a book" }, { want: "Being alone at night", fear: true },
+      { want: "Cook" }, { want: "Dance" }, { want: "Paint" }]);
+    expect(compactDomusBody({ self: { wants: [{ want: "y".repeat(300) }] } }).wants).toEqual([{ want: "y".repeat(120) }]);
+    expect(compactDomusBody({ mood: "Mood_Happy", self: { wants: [] } }).wants).toBeUndefined();
+  });
+
+  it("are the last thing shed when the body is too big", () => {
+    const body = compactDomusBody({ mood: "Mood_Happy", self: { wants: [{ want: "Read a book" }] },
+      running: Array.from({ length: 4 }, (_, i) => `act_${i}_${"r".repeat(110)}`),
+      moodlets: Array.from({ length: 6 }, (_, i) => ({ text: `feeling ${i} ${"m".repeat(110)}` })),
+      company: Array.from({ length: 6 }, (_, i) => ({ name: `Neighbour ${i} ${"n".repeat(110)}` })),
+      doing_said: [{ interaction: "mixer_social_A", sentence: `Ashley chats ${"s".repeat(100)}` }] });
+    expect(Buffer.byteLength(JSON.stringify(body))).toBeLessThanOrEqual(DOMUS_NOW_BYTES);
+    expect(body.said).toBeUndefined();
+    expect(body.wants).toEqual([{ want: "Read a book" }]);
   });
 });

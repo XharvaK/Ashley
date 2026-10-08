@@ -334,7 +334,7 @@ function textList(value: unknown, key: string | null, limit: number): string[] {
 }
 
 /** The facts of a portrait a conversation needs: when and where, how her body feels, what it is doing,
- * who is there, her jobs, and what the game is asking her. The game's own words; nothing added. */
+ * who is there, her jobs, what she wants and fears, and what the game is asking her. The game's own words; nothing added. */
 export function compactDomusBody(portrait: Record<string, unknown>): Record<string, unknown> {
   const body: Record<string, unknown> = {};
   for (const key of ["time", "place", "mood", "paused"]) if (portrait[key] !== undefined) body[key] = portrait[key];
@@ -353,12 +353,22 @@ export function compactDomusBody(portrait: Record<string, unknown>): Record<stri
   const self = portrait.self;
   const jobs = self && typeof self === "object" ? (self as Row).jobs : undefined;
   if (Array.isArray(jobs) && jobs.length) body.jobs = jobs.slice(0, 4);
+  // 2.30.0: what she wants and fears now, in the game's words; a want without text is no fact to report.
+  const wantRows = self && typeof self === "object" ? (self as Row).wants : undefined;
+  const wants = Array.isArray(wantRows)
+    ? wantRows.flatMap((row) => {
+        if (!row || typeof row !== "object" || typeof (row as Row).want !== "string") return [];
+        const { want, fear } = row as Row;
+        return [{ want: (want as string).slice(0, 120), ...(fear === true ? { fear: true } : {}) }];
+      }).slice(0, 5)
+    : [];
+  if (wants.length) body.wants = wants;
   const asked = textList(portrait.asked, "title", 2);
   if (asked.length) body.asked = asked;
   // SS1: social talk as plain sentences where the phrase data has one (hers, then to her).
   const said = [...textList(portrait.doing_said, "sentence", 3), ...textList(portrait.addressed_by, "sentence", 3)];
   if (said.length) body.said = said;
-  for (const key of ["said", "with", "feelings", "doing"]) {
+  for (const key of ["said", "with", "feelings", "doing", "wants"]) {
     if (bytes(body) <= DOMUS_NOW_BYTES) break;
     delete body[key];
   }
