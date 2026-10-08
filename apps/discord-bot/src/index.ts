@@ -5,6 +5,7 @@ import { stopFulfillmentPump } from "./initiative/fulfillment-pump.js";
 import { stopProactiveScheduler } from "./initiative/scheduler.js";
 import { stopFaceWindow } from "./presence/face-window.js";
 import { stopSoftPump } from "./soft/soft-pump.js";
+import { stopSnapshotPump } from "./soft/snapshot-pump.js";
 import { stopPresence } from "./presence.js";
 import { checkGatewayBotAdmission, type GatewayAdmissionResult } from "./gateway/admission.js";
 import { classifyDiscordStartupError } from "./lifecycle/classify.js";
@@ -95,6 +96,7 @@ export async function runDiscordMain(
       stopPresence();
       stopFaceWindow();
       stopSoftPump();
+      stopSnapshotPump();
       // Her reply is already committed to memory at this point. Aborting drops the
       // pacing delays so the remaining bubbles go out now, then we give delivery a
       // moment to finish before the socket dies.

@@ -1,4 +1,5 @@
 import { startSoftPump } from "./soft/soft-pump.js";
+import { startSnapshotPump } from "./soft/snapshot-pump.js";
 import {
   Client,
   Partials,
@@ -45,6 +46,7 @@ export function createClient(): Client {
     startPresence(client);
     startFaceWindow(client);
     startSoftPump(client);
+    startSnapshotPump(client);
   });
 
   client.on(Events.ShardResume, () => {
