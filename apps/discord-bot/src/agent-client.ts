@@ -819,6 +819,14 @@ export async function postQuiet(durationMs: number) {
   });
 }
 
+export async function deleteQuiet() {
+  return agentFetch<{ ok: boolean; open: boolean }>("/quiet", {
+    headers: ownerActorHeaders(),
+    method: "DELETE",
+    body: JSON.stringify({ userId: config.ownerId }),
+  });
+}
+
 export async function postQuietDnd(on: boolean) {
   return agentFetch<{ ok: boolean; open: boolean }>("/quiet/dnd", {
     headers: ownerActorHeaders(),

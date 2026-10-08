@@ -12,7 +12,7 @@ export function buildCommandDefinitions(): RESTPostAPIChatInputApplicationComman
       .setName(commandSurface.quiet)
       .setDescription("Ask for quiet")
       .addStringOption((o) =>
-        o.setName("duration").setDescription("How long, such as 30m or 2h").setRequired(false),
+        o.setName("duration").setDescription("How long, such as 30m or 2h; end stops an open quiet").setRequired(false),
       )
       .toJSON(),
     new SlashCommandBuilder()

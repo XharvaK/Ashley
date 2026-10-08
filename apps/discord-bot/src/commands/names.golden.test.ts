@@ -11,6 +11,6 @@ describe("command definition name golden hash", () => {
     const actual = createHash("sha256")
       .update(JSON.stringify(buildCommandDefinitions()))
       .digest("hex");
-    assert.equal(actual, "1d36e916efcc53d69c364f3ae94de68a12c3ffe17a5647e4bf08e0418425ab30");
+    assert.equal(actual, "87b6f0a6f2f9b6246c0963d467546854897ac9130e0d63c0eebbfaee05459e5f");
   });
 });
