@@ -12,6 +12,7 @@ on:
       - "apps/sandbox-v2/**"
       - "scripts/ci/**"
       - "scripts/phase0/**"
+      - "scripts/testing/**"
       - "workspace/prompts/**"
   pull_request:
     paths:
@@ -24,6 +25,7 @@ on:
       - "apps/sandbox-v2/**"
       - "scripts/ci/**"
       - "scripts/phase0/**"
+      - "scripts/testing/**"
       - "workspace/prompts/**"
 
 # A newer push to the same branch replaces a run still in progress: only the newest commit is judged.
