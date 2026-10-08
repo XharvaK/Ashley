@@ -132,7 +132,12 @@ describe("media reading", () => {
 
   it("a slow lookup leaves the GIF unread instead of holding the message", async () => {
     const message = fakeMessage({ content: TENOR });
-    const reading = await readMedia(message, { fetchText: () => new Promise(() => undefined), timeoutMs: 20 });
+    // readMedia's own timer is unref'd (a pending read never holds the bot open), so the lookup that
+    // outlasts it holds a ref'd timer: with nothing else alive, the test runner would cancel the file.
+    let late: ReturnType<typeof setTimeout> | undefined;
+    const slowLookup: FetchText = () => new Promise((resolve) => { late = setTimeout(() => resolve(null), 2_000); });
+    const reading = await readMedia(message, { fetchText: slowLookup, timeoutMs: 20 });
+    clearTimeout(late);
     assert.equal(reading.gifs[0]!.read, false);
   });
 
