@@ -50,13 +50,14 @@ test("proactive status renders periodic truth without legacy message aliases", (
     cadenceMinutes: 240,
   });
 
-  assert.match(rendered, /Legacy proactive switch: on/);
-  assert.match(rendered, /Periodic cognition: enabled/);
-  assert.match(rendered, /Scheduler: active \(running\); poll: waiting/);
+  assert.match(rendered, /Proactive messages: on/);
+  assert.match(rendered, /Thinking on her own: enabled/);
+  assert.match(rendered, /Scheduler: active \(running\)/);
+  assert.doesNotMatch(rendered, /poll:|Scheduler owner|outbox #/);
   assert.match(rendered, /Next opportunity: 2026-09-18T12:00:00.000Z/);
-  assert.match(rendered, /Last opportunity: skipped_empty \(no-candidate\)/);
-  assert.match(rendered, /Eligible occupied concerns: 2/);
-  assert.match(rendered, /Last proactive Thought: settled/);
-  assert.match(rendered, /Last proactive message: delivered/);
+  assert.match(rendered, /Last opportunity: skipped empty \(no candidate\)/);
+  assert.match(rendered, /Concerns she is occupied with: 2/);
+  assert.match(rendered, /Last thought of her own: settled/);
+  assert.match(rendered, /Last message she started: delivered/);
   assert.doesNotMatch(rendered, /Last thing you said|lastUserMessageAt|Unprompted messages/);
 });

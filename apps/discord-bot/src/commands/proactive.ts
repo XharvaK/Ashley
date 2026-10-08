@@ -14,37 +14,41 @@ function at(value: string | null): string {
   return value ?? "unknown";
 }
 
+/** Outcome and status names come from the Host as snake or kebab words; people read them as words. */
+function plain(value: string): string {
+  return value.replace(/[_-]+/g, " ");
+}
+
 export function renderProactiveStatus(
   status: InitiativeStatus,
   scheduler: SchedulerStatus,
 ): string {
-  const periodic = status.statusAvailability === "available"
+  const ownTime = status.statusAvailability === "available"
     ? status.periodicCognitionEnabled ? "enabled" : "disabled"
     : "unavailable";
   const schedulerState = scheduler.active
     ? scheduler.running ? "active (running)" : "active"
     : "inactive";
   const occurrence = status.lastPeriodicOccurrence
-    ? `${status.lastPeriodicOccurrence.outcome}${status.lastPeriodicOccurrence.detail ? ` (${status.lastPeriodicOccurrence.detail})` : ""} at ${status.lastPeriodicOccurrence.closedAt}`
+    ? `${plain(status.lastPeriodicOccurrence.outcome)}${status.lastPeriodicOccurrence.detail ? ` (${plain(status.lastPeriodicOccurrence.detail)})` : ""} at ${status.lastPeriodicOccurrence.closedAt}`
     : "none";
   const thought = status.lastProactiveThought
-    ? `${status.lastProactiveThought.state} at ${status.lastProactiveThought.admittedAt}`
+    ? `${plain(status.lastProactiveThought.state)} at ${status.lastProactiveThought.admittedAt}`
     : "none";
   const delivery = status.lastProactiveDelivery
-    ? `${status.lastProactiveDelivery.status} (outbox #${status.lastProactiveDelivery.outboxId})`
+    ? plain(status.lastProactiveDelivery.status)
     : "none";
   return [
-    `Legacy proactive switch: ${status.legacyProactiveEnabled ? "on" : "off"}`,
-    `Periodic cognition: ${periodic}`,
-    `Scheduler: ${schedulerState}; poll: ${status.periodicScheduleState}`,
-    `Scheduler owner: ${scheduler.owner ?? "unknown"}`,
+    `Proactive messages: ${status.legacyProactiveEnabled ? "on" : "off"}`,
+    `Thinking on her own: ${ownTime}`,
+    `Scheduler: ${schedulerState}`,
     renderThalamusStatus(status.thalamus),
-    `Cadence: ~${scheduler.cadenceMinutes} minutes`,
+    `Cadence: about ${scheduler.cadenceMinutes} minutes`,
     `Next opportunity: ${at(status.nextEligibleAt)}`,
     `Last opportunity: ${occurrence}`,
-    `Eligible occupied concerns: ${status.statusAvailability === "available" ? status.eligibleOccupiedConcernCount : "unknown"}`,
-    `Last proactive Thought: ${thought}`,
-    `Last proactive message: ${delivery}`,
+    `Concerns she is occupied with: ${status.statusAvailability === "available" ? status.eligibleOccupiedConcernCount : "unknown"}`,
+    `Last thought of her own: ${thought}`,
+    `Last message she started: ${delivery}`,
   ].join("\n");
 }
 
@@ -62,7 +66,7 @@ export async function execute(
   if (action === "pause") {
     await pauseProactive();
     await interaction.editReply({
-      content: "Okay — I won't text first until you `/proactive resume`.",
+      content: "Okay — I won't text first until you `/proactive resume`. Anything I had ready is held and goes out when you resume.",
     });
     return;
   }
