@@ -12,6 +12,18 @@ export type AllocationFailureKind =
   | "evidence_count_limit"
   | "retained_detail_access";
 
+/** Structural reasons a required observation failed shape validation. Never carry value text. */
+export const MALFORMED_OBSERVATION_CAUSES = [
+  "non_finite_number",
+  "unsupported_type",
+  "cycle",
+  "array_shape",
+  "non_plain_prototype",
+  "hidden_keys",
+] as const;
+
+export type MalformedObservationCause = (typeof MALFORMED_OBSERVATION_CAUSES)[number];
+
 export type AllocationFailureDiagnostic = Readonly<{
   kind: AllocationFailureKind;
   constraint: string;
@@ -21,6 +33,10 @@ export type AllocationFailureDiagnostic = Readonly<{
   stage: "required_set_validation" | "observation_validation" | "global_allocation" | "final_render" | "provider_dispatch";
   measurementBasis: "exact" | "lower_bound";
   fallback?: "retained_detail_access_unavailable";
+  /** Malformed observation failures only: JSON path of the offending node (max 200 chars). */
+  path?: string;
+  /** Malformed observation failures only: why that node was rejected. */
+  cause?: MalformedObservationCause;
 }>;
 
 export type AllocationTokenBreakdown = {

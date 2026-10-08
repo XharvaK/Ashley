@@ -1,14 +1,17 @@
 import type { ChatInputCommandInteraction } from "discord.js";
 import { getNuclearStatus } from "../agent-client.js";
 import {renderThalamusStatus} from "./thalamus-status.js";
+import {renderThoughtParseRates} from "./thought-parse-status.js";
 
 export async function execute(
   interaction: ChatInputCommandInteraction,
 ): Promise<void> {
   const status = await getNuclearStatus();
+  const thoughtParse = renderThoughtParseRates(status.thoughtParseRates);
   const lines = [
     `Schema: v${status.health.schemaVersion} (${status.health.ok ? "ok" : "degraded"})`,
     `Cognition: ${status.health.cognitionMode}`,
+    ...(thoughtParse ? [thoughtParse] : []),
     renderThalamusStatus(status.thalamus),
     `Reflection: ${status.health.reflectionMode}`,
     `Proactive: ${status.initiative.enabled ? "on" : "off"}${status.initiative.paused ? " (paused)" : ""}`,

@@ -104,9 +104,11 @@ import { setInfluenceMode } from "./core/cognitive-v021/influences/contract-stat
 import { rollbackCognitiveGraduation } from "./core/cognitive-v021/graduation/calibration.js";
 import { CORRECTION_CLASSES, DISPOSITIONS, latestAdjudication, recordAdjudication, type AdjudicationInput } from "./core/cognitive-v021/graduation/adjudications.js";
 import {
+  listThoughtParseRates,
   ObservabilityStore,
   RAW_DEBUG_RETENTION_MAX_MS,
   readObservabilityMode,
+  type ThoughtParseRate,
 } from "./core/cognitive-v021/thought/diagnostics.js";
 import { listPeriodicDiagnostics } from "./core/cognitive-v021/initiative/periodic-diagnostics.js";
 import {
@@ -412,6 +414,9 @@ function gone(_req: express.Request, res: express.Response): void {
     message: "Voice, Telegram, habits, and network skills were retired.",
   });
 }
+
+/** Window for the per-model Thought parse-rate line on /status. */
+const THOUGHT_PARSE_RATE_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 export function createServer(
   manager: AgentManager,
@@ -1136,8 +1141,14 @@ export function createServer(
       requireOwner(ownerId || undefined);
       let life: string[] | undefined;
       try { life = renderLifeReceipt(lifeReceipt(getCognitiveSidecar(), Date.now())); } catch { life = undefined; }
+      let thoughtParseRates: ThoughtParseRate[] | undefined;
+      try {
+        const rates = listThoughtParseRates(getObservabilityDb(), { sinceMs: Date.now() - THOUGHT_PARSE_RATE_WINDOW_MS });
+        thoughtParseRates = rates.length > 0 ? rates : undefined;
+      } catch { thoughtParseRates = undefined; }
       res.json({...manager.core.nuclearStatusSnapshot(ownerId),
-        thalamus:thalamusStatus(cognitiveSidecar,ownerId,Date.now()), ...(life ? { life } : {})});
+        thalamus:thalamusStatus(cognitiveSidecar,ownerId,Date.now()), ...(life ? { life } : {}),
+        ...(thoughtParseRates ? { thoughtParseRates } : {})});
     } catch (err) {
       const { status, body } = toErrorResponse(err);
       res.status(status).json(body);

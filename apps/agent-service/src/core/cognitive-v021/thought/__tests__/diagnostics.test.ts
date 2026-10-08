@@ -4,6 +4,7 @@ import {
   RAW_DEBUG_RETENTION_MAX_DAYS,
   buildProviderS5,
   captureThoughtDebug,
+  listThoughtParseRates,
   openObservabilityStore,
   initObservabilitySchema,
   readObservabilityMode,
@@ -242,6 +243,44 @@ describe("Thought Diagnostics & Observability DB", () => {
         estimated_input_tokens: null,
         semantic_budget_tokens: null,
         overflow_tokens: null,
+      });
+      expect(obs.listDiagnostics()[0]).toMatchObject({ allocationFailure });
+    } finally {
+      obs.close();
+    }
+  });
+
+  it("round-trips the malformed observation path and cause", () => {
+    const obs = openObservabilityStore(":memory:");
+    try {
+      const allocationFailure = {
+        kind: "structural_safety" as const,
+        constraint: "malformed_json_structure",
+        measuredValue: 8,
+        unit: "nodes" as const,
+        limit: 524_160,
+        stage: "observation_validation" as const,
+        measurementBasis: "exact" as const,
+        path: "$.content[2].score",
+        cause: "non_finite_number" as const,
+      };
+      obs.recordDiagnostic({
+        cycleId: "cycle-observation-malformed",
+        generation: 2,
+        requestId: "req-observation-malformed",
+        pass: 1,
+        code: "context_allocation_required_overflow",
+        stage: "allocation",
+        dispatchTruth: "not_sent",
+        requiredOverflowSection: "observations",
+        allocationFailure,
+      });
+
+      const stored = obs.db.prepare(
+        "SELECT cycle_metrics_json FROM thought_dispatch_diagnostics WHERE request_id = ?",
+      ).get("req-observation-malformed") as { cycle_metrics_json: string };
+      expect(JSON.parse(stored.cycle_metrics_json)).toMatchObject({
+        allocation_failure: { path: "$.content[2].score", cause: "non_finite_number" },
       });
       expect(obs.listDiagnostics()[0]).toMatchObject({ allocationFailure });
     } finally {
@@ -1535,6 +1574,81 @@ describe("Thought Diagnostics & Observability DB", () => {
     } finally {
       obs.close();
       vi.unstubAllEnvs();
+    }
+  });
+});
+
+describe("Thought parse rate per model", () => {
+  const HOUR_MS = 3_600_000;
+  const NOW_MS = 240 * HOUR_MS;
+
+  function recordAnswer(
+    obs: ReturnType<typeof openObservabilityStore>,
+    requestId: string,
+    code: "provider_returned" | "parser_malformed" | "attention_deadline",
+    providerModel: string | undefined,
+    createdAtMs: number,
+  ): void {
+    obs.recordDiagnostic({
+      cycleId: `cycle-${requestId}`,
+      generation: 1,
+      requestId,
+      pass: 1,
+      code,
+      stage: code === "parser_malformed" ? "parser" : "provider_dispatch",
+      dispatchTruth: "sent",
+      providerFailure: {
+        dispatchTruth: "sent",
+        parserStatus: code === "parser_malformed" ? "failed" : "passed",
+        validatorStatus: "passed",
+        structuralRetryStatus: "not_applicable",
+        ...(providerModel ? { providerModel } : {}),
+      },
+    }, createdAtMs);
+  }
+
+  it("counts returned and malformed answers per model inside the window only", () => {
+    const obs = openObservabilityStore(":memory:");
+    try {
+      recordAnswer(obs, "req-alpha-1", "provider_returned", "model-alpha", NOW_MS - HOUR_MS);
+      recordAnswer(obs, "req-alpha-2", "provider_returned", "model-alpha", NOW_MS - 2 * HOUR_MS);
+      recordAnswer(obs, "req-alpha-3", "provider_returned", "model-alpha", NOW_MS - 3 * HOUR_MS);
+      recordAnswer(obs, "req-alpha-bad", "parser_malformed", "model-alpha", NOW_MS - 4 * HOUR_MS);
+      recordAnswer(obs, "req-beta-1", "provider_returned", "model-beta", NOW_MS - 5 * HOUR_MS);
+      recordAnswer(obs, "req-beta-2", "provider_returned", "model-beta", NOW_MS - 6 * HOUR_MS);
+      recordAnswer(obs, "req-old", "provider_returned", "model-alpha", NOW_MS - 25 * HOUR_MS);
+      recordAnswer(obs, "req-no-model", "parser_malformed", undefined, NOW_MS - HOUR_MS);
+      recordAnswer(obs, "req-deadline", "attention_deadline", "model-beta", NOW_MS - HOUR_MS);
+
+      expect(listThoughtParseRates(obs.db, { sinceMs: NOW_MS - 24 * HOUR_MS })).toEqual([
+        { modelId: "model-alpha", returned: 3, malformed: 1 },
+        { modelId: "model-beta", returned: 2, malformed: 0 },
+      ]);
+    } finally {
+      obs.close();
+    }
+  });
+
+  it("returns nothing when no answer is in the window", () => {
+    const obs = openObservabilityStore(":memory:");
+    try {
+      recordAnswer(obs, "req-stale", "provider_returned", "model-alpha", NOW_MS - 30 * HOUR_MS);
+      expect(listThoughtParseRates(obs.db, { sinceMs: NOW_MS - 24 * HOUR_MS })).toEqual([]);
+    } finally {
+      obs.close();
+    }
+  });
+
+  it("bounds the list to the four busiest models", () => {
+    const obs = openObservabilityStore(":memory:");
+    try {
+      for (let index = 1; index <= 5; index += 1) {
+        recordAnswer(obs, `req-model-${index}`, "provider_returned", `model-${index}`, NOW_MS - HOUR_MS);
+      }
+      expect(listThoughtParseRates(obs.db, { sinceMs: NOW_MS - 24 * HOUR_MS }).map((rate) => rate.modelId))
+        .toEqual(["model-1", "model-2", "model-3", "model-4"]);
+    } finally {
+      obs.close();
     }
   });
 });

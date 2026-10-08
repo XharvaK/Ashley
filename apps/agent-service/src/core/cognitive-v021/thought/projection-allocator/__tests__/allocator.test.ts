@@ -1513,6 +1513,8 @@ describe("Whole-Thought Projection Allocator", () => {
         constraint: "malformed_json_structure",
         unit: "nodes",
         stage: "observation_validation",
+        cause: "cycle",
+        path: "$.payload.self",
       },
     });
   });

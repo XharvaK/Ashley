@@ -4,7 +4,7 @@
  */
 import { nativeImagePayload } from "../../perception/images.js";
 import { MAX_LOGICAL_SERIALIZED_INPUT_BYTES } from "./budget.js";
-import type { AllocationFailureDiagnostic } from "./receipt.js";
+import type { AllocationFailureDiagnostic, MalformedObservationCause } from "./receipt.js";
 
 export const PROTECTED_PRIOR_DIALOGUE_COUNT = 4;
 export const ORDINARY_PRIOR_MESSAGE_BYTE_CLASS = 2_048;
@@ -38,21 +38,57 @@ function observationInspectionFailure(
   return { ok: false, failure };
 }
 
+/** Longest JSON path a malformed-observation diagnostic reports. */
+const MAX_MALFORMED_PATH_CHARS = 200;
+/** Longer keys are reported as `*` so a diagnostic never echoes long key text. */
+const MAX_MALFORMED_PATH_KEY_CHARS = 40;
+
+/** One step from the observation root. Paths are only joined when a failure is reported. */
+type PathStep = Readonly<{ parent: PathStep | null; step: string | number }>;
+
+/** Message suffix naming the malformed cause and path; empty for other observation failures. */
+export function malformedObservationDetail(failure: AllocationFailureDiagnostic): string {
+  return failure.cause === undefined ? "" : `, cause ${failure.cause} at ${failure.path}`;
+}
+
+function renderPathKey(key: string): string {
+  if (key.length > MAX_MALFORMED_PATH_KEY_CHARS) return "[\"*\"]";
+  if (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(key)) return `.${key}`;
+  return `[${JSON.stringify(key)}]`;
+}
+
+function renderObservationPath(leaf: PathStep | null): string {
+  const parts: string[] = [];
+  for (let step: PathStep | null = leaf; step !== null; step = step.parent) {
+    parts.push(typeof step.step === "number" ? `[${step.step}]` : renderPathKey(step.step));
+  }
+  const path = `$${parts.reverse().join("")}`;
+  return path.length > MAX_MALFORMED_PATH_CHARS
+    ? `${path.slice(0, MAX_MALFORMED_PATH_CHARS - 3)}...`
+    : path;
+}
+
 /**
  * Validate the observation's JSON shape without recursively serializing it.
  * The node ceiling is derived from the whole-request byte envelope, so it
  * cannot reject a request that could fit that envelope. Depth protects the
  * serializer stack; the byte result is measured exactly after shape checks.
+ * A malformed result names the cause and JSON path of the offending node,
+ * never any value or string content.
  */
 export function inspectRequiredObservation(value: unknown): RequiredObservationInspection {
-  type Pending = { value: unknown; depth: number; exit?: object };
-  const stack: Pending[] = [{ value, depth: 0 }];
+  type Pending = { value: unknown; depth: number; path: PathStep | null; exit?: object };
+  const stack: Pending[] = [{ value, depth: 0, path: null }];
   const active = new WeakSet<object>();
   const hostImagePayload = nativeImagePayload(value)?.payload;
   let visitedNodes = 0;
   let rawStringAndKeyBytes = 0;
+  let lastPath: PathStep | null = null;
 
-  const malformed = (): RequiredObservationInspection => observationInspectionFailure({
+  const malformed = (
+    cause: MalformedObservationCause,
+    path: PathStep | null,
+  ): RequiredObservationInspection => observationInspectionFailure({
     kind: "structural_safety",
     constraint: "malformed_json_structure",
     measuredValue: visitedNodes,
@@ -60,11 +96,14 @@ export function inspectRequiredObservation(value: unknown): RequiredObservationI
     limit: REQUIRED_OBSERVATION_MAX_NODES,
     stage: "observation_validation",
     measurementBasis: "exact",
+    path: renderObservationPath(path),
+    cause,
   });
 
   try {
     while (stack.length > 0) {
       const pending = stack.pop()!;
+      lastPath = pending.path;
       if (pending.exit) {
         active.delete(pending.exit);
         continue;
@@ -111,13 +150,13 @@ export function inspectRequiredObservation(value: unknown): RequiredObservationI
         continue;
       }
       if (typeof current === "number") {
-        if (!Number.isFinite(current)) return malformed();
+        if (!Number.isFinite(current)) return malformed("non_finite_number", pending.path);
         continue;
       }
-      if (typeof current !== "object") return malformed();
-      if (active.has(current)) return malformed();
+      if (typeof current !== "object") return malformed("unsupported_type", pending.path);
+      if (active.has(current)) return malformed("cycle", pending.path);
       active.add(current);
-      stack.push({ value: null, depth: pending.depth, exit: current });
+      stack.push({ value: null, depth: pending.depth, path: pending.path, exit: current });
 
       if (Array.isArray(current)) {
         if (current.length > REQUIRED_OBSERVATION_MAX_NODES) {
@@ -132,20 +171,21 @@ export function inspectRequiredObservation(value: unknown): RequiredObservationI
           });
         }
         for (let index = current.length - 1; index >= 0; index -= 1) {
+          const path: PathStep = { parent: pending.path, step: index };
           const descriptor = Object.getOwnPropertyDescriptor(current, String(index));
-          if (!descriptor || !("value" in descriptor) || !descriptor.enumerable) return malformed();
-          stack.push({ value: descriptor.value, depth: pending.depth + 1 });
+          if (!descriptor || !("value" in descriptor) || !descriptor.enumerable) return malformed("array_shape", path);
+          stack.push({ value: descriptor.value, depth: pending.depth + 1, path });
         }
         const enumerableKeys = Object.keys(current);
         if (
           enumerableKeys.length !== current.length
           || Reflect.ownKeys(current).length !== current.length + 1
-        ) return malformed();
+        ) return malformed("array_shape", pending.path);
         continue;
       }
 
       const prototype = Object.getPrototypeOf(current);
-      if (prototype !== Object.prototype && prototype !== null) return malformed();
+      if (prototype !== Object.prototype && prototype !== null) return malformed("non_plain_prototype", pending.path);
       const keys = Object.keys(current);
       if (keys.length > REQUIRED_OBSERVATION_MAX_NODES) {
         return observationInspectionFailure({
@@ -159,7 +199,9 @@ export function inspectRequiredObservation(value: unknown): RequiredObservationI
         });
       }
       // Only the root image payload may carry the immutable Host pixel field.
-      if (Reflect.ownKeys(current).length !== keys.length + (current === hostImagePayload ? 1 : 0)) return malformed();
+      if (Reflect.ownKeys(current).length !== keys.length + (current === hostImagePayload ? 1 : 0)) {
+        return malformed("hidden_keys", pending.path);
+      }
       for (let index = keys.length - 1; index >= 0; index -= 1) {
         const key = keys[index]!;
         rawStringAndKeyBytes += Buffer.byteLength(key, "utf8");
@@ -174,21 +216,25 @@ export function inspectRequiredObservation(value: unknown): RequiredObservationI
             measurementBasis: "lower_bound",
           });
         }
+        const path: PathStep = { parent: pending.path, step: key };
         const descriptor = Object.getOwnPropertyDescriptor(current, key);
-        if (!descriptor || !("value" in descriptor) || !descriptor.enumerable) return malformed();
-        stack.push({ value: descriptor.value, depth: pending.depth + 1 });
+        if (!descriptor || !("value" in descriptor) || !descriptor.enumerable) {
+          return malformed("hidden_keys", path);
+        }
+        stack.push({ value: descriptor.value, depth: pending.depth + 1, path });
       }
     }
   } catch {
-    return malformed();
+    // A throwing Proxy trap or other exotic object cannot be inspected as plain JSON.
+    return malformed("unsupported_type", lastPath);
   }
 
   try {
     const serialized = JSON.stringify(value);
-    if (typeof serialized !== "string") return malformed();
+    if (typeof serialized !== "string") return malformed("unsupported_type", null);
     return { ok: true, serializedBytes: Buffer.byteLength(serialized, "utf8") };
   } catch {
-    return malformed();
+    return malformed("unsupported_type", null);
   }
 }
 

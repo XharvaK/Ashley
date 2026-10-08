@@ -63,6 +63,7 @@ import {
   REQUIRED_WC_ITEM_BYTES,
   REQUIRED_WC_PROJECTED_POOL_BYTES,
   inspectRequiredObservation,
+  malformedObservationDetail,
   utf8JsonBytes,
 } from "./composition-contract.js";
 import {
@@ -380,7 +381,7 @@ export function allocateThoughtProjection(
       const { failure } = inspection;
       const measurement = failure.measurementBasis === "lower_bound" ? "at least " : "";
       throw new RequiredOverflowError(
-        `Required observation failed ${failure.constraint} (measured ${measurement}${failure.measuredValue} ${failure.unit}, limit ${failure.limit} ${failure.unit}, stage ${failure.stage})`,
+        `Required observation failed ${failure.constraint} (measured ${measurement}${failure.measuredValue} ${failure.unit}, limit ${failure.limit} ${failure.unit}, stage ${failure.stage}${malformedObservationDetail(failure)})`,
         { section: "observations", failure },
       );
     }
@@ -433,7 +434,7 @@ export function allocateThoughtProjection(
     if (!inspection.ok) {
       const { failure } = inspection;
       throw new RequiredOverflowError(
-        `Canonical required observation failed ${failure.constraint} (measured ${failure.measuredValue} ${failure.unit}, limit ${failure.limit} ${failure.unit}, stage ${failure.stage})`,
+        `Canonical required observation failed ${failure.constraint} (measured ${failure.measuredValue} ${failure.unit}, limit ${failure.limit} ${failure.unit}, stage ${failure.stage}${malformedObservationDetail(failure)})`,
         { section: "observations", failure },
       );
     }
