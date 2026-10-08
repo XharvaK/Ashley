@@ -195,7 +195,7 @@ async function pass(options: {
 const ok = () => commandCodeText(JSON.stringify(makeSemanticSettlement()), { promptTokens: 1, completionTokens: 1 }, "");
 
 describe("HA2 provider lifeboat", () => {
-  it("sends a Muse pass to DeepSeek V4.1 Flash at max after a 503", async () => {
+  it("sends a Muse pass to DeepSeek V4.1 Flash at high after a 503", async () => {
     const seen = arm((call, args) => {
       if (call === 1) throw new AppError("provider_unavailable", "command_code_http_503", 503);
       return { ...ok(), providerModel: args.modelId };
@@ -203,13 +203,13 @@ describe("HA2 provider lifeboat", () => {
     const { invocation, store } = await pass({ cycleId: "cycle-lifeboat-muse", observe: true });
     expect(seen).toEqual([
       { modelId: MUSE, effort: "xhigh", lifeboat: undefined },
-      { modelId: FLASH, effort: "max", lifeboat: true },
+      { modelId: FLASH, effort: "high", lifeboat: true },
     ]);
     expect(invocation.output.kind).not.toBe("failure");
     expect(invocation.lifeboat).toMatchObject({
       fromModelId: MUSE,
       toModelId: FLASH,
-      toEffort: "max",
+      toEffort: "high",
     });
     expect(invocation.lifeboat?.primaryFailureClass).toBeTruthy();
     expect(invocation.thoughtExecutionProvenance?.providerAttempts).toBe(2);
@@ -337,17 +337,17 @@ describe("HA2 provider lifeboat", () => {
 
       seen.length = 0;
       const second = await pass({ cycleId: "cycle-circuit-skip", nowMs: () => now, observe: true });
-      expect(seen).toEqual([{ modelId: FLASH, effort: "max", lifeboat: true }]);
+      expect(seen).toEqual([{ modelId: FLASH, effort: "high", lifeboat: true }]);
       expect(second.invocation.lifeboat).toMatchObject({
         fromModelId: MUSE,
         toModelId: FLASH,
-        toEffort: "max",
+        toEffort: "high",
         primaryFailureClass: "circuit_open",
         primaryDispatchTruth: "not_sent",
         primaryAttemptId: null,
         primaryProviderAttempts: 0,
       });
-      expect(warns).toContain(`[thought] lifeboat from=${MUSE} class=circuit_open to=${FLASH} effort=max`);
+      expect(warns).toContain(`[thought] lifeboat from=${MUSE} class=circuit_open to=${FLASH} effort=high`);
       const row = second.store!.db.prepare(
         `SELECT code, provider_failure_json FROM thought_dispatch_diagnostics WHERE cycle_id = ? AND code = 'provider_unavailable'`,
       ).get("cycle-circuit-skip") as { code: string; provider_failure_json: string };

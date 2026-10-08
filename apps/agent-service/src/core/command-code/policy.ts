@@ -35,10 +35,12 @@ export function thoughtReasoningEffortForTrigger(
 /**
  * HA2 provider lifeboat (User, 2026-10-06): one backup model per Thought pass, tried once, only
  * after the pass's own model failed because the provider was unavailable. Muse passes fall back
- * to DeepSeek V4.1 Flash at max; Domus passes fall back to Muse at medium.
+ * to DeepSeek V4.1 Flash at high; Domus passes fall back to Muse at medium. The effort was max until
+ * 2026-10-08: at max the backup thought for 5 minutes on average and 7 of 43 answers spent the whole 65,536-token
+ * output on reasoning with no answer left (User: try high).
  */
 export const COMMAND_CODE_LIFEBOAT = Object.freeze({
-  thought: Object.freeze({ modelId: "deepseek/deepseek-v4.1-flash", effort: "max" } as const),
+  thought: Object.freeze({ modelId: "deepseek/deepseek-v4.1-flash", effort: "high" } as const),
   domus: Object.freeze({ modelId: "meta/muse-spark-1.3-contributor", effort: "medium" } as const),
 });
 

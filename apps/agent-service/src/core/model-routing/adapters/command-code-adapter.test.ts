@@ -301,7 +301,7 @@ describe("command-code-adapter", () => {
     const museLane = await run(COMMAND_CODE_LIFEBOAT.thought.modelId, "owner_message", true);
     expect(museLane.request).toMatchObject({
       model: "deepseek/deepseek-v4.1-flash",
-      reasoning_effort: "max",
+      reasoning_effort: "high",
     });
     const domusLane = await run(COMMAND_CODE_LIFEBOAT.domus.modelId, "domus_notification", true);
     expect(domusLane.request).toMatchObject({ reasoning_effort: "medium" });
