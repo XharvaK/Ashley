@@ -50,3 +50,6 @@ _Internal/
 # local leftover copy. Mint-bound qualification runners stay local.
 /sims-e1/
 /scripts/qualification/
+
+# Thought replay captures hold private conversation data (Ashley_Observability_Plane.md section 14)
+thought-replay-captures/

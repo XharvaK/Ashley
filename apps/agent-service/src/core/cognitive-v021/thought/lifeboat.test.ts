@@ -1,5 +1,8 @@
 import { vi } from "vitest";
 import { createHash } from "node:crypto";
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 const commandCodeState = vi.hoisted(() => ({
   dispatch: vi.fn(),
@@ -410,5 +413,55 @@ describe("HA2 provider lifeboat", () => {
       structuralRetryStatus: "not_applicable",
     });
     expect(s5?.modelId).toBe(FLASH);
+  });
+});
+
+describe("replay capture at the Thought dispatch", () => {
+  const CAPTURE_ENV = "ASHLEY_THOUGHT_REPLAY_CAPTURE_DIR";
+  const savedCaptureDir = process.env[CAPTURE_ENV];
+  let captureDir: string | null = null;
+
+  afterEach(() => {
+    if (savedCaptureDir === undefined) delete process.env[CAPTURE_ENV];
+    else process.env[CAPTURE_ENV] = savedCaptureDir;
+    if (captureDir) rmSync(captureDir, { recursive: true, force: true });
+    captureDir = null;
+  });
+
+  function captureFiles(): Array<Record<string, unknown>> {
+    if (!captureDir) return [];
+    const dir = join(captureDir, "captures");
+    return readdirSync(dir).sort().map((name) =>
+      JSON.parse(readFileSync(join(dir, name), "utf8")) as Record<string, unknown>);
+  }
+
+  it("writes one capture per dispatch, including the lifeboat attempt, with the policy model and effort", async () => {
+    captureDir = mkdtempSync(join(tmpdir(), "thought-capture-run-"));
+    process.env[CAPTURE_ENV] = join(captureDir, "captures");
+    arm((call, args) => {
+      if (call === 1) throw new AppError("provider_unavailable", "command_code_http_503", 503);
+      return { ...ok(), providerModel: args.modelId };
+    });
+    await pass({ cycleId: "cycle-capture-lifeboat" });
+    const captures = captureFiles();
+    expect(captures).toHaveLength(2);
+    expect(captures.map((record) => [record.modelId, record.effort, record.lifeboat])).toEqual([
+      [MUSE, "xhigh", false],
+      [FLASH, "high", true],
+    ]);
+    const [first] = captures;
+    expect(first.schema).toBe("ashley.thought_replay_capture.v1");
+    expect(first.passKind).toBe("chat");
+    expect(Array.isArray(first.messages)).toBe(true);
+    expect((first.messages as unknown[]).length).toBeGreaterThan(0);
+    expect(first.parseContext).toMatchObject({ concernDiscoverAllowed: expect.any(Boolean) });
+  });
+
+  it("writes nothing when the directory flag is absent", async () => {
+    captureDir = mkdtempSync(join(tmpdir(), "thought-capture-off-"));
+    delete process.env[CAPTURE_ENV];
+    arm(() => ({ ...ok(), providerModel: MUSE }));
+    await pass({ cycleId: "cycle-capture-off" });
+    expect(readdirSync(captureDir)).toEqual([]);
   });
 });
