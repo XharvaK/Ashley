@@ -37,7 +37,6 @@ import { appendInboxEvent } from "../cycle/inbox.js";
 import { appendOwnerUtterance } from "../evidence/conversation-log.js";
 import { admitTestCycle, makeSemanticSettlement } from "../test-support.js";
 import type { CapabilityReality, IdentitySlice, KernelDeps, Observation } from "../types.js";
-import { env } from "../../../env.js";
 
 const originalOwnerId = env.discordOwnerId;
 beforeAll(() => {

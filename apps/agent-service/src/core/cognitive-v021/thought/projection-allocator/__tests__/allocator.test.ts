@@ -925,7 +925,7 @@ describe("Whole-Thought Projection Allocator", () => {
     const selectionAt = first.indexOf('"conversationSelection":');
     expect(selectionAt).toBeGreaterThan(0);
     expect(shared).toBeGreaterThan(selectionAt);
-    expect(JSON.parse(first)).toEqual(JSON.parse(second.replace(later.clock!.now, base.clock!.now).replace(String(later.thoughtLegDeadlineAtMs), String(base.thoughtLegDeadlineAtMs))));
+    expect(JSON.parse(first)).toEqual(JSON.parse(second.replace(later.clock!.now!, base.clock!.now!).replace(String(later.thoughtLegDeadlineAtMs), String(base.thoughtLegDeadlineAtMs))));
   });
 
   it("keeps a cache prefix through retrieval when one conversation row is appended", () => {

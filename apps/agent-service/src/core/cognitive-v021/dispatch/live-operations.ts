@@ -70,6 +70,7 @@ import { executeTypedInspection } from "./typed-inspections.js";
 import { executeEvidenceOperation, type EvidenceRefreshFetcher } from "./evidence-operations.js";
 import { executeWebSearchOperation } from "./search-operations.js";
 import { executeWebFetchOperation } from "./web-fetch-operations.js";
+import { webAudienceRefused } from "./web-audience.js";
 import {
   defaultWebSearchProvider,
   WEB_SEARCH_OPERATION_KIND,
@@ -1209,6 +1210,7 @@ export function createV021LiveOperationExecutors(
     },
 
     async executeObservation(req): Promise<Observation> {
+      if (webAudienceRefused(req.kind, req.audience)) throw new CapabilityUnavailableError("web_audience_refused");
       if (req.kind === WEB_SEARCH_OPERATION_KIND) {
         try {
           return await executeWebSearchOperation({

@@ -43,4 +43,19 @@ describe("Thought clock", () => {
     expect(humanDuration(61_000)).toBe("1 minute");
     expect(humanDuration(3 * 86_400_000 + 5 * 3_600_000 + 7 * 60_000)).toBe("3 days 5 hours");
   });
+
+  it("gives a room only part of day and elapsed time, with no wall time, zone or offset", () => {
+    const clock = buildThoughtClock({
+      nowMs: NOW,
+      timeZone: "Etc/GMT-3",
+      rows: [row("o1", "owner", NOW - 3_600_000), row("a1", "ashley", NOW - 7_200_000)],
+      coarse: true,
+    });
+    expect(clock.partOfDay).toBe("afternoon");
+    expect(clock.now).toBeUndefined();
+    expect(clock.timeZone).toBeUndefined();
+    expect(clock.ownerPreviousMessage).toEqual({ ago: "1 hour" });
+    expect(clock.ashleyLastMessage).toEqual({ ago: "2 hours" });
+    expect(JSON.stringify(clock)).not.toMatch(/UTC|17:52|Tuesday/);
+  });
 });
