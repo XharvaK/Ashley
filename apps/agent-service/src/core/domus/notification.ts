@@ -10,11 +10,11 @@ import { domusActBinding, domusNoWayObjects, domusOptionsFor, optionsOf, recentD
 import { compareDomusReads, domusActNewsSince, domusReadOf, previousDomusRead, type DomusChanges } from "./changes.js";
 import { domusSnapshotFacts, type DomusSnapshotFact } from "./snapshots.js";
 import { domusPromisesOpen, type DomusPromiseFact } from "./promises.js";
+import { armedAttachments, DOMUS_ARMED_MS } from "./store.js";
+export { armedAttachments, DOMUS_ARMED_MS };
 
 export const EMBODIMENT_POLICY_ID = "ashley.embodiment.v1";
 export const EMBODIMENT_WINDOW_MS = 60 * 60 * 1000;
-/** Three helper heartbeats (one a minute): after that the attachment is no longer armed. */
-export const DOMUS_ARMED_MS = 180_000;
 export const DOMUS_PENDING_LIMIT = 32;
 /** The events since the last pass, within this many bytes; newest kept. */
 export const DOMUS_EVENTS_BYTES = 4096;
@@ -182,17 +182,6 @@ export function gameOnlyInputs(db: DatabaseSync, attachment: string): boolean {
 }
 
 /** Helper sessions whose latest heartbeat said attached and is recent. */
-export function armedAttachments(db: DatabaseSync, nowMs: number): Set<string> {
-  const armed = new Set<string>();
-  const rows = db.prepare("SELECT helper_session, last_received_at_ms, last_json FROM domus_heartbeats WHERE last_received_at_ms >= ? AND last_received_at_ms <= ?")
-    .all(nowMs - DOMUS_ARMED_MS, nowMs) as Row[];
-  for (const row of rows) {
-    try {
-      if ((JSON.parse(String(row.last_json)) as { attached?: unknown }).attached === true) armed.add(String(row.helper_session));
-    } catch { /* an unreadable heartbeat arms nothing */ }
-  }
-  return armed;
-}
 
 function percepts(payloadJson: unknown): Percept[] {
   try {

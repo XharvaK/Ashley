@@ -120,3 +120,19 @@ export function readDomusStatus(db: DatabaseSync): DomusStatus {
     heartbeats,
   };
 }
+
+/** Three helper heartbeats (one a minute): after that the attachment is no longer armed. */
+export const DOMUS_ARMED_MS = 180_000;
+
+/** The helper sessions whose latest heartbeat, within DOMUS_ARMED_MS, says the game is attached. */
+export function armedAttachments(db: DatabaseSync, nowMs: number): Set<string> {
+  const armed = new Set<string>();
+  const rows = db.prepare("SELECT helper_session, last_received_at_ms, last_json FROM domus_heartbeats WHERE last_received_at_ms >= ? AND last_received_at_ms <= ?")
+    .all(nowMs - DOMUS_ARMED_MS, nowMs) as Record<string, unknown>[];
+  for (const row of rows) {
+    try {
+      if ((JSON.parse(String(row.last_json)) as { attached?: unknown }).attached === true) armed.add(String(row.helper_session));
+    } catch { /* an unreadable heartbeat arms nothing */ }
+  }
+  return armed;
+}

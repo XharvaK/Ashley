@@ -57,10 +57,9 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import express from "express";
 import type { DatabaseSync } from "node:sqlite";
 import { markDomusSpanUndone } from "../cognitive-v021/memory/undo.js";
-import { admitObservation, canonicalJson, observationDigest, upsertHeartbeat } from "./store.js";
+import { admitObservation, armedAttachments, canonicalJson, observationDigest, upsertHeartbeat } from "./store.js";
 import { interruptDomusPlans, isDomusActPhase, syncDomusActs, type DomusActEvent } from "./acts.js";
 import { domusFeed } from "./feed.js";
-import { armedAttachments } from "./notification.js";
 import {
   DOMUS_SNAPSHOT_FAILURES, receiveDomusSnapshot, requestedDomusSnapshots, type DomusSnapshotFailure, type DomusSnapshotReceiptCode,
 } from "./snapshots.js";
