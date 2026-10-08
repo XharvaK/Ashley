@@ -1,5 +1,6 @@
 import type { ChatInputCommandInteraction } from "discord.js";
 import { listPlaces, switchPlace } from "../agent-client.js";
+import { fitLines } from "./fit-lines.js";
 
 /** G1: Alex sees Ashley's places and closes or reopens one. Never a required step for her. */
 export async function execute(interaction: ChatInputCommandInteraction): Promise<void> {
@@ -13,7 +14,7 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
       ...web.map((site) => `\`${site.origin}\` website, ${site.state}${site.reason ? `: ${site.reason}` : ""}`),
       ...(rules.length ? ["", "Her own rules:", ...rules.map((rule) => `\`${rule.place}\` ${rule.rule}`)] : []),
     ];
-    await interaction.editReply(lines.length ? lines.join("\n").slice(0, 1900) : "No places beyond your DM yet.");
+    await interaction.editReply(lines.length ? fitLines(lines) : "No places beyond your DM yet.");
     return;
   }
   const place = interaction.options.getString("place", true);

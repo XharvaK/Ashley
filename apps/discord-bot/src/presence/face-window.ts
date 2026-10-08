@@ -4,6 +4,7 @@ import type { Client } from "discord.js";
 import { presencePhase, type PresencePhaseName } from "../agent-client.js";
 import { ashleyDataDir } from "../data-root.js";
 import { applyPlaying, applyStatusDot } from "../presence.js";
+import { errorSummary } from "../soft/error-summary.js";
 
 export const POLL_MS = 60_000;
 export const AVATAR_CHANGES_PER_DAY = 4;
@@ -276,11 +277,11 @@ export function startFaceWindow(
   };
   if (timer) clearInterval(timer);
   void tick().catch((error: unknown) => {
-    console.warn(`[face] tick failed ${error instanceof Error ? error.name : "error"}`);
+    console.warn(`[face] tick failed ${errorSummary(error)}`);
   });
   timer = setInterval(() => {
     void tick().catch((error: unknown) => {
-      console.warn(`[face] tick failed ${error instanceof Error ? error.name : "error"}`);
+      console.warn(`[face] tick failed ${errorSummary(error)}`);
     });
   }, POLL_MS);
 }

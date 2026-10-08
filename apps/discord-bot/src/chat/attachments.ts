@@ -233,7 +233,7 @@ export function describeIntake(message: Message, reading?: MediaReading): Intake
       });
       acceptedImageCount += 1;
       notes.push(
-        "an image attachment (whether I perceive it depends on vision capability)",
+        "an image attachment I can see",
       );
       continue;
     }

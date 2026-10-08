@@ -4,6 +4,7 @@ import { config } from "../config.js";
 import { ashleyDataDir } from "../data-root.js";
 import { searchGif } from "../chat/gif-search.js";
 import { reactPolicy } from "../chat/react-policy.js";
+import { errorSummary } from "./error-summary.js";
 import {
   AVATAR_BACKOFF_MS,
   AVATAR_CHANGES_PER_DAY,
@@ -153,7 +154,7 @@ export async function runSoftActs(deps: SoftDeps): Promise<number> {
       outcome = { status: "failed", reason: failureReason(error) };
     }
     await reportSoftActResult(act.actId, outcome).catch((error: unknown) => {
-      console.warn(`[soft] report failed act=${act.actId} ${error instanceof Error ? error.name : "error"}`);
+      console.warn(`[soft] report failed act=${act.actId} ${errorSummary(error)}`);
     });
   }
   return acts.length;
@@ -181,7 +182,7 @@ export function startSoftPump(client: Client): void {
     try {
       await runSoftActs(deps);
     } catch (error) {
-      console.warn(`[soft] tick failed ${error instanceof Error ? error.name : "error"}`);
+      console.warn(`[soft] tick failed ${errorSummary(error)}`);
     } finally {
       running = false;
     }
