@@ -351,6 +351,10 @@ const domusActSchema = strictObject({
   then: { type: "array", minItems: 1, maxItems: 2, items: { type: "string", minLength: 1, maxLength: 16 } },
   forOwner: { type: "boolean" },
 }, ["option"]);
+// SNAPSHOT: a picture of her game, with her own words to the Owner (the Host records the request; the helper takes it).
+const domusSnapshotSchema = strictObject({
+  caption: { type: "string", minLength: 1, maxLength: 200 },
+}, ["caption"]);
 // UX W2: her soft acts, Owner-DM only. rowId is a rawConversation rowId of this conversation.
 const conversationRowIdSchema = { type: "string", minLength: 1, maxLength: 200 };
 const touchSchema = strictObject({
@@ -546,6 +550,7 @@ const semanticOutputSettlementSchema = strictObject({
   reflection: reflectionSchema,
   journal: journalSchema,
   domusAct: domusActSchema,
+  domusSnapshot: domusSnapshotSchema,
   touch: touchSchema,
   correct: correctSchema,
   callback: callbackSchema,
@@ -837,7 +842,7 @@ function applyProfileScope(schema: SchemaRecord, profile: ThoughtContractProfile
     ...(profile.ownerPrivate ? [] : ["journal", "interests", "growth", "senses", "intents", "home", "pursuits", "nextOwnTime", "webPlaces", "placeRules"]),
     ...(profile.ownerPrivate ? ["contactStop", "learned"] : []),
     ...(profile.pass === "chat" && profile.ownerPrivate ? [] : ["forget"]),
-    ...(profile.domusAct ? [] : ["domusAct"]),
+    ...(profile.domusAct ? [] : ["domusAct", "domusSnapshot"]),
     ...(profile.ownerPrivate && profile.pass !== "domus" && profile.pass !== "night" ? [] : [...SOFT_SETTLEMENT_FIELDS]),
   ];
   for (const field of drop) delete properties[field];
@@ -961,6 +966,10 @@ export const HOME_GUIDANCE =
 /** 8f: acting is off; she observes. */
 export const DOMUS_OBSERVE_GUIDANCE =
   "You cannot act in the game or answer its questions yet, and the Owner may be at the controls; notice, think, and keep what matters.";
+
+/** SNAPSHOT: offered wherever domusAct is; one picture per pass, with her words. */
+export const DOMUS_SNAPSHOT_GUIDANCE =
+  "To show the Owner what you see in the house, add domusSnapshot:{caption:<your words to them>}: the helper takes a picture of the game window and it goes to the Owner's DM with your words. domusNow.snapshots tells you what became of your recent ones.";
 
 /** 8f: acting is on; she may choose one listed action per pass. */
 export const DOMUS_ACT_GUIDANCE =
@@ -1148,7 +1157,7 @@ export function thoughtOutputCompatibilityInstruction(
     ...when(full || profile.pass === "afterglow", AFTERGLOW_GUIDANCE, AFTERTHOUGHT_GUIDANCE),
     ...when(full || profile.pass === "awake", AWAKE_GUIDANCE),
     ...when(full || profile.pass === "domus", DOMUS_GUIDANCE),
-    ...when(full || profile.domusAct, DOMUS_ACT_GUIDANCE),
+    ...when(full || profile.domusAct, DOMUS_ACT_GUIDANCE, DOMUS_SNAPSHOT_GUIDANCE),
     ...when(!full && profile.pass === "domus" && !profile.domusAct, DOMUS_OBSERVE_GUIDANCE),
     ...when(full, JOURNAL_GUIDANCE),
     ...when(!full && privatePass, JOURNAL_SETTLE_GUIDANCE),

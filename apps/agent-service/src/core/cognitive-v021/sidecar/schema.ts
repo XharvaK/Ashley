@@ -2488,6 +2488,26 @@ CREATE INDEX IF NOT EXISTS idx_soft_acts_status ON soft_acts (status, created_at
 UPDATE cognitive_sidecar_meta SET schema_version=71 WHERE id=1;
 `;
 
+/** SNAPSHOT: a real picture of her game she asked for in a pass, and what became of it (the PNG itself is a file under the data root). */
+export const COGNITIVE_SIDECAR_SCHEMA_V72 = String.raw`
+CREATE TABLE IF NOT EXISTS domus_snapshots (
+  snapshot_id TEXT PRIMARY KEY,
+  cycle_id TEXT NOT NULL,
+  attachment TEXT NOT NULL,
+  caption TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('requested', 'taken', 'claimed', 'sent', 'failed', 'expired')),
+  reason TEXT,
+  requested_at_ms INTEGER NOT NULL,
+  taken_at_ms INTEGER,
+  claimed_at_ms INTEGER,
+  settled_at_ms INTEGER,
+  discord_message_id TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_domus_snapshots_status ON domus_snapshots (status, requested_at_ms);
+CREATE INDEX IF NOT EXISTS idx_domus_snapshots_cycle ON domus_snapshots (cycle_id);
+UPDATE cognitive_sidecar_meta SET schema_version=72 WHERE id=1;
+`;
+
 /** OWNERFIRST: an act her Thought marked as one the User asked for. */
 export const COGNITIVE_SIDECAR_SCHEMA_V70 = String.raw`
 ALTER TABLE domus_acts ADD COLUMN for_owner INTEGER NOT NULL DEFAULT 0 CHECK (for_owner IN (0, 1));

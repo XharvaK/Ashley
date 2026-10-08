@@ -30,7 +30,15 @@
  * 1..64 [A-Za-z0-9], phase one of received|accepted|rejected|pushed|finished|unknown|expired,
  * at_ms safe integer, optional detail object <= 1024 bytes}). Events for acts of another attachment
  * are ignored. The response is 200 {status:"ok", applied, acts:[{act_id, object_id, guid64,
- * expires_at_ms}]}: her requested acts for this helper session that have not expired.
+ * expires_at_ms}], snapshots:[{snapshot_id}]}: her requested acts for this helper session that have not expired,
+ * and her picture requests for it (SNAPSHOT) requested within the last ten minutes (older ones expire here).
+ *
+ * POST /domus/snapshot (SNAPSHOT) accepts only v=1, helper_session (1..64), snapshot_id (1..64 [A-Za-z0-9-]) and
+ * exactly one of png_base64 (a PNG, decoded at most 6 MiB) or failed (game_minimized|no_game_window|capture_failed).
+ * Unknown keys, both or neither, or a bad value are 400 {error:"invalid_body"}. An unknown id is 404 {error:"unknown_snapshot"};
+ * one that is not requested, or belongs to another attachment, is 409 {error:"not_requested"|"wrong_attachment"}. A PNG
+ * over the limit is 413 {error:"too_large"}; one without the PNG signature is 400 {error:"not_png"}. Success is
+ * 200 {status:"ok"}. This route accepts bodies up to about 9 MB, read only after the token check; every other route keeps 64 KiB.
  *
  * POST /domus/feed (E3) accepts only v=1 and helper_session (1..64). The response is 200
  * {status:"ok", items}: her settled game passes for that helper session that were stamped
@@ -51,9 +59,18 @@ import { markDomusSpanUndone } from "../cognitive-v021/memory/undo.js";
 import { admitObservation, canonicalJson, observationDigest, upsertHeartbeat } from "./store.js";
 import { interruptDomusPlans, isDomusActPhase, syncDomusActs, type DomusActEvent } from "./acts.js";
 import { domusFeed } from "./feed.js";
+import {
+  DOMUS_SNAPSHOT_FAILURES, receiveDomusSnapshot, requestedDomusSnapshots, type DomusSnapshotFailure, type DomusSnapshotReceiptCode,
+} from "./snapshots.js";
 import { recentWatchMarks } from "../oversight/word-watch.js";
 
 const BODY_LIMIT = 64 * 1024;
+/** SNAPSHOT: a 6 MiB picture travels as base64 inside its JSON body (about 8 MiB) plus the wrapper. */
+const SNAPSHOT_BODY_LIMIT = 9 * 1024 * 1024;
+const SNAPSHOT_STATUS: Record<DomusSnapshotReceiptCode, number> = {
+  unknown_snapshot: 404, not_requested: 409, wrong_attachment: 409, too_large: 413, not_png: 400, invalid_body: 400,
+  snapshots_unavailable: 503, write_failed: 500,
+};
 const MAX_WINDOW_MS = 600_000;
 const MAX_SKEW_MS = 120_000;
 
@@ -199,6 +216,27 @@ export function parseActSync(body: unknown): { helperSession: string; events: Do
   return { helperSession: text(body.helper_session, 1, 64), events };
 }
 
+const SNAPSHOT_KEYS = new Set(["v", "helper_session", "snapshot_id", "png_base64", "failed"]);
+
+export function parseDomusSnapshot(body: unknown): { helperSession: string; snapshotId: string; pngBase64?: string; failed?: DomusSnapshotFailure } {
+  if (!isRecord(body)) fail(400, "invalid_body");
+  for (const key of Object.keys(body)) if (!SNAPSHOT_KEYS.has(key)) fail(400, "invalid_body");
+  if (body.v !== 1) fail(400, "invalid_body");
+  const hasPicture = "png_base64" in body;
+  const hasFailure = "failed" in body;
+  if (hasPicture === hasFailure) fail(400, "invalid_body");
+  const base = {
+    helperSession: text(body.helper_session, 1, 64),
+    snapshotId: text(body.snapshot_id, 1, 64, /^[A-Za-z0-9-]+$/),
+  };
+  if (hasFailure) {
+    if (!(DOMUS_SNAPSHOT_FAILURES as readonly unknown[]).includes(body.failed)) fail(400, "invalid_body");
+    return { ...base, failed: body.failed as DomusSnapshotFailure };
+  }
+  if (typeof body.png_base64 !== "string" || body.png_base64.length === 0) fail(400, "invalid_body");
+  return { ...base, pngBase64: body.png_base64 };
+}
+
 const FEED_KEYS = new Set(["v", "helper_session"]);
 /** E4: word-watch flags this recent ride along with the feed, so the helper can keep the recording around them. */
 const WATCH_MARKS_MS = 10 * 60_000;
@@ -240,8 +278,20 @@ export function createDomusIngressApp(input: {
   /** E4: the dispatch diagnostics and this build's commit, for the regime of each pass in the feed. */
   observability?: DatabaseSync;
   build?: string;
+  /** SNAPSHOT: the folder the helper's pictures are written to (the Ashley data root's domus/snapshots). */
+  snapshotDir?: string;
 }): express.Express {
   const app = express();
+  // The token is checked before any body is read, so only the helper can make this listener parse a picture.
+  app.use((req, res, next) => {
+    const presented = req.get("X-Domus-Token") ?? "";
+    if (!presented || !tokenEqual(presented, input.token) || (input.botToken && tokenEqual(presented, input.botToken))) {
+      res.status(401).json({ error: "unauthorized" });
+      return;
+    }
+    next();
+  });
+  app.use("/domus/snapshot", express.json({ limit: SNAPSHOT_BODY_LIMIT }));
   app.use(express.json({ limit: BODY_LIMIT }));
   app.use((error: { type?: string; status?: number }, _req: express.Request, res: express.Response, next: express.NextFunction) => {
     if (error?.type === "entity.too.large" || error?.status === 413) {
@@ -253,14 +303,6 @@ export function createDomusIngressApp(input: {
       return;
     }
     next(error);
-  });
-  app.use((req, res, next) => {
-    const presented = req.get("X-Domus-Token") ?? "";
-    if (!presented || !tokenEqual(presented, input.token) || (input.botToken && tokenEqual(presented, input.botToken))) {
-      res.status(401).json({ error: "unauthorized" });
-      return;
-    }
-    next();
   });
   app.post("/domus/observation", (req, res) => {
     try {
@@ -333,8 +375,35 @@ export function createDomusIngressApp(input: {
   app.post("/domus/acts/sync", (req, res) => {
     try {
       const parsed = parseActSync(req.body);
-      const result = syncDomusActs(input.db, { helperSession: parsed.helperSession, events: parsed.events, nowMs: input.now() });
-      res.status(200).json({ status: "ok", applied: result.applied, acts: result.acts, planned: result.planned });
+      const now = input.now();
+      const result = syncDomusActs(input.db, { helperSession: parsed.helperSession, events: parsed.events, nowMs: now });
+      const snapshots = requestedDomusSnapshots(input.db, { helperSession: parsed.helperSession, nowMs: now });
+      res.status(200).json({ status: "ok", applied: result.applied, acts: result.acts, planned: result.planned, snapshots });
+    } catch (error) {
+      const http = error as HttpError;
+      if (http.status && http.code) {
+        res.status(http.status).json({ error: http.code });
+        return;
+      }
+      throw error;
+    }
+  });
+  app.post("/domus/snapshot", (req, res) => {
+    try {
+      const parsed = parseDomusSnapshot(req.body);
+      const result = receiveDomusSnapshot(input.db, {
+        helperSession: parsed.helperSession,
+        snapshotId: parsed.snapshotId,
+        nowMs: input.now(),
+        ...(parsed.pngBase64 !== undefined ? { pngBase64: parsed.pngBase64 } : {}),
+        ...(parsed.failed !== undefined ? { failed: parsed.failed } : {}),
+        ...(input.snapshotDir ? { snapshotDir: input.snapshotDir } : {}),
+      });
+      if (!result.ok) {
+        res.status(SNAPSHOT_STATUS[result.code]).json({ error: result.code });
+        return;
+      }
+      res.status(200).json({ status: "ok" });
     } catch (error) {
       const http = error as HttpError;
       if (http.status && http.code) {

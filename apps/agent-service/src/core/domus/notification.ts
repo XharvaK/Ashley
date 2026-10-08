@@ -8,6 +8,7 @@ import { getPrivateBudgetProjection, getPrivateReservationForWake, reservePrivat
 import type { DomusPending } from "../cognitive-v021/thalamus/nuclei/domus.js";
 import { domusActBinding, domusNoWayObjects, domusOptionsFor, optionsOf, recentDomusActs, type DomusActBinding, type DomusOptionObject, type DomusRecentAct } from "./acts.js";
 import { compareDomusReads, domusActNewsSince, domusReadOf, previousDomusRead, type DomusChanges } from "./changes.js";
+import { domusSnapshotFacts, type DomusSnapshotFact } from "./snapshots.js";
 
 export const EMBODIMENT_POLICY_ID = "ashley.embodiment.v1";
 export const EMBODIMENT_WINDOW_MS = 60 * 60 * 1000;
@@ -28,6 +29,8 @@ export type DomusNow = {
   world: string; asOfMs: number; live: boolean; body: Record<string, unknown>;
   /** DPLAY: while the game is live, an Owner turn reads what her body can do now and what became of her acts. */
   options?: DomusOptionObject[]; acts?: DomusRecentAct[];
+  /** SNAPSHOT: what became of her recent pictures of the game, when there were any. */
+  snapshots?: DomusSnapshotFact[];
 };
 /** DPLAY: the newest menu of a live game an Owner turn may act from (older menus are not offered). */
 export const DOMUS_LIVE_OPTIONS_MS = 10 * 60 * 1000;
@@ -371,8 +374,9 @@ export function domusNowForThought(db: DatabaseSync, nowMs: number): DomusNow | 
   if (!portrait || typeof portrait !== "object" || Array.isArray(portrait)) return undefined;
   const body = compactDomusBody(portrait as Record<string, unknown>);
   if (!Object.keys(body).length) return undefined;
+  const snapshots = domusSnapshotFacts(db, nowMs);
   return { world: String(row.world), asOfMs: Number(row.source_time_ms),
-    live: armedAttachments(db, nowMs).has(String(row.attachment)), body };
+    live: armedAttachments(db, nowMs).has(String(row.attachment)), body, ...(snapshots.length ? { snapshots } : {}) };
 }
 
 /** UX W3: a game attached now, and her Sim's mood as the game names it in that session's newest portrait. */

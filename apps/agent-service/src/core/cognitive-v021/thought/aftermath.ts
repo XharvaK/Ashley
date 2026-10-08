@@ -15,6 +15,7 @@ import { recordGrowth, type IdentityStore } from "../growth/growth.js";
 import type { GrowthClaim } from "../growth/claim.js";
 import { recordNight, type NightClaim } from "../growth/night.js";
 import { recordDomusAct, type DomusActBinding, type DomusActClaim } from "../../domus/acts.js";
+import { recordDomusSnapshot, type DomusSnapshotClaim } from "../../domus/snapshots.js";
 import { recordSoftActs, softClaimsOf, SOFT_KINDS, type SoftClaims } from "../soft/acts.js";
 
 /**
@@ -64,6 +65,7 @@ type StoredSettlement = SoftClaims & {
   interests?: InterestTouch[];
   journal?: JournalClaim;
   domusAct?: DomusActClaim;
+  domusSnapshot?: DomusSnapshotClaim;
   intents?: PlaceIntentClaim[];
   home?: HomeOp[];
   pursuits?: PursuitOp[];
@@ -138,7 +140,7 @@ export function recordSettlementAftermath(
     }
     // H0.4: a quiet Domus pass in which she neither acts nor speaks is a quiet check-in: the Host
     // keeps the fact that it happened, not words about a moment in which nothing changed.
-    const quietCheckIn = context.domusQuiet === true && !settlement.domusAct && Number(pending.queued_speech) !== 1;
+    const quietCheckIn = context.domusQuiet === true && !settlement.domusAct && !settlement.domusSnapshot && Number(pending.queued_speech) !== 1;
     if (context.passKind) {
       recordJournalEntry(db, {
         conversationId: context.conversationId,
@@ -189,6 +191,10 @@ export function recordSettlementAftermath(
     }
     if (standing && context.domusAct && settlement.domusAct) {
       recordDomusAct(db, { binding: context.domusAct, claim: settlement.domusAct, cycleId, nowMs: options.nowMs });
+    }
+    // SNAPSHOT: her picture request, once per pass, against the attachment the pass saw.
+    if (standing && context.domusAct && settlement.domusSnapshot) {
+      recordDomusSnapshot(db, { attachment: context.domusAct.attachment, claim: settlement.domusSnapshot, cycleId, nowMs: options.nowMs });
     }
     if (standing && settlement.senses) recordSenseDeclines(db, settlement.senses, { nowMs: Number(pending.created_at_ms), conversationId: context.conversationId, dataDir: options.dataDir, dataClassification }, context.senseBands);
     if (standing && settlement.attention && options.identityStore?.ownerId) recordPublishedAttention(db,settlementId,options.identityStore.ownerId,options.nowMs);
