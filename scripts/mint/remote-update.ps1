@@ -21,7 +21,10 @@ param(
   # Run the per-wave live check after coherent activation ("4", "5", or "all").
   [string]$LiveCheck = "",
 
-  [string]$RepoDir = "~/project-ashley"
+  [string]$RepoDir = "~/project-ashley",
+
+  # Tests pass their stub here, so a test run can never reach the real host.
+  [string]$SshPath = "ssh"
 )
 
 $ErrorActionPreference = "Stop"
@@ -33,7 +36,7 @@ function Invoke-MintBash {
   $tmp = Join-Path $env:TEMP ("ashley-mint-" + [guid]::NewGuid().ToString() + ".sh")
   [IO.File]::WriteAllText($tmp, $remote, [Text.UTF8Encoding]::new($false))
   try {
-    Get-Content -LiteralPath $tmp -Raw | & ssh -p $Port -o BatchMode=yes -o StrictHostKeyChecking=accept-new $target "tr -d '\r' | bash -s" | Out-Host
+    Get-Content -LiteralPath $tmp -Raw | & $SshPath -p $Port -o BatchMode=yes -o StrictHostKeyChecking=accept-new $target "tr -d '\r' | bash -s" | Out-Host
     return [int]$LASTEXITCODE
   } finally {
     Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue

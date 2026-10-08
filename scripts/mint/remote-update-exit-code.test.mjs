@@ -18,13 +18,17 @@ function source() {
 test("Invoke-MintBash keeps remote stdout out of its return stream", () => {
   const sshLine = source()
     .split(/\r?\n/)
-    .find((line) => line.includes("& ssh"));
+    .find((line) => line.includes("& $SshPath"));
   assert.ok(sshLine, "ssh invocation missing");
   assert.match(sshLine.trimEnd(), /\|\s*Out-Host$/);
 });
 
 test("Invoke-MintBash returns the SSH exit code as a scalar int", () => {
   assert.ok(source().includes("return [int]$LASTEXITCODE"));
+});
+
+test("the ssh program is a parameter, so tests never call the real ssh", () => {
+  assert.match(source(), /\[string\]\$SshPath = "ssh"/);
 });
 
 test("callers still compare the scalar exit code against 0", () => {
@@ -48,14 +52,17 @@ function createSshStub() {
   return dir;
 }
 
+// The stub is passed by path and the host name cannot resolve, so even a broken stub
+// never reaches the production host (2026-10-08: a PATH-based stub once did).
 function runWrapper(stubDir, sshExit) {
-  const env = { ...process.env };
-  delete env.PATH;
-  env.Path = `${stubDir};${env.Path ?? ""}`;
-  env.ASHLEY_FAKE_SSH_EXIT = String(sshExit);
+  const env = { ...process.env, ASHLEY_FAKE_SSH_EXIT: String(sshExit) };
   const result = spawnSync(
     "powershell",
-    ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", WRAPPER],
+    [
+      "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", WRAPPER,
+      "-SshPath", path.join(stubDir, "ssh.cmd"),
+      "-HostName", "no-such-host.invalid",
+    ],
     { encoding: "utf8", env },
   );
   return { code: result.status, stdout: result.stdout ?? "", stderr: result.stderr ?? "" };
