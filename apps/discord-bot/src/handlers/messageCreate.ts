@@ -26,6 +26,8 @@ import { createKillSwitchHandler } from "../chat/kill-switch.js";
 import { isOwner } from "../security/gate.js";
 import { tempoTracker } from "../chat/pacing.js";
 import { TurnBuffer } from "../chat/turn-buffer.js";
+import { GUEST_MESSAGES_PER_WINDOW, GUEST_WINDOW_MS, createSlidingWindowLimiter } from "../chat/guest-throttle.js";
+import { BOT_EXCHANGE_LIMIT, createBotExchangeGuard } from "../chat/bot-loop-guard.js";
 import type { GateVerdict, OwnerRoomContext } from "../security/gate.js";
 
 export type MessageSocialContext = {
@@ -110,7 +112,13 @@ export function createMessageCreateHandler(options: {
   hardCapMs?: number;
   /** UX Wave 2 Perception: GIF links and stickers read before the message is buffered. */
   readMedia?: (message: Message) => Promise<MediaReading>;
+  /** Per-guest budget for messages captured from people outside the Owner's circle. */
+  guestLimiter?: { admit(key: string, nowMs: number): boolean };
 }): MessageCreateHandler {
+  const guestLimiter = options.guestLimiter ?? createSlidingWindowLimiter({
+    windowMs: GUEST_WINDOW_MS,
+    max: GUEST_MESSAGES_PER_WINDOW,
+  });
   // A GIF lookup takes a moment; messages in one channel still reach the buffer in the order sent.
   const ordered = new Map<string, Promise<unknown>>();
   let lastReadyPromise = Promise.resolve();
@@ -232,6 +240,10 @@ export function createMessageCreateHandler(options: {
       try {
         const envelope = intake.envelope;
         if (!envelope) throw new Error("external_envelope_unattributable");
+        if (!guestLimiter.admit(envelope.speakerPrincipalId, Date.now())) {
+          // Over the guest's budget: not captured, so a flood cannot turn into a flood of turns.
+          return;
+        }
         const conversationKey = externalConversationKey(
           envelope,
           options.botId ?? messageClientUserId(message),
@@ -296,6 +308,10 @@ export function createMessageCreateHandler(options: {
   }
 }
 
+function isBotAuthored(message: Message): boolean {
+  return Boolean(message.author?.bot) || Boolean(message.webhookId);
+}
+
 function messageClientUserId(message: Message): string | undefined {
   const userId = (message as Message & {
     client?: { user?: { id?: string } | null };
@@ -330,7 +346,11 @@ const handleKillSwitch = createKillSwitchHandler({
   resume: resumeProactiveRemote,
 });
 
+const botExchangeGuard = createBotExchangeGuard({ limit: BOT_EXCHANGE_LIMIT });
+
 export async function handleMessage(message: Message, context?: MessageSocialContext): Promise<void> {
+  const channelId = typeof message.channel?.id === "string" ? message.channel.id : "";
+  if (!botExchangeGuard.admit(channelId, isBotAuthored(message))) return;
   if (await handleKillSwitch(message)) return;
   await messageCreateHandler.handleMessage(message, context);
 }

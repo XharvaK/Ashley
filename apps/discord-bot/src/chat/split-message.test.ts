@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { parseMediaMarkers } from "./media-markers.js";
-import { splitMessage } from "./split-message.js";
+import { capRoomBubbles, splitMessage } from "./split-message.js";
 
 describe("splitMessage", () => {
   it("keeps a single short bubble", () => {
@@ -39,5 +39,15 @@ describe("parseMediaMarkers", () => {
     assert.equal(r.text, "");
     assert.equal(r.gifQuery, "shocked face");
     assert.equal(r.react, "😲");
+  });
+});
+
+describe("capRoomBubbles", () => {
+  it("keeps the first three bubbles of a longer room reply", () => {
+    assert.deepEqual(capRoomBubbles(["a", "b", "c", "d", "e"]), ["a", "b", "c"]);
+  });
+
+  it("leaves a short reply untouched", () => {
+    assert.deepEqual(capRoomBubbles(["a"]), ["a"]);
   });
 });
