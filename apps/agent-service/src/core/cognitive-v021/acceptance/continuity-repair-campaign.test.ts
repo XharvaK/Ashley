@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { DatabaseSync } from "node:sqlite";
 import { openNuclearDb } from "../../db.js";
 import { openTestSidecar, admitTestCycle } from "../test-support.js";
@@ -29,6 +29,15 @@ import {
   reconcileOrphanedSendingDeliveries,
   reconcileUnfulfilledFailedSpeechReservations,
 } from "../delivery/pending.js";
+import { env } from "../../../env.js";
+
+const originalOwnerId = env.discordOwnerId;
+beforeAll(() => {
+  env.discordOwnerId = "doc";
+});
+afterAll(() => {
+  env.discordOwnerId = originalOwnerId;
+});
 
 function setupDeliveryDatabases() {
   const sidecar = openTestSidecar();

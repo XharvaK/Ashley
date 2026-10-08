@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { appendInboxEvent } from "../cycle/inbox.js";
 import { appendOwnerUtterance } from "../evidence/conversation-log.js";
 import { admitTestCycle, openTestSidecar, makeSemanticSettlement } from "../test-support.js";
@@ -8,6 +8,15 @@ import {
   CONVERSATION_COGNITION_OCCUPIED,
   readConversationCognition,
 } from "../cycle/cognition-claim.js";
+import { env } from "../../../env.js";
+
+const originalOwnerId = env.discordOwnerId;
+beforeAll(() => {
+  env.discordOwnerId = "doc";
+});
+afterAll(() => {
+  env.discordOwnerId = originalOwnerId;
+});
 
 const constitution: IdentitySlice = { constitutional: ["truth first"], stableSelf: [] };
 const capabilityReality: CapabilityReality = {

@@ -2,7 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { appendInboxEvent } from "../cycle/inbox.js";
 import { appendOwnerUtterance } from "../evidence/conversation-log.js";
 import { openCognitiveSidecarDb } from "../sidecar/db.js";
@@ -13,6 +13,16 @@ import { getThoughtAttemptCounters } from "./counters.js";
 import { initObservabilitySchema } from "./diagnostics.js";
 import { runCognitiveCycle } from "./run.js";
 import { AppError } from "../../../errors.js";
+import { env } from "../../../env.js";
+
+
+const originalOwnerId = env.discordOwnerId;
+beforeAll(() => {
+  env.discordOwnerId = "doc";
+});
+afterAll(() => {
+  env.discordOwnerId = originalOwnerId;
+});
 
 const capabilityReality: CapabilityReality = {
   vision: false,

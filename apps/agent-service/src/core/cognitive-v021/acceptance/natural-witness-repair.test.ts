@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DatabaseSync } from "node:sqlite";
 import { openNuclearDb } from "../../db.js";
 import { openTestSidecar, admitTestCycle, makeSemanticSettlement } from "../test-support.js";
@@ -84,12 +84,23 @@ function mockKernelDeps(overrides: Partial<KernelDeps> = {}): KernelDeps {
   };
 }
 
+const originalOwnerId = env.discordOwnerId;
+
+function pinOwner(id: string): void {
+  env.discordOwnerId = id;
+}
+
 describe("Natural Witness Repair — 2026-09-18 Incident Verifications", () => {
   beforeEach(() => {
+    pinOwner("owner-canonical-test");
+  });
+  afterEach(() => {
+    env.discordOwnerId = originalOwnerId;
   });
 
   describe("Repair A: Completion Owner Principal", () => {
     it("A1: produceOperationCompletion resolves canonical ownerId from workerUndertaking", () => {
+      pinOwner("owner-snowflake-999");
       const sidecar = openTestSidecar();
       try {
         const conversationId = "thread-100";
@@ -144,6 +155,7 @@ describe("Natural Witness Repair — 2026-09-18 Incident Verifications", () => {
     });
 
     it("A2: produceOperationCompletion resolves canonical ownerId from originOwnerEventId", () => {
+      pinOwner("owner-snowflake-888");
       const sidecar = openTestSidecar();
       try {
         const conversationId = "thread-200";
@@ -193,6 +205,7 @@ describe("Natural Witness Repair — 2026-09-18 Incident Verifications", () => {
     });
 
     it("A3: produceOperationCompletion resolves canonical ownerId from interim speech", () => {
+      pinOwner("owner-snowflake-777");
       const sidecar = openTestSidecar();
       try {
         const conversationId = "thread-300";
@@ -1042,7 +1055,7 @@ describe("Natural Witness Repair — 2026-09-18 Incident Verifications", () => {
           conversationId,
           triggerKind: "owner_message",
           triggerRef: "event-154",
-          occupantId: "212123686923272192",
+          occupantId: "owner-canonical-test",
           generation: 154,
           nowMs: 1_000,
         });
@@ -1083,13 +1096,13 @@ describe("Natural Witness Repair — 2026-09-18 Incident Verifications", () => {
           conversationId,
           triggerKind: "owner_message",
           triggerRef: "event-158",
-          occupantId: "212123686923272192",
+          occupantId: "owner-canonical-test",
           generation: 158,
           nowMs: 10_000,
         });
 
         // Run reconciliation
-        const result = reconcileLegacyWrongPrincipalSpeechReservations(nuclear, sidecar, "212123686923272192", 10_000);
+        const result = reconcileLegacyWrongPrincipalSpeechReservations(nuclear, sidecar, "owner-canonical-test", 10_000);
         expect(result.corrected).toBe(0);
         expect(result.suppressedStale).toBe(1);
 
@@ -1104,7 +1117,7 @@ describe("Natural Witness Repair — 2026-09-18 Incident Verifications", () => {
         expect(speech.nuclear_finalization_reason).toBe("stale_generation");
 
         // Verify Discord pump finds zero deliverable rows (never blindly resent)
-        const claimed = claimPendingCognitiveDeliveries(nuclear, { ownerId: "212123686923272192", nowMs: 10_000 });
+        const claimed = claimPendingCognitiveDeliveries(nuclear, { ownerId: "owner-canonical-test", nowMs: 10_000 });
         expect(claimed).toEqual([]);
       } finally {
         sidecar.close();
@@ -1123,7 +1136,7 @@ describe("Natural Witness Repair — 2026-09-18 Incident Verifications", () => {
           conversationId,
           triggerKind: "owner_message",
           triggerRef: "event-154",
-          occupantId: "212123686923272192",
+          occupantId: "owner-canonical-test",
           generation: 154,
           nowMs: 1_000,
         });
@@ -1161,19 +1174,19 @@ describe("Natural Witness Repair — 2026-09-18 Incident Verifications", () => {
         ).run(outbox.licensedText);
 
         // The pump claims with canonical Owner ID
-        const claimed = claimPendingCognitiveDeliveries(nuclear, { ownerId: "212123686923272192", nowMs: 2_000 });
+        const claimed = claimPendingCognitiveDeliveries(nuclear, { ownerId: "owner-canonical-test", nowMs: 2_000 });
         expect(claimed).toHaveLength(1);
         expect(claimed[0]!.reservationId).toBe(359);
 
         // Verify owner_id was updated to canonical Owner snowflake in DB
         const res = nuclear.prepare("SELECT owner_id, state FROM delivery_reservations WHERE id = 359").get() as { owner_id: string; state: string };
-        expect(res.owner_id).toBe("212123686923272192");
+        expect(res.owner_id).toBe("owner-canonical-test");
         expect(res.state).toBe("sending");
 
         // Verify sidecar delivery_intent_json was updated
         const speech = sidecar.prepare("SELECT delivery_intent_json FROM speech_outbox WHERE outbox_id = ?").get(outbox.outboxId) as { delivery_intent_json: string };
         const parsedIntent = JSON.parse(speech.delivery_intent_json);
-        expect(parsedIntent.ownerId).toBe("212123686923272192");
+        expect(parsedIntent.ownerId).toBe("owner-canonical-test");
       } finally {
         sidecar.close();
         nuclear.close();
@@ -1191,7 +1204,7 @@ describe("Natural Witness Repair — 2026-09-18 Incident Verifications", () => {
           conversationId,
           triggerKind: "owner_message",
           triggerRef: "event-154",
-          occupantId: "212123686923272192",
+          occupantId: "owner-canonical-test",
           generation: 154,
           nowMs: 1_000,
         });
@@ -1222,7 +1235,7 @@ describe("Natural Witness Repair — 2026-09-18 Incident Verifications", () => {
         ).run(conversationId, conversationId, outbox.licensedText, outbox.projectionKey, outbox.outboxId);
 
         // listPendingCognitiveDeliveries is called
-        const listed = listPendingCognitiveDeliveries(nuclear, "212123686923272192");
+        const listed = listPendingCognitiveDeliveries(nuclear, "owner-canonical-test");
         expect(listed).toEqual([]);
 
         // Verification: row remains completely unmutated in nuclear DB
@@ -1246,7 +1259,7 @@ describe("Natural Witness Repair — 2026-09-18 Incident Verifications", () => {
           conversationId,
           triggerKind: "owner_message",
           triggerRef: "event-154",
-          occupantId: "212123686923272192",
+          occupantId: "owner-canonical-test",
           generation: 154,
           nowMs: 1_000,
         });
@@ -1278,12 +1291,12 @@ describe("Natural Witness Repair — 2026-09-18 Incident Verifications", () => {
 
         nuclear.prepare(`INSERT INTO delivery_bubbles (reservation_id, ordinal, text) VALUES (402, 0, ?)`).run(outbox.licensedText);
 
-        const claimed = claimPendingCognitiveDeliveries(nuclear, { ownerId: "212123686923272192", nowMs: 2_000 });
+        const claimed = claimPendingCognitiveDeliveries(nuclear, { ownerId: "owner-canonical-test", nowMs: 2_000 });
         expect(claimed).toHaveLength(1);
         expect(claimed[0]!.reservationId).toBe(402);
 
         const row = nuclear.prepare("SELECT owner_id, state FROM delivery_reservations WHERE id = 402").get() as { owner_id: string; state: string };
-        expect(row.owner_id).toBe("212123686923272192");
+        expect(row.owner_id).toBe("owner-canonical-test");
         expect(row.state).toBe("sending");
       } finally {
         sidecar.close();
@@ -1329,15 +1342,15 @@ describe("Natural Witness Repair — 2026-09-18 Incident Verifications", () => {
         }
 
         // Pass 1 with default limit 50: processes 50 rows
-        const pass1 = reconcileLegacyWrongPrincipalSpeechReservations(nuclear, sidecar, "212123686923272192", 2000, 50);
+        const pass1 = reconcileLegacyWrongPrincipalSpeechReservations(nuclear, sidecar, "owner-canonical-test", 2000, 50);
         expect(pass1.suppressedStale).toBe(50);
 
         // Pass 2: processes remaining 10 rows
-        const pass2 = reconcileLegacyWrongPrincipalSpeechReservations(nuclear, sidecar, "212123686923272192", 3000, 50);
+        const pass2 = reconcileLegacyWrongPrincipalSpeechReservations(nuclear, sidecar, "owner-canonical-test", 3000, 50);
         expect(pass2.suppressedStale).toBe(10);
 
         // Pass 3: zero remaining, idempotent
-        const pass3 = reconcileLegacyWrongPrincipalSpeechReservations(nuclear, sidecar, "212123686923272192", 4000, 50);
+        const pass3 = reconcileLegacyWrongPrincipalSpeechReservations(nuclear, sidecar, "owner-canonical-test", 4000, 50);
         expect(pass3.suppressedStale).toBe(0);
       } finally {
         sidecar.close();
@@ -1358,7 +1371,7 @@ describe("Natural Witness Repair — 2026-09-18 Incident Verifications", () => {
             `INSERT INTO delivery_reservations
                (id, owner_id, channel, thread_id, trigger, delivery_lane, state,
                 draft_text, created_at, cognitive_v021_projection_key, speech_outbox_id)
-             VALUES (?, '212123686923272192', 'discord', ?, 'proactive', 'proactive', 'reserved',
+             VALUES (?, 'owner-canonical-test', 'discord', ?, 'proactive', 'proactive', 'reserved',
                      'correct text', '2026-09-18T09:22:22.436Z', ?, ?)`,
           ).run(resId, conversationId, `speech:${resId}`, resId);
         }
@@ -1391,7 +1404,7 @@ describe("Natural Witness Repair — 2026-09-18 Incident Verifications", () => {
         sidecar.prepare("UPDATE speech_outbox SET outbox_id = ?, projection_key = ? WHERE outbox_id = ?").run(2000, "speech:2000", out2000.outboxId);
 
         // Reconcile with limit 50: suspicious row MUST NOT be starved by the 50 correct rows
-        const pass = reconcileLegacyWrongPrincipalSpeechReservations(nuclear, sidecar, "212123686923272192", 2000, 50);
+        const pass = reconcileLegacyWrongPrincipalSpeechReservations(nuclear, sidecar, "owner-canonical-test", 2000, 50);
         expect(pass.suppressedStale).toBe(1);
 
         const check = nuclear.prepare("SELECT state, finalization_reason FROM delivery_reservations WHERE id = 2000").get() as { state: string; finalization_reason: string };
@@ -1438,11 +1451,11 @@ describe("Natural Witness Repair — 2026-09-18 Incident Verifications", () => {
         sidecar.prepare("UPDATE speech_outbox SET outbox_id = ?, projection_key = ?, send_status = 'suppressed', suppressed = 1 WHERE outbox_id = ?").run(3000, "speech:3000", out3000.outboxId);
 
         // Pass 1 converges the nuclear state
-        const pass1 = reconcileLegacyWrongPrincipalSpeechReservations(nuclear, sidecar, "212123686923272192", 2000, 50);
+        const pass1 = reconcileLegacyWrongPrincipalSpeechReservations(nuclear, sidecar, "owner-canonical-test", 2000, 50);
         expect(pass1.suppressedStale).toBe(1);
 
         // Pass 2 is completely idempotent
-        const pass2 = reconcileLegacyWrongPrincipalSpeechReservations(nuclear, sidecar, "212123686923272192", 3000, 50);
+        const pass2 = reconcileLegacyWrongPrincipalSpeechReservations(nuclear, sidecar, "owner-canonical-test", 3000, 50);
         expect(pass2.suppressedStale).toBe(0);
         expect(pass2.corrected).toBe(0);
       } finally {
@@ -1456,7 +1469,7 @@ describe("Natural Witness Repair — 2026-09-18 Incident Verifications", () => {
       const nuclear = openNuclearDb(new DatabaseSync(":memory:"));
       try {
         registerCognitiveDeliveryDatabases(sidecar, nuclear);
-        const canonicalOwnerId = "212123686923272192";
+        const canonicalOwnerId = "owner-canonical-test";
         const conversationId = "5c8f5d2e-9b1f-4a7c-9f3e-2c9b1f4a7c11";
         const cycle = admitTestCycle(sidecar, {
           cycleId: "cycle:v4-1",
@@ -1530,7 +1543,7 @@ describe("Natural Witness Repair — 2026-09-18 Incident Verifications", () => {
       const nuclear = openNuclearDb(new DatabaseSync(":memory:"));
       try {
         registerCognitiveDeliveryDatabases(sidecar, nuclear);
-        const canonicalOwnerId = "212123686923272192";
+        const canonicalOwnerId = "owner-canonical-test";
         const genuineConversationId = "6d9f6a1e-1b2c-4d3e-8f4a-9b1c2d3e4f50";
         const genuineCycle = admitTestCycle(sidecar, {
           cycleId: "cycle:v4-2-genuine",
@@ -1734,7 +1747,7 @@ describe("Natural Witness Repair — 2026-09-18 Incident Verifications", () => {
           id: "pred-notice-39",
           conversationId,
           kind: "owner_utterance",
-          payload: { evidenceRowId: evidence.rowId, ownerId: "212123686923272192" },
+          payload: { evidenceRowId: evidence.rowId, ownerId: "owner-canonical-test" },
           createdAtMs: 100,
         });
 

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   semanticPassKey,
   hashAuthorityObjections,
@@ -11,6 +11,16 @@ import { admitTestCycle, makeSemanticSettlement, openTestSidecar } from "../../.
 import { runCognitiveCycle } from "../../run.js";
 import * as discoverModule from "../../../retrieval/discover.js";
 import * as allocatorModule from "../allocator.js";
+import { env } from "../../../../../env.js";
+
+
+const originalOwnerId = env.discordOwnerId;
+beforeAll(() => {
+  env.discordOwnerId = "doc";
+});
+afterAll(() => {
+  env.discordOwnerId = originalOwnerId;
+});
 
 describe("Projection Cache & Semantic Pass Keys", () => {
   it("produces identical key for identical semantic pass state across structural retries", () => {

@@ -2,7 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { openNuclearDb } from "../../db.js";
 import { admitCognitiveIngress } from "../ingress/http.js";
 import { runCognitiveCycle } from "../thought/run.js";
@@ -16,6 +16,15 @@ import { insertOutboxPending, updateOutboxStatus } from "../speech/outbox.js";
 import { openCognitiveSidecarDb } from "../sidecar/db.js";
 import { admitTestCycle, makeSemanticSettlement, openTestSidecar } from "../test-support.js";
 import type { KernelDeps, Observation, ThoughtInput } from "../types.js";
+import { env } from "../../../env.js";
+
+const originalOwnerId = env.discordOwnerId;
+beforeAll(() => {
+  env.discordOwnerId = "doc";
+});
+afterAll(() => {
+  env.discordOwnerId = originalOwnerId;
+});
 
 const capabilityReality = {
   vision: false,

@@ -1,5 +1,5 @@
 
-import { describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { DatabaseSync } from "node:sqlite";
 import { openNuclearDb } from "../../db.js";
 import { appendInboxEvent } from "../cycle/inbox.js";
@@ -9,6 +9,16 @@ import type { CapabilityReality, IdentitySlice, KernelDeps, Observation } from "
 import { runCognitiveCycle } from "./run.js";
 import { getCapabilityReality } from "./capability-reality.js";
 import { currentBuildIdentity, currentContractId, currentReleaseId } from "../../rollout/capabilities.js";
+import { env } from "../../../env.js";
+
+
+const originalOwnerId = env.discordOwnerId;
+beforeAll(() => {
+  env.discordOwnerId = "owner-currentness";
+});
+afterAll(() => {
+  env.discordOwnerId = originalOwnerId;
+});
 
 const constitution: IdentitySlice = { constitutional: ["truth first"], stableSelf: ["curious"] };
 const initialReality: CapabilityReality = {
@@ -52,7 +62,7 @@ describe("per-invocation capability orientation refresh", () => {
       conversationId,
       triggerKind: "owner_message",
       triggerRef: "owner-capability-refresh",
-      occupantId: "owner-refresh",
+      occupantId: "owner-currentness",
       authorityEpoch: 1,
       nowMs: 1,
     });
@@ -61,7 +71,7 @@ describe("per-invocation capability orientation refresh", () => {
       text: "inspect the current project",
       discordMessageIds: ["capability-refresh-message"],
       nowMs: 2,
-      speakerPrincipalId: "owner-refresh",
+      speakerPrincipalId: "owner-currentness",
       speakerKind: "owner",
       audienceAtCapture: "owner_private",
     });
@@ -72,7 +82,7 @@ describe("per-invocation capability orientation refresh", () => {
       payload: {
         cycleId: cycle.cycleId,
         evidenceRowId: evidence.rowId,
-        ownerId: "owner-refresh",
+        ownerId: "owner-currentness",
         ownerMessage: evidence.text,
       },
       createdAtMs: 2,

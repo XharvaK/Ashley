@@ -1,5 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { env } from "../../../env.js";
 import { openNuclearDb } from "../../db.js";
 import { openTestSidecar } from "../test-support.js";
 import { insertOutboxPending, suppressUndeliveredOutbox } from "../speech/outbox.js";
@@ -10,6 +11,14 @@ import {
   claimPendingSystemNotifications,
   listPendingCognitiveDeliveries,
 } from "./pending.js";
+
+const originalOwnerId = env.discordOwnerId;
+beforeAll(() => {
+  env.discordOwnerId = "doc";
+});
+afterAll(() => {
+  env.discordOwnerId = originalOwnerId;
+});
 
 describe("v0.2.1 projected delivery claim", () => {
   it("claims only projected Discord reservations and leases one at a time", async () => {

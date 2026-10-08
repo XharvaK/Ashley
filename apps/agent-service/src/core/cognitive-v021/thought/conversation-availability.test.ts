@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { DatabaseSync } from "node:sqlite";
 import { openNuclearDb } from "../../db.js";
 import { finalizeDelivery } from "../../delivery/finalize.js";
@@ -16,6 +16,16 @@ import { getInterimOutboxByUndertaking } from "../operation/interim.js";
 import { getWorkerUndertaking } from "../operation/worker-queue.js";
 import { CONVERSATION_COGNITION_OCCUPIED } from "../cycle/cognition-claim.js";
 import type { CapabilityReality, IdentitySlice, KernelDeps } from "../types.js";
+import { env } from "../../../env.js";
+
+
+const originalOwnerId = env.discordOwnerId;
+beforeAll(() => {
+  env.discordOwnerId = "doc";
+});
+afterAll(() => {
+  env.discordOwnerId = originalOwnerId;
+});
 
 const constitution: IdentitySlice = { constitutional: ["truth first"], stableSelf: [] };
 const capabilityReality: CapabilityReality = {

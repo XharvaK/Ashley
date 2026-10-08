@@ -10,7 +10,8 @@ export function isAuthorizedOwnerId(
   if (!userId) return false;
   const configuredOwnerId = options.configuredOwnerId ?? env.discordOwnerId;
   const personaEvalMode = options.personaEvalMode ?? env.personaEvalMode;
-  if (!configuredOwnerId) return true;
+  // Fail closed: an unset owner id must never authorize anyone.
+  if (!configuredOwnerId) return false;
   if (userId === configuredOwnerId) return true;
   return personaEvalMode && userId.startsWith(`${configuredOwnerId}:persona-eval:`);
 }

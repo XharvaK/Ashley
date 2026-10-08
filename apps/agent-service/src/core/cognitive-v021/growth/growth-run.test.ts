@@ -1,6 +1,6 @@
 import { GROWTH_GUIDANCE } from "../thought/output-contract.js";
 import { DatabaseSync } from "node:sqlite";
-import { describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { openNuclearDb } from "../../db.js";
 import { appendInboxEvent } from "../cycle/inbox.js";
 import { appendOwnerUtterance } from "../evidence/conversation-log.js";
@@ -18,6 +18,15 @@ import { listRecentJournal } from "../initiative/journal.js";
 import { recordInterestTouches } from "../memory/interests.js";
 import { listIdentity } from "../../identity/store.js";
 import { listDiary } from "./night.js";
+import { env } from "../../../env.js";
+
+const originalOwnerId = env.discordOwnerId;
+beforeAll(() => {
+  env.discordOwnerId = "doc";
+});
+afterAll(() => {
+  env.discordOwnerId = originalOwnerId;
+});
 
 const capabilityReality: CapabilityReality = {
   vision: false, attachmentText: false, conversationalRead: false, webSearch: false,

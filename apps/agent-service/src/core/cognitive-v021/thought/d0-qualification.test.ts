@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
-import { describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { V2ProjectReadRegistry } from "@composer-assistant/sandbox-v2";
 import { openNuclearDb } from "../../db.js";
 import { listCapabilityStatuses } from "../../rollout/capabilities.js";
@@ -31,6 +31,16 @@ import type {
   Observation,
 } from "../types.js";
 import { validateQualificationSchema } from "../qualification/thought-capability-qualification.js";
+import { env } from "../../../env.js";
+
+
+const originalOwnerId = env.discordOwnerId;
+beforeAll(() => {
+  env.discordOwnerId = "doc";
+});
+afterAll(() => {
+  env.discordOwnerId = originalOwnerId;
+});
 
 const constitution: IdentitySlice = { constitutional: ["truth first"], stableSelf: [] };
 const capabilityReality: CapabilityReality = {
