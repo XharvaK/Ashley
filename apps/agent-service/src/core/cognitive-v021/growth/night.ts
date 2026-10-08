@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { lessonsToBringHome, LESSONS_HOME_NIGHT_LIMIT, type ThoughtLesson } from "../../teach/lessons.js";
 import type { DatabaseSync } from "node:sqlite";
 import type { DataClassification } from "../../privacy/classification.js";
 import { hashMemoryAssertion, listLiveMemoryAssertions, REDACTED_MEMORY_STATEMENT } from "../memory/assertions.js";
@@ -60,7 +61,8 @@ export type NightClaim = {
 export type ThoughtNightAgenda = {
   sinceMs: number;
   weekly: boolean;
-  day: { episodes: ThoughtEpisode[]; journal: ThoughtJournalEntry[] };
+  /** T3: lessons she has not taken home yet, oldest first; she may cite one as support for a memory. */
+  day: { episodes: ThoughtEpisode[]; journal: ThoughtJournalEntry[]; lessons: ThoughtLesson[] };
   memories: Array<{ key: string; kind: string; statement: string; salience: number; formedAtMs: number | null; uses: number; supports: number; lane: string }>;
   /** Pairs whose words overlap most; only a hint, never a verdict. */
   similar: Array<{ keys: [string, string]; overlap: number }>;
@@ -181,7 +183,7 @@ export function buildNightAgenda(
   const agenda: ThoughtNightAgenda = {
     sinceMs: pass.sinceMs,
     weekly: pass.weekly,
-    day: { episodes: dayEpisodes, journal },
+    day: { episodes: dayEpisodes, journal, lessons: lessonsToBringHome(db, nowMs, LESSONS_HOME_NIGHT_LIMIT) },
     memories: ordered.map(({ lastTouchedMs: _touched, ...memory }) => memory),
     similar: similar.slice(0, NIGHT_SIMILAR_PAIRS_LIMIT),
     selfEvidence,

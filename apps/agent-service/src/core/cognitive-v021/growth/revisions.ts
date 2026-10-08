@@ -1,4 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
+import { lessonExists } from "../../teach/lessons.js";
 import { maxClassification, type DataClassification } from "../../privacy/classification.js";
 import { recomputeSharedCulture } from "../../relationship/projections.js";
 import { listIdentity } from "../../identity/store.js";
@@ -273,6 +274,13 @@ function rowGrounding(db: DatabaseSync, rowId: string): Grounding | null {
   return { roots: [row], own: evidence.role === "owner" || evidence.role === "ashley", external: false };
 }
 
+/** T3: a lesson a teacher gave her is external, and its teacher is one origin, shared by all their lessons. */
+function lessonGrounding(db: DatabaseSync, lessonId: string): Grounding | null {
+  const lesson = lessonExists(db, lessonId);
+  if (!lesson) return null;
+  return { roots: [`lesson:${lessonId}`, `person:${lesson.fromPrincipal}`], own: false, external: true };
+}
+
 function observationGrounding(db: DatabaseSync, observationId: string): Grounding {
   const row = db.prepare("SELECT payload_json FROM observations WHERE observation_id = ?").get(observationId) as Row | undefined;
   let payload: Row | null = null;
@@ -336,6 +344,7 @@ function evidenceOrigin(db: DatabaseSync, ref: string): EvidenceOrigin {
     if (supportRef?.kind === "conversation_text_span") groundings.push(rowGrounding(db, supportRef.evidenceRowId));
     else if (supportRef?.kind === "observation_ref") groundings.push(observationGrounding(db, supportRef.observationId));
     else if (supportRef?.kind === "receipt_ref") groundings.push({ roots: [`receipt:${supportRef.receiptId}`], own: false, external: false });
+    else if (supportRef?.kind === "teaching_lesson") groundings.push(lessonGrounding(db, supportRef.lessonId));
     else if (supportRef && supportRef.kind !== "domus_observation") groundings.push({ roots: [`artifact:${supportRef.artifactId}`], own: false, external: false });
     else if (support.supportId.startsWith("social:evidence:") && support.sourceRef) groundings.push(rowGrounding(db, support.sourceRef));
   }

@@ -2534,3 +2534,9 @@ export const COGNITIVE_SIDECAR_SCHEMA_V74 = String.raw`
 ALTER TABLE domus_acts ADD COLUMN answer_json TEXT NULL;
 UPDATE cognitive_sidecar_meta SET schema_version=74 WHERE id=1;
 `;
+
+/** T3: when a lesson came home, that is, a memory she made cites it as support; null until then. */
+export const COGNITIVE_SIDECAR_SCHEMA_V75 = String.raw`
+ALTER TABLE lessons ADD COLUMN brought_home_at_ms INTEGER NULL;
+UPDATE cognitive_sidecar_meta SET schema_version=75 WHERE id=1;
+`;

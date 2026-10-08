@@ -41,8 +41,8 @@ describe("P7b growth dimensions", () => {
   it("migrates to the growth-dimension tables once and stays idempotent", () => {
     const db = openTestSidecar();
     try {
-      expect(COGNITIVE_SIDECAR_SCHEMA_VERSION).toBe(74);
-      expect(db.prepare("PRAGMA user_version").get()).toMatchObject({ user_version:  74 });
+      expect(COGNITIVE_SIDECAR_SCHEMA_VERSION).toBe(75);
+      expect(db.prepare("PRAGMA user_version").get()).toMatchObject({ user_version: 75 });
       db.prepare("INSERT INTO growth_dimensions (id, name, weekly_question, status, origin, created_at_ms, updated_at_ms) VALUES ('d1','Kept','Question?','active','owner_seed',1,1)").run();
       setTestSidecarVersion(db, 58);
       openCognitiveSidecarDb(db, { dataPlane: { kind: "isolated" } });

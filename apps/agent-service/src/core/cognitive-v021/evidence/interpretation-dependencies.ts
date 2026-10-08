@@ -6,6 +6,7 @@ import {
   type WorkingContextInterpretationEnvelope,
 } from "./interpretation-envelope.js";
 import { getConversationEvidence } from "./conversation-log.js";
+import { lessonExists } from "../../teach/lessons.js";
 import { resolveReceiptRef } from "../effect/in-flight.js";
 
 type Row = Record<string, unknown>;
@@ -33,6 +34,8 @@ export function supportRefDependencyKey(value: unknown): string | null {
     case "observation_ref":
       return typeof value.observationId === "string" ? `observation:${value.observationId}` : null;
     case "domus_observation":
+      return null;
+    case "teaching_lesson":
       return null;
     case "receipt_ref":
       return typeof value.receiptId === "string" ? `receipt:${value.receiptId}` : null;
@@ -214,6 +217,7 @@ function unavailableSupportReason(
     return newest?.row_id === evidence.rowId ? null : "source_inaccessible";
   }
   if (ref.kind === "domus_observation") return null;
+  if (ref.kind === "teaching_lesson") return lessonExists(db, ref.lessonId) ? null : "source_inaccessible";
   if (ref.kind === "observation_ref") {
     const row = db.prepare(
       `SELECT o.payload_json, o.data_classification, o.secret_omitted, c.conversation_id

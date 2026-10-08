@@ -11,7 +11,8 @@ import { makeSemanticSettlement } from "../test-support.js";
 import type { NightPass } from "../initiative/inner-pass.js";
 import { appendMemorySupport } from "../memory/supports.js";
 import { buildNightAgenda, latestDreamReceipt, latestNarrative, listDiary, recordNight, wordOverlap } from "./night.js";
-import { resolveRevisionEvidence } from "./revisions.js";
+import { resolveRevisionEvidence } from "./revisions.js";import { markLessonBroughtHome, recordLessons } from "../../teach/lessons.js";
+
 
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
@@ -50,6 +51,24 @@ describe("Growth V1 G5 night consolidation", () => {
     } finally {
       db.close();
       nuclear.close();
+    }
+  });
+
+  it("carries lessons she has not taken home into the day, oldest first, and leaves out the ones that came home", () => {
+    const db = openTestSidecar();
+    try {
+      recordLessons(db, { cycleId: "teach-n1", fromPrincipal: "p-teacher", placeRef: "contact:p-teacher", nowMs: NOW - 2 * HOUR,
+        claims: [{ what: "Glaciers carve valleys" }, { what: "Moraines mark old edges" }] });
+      recordLessons(db, { cycleId: "teach-n2", fromPrincipal: "p-teacher", placeRef: "contact:p-teacher", nowMs: NOW - HOUR,
+        claims: [{ what: "A newer lesson" }] });
+      expect(markLessonBroughtHome(db, "lesson:teach-n1:0", NOW)).toBe(true);
+      const agenda = buildNightAgenda(db, { pass: pass(), identityStore: null, nowMs: NOW });
+      expect(agenda.day.lessons.map((lesson) => [lesson.lessonId, lesson.what])).toEqual([
+        ["lesson:teach-n1:1", "Moraines mark old edges"],
+        ["lesson:teach-n2:0", "A newer lesson"],
+      ]);
+    } finally {
+      db.close();
     }
   });
 

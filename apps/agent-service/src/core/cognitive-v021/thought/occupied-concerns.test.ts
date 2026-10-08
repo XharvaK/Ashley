@@ -312,7 +312,7 @@ describe("P1 occupied-concern projection", () => {
     // objective facet fields, instructions, SNAPSHOT's domusSnapshot field, and DASK's domusPromise
     // and domusPromiseSettled fields; parser identity is unchanged.
     expect(THOUGHT_OUTPUT_SCHEMA_FINGERPRINT).toBe(
-      "sha256:46d63ef5cdc68959301540566ec35fb427cb2326f61178a5d210a63ed52802ae",
+      "sha256:9d26310f413d05878faf327753f68d0a75017bd4565e31377747e269fd9ff36f",
     );
   });
 });

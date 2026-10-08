@@ -2,6 +2,7 @@ import type { DatabaseSync } from "node:sqlite";
 import { getConversationEvidence } from "./conversation-log.js";
 import { resolveReceiptRef } from "../effect/in-flight.js";
 import { resolveAttachmentJsonPath } from "../perception/attachments.js";
+import { lessonExists } from "../../teach/lessons.js";
 import {
   imageArtifactRepresentationId,
   observationViewFromStorage,
@@ -54,6 +55,7 @@ export type SourceSupportRef =
     }>
   | Readonly<{ kind: "observation_ref"; observationId: string }>
   | Readonly<{ kind: "domus_observation"; observationId: string }>
+  | Readonly<{ kind: "teaching_lesson"; lessonId: string }>
   | Readonly<{ kind: "receipt_ref"; receiptId: string }>;
 
 export type InterpretationAudience =
@@ -207,6 +209,10 @@ export function parseSourceSupportRef(value: unknown): SourceSupportRef | null {
         : null;
     case "domus_observation":
       return exactKeys(value, ["kind", "observationId"]) && nonEmptyText(value.observationId)
+        ? value as SourceSupportRef
+        : null;
+    case "teaching_lesson":
+      return exactKeys(value, ["kind", "lessonId"]) && nonEmptyText(value.lessonId)
         ? value as SourceSupportRef
         : null;
     case "receipt_ref":
@@ -732,6 +738,13 @@ function assertDomusObservation(db: DatabaseSync, observationId: string): Resolv
   };
 }
 
+/** T3: a lesson a teacher gave her. The teacher is the source, never the Owner, so it grounds only what is about the subject. */
+function assertTeachingLesson(db: DatabaseSync, lessonId: string): ResolvedSource {
+  const lesson = lessonExists(db, lessonId);
+  if (!lesson) throw new Error("support_ref_unresolvable");
+  return { principalKind: "external_human", principalId: lesson.fromPrincipal, sourceTimeMs: lesson.atMs };
+}
+
 /** Domus observations carry their world as the memory channel. Every other kind is not a channel source. */
 export function domusChannelForRef(db: DatabaseSync, ref: SourceSupportRef): `domus:${string}` | null {
   if (ref.kind !== "domus_observation") return null;
@@ -755,6 +768,9 @@ function assertSupportRefs(
         break;
       case "domus_observation":
         resolved.push(assertDomusObservation(db, ref.observationId));
+        break;
+      case "teaching_lesson":
+        resolved.push(assertTeachingLesson(db, ref.lessonId));
         break;
       case "artifact_text_span":
         resolved.push(assertArtifactTextSpan(db, ref, conversationId));
@@ -798,6 +814,7 @@ function supportSourceIdentity(ref: SourceSupportRef): string {
     case "conversation_text_span": return `conversation_evidence:${ref.evidenceRowId}`;
     case "observation_ref": return `observation:${ref.observationId}`;
     case "domus_observation": return `domus_observation:${ref.observationId}`;
+    case "teaching_lesson": return `teaching_lesson:${ref.lessonId}`;
     case "receipt_ref": return `receipt:${ref.receiptId}`;
     case "artifact_text_span":
     case "document_page_region":
