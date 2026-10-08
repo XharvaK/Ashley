@@ -59,3 +59,7 @@ jobs:
         run: npm ci --prefix apps/discord-bot
       - name: Current release gate
         run: npm run test:current-release
+      # The release gate covers part of agent-service; the full suite catches the rest
+      # (continuity, places, Domus, sandbox and others outside the gate's include list).
+      - name: Full agent-service suite
+        run: npm test --prefix apps/agent-service
