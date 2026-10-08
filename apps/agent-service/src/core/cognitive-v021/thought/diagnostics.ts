@@ -1737,6 +1737,40 @@ export function recordThoughtCycleMetrics(
   store.recordCycleMetrics(input);
 }
 
+/** Thought answers for one model: returned parsed, malformed rejected. Each attempt is one answer. */
+export type ThoughtParseRate = Readonly<{ modelId: string; returned: number; malformed: number }>;
+
+const THOUGHT_PARSE_RATE_MODEL_LIMIT = 4;
+
+/**
+ * Read-only: per-model Thought answer counts since sinceMs, busiest models first.
+ * provider_returned and parser_malformed are disjoint per attempt. Rows without a
+ * model id cannot be attributed to a model and are skipped.
+ */
+export function listThoughtParseRates(db: DatabaseSync, input: { sinceMs: number }): ThoughtParseRate[] {
+  const rows = db.prepare(`
+    SELECT model_id,
+           SUM(CASE WHEN code = 'provider_returned' THEN 1 ELSE 0 END) AS returned,
+           SUM(CASE WHEN code = 'parser_malformed' THEN 1 ELSE 0 END) AS malformed
+      FROM thought_dispatch_diagnostics
+     WHERE code IN ('provider_returned', 'parser_malformed')
+       AND model_id IS NOT NULL
+       AND created_at_ms >= ?
+     GROUP BY model_id
+     ORDER BY COUNT(*) DESC, model_id ASC
+     LIMIT ?
+  `).all(input.sinceMs, THOUGHT_PARSE_RATE_MODEL_LIMIT) as Array<{
+    model_id: string;
+    returned: number | null;
+    malformed: number | null;
+  }>;
+  return rows.map((row) => ({
+    modelId: row.model_id,
+    returned: Number(row.returned ?? 0),
+    malformed: Number(row.malformed ?? 0),
+  }));
+}
+
 /** Authoritative W7 budget diagnostic. This is a read-only sidecar projection. */
 export function getPrivateBudgetDiagnostics(
   sidecar: DatabaseSync,

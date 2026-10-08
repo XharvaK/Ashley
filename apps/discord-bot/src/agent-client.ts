@@ -1060,6 +1060,13 @@ export async function getContinuitySnapshot() {
   }>(`/nuclear/continuity?owner_id=${encodeURIComponent(config.ownerId)}`);
 }
 
+/** Thought answers for one model over the last 24 h: parsed, and rejected by the parser. */
+export type ThoughtParseRate = {
+  modelId: string;
+  returned: number;
+  malformed: number;
+};
+
 export async function getNuclearStatus() {
   return agentFetch<{
     health: {
@@ -1082,6 +1089,8 @@ export async function getNuclearStatus() {
     thalamus?: ThalamusStatus;
     /** F1: her weekly life receipt, as lines. */
     life?: string[];
+    /** Per-model Thought parse rates over the last 24 h; absent when there are none. */
+    thoughtParseRates?: ThoughtParseRate[];
   }>(`/nuclear/status?owner_id=${encodeURIComponent(config.ownerId)}`);
 }
 
