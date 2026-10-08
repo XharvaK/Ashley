@@ -33,7 +33,6 @@ import {
   BYTES_PER_TOKEN,
   deriveThoughtBudget,
   MAX_LOGICAL_SERIALIZED_INPUT_BYTES,
-  MAX_SUPPORTED_COMPOSITION_BYTES,
   estimateRequestInputBytes,
   estimateRequestTokens,
   type SemanticProjectionEnvelope,
@@ -1253,7 +1252,6 @@ export function allocateThoughtProjection(
     system_message_bytes: systemMessageBytes,
     logical_input_bytes: finalLogicalInputBytes,
     logical_input_byte_limit: MAX_LOGICAL_SERIALIZED_INPUT_BYTES,
-    max_supported_composition_bytes: MAX_SUPPORTED_COMPOSITION_BYTES,
     orientation_kernel_bytes: finalProjected.orientationKernel === undefined
       ? 0
       : Buffer.byteLength(JSON.stringify(finalProjected.orientationKernel), "utf8"),

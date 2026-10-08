@@ -1043,6 +1043,9 @@ describe("Whole-Thought Projection Allocator", () => {
       estimatedInputTokens: allocated.receipt.estimatedInputTokens,
       estimatedOutputTokens: allocated.receipt.estimatedOutputTokens,
     });
+    // The receipt's byte limit is the real logical envelope; no stale measured composition is recorded beside it.
+    expect(allocated.receipt.diagnostics).toMatchObject({ logical_input_byte_limit: MAX_LOGICAL_SERIALIZED_INPUT_BYTES });
+    expect(allocated.receipt.diagnostics).not.toHaveProperty("max_supported_composition_bytes");
     expect(allocated.receipt.diagnostics).toMatchObject({
       thoughtOutputCompatibilityInstruction_call_count: 1,
       formatThoughtStructuralFeedback_call_count: 1,

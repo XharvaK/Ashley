@@ -62,7 +62,6 @@ export type AllocationDiagnostics = {
   system_message_bytes: number;
   logical_input_bytes?: number;
   logical_input_byte_limit?: number;
-  max_supported_composition_bytes?: number;
   orientation_kernel_bytes: number;
   required_base_estimated_tokens: number;
   optional_context_estimated_tokens: number;
