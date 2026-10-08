@@ -54,6 +54,11 @@ export const REVISION_POSITIONS_PER_SETTLEMENT = 3;
 
 const DAY_MS = 24 * 60 * 60_000;
 /** evidence: independent origins; passes: separate proposing passes; spanMs: between the first and last of those passes. */
+/** T3: a teacher's lessons count as one origin per this window; a later lesson from them starts a new origin. */
+export const LESSON_ORIGIN_WINDOW_MS = 30 * DAY_MS;
+/** T3: a lesson is evidence for what she may form an opinion or practice about, or take a taste to; never a value or boundary. */
+export const LESSON_LAYERS: ReadonlySet<string> = new Set(["opinion", "practice", "taste"]);
+
 export const REVISION_THRESHOLDS: Readonly<Record<"opinion" | "practice" | "taste" | "trait", { evidence: number; passes: number; spanMs: number; delayMs: number }>> = Object.freeze({
   opinion: { evidence: 2, passes: 1, spanMs: 0, delayMs: 0 },
   practice: { evidence: 2, passes: 1, spanMs: 0, delayMs: 0 },
@@ -249,6 +254,11 @@ export function resolveRevisionEvidence(db: DatabaseSync, ref: string): Resolved
     const episode = getEpisode(db, value);
     return episode ? { ref: value, atMs: episode.endedAtMs, dataClassification: episode.dataClassification } : null;
   }
+  if (value.startsWith("lesson:")) {
+    // T3: a lesson a teacher gave her is dated by when it was kept; the teaching window does not age it out of evidence.
+    const lesson = lessonExists(db, value);
+    return lesson ? { ref: value, atMs: lesson.atMs, dataClassification: "ordinary" } : null;
+  }
   const assertion = getMemoryAssertion(db, value);
   if (!assertion || !assertion.live || assertion.statement === REDACTED_MEMORY_STATEMENT) return null;
   const strength = db.prepare("SELECT formed_at_ms FROM memory_strength WHERE assertion_key = ?").get(value) as Row | undefined;
@@ -274,11 +284,12 @@ function rowGrounding(db: DatabaseSync, rowId: string): Grounding | null {
   return { roots: [row], own: evidence.role === "owner" || evidence.role === "ashley", external: false };
 }
 
-/** T3: a lesson a teacher gave her is external, and its teacher is one origin, shared by all their lessons. */
+/** T3: a lesson a teacher gave her is external; its teacher is one origin per lesson window. */
 function lessonGrounding(db: DatabaseSync, lessonId: string): Grounding | null {
   const lesson = lessonExists(db, lessonId);
   if (!lesson) return null;
-  return { roots: [`lesson:${lessonId}`, `person:${lesson.fromPrincipal}`], own: false, external: true };
+  const window = Math.floor(lesson.atMs / LESSON_ORIGIN_WINDOW_MS);
+  return { roots: [`lesson:${lessonId}`, `person:${lesson.fromPrincipal}:${window}`], own: false, external: true };
 }
 
 function observationGrounding(db: DatabaseSync, observationId: string): Grounding {
@@ -331,6 +342,7 @@ function evidenceOrigin(db: DatabaseSync, ref: string): EvidenceOrigin {
     return combine(ref, groundings, typeof row?.cycle_id === "string" ? [`cycle:${row.cycle_id}`] : []);
   }
   if (ref.startsWith("interest:")) return combine(ref, []);
+  if (ref.startsWith("lesson:")) return combine(ref, [lessonGrounding(db, ref)]);
   if (ref.startsWith("episode:")) {
     const row = db.prepare("SELECT cycle_id, evidence_row_ids_json FROM episodes_v2 WHERE episode_id = ?").get(ref) as Row | undefined;
     let rowIds: unknown[] = [];
@@ -380,6 +392,26 @@ function independentOrigins(origins: readonly EvidenceOrigin[]): { count: number
   return { count: groups.size, own: [...groups.values()].filter(Boolean).length };
 }
 
+/**
+ * T3: of the lessons cited, a teacher's lesson counts only if no lesson of theirs
+ * counted within the window before it (oldest first). Other evidence is untouched.
+ */
+function withoutRepeatedLessons<T extends { ref: string }>(db: DatabaseSync, items: readonly T[]): T[] {
+  const lessons = items.flatMap((item) => {
+    if (!item.ref.startsWith("lesson:")) return [];
+    const lesson = lessonExists(db, item.ref);
+    return lesson ? [{ item, atMs: lesson.atMs, teacher: lesson.fromPrincipal }] : [];
+  }).sort((a, b) => a.atMs - b.atMs || a.item.ref.localeCompare(b.item.ref));
+  const repeated = new Set<T>();
+  const countedAt = new Map<string, number>();
+  for (const lesson of lessons) {
+    const last = countedAt.get(lesson.teacher);
+    if (last !== undefined && lesson.atMs - last < LESSON_ORIGIN_WINDOW_MS) repeated.add(lesson.item);
+    else countedAt.set(lesson.teacher, lesson.atMs);
+  }
+  return items.filter((item) => !repeated.has(item));
+}
+
 /** The revision's evidence as it stands now (live refs only). */
 export function revisionEvidenceStats(db: DatabaseSync, revisionId: number): RevisionEvidenceStats {
   const linked = (db.prepare(
@@ -391,7 +423,7 @@ export function revisionEvidenceStats(db: DatabaseSync, revisionId: number): Rev
   }));
   const live = linked.filter((item) => resolveRevisionEvidence(db, item.ref) !== null);
   if (live.length === 0) return { count: 0, ownOrigins: 0, passes: 0, spanMs: 0, refs: [] };
-  const origins = independentOrigins(live.map((item) => evidenceOrigin(db, item.ref)));
+  const origins = independentOrigins(withoutRepeatedLessons(db, live).map((item) => evidenceOrigin(db, item.ref)));
   const passes = new Map<string, number>();
   for (const item of live) passes.set(item.cycleId, Math.min(passes.get(item.cycleId) ?? Infinity, item.linkedAtMs));
   const times = [...passes.values()];
@@ -458,6 +490,7 @@ export function proposeRevisions(
     const target = targetFor(proposal, input.identity);
     if (target === "bad_target" || target === "identity_unavailable") return { outcome: target };
     const evidence = [...new Set(proposal.evidenceRefs.slice(0, REVISION_EVIDENCE_REFS_MAX))].flatMap((ref) => {
+      if (ref.trim().startsWith("lesson:") && !LESSON_LAYERS.has(proposal.layer)) return [];
       const resolved = resolveRevisionEvidence(db, ref);
       if (resolved) return [resolved];
       // A memory with no formation time yet is dated by when she first cited it.
