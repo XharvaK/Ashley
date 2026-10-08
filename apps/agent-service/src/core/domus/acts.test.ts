@@ -11,7 +11,7 @@ import { domusForThought, domusLiveForOwner, DOMUS_LIVE_OPTIONS_MS } from "./not
 import { upsertHeartbeat } from "./store.js";
 import { withoutUnansweredOwnerRows } from "../cognitive-v021/thought/input.js";
 import { appendInboxEvent } from "../cognitive-v021/cycle/inbox.js";
-import { thoughtContractProfile, thoughtContractProfileKey, thoughtOutputCompatibilityInstruction, DOMUS_ACT_GUIDANCE, DOMUS_OBSERVE_GUIDANCE } from "../cognitive-v021/thought/output-contract.js";
+import { thoughtContractProfile, thoughtContractProfileKey, thoughtOutputCompatibilityInstruction, DOMUS_ACT_GUIDANCE, DOMUS_GUIDANCE, DOMUS_OBSERVE_GUIDANCE } from "../cognitive-v021/thought/output-contract.js";
 import { parseThoughtSemanticOutput } from "../cognitive-v021/thought/parse.js";
 
 const NOW = 50_000_000;
@@ -699,5 +699,26 @@ describe("Domus answers her game question with rows, counts or typed words", () 
     const synced = syncDomusActs(db, { helperSession: "helper-a", events: [], nowMs: NOW }).acts;
     expect(synced.map(item => item.act_id).sort()).toEqual([single.actId, button.actId].sort());
     expect(synced.every(item => !("answer" in item))).toBe(true);
+  });
+});
+
+describe("Domus answers in her Thought contract", () => {
+  it("round-trips a settled answer through the parser, and refuses a malformed one", () => {
+    const settle = (domusAct: unknown) => parseThoughtSemanticOutput(JSON.stringify({ kind: "settlement", speech: { mode: "none" },
+      journal: { activity: "think", entry: "I answered the game's question." }, domusAct }), new Set<string>());
+    const picked = settle({ option: "ok", answer: { rows: [{ option: "r1" }, { option: "r2", count: 2 }] } });
+    expect(picked).toMatchObject({ ok: true, value: { domusAct: { option: "ok", answer: { rows: [{ option: "r1" }, { option: "r2", count: 2 }] } } } });
+    const typed = settle({ option: "nok", answer: { text: { first: "Ilse" } }, forOwner: true });
+    expect(typed).toMatchObject({ ok: true, value: { domusAct: { option: "nok", forOwner: true, answer: { text: { first: "Ilse" } } } } });
+    for (const bad of [
+      { option: "ok", answer: {} }, { option: "ok", answer: { rows: [{ option: "r1", count: 0 }] } }, { option: "ok", answer: { text: {} } },
+      { option: "ok", answer: { rows: [{ option: "r1" }], note: "x" } }, { option: "ok", then: ["r2"], answer: { rows: [] } },
+    ]) expect(settle(bad)).toMatchObject({ ok: false });
+  });
+
+  it("tells her in her game guidance that a question with answer_rules is answered with its ok option and an answer", () => {
+    expect(DOMUS_GUIDANCE).toContain("A question that lists answer_rules is answered with its ok option and answer: rows");
+    expect(DOMUS_GUIDANCE).toContain("with counts, how many of each");
+    expect(DOMUS_GUIDANCE).toContain("a field marked profanity_checked is checked by the game");
   });
 });
