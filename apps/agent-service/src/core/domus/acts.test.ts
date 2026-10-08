@@ -536,3 +536,168 @@ describe("DPLAY her Discord turn while she plays", () => {
     expect(withoutUnansweredOwnerRows([])).toEqual([]);
   });
 });
+
+describe("Domus answers her game question with rows, counts or typed words", () => {
+  const ROWS_OBJECT: DomusOptionObject = { object: "Recipe Picker", object_id: "dialog:2001", where: "same room", acts: [
+    { ref: "r1", guid64: "21001", text: "Pancakes" }, { ref: "r2", guid64: "21002", text: "Toast" }, { ref: "r3", guid64: "21003", text: "Soup" },
+    { ref: "ok", guid64: "ok", text: "OK" }, { ref: "cx", guid64: "cancel", text: "Cancel" },
+  ], answer_rules: { select: { min: 1, max: 2 } } };
+  const COUNTS_OBJECT: DomusOptionObject = { object: "Shop", object_id: "dialog:2002", acts: [
+    { ref: "p1", guid64: "22001", text: "Chair" }, { ref: "p2", guid64: "22002", text: "Lamp" }, { ref: "pok", guid64: "ok", text: "OK" },
+  ], answer_rules: { counts: { max_in_row: 3, max_rows: 2 } } };
+  const NAMING_RULES = [
+    { name: "first", label: "First name", min_length: 1, max_length: 12, numeric: false, min_value: null, max_value: null, profanity_checked: true },
+    { name: "amount", label: "Amount", min_length: 1, max_length: 4, numeric: true, min_value: 0, max_value: 500, profanity_checked: false },
+    { name: "note", label: "Note", min_length: 0, max_length: 20, numeric: false, min_value: null, max_value: null, profanity_checked: false },
+  ];
+  const NAMING_OBJECT: DomusOptionObject = { object: "Naming", object_id: "dialog:2003", acts: [
+    { ref: "nok", guid64: "ok", text: "OK" }, { ref: "ncx", guid64: "cancel", text: "Cancel" },
+  ], answer_rules: { text: NAMING_RULES } };
+  const BOTH_OBJECT: DomusOptionObject = { ...ROWS_OBJECT, object_id: "dialog:2004", answer_rules: { select: { min: 1, max: 2 }, text: [NAMING_RULES[0]!] } };
+  const ALL: DomusOptionObject[] = [ROWS_OBJECT, COUNTS_OBJECT, NAMING_OBJECT, BOTH_OBJECT, ...OPTIONS];
+
+  /** Offer the options in a new pass of this db, bind it, and record her claim. */
+  function answering(db: DatabaseSync, claim: DomusActClaim, options: DomusOptionObject[] = ALL, cycleId = "cycle-1") {
+    const seq = Number((db.prepare("SELECT COUNT(*) AS n FROM domus_observations").get() as { n: number }).n) + 1;
+    const observationId = observe(db, seq, { options });
+    const binding = domusActBinding(db, { world: "slot8", observationIds: [observationId] })!;
+    return recordDomusAct(db, { binding, claim, cycleId, nowMs: NOW });
+  }
+  /** The short reason an answer was refused for (the part of her label after "invalid: "). */
+  function reasonOf(claim: DomusActClaim, options?: DomusOptionObject[]): string {
+    const db = openTestSidecar();
+    const result = answering(db, claim, options);
+    expect(result.state).toBe("invalid");
+    return String(row(db, result.actId).label).split("invalid: ")[1] ?? "";
+  }
+
+  it("accepts the answer shape: rows with optional counts, typed words, or both", () => {
+    expect(isDomusActClaim({ option: "ok", answer: { rows: [{ option: "r1" }, { option: "r2", count: 2 }] } })).toBe(true);
+    expect(isDomusActClaim({ option: "nok", answer: { text: { first: "Ilse", "amount.2": "42", x_1: "a" } } })).toBe(true);
+    expect(isDomusActClaim({ option: "ok", answer: { rows: [{ option: "r1" }], text: { first: "Ilse" } }, then: ["cx"], forOwner: true })).toBe(true);
+    expect(isDomusActClaim({ option: "ok", answer: { text: { first: "x".repeat(256) } } })).toBe(true);
+    expect(isDomusActClaim({ option: "ok", answer: { rows: [{ option: "r1", count: 99 }] } })).toBe(true);
+    expect(isDomusActClaim({ option: "ok", answer: { rows: Array.from({ length: 16 }, (_, index) => ({ option: `r${index}` })) } })).toBe(true);
+  });
+
+  it("refuses a malformed answer shape", () => {
+    const rows = (value: unknown) => ({ option: "ok", answer: { rows: value } });
+    const text = (value: unknown) => ({ option: "ok", answer: { text: value } });
+    for (const bad of [
+      { option: "ok", answer: {} }, { option: "ok", answer: "r1" }, { option: "ok", answer: null }, { option: "ok", answer: { rows: [] } },
+      { option: "ok", answer: { rows: [{ option: "r1" }], extra: 1 } },
+      rows(Array.from({ length: 17 }, (_, index) => ({ option: `r${index}` }))),
+      rows([{ option: "bad ref" }]), rows([{ count: 2 }]), rows([{ option: "r1", count: 0 }]), rows([{ option: "r1", count: 100 }]),
+      rows([{ option: "r1", count: 1.5 }]), rows([{ option: "r1", count: "2" }]), rows([{ option: "r1", label: "x" }]), rows("r1"),
+      text({}), text(Object.fromEntries(Array.from({ length: 9 }, (_, index) => [`f${index}`, "x"]))), text({ "a b": "x" }),
+      text({ ["f".repeat(33)]: "x" }), text({ first: "" }), text({ first: "x".repeat(257) }), text({ first: 5 }), text(["Ilse"]),
+      { option: "ok", answer: { rows: [{ option: "r1" }] }, then: [{ option: "r2", answer: { rows: [{ option: "r1" }] } }] },
+    ]) expect(isDomusActClaim(bad)).toBe(false);
+  });
+
+  it("stores a valid multi-row answer resolved to the game's own row ids, and returns it on sync", () => {
+    const db = openTestSidecar();
+    const result = answering(db, { option: "ok", answer: { rows: [{ option: "r1" }, { option: "r2" }] } });
+    expect(result.state).toBe("requested");
+    expect(row(db, result.actId)).toMatchObject({ state: "requested", object_id: "dialog:2001", guid64: "ok",
+      label: "answered Recipe Picker: Pancakes, Toast",
+      answer_json: JSON.stringify({ rows: [{ option_id: "21001", count: 1 }, { option_id: "21002", count: 1 }] }) });
+    expect(syncDomusActs(db, { helperSession: "helper-a", events: [], nowMs: NOW }).acts).toEqual([{ act_id: result.actId,
+      object_id: "dialog:2001", guid64: "ok", expires_at_ms: NOW + DOMUS_ACT_TTL_MS,
+      answer: { rows: [{ option_id: "21001", count: 1 }, { option_id: "21002", count: 1 }] } }]);
+  });
+
+  it("stores counts per row and says them in her record", () => {
+    const db = openTestSidecar();
+    const result = answering(db, { option: "pok", answer: { rows: [{ option: "p1", count: 2 }, { option: "p2" }] } });
+    expect(result.state).toBe("requested");
+    expect(row(db, result.actId)).toMatchObject({ label: "answered Shop: Chair x2, Lamp",
+      answer_json: JSON.stringify({ rows: [{ option_id: "22001", count: 2 }, { option_id: "22002", count: 1 }] }) });
+  });
+
+  it("stores typed words, and her record names only the fields and their lengths", () => {
+    const db = openTestSidecar();
+    const result = answering(db, { option: "nok", answer: { text: { first: "Ilse", amount: "42" } } });
+    expect(result.state).toBe("requested");
+    const stored = row(db, result.actId);
+    expect(stored).toMatchObject({ label: "answered Naming: first 4 chars, amount 2 chars", answer_json: JSON.stringify({ text: { first: "Ilse", amount: "42" } }) });
+    expect(String(stored.label)).not.toContain("Ilse");
+    expect(syncDomusActs(db, { helperSession: "helper-a", events: [], nowMs: NOW }).acts[0])
+      .toMatchObject({ answer: { text: { first: "Ilse", amount: "42" } } });
+  });
+
+  it("stores rows and text together when the question takes both, and refuses text the question does not take", () => {
+    expect(reasonOf({ option: "ok", answer: { rows: [{ option: "r3" }], text: { first: "Ilse" } } })).toBe("answer:unknown_field:first");
+    const db = openTestSidecar();
+    const ok = answering(db, { option: "ok", answer: { rows: [{ option: "r2" }], text: { first: "Ilse" } } }, [BOTH_OBJECT]);
+    expect(ok.state).toBe("requested");
+    expect(row(db, ok.actId)).toMatchObject({ answer_json: JSON.stringify({ rows: [{ option_id: "21002", count: 1 }], text: { first: "Ilse" } }) });
+  });
+
+  it("refuses an answer to an object that is not a dialog, has no rules, or is answered with a button other than ok", () => {
+    expect(reasonOf({ option: "a1", answer: { rows: [{ option: "a1" }] } })).toBe("answer:not_a_dialog");
+    expect(reasonOf({ option: "ncx", answer: { text: { first: "Ilse" } } })).toBe("answer:not_ok");
+    const plain: DomusOptionObject = { object: "Shelf", object_id: "dialog:2009", acts: [{ ref: "pk", guid64: "ok", text: "OK" }] };
+    expect(reasonOf({ option: "pk", answer: { text: { first: "x" } } }, [plain])).toBe("answer:no_rules");
+    const broken = { ...NAMING_OBJECT, answer_rules: { text: [{ name: "first" }] } } as unknown as DomusOptionObject;
+    expect(reasonOf({ option: "nok", answer: { text: { first: "x" } } }, [broken])).toBe("answer:no_rules");
+  });
+
+  it("refuses rows that are not on the question, not rows, repeated, or too many or too few", () => {
+    expect(reasonOf({ option: "ok", answer: { rows: [{ option: "r1" }, { option: "a1" }] } })).toBe("answer:row_not_in_dialog");
+    expect(reasonOf({ option: "ok", answer: { rows: [{ option: "cx" }] } })).toBe("answer:not_a_row");
+    expect(reasonOf({ option: "ok", answer: { rows: [{ option: "r1" }, { option: "r1" }] } })).toBe("answer:row_repeated");
+    expect(reasonOf({ option: "ok", answer: { rows: [{ option: "r1" }, { option: "r2" }, { option: "r3" }] } })).toBe("answer:too_many_rows");
+    const two: DomusOptionObject = { ...ROWS_OBJECT, object_id: "dialog:2005", answer_rules: { select: { min: 2, max: 3 } } };
+    expect(reasonOf({ option: "ok", answer: { rows: [{ option: "r1" }] } }, [two])).toBe("answer:too_few_rows");
+    const picker: DomusOptionObject = { ...ROWS_OBJECT, object_id: "dialog:2006", answer_rules: { select: { min: 1, max: 2 }, counts: { max_in_row: 3, max_rows: 1 } } };
+    expect(reasonOf({ option: "ok", answer: { rows: [{ option: "r1" }, { option: "r2" }] } }, [picker])).toBe("answer:too_many_rows");
+  });
+
+  it("refuses counts that the question does not allow, or that are too high for one row", () => {
+    expect(reasonOf({ option: "ok", answer: { rows: [{ option: "r1", count: 2 }] } })).toBe("answer:count_not_allowed");
+    expect(reasonOf({ option: "pok", answer: { rows: [{ option: "p1", count: 4 }] } })).toBe("answer:count_too_high");
+    expect(reasonOf({ option: "pok", answer: { rows: [{ option: "p1" }, { option: "p1" }] } })).toBe("answer:row_repeated");
+    const threeRows: DomusOptionObject = { ...COUNTS_OBJECT, object_id: "dialog:2007", acts: [...COUNTS_OBJECT.acts,
+      { ref: "p3", guid64: "22003", text: "Desk" }] };
+    expect(reasonOf({ option: "pok", answer: { rows: [{ option: "p1" }, { option: "p2" }, { option: "p3" }] } }, [threeRows]))
+      .toBe("answer:too_many_rows");
+  });
+
+  it("refuses typed words that break a field's rules, names the field, and trims nothing", () => {
+    expect(reasonOf({ option: "nok", answer: { text: { first: "Bartholomew Ann" } } })).toBe("answer:text_too_long:first");
+    expect(reasonOf({ option: "nok", answer: { text: { first: "A\u0007b" } } })).toBe("answer:text_control:first");
+    expect(reasonOf({ option: "nok", answer: { text: { first: "Ilse", amount: "12a" } } })).toBe("answer:text_not_integer:amount");
+    expect(reasonOf({ option: "nok", answer: { text: { first: "Ilse", amount: "900" } } })).toBe("answer:text_out_of_range:amount");
+    expect(reasonOf({ option: "nok", answer: { text: { first: "Ilse", amount: "-1" } } })).toBe("answer:text_out_of_range:amount");
+    expect(reasonOf({ option: "nok", answer: { text: { amount: "5" } } })).toBe("answer:text_missing:first");
+    expect(reasonOf({ option: "nok", answer: { text: { first: "Ilse", nickname: "x" } } })).toBe("answer:unknown_field:nickname");
+    const noMax = { ...NAMING_OBJECT, object_id: "dialog:2010", answer_rules: { text: [{ ...NAMING_RULES[0]!, max_length: null }] } };
+    expect(reasonOf({ option: "nok", answer: { text: { first: "Ilse" } } }, [noMax])).toBe("answer:text_no_limit:first");
+    const noRange = { ...NAMING_OBJECT, object_id: "dialog:2011", answer_rules: { text: [{ ...NAMING_RULES[1]!, min_value: null }] } };
+    expect(reasonOf({ option: "nok", answer: { text: { amount: "5" } } }, [noRange])).toBe("answer:text_no_range:amount");
+    const short = { ...NAMING_OBJECT, object_id: "dialog:2012", answer_rules: { text: [{ ...NAMING_RULES[0]!, min_length: 3 }] } };
+    expect(reasonOf({ option: "nok", answer: { text: { first: "Al" } } }, [short])).toBe("answer:text_too_short:first");
+  });
+
+  it("keeps an invalid answer as invalid: nothing is sent, and the plan after it is let go", () => {
+    const db = openTestSidecar();
+    const result = answering(db, { option: "ok", answer: { rows: [{ option: "zz" }] }, then: ["cx"] });
+    expect(result.state).toBe("invalid");
+    expect(row(db, result.actId)).toMatchObject({ state: "invalid", answer_json: null, label: "OK (Recipe Picker) invalid: answer:row_not_in_dialog" });
+    expect(syncDomusActs(db, { helperSession: "helper-a", events: [], nowMs: NOW }).acts).toEqual([]);
+    expect(db.prepare("SELECT state, reason FROM domus_plan_steps WHERE plan_id = ?").all(result.actId)).toEqual([{ state: "dropped", reason: "after_invalid" }]);
+  });
+
+  it("leaves a single-row or button claim exactly as it was", () => {
+    const db = openTestSidecar();
+    const single = answering(db, { option: "a3" });
+    expect(row(db, single.actId)).toMatchObject({ state: "requested", label: "Play for Tips (Guitar)", answer_json: null });
+    const button = answering(db, { option: "nok" }, ALL, "cycle-2");
+    expect(button.state).toBe("requested");
+    expect(row(db, button.actId)).toMatchObject({ state: "requested", label: "OK (Naming)", guid64: "ok", answer_json: null });
+    const synced = syncDomusActs(db, { helperSession: "helper-a", events: [], nowMs: NOW }).acts;
+    expect(synced.map(item => item.act_id).sort()).toEqual([single.actId, button.actId].sort());
+    expect(synced.every(item => !("answer" in item))).toBe(true);
+  });
+});

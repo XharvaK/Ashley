@@ -27,9 +27,25 @@ export const DOMUS_OWNER_OPEN_MS = 6 * 60 * 60 * 1000;
 /** An object the game found no way to (an act there never began) carries that note this long. */
 export const DOMUS_NO_WAY_MS = 2 * 60 * 60 * 1000;
 
-export type DomusActClaim = { option: string; then?: string[]; forOwner?: boolean };
+/** One answer to a game question: rows she picked (each of the question's own row refs), and words she typed into its fields. */
+export type DomusAnswerClaim = { rows?: Array<{ option: string; count?: number }>; text?: Record<string, string> };
+export type DomusActClaim = { option: string; then?: string[]; forOwner?: boolean; answer?: DomusAnswerClaim };
+export type DomusTextRule = {
+  name: string; label: string; min_length: number; max_length: number | null; numeric: boolean;
+  min_value: number | null; max_value: number | null; profanity_checked: boolean;
+};
+/** What a game question accepts (the helper's answer_rules, §11); absent for a window that is not a question she can answer this way. */
+export type DomusAnswerRules = {
+  select?: { min: number; max: number };
+  counts?: { max_in_row: number; max_rows: number };
+  text?: DomusTextRule[];
+};
 export type DomusOptionAct = { ref: string; guid64: string; text: string };
-export type DomusOptionObject = { object: string; object_id: string; where?: string; acts: DomusOptionAct[]; noWay?: string };
+export type DomusOptionObject = {
+  object: string; object_id: string; where?: string; acts: DomusOptionAct[]; noWay?: string; answer_rules?: DomusAnswerRules;
+};
+/** The answer as it is stored and sent to the helper: rows by the game's own option ids, counts resolved, text as she typed it. */
+export type DomusStoredAnswer = { rows?: Array<{ option_id: string; count: number }>; text?: Record<string, string> };
 export type DomusActBinding = { world: string; attachment: string; observationId: string };
 export type DomusActPhase = "received" | "accepted" | "rejected" | "pushed" | "finished" | "unknown" | "expired";
 export type DomusActEvent = { actId: string; phase: DomusActPhase; atMs: number; detail?: Record<string, unknown> };
@@ -47,13 +63,75 @@ type Row = Record<string, unknown>;
 
 const REF = /^[A-Za-z0-9._-]{1,16}$/;
 
+/** Answer bounds: rows and fields per answer, the count per row, the length of one typed value (characters). */
+export const DOMUS_ANSWER_ROWS = 16;
+export const DOMUS_ANSWER_COUNT = 99;
+export const DOMUS_ANSWER_FIELDS = 8;
+export const DOMUS_ANSWER_TEXT = 256;
+const FIELD_NAME = /^[A-Za-z0-9_.-]{1,32}$/;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
 export function isDomusActClaim(value: unknown): value is DomusActClaim {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const record = value as Record<string, unknown>;
-  return Object.keys(record).every(key => key === "option" || key === "then" || key === "forOwner") && typeof record.option === "string"
+  return Object.keys(record).every(key => key === "option" || key === "then" || key === "forOwner" || key === "answer") && typeof record.option === "string"
     && REF.test(record.option) && (record.forOwner === undefined || typeof record.forOwner === "boolean")
     && (record.then === undefined || (Array.isArray(record.then) && record.then.length >= 1 && record.then.length <= DOMUS_PLAN_MORE
-      && record.then.every(ref => typeof ref === "string" && REF.test(ref))));
+      && record.then.every(ref => typeof ref === "string" && REF.test(ref))))
+    && (record.answer === undefined || isDomusAnswerClaim(record.answer));
+}
+
+/** The shape only: rows or text (or both), rows 1..16 with refs and counts 1..99, text 1..8 named fields of 1..256 characters. */
+export function isDomusAnswerClaim(value: unknown): value is DomusAnswerClaim {
+  if (!isRecord(value) || !Object.keys(value).every(key => key === "rows" || key === "text")) return false;
+  if (value.rows === undefined && value.text === undefined) return false;
+  const rowsOk = value.rows === undefined || (Array.isArray(value.rows) && value.rows.length >= 1 && value.rows.length <= DOMUS_ANSWER_ROWS
+    && value.rows.every(row => isRecord(row) && Object.keys(row).every(key => key === "option" || key === "count")
+      && typeof row.option === "string" && REF.test(row.option)
+      && (row.count === undefined || (Number.isInteger(row.count) && (row.count as number) >= 1 && (row.count as number) <= DOMUS_ANSWER_COUNT))));
+  const entries = isRecord(value.text) ? Object.entries(value.text) : undefined;
+  const textOk = value.text === undefined || (entries !== undefined && entries.length >= 1 && entries.length <= DOMUS_ANSWER_FIELDS
+    && entries.every(([name, text]) => FIELD_NAME.test(name) && typeof text === "string"
+      && [...text].length >= 1 && [...text].length <= DOMUS_ANSWER_TEXT));
+  return rowsOk && textOk;
+}
+
+/**
+ * The answer rules of one option object, read defensively: a malformed rule set counts as none, so
+ * a claim against it is refused rather than checked against guessed bounds.
+ */
+export function answerRulesOf(object: DomusOptionObject): DomusAnswerRules | undefined {
+  const rules = object.answer_rules;
+  if (!isRecord(rules)) return undefined;
+  const integer = (value: unknown): value is number => Number.isSafeInteger(value);
+  const nullableInteger = (value: unknown): value is number | null => value === null || integer(value);
+  const out: DomusAnswerRules = {};
+  if (rules.select !== undefined) {
+    const select = rules.select;
+    if (!isRecord(select) || !integer(select.min) || !integer(select.max)) return undefined;
+    out.select = { min: select.min, max: select.max };
+  }
+  if (rules.counts !== undefined) {
+    const counts = rules.counts;
+    if (!isRecord(counts) || !integer(counts.max_in_row) || !integer(counts.max_rows)) return undefined;
+    out.counts = { max_in_row: counts.max_in_row, max_rows: counts.max_rows };
+  }
+  if (rules.text !== undefined) {
+    if (!Array.isArray(rules.text)) return undefined;
+    const fields: DomusTextRule[] = [];
+    for (const field of rules.text) {
+      if (!isRecord(field) || typeof field.name !== "string" || typeof field.label !== "string" || !integer(field.min_length)
+        || !nullableInteger(field.max_length) || typeof field.numeric !== "boolean" || !nullableInteger(field.min_value)
+        || !nullableInteger(field.max_value) || typeof field.profanity_checked !== "boolean") return undefined;
+      fields.push({ name: field.name, label: field.label, min_length: field.min_length, max_length: field.max_length, numeric: field.numeric,
+        min_value: field.min_value, max_value: field.max_value, profanity_checked: field.profanity_checked });
+    }
+    out.text = fields;
+  }
+  return out;
 }
 
 /** The options of one stored observation, exactly as the helper sent them; anything malformed offers nothing. */
@@ -110,18 +188,23 @@ export function recordDomusAct(db: DatabaseSync, input: {
   if (existing) return { actId: String(existing.act_id), state: existing.state === "invalid" ? "invalid" : "requested" };
   const options = domusOptionsFor(db, input.binding);
   const found = findOption(options, input.claim.option);
+  const answer = found && input.claim.answer !== undefined ? answerFor(found, input.claim.answer) : undefined;
+  const refused = answer && "refused" in answer ? answer.refused : null;
+  const usable = found !== null && refused === null;
   const actId = randomUUID().replaceAll("-", "");
   // A new choice replaces whatever was still waiting in an earlier plan.
   dropPlannedSteps(db, { world: input.binding.world, reason: "replaced", nowMs: input.nowMs });
+  const label = !found ? "" : refused !== null ? `${labelOf(found)} invalid: ${refused}`.slice(0, 200)
+    : answer && "stored" in answer ? answer.label : labelOf(found);
   db.prepare(`INSERT INTO domus_acts (act_id, cycle_id, world, attachment, observation_id, option_ref, object_id, guid64,
-    label, state, requested_at_ms, expires_at_ms, updated_at_ms, for_owner) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+    label, state, requested_at_ms, expires_at_ms, updated_at_ms, for_owner, answer_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
     actId, input.cycleId, input.binding.world, input.binding.attachment, input.binding.observationId, input.claim.option,
-    found ? found.object.object_id : null, found ? found.act.guid64 : null,
-    found ? labelOf(found) : "",
-    found ? "requested" : "invalid", input.nowMs, input.nowMs + DOMUS_ACT_TTL_MS, input.nowMs, input.claim.forOwner === true ? 1 : 0);
+    found ? found.object.object_id : null, found ? found.act.guid64 : null, label,
+    usable ? "requested" : "invalid", input.nowMs, input.nowMs + DOMUS_ACT_TTL_MS, input.nowMs, input.claim.forOwner === true ? 1 : 0,
+    answer && "stored" in answer && usable ? answer.json : null);
   const step = db.prepare(`INSERT INTO domus_plan_steps (plan_id, step, world, attachment, option_ref, object_id, guid64, label,
     state, reason, planned_at_ms, updated_at_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
-  let broken: string | null = found ? null : "after_invalid";
+  let broken: string | null = usable ? null : "after_invalid";
   (input.claim.then ?? []).slice(0, DOMUS_PLAN_MORE).forEach((ref, index) => {
     const next = findOption(options, ref);
     const state = broken ? "dropped" : next ? "planned" : "invalid";
@@ -129,11 +212,80 @@ export function recordDomusAct(db: DatabaseSync, input: {
       next ? next.act.guid64 : null, next ? labelOf(next) : "", state, broken, input.nowMs, input.nowMs);
     if (!next && !broken) broken = "after_invalid";
   });
-  return { actId, state: found ? "requested" : "invalid" };
+  return { actId, state: usable ? "requested" : "invalid" };
 }
 
 function labelOf(found: { object: DomusOptionObject; act: DomusOptionAct }): string {
   return `${found.act.text} (${found.object.object})`.slice(0, 200);
+}
+
+/**
+ * Her answer to a game question, checked against the rules the question carried in the pass she
+ * read. Anything wrong is refused with a short reason; nothing is trimmed, guessed or substituted.
+ * A stored answer keeps the game's row ids and her words; its label says what she answered, with
+ * only the field names and lengths of her typed words (never the words themselves).
+ */
+function answerFor(found: { object: DomusOptionObject; act: DomusOptionAct }, answer: DomusAnswerClaim):
+  { stored: true; json: string; label: string } | { refused: string } {
+  if (!found.object.object_id.startsWith("dialog:")) return { refused: "answer:not_a_dialog" };
+  const rules = answerRulesOf(found.object);
+  if (!rules) return { refused: "answer:no_rules" };
+  if (found.act.guid64 !== "ok") return { refused: "answer:not_ok" };
+  const rows = answer.rows ?? [];
+  if (rows.length || rules.select) {
+    const select = rules.select ?? { min: 1, max: rules.counts?.max_rows ?? 1 };
+    if (rows.length < select.min) return { refused: "answer:too_few_rows" };
+    if (rows.length > select.max) return { refused: "answer:too_many_rows" };
+    if (rules.counts && rows.length > rules.counts.max_rows) return { refused: "answer:too_many_rows" };
+  }
+  const picked = new Set<string>();
+  const resolved: Array<{ option_id: string; count: number }> = [];
+  const parts: string[] = [];
+  for (const row of rows) {
+    const target = found.object.acts.find(item => item && typeof item === "object" && item.ref === row.option);
+    if (!target || typeof target.guid64 !== "string" || typeof target.text !== "string") return { refused: "answer:row_not_in_dialog" };
+    if (!/^[0-9]+$/.test(target.guid64)) return { refused: "answer:not_a_row" };
+    if (picked.has(target.ref)) return { refused: "answer:row_repeated" };
+    picked.add(target.ref);
+    if (row.count !== undefined) {
+      if (!rules.counts) return { refused: "answer:count_not_allowed" };
+      if (row.count > rules.counts.max_in_row) return { refused: "answer:count_too_high" };
+    }
+    const count = row.count ?? 1;
+    resolved.push({ option_id: target.guid64, count });
+    parts.push(count > 1 ? `${target.text} x${count}` : target.text);
+  }
+  const typed = answer.text ?? {};
+  const fields = rules.text ?? [];
+  for (const [name, value] of Object.entries(typed)) {
+    const field = fields.find(item => item.name === name);
+    if (!field) return { refused: `answer:unknown_field:${name}` };
+    const problem = textProblem(field, value);
+    if (problem) return { refused: `answer:${problem}:${name}` };
+    parts.push(`${name} ${[...value].length} chars`);
+  }
+  for (const field of fields) {
+    if (field.min_length > 0 && !Object.prototype.hasOwnProperty.call(typed, field.name)) return { refused: `answer:text_missing:${field.name}` };
+  }
+  const stored: DomusStoredAnswer = {
+    ...(resolved.length ? { rows: resolved } : {}),
+    ...(Object.keys(typed).length ? { text: { ...typed } } : {}),
+  };
+  return { stored: true, json: JSON.stringify(stored), label: `answered ${found.object.object}: ${parts.join(", ")}`.slice(0, 200) };
+}
+
+/** One typed value against its field's rules: the first problem found, as a short reason. */
+function textProblem(field: DomusTextRule, value: string): string | null {
+  if (/\p{Cc}/u.test(value)) return "text_control";
+  if (field.max_length === null) return "text_no_limit";
+  const length = [...value].length;
+  if (length > field.max_length) return "text_too_long";
+  if (length < field.min_length) return "text_too_short";
+  if (!field.numeric) return null;
+  if (!/^-?[0-9]{1,15}$/.test(value)) return "text_not_integer";
+  if (field.min_value === null || field.max_value === null) return "text_no_range";
+  const amount = Number(value);
+  return amount < field.min_value || amount > field.max_value ? "text_out_of_range" : null;
 }
 
 /** Steps still waiting are let go (a new choice, a wake, a session that ended); released ones run their course. */
@@ -244,7 +396,7 @@ function nextState(current: string, phase: string): string | null {
  */
 export function syncDomusActs(db: DatabaseSync, input: {
   helperSession: string; events: readonly DomusActEvent[]; nowMs: number;
-}): { acts: Array<{ act_id: string; object_id: string; guid64: string; expires_at_ms: number; owner?: true }>; applied: number; planned: number } {
+}): { acts: Array<{ act_id: string; object_id: string; guid64: string; expires_at_ms: number; owner?: true; answer?: DomusStoredAnswer }>; applied: number; planned: number } {
   let applied = 0;
   db.exec("BEGIN IMMEDIATE");
   try {
@@ -276,16 +428,25 @@ export function syncDomusActs(db: DatabaseSync, input: {
     }
     dropPlannedSteps(db, { otherThan: input.helperSession, reason: "session_ended", nowMs: input.nowMs });
     releasePlanSteps(db, input.helperSession, input.nowMs);
-    const acts = (db.prepare(`SELECT act_id, object_id, guid64, expires_at_ms, for_owner FROM domus_acts
+    const acts = (db.prepare(`SELECT act_id, object_id, guid64, expires_at_ms, for_owner, answer_json FROM domus_acts
       WHERE attachment = ? AND state = 'requested' AND expires_at_ms > ? ORDER BY requested_at_ms`).all(input.helperSession, input.nowMs) as Row[])
       .map(row => ({ act_id: String(row.act_id), object_id: String(row.object_id), guid64: String(row.guid64), expires_at_ms: Number(row.expires_at_ms),
-        ...(Number(row.for_owner) === 1 ? { owner: true as const } : {}) }));
+        ...(Number(row.for_owner) === 1 ? { owner: true as const } : {}), ...storedAnswerOf(row.answer_json) }));
     // The helper holds back its idle wake while a step still waits to follow.
     const planned = Number((db.prepare("SELECT COUNT(*) AS n FROM domus_plan_steps WHERE attachment = ? AND state = 'planned'")
       .get(input.helperSession) as Row).n);
     db.exec("COMMIT");
     return { acts, applied, planned };
   } catch (error) { db.exec("ROLLBACK"); throw error; }
+}
+
+/** The stored answer of an act, as the helper gets it (absent when there is none or it cannot be read). */
+function storedAnswerOf(json: unknown): { answer?: DomusStoredAnswer } {
+  if (json === null || json === undefined) return {};
+  try {
+    const parsed = JSON.parse(String(json)) as unknown;
+    return isRecord(parsed) ? { answer: parsed as DomusStoredAnswer } : {};
+  } catch { return {}; }
 }
 
 /** Her own recent acts in this world, newest last, with the latest thing known about each; then what still waits in her plan (or was let go). OWNERFIRST: an act the User asked for that did not complete is kept at the front, still open, until a later act on the same thing completes or DOMUS_OWNER_OPEN_MS passes. */
