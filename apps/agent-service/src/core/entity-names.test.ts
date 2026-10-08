@@ -35,6 +35,10 @@ describe("entity names", () => {
     const prompt = loadNuclearSystemPrompt("discord");
     expect(prompt).toContain("Nova cannot post to external sites");
     expect(prompt).not.toContain("Ashley cannot post to external sites");
+    expect(prompt).toContain("Sam is my friend");
+    expect(prompt).toContain("If Sam clearly says stop");
+    expect(prompt).not.toContain("Alex");
+    expect(prompt).not.toContain("{{");
     const note = emptyActivityLicenseNote();
     expect(note).toContain("If Sam asks directly");
     expect(note).not.toContain("If Alex asks directly");

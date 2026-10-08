@@ -41,8 +41,8 @@ function pin(value: unknown): string {
 }
 
 const EXPECTED = {
-  "prompt.discord": "5393a9b97b0d63fa3ce8608d287c312a022de842263c710165ddd6d94aac0f2e",
-  "prompt.proactive": "69514df99df10b018e7668ebeceb6ecb4c93ed40d706c45125e7fb0a0ddcb408",
+  "prompt.discord": "60d47fded272d9c6d5b219414070ee10b9f372186b35517b70018567265d546f",
+  "prompt.proactive": "4971d500c20e6b43ed84c8a84904e28d0cdd20b876ac4adeb50c47a0fd62bc6b",
   "thought.schema": "5d9c05147cde0948d3c3354c995a63500c005f575cd3f0dba56f0f38d3c69213",
   "thought.deepseek": "d5d00085a92fb9d27432669eaafaf1d259ad092ceb29ac6d7b79253280d05899",
   "thought.growth": "8c1138b2c18691a18c1f96a8897e666967c1ab9379fd37f8c1841adad0b80460",

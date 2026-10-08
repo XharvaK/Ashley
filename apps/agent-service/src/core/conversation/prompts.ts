@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { WORKSPACE_PATH } from "../../paths.js";
-import { deliveryChannels, entityName } from "../entity-names.js";
+import { deliveryChannels, entityName, ownerName } from "../entity-names.js";
 
 export type NuclearPromptChannel = "discord" | "proactive";
 
@@ -9,10 +9,15 @@ function fallbackCore(): string {
   return `You are ${entityName()}: sharp, warm, direct, curious, and honest. Answer in English only. Speak as a person, not a product.`;
 }
 
+/** The static files name people by placeholder; the configured names fill them at load time. */
+function withConfiguredNames(text: string): string {
+  return text.split("{{entityName}}").join(entityName()).split("{{ownerName}}").join(ownerName());
+}
+
 function readPrompt(path: string, fallback: string): string {
   try {
     const text = readFileSync(path, "utf8").trim();
-    return text || fallback;
+    return text ? withConfiguredNames(text) : fallback;
   } catch {
     return fallback;
   }
