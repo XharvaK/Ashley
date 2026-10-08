@@ -11,7 +11,7 @@ import { ARCHITECTURE_EPOCH, type CycleRecord, type KernelDeps, type ThoughtInpu
 import type { SocialAudience } from "../cognitive-v021/social/types.js";
 import { findPlaceEntry, placeLabel, placePostLimit, postsLast24h, type PlaceEntry } from "./places.js";
 import { closedPlaces, contactRestrictions, listPlaceRules } from "./rules.js";
-import { PLACE_SAY_MAX_CHARS } from "./intents.js";
+import { PLACE_SAY_MAX_CHARS, PLACE_WISH_POST_ORDINAL } from "./intents.js";
 
 export const PLACE_WISH_ATTEMPTS = 3;
 /** A wish not written within this time after it was due is dropped. */
@@ -72,9 +72,14 @@ export function thoughtPlaceWish(sidecar: DatabaseSync, wish: PlaceWish, entry: 
  * syncPlacePosts checks the place again at hand-over.
  */
 export async function composeDuePlaceWishes(sidecar: DatabaseSync, nuclear: DatabaseSync, input: {
-  nowMs: number; compose: PlaceComposer; limit?: number;
+  nowMs: number; compose: PlaceComposer; limit?: number; held?: boolean;
 }): Promise<{ written: number; letGo: number; refused: number; failed: number }> {
   const out = { written: 0, letGo: 0, refused: 0, failed: 0 };
+  // Paused or quiet (placesHeld): her wishes wait unwritten, and their clock waits with them.
+  if (input.held) {
+    sidecar.prepare("UPDATE place_wishes SET due_at_ms = ? WHERE state = 'composing' AND due_at_ms <= ?").run(input.nowMs, input.nowMs);
+    return out;
+  }
   for (const row of sidecar.prepare("SELECT wish_id FROM place_wishes WHERE state = 'composing' AND due_at_ms <= ?")
     .all(input.nowMs - PLACE_WISH_TTL_MS) as Row[]) {
     move(sidecar, String(row.wish_id), "failed", input.nowMs, { reason: "not_written_in_time" });
@@ -120,7 +125,7 @@ export async function composeDuePlaceWishes(sidecar: DatabaseSync, nuclear: Data
     const intentId = `intent:${wish.wishId.replace(/^wish:/, "")}`;
     sidecar.prepare(`INSERT OR IGNORE INTO place_intents (intent_id, cycle_id, ordinal, place_ref, interaction, say, state, reason,
       due_at_ms, requested_at_ms, updated_at_ms) VALUES (?, ?, ?, ?, ?, ?, 'requested', NULL, ?, ?, ?)`)
-      .run(intentId, wish.cycleId, 100 + wish.ordinal, entry.ref, wish.interaction, post, input.nowMs, input.nowMs, input.nowMs);
+      .run(intentId, wish.cycleId, PLACE_WISH_POST_ORDINAL + wish.ordinal, entry.ref, wish.interaction, post, input.nowMs, input.nowMs, input.nowMs);
     move(sidecar, wish.wishId, "written", input.nowMs, { intentId });
     out.written++;
   }

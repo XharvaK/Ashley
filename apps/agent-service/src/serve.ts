@@ -1,3 +1,4 @@
+import { placesHeld } from "./core/places/intents.js";
 import { composeDuePlaceWishes, thoughtPlaceComposer } from "./core/places/compose.js";
 import { homeRootFor } from "./core/home/home.js";
 import { vaultDirFor } from "./core/reach/vault-dir.js";
@@ -496,7 +497,10 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
     setInterval(() => {
       if (composingPlaceWishes) return;
       composingPlaceWishes = true;
-      void composeDuePlaceWishes(sidecar, nuclear, { nowMs: Date.now(), compose: placeComposer })
+      const nowMs = Date.now();
+      const ownerId = env.discordOwnerId.trim();
+      const held = placesHeld(sidecar, { proactivePaused: !!ownerId && manager.core.isProactivePaused(ownerId), nowMs });
+      void composeDuePlaceWishes(sidecar, nuclear, { nowMs, compose: placeComposer, held })
         .catch((error) => console.warn("[places] compose deferred", error instanceof Error ? error.message : error))
         .finally(() => { composingPlaceWishes = false; });
     }, 20_000).unref();

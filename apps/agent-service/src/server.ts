@@ -29,7 +29,7 @@ import {isThalamusEnabled,schedulerContract,observeGatewayUserId} from "./core/c
 import {thalamusStatus} from "./core/cognitive-v021/thalamus/status.js";
 import { createTransportAuth } from "./transport-auth.js";
 import { assertRegisteredRoutes } from "./route-surface.js";
-import { parsePlaceSyncReports, syncPlacePosts } from "./core/places/intents.js";
+import { parsePlaceSyncReports, placesHeld, syncPlacePosts } from "./core/places/intents.js";
 import { openCognitiveSidecarDb } from "./core/cognitive-v021/sidecar/db.js";
 import {
   createCognitiveIngressHandler,
@@ -1729,7 +1729,11 @@ export function createServer(
       requireReady();
       requireBotService(req);
       const reports = parsePlaceSyncReports(req.body);
-      const result = syncPlacePosts(getCognitiveSidecar(), manager.core.getDatabase(), { reports, nowMs: Date.now() });
+      const sidecar = getCognitiveSidecar();
+      const nowMs = Date.now();
+      const ownerId = (options.ownerId ?? env.discordOwnerId).trim();
+      const held = placesHeld(sidecar, { proactivePaused: !!ownerId && manager.core.isProactivePaused(ownerId), nowMs });
+      const result = syncPlacePosts(sidecar, manager.core.getDatabase(), { reports, nowMs, held });
       res.status(200).json({ status: "ok", applied: result.applied, posts: result.posts });
     } catch (err) {
       const { status, body } = toErrorResponse(err instanceof Error && err.message === "place_sync_invalid"

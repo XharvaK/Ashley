@@ -5,7 +5,8 @@ import { openTestSidecar } from "../cognitive-v021/test-support.js";
 import { appendExternalUtteranceInTransaction, appendOwnerUtterance } from "../cognitive-v021/evidence/conversation-log.js";
 import { upsertTrustedRoom } from "../relationship/social-authority.js";
 import { findPlaceEntry, recordDiscordNames } from "./places.js";
-import { recentPlaceActs, recordPlaceIntents, syncPlacePosts } from "./intents.js";
+import { placesHeld, recentPlaceActs, recordPlaceIntents, syncPlacePosts, PLACE_INTENT_TTL_MS } from "./intents.js";
+import { openOwnerQuiet } from "../cognitive-v021/quiet/window.js";
 import { applyPlaceRules, setPlaceSwitch } from "./rules.js";
 import { composeDuePlaceWishes, placeWishThoughtInput, thoughtPlaceWish, PLACE_WISH_ATTEMPTS, type PlaceComposer, type PlaceWish } from "./compose.js";
 
@@ -24,6 +25,37 @@ function world() {
 
 const wishFromOwnTime = (sidecar: DatabaseSync, cycleId: string, say: string, nowMs = NOW) =>
   recordPlaceIntents(sidecar, { cycleId, claims: [{ place: ROOM, interaction: "initiate", say }], sawSecret: false, nowMs, ownerTurn: false })[0]!;
+
+describe("CV05 pause and quiet hold what she starts on her own in every place", () => {
+  it("holds her wishes and their written posts while paused, without expiring them, and lets the Owner's ask through", async () => {
+    const { sidecar, nuclear, close } = world();
+    try {
+      wishFromOwnTime(sidecar, "awake-1", "own words");
+      let calls = 0;
+      const compose: PlaceComposer = async () => { calls++; return { post: "written here" }; };
+      expect(await composeDuePlaceWishes(sidecar, nuclear, { nowMs: NOW + 10, compose, held: true })).toMatchObject({ written: 0 });
+      expect(calls).toBe(0);
+      await composeDuePlaceWishes(sidecar, nuclear, { nowMs: NOW + 20, compose });
+      recordPlaceIntents(sidecar, { cycleId: "chat-9", nowMs: NOW + 30, sawSecret: false, ownerTurn: true,
+        claims: [{ place: ROOM, interaction: "initiate", say: "the Owner asked for this", ownerAsked: true }] });
+      const late = NOW + 30 + PLACE_INTENT_TTL_MS * 3;
+      expect(syncPlacePosts(sidecar, nuclear, { reports: [], nowMs: NOW + 40, held: true }).posts.map(post => post.text))
+        .toEqual(["the Owner asked for this"]);
+      for (let t = NOW + 60_000; t <= late; t += 60_000) syncPlacePosts(sidecar, nuclear, { reports: [], nowMs: t, held: true });
+      expect(syncPlacePosts(sidecar, nuclear, { reports: [], nowMs: late + 1 }).posts.map(post => post.text)).toEqual(["written here"]);
+    } finally { close(); }
+  });
+
+  it("counts an open quiet window as held", () => {
+    const { sidecar, close } = world();
+    try {
+      expect(placesHeld(sidecar, { proactivePaused: false, nowMs: NOW })).toBe(false);
+      expect(placesHeld(sidecar, { proactivePaused: true, nowMs: NOW })).toBe(true);
+      openOwnerQuiet(sidecar, { nowMs: NOW, durationMs: 60 * 60_000 });
+      expect(placesHeld(sidecar, { proactivePaused: false, nowMs: NOW + 1 })).toBe(true);
+    } finally { close(); }
+  });
+});
 
 describe("B3 words are written where they go", () => {
   it("keeps an own-time intent as a wish; only a post the Owner asked for in their turn goes out as written", () => {

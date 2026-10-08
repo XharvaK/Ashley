@@ -14,6 +14,7 @@ import type { DatabaseSync } from "node:sqlite";
 import { appendAshleyEvidence } from "../cognitive-v021/evidence/conversation-log.js";
 import { findPlaceEntry, placePostLimit, postsLast24h, type PlaceEntry } from "./places.js";
 import { closedPlaces, contactRestrictions } from "./rules.js";
+import { readOpenQuietWindow } from "../cognitive-v021/quiet/window.js";
 
 export const PLACE_INTENTS_MAX = 3;
 export const PLACE_SAY_MAX_CHARS = 2000;
@@ -94,10 +95,26 @@ function move(sidecar: DatabaseSync, id: string, from: readonly PlaceIntentState
  * handed over. Checks at hand-over: the place is still hers (trusted room or contact), the Owner has not
  * closed it, the contact has not asked her to stop, and the fuse.
  */
+/** Ordinals of posts written from her wishes (compose.ts); a post the Owner asked for keeps its claim ordinal. */
+export const PLACE_WISH_POST_ORDINAL = 100;
+
+/**
+ * CV05 (User, 2026-10-08): pause, quiet and do-not-disturb hold what she starts on her own in rooms and
+ * contact DMs too, not only in the Owner's DM. Held posts wait (they neither go out nor expire); a post the
+ * Owner asked for, and her answers to people who speak to her, are not held.
+ */
+export function placesHeld(sidecar: DatabaseSync, input: { proactivePaused: boolean; nowMs: number }): boolean {
+  return input.proactivePaused || readOpenQuietWindow(sidecar, input.nowMs) !== null;
+}
+
 export function syncPlacePosts(sidecar: DatabaseSync, nuclear: DatabaseSync, input: {
-  reports: readonly PlaceSyncReport[]; nowMs: number;
+  reports: readonly PlaceSyncReport[]; nowMs: number; held?: boolean;
 }): { posts: PlacePost[]; applied: number } {
   let applied = 0;
+  if (input.held) {
+    sidecar.prepare("UPDATE place_intents SET due_at_ms = ? WHERE state = 'requested' AND ordinal >= ? AND due_at_ms <= ?")
+      .run(input.nowMs, PLACE_WISH_POST_ORDINAL, input.nowMs);
+  }
   for (const report of input.reports) {
     const row = sidecar.prepare("SELECT cycle_id, place_ref, say, state FROM place_intents WHERE intent_id = ?").get(report.intentId) as Row | undefined;
     if (!row || row.state !== "sending") continue;
@@ -133,7 +150,8 @@ export function syncPlacePosts(sidecar: DatabaseSync, nuclear: DatabaseSync, inp
   const posts: PlacePost[] = [];
   const closed = closedPlaces(sidecar);
   const due = sidecar.prepare(`SELECT intent_id, place_ref, interaction, say FROM place_intents WHERE state = 'requested' AND due_at_ms <= ?
-    ORDER BY due_at_ms, requested_at_ms, ordinal LIMIT 8`).all(input.nowMs) as Row[];
+    AND (? = 0 OR ordinal < ?) ORDER BY due_at_ms, requested_at_ms, ordinal LIMIT 8`)
+    .all(input.nowMs, input.held ? 1 : 0, PLACE_WISH_POST_ORDINAL) as Row[];
   for (const row of due) {
     const id = String(row.intent_id);
     const entry = findPlaceEntry(nuclear, sidecar, String(row.place_ref), input.nowMs);
