@@ -127,7 +127,7 @@ import { resolveAttachmentObservations } from "../perception/attachments.js";
 import { buildThoughtInput, captureThoughtSourcePackage, thoughtInputContainsSecret } from "./input.js";
 import { describeFieldShape } from "./field-shape.js";
 import { parseThoughtSemanticOutput, THOUGHT_SEMANTIC_PARSER_ID } from "./parse.js";
-import { salvageSettlement } from "./salvage.js";
+import { dropOptionalPartsAt, salvageSettlement } from "./salvage.js";
 import {
   concernDiscoverItemAuthorable,
   concernInspectRefsForInput,
@@ -1970,10 +1970,24 @@ export async function runThoughtModel(
     for (const note of semanticResult.sourceRefNotes ?? []) {
       console.warn(`[thought] nomination_ref path=${note.path} class=${note.class} action=${note.action}`);
     }
-    const semantic = semanticResult.value;
-    const correctionValidation = options.structuralFeedback
+    let correctionValidation = options.structuralFeedback
       ? validateThoughtStructuralCorrectionScope(options.structuralFeedback, completion.text)
       : { ok: true as const };
+    if (!correctionValidation.ok) {
+      // A retry that also changed optional parts outside its repair path is accepted once those parts are dropped.
+      const scoped = dropOptionalPartsAt(completion.text, correctionValidation.violation.changedPaths, (candidate) =>
+        parseThoughtSemanticOutput(candidate, semanticReferences, semanticParseOptions));
+      if (scoped.ok) {
+        const reparsed = parseThoughtSemanticOutput(scoped.text, semanticReferences, semanticParseOptions);
+        if (reparsed.ok) {
+          console.warn(`[thought] correction_scope_dropped dropped=${scoped.dropped.join(",")} model=${completion.providerModel ?? "-"}`);
+          completion = { ...completion, text: scoped.text };
+          semanticResult = reparsed;
+          correctionValidation = { ok: true };
+        }
+      }
+    }
+    const semantic = semanticResult.value;
     if (!correctionValidation.ok) {
       const output: ThoughtStepOutput = {
         kind: "failure",

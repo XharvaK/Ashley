@@ -172,6 +172,45 @@ function removalFor(failure: ParseFailure): {
   };
 }
 
+function nominationIndexOf(dropped: string): number {
+  const match = /^durableNominations\[(\d+)\]$/.exec(dropped);
+  return match ? Number(match[1]) : -1;
+}
+
+/**
+ * Corrective-retry scope: the paths a retry changed outside its allowed repair path. Accepted only when every
+ * one is an optional part (the same classification salvage uses); those parts are dropped and the candidate
+ * re-parsed. Any other changed path refuses. Removals only: nothing is filled in or rewritten.
+ */
+export function dropOptionalPartsAt(
+  text: string,
+  paths: readonly string[],
+  reparse: (text: string) => ThoughtSemanticParseResult,
+): SalvageResult {
+  const record = settlementObject(text);
+  if (!record || paths.length === 0) return { ok: false };
+  const seen = new Set<string>();
+  const removals: Array<NonNullable<ReturnType<typeof removalFor>>> = [];
+  for (const path of paths) {
+    const removal = removalFor({ ok: false, code: "wrong_type", field: path });
+    if (!removal) return { ok: false };
+    if (seen.has(removal.dropped)) continue;
+    seen.add(removal.dropped);
+    removals.push(removal);
+  }
+  // Nomination entries from the last index first, so an earlier index is still where the model put it.
+  removals.sort((left, right) => nominationIndexOf(right.dropped) - nominationIndexOf(left.dropped));
+  const dropped: string[] = [];
+  for (const removal of removals) {
+    // An absent part was already removed by the model itself: nothing to drop.
+    removal.apply(record);
+    if (EFFECT_BEARING_KEYS.has(removal.dropped) && hasDraftSpeech(record)) return { ok: false };
+    dropped.push(removal.dropped);
+  }
+  const currentText = JSON.stringify(record);
+  return reparse(currentText).ok ? { ok: true, text: currentText, dropped } : { ok: false };
+}
+
 /**
  * Remove the faulty optional part of a settlement and re-parse.
  * Removals only: no invented, rewritten, or filled values.

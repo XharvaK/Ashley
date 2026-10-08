@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseThoughtSemanticOutput } from "./parse.js";
-import { salvageSettlement } from "./salvage.js";
+import { dropOptionalPartsAt, salvageSettlement } from "./salvage.js";
 import { makeSemanticSettlement } from "../test-support.js";
 
 const SECRET = "SECRETWORD";
@@ -224,5 +224,35 @@ describe("salvageSettlement", () => {
     if (!result.ok) return;
     expect(result.dropped).toEqual(["speech.shape", "speech.bubbles"]);
     expect(JSON.parse(result.text).speech).toEqual({ mode: "draft", surfaceDraft: "kept words" });
+  });
+});
+
+describe("dropOptionalPartsAt (corrective retry scope)", () => {
+  const good = nomination("kept fact");
+  const withJournal = settlement({ journal: { activity: "think", entry: "first" }, durableNominations: [good, nomination("second fact")] });
+  const text = JSON.stringify(withJournal);
+
+  it("drops an out-of-scope change to an optional part and re-parses the candidate", () => {
+    const result = dropOptionalPartsAt(text, ["journal.entry"], reparse);
+    expect(result).toMatchObject({ ok: true, dropped: ["journal"] });
+    if (result.ok) expect(JSON.parse(result.text)).not.toHaveProperty("journal");
+  });
+
+  it("drops changed nomination entries from the last index first", () => {
+    const result = dropOptionalPartsAt(text, ["durableNominations[0].statement", "durableNominations[1].statement"], reparse);
+    expect(result).toMatchObject({ ok: true, dropped: ["durableNominations[1]", "durableNominations[0]"] });
+    if (result.ok) expect(JSON.parse(result.text).durableNominations).toEqual([]);
+  });
+
+  it("refuses when any changed path is a required or unknown-to-salvage part", () => {
+    expect(dropOptionalPartsAt(text, ["journal.entry", "speech.mode"], reparse)).toEqual({ ok: false });
+    expect(dropOptionalPartsAt(text, ["kind"], reparse)).toEqual({ ok: false });
+    expect(dropOptionalPartsAt(text, ["$"], reparse)).toEqual({ ok: false });
+    expect(dropOptionalPartsAt(text, [], reparse)).toEqual({ ok: false });
+  });
+
+  it("refuses when the candidate does not parse after the drop", () => {
+    const failing = (): ReturnType<typeof reparse> => ({ ok: false, code: "wrong_type", field: "speech" });
+    expect(dropOptionalPartsAt(text, ["journal.entry"], failing)).toEqual({ ok: false });
   });
 });
