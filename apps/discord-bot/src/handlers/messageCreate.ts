@@ -22,7 +22,8 @@ import {
 import { config } from "../config.js";
 import { agentErrorMessage } from "../chat/agent-errors.js";
 import { readMedia, type MediaReading } from "../chat/media-reading.js";
-import { readKillSwitch } from "../chat/kill-switch.js";
+import { createKillSwitchHandler } from "../chat/kill-switch.js";
+import { isOwner } from "../security/gate.js";
 import { tempoTracker } from "../chat/pacing.js";
 import { TurnBuffer } from "../chat/turn-buffer.js";
 import type { GateVerdict, OwnerRoomContext } from "../security/gate.js";
@@ -322,26 +323,12 @@ const messageCreateHandler = createMessageCreateHandler({
   onFirstFragment: (channelId) => tempoTracker.mark(channelId),
 });
 
-async function handleKillSwitch(message: Message): Promise<boolean> {
-  const switched = readKillSwitch(message.content);
-  if (!switched) return false;
-
-  const channelId = message.channel.id;
-  channelQueue.abort(channelId);
-  try {
-    if (switched === "pause") {
-      await pauseProactiveRemote();
-      await message.reply("alright, going quiet. say devam when you want me back");
-    } else {
-      await resumeProactiveRemote();
-      await message.reply("back on then");
-    }
-  } catch (err) {
-    console.warn("[discord-bot] kill switch failed:", err);
-    return false;
-  }
-  return true;
-}
+const handleKillSwitch = createKillSwitchHandler({
+  isOwner,
+  abort: (channelId) => channelQueue.abort(channelId),
+  pause: pauseProactiveRemote,
+  resume: resumeProactiveRemote,
+});
 
 export async function handleMessage(message: Message, context?: MessageSocialContext): Promise<void> {
   if (await handleKillSwitch(message)) return;

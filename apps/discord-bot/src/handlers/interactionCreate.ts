@@ -15,6 +15,27 @@ import * as contacts from "../commands/contacts.js";
 import * as places from "../commands/places.js";
 import * as quiet from "../commands/quiet.js";
 
+/** Every reply shows only to the Owner, except a proactive pause or resume, which the room may see. */
+const PRIVATE_COMMANDS = new Set([
+  "memory",
+  "remember",
+  "diary",
+  "identity",
+  "commitments",
+  "continuity",
+  "status",
+  "attention",
+  "delegation",
+  "contacts",
+  "places",
+  "quiet",
+]);
+
+export function isEphemeralCommand(name: string, action?: string | null): boolean {
+  if (PRIVATE_COMMANDS.has(name)) return true;
+  return name === "proactive" && action === "status";
+}
+
 export async function handleSlash(
   interaction: ChatInputCommandInteraction,
 ): Promise<void> {
@@ -27,20 +48,10 @@ export async function handleSlash(
     return;
   }
 
-  const ephemeral =
-    interaction.commandName === "memory" ||
-    interaction.commandName === "diary" ||
-    interaction.commandName === "identity" ||
-    interaction.commandName === "commitments" ||
-    interaction.commandName === "continuity" ||
-    interaction.commandName === "status" ||
-    interaction.commandName === "attention" ||
-    interaction.commandName === "delegation" ||
-    interaction.commandName === "contacts" ||
-    interaction.commandName === "places" ||
-    interaction.commandName === "quiet" ||
-    (interaction.commandName === "proactive" &&
-      interaction.options.getString("action") === "status");
+  const ephemeral = isEphemeralCommand(
+    interaction.commandName,
+    interaction.options.getString("action"),
+  );
   if (!interaction.deferred && !interaction.replied) {
     await interaction.deferReply({ ephemeral });
   }
