@@ -81,8 +81,18 @@ export type ThoughtSemanticParseFailureCode =
 // identity.
 export const THOUGHT_SEMANTIC_PARSER_ID = "ashley.thought.semantic-parser.v1" as const;
 
+/**
+ * Host fact about one nomination reference it re-filed or removed: the path (indices only) and the class of
+ * the id (never the id or any words). `nomination_dropped` means the removal left the nomination with no ref.
+ */
+export type NominationSourceRefNote = {
+  path: string;
+  class: "uuid" | "domus_observation" | "other";
+  action: "moved" | "dropped" | "nomination_dropped";
+};
+
 export type ThoughtSemanticParseResult =
-  | { ok: true; value: ThoughtSemanticOutput }
+  | { ok: true; value: ThoughtSemanticOutput; sourceRefNotes?: readonly NominationSourceRefNote[] }
   | { ok: false; code: ThoughtSemanticParseFailureCode; field?: string; epistemicRepairs?: readonly EpistemicDimensionRepair[] };
 
 type SemanticRecord = Record<string, unknown>;
@@ -663,7 +673,8 @@ function nominationFault(value: unknown, allowlist: ReadonlySet<string>): string
   if (own(record, "salience") && !(typeof record.salience === "number" && record.salience >= 0 && record.salience <= 1)) return "salience";
   if (!validEpistemicDimensions(record.dimensions)) return "dimensions";
   if (!["ordinary", "sensitive", "never_public", "secret"].includes(record.dataClassification as string)) return "dataClassification";
-  if (!refArray(record.sourceRefs, allowlist)) return "sourceRefs";
+  // Ids outside the allowlist are re-filed or removed by normalizeNominationSourceRefs, never a fault.
+  if (!Array.isArray(record.sourceRefs)) return "sourceRefs";
   if (!optionalTypedSupportRefs(record)) return "supportRefs";
   if (!(record.supersedesRef === null || existingRef(record.supersedesRef, allowlist))) return "supersedesRef";
   if (!validSemanticRefField(record.concernRef, allowlist)) return "concernRef";
@@ -672,6 +683,80 @@ function nominationFault(value: unknown, allowlist: ReadonlySet<string>): string
 
 function validNomination(value: unknown, allowlist: ReadonlySet<string>): value is ThoughtDurableNomination {
   return nominationFault(value, allowlist) === null;
+}
+
+const UUID_SHAPE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function nominationRefClass(ref: unknown, domusObservationIds: ReadonlySet<string>): NominationSourceRefNote["class"] {
+  if (typeof ref === "string" && domusObservationIds.has(ref)) return "domus_observation";
+  if (typeof ref === "string" && UUID_SHAPE.test(ref)) return "uuid";
+  return "other";
+}
+
+/**
+ * A nomination's sourceRefs may name only ids she was shown. A Domus observation id she was shown is a
+ * support reference, so it moves to supportRefs (deduped); any other id not on the allowlist is dropped.
+ * A nomination that a removal leaves with no ref at all is dropped alone. Removals and re-filing only: no
+ * invented or rewritten values. Mutates the freshly parsed record and returns what it did, by path and class.
+ */
+function normalizeNominationSourceRefs(
+  value: SemanticRecord,
+  allowlist: ReadonlySet<string>,
+  domusObservationIds: ReadonlySet<string>,
+): NominationSourceRefNote[] {
+  const list = value.durableNominations;
+  if (!Array.isArray(list)) return [];
+  const notes: NominationSourceRefNote[] = [];
+  const kept: unknown[] = [];
+  let changed = false;
+  list.forEach((item, index) => {
+    const nomination = semanticRecord(item);
+    if (!nomination || !Array.isArray(nomination.sourceRefs)) {
+      kept.push(item);
+      return;
+    }
+    const supportRefs: unknown[] | null = !own(nomination, "supportRefs")
+      ? []
+      : Array.isArray(nomination.supportRefs) ? [...nomination.supportRefs] : null;
+    const sourceRefs: unknown[] = [];
+    const removed: NominationSourceRefNote[] = [];
+    nomination.sourceRefs.forEach((ref, refIndex) => {
+      if (typeof ref === "string" && allowlist.has(ref)) {
+        sourceRefs.push(ref);
+        return;
+      }
+      const refClass = nominationRefClass(ref, domusObservationIds);
+      const path = `durableNominations[${index}].sourceRefs[${refIndex}]`;
+      if (refClass === "domus_observation" && supportRefs !== null) {
+        const observationId = ref as string;
+        const already = supportRefs.some((support) => {
+          const record = semanticRecord(support);
+          return record?.kind === "domus_observation" && record.observationId === observationId;
+        });
+        if (!already) supportRefs.push({ kind: "domus_observation", observationId });
+        removed.push({ path, class: refClass, action: "moved" });
+        return;
+      }
+      removed.push({ path, class: refClass, action: "dropped" });
+    });
+    if (removed.length === 0) {
+      kept.push(item);
+      return;
+    }
+    changed = true;
+    notes.push(...removed);
+    nomination.sourceRefs = sourceRefs;
+    if (supportRefs !== null && (supportRefs.length > 0 || own(nomination, "supportRefs"))) nomination.supportRefs = supportRefs;
+    const hasRef = sourceRefs.length > 0 || (supportRefs !== null && supportRefs.length > 0);
+    // Only an otherwise lawful nomination is dropped alone; any other fault still reaches retry or salvage.
+    if (!hasRef && nominationFault(nomination, allowlist) === null) {
+      notes.push({ path: `durableNominations[${index}]`, class: removed[removed.length - 1]!.class, action: "nomination_dropped" });
+      return;
+    }
+    kept.push(nomination);
+  });
+  if (changed) value.durableNominations = kept;
+  return notes;
 }
 
 function validateEvidenceUse(parent: SemanticRecord, allowlist: ReadonlySet<string>): ValidationResult {
@@ -897,7 +982,11 @@ function validInterests(value: unknown): boolean {
   });
 }
 
-function parseSettlementSemantic(value: SemanticRecord, allowlist: ReadonlySet<string>): ThoughtSemanticParseResult {
+function parseSettlementSemantic(
+  value: SemanticRecord,
+  allowlist: ReadonlySet<string>,
+  domusObservationIds: ReadonlySet<string>,
+): ThoughtSemanticParseResult {
   const unknown = Object.keys(value).find((key) => ![
     "kind", "interactionIntent", "speech", "initiativePreference", "interpretation", "commitments", "workingContextDeltas", "deskDeltas", "concernDeltas",
     "occupancyDeltas", "futureTriggerDeltas", "subscriptionDeltas", "durableNominations", "reflection", "journal", "domusAct", "domusSnapshot", "domusPromise", "domusPromiseSettled", "touch", "correct", "callback", "pin", "card", "face", "quiet", "intents", "home", "pursuits", "nextOwnTime", "webPlaces", "placeRules", "contactStop", "learned", "interests", "growth", "senses", "attention", "night", "forget", "evidenceUse",
@@ -929,6 +1018,7 @@ function parseSettlementSemantic(value: SemanticRecord, allowlist: ReadonlySet<s
   result = validateCommitments(value, allowlist);
   if (!result.ok) return semanticFailure(result.code, result.field, result.epistemicRepairs);
 
+  const sourceRefNotes = normalizeNominationSourceRefs(value, allowlist, domusObservationIds);
   const arrays: Array<[string, (item: unknown) => boolean]> = [
     ["workingContextDeltas", (item) => validWorkingContextDelta(item, allowlist)],
     ["deskDeltas", (item) => validDeskDelta(item, allowlist)],
@@ -1014,7 +1104,11 @@ function parseSettlementSemantic(value: SemanticRecord, allowlist: ReadonlySet<s
   if (!result.ok) return semanticFailure(result.code, result.field);
   result = validateSettlementLocalAliases(value, allowlist);
   if (!result.ok) return semanticFailure(result.code, result.field);
-  return { ok: true, value: value as unknown as SettlementSemanticOutput };
+  return {
+    ok: true,
+    value: value as unknown as SettlementSemanticOutput,
+    ...(sourceRefNotes.length > 0 ? { sourceRefNotes } : {}),
+  };
 }
 
 function parseOperationSemantic(
@@ -1134,13 +1228,20 @@ function parseOperationSemantic(
 export function parseThoughtSemanticOutput(
   raw: string | unknown,
   allowlistedReferences: ReadonlySet<string>,
-  options?: { concernInspectRefs?: ReadonlySet<string>; concernDiscoverAllowed?: boolean },
+  options?: {
+    concernInspectRefs?: ReadonlySet<string>;
+    concernDiscoverAllowed?: boolean;
+    /** Domus observation ids shown in this pass: the only ones a nomination may support with. */
+    domusObservationIds?: ReadonlySet<string>;
+  },
 ): ThoughtSemanticParseResult {
   const parsed = parseSemanticJson(raw);
   if (!parsed.ok) return semanticFailure("invalid_json");
   const record = semanticRecord(parsed.value);
   if (!record) return semanticFailure("root_not_object");
-  if (record.kind === "settlement") return parseSettlementSemantic(record, allowlistedReferences);
+  if (record.kind === "settlement") {
+    return parseSettlementSemantic(record, allowlistedReferences, options?.domusObservationIds ?? new Set<string>());
+  }
   if (record.kind === "observation_intent") {
     return parseOperationSemantic(
       record,

@@ -57,11 +57,6 @@ export const TEMPORARY_QUALIFICATION_CEILING_TOKENS =
 /** Maximum logical serialized input bytes under the frozen estimator. */
 export const MAX_LOGICAL_SERIALIZED_INPUT_BYTES =
   (TARGET_SEMANTIC_INPUT_ENVELOPE - FRAMING_TOKEN_OVERHEAD) * BYTES_PER_TOKEN;
-/** Current maximal supported composition, including one structural retry. */
-export const MAX_SUPPORTED_COMPOSITION_BYTES = 65_356;
-export const MAX_SUPPORTED_COMPOSITION_ESTIMATED_INPUT_TOKENS = 32_742;
-export const COMPOSITION_UNALLOCATED_BYTES =
-  MAX_LOGICAL_SERIALIZED_INPUT_BYTES - MAX_SUPPORTED_COMPOSITION_BYTES;
 export const DEFAULT_SEMANTIC_PROJECTION_ENVELOPE: SemanticProjectionEnvelope = Object.freeze({
   id: "thought-semantic-projection",
   version: 1,

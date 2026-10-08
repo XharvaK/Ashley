@@ -127,7 +127,7 @@ import { resolveAttachmentObservations } from "../perception/attachments.js";
 import { buildThoughtInput, captureThoughtSourcePackage, thoughtInputContainsSecret } from "./input.js";
 import { describeFieldShape } from "./field-shape.js";
 import { parseThoughtSemanticOutput, THOUGHT_SEMANTIC_PARSER_ID } from "./parse.js";
-import { salvageSettlement } from "./salvage.js";
+import { dropOptionalPartsAt, salvageSettlement } from "./salvage.js";
 import {
   concernDiscoverItemAuthorable,
   concernInspectRefsForInput,
@@ -1469,6 +1469,17 @@ function semanticReferencesForInput(input: ThoughtInput | ProjectedThoughtInput)
   ];
 }
 
+/** Domus observation ids this pass shows her: the only ones a nomination may cite as support. */
+function domusObservationIdsForInput(input: ThoughtInput | ProjectedThoughtInput): Set<string> {
+  const ids = new Set<string>(input.domus?.observationIds ?? []);
+  const innerPass = input.innerPass;
+  if (innerPass?.kind === "afterglow" && innerPass.mode === "session") {
+    for (const observation of innerPass.session.observations) ids.add(observation.observationId);
+  }
+  if (innerPass?.kind === "afterglow" && innerPass.mode === "diary") ids.add(innerPass.diary.observationId);
+  return ids;
+}
+
 /** A2: the forgets she proposed and the Owner has not answered, on Owner chat turns only. */
 function pendingForgetInput(
   sidecar: DatabaseSync,
@@ -1887,6 +1898,7 @@ export async function runThoughtModel(
     const semanticParseOptions = {
       concernInspectRefs: (options.concernInspectAuthority ?? concernInspectRefsForInput(input)).refs,
       concernDiscoverAllowed: (options.concernInspectAuthority ?? concernInspectRefsForInput(input)).discoverAllowed === true,
+      domusObservationIds: domusObservationIdsForInput(input),
     };
     let semanticResult = parseThoughtSemanticOutput(
       completion.text,
@@ -1954,10 +1966,28 @@ export async function runThoughtModel(
         ...(lifeboat ? { lifeboat } : {}),
       };
     }
-    const semantic = semanticResult.value;
-    const correctionValidation = options.structuralFeedback
+    // Host facts only: which nomination ref was re-filed or removed, by path and class, never the id.
+    for (const note of semanticResult.sourceRefNotes ?? []) {
+      console.warn(`[thought] nomination_ref path=${note.path} class=${note.class} action=${note.action}`);
+    }
+    let correctionValidation = options.structuralFeedback
       ? validateThoughtStructuralCorrectionScope(options.structuralFeedback, completion.text)
       : { ok: true as const };
+    if (!correctionValidation.ok) {
+      // A retry that also changed optional parts outside its repair path is accepted once those parts are dropped.
+      const scoped = dropOptionalPartsAt(completion.text, correctionValidation.violation.changedPaths, (candidate) =>
+        parseThoughtSemanticOutput(candidate, semanticReferences, semanticParseOptions));
+      if (scoped.ok) {
+        const reparsed = parseThoughtSemanticOutput(scoped.text, semanticReferences, semanticParseOptions);
+        if (reparsed.ok) {
+          console.warn(`[thought] correction_scope_dropped dropped=${scoped.dropped.join(",")} model=${completion.providerModel ?? "-"}`);
+          completion = { ...completion, text: scoped.text };
+          semanticResult = reparsed;
+          correctionValidation = { ok: true };
+        }
+      }
+    }
+    const semantic = semanticResult.value;
     if (!correctionValidation.ok) {
       const output: ThoughtStepOutput = {
         kind: "failure",
@@ -3786,7 +3816,9 @@ export async function runCognitiveCycle(
         expectations: sourceCapture.concernInspectDependencies,
         discoverAllowed: thoughtAudience === undefined,
       },
-      salvageOnFailure: !structuralRetryWouldSchedule,
+      // Every attempt: salvage drops only optional parts (salvage.ts classifies them) and retries nothing for them;
+      // a failure in a required part still falls through to the structural retry as before.
+      salvageOnFailure: true,
       beforeRedispatch: () => assessOwnerAnswerHold(sidecar, event) === null,
     });
     lastThoughtRequestId = invocation.requestId;

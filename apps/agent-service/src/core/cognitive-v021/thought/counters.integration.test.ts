@@ -193,7 +193,7 @@ describe("v0.2.1 durable Thought accounting", () => {
     };
   }
 
-  it("settles the last attempt when one nomination entry stays malformed", async () => {
+  it("drops a malformed nomination entry on the first attempt and settles without a retry", async () => {
     const { sidecar, cycle, event } = setup();
     const completeChat = vi.fn(async () => reply({
       durableNominations: [
@@ -202,10 +202,10 @@ describe("v0.2.1 durable Thought accounting", () => {
       ],
     }));
     const result = await runCognitiveCycle(sidecar, sidecar, event, deps(sidecar, completeChat));
-    expect(completeChat).toHaveBeenCalledTimes(3);
-    expect(result).toMatchObject({ published: true, thoughtModelAttempts: 3, acceptedThoughtPasses: 1 });
+    expect(completeChat).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({ published: true, thoughtModelAttempts: 1, acceptedThoughtPasses: 1 });
     expect(getThoughtAttemptCounters(sidecar, cycle.cycleId, cycle.generation)).toMatchObject({
-      structuralRetries: 2,
+      structuralRetries: 0,
     });
     expect(sidecar.prepare("SELECT COUNT(*) AS count FROM speech_outbox").get()).toMatchObject({ count: 1 });
     const statements = (sidecar.prepare("SELECT statement FROM durable_nominations").all() as Array<{ statement: string }>)
@@ -229,7 +229,7 @@ describe("v0.2.1 durable Thought accounting", () => {
     sidecar.close();
   });
 
-  it("retries the first malformed attempt and records the model on that diagnostic", async () => {
+  it("retries a required-part failure on the first attempt and records the model on that diagnostic", async () => {
     const { sidecar, cycle, event } = setup();
     const obsDb = new DatabaseSync(":memory:");
     initObservabilitySchema(obsDb);
@@ -237,8 +237,8 @@ describe("v0.2.1 durable Thought accounting", () => {
     const completeChat = vi.fn(async () => {
       calls += 1;
       return calls === 1
-        ? reply({ durableNominations: [nomination("kept fact", "not-a-kind")] })
-        : reply({ durableNominations: [nomination("kept fact")] });
+        ? reply({ interactionIntent: "not-an-intent" })
+        : reply({ interactionIntent: "continue" });
     });
     const result = await runCognitiveCycle(sidecar, sidecar, event, deps(sidecar, completeChat, { observabilityDb: obsDb }));
     expect(calls).toBe(2);

@@ -1043,6 +1043,9 @@ describe("Whole-Thought Projection Allocator", () => {
       estimatedInputTokens: allocated.receipt.estimatedInputTokens,
       estimatedOutputTokens: allocated.receipt.estimatedOutputTokens,
     });
+    // The receipt's byte limit is the real logical envelope; no stale measured composition is recorded beside it.
+    expect(allocated.receipt.diagnostics).toMatchObject({ logical_input_byte_limit: MAX_LOGICAL_SERIALIZED_INPUT_BYTES });
+    expect(allocated.receipt.diagnostics).not.toHaveProperty("max_supported_composition_bytes");
     expect(allocated.receipt.diagnostics).toMatchObject({
       thoughtOutputCompatibilityInstruction_call_count: 1,
       formatThoughtStructuralFeedback_call_count: 1,
@@ -1480,7 +1483,7 @@ describe("Whole-Thought Projection Allocator", () => {
       .toBeGreaterThan(MAX_LOGICAL_SERIALIZED_INPUT_BYTES);
   });
 
-  it("reports malformed or cyclic observations as structural safety failures", () => {
+  it("replaces a malformed cyclic observation with an unreadable placeholder that names the constraint and path", () => {
     const cyclicPayload: Record<string, unknown> = { text: "evidence" };
     cyclicPayload.self = cyclicPayload;
     const observation = {
@@ -1496,27 +1499,74 @@ describe("Whole-Thought Projection Allocator", () => {
       secretOmitted: false,
     };
 
+    const allocated = allocateThoughtProjection({
+      thoughtInput: makeThoughtInput({ observations: [observation] }),
+      requestId: "req-required-observation-malformed",
+    });
+
+    expect(allocated.projected.observations).toEqual([{
+      observationId: "observation-cyclic",
+      status: "unreadable",
+      constraint: "malformed_json_structure",
+      path: "$.payload.self",
+    }]);
+    expect(JSON.stringify(allocated.projected.observations)).not.toContain("evidence");
+  });
+
+  it("keeps the trigger section fail-closed beside a replaced malformed observation", () => {
+    const cyclicPayload: Record<string, unknown> = { text: "evidence" };
+    cyclicPayload.self = cyclicPayload;
+    const observation = {
+      observationId: "observation-cyclic-no-trigger",
+      cycleId: "cycle-test-1",
+      generation: 1,
+      derived: false,
+      replaySafe: true,
+      modality: "tool" as const,
+      payload: cyclicPayload,
+      provenance: "worker:test:cyclic",
+      dataClassification: "ordinary" as const,
+      secretOmitted: false,
+    };
+    const withoutTrigger = { ...makeThoughtInput({ observations: [observation] }), trigger: undefined } as unknown as ThoughtInput;
+
+    let error: unknown;
+    try {
+      allocateThoughtProjection({ thoughtInput: withoutTrigger, requestId: "req-trigger-fail-closed" });
+    } catch (caught) {
+      error = caught;
+    }
+    expect(error).toBeInstanceOf(RequiredOverflowError);
+    expect(error).toMatchObject({ section: "trigger_evidence" });
+  });
+
+  it("still fails closed on a malformed observation that carries no usable id", () => {
+    const cyclicPayload: Record<string, unknown> = { text: "evidence" };
+    cyclicPayload.self = cyclicPayload;
+    const observation = {
+      cycleId: "cycle-test-1",
+      generation: 1,
+      derived: false,
+      replaySafe: true,
+      modality: "tool" as const,
+      payload: cyclicPayload,
+      provenance: "worker:test:cyclic-no-id",
+      dataClassification: "ordinary" as const,
+      secretOmitted: false,
+    } as unknown as ThoughtInput["observations"][number];
+
     let error: unknown;
     try {
       allocateThoughtProjection({
         thoughtInput: makeThoughtInput({ observations: [observation] }),
-        requestId: "req-required-observation-malformed",
+        requestId: "req-observation-no-id",
       });
     } catch (caught) {
       error = caught;
     }
 
     expect(error).toBeInstanceOf(RequiredOverflowError);
-    expect(error).toMatchObject({
-      failure: {
-        kind: "structural_safety",
-        constraint: "malformed_json_structure",
-        unit: "nodes",
-        stage: "observation_validation",
-        cause: "cycle",
-        path: "$.payload.self",
-      },
-    });
+    expect(error).toMatchObject({ failure: { constraint: "malformed_json_structure", path: "$.payload.self" } });
   });
 
   it("rejects a malformed required-observation collection instead of treating it as empty", () => {
@@ -3480,7 +3530,13 @@ describe("Discord native vision through Thought allocation", () => {
   it("rejects unrelated hidden fields even beside a legitimate native image", () => {
     const input = inputWithImage();
     Object.defineProperty(input.observations[0]!.payload, "hidden", { value: "untrusted" });
-    expect(() => allocateThoughtProjection({ thoughtInput: input, requestId: "hidden-image-field" })).toThrow(/malformed_json_structure/);
+    const allocated = allocateThoughtProjection({ thoughtInput: input, requestId: "hidden-image-field" });
+    expect(allocated.projected.observations).toEqual([expect.objectContaining({
+      observationId: "native-image",
+      status: "unreadable",
+      constraint: "malformed_json_structure",
+    })]);
+    expect(allocated.messages[1]?.imageUrls ?? []).toEqual([]);
   });
   it("rejects image accessors without invoking them", () => {
     const input = inputWithImage();
@@ -3488,8 +3544,10 @@ describe("Discord native vision through Thought allocation", () => {
     const payload = { artifactId: "image-artifact" };
     Object.defineProperty(payload, "imageDataUri", { get() { invoked = true; return imageUrl; } });
     input.observations[0] = { ...input.observations[0]!, payload };
-    expect(() => allocateThoughtProjection({ thoughtInput: input, requestId: "image-accessor" })).toThrow(/malformed_json_structure/);
+    const allocated = allocateThoughtProjection({ thoughtInput: input, requestId: "image-accessor" });
     expect(invoked).toBe(false);
+    expect(allocated.projected.observations).toEqual([expect.objectContaining({ status: "unreadable", constraint: "malformed_json_structure" })]);
+    expect(allocated.messages[1]?.imageUrls ?? []).toEqual([]);
   });
   it("keeps native pixels out of non-Owner requests", () => {
     const input = inputWithImage();

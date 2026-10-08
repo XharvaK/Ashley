@@ -80,6 +80,12 @@ function invalidSettlement() {
   };
 }
 
+/** A required part (speech) is missing: this fault keeps the structural retry, unlike an optional nomination. */
+function missingSpeechSettlement() {
+  const { speech: _speech, ...rest } = validSettlement() as Record<string, unknown>;
+  return rest;
+}
+
 function validSettlement() {
   const base = makeSemanticSettlement();
   return {
@@ -153,7 +159,9 @@ describe("nomination MemoryKind structural boundary", () => {
       return result.ok ? null : result.field;
     };
     expect(fieldFor({}, "supersedesRef")).toBe("durableNominations[1].supersedesRef");
-    expect(fieldFor({ sourceRefs: ["not-on-the-list"] })).toBe("durableNominations[1].sourceRefs");
+    expect(fieldFor({ sourceRefs: "not-on-the-list" })).toBe("durableNominations[1].sourceRefs");
+    // An id outside the allowlist is re-filed or dropped by the Host, never a fault (see nomination-source-refs).
+    expect(fieldFor({ sourceRefs: ["not-on-the-list"] })).toBeNull();
     expect(fieldFor({ extra: 1 })).toBe("durableNominations[1].unknown_key");
     expect(fieldFor({ dataClassification: "public" })).toBe("durableNominations[1].dataClassification");
     expect(parseThoughtSemanticOutput({ ...validSettlement(), durableNominations: "none" }, refs))
@@ -190,7 +198,7 @@ describe("nomination MemoryKind structural boundary", () => {
       const completeChat = vi.fn(async () => {
         calls += 1;
         return {
-          text: JSON.stringify(calls === 1 ? invalidSettlement() : validSettlement()),
+          text: JSON.stringify(calls === 1 ? missingSpeechSettlement() : validSettlement()),
           model: "fake",
           modelAlias: "thought",
           resolvedModelId: null,
@@ -204,6 +212,49 @@ describe("nomination MemoryKind structural boundary", () => {
       expect(sidecar.prepare("SELECT memory_kind FROM durable_nominations").get()).toMatchObject({
         memory_kind: "owner_preference",
       });
+    } finally {
+      sidecar.close();
+      attentionDb.close();
+    }
+  });
+
+  it("salvages an optional-only fault on attempt 1 without dispatching a structural retry", async () => {
+    const sidecar = openTestSidecar();
+    const attentionDb = openTestSidecar();
+    try {
+      const cycle = admitTestCycle(sidecar, {
+        cycleId: "cycle-nom-salvage-1",
+        conversationId: "thread-nom-salvage-1",
+        triggerKind: "owner_message",
+        triggerRef: "owner-nom-salvage-1",
+        occupantId: "doc",
+        authorityEpoch: 1,
+        nowMs: 1,
+      });
+      const evidence = appendOwnerUtterance(sidecar, {
+        conversationId: "thread-nom-salvage-1",
+        text: "remember small tools",
+        discordMessageIds: ["nom-salvage-1"],
+        nowMs: 2,
+      });
+      const event = appendInboxEvent(sidecar, {
+        wakeId: cycle.wakeId,
+        conversationId: "thread-nom-salvage-1",
+        kind: "owner_message",
+        payload: { cycleId: cycle.cycleId, evidenceRowId: evidence.rowId, ownerMessage: evidence.text },
+        createdAtMs: 2,
+      });
+      const completeChat = vi.fn(async () => ({
+        text: JSON.stringify(invalidSettlement()),
+        model: "fake",
+        modelAlias: "thought",
+        resolvedModelId: null,
+      }));
+      const result = await runCognitiveCycle(sidecar, attentionDb, event, deps({ attentionDb, completeChat }));
+      expect(completeChat).toHaveBeenCalledTimes(1);
+      expect(result.published).toBe(true);
+      expect(sidecar.prepare("SELECT COUNT(*) AS count FROM settlements").get()).toMatchObject({ count: 1 });
+      expect(sidecar.prepare("SELECT COUNT(*) AS count FROM durable_nominations").get()).toMatchObject({ count: 0 });
     } finally {
       sidecar.close();
       attentionDb.close();

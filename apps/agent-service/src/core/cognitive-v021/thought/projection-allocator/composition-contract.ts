@@ -28,6 +28,31 @@ export const REQUIRED_OCCUPANCY_COUNT = 12;
 export const REQUIRED_OBSERVATION_MAX_NESTING_DEPTH = 64;
 export const REQUIRED_OBSERVATION_MAX_NODES = MAX_LOGICAL_SERIALIZED_INPUT_BYTES;
 
+/**
+ * A structurally malformed required observation is replaced, never admitted: the placeholder keeps its id,
+ * the failed constraint and the JSON path, and none of its payload. Bounds (depth, node count) and a
+ * non-object root stay fail-closed, because they are not a malformed structure with an identity.
+ */
+export function unreplacedMalformedObservationId(value: object, failure: AllocationFailureDiagnostic): string | null {
+  if (failure.constraint !== "malformed_json_structure") return null;
+  // Own data property only: an accessor is never invoked to read the id of a malformed object.
+  const descriptor = Object.getOwnPropertyDescriptor(value, "observationId");
+  const id = descriptor && "value" in descriptor ? descriptor.value : undefined;
+  return typeof id === "string" && id.length > 0 ? id : null;
+}
+
+export function unreadableObservationPlaceholder(
+  observationId: string,
+  failure: AllocationFailureDiagnostic,
+): Record<string, unknown> {
+  return {
+    observationId,
+    status: "unreadable",
+    constraint: failure.constraint,
+    ...(failure.path === undefined ? {} : { path: failure.path }),
+  };
+}
+
 export type RequiredObservationInspection =
   | Readonly<{ ok: true; serializedBytes: number }>
   | Readonly<{ ok: false; failure: AllocationFailureDiagnostic }>;
