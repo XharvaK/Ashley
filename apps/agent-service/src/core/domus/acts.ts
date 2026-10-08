@@ -33,9 +33,12 @@ export type DomusActClaim = { option: string; then?: string[]; forOwner?: boolea
 export type DomusTextRule = {
   name: string; label: string; min_length: number; max_length: number | null; numeric: boolean;
   min_value: number | null; max_value: number | null; profanity_checked: boolean;
+  /** The field refuses some characters; the probe then takes only ASCII letters, digits and spaces. */
+  restricted?: boolean;
 };
 /** What a game question accepts (the helper's answer_rules, §11); absent for a window that is not a question she can answer this way. */
 export type DomusAnswerRules = {
+  /** In select and counts, a maximum of 0 means no limit (the game's own convention, as the probe reads it). */
   select?: { min: number; max: number };
   counts?: { max_in_row: number; max_rows: number };
   text?: DomusTextRule[];
@@ -125,9 +128,11 @@ export function answerRulesOf(object: DomusOptionObject): DomusAnswerRules | und
     for (const field of rules.text) {
       if (!isRecord(field) || typeof field.name !== "string" || typeof field.label !== "string" || !integer(field.min_length)
         || !nullableInteger(field.max_length) || typeof field.numeric !== "boolean" || !nullableInteger(field.min_value)
-        || !nullableInteger(field.max_value) || typeof field.profanity_checked !== "boolean") return undefined;
+        || !nullableInteger(field.max_value) || typeof field.profanity_checked !== "boolean"
+        || (field.restricted !== undefined && typeof field.restricted !== "boolean")) return undefined;
       fields.push({ name: field.name, label: field.label, min_length: field.min_length, max_length: field.max_length, numeric: field.numeric,
-        min_value: field.min_value, max_value: field.max_value, profanity_checked: field.profanity_checked });
+        min_value: field.min_value, max_value: field.max_value, profanity_checked: field.profanity_checked,
+        ...(field.restricted !== undefined ? { restricted: field.restricted } : {}) });
     }
     out.text = fields;
   }
@@ -235,8 +240,8 @@ function answerFor(found: { object: DomusOptionObject; act: DomusOptionAct }, an
   if (rows.length || rules.select) {
     const select = rules.select ?? { min: 1, max: rules.counts?.max_rows ?? 1 };
     if (rows.length < select.min) return { refused: "answer:too_few_rows" };
-    if (rows.length > select.max) return { refused: "answer:too_many_rows" };
-    if (rules.counts && rows.length > rules.counts.max_rows) return { refused: "answer:too_many_rows" };
+    if (overLimit(rows.length, select.max)) return { refused: "answer:too_many_rows" };
+    if (rules.counts && overLimit(rows.length, rules.counts.max_rows)) return { refused: "answer:too_many_rows" };
   }
   const picked = new Set<string>();
   const resolved: Array<{ option_id: string; count: number }> = [];
@@ -249,7 +254,7 @@ function answerFor(found: { object: DomusOptionObject; act: DomusOptionAct }, an
     picked.add(target.ref);
     if (row.count !== undefined) {
       if (!rules.counts) return { refused: "answer:count_not_allowed" };
-      if (row.count > rules.counts.max_in_row) return { refused: "answer:count_too_high" };
+      if (overLimit(row.count, rules.counts.max_in_row)) return { refused: "answer:count_too_high" };
     }
     const count = row.count ?? 1;
     resolved.push({ option_id: target.guid64, count });
@@ -264,8 +269,9 @@ function answerFor(found: { object: DomusOptionObject; act: DomusOptionAct }, an
     if (problem) return { refused: `answer:${problem}:${name}` };
     parts.push(`${name} ${[...value].length} chars`);
   }
+  // Every field gets a value, then ok (§4.4): the probe refuses a window with a field left out.
   for (const field of fields) {
-    if (field.min_length > 0 && !Object.prototype.hasOwnProperty.call(typed, field.name)) return { refused: `answer:text_missing:${field.name}` };
+    if (!Object.prototype.hasOwnProperty.call(typed, field.name)) return { refused: `answer:text_missing:${field.name}` };
   }
   const stored: DomusStoredAnswer = {
     ...(resolved.length ? { rows: resolved } : {}),
@@ -274,9 +280,19 @@ function answerFor(found: { object: DomusOptionObject; act: DomusOptionAct }, an
   return { stored: true, json: JSON.stringify(stored), label: `answered ${found.object.object}: ${parts.join(", ")}`.slice(0, 200) };
 }
 
+/** A game maximum of 0 is no limit. */
+function overLimit(value: number, max: number): boolean {
+  return max > 0 && value > max;
+}
+
+/** Printable as the probe's Python reads it: no control, format or separator characters except the plain space. */
+const UNPRINTABLE = /(?! )[\p{C}\p{Z}]/u;
+const RESTRICTED_SAFE = /^[A-Za-z0-9 ]*$/;
+
 /** One typed value against its field's rules: the first problem found, as a short reason. */
 function textProblem(field: DomusTextRule, value: string): string | null {
-  if (/\p{Cc}/u.test(value)) return "text_control";
+  if (UNPRINTABLE.test(value)) return "text_control";
+  if (field.restricted && !RESTRICTED_SAFE.test(value)) return "text_restricted";
   if (field.max_length === null) return "text_no_limit";
   const length = [...value].length;
   if (length > field.max_length) return "text_too_long";

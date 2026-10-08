@@ -617,13 +617,14 @@ describe("Domus answers her game question with rows, counts or typed words", () 
 
   it("stores typed words, and her record names only the fields and their lengths", () => {
     const db = openTestSidecar();
-    const result = answering(db, { option: "nok", answer: { text: { first: "Ilse", amount: "42" } } });
+    const result = answering(db, { option: "nok", answer: { text: { first: "Ilse", amount: "42", note: "" } } });
     expect(result.state).toBe("requested");
     const stored = row(db, result.actId);
-    expect(stored).toMatchObject({ label: "answered Naming: first 4 chars, amount 2 chars", answer_json: JSON.stringify({ text: { first: "Ilse", amount: "42" } }) });
+    expect(stored).toMatchObject({ label: "answered Naming: first 4 chars, amount 2 chars, note 0 chars",
+      answer_json: JSON.stringify({ text: { first: "Ilse", amount: "42", note: "" } }) });
     expect(String(stored.label)).not.toContain("Ilse");
     expect(syncDomusActs(db, { helperSession: "helper-a", events: [], nowMs: NOW }).acts[0])
-      .toMatchObject({ answer: { text: { first: "Ilse", amount: "42" } } });
+      .toMatchObject({ answer: { text: { first: "Ilse", amount: "42", note: "" } } });
   });
 
   it("stores rows and text together when the question takes both, and refuses text the question does not take", () => {
@@ -662,6 +663,28 @@ describe("Domus answers her game question with rows, counts or typed words", () 
       { ref: "p3", guid64: "22003", text: "Desk" }] };
     expect(reasonOf({ option: "pok", answer: { rows: [{ option: "p1" }, { option: "p2" }, { option: "p3" }] } }, [threeRows]))
       .toBe("answer:too_many_rows");
+  });
+
+  it("reads a game maximum of 0 as no limit, as the probe does", () => {
+    const unlimited: DomusOptionObject = { ...ROWS_OBJECT, object_id: "dialog:2013", answer_rules: { select: { min: 2, max: 0 } } };
+    const db = openTestSidecar();
+    expect(answering(db, { option: "ok", answer: { rows: [{ option: "r1" }, { option: "r2" }, { option: "r3" }] } }, [unlimited]).state)
+      .toBe("requested");
+    expect(reasonOf({ option: "ok", answer: { rows: [{ option: "r1" }] } }, [unlimited])).toBe("answer:too_few_rows");
+    const shop: DomusOptionObject = { ...COUNTS_OBJECT, object_id: "dialog:2014",
+      answer_rules: { select: { min: 1, max: 0 }, counts: { max_in_row: 0, max_rows: 0 } } };
+    const db2 = openTestSidecar();
+    expect(answering(db2, { option: "pok", answer: { rows: [{ option: "p1", count: 40 }, { option: "p2", count: 7 }] } }, [shop]).state)
+      .toBe("requested");
+  });
+
+  it("asks for every field, and keeps a restricted field to plain letters, digits and spaces", () => {
+    const optional = { ...NAMING_OBJECT, object_id: "dialog:2015",
+      answer_rules: { text: [NAMING_RULES[0]!, { ...NAMING_RULES[1]!, min_length: 0 }] } };
+    expect(reasonOf({ option: "nok", answer: { text: { first: "Ilse" } } }, [optional])).toBe("answer:text_missing:amount");
+    const restricted = { ...NAMING_OBJECT, object_id: "dialog:2016", answer_rules: { text: [{ ...NAMING_RULES[0]!, restricted: true }] } };
+    expect(reasonOf({ option: "nok", answer: { text: { first: "Mary-Jo" } } }, [restricted])).toBe("answer:text_restricted:first");
+    expect(reasonOf({ option: "nok", answer: { text: { first: "Mary Jo" } } })).toBe("answer:text_control:first");
   });
 
   it("refuses typed words that break a field's rules, names the field, and trims nothing", () => {
