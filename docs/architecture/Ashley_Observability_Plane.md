@@ -307,3 +307,38 @@ supporting evidence only.
 - OpenInference field mapping;
 - Phoenix or another backend trial;
 - production alerting and incident-response policy.
+
+## 14. Thought replay capture (developer measurement)
+
+Developer tooling for measuring model settings on real Thought requests. It
+changes no behavior and is off by default. Code:
+`apps/agent-service/src/core/cognitive-v021/thought/replay-capture.ts`,
+`replay-summary.ts`, and `apps/agent-service/scripts/replay-thought.ts`.
+
+- **Capture.** Set `ASHLEY_THOUGHT_REPLAY_CAPTURE_DIR` to a directory outside
+  the repository. `ASHLEY_THOUGHT_REPLAY_CAPTURE_MAX_FILES` (default 50) bounds
+  the directory; the oldest capture files are pruned. Each Thought dispatch
+  writes one `thought-<epoch ms>-<id>.json` file before the provider call. It
+  holds the messages array, the pass kind, the contract profile key, the policy
+  model and effort, and the parser context.
+- **Replay.** From `apps/agent-service`:
+  `npx tsx scripts/replay-thought.ts --dir <capture dir> --pass domus --limit 20
+  --config muse:medium --config deepseek/deepseek-v4.1-flash-fast:medium --out <file.csv>`.
+  Requests go through the Command Code adapter, one at a time. A guard in front
+  of the fetch refuses any request whose wire model or effort differs from the
+  configuration under test. A setting the adapter cannot express is reported as
+  `refused`, never measured as if it had run. `--dry-run` counts without
+  calling the provider. Output: one CSV row per dispatch and a per-config
+  summary (p50 and p90 seconds, mean output tokens, parse success, and agreement
+  of the Domus choice with the first config).
+- **Cost.** Every replayed dispatch spends Command Code quota.
+- **Privacy.** Capture files hold private conversation data. They must never be
+  committed, logged, or sent anywhere except the provider the pass already uses.
+  Keep the capture directory outside the repository and delete captures when the
+  measurement is finished. Capture is skipped for any dispatch that carried a
+  detected secret. The replay CSV holds measurements, parse codes, and Domus
+  option refs only. This is the one deliberate local exception to the raw-text
+  rule in section 7, and it is local-only.
+- **Limits.** Parse verdicts come from the real Thought parser without the
+  production salvage step. Replay writes nothing to the attention, diagnostics,
+  or delivery tables, and it bypasses Model Fabric budgets.

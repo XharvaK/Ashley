@@ -224,6 +224,7 @@ import {
   recordThoughtCycleMetrics,
 } from "./diagnostics.js";
 import type { ThoughtProviderFailureCapture } from "./diagnostics.js";
+import { captureThoughtReplayDispatch, thoughtReplayCaptureSettings } from "./replay-capture.js";
 import { metadataFromError } from "../../model-fabric/receipts.js";
 import type {
   ModelAttemptReceipt,
@@ -1737,6 +1738,21 @@ export async function runThoughtModel(
     dispatchStarted = true;
     let completion: Awaited<ReturnType<typeof completeChat>>;
     const ownModelId = thoughtModelForTrigger(input.trigger?.kind);
+    // Replay capture (opt-in; OFF unless ASHLEY_THOUGHT_REPLAY_CAPTURE_DIR is set). Writes the request
+    // this dispatch is about to send, locally, before the provider call. Skipped when a secret was seen.
+    const replayCapture = sawSecret ? null : thoughtReplayCaptureSettings();
+    const captureReplayDispatch = (dispatchMessages: ChatMessage[]): void => {
+      if (!replayCapture) return;
+      const concern = options.concernInspectAuthority ?? concernInspectRefsForInput(input);
+      captureThoughtReplayDispatch(replayCapture, {
+        messages: dispatchMessages,
+        options: dispatchOptions,
+        profileKey: thoughtContractProfileKey(thoughtContractProfile(input)),
+        allowlistedReferences: semanticReferencesForInput(input),
+        concernInspectRefs: concern.refs,
+        concernDiscoverAllowed: concern.discoverAllowed === true,
+      }, deps.nowMs());
+    };
     const lifeboatLaunchBlocked = () =>
       options.signal?.aborted === true
       || options.disableThoughtTransportFailover === true
@@ -1798,8 +1814,10 @@ export async function runThoughtModel(
         primaryAttemptId: null,
         primaryProviderAttempts: 0,
       }, primaryCapture);
+      captureReplayDispatch(messages);
       completion = await invokeThoughtComplete(messages, dispatchOptions, deps.completeChat);
     } else try {
+      captureReplayDispatch(messages);
       completion = await invokeThoughtComplete(messages, dispatchOptions, deps.completeChat);
       if (thoughtModelCircuit.noteSuccess(ownModelId, circuitNowMs(deps))) {
         console.warn(`[thought] circuit closed model=${ownModelId}`);
@@ -1841,6 +1859,7 @@ export async function runThoughtModel(
         primaryAttemptId: primaryEvidence?.providerAttemptId ?? null,
         primaryProviderAttempts: primaryProvenance.providerAttempts,
       }, primaryCapture);
+      captureReplayDispatch(messages);
       completion = await invokeThoughtComplete(messages, dispatchOptions, deps.completeChat);
     }
     lastCompletion = completion;
