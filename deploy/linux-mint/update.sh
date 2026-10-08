@@ -171,7 +171,75 @@ in_list() {
 echo "=== Ashley Mint coherent activation ==="
 cd "$ROOT"
 T_DEPLOY_START="$(ms_now)"
-trap 'rm -f "${PLAN_FILE:-}" "${MARKER_TMP:-}"' EXIT
+# Keep-last-good (User, 2026-10-08): packages are built while Ashley keeps running, from a copy
+# of the previous build. Any failure after that copy restores it and restarts every unit this run
+# stopped, so a failed deploy leaves her on the last good build instead of offline.
+SNAPSHOT_PKGS=""
+STOPPED_UNITS=""
+ROLLBACK_ARMED=0
+
+snapshot_last_good() {
+  local pkg dir
+  for pkg in $BUILD_PKGS; do
+    dir="${ROOT}/apps/${pkg}"
+    rm -rf "${dir}/dist.last-good" "${dir}/node_modules.last-good"
+    # A real copy: tsc rewrites files in place, which would change a hard-linked twin.
+    if [[ -d "${dir}/dist" ]]; then cp -a "${dir}/dist" "${dir}/dist.last-good"; fi
+    # npm ci removes node_modules before installing, so hard links keep the old tree intact.
+    if in_list "$NPMCI_PKGS" "$pkg" && [[ -d "${dir}/node_modules" ]]; then
+      cp -al "${dir}/node_modules" "${dir}/node_modules.last-good"
+    fi
+    SNAPSHOT_PKGS="$SNAPSHOT_PKGS $pkg"
+  done
+}
+
+drop_last_good() {
+  local pkg dir
+  for pkg in $SNAPSHOT_PKGS; do
+    dir="${ROOT}/apps/${pkg}"
+    rm -rf "${dir}/dist.last-good" "${dir}/node_modules.last-good"
+  done
+}
+
+restore_last_good() {
+  local pkg dir unit
+  echo "=== activation failed: restoring the last good build ===" >&2
+  for pkg in $SNAPSHOT_PKGS; do
+    dir="${ROOT}/apps/${pkg}"
+    if [[ -d "${dir}/dist.last-good" ]]; then
+      rm -rf "${dir}/dist"
+      mv "${dir}/dist.last-good" "${dir}/dist"
+    fi
+    if [[ -d "${dir}/node_modules.last-good" ]]; then
+      rm -rf "${dir}/node_modules"
+      mv "${dir}/node_modules.last-good" "${dir}/node_modules"
+    fi
+  done
+  # Agent first and ready, then Discord: the same ingress fence as a normal start.
+  for unit in ashley-agent.service ashley-discord.service; do
+    in_list "$STOPPED_UNITS" "$unit" || continue
+    if ! sys start "$unit"; then
+      echo "RESTORE_FAILED: $unit did not start" >&2
+      return 1
+    fi
+    if [[ "$unit" == "ashley-agent.service" ]] && ! ( wait_agent_ready >/dev/null ); then
+      echo "RESTORE_FAILED: agent not ready on the last good build" >&2
+      return 1
+    fi
+  done
+  echo "RESTORED_LAST_GOOD: previous build back${STOPPED_UNITS:+, restarted:$STOPPED_UNITS}" >&2
+}
+
+on_exit() {
+  local code=$?
+  if [[ "$code" -ne 0 && "$ROLLBACK_ARMED" == "1" ]]; then
+    ROLLBACK_ARMED=0
+    restore_last_good || true
+  fi
+  rm -f "${PLAN_FILE:-}" "${MARKER_TMP:-}"
+  exit "$code"
+}
+trap on_exit EXIT
 
 T_PREP_START="$(ms_now)"
 CHECKOUT_SHA="$(git rev-parse HEAD)"
@@ -262,18 +330,11 @@ echo "leave running: $(comm -23 <(printf 'ashley-agent.service\nashley-discord.s
 echo "restart: ${RESTART_SERVICES:-<none>}"
 echo "============================="
 
-maybe_fail stop
-T_STOP_START="$(ms_now)"
-if [[ -n "$STOP_SERVICES" ]]; then
-  for unit in $STOP_SERVICES; do
-    sys stop "$unit"
-    assert_inactive "$unit"
-  done
-  timing "stop_ms=$(( $(ms_now) - T_STOP_START ))"
-else
-  timing "stop=skipped"
-fi
+snapshot_last_good
+ROLLBACK_ARMED=1
 
+# Build while the running services keep serving from memory: Node loaded their module graph at
+# start, so only the restart below picks up the new files.
 maybe_fail build
 for pkg in $CANONICAL_ORDER; do
   if ! in_list "$BUILD_PKGS" "$pkg"; then
@@ -296,6 +357,19 @@ for pkg in $CANONICAL_ORDER; do
     exit 1
   fi
 done
+
+maybe_fail stop
+T_STOP_START="$(ms_now)"
+if [[ -n "$STOP_SERVICES" ]]; then
+  for unit in $STOP_SERVICES; do
+    if sys is-active --quiet "$unit"; then STOPPED_UNITS="$STOPPED_UNITS $unit"; fi
+    sys stop "$unit"
+    assert_inactive "$unit"
+  done
+  timing "stop_ms=$(( $(ms_now) - T_STOP_START ))"
+else
+  timing "stop=skipped"
+fi
 
 T_SYNC_START="$(ms_now)"
 maybe_fail sync
@@ -400,6 +474,8 @@ mkdir -p "$(dirname "$ACTIVATED_SHA_FILE")"
 MARKER_TMP="$(mktemp "$(dirname "$ACTIVATED_SHA_FILE")/.activated-sha.XXXXXX")"
 printf '%s\n' "$TARGET_SHA" > "$MARKER_TMP"
 mv -f "$MARKER_TMP" "$ACTIVATED_SHA_FILE"
+ROLLBACK_ARMED=0
+drop_last_good
 
 timing "total_ms=$(( $(ms_now) - T_DEPLOY_START ))"
 rm -f "$PLAN_FILE"

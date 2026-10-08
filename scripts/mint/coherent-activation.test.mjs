@@ -3,6 +3,7 @@ import { spawnSync } from "node:child_process";
 import {
   chmodSync,
   copyFileSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -432,8 +433,8 @@ test("canonical activation copies policy and reloads before start", () => {
   const showAt = firstIndex(lines, "systemctl --user show");
   const startAgentAt = firstIndex(lines, "systemctl --user start ashley-agent.service");
   const startDiscordAt = firstIndex(lines, "systemctl --user start ashley-discord.service");
-  assert.ok(stopAt >= 0 && npmAt > stopAt, "stop must precede npm");
-  assert.ok(reloadAt > npmAt, "reload after build");
+  assert.ok(npmAt >= 0 && stopAt > npmAt, "build runs before the stop, while she still serves");
+  assert.ok(reloadAt > stopAt, "reload after the stop");
   assert.ok(showAt > reloadAt, "loaded policy check after reload");
   assert.ok(startAgentAt > showAt, "start after loaded policy check");
   assert.ok(startDiscordAt > startAgentAt, "start agent before discord");
@@ -462,42 +463,87 @@ test("canonical activation builds local packages in dependency order", () => {
   ]);
 });
 
-test("build is refused while a unit stays active", () => {
+// Keep-last-good (User, 2026-10-08): she keeps running during the build, and any failure after
+// the build starts puts the previous build back and restarts what the run stopped.
+function liveWithOldBuild(fixture) {
+  for (const unit of ["ashley-agent.service", "ashley-discord.service"]) {
+    writeFileSync(path.join(fixture.state, unit), "active\n");
+  }
+  for (const app of ["agent-service", "discord-bot"]) {
+    mkdirSync(path.join(fixture.repo, "apps", app, "dist"), { recursive: true });
+    writeFileSync(path.join(fixture.repo, "apps", app, "dist", "index.js"), "// last good build\n");
+  }
+}
+
+function distOf(fixture, app) {
+  return readFileSync(path.join(fixture.repo, "apps", app, "dist", "index.js"), "utf8");
+}
+
+function unitState(fixture, unit) {
+  return readFileSync(path.join(fixture.state, unit), "utf8").trim();
+}
+
+test("a unit that will not stop fails activation and puts the last good build back", () => {
   const fixture = createFixture();
+  liveWithOldBuild(fixture);
   const result = runUpdate(fixture, { ASHLEY_FAKE_STOP_STICKY: "1" });
   assert.notEqual(result.status, 0);
-  const lines = commands(fixture);
-  assert.equal(lines.some((line) => line.startsWith("npm ")), false);
-  assert.equal(lines.some((line) => line.includes("start ashley-agent")), false);
+  assert.match(result.stderr, /RESTORED_LAST_GOOD/);
+  assert.equal(distOf(fixture, "agent-service"), "// last good build\n");
+  assert.equal(unitState(fixture, "ashley-agent.service"), "active");
 });
 
-test("failed build leaves units stopped", () => {
+test("a failed build leaves her running on the last good build", () => {
   const fixture = createFixture();
+  liveWithOldBuild(fixture);
   const result = runUpdate(fixture, { ASHLEY_FAIL_AT: "build" });
   assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /RESTORED_LAST_GOOD/);
   const lines = commands(fixture);
-  assert.ok(lines.some((line) => line.includes("stop ")));
-  assert.equal(lines.some((line) => line.startsWith("npm ")), false);
-  assert.equal(lines.some((line) => line.includes("start ashley-agent")), false);
-  assert.equal(readFileSync(path.join(fixture.state, "ashley-agent.service"), "utf8").trim(), "inactive");
-  assert.equal(readFileSync(path.join(fixture.state, "ashley-discord.service"), "utf8").trim(), "inactive");
+  assert.equal(lines.some((line) => line.includes("systemctl --user stop")), false);
+  assert.equal(distOf(fixture, "agent-service"), "// last good build\n");
+  assert.equal(unitState(fixture, "ashley-agent.service"), "active");
+  assert.equal(unitState(fixture, "ashley-discord.service"), "active");
 });
 
-test("failed unit sync does not start", () => {
+test("a failed unit sync restores the last good build and restarts what it stopped, agent first", () => {
   const fixture = createFixture();
+  liveWithOldBuild(fixture);
   const result = runUpdate(fixture, { ASHLEY_FAIL_AT: "sync" });
   assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /RESTORED_LAST_GOOD/);
   const lines = commands(fixture);
   assert.equal(lines.some((line) => line.includes("daemon-reload")), false);
-  assert.equal(lines.some((line) => line.includes("start ashley-agent")), false);
-  assert.equal(readFileSync(path.join(fixture.state, "ashley-agent.service"), "utf8").trim(), "inactive");
+  assert.equal(distOf(fixture, "agent-service"), "// last good build\n");
+  assert.equal(distOf(fixture, "discord-bot"), "// last good build\n");
+  const stopAt = firstIndex(lines, "systemctl --user stop");
+  const startAgentAt = firstIndex(lines, "systemctl --user start ashley-agent.service");
+  const readyAt = lines.findIndex((line, i) => i > startAgentAt && line.startsWith("curl "));
+  const startDiscordAt = firstIndex(lines, "systemctl --user start ashley-discord.service");
+  assert.ok(startAgentAt > stopAt && readyAt > startAgentAt && startDiscordAt > readyAt, lines.join("\n"));
+  assert.equal(unitState(fixture, "ashley-agent.service"), "active");
+  assert.equal(unitState(fixture, "ashley-discord.service"), "active");
 });
 
-test("failed reload does not start", () => {
+test("a failed reload restores the last good build and restarts", () => {
   const fixture = createFixture();
+  liveWithOldBuild(fixture);
   const result = runUpdate(fixture, { ASHLEY_FAIL_AT: "reload" });
   assert.notEqual(result.status, 0);
-  assert.equal(commands(fixture).some((line) => line.includes("start ashley-agent")), false);
+  assert.match(result.stderr, /RESTORED_LAST_GOOD/);
+  assert.equal(distOf(fixture, "agent-service"), "// last good build\n");
+  assert.equal(unitState(fixture, "ashley-agent.service"), "active");
+});
+
+test("a successful activation leaves no last-good copies behind", () => {
+  const fixture = createFixture();
+  liveWithOldBuild(fixture);
+  const result = runUpdate(fixture);
+  assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+  assert.notEqual(distOf(fixture, "agent-service"), "// last good build\n");
+  for (const app of ["agent-service", "discord-bot"]) {
+    assert.equal(existsSync(path.join(fixture.repo, "apps", app, "dist.last-good")), false);
+  }
 });
 
 test("checkout identity is pinned through activation", () => {
@@ -761,7 +807,8 @@ test("T11 interrupted deploy preserves marker A, rerun rebuilds full closure", (
   assert.notEqual(first.result.status, 0);
   assert.equal(commands(fixture).some((line) => line.startsWith("npm ")), false);
   assert.equal(readMarker(first.markerPath), SHA_A);
-  assert.equal(readFileSync(path.join(fixture.state, "ashley-agent.service"), "utf8").trim(), "inactive");
+  // The build failed before the stop, so she kept running.
+  assert.equal(readFileSync(path.join(fixture.state, "ashley-agent.service"), "utf8").trim(), "active");
   const second = runImpactedUpdate(fixture, SHA_A, diff);
   assert.equal(second.result.status, 0, `${second.result.stdout}\n${second.result.stderr}`);
   assert.deepEqual(buildPackages(fixture), ["sandbox-v2", "agent-service"]);
@@ -1031,8 +1078,8 @@ test("W7 agent deploy fences Discord ingress: strict stop/start/ready order veri
   // Strict ordering assertions
   assert.ok(stopDiscordAt >= 0, "discord stop executed");
   assert.ok(stopAgentAt > stopDiscordAt, "discord stopped before agent");
-  assert.ok(buildAgentAt > stopAgentAt, "agent built while stopped");
-  assert.ok(startAgentAt > buildAgentAt, "agent started after build");
+  assert.ok(buildAgentAt >= 0 && buildAgentAt < stopDiscordAt, "agent built before the stop, while she still serves");
+  assert.ok(startAgentAt > stopAgentAt, "agent started after the stop");
   assert.ok(readyHealthAt > startAgentAt, "agent health checked after agent start");
   assert.ok(startDiscordAt > readyHealthAt, "discord started only after agent ready");
 
