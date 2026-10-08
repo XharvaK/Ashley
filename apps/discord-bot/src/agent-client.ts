@@ -567,6 +567,27 @@ export async function reportSoftActResult(
   });
 }
 
+/** Snapshot: one taken picture of her game, claimed for the Owner's DM with her caption. */
+export type DomusSnapshot = { snapshotId: string; caption: string; pngBase64: string };
+
+export type DomusSnapshotResult =
+  | { status: "sent"; discordMessageId: string }
+  | { status: "failed"; reason: string };
+
+export async function claimDomusSnapshots() {
+  return agentFetch<{ snapshots: DomusSnapshot[] }>("/domus/snapshots/claim", {
+    method: "POST",
+    body: JSON.stringify({ userId: config.ownerId }),
+  });
+}
+
+export async function reportDomusSnapshotResult(snapshotId: string, result: DomusSnapshotResult) {
+  return agentFetch<{ status?: string }>(`/domus/snapshots/${encodeURIComponent(snapshotId)}/result`, {
+    method: "POST",
+    body: JSON.stringify({ userId: config.ownerId, ...result }),
+  });
+}
+
 export async function reportReaction(messageId: string, emoji: string) {
   return agentFetch<{ ok: boolean; feedback: string }>("/signals/reaction", {
     method: "POST",
