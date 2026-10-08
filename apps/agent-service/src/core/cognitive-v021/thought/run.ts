@@ -1412,6 +1412,7 @@ function materializeSemanticSettlement(
   if (semantic.reflection) result.reflection = semantic.reflection;
   if (semantic.journal) result.journal = { ...semantic.journal };
   if (semantic.domusAct) result.domusAct = { ...semantic.domusAct };
+  if (semantic.domusSnapshot) result.domusSnapshot = { ...semantic.domusSnapshot };
   for (const kind of SOFT_KINDS) {
     if (semantic[kind] !== undefined) (result as Record<string, unknown>)[kind] = structuredClone(semantic[kind]);
   }

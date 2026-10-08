@@ -10,15 +10,15 @@ describe("cognitive sidecar Schema V34 migration", () => {
       setTestSidecarVersion(db, 33);
 
       openCognitiveSidecarDb(db, { dataPlane: { kind: "isolated" } });
-      expect(COGNITIVE_SIDECAR_SCHEMA_VERSION).toBe(71);
-      expect((db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(71);
+      expect(COGNITIVE_SIDECAR_SCHEMA_VERSION).toBe(72);
+      expect((db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(72);
       const columns = (db.prepare("PRAGMA table_info(future_triggers)").all() as Array<{ name: string }>)
         .map((column) => column.name);
       expect(columns).toContain("evidence_refs_json");
       expect(columns).toContain("timing_policy");
 
       openCognitiveSidecarDb(db, { dataPlane: { kind: "isolated" } });
-      expect((db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(71);
+      expect((db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(72);
       expect((db.prepare("SELECT evidence_refs_json, timing_policy FROM future_triggers WHERE trigger_id = 'missing'").get())).toBeUndefined();
     } finally {
       db.close();

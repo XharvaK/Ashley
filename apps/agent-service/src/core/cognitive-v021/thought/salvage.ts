@@ -17,6 +17,7 @@ const DROPPABLE_KEYS = new Set([
   "home",
   "intents",
   "domusAct",
+  "domusSnapshot",
   "touch",
   "correct",
   "callback",
@@ -32,10 +33,11 @@ const SPEECH_RHYTHM_FIELDS = new Set(["speech.shape", "speech.bubbles", "speech.
 /**
  * Optional keys whose settlement requests an effect. Dropping one while
  * keeping speech would leave words about an act nobody takes.
- * Effect-bearing: domusAct, intents, home, pursuits, nextOwnTime, webPlaces, senses, and the soft acts.
+ * Effect-bearing: domusAct, domusSnapshot, intents, home, pursuits, nextOwnTime, webPlaces, senses, and the soft acts.
  */
 const EFFECT_BEARING_KEYS = new Set([
   "domusAct",
+  "domusSnapshot",
   "intents",
   "home",
   "pursuits",

@@ -143,6 +143,7 @@ import {
   type SocialOperationClass,
 } from "./core/relationship/social-authority.js";
 import { claimSoftActs, reportSoftAct } from "./core/cognitive-v021/soft/acts.js";
+import { claimDomusSnapshots, domusSnapshotDirFor, reportDomusSnapshot } from "./core/domus/snapshots.js";
 import { SOCIAL_OPERATION_DELEGATION_CLASSES } from "./core/relationship/migration-53.js";
 import { isRoomSeedActive } from "./core/relationship/room-seeding.js";
 import { getRaEffectiveConfig } from "./core/relationship/ra-effective-config.js";
@@ -2164,6 +2165,57 @@ export function createServer(
         nowMs: Date.now(),
       });
       res.json({ recorded });
+    } catch (err) {
+      const { status, body } = toErrorResponse(err);
+      res.status(status).json(body);
+    }
+  });
+
+  // SNAPSHOT: the bot sends her pictures of the game to the Owner's DM and reports each Discord outcome.
+  function domusSnapshotDir(): string {
+    const dataDir = manager.dataPlane?.dataDir;
+    if (!dataDir) throw new AppError("agent_not_ready", "Data plane unavailable", 503);
+    return domusSnapshotDirFor(dataDir);
+  }
+
+  app.post("/domus/snapshots/claim", (req, res) => {
+    try {
+      requireReady();
+      requireOwner((req.body as { userId?: string }).userId);
+      res.json({ snapshots: claimDomusSnapshots(getCognitiveSidecar(), { nowMs: Date.now(), snapshotDir: domusSnapshotDir() }) });
+    } catch (err) {
+      const { status, body } = toErrorResponse(err);
+      res.status(status).json(body);
+    }
+  });
+
+  app.post("/domus/snapshots/:id/result", (req, res) => {
+    try {
+      const { userId, status, reason, discordMessageId } = req.body as {
+        userId?: string;
+        status?: string;
+        reason?: string;
+        discordMessageId?: string;
+      };
+      requireOwner(userId);
+      const snapshotId = req.params.id;
+      if (!/^[A-Za-z0-9-]{1,64}$/.test(snapshotId)) throw new AppError("not_found", "snapshot not found", 404);
+      if (status !== "sent" && status !== "failed") {
+        throw new AppError("bad_request", "status must be sent or failed", 400);
+      }
+      const outcome = reportDomusSnapshot(getCognitiveSidecar(), {
+        snapshotId,
+        status,
+        ...(typeof reason === "string" ? { reason } : {}),
+        ...(typeof discordMessageId === "string" ? { discordMessageId } : {}),
+        nowMs: Date.now(),
+      });
+      if (outcome === "unknown") throw new AppError("not_found", "snapshot not found", 404);
+      if (outcome === "not_claimed") {
+        res.status(409).json({ code: "not_claimed", message: "snapshot is not claimed" });
+        return;
+      }
+      res.json({ recorded: true });
     } catch (err) {
       const { status, body } = toErrorResponse(err);
       res.status(status).json(body);

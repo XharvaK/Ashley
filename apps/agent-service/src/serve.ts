@@ -7,6 +7,7 @@ import { configurePrivateThoughtBudget } from "./core/cognitive-v021/private-bud
 import { execFileSync } from "node:child_process";
 import { loadWatchTerms, notifyWatch, scanWordWatch } from "./core/oversight/word-watch.js";
 import { createDomusIngressApp, decideDomusIngress } from "./core/domus/ingress.js";
+import { domusSnapshotDirFor } from "./core/domus/snapshots.js";
 import type { AgentManager } from "./agent.js";
 import { AFTERGLOW_POLL_MS } from "./core/cognitive-v021/initiative/afterglow.js";
 import {isThalamusEnabled} from "./core/cognitive-v021/thalamus/scheduler.js";
@@ -915,6 +916,7 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
         onAdmitted: () => onDomusArrival(),
         ...(observabilityDb ? { observability: observabilityDb } : {}),
         build: agentBuild(),
+        ...(manager.dataPlane?.dataDir ? { snapshotDir: domusSnapshotDirFor(manager.dataPlane.dataDir) } : {}),
       }).listen(env.domusIngressPort, "127.0.0.1");
     } else if (!domusDecision.enabled) {
       console.log(`[domus-ingress] disabled: ${domusDecision.reason}`);

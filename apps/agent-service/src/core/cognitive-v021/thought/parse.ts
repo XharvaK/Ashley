@@ -56,6 +56,7 @@ import { isContactStop, isPlaceRuleClaims } from "../../places/rules.js";
 import { isLearnedClaims } from "../../teach/lessons.js";
 import { isJournalActivity } from "../initiative/journal.js";
 import { isDomusActClaim } from "../../domus/acts.js";
+import { isDomusSnapshotClaim } from "../../domus/snapshots.js";
 import { isValidSenseClaim } from "../senses/senses.js";
 import { isValidGrowthClaim, isValidNightClaim } from "../growth/claim.js";
 
@@ -898,7 +899,7 @@ function validInterests(value: unknown): boolean {
 function parseSettlementSemantic(value: SemanticRecord, allowlist: ReadonlySet<string>): ThoughtSemanticParseResult {
   const unknown = Object.keys(value).find((key) => ![
     "kind", "interactionIntent", "speech", "initiativePreference", "interpretation", "commitments", "workingContextDeltas", "deskDeltas", "concernDeltas",
-    "occupancyDeltas", "futureTriggerDeltas", "subscriptionDeltas", "durableNominations", "reflection", "journal", "domusAct", "touch", "correct", "callback", "pin", "card", "face", "quiet", "intents", "home", "pursuits", "nextOwnTime", "webPlaces", "placeRules", "contactStop", "learned", "interests", "growth", "senses", "attention", "night", "forget", "evidenceUse",
+    "occupancyDeltas", "futureTriggerDeltas", "subscriptionDeltas", "durableNominations", "reflection", "journal", "domusAct", "domusSnapshot", "touch", "correct", "callback", "pin", "card", "face", "quiet", "intents", "home", "pursuits", "nextOwnTime", "webPlaces", "placeRules", "contactStop", "learned", "interests", "growth", "senses", "attention", "night", "forget", "evidenceUse",
   ].includes(key));
   if (unknown) return semanticFailure("unknown_field", unknown);
   if (value.kind !== "settlement") return semanticFailure("wrong_kind", "kind");
@@ -955,6 +956,9 @@ function parseSettlementSemantic(value: SemanticRecord, allowlist: ReadonlySet<s
   }
   if (own(value, "domusAct") && !isDomusActClaim(value.domusAct)) {
     return semanticFailure("wrong_type", "domusAct");
+  }
+  if (own(value, "domusSnapshot") && !isDomusSnapshotClaim(value.domusSnapshot)) {
+    return semanticFailure("wrong_type", "domusSnapshot");
   }
   for (const kind of SOFT_KINDS) {
     if (own(value, kind) && !isSoftClaim(kind, value[kind])) return semanticFailure("wrong_type", kind);
