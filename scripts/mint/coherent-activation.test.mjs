@@ -230,7 +230,18 @@ case "\$cmd" in
     ;;
   start)
     if [ "\${ASHLEY_FAKE_START_FAIL:-}" = "1" ]; then exit 1; fi
-    for unit in \$units; do write_state "\$unit" active; done
+    for unit in \$units; do
+      write_state "\$unit" active
+      # The new build migrates on its first start, copying the database first as the agent does.
+      if [ "\${ASHLEY_FAKE_MIGRATE_ON_START:-}" = "1" ] && [ "\$unit" = ashley-agent.service ] && [ ! -f "\$state_dir/migrated" ]; then
+        data="\$home/.composer-assistant"
+        mkdir -p "\$data/backups/pre-migrate"
+        cp "\$data/conversations/nuclear.db" "\$data/backups/pre-migrate/nuclear-v57-2026-10-10T20-00-00-000Z.db"
+        printf migrated > "\$data/conversations/nuclear.db"
+        printf wal > "\$data/conversations/nuclear.db-wal"
+        touch "\$state_dir/migrated"
+      fi
+    done
     exit 0
     ;;
   restart)
@@ -533,6 +544,22 @@ test("a failed reload restores the last good build and restarts", () => {
   assert.match(result.stderr, /RESTORED_LAST_GOOD/);
   assert.equal(distOf(fixture, "agent-service"), "// last good build\n");
   assert.equal(unitState(fixture, "ashley-agent.service"), "active");
+});
+
+test("a failed activation after the new build migrated puts the pre-migration database back", () => {
+  const fixture = createFixture();
+  liveWithOldBuild(fixture);
+  const data = path.join(fixture.home, ".composer-assistant");
+  mkdirSync(path.join(data, "conversations"), { recursive: true });
+  mkdirSync(path.join(data, "backups", "pre-migrate"), { recursive: true });
+  writeFileSync(path.join(data, "conversations", "nuclear.db"), "schema 57");
+  writeFileSync(path.join(data, "backups", "pre-migrate", "nuclear-v55-2026-09-01T00-00-00-000Z.db"), "older copy");
+  const result = runUpdate(fixture, { ASHLEY_FAKE_MIGRATE_ON_START: "1", ASHLEY_CURL_FAIL: "1" });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /RESTORED_DB: nuclear from nuclear-v57-/);
+  assert.equal(readFileSync(path.join(data, "conversations", "nuclear.db"), "utf8"), "schema 57");
+  assert.equal(existsSync(path.join(data, "conversations", "nuclear.db-wal")), false);
+  assert.equal(distOf(fixture, "agent-service"), "// last good build\n");
 });
 
 test("a successful activation leaves no last-good copies behind", () => {

@@ -177,9 +177,40 @@ T_DEPLOY_START="$(ms_now)"
 SNAPSHOT_PKGS=""
 STOPPED_UNITS=""
 ROLLBACK_ARMED=0
+# The agent copies each database it is about to migrate into backups/pre-migrate before the first
+# pending migration runs (core/pre-migration-copy.ts). A copy that appears during this activation
+# means the new build migrated; a rollback puts that copy back, so the last good build finds the
+# schema it knows instead of refusing a newer one.
+DATA_DIR="${ASHLEY_DATA_DIR:-${HOME}/.composer-assistant}"
+PRE_MIGRATE_DIR="${DATA_DIR}/backups/pre-migrate"
+PRE_MIGRATE_BEFORE=""
+
+list_pre_migrate() {
+  if [[ -d "$PRE_MIGRATE_DIR" ]]; then
+    find "$PRE_MIGRATE_DIR" -maxdepth 1 -type f -name '*.db' -printf '%f\n' | sort
+  fi
+}
+
+restore_pre_migrate_dbs() {
+  local db target copy aside
+  aside="${DATA_DIR}/backups/rollback-$(date -u +%Y%m%dT%H%M%SZ)"
+  for db in nuclear cognitive-v021; do
+    if [[ "$db" == "nuclear" ]]; then target="${DATA_DIR}/conversations/nuclear.db"; else target="${DATA_DIR}/cognitive-v021.db"; fi
+    # The oldest copy this activation wrote holds the schema from before its first migration.
+    copy="$(comm -13 <(printf '%s\n' "$PRE_MIGRATE_BEFORE") <(list_pre_migrate) | grep "^${db}-v[0-9]*-" | head -n 1 || true)"
+    [[ -n "$copy" ]] || continue
+    mkdir -p "$aside"
+    for suffix in "" "-wal" "-shm" "-journal"; do
+      if [[ -e "${target}${suffix}" ]]; then mv "${target}${suffix}" "${aside}/"; fi
+    done
+    cp -a "${PRE_MIGRATE_DIR}/${copy}" "$target"
+    echo "RESTORED_DB: ${db} from ${copy} (migrated files kept in ${aside})" >&2
+  done
+}
 
 snapshot_last_good() {
   local pkg dir
+  PRE_MIGRATE_BEFORE="$(list_pre_migrate)"
   for pkg in $BUILD_PKGS; do
     dir="${ROOT}/apps/${pkg}"
     rm -rf "${dir}/dist.last-good" "${dir}/node_modules.last-good"
@@ -204,6 +235,15 @@ drop_last_good() {
 restore_last_good() {
   local pkg dir unit
   echo "=== activation failed: restoring the last good build ===" >&2
+  # A unit restarted on the new build is stopped first: `start` on a running unit would keep the new
+  # code, and its databases must not be open while they are put back.
+  for unit in ashley-discord.service ashley-agent.service; do
+    in_list "$STOPPED_UNITS" "$unit" || continue
+    sys stop "$unit" || true
+  done
+  if in_list "$STOPPED_UNITS" "ashley-agent.service"; then
+    restore_pre_migrate_dbs || echo "RESTORE_DB_FAILED: databases left as migrated" >&2
+  fi
   for pkg in $SNAPSHOT_PKGS; do
     dir="${ROOT}/apps/${pkg}"
     if [[ -d "${dir}/dist.last-good" ]]; then
