@@ -1768,7 +1768,7 @@ export async function runThoughtModel(
     const lifeboatLaunchBlocked = () =>
       options.signal?.aborted === true
       || options.disableThoughtTransportFailover === true
-      || options.deadlineAtMs - Date.now() < THOUGHT_LIFEBOAT_MIN_REMAINING_MS;
+      || options.deadlineAtMs - circuitNowMs(deps) < THOUGHT_LIFEBOAT_MIN_REMAINING_MS;
     const armLifeboat = (
       record: NonNullable<ThoughtInvocation["lifeboat"]>,
       primaryCapture: ThoughtProviderFailureCapture,
@@ -1828,6 +1828,10 @@ export async function runThoughtModel(
       }, primaryCapture);
       captureReplayDispatch(messages);
       completion = await invokeThoughtComplete(messages, dispatchOptions, deps.completeChat);
+    } else if (thoughtModelCircuit.isOpen(ownModelId, circuitNowMs(deps))) {
+      // A1-12: the primary is known to be down and no lifeboat fits in the time left, so nothing is sent.
+      dispatchStarted = false;
+      throw new Error("thought_circuit_open_not_sent");
     } else try {
       captureReplayDispatch(messages);
       completion = await invokeThoughtComplete(messages, dispatchOptions, deps.completeChat);
@@ -2062,7 +2066,7 @@ export async function runThoughtModel(
               cycleId: input.cycleId,
               generation: input.generation,
               parentDeadlineAtMs: options.deadlineAtMs,
-              nowMs: options.nowMs ?? Date.now(),
+              nowMs: options.nowMs ?? circuitNowMs(deps),
               authorityCurrentness,
               audience: input.audience,
               ...(inspectExpectation === undefined ? {} : { concernInspectExpectation: inspectExpectation }),
@@ -2100,7 +2104,7 @@ export async function runThoughtModel(
                 generation: input.generation,
                 authorityEpoch: input.authorityEpoch,
                 parentDeadlineAtMs: options.deadlineAtMs,
-                nowMs: options.nowMs ?? Date.now(),
+                nowMs: options.nowMs ?? circuitNowMs(deps),
                 authorityCurrentness,
               });
               return {
