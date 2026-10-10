@@ -3155,3 +3155,68 @@ describe("A1-8 her next pass sees what became of her last reply", () => {
     }
   });
 });
+
+describe("A1-9 and A5-12 her next pass is told what the Host left out or cut from her last reply", () => {
+  const THREAD = "thread-host-notes";
+  function ownerTurnFor(sidecar: DatabaseSync, cycleId: string, text: string, atMs: number) {
+    const cycle = admitTestCycle(sidecar, {
+      cycleId, conversationId: THREAD, triggerKind: "owner_message", triggerRef: `owner-${cycleId}`,
+      occupantId: "doc", authorityEpoch: 1, nowMs: atMs,
+    });
+    const evidence = appendOwnerUtterance(sidecar, { conversationId: THREAD, text, discordMessageIds: [`${cycleId}-message`], nowMs: atMs });
+    return appendInboxEvent(sidecar, {
+      wakeId: cycle.wakeId, conversationId: THREAD, kind: "owner_message",
+      payload: { cycleId: cycle.cycleId, evidenceRowId: evidence.rowId, ownerMessage: evidence.text },
+      createdAtMs: atMs,
+    });
+  }
+
+  it("tells the next pass which parts salvage dropped from the last reply", async () => {
+    const sidecar = openTestSidecar();
+    const attentionDb = openTestSidecar();
+    const replies: string[] = [
+      JSON.stringify({ ...makeSemanticSettlement({ speech: { mode: "draft", mustSay: [], surfaceDraft: "Noted." } }), growth: "not an object" }),
+      JSON.stringify(makeSemanticSettlement({ speech: { mode: "draft", mustSay: [], surfaceDraft: "Still here." } })),
+    ];
+    const messagesByCall: string[][] = [];
+    const completeChat = vi.fn(async (messages: Array<{ role: string; content: string }>) => {
+      messagesByCall.push(messages.map((message) => message.content));
+      return { text: replies[messagesByCall.length - 1] ?? replies[1]!, model: "fake", modelAlias: "thought", resolvedModelId: null };
+    });
+    try {
+      expect((await runCognitiveCycle(sidecar, attentionDb, ownerTurnFor(sidecar, "cycle-notes-1", "Remember this.", 2),
+        deps({ attentionDb, completeChat }))).published).toBe(true);
+      await runCognitiveCycle(sidecar, attentionDb, ownerTurnFor(sidecar, "cycle-notes-2", "Are you there?", 3),
+        deps({ attentionDb, completeChat }));
+      expect(messagesByCall.at(-1)!.join("\n")).toContain("Host facts on my last turn here: Parts of my last reply were left out by the Host: growth.");
+    } finally {
+      sidecar.close();
+      attentionDb.close();
+    }
+  });
+
+  it("tells the next pass which parts were cut to their limit", async () => {
+    const sidecar = openTestSidecar();
+    const attentionDb = openTestSidecar();
+    const home = Array.from({ length: 9 }, (_, index) => ({ op: "append", path: `notes/entry-${index}.md`, content: `line ${index}\n` }));
+    const replies: string[] = [
+      JSON.stringify({ ...makeSemanticSettlement({ speech: { mode: "draft", mustSay: [], surfaceDraft: "I wrote them down." } }), home }),
+      JSON.stringify(makeSemanticSettlement({ speech: { mode: "draft", mustSay: [], surfaceDraft: "Still here." } })),
+    ];
+    const messagesByCall: string[][] = [];
+    const completeChat = vi.fn(async (messages: Array<{ role: string; content: string }>) => {
+      messagesByCall.push(messages.map((message) => message.content));
+      return { text: replies[messagesByCall.length - 1] ?? replies[1]!, model: "fake", modelAlias: "thought", resolvedModelId: null };
+    });
+    try {
+      expect((await runCognitiveCycle(sidecar, attentionDb, ownerTurnFor(sidecar, "cycle-cap-1", "Write these down.", 2),
+        deps({ attentionDb, completeChat }))).published).toBe(true);
+      await runCognitiveCycle(sidecar, attentionDb, ownerTurnFor(sidecar, "cycle-cap-2", "Did you keep them?", 3),
+        deps({ attentionDb, completeChat }));
+      expect(messagesByCall.at(-1)!.join("\n")).toContain("Parts of my last reply were cut to the limit: home.");
+    } finally {
+      sidecar.close();
+      attentionDb.close();
+    }
+  });
+});

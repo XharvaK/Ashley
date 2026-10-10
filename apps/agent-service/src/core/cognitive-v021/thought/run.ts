@@ -192,6 +192,7 @@ import {
 } from "../initiative/afterglow.js";
 import { awakePassFromPayload, nightPassFromPayload } from "../initiative/inner-pass.js";
 import { buildInnerAgenda } from "../initiative/agenda.js";
+import { lastTurnHostFact, recordTurnHostNotes, type TurnHostNote } from "./turn-facts.js";
 import { recordSettlementAftermath, type AftermathContext } from "./aftermath.js";
 import {
   applySemanticForget,
@@ -1481,6 +1482,15 @@ function domusObservationIdsForInput(input: ThoughtInput | ProjectedThoughtInput
   return ids;
 }
 
+/** What became of her last reply, and what the Host left out of or cut from the turn before this one (owner-private passes only). */
+function previousTurnFact(sidecar: DatabaseSync, conversationId: string, cycleId: string, ownerPrivate: boolean): string | undefined {
+  const parts = [
+    lastReplyDeliveryFact(sidecar, conversationId),
+    ownerPrivate ? lastTurnHostFact(sidecar, { conversationId, cycleId }) : undefined,
+  ].filter((part): part is string => part !== undefined);
+  return parts.length > 0 ? parts.join(" ") : undefined;
+}
+
 /** A1-8: what the Host recorded about her last reply in this conversation, by its delivery state; none when she has not spoken here. */
 function lastReplyDeliveryFact(sidecar: DatabaseSync, conversationId: string): string | undefined {
   const row = sidecar.prepare(
@@ -1621,6 +1631,8 @@ export async function runThoughtModel(
     audience?: ThoughtInput["audience"];
     /** Optional caller narrowing; it may never widen the Model Fabric policy. */
     maxTokens?: number;
+    /** A1-9 and A5-12: what the Host dropped or cut from her settlement; the caller records them for her next pass. */
+    hostNotes?: TurnHostNote[];
     /** Qualification-only seam for the exact NIM candidate; no fallback is allowed. */
     disableThoughtTransportFailover?: boolean;
     /** W7 exact private-budget reservation bridge for this Thought invocation. */
@@ -1936,6 +1948,7 @@ export async function runThoughtModel(
         const reparsed = parseThoughtSemanticOutput(salvaged.text, semanticReferences, semanticParseOptions);
         if (reparsed.ok) {
           console.warn(`[thought] salvaged code=${firstFailure.code} dropped=${salvaged.dropped.join(",")} model=${completion.providerModel ?? "-"}`);
+          if (salvaged.dropped.length > 0) options.hostNotes?.push({ kind: "parts_dropped", detail: salvaged.dropped.join(",") });
           completion = { ...completion, text: salvaged.text };
           semanticResult = reparsed;
         }
@@ -1995,6 +2008,7 @@ export async function runThoughtModel(
     // A5-12: a list cut to its limit is a Host note, not a rejected reply.
     for (const note of semanticResult.hostNotes ?? []) {
       console.warn(`[thought] settlement_part_capped note=${note} model=${completion.providerModel ?? "-"}`);
+      options.hostNotes?.push({ kind: "part_capped", detail: note.replace(/_capped$/, "") });
     }
     // Host facts only: which nomination ref was re-filed or removed, by path and class, never the id.
     for (const note of semanticResult.sourceRefNotes ?? []) {
@@ -3515,6 +3529,7 @@ async function runCognitiveCycleAttempt(
   let observationsForThought = await perceive();
   let inFlight = listInFlightForThoughtCycle(sidecar, cycle.cycleId);
   let counters = getThoughtAttemptCounters(sidecar, cycle.cycleId, cycle.generation);
+  const turnHostNotes: TurnHostNote[] = [];
   let pass = counters.acceptedThoughtPasses + 1;
   let structuralRetriesForPass = persistedMalformedRetries(sidecar, cycle.cycleId, cycle.generation, pass);
   let authorityObjections: AuthorityCode[] = [];
@@ -3674,7 +3689,7 @@ async function runCognitiveCycleAttempt(
       constitution: deps.readConstitution?.() ?? deps.constitution,
       capabilityReality: invocationCapabilityReality,
       wakeCauses: buildThoughtWakeCauses(sidecar, event, wake, cycle, originProfile.triggerKind),
-      previousInvocationDelta: lastReplyDeliveryFact(sidecar, cycle.conversationId),
+      previousInvocationDelta: previousTurnFact(sidecar, cycle.conversationId, cycle.cycleId, effectiveThoughtAudience.kind === "owner_private"),
       thoughtLegDeadlineAtMs: thoughtDeadlineAtMs,
       clock: {
         nowMs: deps.nowMs(),
@@ -3881,7 +3896,9 @@ async function runCognitiveCycleAttempt(
       // a failure in a required part still falls through to the structural retry as before.
       salvageOnFailure: true,
       beforeRedispatch: () => assessOwnerAnswerHold(sidecar, event) === null,
+      hostNotes: turnHostNotes,
     });
+    recordTurnHostNotes(sidecar, { conversationId: cycle.conversationId, cycleId: cycle.cycleId, generation: cycle.generation, pass, nowMs: deps.nowMs() }, turnHostNotes.splice(0));
     lastThoughtRequestId = invocation.requestId;
     lastThoughtPass = pass;
     cycleExecutionProvenance = mergeExecutionProvenance(
