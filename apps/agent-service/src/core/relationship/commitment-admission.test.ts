@@ -52,11 +52,12 @@ function revision(db: DatabaseSync): number {
 }
 
 describe("commitment admission and fidelity", () => {
-  it("uses the explicit fail-closed RA_COMMITMENTS forms", () => {
+  it("reads RA_COMMITMENTS like every flag and fails closed on anything else", () => {
     expect(isCommitmentsEnabled({ RA_COMMITMENTS: "true" })).toBe(true);
     expect(isCommitmentsEnabled({ RA_COMMITMENTS: "1" })).toBe(true);
     expect(isCommitmentsEnabled({})).toBe(false);
-    expect(isCommitmentsEnabled({ RA_COMMITMENTS: "TRUE" })).toBe(false);
+    expect(isCommitmentsEnabled({ RA_COMMITMENTS: "TRUE" })).toBe(true);
+    expect(isCommitmentsEnabled({ RA_COMMITMENTS: "maybe" })).toBe(false);
   });
 
   it("does not relinquish a live commitment when an unsent reservation is cancelled", () => {
