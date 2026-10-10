@@ -13,9 +13,12 @@ export const LESSON_MAX_CHARS = 300;
 export const LESSON_CURIOUS_MAX_CHARS = 200;
 export const LESSONS_SHOWN = 10;
 export const LESSONS_WINDOW_MS = 7 * 24 * 60 * 60_000;
+/** T3: lessons offered for taking home per pass, oldest first; a lesson is offered for LESSONS_WINDOW_MS until it comes home. */
+export const LESSONS_HOME_NIGHT_LIMIT = 3;
+export const LESSONS_HOME_AWAKE_LIMIT = 2;
 
 export type LearnedClaim = { what: string; curiousAbout?: string };
-export type ThoughtLesson = { from: string; fromTeacher?: true; place: string; what: string; curiousAbout?: string; atMs: number };
+export type ThoughtLesson = { lessonId: string; from: string; fromTeacher?: true; place: string; what: string; curiousAbout?: string; atMs: number };
 export type ThoughtTeacher = { name: string };
 
 type Row = Record<string, unknown>;
@@ -71,14 +74,42 @@ export function teacherForThought(sidecar: DatabaseSync, principalId: string | n
 
 /** What she kept lately, newest last, for her Owner-private turns. */
 export function lessonsForThought(sidecar: DatabaseSync, nowMs: number): ThoughtLesson[] {
-  return (sidecar.prepare(`SELECT l.from_principal, l.place_ref, l.what, l.curious_about, l.at_ms, t.principal_id AS teacher FROM lessons l
+  return (sidecar.prepare(`SELECT l.lesson_id, l.from_principal, l.place_ref, l.what, l.curious_about, l.at_ms, t.principal_id AS teacher FROM lessons l
     LEFT JOIN teachers t ON t.principal_id = l.from_principal WHERE l.at_ms > ? ORDER BY l.at_ms DESC LIMIT ?`)
-    .all(nowMs - LESSONS_WINDOW_MS, LESSONS_SHOWN) as Row[]).reverse().map(row => ({
-      from: discordName(sidecar, "user", String(row.from_principal)) ?? "someone",
-      ...(row.teacher != null ? { fromTeacher: true as const } : {}),
-      place: placeLabel(sidecar, String(row.place_ref)),
-      what: String(row.what),
-      ...(typeof row.curious_about === "string" ? { curiousAbout: row.curious_about } : {}),
-      atMs: Number(row.at_ms),
-    }));
+    .all(nowMs - LESSONS_WINDOW_MS, LESSONS_SHOWN) as Row[]).reverse().map(row => thoughtLesson(sidecar, row));
+}
+
+function thoughtLesson(sidecar: DatabaseSync, row: Row): ThoughtLesson {
+  return {
+    lessonId: String(row.lesson_id),
+    from: discordName(sidecar, "user", String(row.from_principal)) ?? "someone",
+    ...(row.teacher != null ? { fromTeacher: true as const } : {}),
+    place: placeLabel(sidecar, String(row.place_ref)),
+    what: String(row.what),
+    ...(typeof row.curious_about === "string" ? { curiousAbout: row.curious_about } : {}),
+    atMs: Number(row.at_ms),
+  };
+}
+
+// ---- taking lessons home (T3) ------------------------------------------------------------------
+
+/** Lessons she has not taken home yet, offered for the window, oldest first: at most `limit` of them. */
+export function lessonsToBringHome(sidecar: DatabaseSync, nowMs: number, limit: number): ThoughtLesson[] {
+  return (sidecar.prepare(`SELECT lesson_id, from_principal, place_ref, what, curious_about, at_ms,
+      (SELECT principal_id FROM teachers WHERE principal_id = lessons.from_principal) AS teacher FROM lessons
+    WHERE brought_home_at_ms IS NULL AND at_ms > ? ORDER BY at_ms ASC, lesson_id ASC LIMIT ?`)
+    .all(nowMs - LESSONS_WINDOW_MS, Math.max(1, Math.floor(limit))) as Row[]).map(row => thoughtLesson(sidecar, row));
+}
+
+/** A memory she made cites this lesson: it came home, once. Returns false when it already had. */
+export function markLessonBroughtHome(sidecar: DatabaseSync, lessonId: string, nowMs: number): boolean {
+  const result = sidecar.prepare("UPDATE lessons SET brought_home_at_ms = ? WHERE lesson_id = ? AND brought_home_at_ms IS NULL")
+    .run(nowMs, lessonId);
+  return Number(result.changes ?? 0) > 0;
+}
+
+/** Whether a lesson with this id was kept (any age, taken home or not). */
+export function lessonExists(sidecar: DatabaseSync, lessonId: string): { atMs: number; fromPrincipal: string } | null {
+  const row = sidecar.prepare("SELECT at_ms, from_principal FROM lessons WHERE lesson_id = ?").get(lessonId) as Row | undefined;
+  return row ? { atMs: Number(row.at_ms), fromPrincipal: String(row.from_principal) } : null;
 }

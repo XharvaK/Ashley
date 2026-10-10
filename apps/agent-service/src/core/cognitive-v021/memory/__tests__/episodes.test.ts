@@ -59,6 +59,18 @@ describe("episodes", () => {
     }
   });
 
+  it("search by content words only, so function words alone find nothing", () => {
+    const db = openTestSidecar();
+    try {
+      episode(db, "cycle-1", "the house", "Alex fixed the house gutter.", 1_000);
+      expect(searchEpisodes(db, ["what did you do in the house"], 5).map((item) => item.summary))
+        .toEqual(["Alex fixed the house gutter."]);
+      expect(searchEpisodes(db, ["what did you do"], 5)).toEqual([]);
+    } finally {
+      db.close();
+    }
+  });
+
   it("are forgotten by topic, and with any conversation row they were built from", () => {
     const db = openTestSidecar();
     try {

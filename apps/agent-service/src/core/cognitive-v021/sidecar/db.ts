@@ -90,6 +90,7 @@ import {
   COGNITIVE_SIDECAR_SCHEMA_V72,
   COGNITIVE_SIDECAR_SCHEMA_V73,
   COGNITIVE_SIDECAR_SCHEMA_V74,
+  COGNITIVE_SIDECAR_SCHEMA_V75,
 } from "./schema.js";
 import { recoverCognitiveSidecar } from "./recovery.js";
 import { cycleIdFor, occurrenceIdFor, wakeIdFor } from "../wake/identity.js";
@@ -868,6 +869,7 @@ export function openCognitiveSidecarDb(
       existing.exec(COGNITIVE_SIDECAR_SCHEMA_V72);
       existing.exec(COGNITIVE_SIDECAR_SCHEMA_V73);
       applySidecarV74(existing);
+      applySidecarV75(existing);
       existing.exec(`PRAGMA user_version = ${COGNITIVE_SIDECAR_SCHEMA_VERSION}`);
       existing.exec("COMMIT");
     } catch (error) {
@@ -954,6 +956,7 @@ export function openCognitiveSidecarDb(
       if (version < 72) existing.exec(COGNITIVE_SIDECAR_SCHEMA_V72);
       if (version < 73) existing.exec(COGNITIVE_SIDECAR_SCHEMA_V73);
       if (version < 74) applySidecarV74(existing);
+      if (version < 75) applySidecarV75(existing);
       existing.exec(`PRAGMA user_version = ${COGNITIVE_SIDECAR_SCHEMA_VERSION}`);
       ensureMeta(existing);
       existing.exec("COMMIT");
@@ -966,6 +969,13 @@ export function openCognitiveSidecarDb(
   validateA3SidecarSchema(existing, COGNITIVE_SIDECAR_SCHEMA_VERSION);
   recoverCognitiveSidecar(existing);
   return existing;
+}
+
+/** T3 adds one column on lessons; a database that already has it only records the version. */
+function applySidecarV75(db: DatabaseSync): void {
+  const columns = db.prepare("PRAGMA table_info(lessons)").all() as Array<{ name: string }>;
+  if (columns.some(column => column.name === "brought_home_at_ms")) db.exec("UPDATE cognitive_sidecar_meta SET schema_version=75 WHERE id=1;");
+  else db.exec(COGNITIVE_SIDECAR_SCHEMA_V75);
 }
 
 /** v74 adds one column; a database that already has it (a re-run over a later schema) only records the version. */

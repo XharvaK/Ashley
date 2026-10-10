@@ -30,7 +30,7 @@ export type { SourceSupportRef } from "./evidence/interpretation-envelope.js";
 export const ARCHITECTURE_EPOCH = "v0.2.1" as const;
 export const IMPLEMENTATION_SPEC_VERSION = "0.2.1.r6" as const;
 export const THOUGHT_CONTRACT_VERSION = 2 as const;
-export const COGNITIVE_SIDECAR_SCHEMA_VERSION = 74 as const;
+export const COGNITIVE_SIDECAR_SCHEMA_VERSION = 75 as const;
 
 /**
  * Hard bound on cognition-facing concern discovery windows and pages. The
@@ -2020,6 +2020,8 @@ export type ThoughtInnerAgenda = {
   chosenGap?: { id: string; name: string; question: string };
   /** D1: she asked for this own time; what she said it was for. */
   ownTimeDue?: ReadonlyArray<{ atMs: number; for: string; pursuitId?: string }>;
+  /** T3: lessons a teacher gave her that she has not taken home yet, oldest first (she may cite one as support). */
+  lessons?: ReadonlyArray<import("../teach/lessons.js").ThoughtLesson>;
 };
 
 export type V021ForgetEntityType =

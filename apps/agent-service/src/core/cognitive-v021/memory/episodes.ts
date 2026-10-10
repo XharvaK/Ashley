@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { maxClassification, type DataClassification } from "../../privacy/classification.js";
 import { REDACTED_MEMORY_STATEMENT } from "./assertions.js";
+import { lookupTerms } from "./lookup-terms.js";
 import type { MemoryChannel, MemoryLineageClass } from "../types.js";
 
 /**
@@ -202,11 +203,7 @@ export function listRecentEpisodes(db: DatabaseSync, limit: number): EpisodeReco
 }
 
 function ftsQuery(terms: readonly string[]): string | null {
-  const cleaned = [...new Set(terms
-    .map((term) => term.toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim())
-    .flatMap((term) => term.split(/\s+/))
-    .filter((term) => term.length >= 3))]
-    .slice(0, 24);
+  const cleaned = lookupTerms(terms.join(" ")).slice(0, 24);
   return cleaned.length === 0 ? null : cleaned.map((term) => `"${term}"`).join(" OR ");
 }
 

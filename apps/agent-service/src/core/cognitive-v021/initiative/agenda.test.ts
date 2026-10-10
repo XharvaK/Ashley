@@ -3,7 +3,8 @@ import { appendOwnerUtterance } from "../evidence/conversation-log.js";
 import { admitTestCycle, openTestSidecar } from "../test-support.js";
 import { buildThoughtInput } from "../thought/input.js";
 import type { AwakePass } from "./inner-pass.js";
-import { buildInnerAgenda } from "./agenda.js";
+import { buildInnerAgenda } from "./agenda.js";import { recordLessons } from "../../teach/lessons.js";
+
 
 const NOW = 1_700_000_000_000;
 const pass: AwakePass = { kind: "awake", slot: 1, sinceMs: NOW - 60_000 };
@@ -20,6 +21,16 @@ function journal(
 }
 
 describe("AWAKE agenda facts", () => {
+  it("offers at most two lessons she has not taken home, and omits the list when there are none", () => {
+    const db = openTestSidecar();
+    try {
+      expect(buildInnerAgenda(db, pass, NOW).lessons).toBeUndefined();
+      recordLessons(db, { cycleId: "teach-a1", fromPrincipal: "p-teacher", placeRef: "contact:p-teacher", nowMs: NOW - 3_000,
+        claims: [{ what: "one" }, { what: "two" }, { what: "three" }] });
+      expect(buildInnerAgenda(db, pass, NOW).lessons?.map((lesson) => lesson.what)).toEqual(["one", "two"]);
+    } finally { db.close(); }
+  });
+
   it("counts only the newest consecutive awake rests", () => {
     const db = openTestSidecar();
     try {

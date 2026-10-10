@@ -1,4 +1,5 @@
 import { takeDueOwnTime } from "../../will/pursuits.js";
+import { LESSONS_HOME_AWAKE_LIMIT, lessonsToBringHome } from "../../teach/lessons.js";
 import type { DatabaseSync } from "node:sqlite";
 import type { ThoughtInnerAgenda } from "../types.js";
 import { listLiveMemoryAssertions, REDACTED_MEMORY_STATEMENT } from "../memory/assertions.js";
@@ -50,6 +51,7 @@ export function buildInnerAgenda(db: DatabaseSync, pass: AwakePass, nowMs: numbe
     ...(branch.lastNote ? { note: branch.lastNote } : {}),
   }));
   const chosen = latestChosenGap(db);
+  const lessons = lessonsToBringHome(db, nowMs, LESSONS_HOME_AWAKE_LIMIT);
   return {
     lastAwakeAtMs: pass.sinceMs > 0 ? pass.sinceMs : null,
     restStreak: countAwakeRestStreak(db),
@@ -64,6 +66,7 @@ export function buildInnerAgenda(db: DatabaseSync, pass: AwakePass, nowMs: numbe
       recent: recentUnsolicited(db),
     },
     ...(chosen ? { chosenGap: { id: chosen.id, name: chosen.name, question: chosen.question } } : {}),
+    ...(lessons.length ? { lessons } : {}),
     ...(() => { const due = takeDueOwnTime(db, nowMs); return due.length ? { ownTimeDue: due } : {}; })(),
   };
 }

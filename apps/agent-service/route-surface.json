@@ -7,7 +7,6 @@
     { "method": "GET", "path": "/health", "ownerScope": "public", "lifecycle": "active" },
     { "method": "GET", "path": "/nuclear/health", "ownerScope": "owner_required", "lifecycle": "active" },
     { "method": "GET", "path": "/nuclear/decisions", "ownerScope": "owner_required", "lifecycle": "active" },
-    { "method": "GET", "path": "/nuclear/reflections", "ownerScope": "owner_required", "lifecycle": "active" },
     { "method": "GET", "path": "/nuclear/episodes", "ownerScope": "owner_required", "lifecycle": "active" },
     { "method": "GET", "path": "/nuclear/cognition", "ownerScope": "owner_required", "lifecycle": "active" },
     { "method": "GET", "path": "/nuclear/context-budget", "ownerScope": "owner_required", "lifecycle": "retired" },

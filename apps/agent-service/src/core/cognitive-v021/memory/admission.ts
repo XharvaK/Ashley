@@ -1,4 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
+import { markLessonBroughtHome } from "../../teach/lessons.js";
 import {
   canEnterModelContext,
   maxClassification,
@@ -620,6 +621,10 @@ function admitOne(
       createdAtMs: nowMs,
       channel: domusChannelForRef(db, supportRef) ?? "discord",
     });
+  }
+  // T3: a memory that cites a lesson is the lesson coming home; it is marked once, when the memory is admitted.
+  for (const supportRef of typedSupportRefs) {
+    if (supportRef.kind === "teaching_lesson") markLessonBroughtHome(db, supportRef.lessonId, nowMs);
   }
   if (socialAdmission) {
     for (const evidence of socialAdmission.evidence) {

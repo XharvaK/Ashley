@@ -5,6 +5,7 @@ import { tickAdmission } from "./admission.js";
 import { admitOwnerSuppliedClaim } from "./admission.js";
 import { appendRememberRequest } from "./nomination.js";
 import { appendOwnerUtterance, appendAshleyEvidence } from "../evidence/conversation-log.js";
+import { recordLessons } from "../../teach/lessons.js";
 import type { DurableNomination, ThoughtSettlementDraft } from "../types.js";
 
 function nomination(overrides: Partial<DurableNomination> = {}): DurableNomination {
@@ -170,6 +171,56 @@ describe("v0.2.1 fenced Memory admission", () => {
       expect(db.prepare(
         "SELECT source_ref FROM sidecar_memory_supports WHERE support_id = 'native:nomination-1'",
       ).get()).toEqual({ source_ref: "nomination-1" });
+    } finally {
+      db.close();
+    }
+  });
+
+  it("takes a teacher's lesson home as her own memory, marked once, and never grounds an Owner claim", () => {
+    const db = openTestSidecar();
+    try {
+      const ev = appendOwnerUtterance(db, { conversationId: "thread-lesson-home", text: "lichens are slow", nowMs: 1 });
+      admitTestCycle(db, {
+        cycleId: "cycle-lesson-home",
+        conversationId: "thread-lesson-home",
+        generation: 1,
+        triggerKind: "owner_message",
+        triggerRef: ev.rowId,
+        occupantId: "doc",
+        nowMs: 1,
+      });
+      recordLessons(db, { cycleId: "teach-1", fromPrincipal: "p-teacher", placeRef: "contact:p-teacher", nowMs: 1, claims: [{ what: "Lichens grow very slowly" }] });
+      const lesson = { kind: "teaching_lesson" as const, lessonId: "lesson:teach-1:0" };
+      publishNomination(db, nomination({
+        cycleId: "cycle-lesson-home",
+        nominationId: "nomination-lesson",
+        assertionKey: "ashley:lichens",
+        statement: "Lichens grow very slowly.",
+        memoryKind: "ashley_interpretation",
+        dimensions: { source: "ashley_interpretation", status: "interpreted", time: "historical", reliability: "inferred" },
+        dataClassification: "ordinary",
+        sourceRefs: [],
+        supportRefs: [lesson],
+      }), "settlement-lesson-home");
+      expect(tickAdmission(db, { nowMs: 2 }).admitted).toBe(1);
+      expect(db.prepare("SELECT brought_home_at_ms FROM lessons WHERE lesson_id = 'lesson:teach-1:0'").get()).toEqual({ brought_home_at_ms: 2 });
+      expect(db.prepare(
+        "SELECT support_ref_json FROM sidecar_memory_supports WHERE support_id = 'native:nomination-lesson:typed:0'",
+      ).get()).toEqual({ support_ref_json: JSON.stringify(lesson) });
+
+      // The lesson is a teacher's words: it cannot ground a claim that the Owner said something.
+      publishNomination(db, nomination({
+        cycleId: "cycle-lesson-home",
+        nominationId: "nomination-owner-claim",
+        assertionKey: "owner:lichens",
+        statement: "Alex loves lichens.",
+        memoryKind: "owner_preference",
+        sourceRefs: [ev.rowId],
+        supportRefs: [lesson],
+      }), "settlement-owner-claim");
+      expect(tickAdmission(db, { nowMs: 3 }).admitted).toBe(0);
+      expect(db.prepare("SELECT COUNT(*) AS n FROM sidecar_memory_assertions WHERE assertion_key = 'owner:lichens'").get()).toEqual({ n: 0 });
+      expect(db.prepare("SELECT brought_home_at_ms FROM lessons WHERE lesson_id = 'lesson:teach-1:0'").get()).toEqual({ brought_home_at_ms: 2 });
     } finally {
       db.close();
     }

@@ -53,12 +53,7 @@ import {
 import { recoverStaleRequests } from "./attention/ledger.js";
 import { attentionObservability } from "./attention/governor.js";
 import {
-  applyInitiativeLearning,
-  attachLearningSnapshot,
-  getReflectionOverview,
   processPendingOpenCognitiveReviewsAsync,
-  processPendingReflectionEvents,
-  recordInitiativeReaction,
 } from "./reflection/initiative.js";
 import { recordOwnerBubbleReaction } from "./cognitive-v021/thought/owner-surface.js";
 import type { OpenCognitiveReviewAdjudicator } from "./reflection/initiative.js";
@@ -311,7 +306,6 @@ export class AshleyCore {
       this.sessionId = null;
     }
     recoverStaleRequests(this.db);
-    processPendingReflectionEvents(this.db);
   }
 
   configureCapabilityActivationReadiness(
@@ -880,9 +874,6 @@ export class AshleyCore {
     input: { messageId: string; emoji: string },
   ): {
     feedback: "positive" | "negative" | "neutral";
-    matchedInitiative: boolean;
-    reflectionEventId: number | null;
-    reflectionStatus: "applied" | "ignored" | null;
   } {
     const bare = input.emoji.replace(/\uFE0F/g, "");
     const positive = new Set(["😂", "🤣", "😭", "❤️", "🔥", "💯", "👍", "😍", "🙌", "😅"]);
@@ -893,41 +884,12 @@ export class AshleyCore {
         : negative.has(input.emoji) || negative.has(bare)
           ? "negative"
           : "neutral";
-    setKv(
-      this.db,
-      `signal:reaction:${ownerId}`,
-      JSON.stringify({
-        emoji: input.emoji,
-        feedback,
-        messageId: input.messageId,
-        at: new Date().toISOString(),
-      }),
-    );
     recordOwnerBubbleReaction(this.db, {
       messageId: input.messageId,
       emoji: input.emoji,
       atMs: Date.now(),
     });
-    const reflection = recordInitiativeReaction(this.db, ownerId, input);
-    return {
-      feedback,
-      matchedInitiative: reflection.matchedInitiative,
-      reflectionEventId: reflection.event?.id ?? null,
-      reflectionStatus:
-        reflection.event?.status === "applied" ||
-        reflection.event?.status === "ignored"
-          ? reflection.event.status
-          : null,
-    };
-  }
-
-  getReflections(ownerId: string, limit = 20) {
-    return getReflectionOverview(
-      this.db,
-      ownerId,
-      this.reflectionMode,
-      limit,
-    );
+    return { feedback };
   }
 
   hasUrgentCognition(ownerId: string): boolean {
