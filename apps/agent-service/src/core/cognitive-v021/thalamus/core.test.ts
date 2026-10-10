@@ -69,3 +69,14 @@ describe("pure attention arbitration", () => {
     expect(() => run([candidate({ source: "owner" as Candidate["source"] })])).toThrow("thalamus_owner_ingress_required");
   });
 });
+
+describe("A4-4 a due wish is not starved by a needs_review trigger on the event id tie", () => {
+  it("picks the earlier observed due item when two mandatory items tie on score", () => {
+    // The trigger's id sorts first, but the wish has waited longer: the wish wins the tie.
+    const trigger = candidate({ eventId: "trigger:review", observedAtMs: 200, source: "prospective", salience: 0, class: "ALWAYS_THROUGH", deadlineMs: 100, passType: "own_time", coalesceKey: "trigger" });
+    const wish = candidate({ eventId: "wish:garden", observedAtMs: 100, source: "prospective", salience: 0, class: "ALWAYS_THROUGH", deadlineMs: 100, passType: "own_time", coalesceKey: "wish" });
+    const result = run([trigger, wish], 150);
+    expect(result.decision.kind).toBe("fire");
+    expect(result.decision.kind === "fire" ? result.decision.bundle[0]?.eventId : null).toBe("wish:garden");
+  });
+});
