@@ -458,3 +458,38 @@ test("the turn's attachment cap counts images only and never drops a text file (
   assert.equal(imageRefs.length, 4);
   assert.deepEqual(textRefs.map((ref) => ref.fileName), ["notes.txt"]);
 });
+
+test("an Owner message held by the pending queue is not buffered and is replayed in order (A6-1)", async () => {
+  const { createOwnerCaptureQueue } = await import("../chat/owner-capture-pending.js");
+  let agentUp = false;
+  const captured: string[] = [];
+  let ingresses = 0;
+  const queue = createOwnerCaptureQueue<{ discordMessageId: string; message: string }>({
+    capture: async (capture) => {
+      if (!agentUp) throw new Error("ECONNREFUSED");
+      captured.push(capture.discordMessageId);
+    },
+    store: { load: () => [], save: () => undefined },
+    schedule: () => undefined,
+    log: { warn: () => undefined, error: () => undefined },
+  });
+  const handler = createMessageCreateHandler({
+    quietMs: 1,
+    hardCapMs: 10,
+    ownerCapture: queue as never,
+    ingressChat: async () => {
+      ingresses += 1;
+    },
+  });
+
+  await handler.handleMessage(ownerMessage("held-1", "first", {}));
+  await handler.handleMessage(ownerMessage("held-2", "second", {}));
+  await handler.flushForTest("channel-1");
+  assert.equal(ingresses, 0);
+  assert.equal(queue.pending(), 2);
+
+  agentUp = true;
+  await queue.flush();
+  assert.deepEqual(captured, ["held-1", "held-2"]);
+  assert.equal(ingresses, 0);
+});

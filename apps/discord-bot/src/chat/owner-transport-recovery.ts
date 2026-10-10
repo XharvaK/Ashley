@@ -309,3 +309,22 @@ export function createOwnerTransportReconciler(
     },
   };
 }
+
+export const OWNER_TRANSPORT_RECONCILE_MS = 30_000;
+
+/**
+ * Reconciles on a timer as well as on ready and resume, so a capture missed while the agent was down is
+ * recovered without a restart. Returns the stop function.
+ */
+export function startOwnerTransportTimer(
+  tick: () => unknown,
+  intervalMs: number = OWNER_TRANSPORT_RECONCILE_MS,
+): () => void {
+  const timer = setInterval(() => {
+    void Promise.resolve()
+      .then(tick)
+      .catch((error) => console.error("[discord-bot] Owner transport timer reconciliation failed; the next tick retries", error));
+  }, intervalMs);
+  timer.unref();
+  return () => clearInterval(timer);
+}

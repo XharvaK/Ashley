@@ -12,6 +12,12 @@ import {
 } from "../agent-client.js";
 import { channelQueue } from "../chat/channel-queue.js";
 import {
+  createOwnerCaptureQueue,
+  fileOwnerCaptureStore,
+  ownerCapturePendingPath,
+  type OwnerCaptureQueue,
+} from "../chat/owner-capture-pending.js";
+import {
   capTurnAttachments,
   describeIntake,
   messageNames,
@@ -104,6 +110,8 @@ export function createMessageCreateHandler(options: {
     finalFragmentReceivedAtMs?: number,
   ) => Promise<ExternalBatchResult>;
   captureOwnerTransport?: (capture: OwnerTransportMessageCapture) => Promise<unknown>;
+  /** Owner captures go through the pending queue: a capture the agent cannot take now is held and replayed in order. */
+  ownerCapture?: OwnerCaptureQueue<OwnerTransportMessageCapture>;
   markOwnerTransportAdmitted?: (discordMessageIds: string[]) => Promise<unknown>;
   botId?: string;
   channelQueue?: { abort(channelId: string): void };
@@ -283,18 +291,22 @@ export function createMessageCreateHandler(options: {
     const fragment: BufferedFragment = context?.ownerRoomContext
       ? { ...intake, ownerRoomContext: context.ownerRoomContext, sentAtMs }
       : { ...intake, sentAtMs };
-    if (options.captureOwnerTransport) {
+    const ownerCapture: OwnerTransportMessageCapture = {
+      discordMessageId: intake.messageId,
+      channelId,
+      ...(message.guild?.id ? { guildId: message.guild.id } : {}),
+      message: intake.text,
+      attachments: intake.attachments,
+      sentAtMs,
+      capturedAtMs: Date.now(),
+      ...(context?.ownerRoomContext ? { ownerRoomContext: context.ownerRoomContext } : {}),
+    };
+    if (options.ownerCapture) {
+      // Not captured now: it waits in the pending queue, which replays it in order once the agent answers.
+      if (await options.ownerCapture.submit(ownerCapture) !== "captured") return;
+    } else if (options.captureOwnerTransport) {
       try {
-        await options.captureOwnerTransport({
-          discordMessageId: intake.messageId,
-          channelId,
-          ...(message.guild?.id ? { guildId: message.guild.id } : {}),
-          message: intake.text,
-          attachments: intake.attachments,
-          sentAtMs,
-          capturedAtMs: Date.now(),
-          ...(context?.ownerRoomContext ? { ownerRoomContext: context.ownerRoomContext } : {}),
-        });
+        await options.captureOwnerTransport(ownerCapture);
       } catch (error) {
         console.error("[discord-bot] Owner transport capture failed; history reconciliation remains authoritative:", error);
         return;
@@ -331,9 +343,15 @@ function externalConversationKey(
   return `dm:${normalizedBotId}:${envelope.location.principalId}`;
 }
 
+/** Owner captures the agent could not take yet; client.ts flushes them on the timer and when the agent recovers. */
+export const ownerCapturePending = createOwnerCaptureQueue<OwnerTransportMessageCapture>({
+  capture: (capture) => captureOwnerDiscordMessage(capture),
+  store: fileOwnerCaptureStore(ownerCapturePendingPath()),
+});
+
 const messageCreateHandler = createMessageCreateHandler({
   ingressChat,
-  captureOwnerTransport: (capture) => captureOwnerDiscordMessage(capture),
+  ownerCapture: ownerCapturePending,
   markOwnerTransportAdmitted,
   channelQueue,
   onFirstFragment: (channelId) => tempoTracker.mark(channelId),

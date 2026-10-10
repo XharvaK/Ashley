@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   groupOwnerTransportCaptures,
   reconcileOwnerTransportSurface,
+  startOwnerTransportTimer,
   replayPendingOwnerTransport,
   type OwnerTransportPendingCapture,
   type OwnerTransportRecoveryApi,
@@ -174,4 +175,15 @@ test("history reconcile keeps an Owner message that starts with a slash (A6-13)"
   await reconcileOwnerTransportSurface(client, { channelId: "dm-channel" }, api, "test");
 
   assert.deepEqual(captured, [["/ 2 cents on the rent"]]);
+});
+
+test("the Owner transport timer keeps reconciling until it is stopped (A6-1)", async () => {
+  let ticks = 0;
+  const stop = startOwnerTransportTimer(() => { ticks += 1; }, 5);
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  stop();
+  const atStop = ticks;
+  assert.ok(atStop >= 1);
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  assert.equal(ticks, atStop);
 });
