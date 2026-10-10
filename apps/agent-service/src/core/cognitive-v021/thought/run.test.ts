@@ -3220,3 +3220,56 @@ describe("A1-9 and A5-12 her next pass is told what the Host left out or cut fro
     }
   });
 });
+
+describe("F2 her next pass sees the web requests of a turn that did not settle", () => {
+  const THREAD = "thread-web-actions";
+  const ORIGIN = "https://fixture-web.example";
+  function ownerTurnFor(sidecar: DatabaseSync, cycleId: string, text: string, atMs: number) {
+    const cycle = admitTestCycle(sidecar, {
+      cycleId, conversationId: THREAD, triggerKind: "owner_message", triggerRef: `owner-${cycleId}`,
+      occupantId: "doc", authorityEpoch: 1, nowMs: atMs,
+    });
+    const evidence = appendOwnerUtterance(sidecar, { conversationId: THREAD, text, discordMessageIds: [`${cycleId}-message`], nowMs: atMs });
+    return appendInboxEvent(sidecar, {
+      wakeId: cycle.wakeId, conversationId: THREAD, kind: "owner_message",
+      payload: { cycleId: cycle.cycleId, evidenceRowId: evidence.rowId, ownerMessage: evidence.text },
+      createdAtMs: atMs,
+    });
+  }
+  async function turnWithPost(settles: boolean) {
+    const sidecar = openTestSidecar();
+    const attentionDb = openTestSidecar();
+    const messagesByCall: string[][] = [];
+    // The first turn made a POST (what web.request leaves in the log); its settlement is either sent or broken.
+    sidecar.prepare("INSERT INTO web_requests (origin, method, path, status, error, cycle_id, at_ms) VALUES (?, 'POST', '/fixture-path', 201, NULL, 'cycle-web-first', ?)")
+      .run(ORIGIN, 2);
+    const first = { cycleId: "cycle-web-first", text: "Post the note." };
+    const replies: string[] = settles
+      ? [JSON.stringify(makeSemanticSettlement({ speech: { mode: "draft", mustSay: [], surfaceDraft: "Posted." } })), JSON.stringify(makeSemanticSettlement())]
+      : ["not a settlement", "still not a settlement", "nor this one", JSON.stringify(makeSemanticSettlement())];
+    const completeChat = vi.fn(async (messages: Array<{ role: string; content: string }>) => {
+      messagesByCall.push(messages.map((message) => message.content));
+      return { text: replies[Math.min(messagesByCall.length - 1, replies.length - 1)]!, model: "fake", modelAlias: "thought", resolvedModelId: null };
+    });
+    try {
+      await runCognitiveCycle(sidecar, attentionDb, ownerTurnFor(sidecar, first.cycleId, first.text, 2), deps({ attentionDb, completeChat }));
+      const callsBefore = messagesByCall.length;
+      await runCognitiveCycle(sidecar, attentionDb, ownerTurnFor(sidecar, "cycle-web-next", "Did it go through?", 3), deps({ attentionDb, completeChat }));
+      return messagesByCall.slice(callsBefore).at(-1)!.join("\n");
+    } finally {
+      sidecar.close();
+      attentionDb.close();
+    }
+  }
+
+  it("tells the next owner-private pass about the POST of a turn that failed to settle", async () => {
+    const next = await turnWithPost(false);
+    expect(next).toContain("I made web requests that did not settle: POST https://fixture-web.example/fixture-path (status 201, ");
+  });
+
+  it("says nothing about the web requests of a turn that settled", async () => {
+    const next = await turnWithPost(true);
+    expect(next).not.toContain("did not settle");
+    expect(next).not.toContain("fixture-web.example");
+  });
+});

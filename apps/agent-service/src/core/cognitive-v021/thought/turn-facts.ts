@@ -10,6 +10,7 @@ export type TurnHostNote = {
 };
 
 const DETAIL_MAX = 160;
+const WEB_ACTIONS_SHOWN = 8;
 
 export type TurnFactScope = {
   conversationId: string;
@@ -42,12 +43,22 @@ export function lastTurnHostFact(sidecar: DatabaseSync, scope: Pick<TurnFactScop
       ORDER BY admitted_at_ms DESC, cycle_id DESC LIMIT 1`,
   ).get(scope.conversationId, scope.cycleId) as { cycle_id?: unknown } | undefined;
   if (!last) return undefined;
+  // F2: a web request is an effect the log already holds; when its turn never settled, the next pass must see it.
+  const unsettled = sidecar.prepare("SELECT 1 FROM settlements WHERE cycle_id = ? LIMIT 1").get(String(last.cycle_id)) === undefined;
+  const requests = unsettled ? sidecar.prepare(
+    "SELECT method, origin, path, status, at_ms FROM web_requests WHERE cycle_id = ? ORDER BY request_id ASC LIMIT ?",
+  ).all(String(last.cycle_id), WEB_ACTIONS_SHOWN) as Array<{ method?: unknown; origin?: unknown; path?: unknown; status?: unknown; at_ms?: unknown }> : [];
   const notes = sidecar.prepare(
     "SELECT kind, detail FROM turn_host_notes WHERE cycle_id = ? ORDER BY note_id ASC",
   ).all(String(last.cycle_id)) as Array<{ kind?: unknown; detail?: unknown }>;
   const dropped = notes.filter((note) => note.kind === "parts_dropped").map((note) => String(note.detail));
   const capped = notes.filter((note) => note.kind === "part_capped").map((note) => String(note.detail));
+  const actions = requests.map((request) => {
+    const status = request.status == null ? "no response" : `status ${Number(request.status)}`;
+    return `${String(request.method)} ${String(request.origin)}${String(request.path)} (${status}, ${new Date(Number(request.at_ms)).toISOString()})`;
+  });
   const parts = [
+    ...(actions.length > 0 ? [`I made web requests that did not settle: ${actions.join("; ")}.`] : []),
     ...(dropped.length > 0 ? [`Parts of my last reply were left out by the Host: ${dropped.join(", ")}.`] : []),
     ...(capped.length > 0 ? [`Parts of my last reply were cut to the limit: ${capped.join(", ")}.`] : []),
   ];
