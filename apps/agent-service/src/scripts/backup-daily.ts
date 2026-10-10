@@ -30,6 +30,7 @@ import {
   rcloneMkdirArgs,
   runRclone,
   sha256File,
+  sweepStaleBackupWork,
   writeBackupStatusAtomic,
   type BackupStatus,
   type RcloneExec,
@@ -38,6 +39,7 @@ import {
 const LOCAL_KEEP = 7;
 const DAILY_KEEP = 30;
 const MONTHLY_KEEP = 12;
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 export type DailyBackupOptions = {
   env?: NodeJS.ProcessEnv;
@@ -101,6 +103,13 @@ export function runDailyBackup(options: DailyBackupOptions = {}): number {
     return fail(paths.statusPath, backupFailureCode(error, "backup_schema_unreadable"), log);
   }
 
+  try {
+    // A run killed earlier leaves work folders and partial packages; they never take a retention slot.
+    sweepStaleBackupWork(paths.packageDir, DAY_MS, now.getTime());
+  } catch {
+    /* a stale file that cannot be removed does not stop today's backup */
+  }
+
   const continuity = waitForLocks(new DatabaseSync(paths.continuityDbPath));
   let packagePath: string;
   try {
@@ -114,7 +123,15 @@ export function runDailyBackup(options: DailyBackupOptions = {}): number {
       nuclearSchemaVersion: versions.nuclear,
       continuitySchemaVersion: versions.continuity,
       sidecarSchemaVersion: versions.sidecar,
+      companionDataDir: paths.companionDataDir,
     });
+    // Verify the unpublished package first: one that does not verify never takes a retention slot.
+    try {
+      verifyBackupPackage({ packagePath: created.packagePath, transferKeyHex: key });
+    } catch (error) {
+      unlinkSync(created.packagePath);
+      throw error;
+    }
     const stamped = join(paths.packageDir, `${packageStamp(now)}.ashleybak`);
     // Atomic publication: link fails with EEXIST even if another run wins the race.
     try {
@@ -128,16 +145,11 @@ export function runDailyBackup(options: DailyBackupOptions = {}): number {
     }
     unlinkSync(created.packagePath);
     packagePath = stamped;
-    verifyBackupPackage({ packagePath, transferKeyHex: key });
   } catch (error) {
     return fail(paths.statusPath, backupFailureCode(error, "backup_failed"), log);
   } finally {
     continuity.close();
   }
-
-  const names = readdirSync(paths.packageDir).filter((name) => name.endsWith(".ashleybak"));
-  const localPlan = planNameRetention(names, LOCAL_KEEP);
-  removeLocalPackages(paths.packageDir, localPlan.delete);
 
   const status: BackupStatus = {
     ...emptyBackupStatus(),
@@ -150,6 +162,8 @@ export function runDailyBackup(options: DailyBackupOptions = {}): number {
   };
 
   const remote = (options.env ? options.env.ASHLEY_BACKUP_RCLONE_REMOTE : process.env.ASHLEY_BACKUP_RCLONE_REMOTE)?.trim();
+  // Names confirmed on the remote daily folder after this run; only these may leave the machine.
+  let confirmedOnRemote: Set<string> | null = null;
   if (remote) {
     const exec = options.execRclone ?? defaultRcloneExec;
     try {
@@ -159,17 +173,23 @@ export function runDailyBackup(options: DailyBackupOptions = {}): number {
       runRclone(rcloneMkdirArgs(monthlyDir), exec);
       runRclone(rcloneCopyArgs(packagePath, dailyDir), exec);
       runRclone(rcloneCheckArgs(packagePath, dailyDir), exec);
-      if (now.getUTCDate() === 1) {
+      // The first package of a UTC month goes to monthly/ (not only the 1st), so one failed run never loses the month.
+      const monthKey = packageStamp(now).slice(0, 6);
+      const monthlyBefore = parseRcloneNames(runRclone(rcloneLsfArgs(monthlyDir), exec));
+      if (!monthlyBefore.some((name) => name.startsWith(monthKey))) {
         runRclone(rcloneCopyArgs(packagePath, monthlyDir), exec);
       }
       const dailyNames = parseRcloneNames(runRclone(rcloneLsfArgs(dailyDir), exec));
-      for (const name of planNameRetention(dailyNames, DAILY_KEEP).delete) {
+      const dailyDelete = planNameRetention(dailyNames, DAILY_KEEP).delete;
+      for (const name of dailyDelete) {
         runRclone(rcloneDeleteFileArgs(remoteJoin(remote, "daily", name)), exec);
       }
       const monthlyNames = parseRcloneNames(runRclone(rcloneLsfArgs(monthlyDir), exec));
       for (const name of planNameRetention(monthlyNames, MONTHLY_KEEP).delete) {
         runRclone(rcloneDeleteFileArgs(remoteJoin(remote, "monthly", name)), exec);
       }
+      const removedRemote = new Set(dailyDelete);
+      confirmedOnRemote = new Set(dailyNames.filter((name) => !removedRemote.has(name)));
       status.last_upload_ok_ms = now.getTime();
       status.last_upload_error = null;
     } catch {
@@ -179,6 +199,14 @@ export function runDailyBackup(options: DailyBackupOptions = {}): number {
       return 1;
     }
   }
+
+  // Local prune. With a remote configured, a local package is removed only once the remote holds it.
+  const names = readdirSync(paths.packageDir).filter((name) => name.endsWith(".ashleybak"));
+  const localPlan = planNameRetention(names, LOCAL_KEEP);
+  const removable = confirmedOnRemote
+    ? localPlan.delete.filter((name) => confirmedOnRemote!.has(name))
+    : localPlan.delete;
+  removeLocalPackages(paths.packageDir, removable);
 
   writeBackupStatusAtomic(paths.statusPath, status);
   log("backup_ok");

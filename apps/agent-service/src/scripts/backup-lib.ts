@@ -1,8 +1,13 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
+  closeSync,
+  existsSync,
   mkdirSync,
+  openSync,
+  readdirSync,
   readFileSync,
+  readSync,
   renameSync,
   rmSync,
   statSync,
@@ -75,6 +80,8 @@ export function backupPathsFromPlane(plane: DataPlaneContext): {
   sidecarDbPath: string;
   packageDir: string;
   statusPath: string;
+  /** The data directory whose home, sessions, transcript archive and state.json join the package. */
+  companionDataDir: string;
 } {
   const stray = join(plane.conversationsDir, "cognitive-v021.db");
   if (plane.cognitiveSidecarDbPath === stray) {
@@ -86,6 +93,7 @@ export function backupPathsFromPlane(plane: DataPlaneContext): {
     sidecarDbPath: plane.cognitiveSidecarDbPath,
     packageDir: join(plane.dataDir, "backups", "pkg"),
     statusPath: join(plane.dataDir, "backups", "status.json"),
+    companionDataDir: plane.dataDir,
   };
 }
 
@@ -150,8 +158,42 @@ export function planNameRetention(names: readonly string[], keep: number): Reten
   };
 }
 
+/** Hashes the file in fixed-size chunks; a whole package is never read into memory. */
 export function sha256File(path: string): string {
-  return createHash("sha256").update(readFileSync(path)).digest("hex");
+  const hash = createHash("sha256");
+  const fd = openSync(path, "r");
+  try {
+    const buffer = Buffer.allocUnsafe(1024 * 1024);
+    for (;;) {
+      const read = readSync(fd, buffer, 0, buffer.length, null);
+      if (read === 0) break;
+      hash.update(buffer.subarray(0, read));
+    }
+  } finally {
+    closeSync(fd);
+  }
+  return hash.digest("hex");
+}
+
+/**
+ * Removes what a killed run left in the package folder: `.work-*` folders, `*.pkg` and `*.pkg.tmp`
+ * package files and `.status-*.tmp` files, when older than olderThanMs. Published `.ashleybak` files
+ * are never touched here.
+ */
+export function sweepStaleBackupWork(packageDir: string, olderThanMs: number, nowMs = Date.now()): string[] {
+  if (!existsSync(packageDir)) return [];
+  const removed: string[] = [];
+  for (const name of readdirSync(packageDir)) {
+    const orphan = name.startsWith(".work-") ||
+      name.endsWith(".pkg") || name.endsWith(".pkg.tmp") ||
+      (name.startsWith(".status-") && name.endsWith(".tmp"));
+    if (!orphan) continue;
+    const path = join(packageDir, name);
+    if (nowMs - statSync(path).mtimeMs < olderThanMs) continue;
+    rmSync(path, { recursive: true, force: true });
+    removed.push(path);
+  }
+  return removed;
 }
 
 export function fileBytes(path: string): number {

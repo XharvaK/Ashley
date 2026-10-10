@@ -88,12 +88,17 @@ describe("wave10c backup and restore assurance", () => {
       });
       expect(manifest.nuclearSchemaVersion).toBe(18);
       expect(manifest.continuitySchemaVersion).toBe(1);
-      expect(manifest.packageVersion).toBe(2);
+      expect(manifest.packageVersion).toBe(3);
       expect(manifest.sidecarSchemaVersion).toBe(COGNITIVE_SIDECAR_SCHEMA_VERSION);
       expect(manifest.sidecarHash).toMatch(/^[0-9a-f]{64}$/);
-      expect(manifest.nuclearSnapshotAt).toBe(manifest.continuitySnapshotAt);
-      expect(manifest.nuclearSnapshotAt).toBe(manifest.sidecarSnapshotAt);
-      expect(manifest.createdAt).toBe(manifest.nuclearSnapshotAt);
+      // Real per-database snapshot times, all inside one quiet window (no writer committed in it).
+      expect(manifest.cohort).toMatchObject({ quiet: true });
+      for (const at of [manifest.nuclearSnapshotAt, manifest.continuitySnapshotAt, manifest.sidecarSnapshotAt]) {
+        expect(at >= manifest.cohort!.startedAt && at <= manifest.cohort!.finishedAt).toBe(true);
+      }
+      expect(manifest.members?.map((member) => member.name)).toEqual(
+        expect.arrayContaining(["nuclear.db", "continuity.db", "cognitive-v021.db"]),
+      );
       expect(manifest.c1CorrectionSeq).toBe(0);
       const watermark = continuity.prepare(
         `SELECT detail_json FROM backup_watermarks
