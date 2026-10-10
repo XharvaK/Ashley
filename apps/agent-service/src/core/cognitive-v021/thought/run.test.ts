@@ -2387,6 +2387,79 @@ describe("v0.2.1 Thought run", () => {
     }
   });
 
+  it("anchors a second structural retry to the latest candidate, so a kept fix is not drift", async () => {
+    const sidecar = openTestSidecar();
+    const attentionDb = openTestSidecar();
+    const cycle = admitTestCycle(sidecar, {
+      cycleId: "cycle-correction-latest",
+      conversationId: "thread-correction-latest",
+      triggerKind: "owner_message",
+      triggerRef: "owner-correction-latest",
+      occupantId: "doc",
+      authorityEpoch: 1,
+      nowMs: 1,
+    });
+    const evidence = appendOwnerUtterance(sidecar, {
+      conversationId: "thread-correction-latest",
+      text: "Answer from the supplied evidence.",
+      discordMessageIds: ["correction-latest-message"],
+      nowMs: 2,
+    });
+    const event = appendInboxEvent(sidecar, {
+      wakeId: cycle.wakeId,
+      conversationId: "thread-correction-latest",
+      kind: "owner_message",
+      payload: {
+        cycleId: cycle.cycleId,
+        evidenceRowId: evidence.rowId,
+        ownerMessage: evidence.text,
+      },
+      createdAtMs: 2,
+    });
+    const messagesByCall: string[][] = [];
+    let calls = 0;
+    const completeChat = vi.fn(async (
+      messages: Array<{ role: string; content: string }>,
+    ) => {
+      calls += 1;
+      messagesByCall.push(messages.map((message) => message.content));
+      // Call 1 breaks evidenceRefs; call 2 fixes it and breaks reason (another field); call 3 keeps both fixes.
+      const evidenceRefs = calls === 1 ? ["not-allowlisted"] : [evidence.rowId];
+      const reason = calls === 2 ? "made_up_reason" : "insufficient_evidence";
+      return {
+        text: JSON.stringify({
+          kind: "abstain",
+          reason,
+          explanation: "The supplied evidence is not enough.",
+          evidenceRefs,
+        }),
+        model: "fake",
+        modelAlias: "thought",
+        resolvedModelId: null,
+      };
+    });
+
+    try {
+      await runCognitiveCycle(sidecar, attentionDb, event, deps({
+        attentionDb,
+        completeChat,
+      }));
+
+      expect(calls).toBe(3);
+      const correctionOf = (call: number) => JSON.parse(messagesByCall[call][2] ?? "null") as {
+        structuralCorrection: { previousCandidate: Record<string, unknown>; failingPath: string };
+      };
+      // The third call is anchored to the second candidate (reason broke there), not the first (evidenceRefs).
+      expect(correctionOf(2).structuralCorrection).toMatchObject({
+        failingPath: "reason",
+        previousCandidate: { reason: "made_up_reason", evidenceRefs: [evidence.rowId] },
+      });
+    } finally {
+      sidecar.close();
+      attentionDb.close();
+    }
+  });
+
   it("rejects structural correction branch drift with a typed scope failure", async () => {
     const sidecar = openTestSidecar();
     const attentionDb = openTestSidecar();

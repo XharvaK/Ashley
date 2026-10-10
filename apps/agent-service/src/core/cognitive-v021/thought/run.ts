@@ -1932,8 +1932,9 @@ export async function runThoughtModel(
         field: semanticResult.field,
         epistemicRepairs: semanticResult.epistemicRepairs,
         allowlistedReferences: semanticReferencesForInput(input),
-        previousCandidate: previousFeedback?.previousCandidate
-          ?? parseThoughtStructuralCandidate(completion.text),
+        // A1-3: the latest candidate is the one the next repair must keep; an earlier attempt's fixes are already in it.
+        previousCandidate: parseThoughtStructuralCandidate(completion.text)
+          ?? previousFeedback?.previousCandidate,
       });
       const output: ThoughtStepOutput = {
         kind: "failure",
