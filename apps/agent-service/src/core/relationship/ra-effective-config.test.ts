@@ -14,10 +14,10 @@ describe("RA effective configuration", () => {
       dmCognitionEnabled: true,
     });
     expect(getRaEffectiveConfig({
-      RA_COMMITMENTS: "TRUE",
+      RA_COMMITMENTS: "maybe",
       RA_DM_PUBLICATION: "false",
       RA_ROOM_PUBLICATION: "   ",
-      RA_ROOM_SEED_ACTIVE: "on",
+      RA_ROOM_SEED_ACTIVE: "enabled",
       RA_SOCIAL_CAPTURE: "0",
       RA_BOT_DM: "   ",
       RA_DM_PRINCIPAL: "   ",
@@ -32,6 +32,12 @@ describe("RA effective configuration", () => {
       dmPrincipal: null,
       dmCognitionEnabled: false,
     });
+  });
+
+  it("reads TRUE, yes and on as on, like env.ts and the bot (A11-10)", () => {
+    expect(getRaEffectiveConfig({ RA_COMMITMENTS: "TRUE", RA_ROOM_SEED_ACTIVE: "on" })).toMatchObject({ commitmentsEnabled: true, roomSeedActive: true });
+    expect(getRaEffectiveConfig({ RA_COMMITMENTS: " yes " }).commitmentsEnabled).toBe(true);
+    expect(getRaEffectiveConfig({ RA_DM_COGNITION: "no" }).dmCognitionEnabled).toBe(false);
   });
 
   it("accepts the existing true and 1 forms without changing defaults", () => {

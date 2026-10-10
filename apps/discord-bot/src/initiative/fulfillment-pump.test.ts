@@ -21,7 +21,8 @@ test("Discord RA parser: contact DMs are on unless switched off, the rest fails 
   assert.equal(getRaEffectiveConfig({ RA_SOCIAL_CAPTURE: "false" }).socialCaptureEnabled, false);
   assert.equal(getRaEffectiveConfig({ RA_SOCIAL_CAPTURE: " OFF " }).socialCaptureEnabled, false);
   assert.equal(getRaEffectiveConfig({ RA_DM_PUBLICATION: "0" }).dmPublicationEnabled, false);
-  assert.equal(getRaEffectiveConfig({ RA_COMMITMENTS: "TRUE" }).commitmentsEnabled, false);
+  assert.equal(getRaEffectiveConfig({ RA_COMMITMENTS: "TRUE" }).commitmentsEnabled, true);
+  assert.equal(getRaEffectiveConfig({ RA_COMMITMENTS: "maybe" }).commitmentsEnabled, false);
   assert.equal(getRaEffectiveConfig({ RA_BOT_DM: " principal " }).botDmPrincipal, "principal");
   assert.equal(getRaEffectiveConfig({ RA_BOT_DM: "   " }).botDmPrincipal, null);
 });

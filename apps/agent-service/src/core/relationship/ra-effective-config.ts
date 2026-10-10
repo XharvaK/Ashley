@@ -12,8 +12,21 @@ export type RaEffectiveConfig = Readonly<{
   dmCognitionEnabled: boolean;
 }>;
 
+// The same spelling of a boolean as env.ts and the bot's config (A11-10); anything else keeps the default.
+const FALSE_FLAG_WORDS = ["false", "0", "no", "off"];
+const TRUE_FLAG_WORDS = ["true", "1", "yes", "on"];
+
+function flag(value: unknown, fallback: boolean): boolean {
+  if (typeof value === "boolean") return value;
+  if (value === undefined || value === null) return fallback;
+  const word = String(value).trim().toLowerCase();
+  if (FALSE_FLAG_WORDS.includes(word)) return false;
+  if (TRUE_FLAG_WORDS.includes(word)) return true;
+  return fallback;
+}
+
 function enabled(value: unknown): boolean {
-  return value === true || value === "true" || value === "1";
+  return flag(value, false);
 }
 
 /**
@@ -21,10 +34,7 @@ function enabled(value: unknown): boolean {
  * her is the Owner's permit (/contacts), not a deployment switch.
  */
 function onUnlessOff(value: unknown): boolean {
-  if (value === undefined || value === null) return true;
-  if (value === false) return false;
-  const text = String(value).trim().toLowerCase();
-  return !(text === "false" || text === "0" || text === "off");
+  return flag(value, true);
 }
 
 function trimmedOrNull(value: unknown): string | null {
