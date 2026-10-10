@@ -155,3 +155,24 @@ describe("A1-2 home ops are file effects, applied once after the aftermath rows 
     }
   });
 });
+
+describe("A10 N1 guest turns cannot write growth or interest touches", () => {
+  it.each([false, true])("gates growth and interests on the owner-private audience (ownerPrivate=%s)", (ownerPrivate) => {
+    const db = openTestSidecar();
+    try {
+      publishAwakePass(db);
+      const row = db.prepare("SELECT payload_json FROM settlements WHERE settlement_id = 'settlement-awake'").get()!;
+      const payload = JSON.parse(String(row.payload_json));
+      payload.growth = { appraisal: { note: "calm", valence: 0.1 } };
+      db.prepare("UPDATE settlements SET payload_json = ? WHERE settlement_id = 'settlement-awake'").run(JSON.stringify(payload));
+      db.prepare("UPDATE settlement_aftermath SET context_json = ?").run(JSON.stringify({ conversationId: "thread", passKind: "awake", nightPass: null, ownerPrivate }));
+      expect(recordSettlementAftermath(db, "settlement-awake", options)).toBe("recorded");
+      const touches = db.prepare("SELECT COUNT(*) AS n FROM interest_touches").get();
+      const moods = db.prepare("SELECT COUNT(*) AS n FROM mood_events").get();
+      expect(touches).toEqual({ n: ownerPrivate ? 1 : 0 });
+      expect(moods).toEqual({ n: ownerPrivate ? 1 : 0 });
+    } finally {
+      db.close();
+    }
+  });
+});

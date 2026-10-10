@@ -158,7 +158,9 @@ export function recordSettlementAftermath(
     }
     // Legacy or malformed flags fail closed on both publication and recovery.
     const dataClassification = settlement.sawSecret === false ? "ordinary" : "never_public";
-    const interests = standing ? settlement.interests ?? [] : [];
+    // A10 N1: a guest-room or contact turn never moves her interests or her identity (growth, influence positions).
+    const ownerOnly = standing && context.ownerPrivate !== false;
+    const interests = ownerOnly ? settlement.interests ?? [] : [];
     if (interests.length > 0) {
       const grown = recordInterestTouches(db, interests, options.nowMs);
       for (const branchId of grown) {
@@ -233,8 +235,8 @@ export function recordSettlementAftermath(
     if (standing && settlement.attention && options.identityStore?.ownerId) recordPublishedAttention(db,settlementId,options.identityStore.ownerId,options.nowMs);
     recordGrowth(db, {
       cycleId,
-      allowInfluenceProposal: standing,
-      ...(standing && settlement.growth ? { claim: settlement.growth } : {}),
+      allowInfluenceProposal: ownerOnly,
+      ...(ownerOnly && settlement.growth ? { claim: settlement.growth } : {}),
       identityStore: options.identityStore,
       dataClassification,
       nowMs: options.nowMs,
