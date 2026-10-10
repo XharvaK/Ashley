@@ -1992,6 +1992,10 @@ export async function runThoughtModel(
         ...(lifeboat ? { lifeboat } : {}),
       };
     }
+    // A5-12: a list cut to its limit is a Host note, not a rejected reply.
+    for (const note of semanticResult.hostNotes ?? []) {
+      console.warn(`[thought] settlement_part_capped note=${note} model=${completion.providerModel ?? "-"}`);
+    }
     // Host facts only: which nomination ref was re-filed or removed, by path and class, never the id.
     for (const note of semanticResult.sourceRefNotes ?? []) {
       console.warn(`[thought] nomination_ref path=${note.path} class=${note.class} action=${note.action}`);
