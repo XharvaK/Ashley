@@ -203,3 +203,32 @@ describe("sendBubbles abort", () => {
     assert.equal(result.failureCategory, null);
   });
 });
+
+describe("sendBubbles receipt failure (A6-6)", () => {
+  it("keeps sending the remaining bubbles when a receipt callback fails", async () => {
+    const order: string[] = [];
+    const channel = {
+      send: async (payload: unknown) => {
+        order.push(`send:${String(payload)}`);
+        return { id: String(payload) } as never;
+      },
+    } as SendableChannels;
+
+    const result = await sendBubbles(channel, ["first", "second", "third"], null, null, undefined, {
+      onBubbleSent: async (ordinal) => {
+        order.push(`receipt:${ordinal}`);
+        if (ordinal === 0) throw new Error("receipt_write_failed");
+      },
+    });
+
+    assert.deepEqual(order, [
+      "send:first",
+      "receipt:0",
+      "send:second",
+      "receipt:1",
+      "send:third",
+      "receipt:2",
+    ]);
+    assert.deepEqual(result.receiptedOrdinals, [0, 1, 2]);
+  });
+});
