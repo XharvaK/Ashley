@@ -9,6 +9,7 @@ import {
   classifyEligibility,
   consumeLicenseOnce,
   grantPerson,
+  listActiveSocialPermits,
   issueLicense,
   listAvailableSocialDestinations,
   resolveOwnerDmDestination,
@@ -488,6 +489,22 @@ describe("social authority accessors", () => {
       });
       expect(resolveOwnerDmDestination(db, "")).toBeNull();
       expect(resolveOwnerDmDestination(db, "   ")).toBeNull();
+    } finally {
+      db.close();
+    }
+  });
+});
+
+describe("one permit per person (A6-12)", () => {
+  it("replaces an existing contact's scope instead of adding a second permit", () => {
+    const db = dbFixture();
+    try {
+      grantPerson(db, { ownerId, principalId: "person-2", scope: "person_wide", sourceSpan: { source: "test" }, nowMs });
+      const narrowed = grantPerson(db, { ownerId, principalId: "person-2", scope: "dm_only", sourceSpan: { source: "test" }, nowMs });
+
+      expect(narrowed.scope).toBe("dm_only");
+      const live = listActiveSocialPermits(db, nowMs).filter((item) => item.principalId === "person-2");
+      expect(live.map((item) => item.scope)).toEqual(["dm_only"]);
     } finally {
       db.close();
     }

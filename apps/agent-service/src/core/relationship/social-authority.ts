@@ -373,13 +373,31 @@ function withImmediateTransaction<T>(db: DatabaseSync, callback: () => T): T {
   }
 }
 
-function activePermit(db: DatabaseSync, principalId: string, scope: SocialPermitScope): Row | undefined {
-  return asRow(db.prepare(
-    `SELECT entity_uuid, owner_id, principal_id, scope, granted_at, expires_at,
-            source_span_json, proposal_ref, version, revoked_at
-       FROM social_permits
-      WHERE principal_id = ? AND scope = ? AND revoked_at IS NULL`,
-  ).get(principalId, scope));
+function livePermitRows(db: DatabaseSync, principalId: string): Row[] {
+  return db.prepare(
+    `SELECT * FROM social_permits
+      WHERE principal_id = ? AND revoked_at IS NULL
+      ORDER BY granted_at, entity_uuid`,
+  ).all(principalId) as Row[];
+}
+
+/** Revokes a superseded permit inside the caller's transaction, advancing the policy revision like revokePerson. */
+function retirePermitInTransaction(db: DatabaseSync, current: Row, nowMs: number | undefined): void {
+  const entityUuid = String(current.entity_uuid);
+  const version = integer(current.version);
+  const revokedAt = isoTime(nowMs);
+  advanceRelationalHardPolicyRevisionInTransaction(db, {
+    reasonCode: "social_permit_revoke",
+    changeId: entityUuid,
+    nowMs: timeMs(nowMs),
+    mutate: () => ({
+      changes: Number(db.prepare(
+        `UPDATE social_permits SET revoked_at = ?, version = version + 1
+          WHERE entity_uuid = ? AND version = ? AND revoked_at IS NULL`,
+      ).run(revokedAt, entityUuid, version).changes),
+      value: undefined,
+    }),
+  });
 }
 
 function rowByEntity(db: DatabaseSync, table: string, entityUuid: string): Row | undefined {
@@ -410,7 +428,12 @@ export function grantPerson(
   const principalId = required(input.principalId, "social_principal_required");
   const now = input.nowMs;
   return withImmediateTransaction(db, () => {
-    const existing = activePermit(db, principalId, input.scope);
+    // One live permit per person: the requested scope replaces any other live scope, never sits beside it.
+    const live = livePermitRows(db, principalId);
+    const existing = live.find((row) => row.scope === input.scope);
+    for (const other of live) {
+      if (other !== existing) retirePermitInTransaction(db, other, now);
+    }
     if (existing) return permit(existing);
     const entityUuid = required(input.entityUuid ?? assignNewEntityUuid(), "social_entity_required");
     const grantedAt = input.grantedAt ?? isoTime(now);
