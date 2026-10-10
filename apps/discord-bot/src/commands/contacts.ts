@@ -1,16 +1,24 @@
-import type { ChatInputCommandInteraction } from "discord.js";
+import { MessageFlags, type ChatInputCommandInteraction } from "discord.js";
 import { entityName } from "../entity-names.js";
 import { addContact, listContacts, removeContact, setContactTeacher, type TrustedContact } from "../agent-client.js";
+import { pageLines } from "./fit-lines.js";
 
 /** A3: Alex decides who may talk with Ashley. Contacts get no admin. */
 export async function execute(interaction: ChatInputCommandInteraction): Promise<void> {
   const subcommand = interaction.options.getSubcommand(true);
   if (subcommand === "list") {
     const { contacts } = await listContacts();
-    await interaction.editReply(contacts.length === 0
-      ? "No trusted contacts yet."
-      : contacts.map((contact) => `<@${contact.principalId}> (${contact.scope === "person_wide" ? "DMs and trusted rooms" : "DMs only"})`
-        + `${contact.teacher ? ", one of her teachers" : ""}`).join("\n"));
+    if (contacts.length === 0) {
+      await interaction.editReply("No trusted contacts yet.");
+      return;
+    }
+    // A long list goes out over several private messages; no line is lost to the Discord size limit.
+    const pages = pageLines(contacts.map((contact) => `<@${contact.principalId}> (${contact.scope === "person_wide" ? "DMs and trusted rooms" : "DMs only"})`
+      + `${contact.teacher ? ", one of her teachers" : ""}`));
+    await interaction.editReply(pages[0]!);
+    for (const page of pages.slice(1)) {
+      await interaction.followUp({ content: page, flags: MessageFlags.Ephemeral });
+    }
     return;
   }
   const user = interaction.options.getUser("user", true);
