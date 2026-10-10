@@ -94,6 +94,7 @@ export type StructuralFeedbackInput = ThoughtStructuralFeedback | ThoughtParserF
 
 const STRUCTURAL_FEEDBACK: Readonly<Record<ThoughtParserFailureCode, string>> = {
   invalid_json: "Return exactly one JSON object.",
+  output_truncated: "Your last answer was cut off at the output limit before its JSON closed. Answer shorter: keep your reasoning brief, and return one complete JSON object.",
   root_not_object: "Return a JSON object at the root.",
   wrong_kind: "Use one permitted semantic Thought kind.",
   unknown_field: "Remove fields not defined by the active semantic Thought contract.",
@@ -172,7 +173,8 @@ export function createThoughtStructuralFeedback(input: {
         ...buildReferenceAllowlist(input.allowlistedReferences ?? []).existing,
       ].sort())
     : Object.freeze([]);
-  const previousCandidate = input.previousCandidate === undefined
+  // A1-4: a cut-off answer is not a candidate to repair; its text is not sent back.
+  const previousCandidate = input.previousCandidate === undefined || input.code === "output_truncated"
     ? null
     : candidateValue(input.previousCandidate);
   const epistemicRepairs = input.code === "invalid_enum"

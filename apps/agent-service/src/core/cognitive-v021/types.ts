@@ -30,7 +30,7 @@ export type { SourceSupportRef } from "./evidence/interpretation-envelope.js";
 export const ARCHITECTURE_EPOCH = "v0.2.1" as const;
 export const IMPLEMENTATION_SPEC_VERSION = "0.2.1.r6" as const;
 export const THOUGHT_CONTRACT_VERSION = 2 as const;
-export const COGNITIVE_SIDECAR_SCHEMA_VERSION = 75 as const;
+export const COGNITIVE_SIDECAR_SCHEMA_VERSION = 76 as const;
 
 /**
  * Hard bound on cognition-facing concern discovery windows and pages. The
@@ -1456,6 +1456,7 @@ export type ThoughtStepKind =
   | "failure";
 export type ThoughtParserFailureCode =
   | "invalid_json"
+  | "output_truncated"
   | "root_not_object"
   | "wrong_kind"
   | "unknown_field"

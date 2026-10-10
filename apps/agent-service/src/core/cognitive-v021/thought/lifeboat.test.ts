@@ -465,3 +465,33 @@ describe("replay capture at the Thought dispatch", () => {
     expect(readdirSync(captureDir)).toEqual([]);
   });
 });
+
+describe("A1 the injected clock and an open circuit", () => {
+  it("gates the lifeboat on the injected clock, not the wall clock", async () => {
+    // The injected clock runs a minute behind the wall clock. The deadline is 15 s away on the wall clock
+    // (too close for a lifeboat) but 75 s away on the injected clock, so the lifeboat fits.
+    const wall = Date.now();
+    const seen = arm((call, args) => {
+      if (call === 1) throw new AppError("provider_unavailable", "command_code_http_503", 503);
+      return { ...ok(), providerModel: args.modelId };
+    });
+    const { invocation } = await pass({ cycleId: "cycle-clock-lifeboat", nowMs: () => wall - 60_000, deadlineAtMs: wall + 15_000 });
+    expect(seen.map((item) => item.modelId)).toEqual([MUSE, FLASH]);
+    expect(invocation.lifeboat?.toModelId).toBe(FLASH);
+  });
+
+  it("does not call a primary whose circuit is open when no lifeboat fits in the time left", async () => {
+    const now = Date.now();
+    arm((_call, args) => {
+      if (args.modelId === MUSE) throw new AppError("provider_unavailable", "command_code_http_503", 503);
+      return { ...ok(), providerModel: args.modelId };
+    });
+    await pass({ cycleId: "cycle-circuit-no-time-open", nowMs: () => now });
+    expect(thoughtModelCircuit.isOpen(MUSE, now)).toBe(true);
+
+    const seen = arm(() => ({ ...ok(), providerModel: MUSE }));
+    const late = await pass({ cycleId: "cycle-circuit-no-time", nowMs: () => now, deadlineAtMs: now + 10_000 });
+    expect(seen.map((item) => item.modelId)).not.toContain(MUSE);
+    expect(late.invocation.unavailable).toBe(true);
+  });
+});

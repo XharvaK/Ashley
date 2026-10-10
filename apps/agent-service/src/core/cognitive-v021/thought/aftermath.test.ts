@@ -1,3 +1,6 @@
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { admitTestCycle, makeThoughtDraft, openTestSidecar } from "../test-support.js";
 import { publishSemanticTransaction } from "../settlement/publish.js";
@@ -124,6 +127,52 @@ describe("GS1 aftermath classification", () => {
         expect(db.prepare("SELECT data_classification FROM friction_events WHERE friction_id = 'basis'").get()).toEqual({ data_classification: "ordinary" });
         expect(db.prepare("SELECT data_classification FROM friction_events WHERE cycle_id = 'cycle-awake'").get()).toEqual({ data_classification: expected });
       } finally { db.close(); }
+    }
+  });
+});
+
+describe("A1-2 home ops are file effects, applied once after the aftermath rows commit", () => {
+  it("does not append twice when the aftermath fails after the home write and recovery replays it", () => {
+    const dataDir = mkdtempSync(join(tmpdir(), "aftermath-home-"));
+    const db = openTestSidecar();
+    try {
+      publishAwakePass(db);
+      const row = db.prepare("SELECT payload_json FROM settlements WHERE settlement_id = 'settlement-awake'").get()!;
+      const payload = JSON.parse(String(row.payload_json));
+      payload.home = [{ op: "append", path: "notes.md", content: "one line\n" }];
+      db.prepare("UPDATE settlements SET payload_json = ? WHERE settlement_id = 'settlement-awake'").run(JSON.stringify(payload));
+      // A later step fails once, after the home file was written.
+      db.exec("CREATE TRIGGER fixture_record_fail BEFORE UPDATE OF status ON settlement_aftermath WHEN NEW.status = 'recorded' BEGIN SELECT RAISE(ABORT, 'fixture_record_fail'); END");
+      const withHome = { ...options, dataDir };
+      expect(() => recordSettlementAftermath(db, "settlement-awake", withHome)).toThrow();
+      db.exec("DROP TRIGGER fixture_record_fail");
+      expect(recoverSettlementAftermath(db, withHome)).toEqual({ recorded: 1, failed: 0 });
+      expect(readFileSync(join(dataDir, "home", "notes.md"), "utf8")).toBe("one line\n");
+      expect(db.prepare("SELECT status FROM settlement_aftermath").get()).toEqual({ status: "recorded" });
+    } finally {
+      db.close();
+      rmSync(dataDir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("A10 N1 guest turns cannot write growth or interest touches", () => {
+  it.each([false, true])("gates growth and interests on the owner-private audience (ownerPrivate=%s)", (ownerPrivate) => {
+    const db = openTestSidecar();
+    try {
+      publishAwakePass(db);
+      const row = db.prepare("SELECT payload_json FROM settlements WHERE settlement_id = 'settlement-awake'").get()!;
+      const payload = JSON.parse(String(row.payload_json));
+      payload.growth = { appraisal: { note: "calm", valence: 0.1 } };
+      db.prepare("UPDATE settlements SET payload_json = ? WHERE settlement_id = 'settlement-awake'").run(JSON.stringify(payload));
+      db.prepare("UPDATE settlement_aftermath SET context_json = ?").run(JSON.stringify({ conversationId: "thread", passKind: "awake", nightPass: null, ownerPrivate }));
+      expect(recordSettlementAftermath(db, "settlement-awake", options)).toBe("recorded");
+      const touches = db.prepare("SELECT COUNT(*) AS n FROM interest_touches").get();
+      const moods = db.prepare("SELECT COUNT(*) AS n FROM mood_events").get();
+      expect(touches).toEqual({ n: ownerPrivate ? 1 : 0 });
+      expect(moods).toEqual({ n: ownerPrivate ? 1 : 0 });
+    } finally {
+      db.close();
     }
   });
 });

@@ -10,6 +10,7 @@ import {
 import { appendAshleyEvidence, appendExternalUtteranceInTransaction, appendOwnerUtterance } from "../evidence/conversation-log.js";
 import { evaluateAfterglow, tickAfterglow } from "../initiative/afterglow.js";
 import { AWAKE_FIRST_DELAY_MS, tickAwake } from "../initiative/awake.js";
+import { dueOwnTime } from "../../will/pursuits.js";
 import { listRecentJournal } from "../initiative/journal.js";
 import { UNSOLICITED_FUSE_LIMIT } from "../initiative/reach-out.js";
 import { listInterestBranches } from "../memory/interests.js";
@@ -2387,6 +2388,153 @@ describe("v0.2.1 Thought run", () => {
     }
   });
 
+  it("anchors a second structural retry to the latest candidate, so a kept fix is not drift", async () => {
+    const sidecar = openTestSidecar();
+    const attentionDb = openTestSidecar();
+    const cycle = admitTestCycle(sidecar, {
+      cycleId: "cycle-correction-latest",
+      conversationId: "thread-correction-latest",
+      triggerKind: "owner_message",
+      triggerRef: "owner-correction-latest",
+      occupantId: "doc",
+      authorityEpoch: 1,
+      nowMs: 1,
+    });
+    const evidence = appendOwnerUtterance(sidecar, {
+      conversationId: "thread-correction-latest",
+      text: "Answer from the supplied evidence.",
+      discordMessageIds: ["correction-latest-message"],
+      nowMs: 2,
+    });
+    const event = appendInboxEvent(sidecar, {
+      wakeId: cycle.wakeId,
+      conversationId: "thread-correction-latest",
+      kind: "owner_message",
+      payload: {
+        cycleId: cycle.cycleId,
+        evidenceRowId: evidence.rowId,
+        ownerMessage: evidence.text,
+      },
+      createdAtMs: 2,
+    });
+    const messagesByCall: string[][] = [];
+    let calls = 0;
+    const completeChat = vi.fn(async (
+      messages: Array<{ role: string; content: string }>,
+    ) => {
+      calls += 1;
+      messagesByCall.push(messages.map((message) => message.content));
+      // Call 1 breaks evidenceRefs; call 2 fixes it and breaks reason (another field); call 3 keeps both fixes.
+      const evidenceRefs = calls === 1 ? ["not-allowlisted"] : [evidence.rowId];
+      const reason = calls === 2 ? "made_up_reason" : "insufficient_evidence";
+      return {
+        text: JSON.stringify({
+          kind: "abstain",
+          reason,
+          explanation: "The supplied evidence is not enough.",
+          evidenceRefs,
+        }),
+        model: "fake",
+        modelAlias: "thought",
+        resolvedModelId: null,
+      };
+    });
+
+    try {
+      await runCognitiveCycle(sidecar, attentionDb, event, deps({
+        attentionDb,
+        completeChat,
+      }));
+
+      expect(calls).toBe(3);
+      const correctionOf = (call: number) => JSON.parse(messagesByCall[call][2] ?? "null") as {
+        structuralCorrection: { previousCandidate: Record<string, unknown>; failingPath: string };
+      };
+      // The third call is anchored to the second candidate (reason broke there), not the first (evidenceRefs).
+      expect(correctionOf(2).structuralCorrection).toMatchObject({
+        failingPath: "reason",
+        previousCandidate: { reason: "made_up_reason", evidenceRefs: [evidence.rowId] },
+      });
+    } finally {
+      sidecar.close();
+      attentionDb.close();
+    }
+  });
+
+  it("treats an answer cut at the output limit as its own class: the repair says so and does not resend the cut text", async () => {
+    const sidecar = openTestSidecar();
+    const attentionDb = openTestSidecar();
+    const cycle = admitTestCycle(sidecar, {
+      cycleId: "cycle-output-truncated",
+      conversationId: "thread-output-truncated",
+      triggerKind: "owner_message",
+      triggerRef: "owner-output-truncated",
+      occupantId: "doc",
+      authorityEpoch: 1,
+      nowMs: 1,
+    });
+    const evidence = appendOwnerUtterance(sidecar, {
+      conversationId: "thread-output-truncated",
+      text: "Answer briefly.",
+      discordMessageIds: ["output-truncated-message"],
+      nowMs: 2,
+    });
+    const event = appendInboxEvent(sidecar, {
+      wakeId: cycle.wakeId,
+      conversationId: "thread-output-truncated",
+      kind: "owner_message",
+      payload: {
+        cycleId: cycle.cycleId,
+        evidenceRowId: evidence.rowId,
+        ownerMessage: evidence.text,
+      },
+      createdAtMs: 2,
+    });
+    const messagesByCall: string[][] = [];
+    let calls = 0;
+    const completeChat = vi.fn(async (
+      messages: Array<{ role: string; content: string }>,
+    ) => {
+      calls += 1;
+      messagesByCall.push(messages.map((message) => message.content));
+      if (calls === 1) {
+        return {
+          text: '{"kind":"abstain","reason":"insufficient_evidence","explanation":"cut-here-marker',
+          finishReason: "length",
+          model: "fake",
+          modelAlias: "thought",
+          resolvedModelId: null,
+        };
+      }
+      return {
+        text: JSON.stringify({
+          kind: "abstain",
+          reason: "insufficient_evidence",
+          explanation: "The supplied evidence is not enough.",
+          evidenceRefs: [evidence.rowId],
+        }),
+        model: "fake",
+        modelAlias: "thought",
+        resolvedModelId: null,
+      };
+    });
+
+    try {
+      await runCognitiveCycle(sidecar, attentionDb, event, deps({
+        attentionDb,
+        completeChat,
+      }));
+
+      expect(calls).toBe(2);
+      const repair = messagesByCall[1].join("\n");
+      expect(repair).toContain("cut off at the output limit");
+      expect(repair).not.toContain("cut-here-marker");
+    } finally {
+      sidecar.close();
+      attentionDb.close();
+    }
+  });
+
   it("rejects structural correction branch drift with a typed scope failure", async () => {
     const sidecar = openTestSidecar();
     const attentionDb = openTestSidecar();
@@ -2918,12 +3066,15 @@ describe("Thought provider deadline truth and bounded usage telemetry", () => {
       expect(result.published).toBe(false);
       const store = openObservabilityStore(obsDb);
       const diagnostics = store.listDiagnostics();
-      expect(diagnostics).toHaveLength(1);
-      expect(diagnostics[0].providerFailure).toMatchObject({
-        failureClass: "provider_unavailable",
-        sessionAffinityApplied: true,
-        affinityPolicy: "cloudflare_thought_route_affinity_v1",
-      });
+      // The lifeboat runs on the injected clock (this fixture leaves it time), so each failed attempt is recorded.
+      expect(diagnostics.length).toBeGreaterThan(0);
+      for (const diagnostic of diagnostics) {
+        expect(diagnostic.providerFailure).toMatchObject({
+          failureClass: "provider_unavailable",
+          sessionAffinityApplied: true,
+          affinityPolicy: "cloudflare_thought_route_affinity_v1",
+        });
+      }
     } finally {
       obsDb.close();
       sidecar.close();
@@ -2952,5 +3103,207 @@ describe("GS1 live delivered-input carrier", () => {
       expect(payload.sawSecret).toBe(expected);
       for (const table of ["expectations", "sense_declines"]) expect(sidecar.prepare(`SELECT data_classification FROM ${table}`).all()).toEqual([{ data_classification: expected ? "never_public" : "ordinary" }]);
     } finally { sidecar.close(); attentionDb.close(); }
+  });
+});
+
+describe("A1-8 her next pass sees what became of her last reply", () => {
+  it("names the delivery state of her previous reply in the same conversation", async () => {
+    const sidecar = openTestSidecar();
+    const attentionDb = openTestSidecar();
+    const reply = (cycleId: string, text: string, atMs: number) => {
+      const cycle = admitTestCycle(sidecar, {
+        cycleId,
+        conversationId: "thread-last-reply",
+        triggerKind: "owner_message",
+        triggerRef: `owner-${cycleId}`,
+        occupantId: "doc",
+        authorityEpoch: 1,
+        nowMs: atMs,
+      });
+      const evidence = appendOwnerUtterance(sidecar, {
+        conversationId: "thread-last-reply",
+        text,
+        discordMessageIds: [`${cycleId}-message`],
+        nowMs: atMs,
+      });
+      return appendInboxEvent(sidecar, {
+        wakeId: cycle.wakeId,
+        conversationId: "thread-last-reply",
+        kind: "owner_message",
+        payload: { cycleId: cycle.cycleId, evidenceRowId: evidence.rowId, ownerMessage: evidence.text },
+        createdAtMs: atMs,
+      });
+    };
+    const messagesByCall: string[][] = [];
+    const completeChat = vi.fn(async (messages: Array<{ role: string; content: string }>) => {
+      messagesByCall.push(messages.map((message) => message.content));
+      return {
+        text: JSON.stringify(makeSemanticSettlement({ speech: { mode: "draft", mustSay: [], surfaceDraft: "Hello, Alex." } })),
+        model: "fake",
+        modelAlias: "thought",
+        resolvedModelId: null,
+      };
+    });
+    try {
+      const first = await runCognitiveCycle(sidecar, attentionDb, reply("cycle-last-reply-1", "Hi Ashley.", 2), deps({ attentionDb, completeChat }));
+      expect(first.published).toBe(true);
+      await runCognitiveCycle(sidecar, attentionDb, reply("cycle-last-reply-2", "Are you there?", 3), deps({ attentionDb, completeChat }));
+      // Nothing has delivered yet in this test, so her reply is still pending.
+      expect(messagesByCall[1].join("\n")).toContain("Her last reply in this conversation: still pending delivery.");
+    } finally {
+      sidecar.close();
+      attentionDb.close();
+    }
+  });
+});
+
+describe("A1-9 and A5-12 her next pass is told what the Host left out or cut from her last reply", () => {
+  const THREAD = "thread-host-notes";
+  function ownerTurnFor(sidecar: DatabaseSync, cycleId: string, text: string, atMs: number) {
+    const cycle = admitTestCycle(sidecar, {
+      cycleId, conversationId: THREAD, triggerKind: "owner_message", triggerRef: `owner-${cycleId}`,
+      occupantId: "doc", authorityEpoch: 1, nowMs: atMs,
+    });
+    const evidence = appendOwnerUtterance(sidecar, { conversationId: THREAD, text, discordMessageIds: [`${cycleId}-message`], nowMs: atMs });
+    return appendInboxEvent(sidecar, {
+      wakeId: cycle.wakeId, conversationId: THREAD, kind: "owner_message",
+      payload: { cycleId: cycle.cycleId, evidenceRowId: evidence.rowId, ownerMessage: evidence.text },
+      createdAtMs: atMs,
+    });
+  }
+
+  it("tells the next pass which parts salvage dropped from the last reply", async () => {
+    const sidecar = openTestSidecar();
+    const attentionDb = openTestSidecar();
+    const replies: string[] = [
+      JSON.stringify({ ...makeSemanticSettlement({ speech: { mode: "draft", mustSay: [], surfaceDraft: "Noted." } }), growth: "not an object" }),
+      JSON.stringify(makeSemanticSettlement({ speech: { mode: "draft", mustSay: [], surfaceDraft: "Still here." } })),
+    ];
+    const messagesByCall: string[][] = [];
+    const completeChat = vi.fn(async (messages: Array<{ role: string; content: string }>) => {
+      messagesByCall.push(messages.map((message) => message.content));
+      return { text: replies[messagesByCall.length - 1] ?? replies[1]!, model: "fake", modelAlias: "thought", resolvedModelId: null };
+    });
+    try {
+      expect((await runCognitiveCycle(sidecar, attentionDb, ownerTurnFor(sidecar, "cycle-notes-1", "Remember this.", 2),
+        deps({ attentionDb, completeChat }))).published).toBe(true);
+      await runCognitiveCycle(sidecar, attentionDb, ownerTurnFor(sidecar, "cycle-notes-2", "Are you there?", 3),
+        deps({ attentionDb, completeChat }));
+      expect(messagesByCall.at(-1)!.join("\n")).toContain("Host facts on my last turn here: Parts of my last reply were left out by the Host: growth.");
+    } finally {
+      sidecar.close();
+      attentionDb.close();
+    }
+  });
+
+  it("tells the next pass which parts were cut to their limit", async () => {
+    const sidecar = openTestSidecar();
+    const attentionDb = openTestSidecar();
+    const home = Array.from({ length: 9 }, (_, index) => ({ op: "append", path: `notes/entry-${index}.md`, content: `line ${index}\n` }));
+    const replies: string[] = [
+      JSON.stringify({ ...makeSemanticSettlement({ speech: { mode: "draft", mustSay: [], surfaceDraft: "I wrote them down." } }), home }),
+      JSON.stringify(makeSemanticSettlement({ speech: { mode: "draft", mustSay: [], surfaceDraft: "Still here." } })),
+    ];
+    const messagesByCall: string[][] = [];
+    const completeChat = vi.fn(async (messages: Array<{ role: string; content: string }>) => {
+      messagesByCall.push(messages.map((message) => message.content));
+      return { text: replies[messagesByCall.length - 1] ?? replies[1]!, model: "fake", modelAlias: "thought", resolvedModelId: null };
+    });
+    try {
+      expect((await runCognitiveCycle(sidecar, attentionDb, ownerTurnFor(sidecar, "cycle-cap-1", "Write these down.", 2),
+        deps({ attentionDb, completeChat }))).published).toBe(true);
+      await runCognitiveCycle(sidecar, attentionDb, ownerTurnFor(sidecar, "cycle-cap-2", "Did you keep them?", 3),
+        deps({ attentionDb, completeChat }));
+      expect(messagesByCall.at(-1)!.join("\n")).toContain("Parts of my last reply were cut to the limit: home.");
+    } finally {
+      sidecar.close();
+      attentionDb.close();
+    }
+  });
+});
+
+describe("F2 her next pass sees the web requests of a turn that did not settle", () => {
+  const THREAD = "thread-web-actions";
+  const ORIGIN = "https://fixture-web.example";
+  function ownerTurnFor(sidecar: DatabaseSync, cycleId: string, text: string, atMs: number) {
+    const cycle = admitTestCycle(sidecar, {
+      cycleId, conversationId: THREAD, triggerKind: "owner_message", triggerRef: `owner-${cycleId}`,
+      occupantId: "doc", authorityEpoch: 1, nowMs: atMs,
+    });
+    const evidence = appendOwnerUtterance(sidecar, { conversationId: THREAD, text, discordMessageIds: [`${cycleId}-message`], nowMs: atMs });
+    return appendInboxEvent(sidecar, {
+      wakeId: cycle.wakeId, conversationId: THREAD, kind: "owner_message",
+      payload: { cycleId: cycle.cycleId, evidenceRowId: evidence.rowId, ownerMessage: evidence.text },
+      createdAtMs: atMs,
+    });
+  }
+  async function turnWithPost(settles: boolean) {
+    const sidecar = openTestSidecar();
+    const attentionDb = openTestSidecar();
+    const messagesByCall: string[][] = [];
+    // The first turn made a POST (what web.request leaves in the log); its settlement is either sent or broken.
+    sidecar.prepare("INSERT INTO web_requests (origin, method, path, status, error, cycle_id, at_ms) VALUES (?, 'POST', '/fixture-path', 201, NULL, 'cycle-web-first', ?)")
+      .run(ORIGIN, 2);
+    const first = { cycleId: "cycle-web-first", text: "Post the note." };
+    const replies: string[] = settles
+      ? [JSON.stringify(makeSemanticSettlement({ speech: { mode: "draft", mustSay: [], surfaceDraft: "Posted." } })), JSON.stringify(makeSemanticSettlement())]
+      : ["not a settlement", "still not a settlement", "nor this one", JSON.stringify(makeSemanticSettlement())];
+    const completeChat = vi.fn(async (messages: Array<{ role: string; content: string }>) => {
+      messagesByCall.push(messages.map((message) => message.content));
+      return { text: replies[Math.min(messagesByCall.length - 1, replies.length - 1)]!, model: "fake", modelAlias: "thought", resolvedModelId: null };
+    });
+    try {
+      await runCognitiveCycle(sidecar, attentionDb, ownerTurnFor(sidecar, first.cycleId, first.text, 2), deps({ attentionDb, completeChat }));
+      const callsBefore = messagesByCall.length;
+      await runCognitiveCycle(sidecar, attentionDb, ownerTurnFor(sidecar, "cycle-web-next", "Did it go through?", 3), deps({ attentionDb, completeChat }));
+      return messagesByCall.slice(callsBefore).at(-1)!.join("\n");
+    } finally {
+      sidecar.close();
+      attentionDb.close();
+    }
+  }
+
+  it("tells the next owner-private pass about the POST of a turn that failed to settle", async () => {
+    const next = await turnWithPost(false);
+    expect(next).toContain("I made web requests that did not settle: POST https://fixture-web.example/fixture-path (status 201, ");
+  });
+
+  it("says nothing about the web requests of a turn that settled", async () => {
+    const next = await turnWithPost(true);
+    expect(next).not.toContain("did not settle");
+    expect(next).not.toContain("fixture-web.example");
+  });
+});
+
+describe("A4-3 an own-time wish is fired only when the pass that serves it settles", () => {
+  it.each([false, true])("leaves the wish due when the awake pass does not settle, and fires it when it settles (settles=%s)", async (settles) => {
+    const NOW = Date.UTC(2026, 8, 29, 14, 0);
+    const sidecar = openTestSidecar();
+    const attentionDb = openTestSidecar();
+    const nuclear = openNuclearDb(new DatabaseSync(":memory:"));
+    const conversationId = `thread-own-time-${settles}`;
+    sidecar.prepare(`INSERT INTO own_time_wishes (wish_id, cycle_id, want_at_ms, reason, pursuit_id, state, created_at_ms)
+      VALUES ('wish:garden', 'cycle-where-asked', ?, 'ask about the garden', NULL, 'pending', ?)`).run(NOW - 60_000, NOW - 120_000);
+    const completeChat = vi.fn<KernelDeps["completeChat"]>(async () => ({
+      text: settles
+        ? JSON.stringify(makeSemanticSettlement({ speech: { mode: "none" }, commitments: {} }))
+        : "this is not a settlement",
+      model: "fake", modelAlias: "thought", resolvedModelId: null,
+    }));
+    const thought = async (input: { event: import("../types.js").InboxEvent | null }) =>
+      runCognitiveCycle(sidecar, nuclear, input.event!, deps({ attentionDb, completeChat, nowMs: () => NOW }));
+    try {
+      expect(await tickAwake(sidecar, { conversationId, occupantId: "doc", authorityEpoch: 1, nowMs: NOW - AWAKE_FIRST_DELAY_MS, thought }))
+        .toMatchObject({ outcome: "scheduled" });
+      await tickAwake(sidecar, { conversationId, occupantId: "doc", authorityEpoch: 1, nowMs: NOW, thought });
+      expect(completeChat).toHaveBeenCalled();
+      expect(sidecar.prepare("SELECT state FROM own_time_wishes WHERE wish_id = 'wish:garden'").get())
+        .toEqual({ state: settles ? "fired" : "pending" });
+      expect(dueOwnTime(sidecar, NOW).map((wish) => wish.wishId)).toEqual(settles ? [] : ["wish:garden"]);
+    } finally {
+      sidecar.close();
+      attentionDb.close();
+      nuclear.close();
+    }
   });
 });

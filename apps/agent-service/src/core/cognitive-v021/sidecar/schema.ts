@@ -2540,3 +2540,19 @@ export const COGNITIVE_SIDECAR_SCHEMA_V75 = String.raw`
 ALTER TABLE lessons ADD COLUMN brought_home_at_ms INTEGER NULL;
 UPDATE cognitive_sidecar_meta SET schema_version=75 WHERE id=1;
 `;
+
+/** A1-9 and A5-12: what the Host did to a settlement's parts (dropped or cut to a limit), read by her next pass; names only. */
+export const COGNITIVE_SIDECAR_SCHEMA_V76 = String.raw`
+CREATE TABLE IF NOT EXISTS turn_host_notes (
+  note_id INTEGER PRIMARY KEY AUTOINCREMENT,
+  conversation_id TEXT NOT NULL,
+  cycle_id TEXT NOT NULL,
+  generation INTEGER NOT NULL,
+  pass INTEGER NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('parts_dropped', 'part_capped')),
+  detail TEXT NOT NULL,
+  created_at_ms INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_turn_host_notes_conversation ON turn_host_notes (conversation_id, created_at_ms);
+UPDATE cognitive_sidecar_meta SET schema_version=76 WHERE id=1;
+`;

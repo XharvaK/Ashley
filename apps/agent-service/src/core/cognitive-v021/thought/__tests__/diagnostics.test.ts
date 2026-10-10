@@ -700,7 +700,7 @@ describe("Thought Diagnostics & Observability DB", () => {
         reasoningHash: "sha256:reasoning-hash",
         parserStatus: "failed",
         validatorStatus: "not_run",
-        failureClass: "invalid_json",
+        failureClass: "output_truncated",
         structuralRetryStatus: "scheduled",
       });
       const storedProviderFailure = obsDb.prepare(

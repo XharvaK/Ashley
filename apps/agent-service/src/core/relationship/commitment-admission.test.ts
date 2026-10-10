@@ -5,6 +5,7 @@ import { readAuthorityBarrier } from "../cognitive-v021/authority/barrier.js";
 import { resolveActiveThread } from "../memory/threads.js";
 import { fidelityCheck } from "../cognitive-v021/speech/fidelity.js";
 import {
+  cancelCommitmentsForSettlement,
   claimCommitmentOpportunity,
   commitmentBindingsForSettlement,
   applyCommitmentDeliveryOutcome,
@@ -550,6 +551,27 @@ describe("commitment admission and fidelity", () => {
         .get("cmt:attempted-orphan:0") as { commitment_state?: unknown; evidence_json?: unknown };
       expect(row.commitment_state).toBe("admitted");
       expect(JSON.parse(String(row.evidence_json))).toMatchObject({ recoveryStatus: COMMITMENT_PROVISIONAL_ORPHAN });
+    } finally {
+      db.close();
+    }
+  });
+});
+
+describe("A1-1 promises from a pass that did not publish", () => {
+  it("cancels the admitted promises of a settlement that was not adopted and keeps the adopted one's", () => {
+    const db = dbFixture();
+    try {
+      persistCommitmentProposals(db, "settlement-rejected", [proposal({ action: "check on the exam" })]);
+      settlePersistedCommitmentProposals(db, "settlement-rejected", { ownerId, nowMs, enabled: true });
+      persistCommitmentProposals(db, "settlement-adopted", [proposal({ action: "send the progress update" })]);
+      settlePersistedCommitmentProposals(db, "settlement-adopted", { ownerId, nowMs, enabled: true });
+
+      expect(cancelCommitmentsForSettlement(db, "settlement-rejected", nowMs)).toBe(1);
+      expect(cancelCommitmentsForSettlement(db, "settlement-rejected", nowMs)).toBe(0);
+      expect(db.prepare("SELECT source_entity_uuid AS id, commitment_state AS state, status FROM ashley_self_commitments ORDER BY source_entity_uuid").all()).toEqual([
+        { id: "cmt:settlement-adopted:0", state: "admitted", status: "motivated" },
+        { id: "cmt:settlement-rejected:0", state: "cancelled", status: "released" },
+      ]);
     } finally {
       db.close();
     }

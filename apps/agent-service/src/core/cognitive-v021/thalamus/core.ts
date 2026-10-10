@@ -112,7 +112,8 @@ export function arbitrate(state: ThalamusState, candidates: readonly Candidate[]
     || (row.candidate.class === "PRESSURE" && row.score >= threshold(row.candidate.source, context))));
   eligible.sort((a,b) => Number(b.mandatory) - Number(a.mandatory)
     || (a.mandatory && b.mandatory ? Number(b.candidate.passType === "afterglow") - Number(a.candidate.passType === "afterglow") : 0)
-    || b.score - a.score || orderText(a.candidate.eventId,b.candidate.eventId));
+    // A4-4: on a tie, the item that has waited longest goes first; the event id only breaks a tie in time.
+    || b.score - a.score || a.candidate.observedAtMs - b.candidate.observedAtMs || orderText(a.candidate.eventId,b.candidate.eventId));
   const winner = eligible[0];
   if (!winner) return { decision: { kind: "none", reason: context.conversationClaimHeld ? "conversation" : "no_candidate", pending }, state: next };
   const bundle = [winner.candidate, ...ranked.filter(row => row.candidate.eventId !== winner.candidate.eventId

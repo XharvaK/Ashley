@@ -142,12 +142,20 @@ export function dueOwnTime(sidecar: DatabaseSync, nowMs: number): Array<{ wishId
       ...(typeof row.pursuit_id === "string" ? { pursuitId: row.pursuit_id } : {}) }));
 }
 
-/** The own-time pass that serves due wishes takes them (they are shown in its agenda). */
-export function takeDueOwnTime(sidecar: DatabaseSync, nowMs: number): Array<{ atMs: number; for: string; pursuitId?: string }> {
+/**
+ * The own-time pass that serves due wishes shows them in its agenda. They stay pending: their ids go to `served`,
+ * and only a settled pass marks them fired (markOwnTimeFired). A pass that fails leaves them due.
+ */
+export function takeDueOwnTime(sidecar: DatabaseSync, nowMs: number, served?: string[]): Array<{ atMs: number; for: string; pursuitId?: string }> {
   const due = dueOwnTime(sidecar, nowMs);
-  const fire = sidecar.prepare("UPDATE own_time_wishes SET state = 'fired', fired_at_ms = ? WHERE wish_id = ? AND state = 'pending'");
-  for (const wish of due) fire.run(nowMs, wish.wishId);
+  served?.push(...due.map((wish) => wish.wishId));
   return due.map(({ wishId: _wishId, ...wish }) => wish);
+}
+
+/** A settled pass marks the wishes it served as fired, once. */
+export function markOwnTimeFired(sidecar: DatabaseSync, wishIds: readonly string[], nowMs: number): void {
+  const fire = sidecar.prepare("UPDATE own_time_wishes SET state = 'fired', fired_at_ms = ? WHERE wish_id = ? AND state = 'pending'");
+  for (const wishId of new Set(wishIds)) fire.run(nowMs, wishId);
 }
 
 function toThought(row: Row): ThoughtPursuit {

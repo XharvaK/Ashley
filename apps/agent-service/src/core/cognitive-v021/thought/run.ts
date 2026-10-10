@@ -96,6 +96,7 @@ import {
 import type { AttemptInputBasis } from "../social/types.js";
 import type { CommitmentRealizationBinding } from "../social/types.js";
 import {
+  cancelCommitmentsForSettlement,
   commitmentBindingsForSettlement,
   getCommitmentOpportunity,
   isCommitmentsEnabled,
@@ -191,6 +192,8 @@ import {
 } from "../initiative/afterglow.js";
 import { awakePassFromPayload, nightPassFromPayload } from "../initiative/inner-pass.js";
 import { buildInnerAgenda } from "../initiative/agenda.js";
+import { lastTurnHostFact, recordTurnHostNotes, type TurnHostNote } from "./turn-facts.js";
+import { markOwnTimeFired } from "../../will/pursuits.js";
 import { recordSettlementAftermath, type AftermathContext } from "./aftermath.js";
 import {
   applySemanticForget,
@@ -1480,6 +1483,33 @@ function domusObservationIdsForInput(input: ThoughtInput | ProjectedThoughtInput
   return ids;
 }
 
+/** What became of her last reply, and what the Host left out of or cut from the turn before this one (owner-private passes only). */
+function previousTurnFact(sidecar: DatabaseSync, conversationId: string, cycleId: string, ownerPrivate: boolean): string | undefined {
+  const parts = [
+    lastReplyDeliveryFact(sidecar, conversationId),
+    ownerPrivate ? lastTurnHostFact(sidecar, { conversationId, cycleId }) : undefined,
+  ].filter((part): part is string => part !== undefined);
+  return parts.length > 0 ? parts.join(" ") : undefined;
+}
+
+/** A1-8: what the Host recorded about her last reply in this conversation, by its delivery state; none when she has not spoken here. */
+function lastReplyDeliveryFact(sidecar: DatabaseSync, conversationId: string): string | undefined {
+  const row = sidecar.prepare(
+    "SELECT send_status, suppressed FROM speech_outbox WHERE conversation_id = ? ORDER BY outbox_id DESC LIMIT 1",
+  ).get(conversationId) as { send_status?: unknown; suppressed?: unknown } | undefined;
+  if (!row) return undefined;
+  const state = Number(row.suppressed) === 1 || row.send_status === "suppressed"
+    ? "held back, not sent"
+    : row.send_status === "delivered"
+      ? "delivered"
+      : row.send_status === "partially_delivered"
+        ? "partly delivered"
+        : row.send_status === "send_failure"
+          ? "failed to send"
+          : "still pending delivery";
+  return `Her last reply in this conversation: ${state}.`;
+}
+
 /** A2: the forgets she proposed and the Owner has not answered, on Owner chat turns only. */
 function pendingForgetInput(
   sidecar: DatabaseSync,
@@ -1602,6 +1632,8 @@ export async function runThoughtModel(
     audience?: ThoughtInput["audience"];
     /** Optional caller narrowing; it may never widen the Model Fabric policy. */
     maxTokens?: number;
+    /** A1-9 and A5-12: what the Host dropped or cut from her settlement; the caller records them for her next pass. */
+    hostNotes?: TurnHostNote[];
     /** Qualification-only seam for the exact NIM candidate; no fallback is allowed. */
     disableThoughtTransportFailover?: boolean;
     /** W7 exact private-budget reservation bridge for this Thought invocation. */
@@ -1767,7 +1799,7 @@ export async function runThoughtModel(
     const lifeboatLaunchBlocked = () =>
       options.signal?.aborted === true
       || options.disableThoughtTransportFailover === true
-      || options.deadlineAtMs - Date.now() < THOUGHT_LIFEBOAT_MIN_REMAINING_MS;
+      || options.deadlineAtMs - circuitNowMs(deps) < THOUGHT_LIFEBOAT_MIN_REMAINING_MS;
     const armLifeboat = (
       record: NonNullable<ThoughtInvocation["lifeboat"]>,
       primaryCapture: ThoughtProviderFailureCapture,
@@ -1827,6 +1859,10 @@ export async function runThoughtModel(
       }, primaryCapture);
       captureReplayDispatch(messages);
       completion = await invokeThoughtComplete(messages, dispatchOptions, deps.completeChat);
+    } else if (thoughtModelCircuit.isOpen(ownModelId, circuitNowMs(deps))) {
+      // A1-12: the primary is known to be down and no lifeboat fits in the time left, so nothing is sent.
+      dispatchStarted = false;
+      throw new Error("thought_circuit_open_not_sent");
     } else try {
       captureReplayDispatch(messages);
       completion = await invokeThoughtComplete(messages, dispatchOptions, deps.completeChat);
@@ -1913,13 +1949,16 @@ export async function runThoughtModel(
         const reparsed = parseThoughtSemanticOutput(salvaged.text, semanticReferences, semanticParseOptions);
         if (reparsed.ok) {
           console.warn(`[thought] salvaged code=${firstFailure.code} dropped=${salvaged.dropped.join(",")} model=${completion.providerModel ?? "-"}`);
+          if (salvaged.dropped.length > 0) options.hostNotes?.push({ kind: "parts_dropped", detail: salvaged.dropped.join(",") });
           completion = { ...completion, text: salvaged.text };
           semanticResult = reparsed;
         }
       }
     }
     if (!semanticResult.ok) {
-      const diagnosticCode = semanticResult.code as ThoughtParserFailureCode;
+      // A1-4: a provider that stopped at its output limit cut the answer, whatever the parser then said about it.
+      const cutAtOutputLimit = (completion.responseDiagnostics?.finishReason ?? completion.finishReason) === "length";
+      const diagnosticCode = cutAtOutputLimit ? "output_truncated" : semanticResult.code as ThoughtParserFailureCode;
       const shape = describeFieldShape(completion.text, semanticResult.field, semanticReferences);
       // The field path names a contract field, never her words; it is what a fix needs.
       console.warn(`[thought] parse failure code=${diagnosticCode} field=${semanticResult.field ?? "-"} model=${completion.providerModel ?? "-"} shape=${shape}`);
@@ -1931,8 +1970,9 @@ export async function runThoughtModel(
         field: semanticResult.field,
         epistemicRepairs: semanticResult.epistemicRepairs,
         allowlistedReferences: semanticReferencesForInput(input),
-        previousCandidate: previousFeedback?.previousCandidate
-          ?? parseThoughtStructuralCandidate(completion.text),
+        // A1-3: the latest candidate is the one the next repair must keep; an earlier attempt's fixes are already in it.
+        previousCandidate: parseThoughtStructuralCandidate(completion.text)
+          ?? previousFeedback?.previousCandidate,
       });
       const output: ThoughtStepOutput = {
         kind: "failure",
@@ -1958,13 +1998,18 @@ export async function runThoughtModel(
           {
             parserStatus: "failed",
             validatorStatus: "not_run",
-            failureClass: semanticResult.code,
+            failureClass: diagnosticCode,
             structuralRetryStatus: "not_scheduled",
             },
           ),
         thoughtExecutionProvenance: withLifeboatAttempts(executionProvenanceForCompletion(completion), lifeboat),
         ...(lifeboat ? { lifeboat } : {}),
       };
+    }
+    // A5-12: a list cut to its limit is a Host note, not a rejected reply.
+    for (const note of semanticResult.hostNotes ?? []) {
+      console.warn(`[thought] settlement_part_capped note=${note} model=${completion.providerModel ?? "-"}`);
+      options.hostNotes?.push({ kind: "part_capped", detail: note.replace(/_capped$/, "") });
     }
     // Host facts only: which nomination ref was re-filed or removed, by path and class, never the id.
     for (const note of semanticResult.sourceRefNotes ?? []) {
@@ -2058,7 +2103,7 @@ export async function runThoughtModel(
               cycleId: input.cycleId,
               generation: input.generation,
               parentDeadlineAtMs: options.deadlineAtMs,
-              nowMs: options.nowMs ?? Date.now(),
+              nowMs: options.nowMs ?? circuitNowMs(deps),
               authorityCurrentness,
               audience: input.audience,
               ...(inspectExpectation === undefined ? {} : { concernInspectExpectation: inspectExpectation }),
@@ -2096,7 +2141,7 @@ export async function runThoughtModel(
                 generation: input.generation,
                 authorityEpoch: input.authorityEpoch,
                 parentDeadlineAtMs: options.deadlineAtMs,
-                nowMs: options.nowMs ?? Date.now(),
+                nowMs: options.nowMs ?? circuitNowMs(deps),
                 authorityCurrentness,
               });
               return {
@@ -3001,6 +3046,13 @@ export function productionAuthorityObjectionCodes(codes: readonly string[]): Aut
   return uniqueAuthorityCodes(codes);
 }
 
+/** A1-1: the commitment settlements a cycle admitted, and the one its published settlement adopted. */
+type CommitmentPassLedger = { admittedRefs: string[]; adoptedRef: string | null };
+
+function commitmentSettlementRef(cycle: { cycleId: string; generation: number }, pass: number): string {
+  return `cycle:${cycle.cycleId}:generation:${cycle.generation}:pass:${pass}`;
+}
+
 /** Phase 02 kernel slice: assemble, perceive, run one Thought pass, validate, publish. */
 export async function runCognitiveCycle(
   sidecar: DatabaseSync,
@@ -3008,6 +3060,30 @@ export async function runCognitiveCycle(
   event: InboxEvent,
   deps: KernelDeps,
   options: { privateBudgetBinding?: PrivateBudgetDispatchBinding } = {},
+): Promise<KernelRunResult> {
+  const commitments: CommitmentPassLedger = { admittedRefs: [], adoptedRef: null };
+  try {
+    return await runCognitiveCycleAttempt(sidecar, nuclear, event, deps, options, commitments);
+  } finally {
+    // A1-1: every promise a superseded or unpublished pass admitted is cancelled; the adopted one's stay.
+    for (const ref of new Set(commitments.admittedRefs)) {
+      if (ref === commitments.adoptedRef) continue;
+      try {
+        cancelCommitmentsForSettlement(nuclear, ref, deps.nowMs());
+      } catch (error) {
+        console.warn("[cognitive-v021] commitment_cancel_failed", ref, error);
+      }
+    }
+  }
+}
+
+async function runCognitiveCycleAttempt(
+  sidecar: DatabaseSync,
+  nuclear: DatabaseSync,
+  event: InboxEvent,
+  deps: KernelDeps,
+  options: { privateBudgetBinding?: PrivateBudgetDispatchBinding },
+  commitments: CommitmentPassLedger,
 ): Promise<KernelRunResult> {
   const payload = payloadRecord(event);
   const afterglowPass = afterglowPassFromPayload(payload);
@@ -3454,6 +3530,7 @@ export async function runCognitiveCycle(
   let observationsForThought = await perceive();
   let inFlight = listInFlightForThoughtCycle(sidecar, cycle.cycleId);
   let counters = getThoughtAttemptCounters(sidecar, cycle.cycleId, cycle.generation);
+  const turnHostNotes: TurnHostNote[] = [];
   let pass = counters.acceptedThoughtPasses + 1;
   let structuralRetriesForPass = persistedMalformedRetries(sidecar, cycle.cycleId, cycle.generation, pass);
   let authorityObjections: AuthorityCode[] = [];
@@ -3579,6 +3656,8 @@ export async function runCognitiveCycle(
     // DPLAY: an Owner message while the game is live: her Discord turn reads the live menu and may act from it.
     const domusLive = originProfile.triggerKind === "owner_message" && effectiveThoughtAudience.kind === "owner_private"
       && !externalCycle && env.domusActEnabled ? domusLiveForOwner(sidecar, deps.nowMs()) : undefined;
+    // A4-3: the own-time wishes this pass shows; they are marked fired only if the pass settles.
+    const awakeWishIds: string[] = [];
     const thoughtInputOptions = {
       sidecar,
       cycle,
@@ -3613,7 +3692,7 @@ export async function runCognitiveCycle(
       constitution: deps.readConstitution?.() ?? deps.constitution,
       capabilityReality: invocationCapabilityReality,
       wakeCauses: buildThoughtWakeCauses(sidecar, event, wake, cycle, originProfile.triggerKind),
-      previousInvocationDelta: "unknown",
+      previousInvocationDelta: previousTurnFact(sidecar, cycle.conversationId, cycle.cycleId, effectiveThoughtAudience.kind === "owner_private"),
       thoughtLegDeadlineAtMs: thoughtDeadlineAtMs,
       clock: {
         nowMs: deps.nowMs(),
@@ -3624,7 +3703,7 @@ export async function runCognitiveCycle(
       ...(afterglowPass ? { innerPass: afterglowInnerPass(sidecar, afterglowPass) } : {}),
       ...(awakePass ? { innerPass: { kind: "awake" as const, agenda: buildInnerAgenda(sidecar, awakePass, deps.nowMs(),
         effectiveThoughtAudience.kind === "owner_private" && !externalCycle && deps.origin !== "shadow" && deps.identityOwnerId
-          ? { cycleId: cycle.cycleId, ownerId: deps.identityOwnerId } : undefined) } } : {}),
+          ? { cycleId: cycle.cycleId, ownerId: deps.identityOwnerId } : undefined, awakeWishIds) } } : {}),
       ...(nightPass ? {
         innerPass: {
           kind: "night" as const,
@@ -3820,7 +3899,9 @@ export async function runCognitiveCycle(
       // a failure in a required part still falls through to the structural retry as before.
       salvageOnFailure: true,
       beforeRedispatch: () => assessOwnerAnswerHold(sidecar, event) === null,
+      hostNotes: turnHostNotes,
     });
+    recordTurnHostNotes(sidecar, { conversationId: cycle.conversationId, cycleId: cycle.cycleId, generation: cycle.generation, pass, nowMs: deps.nowMs() }, turnHostNotes.splice(0));
     lastThoughtRequestId = invocation.requestId;
     lastThoughtPass = pass;
     cycleExecutionProvenance = mergeExecutionProvenance(
@@ -4669,7 +4750,8 @@ export async function runCognitiveCycle(
       // TX-B1/TX-B2 are deliberately before Expression and before the
       // publication transaction. A rejected promise returns to Thought and
       // cannot become speech or an outbox row.
-      const settlementRef = `cycle:${cycle.cycleId}:generation:${cycle.generation}:pass:${pass}`;
+      const settlementRef = commitmentSettlementRef(cycle, pass);
+      commitments.admittedRefs.push(settlementRef);
       try {
         persistCommitmentProposals(nuclear, settlementRef, commitmentProposals);
         const admission = settlePersistedCommitmentProposals(nuclear, settlementRef, {
@@ -4992,6 +5074,9 @@ export async function runCognitiveCycle(
       allowQueuedDetachedCompletion: deps.origin !== "shadow",
       ...((event.claimToken || event.durableAttemptId) ? { ownerAnswerEvent: event } : {}),
     });
+    // A1-1: the published pass is the one whose promises stay live.
+    if (publication.published && commitmentProposals.length > 0) commitments.adoptedRef = commitmentSettlementRef(cycle, pass);
+    if (publication.published) markOwnTimeFired(sidecar, awakeWishIds, deps.nowMs());
     if (!publication.published) {
       const raced = stopForOwnerAnswer(getThoughtAttemptCounters(sidecar, cycle.cycleId, cycle.generation));
       if (raced) return raced;

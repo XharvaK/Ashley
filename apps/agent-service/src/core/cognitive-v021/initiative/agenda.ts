@@ -24,7 +24,8 @@ export const AGENDA_QUESTIONS_LIMIT = 10;
 export const AGENDA_BRANCHES_LIMIT = 16;
 const OPEN_THREADS_WINDOW_MS = 7 * 24 * 60 * 60_000;
 
-export function buildInnerAgenda(db: DatabaseSync, pass: AwakePass, nowMs: number, influenceContext?: InfluenceAgendaContext): ThoughtInnerAgenda {
+/** `ownTimeServed` collects the own-time wishes this agenda shows; the pass marks them fired only when it settles. */
+export function buildInnerAgenda(db: DatabaseSync, pass: AwakePass, nowMs: number, influenceContext?: InfluenceAgendaContext, ownTimeServed?: string[]): ThoughtInnerAgenda {
   const episodes = listRecentEpisodes(db, 40).filter((episode) => episode.dataClassification !== "secret");
   const episodesSince = episodes
     .filter((episode) => episode.endedAtMs > pass.sinceMs)
@@ -67,7 +68,7 @@ export function buildInnerAgenda(db: DatabaseSync, pass: AwakePass, nowMs: numbe
     },
     ...(chosen ? { chosenGap: { id: chosen.id, name: chosen.name, question: chosen.question } } : {}),
     ...(lessons.length ? { lessons } : {}),
-    ...(() => { const due = takeDueOwnTime(db, nowMs); return due.length ? { ownTimeDue: due } : {}; })(),
+    ...(() => { const due = takeDueOwnTime(db, nowMs, ownTimeServed); return due.length ? { ownTimeDue: due } : {}; })(),
   };
 }
 

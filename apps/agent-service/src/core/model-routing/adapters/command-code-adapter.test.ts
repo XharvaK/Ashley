@@ -400,3 +400,33 @@ describe("command-code-adapter", () => {
     })).rejects.toMatchObject({ code: "capability_mismatch" });
   });
 });
+
+describe("A8-4 the answer is read past any thinking the provider returns", () => {
+  const dispatchContent = async (message: Record<string, unknown>, finish: string) => {
+    env.commandCodeApiKey = "test-command-code-key";
+    const fetcher = vi.fn(async () => fakeResponse({
+      id: "response-thinking",
+      model: MODEL,
+      choices: [{ message, finish_reason: finish }],
+    }));
+    return createCommandCodeAdapter(fetcher).dispatch({
+      messages,
+      modelId: MODEL,
+      options: { maxTokens: 65_536, reasoningEffort: COMMAND_CODE_POLICY.effort, structuredOutput: thoughtOutputStructuredRequest() },
+    });
+  };
+
+  it("returns the answer after leading thinking, and only an absent answer is a provider failure", async () => {
+    const answered = await dispatchContent({ content: "<think>plan the settlement</think>\n{\"kind\":\"abstain\"}" }, "stop");
+    expect(answered).toMatchObject({ text: "{\"kind\":\"abstain\"}", finishReason: "stop" });
+
+    // Reasoning with no answer and a spent output budget: an empty answer, not a provider outage.
+    const spent = await dispatchContent({ content: null, reasoning_content: "still weighing it" }, "length");
+    expect(spent).toMatchObject({ text: "", finishReason: "length" });
+
+    // No content and no reasoning at all is still a provider failure.
+    await expect(dispatchContent({ content: null }, "stop")).rejects.toMatchObject({
+      message: expect.stringContaining("command_code_missing_text_content"),
+    });
+  });
+});

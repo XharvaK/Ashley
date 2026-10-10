@@ -105,12 +105,33 @@ export function recordAftermathPending(
   ).run(input.settlementId, input.cycleId, JSON.stringify(input.context), input.nowMs);
 }
 
+/**
+ * A1-2: a home op is a file effect, which a database rollback cannot undo. Its result is recorded per op
+ * (home_ops, keyed by cycle and ordinal), so the files are written before the aftermath transaction and a
+ * replay skips every op already recorded. A rolled-back aftermath therefore never appends the same text twice.
+ */
+function applyOwedHomeOps(db: DatabaseSync, settlementId: string, options: AftermathOptions): void {
+  if (!options.dataDir) return;
+  const owed = db.prepare(
+    `SELECT a.cycle_id, a.context_json, s.payload_json
+       FROM settlement_aftermath a JOIN settlements s ON s.settlement_id = a.settlement_id
+      WHERE a.settlement_id = ? AND a.status = 'pending'`,
+  ).get(settlementId) as Row | undefined;
+  const context = parse<AftermathContext>(owed?.context_json);
+  if (!owed || !context) return;
+  const settlement = parse<StoredSettlement>(owed.payload_json) ?? {};
+  // The same gates as the aftermath rows: a redacted, guest or timing-only settlement writes no home files.
+  if (settlement.redacted === true || context.ownerPrivate === false || context.timingOnly === true || !settlement.home?.length) return;
+  applyHomeOps(db, homeRootFor(options.dataDir), { cycleId: String(owed.cycle_id), ops: settlement.home, nowMs: options.nowMs });
+}
+
 /** Write one settlement's aftermath if it is still pending. */
 export function recordSettlementAftermath(
   db: DatabaseSync,
   settlementId: string,
   options: AftermathOptions,
 ): "recorded" | "not_pending" {
+  applyOwedHomeOps(db, settlementId, options);
   db.exec("BEGIN IMMEDIATE");
   try {
     const pending = db.prepare(
@@ -137,7 +158,9 @@ export function recordSettlementAftermath(
     }
     // Legacy or malformed flags fail closed on both publication and recovery.
     const dataClassification = settlement.sawSecret === false ? "ordinary" : "never_public";
-    const interests = standing ? settlement.interests ?? [] : [];
+    // A10 N1: a guest-room or contact turn never moves her interests or her identity (growth, influence positions).
+    const ownerOnly = standing && context.ownerPrivate !== false;
+    const interests = ownerOnly ? settlement.interests ?? [] : [];
     if (interests.length > 0) {
       const grown = recordInterestTouches(db, interests, options.nowMs);
       for (const branchId of grown) {
@@ -166,9 +189,6 @@ export function recordSettlementAftermath(
     if (standing && context.ownerPrivate !== false && settlement.intents?.length) {
       recordPlaceIntents(db, { cycleId, claims: settlement.intents, sawSecret: settlement.sawSecret !== false, nowMs: options.nowMs,
         ownerTurn: context.ownerTurn === true });
-    }
-    if (standing && context.ownerPrivate !== false && settlement.home?.length && options.dataDir) {
-      applyHomeOps(db, homeRootFor(options.dataDir), { cycleId, ops: settlement.home, nowMs: options.nowMs });
     }
     if (standing && context.ownerPrivate !== false && settlement.pursuits?.length) {
       applyPursuitOps(db, { cycleId, ops: settlement.pursuits, nowMs: options.nowMs });
@@ -215,8 +235,8 @@ export function recordSettlementAftermath(
     if (standing && settlement.attention && options.identityStore?.ownerId) recordPublishedAttention(db,settlementId,options.identityStore.ownerId,options.nowMs);
     recordGrowth(db, {
       cycleId,
-      allowInfluenceProposal: standing,
-      ...(standing && settlement.growth ? { claim: settlement.growth } : {}),
+      allowInfluenceProposal: ownerOnly,
+      ...(ownerOnly && settlement.growth ? { claim: settlement.growth } : {}),
       identityStore: options.identityStore,
       dataClassification,
       nowMs: options.nowMs,

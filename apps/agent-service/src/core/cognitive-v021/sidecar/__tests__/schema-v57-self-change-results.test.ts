@@ -8,7 +8,7 @@ describe("result staging migration",()=>{
    db.exec("INSERT INTO thalamus_state VALUES('owner',1,'{}','{}',1)");
    const before=db.prepare("SELECT * FROM thalamus_state").all();
    setTestSidecarVersion(db,56);openCognitiveSidecarDb(db,{dataPlane:{kind:"isolated"}});
-   expect(db.prepare("PRAGMA user_version").get()!.user_version).toBe(75);
+   expect(db.prepare("PRAGMA user_version").get()!.user_version).toBe(76);
    expect(db.prepare("SELECT * FROM thalamus_state").all()).toEqual(before);
    expect(db.prepare("SELECT count(*) AS n FROM self_change_result_receipts").get()).toEqual({n:0});
    expect(db.prepare("SELECT count(*) AS n FROM wakes").get()).toEqual({n:0});

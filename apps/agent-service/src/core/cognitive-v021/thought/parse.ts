@@ -49,9 +49,9 @@ import { parseSourceSupportRef, parseWorkingContextInterpretationDraft } from ".
 import { isConcernObjectiveFacet } from "../concerns/objective.js";
 import { isInterestRoot } from "../memory/interests.js";
 import { isPlaceIntentClaims } from "../../places/intents.js";
-import { isHomeOps } from "../../home/home.js";
+import { HOME_OPS_MAX, isHomeOps } from "../../home/home.js";
 import { isOwnTimeClaim, isPursuitOps } from "../../will/pursuits.js";
-import { isValidWebRequest, isWebPlaceClaims } from "../../reach/web.js";
+import { isValidWebRequest, isWebPlaceClaims, WEB_PLACE_CLAIMS_MAX } from "../../reach/web.js";
 import { isContactStop, isPlaceRuleClaims } from "../../places/rules.js";
 import { isLearnedClaims } from "../../teach/lessons.js";
 import { isJournalActivity } from "../initiative/journal.js";
@@ -92,7 +92,7 @@ export type NominationSourceRefNote = {
 };
 
 export type ThoughtSemanticParseResult =
-  | { ok: true; value: ThoughtSemanticOutput; sourceRefNotes?: readonly NominationSourceRefNote[] }
+  | { ok: true; value: ThoughtSemanticOutput; sourceRefNotes?: readonly NominationSourceRefNote[]; hostNotes?: readonly string[] }
   | { ok: false; code: ThoughtSemanticParseFailureCode; field?: string; epistemicRepairs?: readonly EpistemicDimensionRepair[] };
 
 type SemanticRecord = Record<string, unknown>;
@@ -982,12 +982,38 @@ function validInterests(value: unknown): boolean {
   });
 }
 
+/**
+ * A5-12: an empty optional list is absent, and a list over its limit is cut to it, so one extra entry does not
+ * reject the whole reply (its speech included). Each cut is a Host note; the schema keeps the limits as guidance.
+ */
+const OPTIONAL_LIST_LIMITS: Readonly<Record<string, number>> = { home: HOME_OPS_MAX, webPlaces: WEB_PLACE_CLAIMS_MAX };
+
+function capOptionalLists(input: SemanticRecord): { value: SemanticRecord; notes: string[] } {
+  const notes: string[] = [];
+  let value = input;
+  for (const [key, limit] of Object.entries(OPTIONAL_LIST_LIMITS)) {
+    const list = value[key];
+    if (!Array.isArray(list)) continue;
+    if (list.length === 0) {
+      const { [key]: _absent, ...rest } = value;
+      value = rest;
+      continue;
+    }
+    if (list.length > limit) {
+      value = { ...value, [key]: list.slice(0, limit) };
+      notes.push(`${key}_capped`);
+    }
+  }
+  return { value, notes };
+}
+
 function parseSettlementSemantic(
-  value: SemanticRecord,
+  input: SemanticRecord,
   allowlist: ReadonlySet<string>,
   domusObservationIds: ReadonlySet<string>,
 ): ThoughtSemanticParseResult {
-  const unknown = Object.keys(value).find((key) => ![
+  const { value, notes: hostNotes } = capOptionalLists(input);
+  const unknown =Object.keys(value).find((key) => ![
     "kind", "interactionIntent", "speech", "initiativePreference", "interpretation", "commitments", "workingContextDeltas", "deskDeltas", "concernDeltas",
     "occupancyDeltas", "futureTriggerDeltas", "subscriptionDeltas", "durableNominations", "reflection", "journal", "domusAct", "domusSnapshot", "domusPromise", "domusPromiseSettled", "touch", "correct", "callback", "pin", "card", "face", "quiet", "intents", "home", "pursuits", "nextOwnTime", "webPlaces", "placeRules", "contactStop", "learned", "interests", "growth", "senses", "attention", "night", "forget", "evidenceUse",
   ].includes(key));
@@ -1108,6 +1134,7 @@ function parseSettlementSemantic(
     ok: true,
     value: value as unknown as SettlementSemanticOutput,
     ...(sourceRefNotes.length > 0 ? { sourceRefNotes } : {}),
+    ...(hostNotes.length > 0 ? { hostNotes } : {}),
   };
 }
 
