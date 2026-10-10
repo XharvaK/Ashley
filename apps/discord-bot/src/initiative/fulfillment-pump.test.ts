@@ -1034,3 +1034,60 @@ test("partial success persists first bubble incrementally and finalizes partiall
   assert.equal(finalizations[0].cause, "send_failure");
 });
 
+
+test("fulfillment pump caps an Owner-room reply to the room bubble cap (A6-3)", async () => {
+  const previousSeed = process.env.RA_ROOM_SEED_ACTIVE;
+  const previousRoom = process.env.RA_ROOM_PUBLICATION;
+  process.env.RA_ROOM_SEED_ACTIVE = "true";
+  process.env.RA_ROOM_PUBLICATION = "owner-room-channel";
+  const sentBubbleCounts: number[] = [];
+  try {
+    const bubbles = ["one", "two", "three", "four", "five", "six"].map((text, ordinal) => ({
+      ordinal,
+      text,
+      discordMessageId: null,
+    }));
+    const deps: FulfillmentPumpDependencies = {
+      markDispatchStarted: dispatchBoundaryMarked,
+      claim: async () => ({ deliveries: [{
+        reservationId: 177,
+        draftText: bubbles.map((bubble) => bubble.text).join("\n\n"),
+        bubbles,
+        statusUrl: "/delivery/177",
+        destination: {
+          kind: "room",
+          roomId: "room:owner-guild:owner-room-channel",
+          guildId: "owner-guild",
+          channelId: "owner-room-channel",
+          ownerRoom: true,
+        },
+      }] }),
+      receipt: async () => ({ ok: true }),
+      finalize: async () => ({ state: "committed", finalizationReason: "all_bubbles_delivered", deliveredText: "" }),
+      send: async (_channel, sent) => {
+        sentBubbleCounts.push(sent.length);
+        return {
+          reservationId: 177,
+          attemptedOrdinal: null,
+          receiptedOrdinals: sent.map((_bubble, ordinal) => ordinal),
+          failureCategory: null,
+          anySubstantiveContentVisible: true,
+          messages: sent.map((_bubble, index) => ({ id: `owner-room-${index}` } as Message)),
+        };
+      },
+      recheck: async () => { throw new Error("Owner room must not use external recheck"); },
+      recheckOwnerRoom: async () => ({ ok: true }),
+    };
+    const client = {
+      channels: { fetch: async (id: string) => ({ id, send: async () => ({ id: "owner-room-transport" }) }) },
+      users: { fetch: async () => { throw new Error("DM fallback forbidden"); } },
+    } as unknown as Client;
+    assert.equal(await drainPendingCognitiveDeliveries(client, deps), 1);
+    assert.deepEqual(sentBubbleCounts, [3]);
+  } finally {
+    if (previousSeed === undefined) delete process.env.RA_ROOM_SEED_ACTIVE;
+    else process.env.RA_ROOM_SEED_ACTIVE = previousSeed;
+    if (previousRoom === undefined) delete process.env.RA_ROOM_PUBLICATION;
+    else process.env.RA_ROOM_PUBLICATION = previousRoom;
+  }
+});

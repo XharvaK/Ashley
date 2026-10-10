@@ -4,8 +4,12 @@ function hardSlice(text: string, limit: number): string[] {
   const out: string[] = [];
   let start = 0;
   while (start < text.length) {
-    out.push(text.slice(start, start + limit));
-    start += limit;
+    let end = Math.min(start + limit, text.length);
+    // Never end a bubble on a high surrogate: its low half would open the next bubble as a lone unit.
+    const last = text.charCodeAt(end - 1);
+    if (end < text.length && end - 1 > start && last >= 0xd800 && last <= 0xdbff) end -= 1;
+    out.push(text.slice(start, end));
+    start = end;
   }
   return out;
 }

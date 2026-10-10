@@ -206,7 +206,12 @@ export async function sendBubbles(
     result.anySubstantiveContentVisible = true;
     markFirst();
     result.receiptedOrdinals.push(bubble.ordinal);
-    await options?.onBubbleSent?.(bubble.ordinal, msg);
+    try {
+      await options?.onBubbleSent?.(bubble.ordinal, msg);
+    } catch (receiptError) {
+      // The message is already out. A failed receipt is left for the receipt retry and sweep; the rest still goes out.
+      console.error(`[discord-bot] bubble ${bubble.ordinal} receipt failed; remaining bubbles continue:`, receiptError);
+    }
     if (
       options?.finalDeliveryDeadlineAtMs !== undefined &&
       nowMs() >= options.finalDeliveryDeadlineAtMs

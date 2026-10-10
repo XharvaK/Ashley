@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { Message } from "discord.js";
-import { describeIntake } from "./attachments.js";
+import { MAX_IMAGES, capTurnAttachments, describeIntake } from "./attachments.js";
 
 type FakeAttachment = {
   id?: string;
@@ -351,5 +351,16 @@ describe("describeIntake", () => {
       channelId: "room-channel-1",
     });
     assert.deepEqual(intake.envelope?.mentionIds, []);
+  });
+});
+
+describe("capTurnAttachments (A6-8)", () => {
+  it("caps images and keeps every text ref in order", () => {
+    const image = (n: number) => ({ discordAttachmentId: `img-${n}`, sourceClass: "supplied_image" as const });
+    const text = { discordAttachmentId: "notes", fileName: "notes.txt" };
+    const kept = capTurnAttachments([image(1), image(2), image(3), image(4), image(5), text]);
+    assert.equal(kept.filter((ref) => ref.sourceClass !== undefined).length, MAX_IMAGES);
+    assert.deepEqual(kept.at(-1), text);
+    assert.equal(kept.length, MAX_IMAGES + 1);
   });
 });

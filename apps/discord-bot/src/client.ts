@@ -17,7 +17,7 @@ import {
 } from "./security/gate.js";
 import { handlePracticeRevert } from "./commands/identity.js";
 import { handleSlash } from "./handlers/interactionCreate.js";
-import { handleMessage } from "./handlers/messageCreate.js";
+import { handleMessage, ownerCapturePending } from "./handlers/messageCreate.js";
 import { handleReaction } from "./handlers/reactionAdd.js";
 import { startSchedulerHandoff } from "./initiative/scheduler.js";
 import { startFulfillmentPump } from "./initiative/fulfillment-pump.js";
@@ -25,7 +25,8 @@ import { startPlacePostPump } from "./places/post-pump.js";
 import { startFaceWindow } from "./presence/face-window.js";
 import { reconcilePresence, startPresence } from "./presence.js";
 import { querySocialEligibility } from "./agent-client.js";
-import { createOwnerTransportReconciler } from "./chat/owner-transport-recovery.js";
+import { createOwnerTransportReconciler, startOwnerTransportTimer } from "./chat/owner-transport-recovery.js";
+import { createReidentifyGate } from "./lifecycle/reidentify.js";
 
 export function createClient(): Client {
   const client = new Client({
@@ -34,11 +35,22 @@ export function createClient(): Client {
   });
   const ownerTransportReconciler = createOwnerTransportReconciler(client);
   let ownerTransportReady = Promise.resolve();
+  const reidentify = createReidentifyGate();
+  // A capture that failed while the agent was down is retried at once when it recovers, not only on the timer.
+  ownerCapturePending.onDrained(() => {
+    void ownerTransportReconciler.reconcile("capture-retry");
+  });
 
   client.once(Events.ClientReady, (c) => {
     console.log(`[discord-bot] logged in as ${c.user.tag}`);
+    reidentify.markReady();
     ownerTransportReady = ownerTransportReconciler.reconcile("ready").catch((error) => {
       console.error("[discord-bot] Owner transport startup reconciliation failed; live capture remains active", error);
+    });
+    void ownerCapturePending.flush();
+    startOwnerTransportTimer(() => {
+      void ownerCapturePending.flush();
+      return ownerTransportReconciler.reconcile("timer");
     });
     startSchedulerHandoff(c.user.id);
     startFulfillmentPump(client);
@@ -56,11 +68,20 @@ export function createClient(): Client {
     });
   });
 
+  // A session that could not resume is re-identified: Discord does not replay what was missed, and identify sets no presence.
+  client.on(Events.ShardReady, () => {
+    if (!reidentify.isReidentify()) return;
+    void reconcilePresence(client, "reidentify");
+    ownerTransportReady = ownerTransportReconciler.reconcile("reidentify").catch((error) => {
+      console.error("[discord-bot] Owner transport re-identify reconciliation failed; retry remains available", error);
+    });
+  });
+
   client.on(Events.InteractionCreate, (interaction) => {
     if (interaction.isButton() && interaction.customId.startsWith("practice-revert:")) {
       void handlePracticeRevert(interaction).catch(error => console.error("[discord-bot] practice revert failed", error));
     } else if (interaction.isChatInputCommand()) {
-      void handleSlash(interaction);
+      void handleSlash(interaction).catch((error) => console.error("[discord-bot] slash handling failed", error));
     }
   });
 

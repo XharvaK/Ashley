@@ -415,3 +415,101 @@ test("capture failure leaves no external reference buffered", async () => {
   await handler.flushForTest("dm:ashley-bot:person-1");
   assert.equal(batches, 0);
 });
+
+test("Owner plain text that starts with a slash reaches ingress as text (A6-13)", async () => {
+  const admitted: string[] = [];
+  const handler = createMessageCreateHandler({
+    quietMs: 1,
+    hardCapMs: 10,
+    ingressChat: async (text) => {
+      admitted.push(text);
+    },
+  });
+
+  await handler.handleMessage(ownerMessage("slash-text-1", "/ 2 cents on the rent", {}));
+  await handler.flushForTest("channel-1");
+
+  assert.deepEqual(admitted, ["/ 2 cents on the rent"]);
+});
+
+test("the turn's attachment cap counts images only and never drops a text file (A6-8)", async () => {
+  let admittedAttachments: Array<{ fileName: string; sourceClass?: string }> = [];
+  const handler = createMessageCreateHandler({
+    quietMs: 1,
+    hardCapMs: 10,
+    ingressChat: async (_text, options) => {
+      admittedAttachments = (options?.attachments ?? []) as Array<{ fileName: string; sourceClass?: string }>;
+    },
+  });
+  const images = [1, 2, 3, 4, 5].map((n) => ({
+    id: `img-${n}`,
+    url: `https://cdn.example/img-${n}.png`,
+    contentType: "image/png",
+    name: `img-${n}.png`,
+  }));
+  await handler.handleMessage(message("att-cap-2", "look", [
+    ...images,
+    { id: "notes", url: "https://cdn.example/notes.txt", contentType: "text/plain", name: "notes.txt" },
+  ]));
+  await handler.flushForTest("channel-1");
+
+  const imageRefs = admittedAttachments.filter((ref) => ref.sourceClass !== undefined);
+  const textRefs = admittedAttachments.filter((ref) => ref.sourceClass === undefined);
+  assert.equal(imageRefs.length, 4);
+  assert.deepEqual(textRefs.map((ref) => ref.fileName), ["notes.txt"]);
+});
+
+test("an Owner message held by the pending queue is not buffered and is replayed in order (A6-1)", async () => {
+  const { createOwnerCaptureQueue } = await import("../chat/owner-capture-pending.js");
+  let agentUp = false;
+  const captured: string[] = [];
+  let ingresses = 0;
+  const queue = createOwnerCaptureQueue<{ discordMessageId: string; message: string }>({
+    capture: async (capture) => {
+      if (!agentUp) throw new Error("ECONNREFUSED");
+      captured.push(capture.discordMessageId);
+    },
+    store: { load: () => [], save: () => undefined },
+    schedule: () => undefined,
+    log: { warn: () => undefined, error: () => undefined },
+  });
+  const handler = createMessageCreateHandler({
+    quietMs: 1,
+    hardCapMs: 10,
+    ownerCapture: queue as never,
+    ingressChat: async () => {
+      ingresses += 1;
+    },
+  });
+
+  await handler.handleMessage(ownerMessage("held-1", "first", {}));
+  await handler.handleMessage(ownerMessage("held-2", "second", {}));
+  await handler.flushForTest("channel-1");
+  assert.equal(ingresses, 0);
+  assert.equal(queue.pending(), 2);
+
+  agentUp = true;
+  await queue.flush();
+  assert.deepEqual(captured, ["held-1", "held-2"]);
+  assert.equal(ingresses, 0);
+});
+
+test("a joined Owner turn over the agent limit is sent in parts it accepts, each id once (A6-7)", async () => {
+  const calls: Array<{ text: string; ids: string[] }> = [];
+  const handler = createMessageCreateHandler({
+    quietMs: 1_000,
+    hardCapMs: 5_000,
+    ingressChat: async (text, options) => {
+      calls.push({ text, ids: options?.inboundDiscordMessageIds ?? [] });
+    },
+  });
+
+  await handler.handleMessage(ownerMessage("big-1", "a".repeat(2_500), {}));
+  await handler.handleMessage(ownerMessage("big-2", "b".repeat(2_500), {}));
+  await handler.flushForTest("channel-1");
+
+  assert.ok(calls.length >= 2);
+  for (const call of calls) assert.ok(call.text.length <= 4_000);
+  assert.deepEqual(calls.flatMap((call) => call.ids), ["big-1", "big-2"]);
+  assert.equal(calls.map((call) => call.text).join("").replace(/[^ab]/g, "").length, 5_000);
+});

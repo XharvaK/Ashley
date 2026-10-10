@@ -10,6 +10,7 @@ import { stopPresence } from "./presence.js";
 import { checkGatewayBotAdmission, type GatewayAdmissionResult } from "./gateway/admission.js";
 import { classifyDiscordStartupError } from "./lifecycle/classify.js";
 import { EXIT_CODES } from "./lifecycle/exit-codes.js";
+import { installProcessGuards } from "./lifecycle/process-guards.js";
 import type { Client } from "discord.js";
 
 const DRAIN_MS = 3000;
@@ -115,5 +116,6 @@ if (
   process.argv[1] &&
   (process.argv[1].endsWith("index.ts") || process.argv[1].endsWith("index.js"))
 ) {
+  installProcessGuards();
   void runDiscordMain();
 }

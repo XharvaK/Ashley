@@ -38,6 +38,20 @@ export type ExternalEnvelopeTransport = {
  */
 export const MAX_IMAGES = 4;
 
+/**
+ * One turn keeps at most MAX_IMAGES images. Text files are passive and small, so every
+ * text ref stays: a file must never be dropped while the note says she ingested it.
+ * Images are the refs that carry a sourceClass.
+ */
+export function capTurnAttachments<T extends { sourceClass?: unknown }>(refs: readonly T[]): T[] {
+  let images = 0;
+  return refs.filter((ref) => {
+    if (ref.sourceClass === undefined) return true;
+    images += 1;
+    return images <= MAX_IMAGES;
+  });
+}
+
 const IMAGE_TYPES = /^image\/(png|jpeg|jpg|webp|gif|avif)$/i;
 export const TEXT_MIME = /^(?:text\/(?:plain|markdown|x-markdown|csv)|application\/(?:x-)?(?:markdown|json|csv))$/i;
 const PASSIVE_TEXT_EXTS = new Set([".txt", ".md", ".markdown", ".json", ".csv"]);
