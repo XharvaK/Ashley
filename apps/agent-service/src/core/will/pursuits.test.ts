@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { openTestSidecar } from "../cognitive-v021/test-support.js";
 import {
-  applyPursuitOps, dueOwnTime, isOwnTimeClaim, isPursuitOps, recordOwnTime, takeDueOwnTime, willForThought,
+  applyPursuitOps, dueOwnTime, isOwnTimeClaim, isPursuitOps, markOwnTimeFired, recordOwnTime, takeDueOwnTime, willForThought,
   OWN_TIME_MIN_AHEAD_MS, PURSUITS_ACTIVE_MAX,
 } from "./pursuits.js";
 
@@ -58,7 +58,12 @@ describe("D1 her clock", () => {
       expect(willForThought(db, NOW)!.ownTime).toEqual([{ atMs: NOW + 2 * HOUR, for: "finish the Porter Ricks note", pursuitId: "pursuit:1" }]);
       expect(dueOwnTime(db, NOW + HOUR)).toEqual([]);
       expect(dueOwnTime(db, NOW + 2 * HOUR)).toHaveLength(1);
-      expect(takeDueOwnTime(db, NOW + 2 * HOUR)).toEqual([{ atMs: NOW + 2 * HOUR, for: "finish the Porter Ricks note", pursuitId: "pursuit:1" }]);
+      const served: string[] = [];
+      expect(takeDueOwnTime(db, NOW + 2 * HOUR, served)).toEqual([{ atMs: NOW + 2 * HOUR, for: "finish the Porter Ricks note", pursuitId: "pursuit:1" }]);
+      // Serving the wish does not settle it: a pass that fails leaves it due.
+      expect(served).toHaveLength(1);
+      expect(dueOwnTime(db, NOW + 3 * HOUR)).toHaveLength(1);
+      markOwnTimeFired(db, served, NOW + 2 * HOUR);
       expect(dueOwnTime(db, NOW + 3 * HOUR)).toEqual([]);
       expect(isOwnTimeClaim({ atMs: NOW + OWN_TIME_MIN_AHEAD_MS, for: "x" })).toBe(true);
       expect(isOwnTimeClaim({ atMs: NOW, for: "" })).toBe(false);
@@ -85,7 +90,10 @@ describe("D1 a time she asked for wakes her own time", () => {
       expect(ran).toEqual(["awake"]);
       const agenda = buildInnerAgenda(db, { kind: "awake", slot: 1, sinceMs: 0 }, NOW + HOUR);
       expect(agenda.ownTimeDue).toEqual([{ atMs: NOW + HOUR, for: "read the Chain Reaction page" }]);
-      expect(buildInnerAgenda(db, { kind: "awake", slot: 2, sinceMs: 0 }, NOW + 2 * HOUR).ownTimeDue).toBeUndefined();
+      // The pass did not settle, so the wish is still due and shown again.
+      expect(buildInnerAgenda(db, { kind: "awake", slot: 2, sinceMs: 0 }, NOW + 2 * HOUR).ownTimeDue).toEqual([{ atMs: NOW + HOUR, for: "read the Chain Reaction page" }]);
+      markOwnTimeFired(db, due.map(wish => wish.wishId), NOW + HOUR);
+      expect(buildInnerAgenda(db, { kind: "awake", slot: 3, sinceMs: 0 }, NOW + 3 * HOUR).ownTimeDue).toBeUndefined();
     } finally { db.close(); }
   });
 });

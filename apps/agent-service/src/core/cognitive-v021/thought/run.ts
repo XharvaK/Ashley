@@ -193,6 +193,7 @@ import {
 import { awakePassFromPayload, nightPassFromPayload } from "../initiative/inner-pass.js";
 import { buildInnerAgenda } from "../initiative/agenda.js";
 import { lastTurnHostFact, recordTurnHostNotes, type TurnHostNote } from "./turn-facts.js";
+import { markOwnTimeFired } from "../../will/pursuits.js";
 import { recordSettlementAftermath, type AftermathContext } from "./aftermath.js";
 import {
   applySemanticForget,
@@ -3655,6 +3656,8 @@ async function runCognitiveCycleAttempt(
     // DPLAY: an Owner message while the game is live: her Discord turn reads the live menu and may act from it.
     const domusLive = originProfile.triggerKind === "owner_message" && effectiveThoughtAudience.kind === "owner_private"
       && !externalCycle && env.domusActEnabled ? domusLiveForOwner(sidecar, deps.nowMs()) : undefined;
+    // A4-3: the own-time wishes this pass shows; they are marked fired only if the pass settles.
+    const awakeWishIds: string[] = [];
     const thoughtInputOptions = {
       sidecar,
       cycle,
@@ -3700,7 +3703,7 @@ async function runCognitiveCycleAttempt(
       ...(afterglowPass ? { innerPass: afterglowInnerPass(sidecar, afterglowPass) } : {}),
       ...(awakePass ? { innerPass: { kind: "awake" as const, agenda: buildInnerAgenda(sidecar, awakePass, deps.nowMs(),
         effectiveThoughtAudience.kind === "owner_private" && !externalCycle && deps.origin !== "shadow" && deps.identityOwnerId
-          ? { cycleId: cycle.cycleId, ownerId: deps.identityOwnerId } : undefined) } } : {}),
+          ? { cycleId: cycle.cycleId, ownerId: deps.identityOwnerId } : undefined, awakeWishIds) } } : {}),
       ...(nightPass ? {
         innerPass: {
           kind: "night" as const,
@@ -5073,6 +5076,7 @@ async function runCognitiveCycleAttempt(
     });
     // A1-1: the published pass is the one whose promises stay live.
     if (publication.published && commitmentProposals.length > 0) commitments.adoptedRef = commitmentSettlementRef(cycle, pass);
+    if (publication.published) markOwnTimeFired(sidecar, awakeWishIds, deps.nowMs());
     if (!publication.published) {
       const raced = stopForOwnerAnswer(getThoughtAttemptCounters(sidecar, cycle.cycleId, cycle.generation));
       if (raced) return raced;

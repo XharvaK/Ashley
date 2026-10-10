@@ -10,6 +10,7 @@ import {
 import { appendAshleyEvidence, appendExternalUtteranceInTransaction, appendOwnerUtterance } from "../evidence/conversation-log.js";
 import { evaluateAfterglow, tickAfterglow } from "../initiative/afterglow.js";
 import { AWAKE_FIRST_DELAY_MS, tickAwake } from "../initiative/awake.js";
+import { dueOwnTime } from "../../will/pursuits.js";
 import { listRecentJournal } from "../initiative/journal.js";
 import { UNSOLICITED_FUSE_LIMIT } from "../initiative/reach-out.js";
 import { listInterestBranches } from "../memory/interests.js";
@@ -3271,5 +3272,38 @@ describe("F2 her next pass sees the web requests of a turn that did not settle",
     const next = await turnWithPost(true);
     expect(next).not.toContain("did not settle");
     expect(next).not.toContain("fixture-web.example");
+  });
+});
+
+describe("A4-3 an own-time wish is fired only when the pass that serves it settles", () => {
+  it.each([false, true])("leaves the wish due when the awake pass does not settle, and fires it when it settles (settles=%s)", async (settles) => {
+    const NOW = Date.UTC(2026, 8, 29, 14, 0);
+    const sidecar = openTestSidecar();
+    const attentionDb = openTestSidecar();
+    const nuclear = openNuclearDb(new DatabaseSync(":memory:"));
+    const conversationId = `thread-own-time-${settles}`;
+    sidecar.prepare(`INSERT INTO own_time_wishes (wish_id, cycle_id, want_at_ms, reason, pursuit_id, state, created_at_ms)
+      VALUES ('wish:garden', 'cycle-where-asked', ?, 'ask about the garden', NULL, 'pending', ?)`).run(NOW - 60_000, NOW - 120_000);
+    const completeChat = vi.fn<KernelDeps["completeChat"]>(async () => ({
+      text: settles
+        ? JSON.stringify(makeSemanticSettlement({ speech: { mode: "none" }, commitments: {} }))
+        : "this is not a settlement",
+      model: "fake", modelAlias: "thought", resolvedModelId: null,
+    }));
+    const thought = async (input: { event: import("../types.js").InboxEvent | null }) =>
+      runCognitiveCycle(sidecar, nuclear, input.event!, deps({ attentionDb, completeChat, nowMs: () => NOW }));
+    try {
+      expect(await tickAwake(sidecar, { conversationId, occupantId: "doc", authorityEpoch: 1, nowMs: NOW - AWAKE_FIRST_DELAY_MS, thought }))
+        .toMatchObject({ outcome: "scheduled" });
+      await tickAwake(sidecar, { conversationId, occupantId: "doc", authorityEpoch: 1, nowMs: NOW, thought });
+      expect(completeChat).toHaveBeenCalled();
+      expect(sidecar.prepare("SELECT state FROM own_time_wishes WHERE wish_id = 'wish:garden'").get())
+        .toEqual({ state: settles ? "fired" : "pending" });
+      expect(dueOwnTime(sidecar, NOW).map((wish) => wish.wishId)).toEqual(settles ? [] : ["wish:garden"]);
+    } finally {
+      sidecar.close();
+      attentionDb.close();
+      nuclear.close();
+    }
   });
 });
