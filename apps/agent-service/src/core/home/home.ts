@@ -140,16 +140,16 @@ function applyOne(root: string, op: HomeOp, nowMs: number): HomeOpResult {
   }
 }
 
-/** Apply her ops in order, once per cycle; each result is kept for her next turns. */
+/** Apply her ops in order, once per op: an op whose result is already recorded for this cycle is skipped on replay. */
 export function applyHomeOps(sidecar: DatabaseSync, root: string, input: { cycleId: string; ops: readonly HomeOp[]; nowMs: number }): HomeOpResult[] {
   ensureRoot(root);
-  const done = sidecar.prepare("SELECT 1 FROM home_ops WHERE cycle_id = ? LIMIT 1").get(input.cycleId);
-  if (done) return [];
+  const done = sidecar.prepare("SELECT 1 FROM home_ops WHERE cycle_id = ? AND ordinal = ?");
   const insert = sidecar.prepare("INSERT OR IGNORE INTO home_ops (cycle_id, ordinal, op, path, ok, reason, at_ms) VALUES (?, ?, ?, ?, ?, ?, ?)");
-  return input.ops.slice(0, HOME_OPS_MAX).map((op, ordinal) => {
+  return input.ops.slice(0, HOME_OPS_MAX).flatMap((op, ordinal) => {
+    if (done.get(input.cycleId, ordinal)) return [];
     const result = applyOne(root, op, input.nowMs);
     insert.run(input.cycleId, ordinal, result.op, result.path, result.ok ? 1 : 0, result.reason ?? null, input.nowMs);
-    return result;
+    return [result];
   });
 }
 
