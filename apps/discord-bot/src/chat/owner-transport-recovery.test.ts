@@ -135,3 +135,43 @@ test("history API failure leaves the durable cursor untouched", async () => {
     config.ownerId = previousOwnerId;
   }
 });
+
+test("history reconcile keeps an Owner message that starts with a slash (A6-13)", async () => {
+  const captured: string[][] = [];
+  const message = {
+    id: "slash-history-1",
+    content: "/ 2 cents on the rent",
+    author: { id: config.ownerId, bot: false },
+    channel: { id: "dm-channel" },
+    guild: null,
+    createdTimestamp: 1_700_000_000_000,
+    attachments: new Map(),
+    stickers: new Map(),
+    embeds: [],
+    mentions: { users: new Map() },
+  };
+  const history = new Map([[message.id, message]]);
+  const client = {
+    user: { id: "ashley-bot" },
+    users: {
+      fetch: async () => ({
+        createDM: async () => ({ messages: { fetch: async () => history } }),
+      }),
+    },
+  } as never;
+  const api: OwnerTransportRecoveryApi = {
+    state: async (surface) => ({ initialized: true, surfaceKey: `dm:${surface.channelId}`, afterMessageId: "0" }),
+    historyPage: async (input) => {
+      captured.push(input.messages.map((item) => item.message));
+      return { accepted: true, surfaceKey: "dm", afterMessageId: input.nextAfterMessageId, newlyCaptured: input.messages.length, duplicates: 0 };
+    },
+    pending: async () => [],
+    admitted: async () => ({ ok: true, marked: 0, alreadyAdmitted: 0 }),
+    ingress: async () => undefined,
+    capture: async () => ({ captured: true, duplicate: false, surfaceKey: "dm" }),
+  } as never;
+
+  await reconcileOwnerTransportSurface(client, { channelId: "dm-channel" }, api, "test");
+
+  assert.deepEqual(captured, [["/ 2 cents on the rent"]]);
+});

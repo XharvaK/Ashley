@@ -174,7 +174,6 @@ function snapshotForHistory(
   if (!isAllowedMessage(message)) return null;
   const route = ownerIngressRouteForMessage(message);
   if (route.kind === "reject_owner_guild") return null;
-  if (message.content.trim().startsWith("/")) return null;
   const intake = describeIntake(message);
   if (!intake.text && !hasIngestibleTextAttachment(intake)) return null;
   if (!Number.isSafeInteger(message.createdTimestamp) || message.createdTimestamp < 0) {

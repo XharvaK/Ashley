@@ -207,7 +207,7 @@ export function createMessageCreateHandler(options: {
 
   return {
     async handleMessage(message: Message, context?: MessageSocialContext): Promise<void> {
-      if (message.content.trim().startsWith("/")) return;
+      // Slash commands arrive as interactions, so a "/" message is plain text and goes on to her.
       if (context?.gateVerdict === "drop") return;
       const key = typeof message.channel?.id === "string" ? message.channel.id : "";
       const reading = (options.readMedia ?? readMedia)(message).catch(() => undefined);

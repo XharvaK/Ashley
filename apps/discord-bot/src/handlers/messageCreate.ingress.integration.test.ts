@@ -415,3 +415,19 @@ test("capture failure leaves no external reference buffered", async () => {
   await handler.flushForTest("dm:ashley-bot:person-1");
   assert.equal(batches, 0);
 });
+
+test("Owner plain text that starts with a slash reaches ingress as text (A6-13)", async () => {
+  const admitted: string[] = [];
+  const handler = createMessageCreateHandler({
+    quietMs: 1,
+    hardCapMs: 10,
+    ingressChat: async (text) => {
+      admitted.push(text);
+    },
+  });
+
+  await handler.handleMessage(ownerMessage("slash-text-1", "/ 2 cents on the rent", {}));
+  await handler.flushForTest("channel-1");
+
+  assert.deepEqual(admitted, ["/ 2 cents on the rent"]);
+});
