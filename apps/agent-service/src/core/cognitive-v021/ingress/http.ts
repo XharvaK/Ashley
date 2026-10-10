@@ -367,7 +367,8 @@ export type ExternalBatchItemResult = {
     | "quarantined_external"
     | "already_batched"
     | "capture_missing"
-    | "capture_invalid";
+    | "capture_invalid"
+    | "capture_retryable";
   notificationQueued?: boolean;
   reason?: string;
 };
@@ -995,7 +996,9 @@ export function admitExternalBatch(
             ? initialContactQuarantineReason(bundle, location.location)
             : "ineligible_current_authority";
         } catch {
-          reason = "db_error";
+          // A failed read is not a verdict: no outcome is written, so the unbatched sweep retries the capture.
+          results.push({ captureRef, disposition: "capture_retryable", reason: "db_error" });
+          continue;
         }
       }
 
