@@ -23,6 +23,8 @@ import {
 
 export const SOFT_POLL_MS = 5_000;
 const DISCORD_LIMIT = 2_000;
+/** Same word as the agent side: a face chosen asleep or in the game is worn at wake, so it is not done yet. */
+export const SOFT_REASON_WORN_AT_WAKE = "worn_at_wake";
 
 export type SoftOutcome = { status: "done" | "refused" | "failed"; reason?: string };
 
@@ -55,20 +57,22 @@ async function wearFace(deps: SoftDeps, wardrobeId: string): Promise<SoftOutcome
   if (now < memory.backoffUntilMs || recent.length >= AVATAR_CHANGES_PER_DAY) return { status: "refused", reason: "avatar_rate_limited" };
   memory.chosenId = id;
   // Asleep, or while the game is live and her face is her Sim's mood: chosen now, worn after.
-  if (!memory.sleeping && !memory.bodyWorn) {
-    try {
-      await deps.setAvatar(bytes);
-    } catch (error) {
-      if (isDiscordRateLimit(error)) {
-        memory.backoffUntilMs = now + AVATAR_BACKOFF_MS;
-        saveFaceMemory(memory, deps.dataDir);
-        return { status: "refused", reason: "avatar_rate_limited" };
-      }
-      throw error;
-    }
-    memory.avatarId = id;
-    memory.avatarChangeAtMs = [...recent, now];
+  if (memory.sleeping || memory.bodyWorn) {
+    saveFaceMemory(memory, deps.dataDir);
+    return { status: "done", reason: SOFT_REASON_WORN_AT_WAKE };
   }
+  try {
+    await deps.setAvatar(bytes);
+  } catch (error) {
+    if (isDiscordRateLimit(error)) {
+      memory.backoffUntilMs = now + AVATAR_BACKOFF_MS;
+      saveFaceMemory(memory, deps.dataDir);
+      return { status: "refused", reason: "avatar_rate_limited" };
+    }
+    throw error;
+  }
+  memory.avatarId = id;
+  memory.avatarChangeAtMs = [...recent, now];
   saveFaceMemory(memory, deps.dataDir);
   return { status: "done" };
 }

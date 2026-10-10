@@ -108,7 +108,7 @@ describe("UX W3 Face (body): her avatar follows her Sim's mood while the game is
       dataDir,
       nowMs: () => NOW,
     });
-    assert.deepEqual(outcome, { status: "done" });
+    assert.deepEqual(outcome, { status: "done", reason: "worn_at_wake" });
     assert.equal(set.length, 0);
     assert.equal(loadFaceMemory(dataDir).chosenId, "avatar/weather-rain.png");
   });
