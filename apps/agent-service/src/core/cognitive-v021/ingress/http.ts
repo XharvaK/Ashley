@@ -1,4 +1,5 @@
 import { recordDiscordNames } from "../../places/places.js";
+import { AppError } from "../../../errors.js";
 import { randomUUID } from "node:crypto";
 import type express from "express";
 import type { DatabaseSync } from "node:sqlite";
@@ -1123,9 +1124,27 @@ export function createCognitiveIngressHandler(options: {
       });
       res.status(202).json(result);
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      const status = message === "owner_required" ? 403 : message === "message_too_long" ? 400 : 400;
-      res.status(status).json({ error: message });
+      const mapped = cognitiveIngressErrorResponse(error);
+      res.status(mapped.status).json(mapped.body);
     }
   };
+}
+
+const COGNITIVE_INGRESS_INPUT_CODES = new Set([
+  "message_required",
+  "message_too_long",
+  "source_sent_at_invalid",
+  "channel_retired",
+]);
+
+/** Short codes only: the raw message of an internal failure stays in the log, not in the reply. */
+function cognitiveIngressErrorResponse(error: unknown): { status: number; body: { error: string; code: string } } {
+  if (error instanceof AppError) {
+    return { status: error.httpStatus, body: { error: error.code, code: error.code } };
+  }
+  const message = error instanceof Error ? error.message : "";
+  if (message === "owner_required") return { status: 403, body: { error: "forbidden", code: "forbidden" } };
+  if (COGNITIVE_INGRESS_INPUT_CODES.has(message)) return { status: 400, body: { error: message, code: message } };
+  console.error("[agent-service] cognitive ingress failed:", error);
+  return { status: 500, body: { error: "internal_error", code: "internal_error" } };
 }
