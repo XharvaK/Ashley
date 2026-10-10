@@ -80,7 +80,12 @@ function people(value: unknown): Set<string> {
   if (!Array.isArray(value)) return result;
   for (const item of value) {
     const person = record(item);
-    if (person?.on_lot === true) result.add(String(scalar(person.name) ?? scalar(person.id) ?? "someone").slice(0, 120));
+    if (person?.on_lot !== true) continue;
+    // SS4-v2: a Sim she only hears has no name or id, just the helper's keyed handle; a short tag of it keeps
+    // two strangers apart, so one leaving while another comes is a change.
+    const handle = person.heard === true ? scalar(person.handle) : undefined;
+    const label = handle !== undefined ? `someone heard (#${String(handle).slice(0, 4)})` : String(scalar(person.name) ?? scalar(person.id) ?? "someone");
+    result.add(label.slice(0, 120));
   }
   return result;
 }

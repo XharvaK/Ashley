@@ -36,6 +36,15 @@ describe("H0.4 what changed since her last pass", () => {
     });
   });
 
+  it("tells two heard strangers apart by their handle, so one leaving while another comes is a change", () => {
+    const heard = (handle: string) => ({ heard: true, handle, room: "4", distance_m: 6, on_lot: true });
+    const was = { ...base, company: [heard("a1b2c3d4")] };
+    const now = { ...base, company: [heard("e5f6a7b8")] };
+    expect(compareDomusReads({ portrait: was, options: [] }, { portrait: now, options: [] }, quietInput).people)
+      .toEqual({ gained: ["someone heard (#e5f6)"], lost: ["someone heard (#a1b2)"] });
+    expect(compareDomusReads({ portrait: was, options: [] }, { portrait: { ...was }, options: [] }, quietInput).people).toBeUndefined();
+  });
+
   it("counts act news, other portrait parts, a new lot, senses it does not compare and urgency", () => {
     const now = { ...base, self: { money: 80 }, zone: { lot_id: "L2", room: "3", zone_id: "Z" }, place: { her_home: false }, paused: true, more_nearby: true };
     const changes = compareDomusReads({ portrait: base, options: [] }, { portrait: now, options: [] },
