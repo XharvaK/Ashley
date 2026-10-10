@@ -1,5 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
-import { waitForLocks } from "../sqlite-locks.js";
+import { applyJournalModePolicy, waitForLocks } from "../sqlite-locks.js";
 import { randomUUID } from "node:crypto";
 import {
   isReservedProductionStoragePath,
@@ -20,6 +20,7 @@ export function openContinuityDb(
     throw continuityError("data_plane_required");
   }
   waitForLocks(existing);
+  applyJournalModePolicy(existing);
   const rows = existing.prepare("PRAGMA database_list").all() as Array<{
     name?: string;
     file?: string;

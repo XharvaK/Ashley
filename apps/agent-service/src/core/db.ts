@@ -5,7 +5,8 @@ import { existsSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
-import { waitForLocks } from "./sqlite-locks.js";
+import { applyJournalModePolicy, waitForLocks } from "./sqlite-locks.js";
+import { takePreMigrationCopy } from "./pre-migration-copy.js";
 import {
   dataPlaneOwnsFile,
   isolatedPlaneForFile,
@@ -1496,6 +1497,33 @@ export function migrate(
   if (options.continuity) {
     reconcilePendingNuclearMigration(db, options.continuity);
   }
+  // One consistent copy before any pending step runs, so a bad migration can be undone by hand.
+  // Fresh (version 0) and fully current databases need none.
+  const fromVersion = userVersion(db);
+  if (fromVersion >= 1 && fromVersion < NUCLEAR_SUPPORTED_VERSION) {
+    const dataDir = preMigrationDataDir(db, options.dataPlane);
+    if (dataDir) {
+      const copyPath = takePreMigrationCopy({
+        source: db,
+        dataDir,
+        db: "nuclear",
+        fromVersion,
+      });
+      const lineageId = nuclearLineageMirrorId(db);
+      if (options.continuity && lineageId) {
+        recordContinuityEvent(options.continuity, {
+          kind: "migration",
+          lineageId,
+          detail: {
+            phase: "snapshot",
+            from: fromVersion,
+            to: NUCLEAR_SUPPORTED_VERSION,
+            path: copyPath,
+          },
+        });
+      }
+    }
+  }
   if (userVersion(db) < 1) {
     db.exec("BEGIN IMMEDIATE");
     try {
@@ -1748,34 +1776,6 @@ export function migrate(
         adoptIfMissing: true,
       }).lineageId;
     }
-    // One consistent pre-migration snapshot per upgrade run — production nuclear path only.
-    const snapshotDir = nuclearSnapshotDir(db, options.dataPlane);
-    if (snapshotDir) {
-        const snapshotPath = allocateSnapshotPath(
-          snapshotDir,
-          `nuclear-v${priorVersion}-pre13`,
-        );
-        try {
-          const escaped = snapshotPath.replace(/'/g, "''");
-          db.exec(`VACUUM INTO '${escaped}'`);
-        } catch (error) {
-          throw new Error(
-            `pre_migration_snapshot_failed:${
-              error instanceof Error ? error.message : "vacuum_failed"
-            }`,
-          );
-        }
-        recordContinuityEvent(continuity, {
-          kind: "migration",
-          lineageId,
-          detail: {
-            phase: "snapshot",
-            from: priorVersion,
-            to: 13,
-            path: snapshotPath,
-          },
-        });
-    }
     recordContinuityEvent(continuity, {
       kind: "migration",
       lineageId,
@@ -1853,33 +1853,6 @@ export function migrate(
         buildIdentity: currentBuildIdentity(),
       },
     );
-    const snapshotDir = nuclearSnapshotDir(db, options.dataPlane);
-    if (snapshotDir) {
-        const snapshotPath = allocateSnapshotPath(
-          snapshotDir,
-          `nuclear-v${priorVersion}-pre14`,
-        );
-        try {
-          const escaped = snapshotPath.replace(/'/g, "''");
-          db.exec(`VACUUM INTO '${escaped}'`);
-        } catch (error) {
-          throw new Error(
-            `pre_migration_snapshot_failed:${
-              error instanceof Error ? error.message : "vacuum_failed"
-            }`,
-          );
-        }
-        recordContinuityEvent(continuity, {
-          kind: "migration",
-          lineageId,
-          detail: {
-            phase: "snapshot",
-            from: priorVersion,
-            to: 14,
-            path: snapshotPath,
-          },
-        });
-    }
     recordContinuityEvent(continuity, {
       kind: "migration",
       lineageId,
@@ -1964,33 +1937,6 @@ export function migrate(
         buildIdentity: currentBuildIdentity(),
       },
     );
-    const snapshotDir = nuclearSnapshotDir(db, options.dataPlane);
-    if (snapshotDir) {
-        const snapshotPath = allocateSnapshotPath(
-          snapshotDir,
-          `nuclear-v${priorVersion}-pre15`,
-        );
-        try {
-          const escaped = snapshotPath.replace(/'/g, "''");
-          db.exec(`VACUUM INTO '${escaped}'`);
-        } catch (error) {
-          throw new Error(
-            `pre_migration_snapshot_failed:${
-              error instanceof Error ? error.message : "vacuum_failed"
-            }`,
-          );
-        }
-        recordContinuityEvent(continuity, {
-          kind: "migration",
-          lineageId,
-          detail: {
-            phase: "snapshot",
-            from: priorVersion,
-            to: 15,
-            path: snapshotPath,
-          },
-        });
-    }
     recordContinuityEvent(continuity, {
       kind: "migration",
       lineageId,
@@ -2514,37 +2460,7 @@ export function migrate(
 
     let transactionOpened = false;
     try {
-      // 1. Create VACUUM INTO pre-v22 snapshot for the real file-backed DB.
-      const snapshotDir = nuclearSnapshotDir(db, options.dataPlane);
-      if (snapshotDir) {
-        const snapshotPath = allocateSnapshotPath(
-          snapshotDir,
-          `nuclear-v${priorVersion}-pre22`,
-        );
-        try {
-          const escaped = snapshotPath.replace(/'/g, "''");
-          db.exec(`VACUUM INTO '${escaped}'`);
-        } catch (error) {
-          throw new Error(
-            `pre_migration_snapshot_failed:${
-              error instanceof Error ? error.message : "vacuum_failed"
-            }`,
-          );
-        }
-        if (continuity && mirrorRow?.lineage_id) {
-          recordContinuityEvent(continuity, {
-            kind: "migration",
-            lineageId: mirrorRow.lineage_id,
-            detail: {
-              phase: "snapshot",
-              from: priorVersion,
-              to: 22,
-              path: snapshotPath,
-            },
-          });
-        }
-      }
-
+      // 1. The pre-migration copy is taken once per run in migrate(), before any step.
       if (continuity && mirrorRow?.lineage_id) {
         recordContinuityEvent(continuity, {
           kind: "migration",
@@ -3565,30 +3481,19 @@ function nuclearMainFile(db: DatabaseSync): string | null {
   return file.length > 0 ? file : null;
 }
 
-function nuclearSnapshotDir(
+/**
+ * The data directory whose backups/pre-migrate folder receives the copy. Null for memory and for
+ * file-backed test databases outside the production data directory, which get no copy.
+ */
+function preMigrationDataDir(
   db: DatabaseSync,
   plane?: DataPlaneContext,
 ): string | null {
-  if (plane) return plane.migrationBackupsDir;
+  if (plane) return plane.dataDir;
   const mainFile = nuclearMainFile(db);
   if (!mainFile) return null;
-  if (isReservedProductionStoragePath(mainFile)) {
-    return join(reservedProductionDataDir(), "migration-backups");
-  }
+  if (isReservedProductionStoragePath(mainFile)) return reservedProductionDataDir();
   return null;
-}
-
-function allocateSnapshotPath(dir: string, basenamePrefix: string): string {
-  mkdirSync(dir, { recursive: true });
-  for (let i = 0; i < 32; i += 1) {
-    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-    const snapshotPath = join(
-      dir,
-      `${basenamePrefix}-${stamp}-${randomUUID().slice(0, 8)}.db`,
-    );
-    if (!existsSync(snapshotPath)) return snapshotPath;
-  }
-  throw new Error("pre_migration_snapshot_failed:unique_path_exhausted");
 }
 
 function assertNuclearOpenAllowed(
@@ -3668,6 +3573,7 @@ export function openNuclearDb(
     throw err;
   }
   waitForLocks(existing);
+  applyJournalModePolicy(existing);
   const resolved = resolveMigrateOptions(existing, options);
   assertNuclearOpenAllowed(nuclearMainFile(existing), resolved.dataPlane);
   const mainFile = nuclearMainFile(existing);
