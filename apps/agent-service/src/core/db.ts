@@ -1180,45 +1180,22 @@ function nuclearLineageMirrorId(db: DatabaseSync): string | null {
   return lineageId.length > 0 ? lineageId : null;
 }
 
+/**
+ * A pending nuclear step is recoverable when it is the next single step of the schema ladder, from the
+ * first step that writes a pending record (22 to 23) up to the supported version. A rule, not a list:
+ * every new step is recoverable the moment it ships, with no allowlist edit to forget.
+ */
+export function isRecoverableNuclearMigrationPair(from: number, to: number): boolean {
+  return Number.isInteger(from) && from >= 22 && to === from + 1 && to <= NUCLEAR_SUPPORTED_VERSION;
+}
+
 function reconcilePendingNuclearMigration(
   db: DatabaseSync,
   continuity: DatabaseSync,
 ): void {
   const pending = getPendingNuclearMigration(continuity);
   if (!pending) return;
-  if (
-    (pending.from !== 22 || pending.to !== 23) &&
-    (pending.from !== 23 || pending.to !== 24) &&
-    (pending.from !== 24 || pending.to !== 25) &&
-    (pending.from !== 25 || pending.to !== 26) &&
-    (pending.from !== 26 || pending.to !== 27) &&
-    (pending.from !== 27 || pending.to !== 28) &&
-    (pending.from !== 28 || pending.to !== 29) &&
-    (pending.from !== 29 || pending.to !== 30) &&
-    (pending.from !== 30 || pending.to !== 31) &&
-    (pending.from !== 31 || pending.to !== 32) &&
-    (pending.from !== 32 || pending.to !== 33) &&
-    (pending.from !== 33 || pending.to !== 34) &&
-    (pending.from !== 34 || pending.to !== 35) &&
-    (pending.from !== 35 || pending.to !== 36) &&
-    (pending.from !== 36 || pending.to !== 37) &&
-    (pending.from !== 37 || pending.to !== 38) &&
-    (pending.from !== 38 || pending.to !== 39) &&
-    (pending.from !== 39 || pending.to !== 40) &&
-    (pending.from !== 40 || pending.to !== 41) &&
-    (pending.from !== 41 || pending.to !== 42) &&
-    (pending.from !== 42 || pending.to !== 43) &&
-    (pending.from !== 43 || pending.to !== 44) &&
-    (pending.from !== 44 || pending.to !== 45) &&
-    (pending.from !== 45 || pending.to !== 46) &&
-    (pending.from !== 46 || pending.to !== 47) &&
-    (pending.from !== 47 || pending.to !== 48) &&
-    (pending.from !== 48 || pending.to !== 49) &&
-    (pending.from !== 49 || pending.to !== 50) &&
-    (pending.from !== 50 || pending.to !== 51) &&
-    (pending.from !== 51 || pending.to !== 52) &&
-    (pending.from !== 52 || pending.to !== 53)
-  ) {
+  if (!isRecoverableNuclearMigrationPair(pending.from, pending.to)) {
     throw new Error("continuity_pending_migration_unsupported");
   }
   const mirrorLineageId = nuclearLineageMirrorId(db);
