@@ -15,6 +15,7 @@ import {isThalamusEnabled} from "./core/cognitive-v021/thalamus/scheduler.js";
 import {THALAMUS_PARAMETERS} from "./core/cognitive-v021/thalamus/parameters.js";
 import { isPeriodicCognitionEnabled } from "./core/cognitive-v021/dispatch/live.js";
 import { env, nuclearIdentityOwnerId } from "./env.js";
+import { installConsoleRedaction, registerSecretValues } from "./core/privacy/redact-logs.js";
 import { createServer, listen } from "./server.js";
 import { completeChat } from "./mistral-client.js";
 import { checkAuthority } from "./core/cognitive-v021/authority/check.js";
@@ -229,6 +230,23 @@ export async function shutdownAgent(
 }
 
 export async function serveAgent(manager: AgentManager): Promise<void> {
+  // A13-14: every line this process prints goes through the redactor, and the
+  // secrets it holds are matched literally, whatever shape they take.
+  registerSecretValues([
+    env.agentServiceToken,
+    env.domusHelperToken,
+    process.env.DISCORD_BOT_TOKEN,
+    env.commandCodeApiKey,
+    env.mistralApiKey,
+    env.mistralApiKeySecondary,
+    env.groqApiKey,
+    env.nimApiKey,
+    env.tavilyApiKey,
+    env.cloudflareApiToken,
+    env.opencodeZenApiKey,
+    env.wordWatchWebhook,
+  ]);
+  installConsoleRedaction();
   let cognitiveSidecar: DatabaseSync | null = null;
   let cognitiveConsumer: InboxConsumerHandle | null = null;
   let selfChangeResultMaintenance: SelfChangeResultMaintenance | null = null;
