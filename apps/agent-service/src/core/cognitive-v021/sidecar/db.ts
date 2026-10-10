@@ -1,8 +1,10 @@
 import { validateA3SidecarSchema } from "../../cognition/schema-contract.js";
 import { DatabaseSync } from "node:sqlite";
-import { waitForLocks } from "../../sqlite-locks.js";
+import { applyJournalModePolicy, waitForLocks } from "../../sqlite-locks.js";
+import { takePreMigrationCopy } from "../../pre-migration-copy.js";
 import {
   isReservedProductionStoragePath,
+  reservedProductionDataDir,
   type DataPlaneContext,
 } from "../../data-plane.js";
 import {
@@ -95,7 +97,8 @@ import {
 import { recoverCognitiveSidecar } from "./recovery.js";
 import { cycleIdFor, occurrenceIdFor, wakeIdFor } from "../wake/identity.js";
 
-export type CognitiveSidecarDataPlane = Pick<DataPlaneContext, "kind">;
+/** `dataDir` locates the pre-migration copy folder; without it only the production path gets one. */
+export type CognitiveSidecarDataPlane = Pick<DataPlaneContext, "kind"> & { readonly dataDir?: string };
 
 export type CognitiveSidecarDbOptions = {
   dataPlane: CognitiveSidecarDataPlane;
@@ -764,6 +767,7 @@ export function openCognitiveSidecarDb(
     }
   }
   waitForLocks(existing);
+  applyJournalModePolicy(existing);
 
   const version = userVersion(existing);
   if (version > COGNITIVE_SIDECAR_SCHEMA_VERSION) {
@@ -773,6 +777,20 @@ export function openCognitiveSidecarDb(
     );
   }
   if (options.migrate === false) return existing;
+  // A consistent copy before any pending sidecar step runs (fresh and current databases need none).
+  if (version >= 1 && version < COGNITIVE_SIDECAR_SCHEMA_VERSION) {
+    const dataDir =
+      options.dataPlane.dataDir ??
+      (file && isReservedProductionStoragePath(file) ? reservedProductionDataDir() : null);
+    if (dataDir) {
+      takePreMigrationCopy({
+        source: existing,
+        dataDir,
+        db: "cognitive-v021",
+        fromVersion: version,
+      });
+    }
+  }
 
   existing.exec("PRAGMA foreign_keys = ON");
   const migrateLegacy = (): void => {

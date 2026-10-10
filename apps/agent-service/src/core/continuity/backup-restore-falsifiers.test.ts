@@ -17,7 +17,7 @@ import {
   openContinuityDb,
 } from "./db.js";
 import {
-  BACKUP_PACKAGE_VERSION,
+
   createDualBackupPackage,
   restoreVerifyPackage,
   type BackupManifest,
@@ -26,6 +26,9 @@ import {
 function closeAll(...dbs: DatabaseSync[]): void {
   for (const db of dbs) db.close();
 }
+
+/** The legacy format-2 layout these fixtures build by hand (the packager now writes format 3). */
+const LEGACY_V2_PACKAGE_VERSION = 2;
 
 function encryptPackage(manifest: BackupManifest, nuclear: Buffer, continuity: Buffer, sidecar: Buffer, keyHex: string): Buffer {
   const payload = Buffer.concat([
@@ -41,10 +44,10 @@ function encryptPackage(manifest: BackupManifest, nuclear: Buffer, continuity: B
   const derived = scryptSync(Buffer.from(keyHex, "hex"), salt, 32, { N: 16384, r: 8, p: 1 });
   const nonce = randomBytes(12);
   const cipher = createCipheriv("aes-256-gcm", derived, nonce);
-  cipher.setAAD(Buffer.from(`ashley-backup-v${BACKUP_PACKAGE_VERSION}`, "utf8"));
+  cipher.setAAD(Buffer.from(`ashley-backup-v${LEGACY_V2_PACKAGE_VERSION}`, "utf8"));
   const encrypted = Buffer.concat([cipher.update(payload), cipher.final()]);
   const header = Buffer.from(JSON.stringify({
-    v: BACKUP_PACKAGE_VERSION,
+    v: LEGACY_V2_PACKAGE_VERSION,
     salt: salt.toString("hex"),
     nonce: nonce.toString("hex"),
     tag: cipher.getAuthTag().toString("hex"),
@@ -150,6 +153,7 @@ describe("P18 restore incompatibility falsifiers", () => {
       const createdAt = "2026-09-17T00:00:00.000Z";
       const baseManifest: BackupManifest = {
         ...valid.manifest,
+        packageVersion: LEGACY_V2_PACKAGE_VERSION,
         nuclearSchemaVersion: NUCLEAR_SUPPORTED_VERSION,
         nuclearHash: createHash("sha256").update(nuclearBytes).digest("hex"),
         continuityHash: createHash("sha256").update(continuityBytes).digest("hex"),

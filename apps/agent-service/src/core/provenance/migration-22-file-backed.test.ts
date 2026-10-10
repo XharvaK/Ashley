@@ -280,10 +280,11 @@ describe("migration-22 file-backed qualification", () => {
       reopenedContinuity.close();
     }
 
-    const snapshots = readdirSync(join(dataDir, "migration-backups"))
-      .filter((name) => name.startsWith("nuclear-v21-pre22-") && name.endsWith(".db"));
-    expect(snapshots).toHaveLength(2);
-    const snapshot = new DatabaseSync(join(dataDir, "migration-backups", snapshots.sort().at(-1)!));
+    // The single pre-migration copy of the run (taken before the first pending step) replaces the old pre22 copy.
+    const snapshots = readdirSync(join(dataDir, "backups", "pre-migrate"))
+      .filter((name) => name.startsWith("nuclear-v21-") && name.endsWith(".db"));
+    expect(snapshots.length).toBeGreaterThanOrEqual(1);
+    const snapshot = new DatabaseSync(join(dataDir, "backups", "pre-migrate", snapshots.sort().at(-1)!));
     try {
       expect(snapshot.prepare("PRAGMA user_version").get()).toEqual({ user_version: 21 });
       expect(snapshot.prepare("SELECT id, entity_uuid FROM episodes WHERE id = ?").get(historicalEpisodeId))

@@ -1,11 +1,11 @@
-import { mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { waitForLocks } from "../core/sqlite-locks.js";
 import { createProductionDataPlane } from "../core/data-plane.js";
 import { loadEnvFile } from "../env.js";
-import { materializeVerifiedBackupMembers, restoreVerifyPackage } from "../core/continuity/backup-package.js";
+import { restoreDualBackupPackage, restoreVerifyPackage } from "../core/continuity/backup-package.js";
 import {
   assertBackupTransferKey,
   backupPathsFromPlane,
@@ -46,6 +46,32 @@ function finish(statusPath: string, patch: { drill_ok_ms?: number | null; drill_
   if (code) log(code);
   else log("drill_ok");
   return code ? 1 : 0;
+}
+
+/** Regular files under a folder, recursively. A missing folder holds none. */
+function countFiles(dir: string): number {
+  let count = 0;
+  let entries;
+  try {
+    entries = readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return 0;
+  }
+  for (const entry of entries) {
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) count += countFiles(path);
+    else if (entry.isFile() && statSync(path).isFile()) count += 1;
+  }
+  return count;
+}
+
+function integrityOk(path: string): boolean {
+  const db = new DatabaseSync(path, { readOnly: true });
+  try {
+    return (db.prepare("PRAGMA integrity_check").get() as { integrity_check?: string }).integrity_check === "ok";
+  } finally {
+    db.close();
+  }
 }
 
 export function runBackupDrill(options: DrillOptions = {}): number {
@@ -112,11 +138,27 @@ export function runBackupDrill(options: DrillOptions = {}): number {
     if (!verified.ready) {
       return finish(paths.statusPath, { drill_error: verified.note }, log, verified.note);
     }
-    const members = materializeVerifiedBackupMembers({
+
+    // The restore runs into a throwaway data directory, never the live one.
+    const throwaway = join(temp, "restored-data");
+    mkdirSync(join(throwaway, "conversations"), { recursive: true });
+    const restored = restoreDualBackupPackage({
       packagePath,
       transferKeyHex: key,
-      tempDir: join(temp, "members"),
+      nuclearDbPath: join(throwaway, "conversations", "nuclear.db"),
+      continuityDbPath: join(throwaway, "continuity.db"),
+      sidecarDbPath: join(throwaway, "cognitive-v021.db"),
+      tempDir: join(temp, "verify"),
+      dataDir: throwaway,
     });
+    if (!restored.ready) {
+      return finish(paths.statusPath, { drill_error: restored.note }, log, restored.note);
+    }
+    const restoredPaths = {
+      nuclear: join(throwaway, "conversations", "nuclear.db"),
+      continuity: join(throwaway, "continuity.db"),
+      sidecar: join(throwaway, "cognitive-v021.db"),
+    };
 
     let liveVersions;
     let restoredVersions;
@@ -127,9 +169,9 @@ export function runBackupDrill(options: DrillOptions = {}): number {
         sidecar: readSidecarSchemaVersion(paths.sidecarDbPath),
       };
       restoredVersions = {
-        nuclear: readUserVersion(members.nuclearDbPath),
-        continuity: readUserVersion(members.continuityDbPath),
-        sidecar: readSidecarSchemaVersion(members.sidecarDbPath),
+        nuclear: readUserVersion(restoredPaths.nuclear),
+        continuity: readUserVersion(restoredPaths.continuity),
+        sidecar: readSidecarSchemaVersion(restoredPaths.sidecar),
       };
     } catch (error) {
       const code = error instanceof Error && error.message === "sidecar_meta_missing"
@@ -145,15 +187,32 @@ export function runBackupDrill(options: DrillOptions = {}): number {
       return finish(paths.statusPath, { drill_error: "drill_schema_ahead_of_live" }, log, "drill_schema_ahead_of_live");
     }
 
+    for (const path of Object.values(restoredPaths)) {
+      if (!integrityOk(path)) {
+        return finish(paths.statusPath, { drill_error: "drill_integrity_failed" }, log, "drill_integrity_failed");
+      }
+    }
+
+    // Companion files: the restored home and session folders must hold the file count the manifest recorded.
+    const members = restored.manifest?.members ?? [];
+    const expectedHome = members.filter((member) => member.name.startsWith("home/")).length;
+    const expectedSessions = members.filter((member) => member.name.startsWith("conversations/sessions/")).length;
+    if (
+      countFiles(join(throwaway, "home")) !== expectedHome ||
+      countFiles(join(throwaway, "conversations", "sessions")) !== expectedSessions
+    ) {
+      return finish(paths.statusPath, { drill_error: "drill_companion_count_mismatch" }, log, "drill_companion_count_mismatch");
+    }
+
     const liveDb = {
       nuclear: waitForLocks(new DatabaseSync(paths.nuclearDbPath, { readOnly: true })),
       continuity: waitForLocks(new DatabaseSync(paths.continuityDbPath, { readOnly: true })),
       sidecar: waitForLocks(new DatabaseSync(paths.sidecarDbPath, { readOnly: true })),
     };
     const restoredDb = {
-      nuclear: new DatabaseSync(members.nuclearDbPath, { readOnly: true }),
-      continuity: new DatabaseSync(members.continuityDbPath, { readOnly: true }),
-      sidecar: new DatabaseSync(members.sidecarDbPath, { readOnly: true }),
+      nuclear: new DatabaseSync(restoredPaths.nuclear, { readOnly: true }),
+      continuity: new DatabaseSync(restoredPaths.continuity, { readOnly: true }),
+      sidecar: new DatabaseSync(restoredPaths.sidecar, { readOnly: true }),
     };
     try {
       const rows: DrillCountRow[] = DRILL_TABLES.map((spec) => ({

@@ -260,7 +260,8 @@ it.each(["daily", "monthly", "identical"])("remote no-clobber: %s same-name obje
           }
           objects.set(key, bytes);
         }
-        return args[0] === "lsf" ? name : "";
+        // Only the daily folder holds the package; monthly/ starts empty, so this run's package is its first of the month.
+        return args[0] === "lsf" && String(args[1]).includes("/daily/") ? name : "";
       } });
     const copies = calls.filter((args) => args[0] === "copy");
     expect(copies).toHaveLength(collision === "daily" ? 1 : 2);
