@@ -203,8 +203,9 @@ export function runDailyBackup(options: DailyBackupOptions = {}): number {
   // Local prune. With a remote configured, a local package is removed only once the remote holds it.
   const names = readdirSync(paths.packageDir).filter((name) => name.endsWith(".ashleybak"));
   const localPlan = planNameRetention(names, LOCAL_KEEP);
-  const removable = confirmedOnRemote
-    ? localPlan.delete.filter((name) => confirmedOnRemote!.has(name))
+  // With a remote configured only confirmed names may go (a failed upload already returned above).
+  const removable = remote
+    ? localPlan.delete.filter((name) => confirmedOnRemote?.has(name) === true)
     : localPlan.delete;
   removeLocalPackages(paths.packageDir, removable);
 

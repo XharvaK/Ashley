@@ -113,6 +113,20 @@ describe("backup policy on real packages", () => {
     expect(existsSync(join(paths.packageDir, older[1]!))).toBe(false);
   });
 
+  it("removes no local package when the upload fails", () => {
+    const { dir, paths } = realDataDir("ashley-policy-prune-fail-");
+    mkdirSync(paths.packageDir, { recursive: true });
+    const older = [0, 1, 2, 3, 4, 5, 6, 7].map((i) => `2026100${i + 1}T050000Z.ashleybak`);
+    for (const name of older) writeFileSync(join(paths.packageDir, name), "older package");
+    const exec = (): string => { throw new Error("remote unreachable"); };
+    runDailyBackup({
+      dataDir: dir, loadEnv: false, now: new Date("2026-10-10T05:00:00Z"),
+      env: { ASHLEY_BACKUP_TRANSFER_KEY: KEY, ASHLEY_BACKUP_RCLONE_REMOTE: "fixture:backups" },
+      log: () => {}, execRclone: exec as RcloneExec,
+    });
+    for (const name of older) expect(existsSync(join(paths.packageDir, name))).toBe(true);
+  });
+
   it("drill restores the newest package into a throwaway folder, checks it and records success", () => {
     const { dir, paths } = realDataDir("ashley-policy-drill-");
     expect(runDailyBackup({ dataDir: dir, loadEnv: false, env: { ASHLEY_BACKUP_TRANSFER_KEY: KEY }, log: () => {} })).toBe(0);
