@@ -50,7 +50,7 @@ type CommandCodeResponse = {
   id?: unknown;
   model?: unknown;
   choices?: Array<{
-    message?: { content?: unknown };
+    message?: { content?: unknown; reasoning_content?: unknown; reasoning?: unknown };
     finish_reason?: unknown;
   }>;
   usage?: {
@@ -89,6 +89,19 @@ function toUsage(raw: CommandCodeResponse["usage"]): TokenUsage | undefined {
   if (cachedTokens !== undefined) usage.cachedTokens = cachedTokens;
   if (reasoningTokens !== undefined) usage.reasoningTokens = reasoningTokens;
   return usage;
+}
+
+/** A8-4: a reasoning model may put its thinking before the answer in the content; the answer is what follows it. */
+function answerAfterThinking(content: string): string {
+  if (!/^\s*<think\b/i.test(content)) return content;
+  let rest = content;
+  while (/^\s*<think\b/i.test(rest)) {
+    const close = rest.search(/<\/think>/i);
+    // Thinking that never closed is not an answer.
+    if (close < 0) return "";
+    rest = rest.slice(close + "</think>".length);
+  }
+  return rest.trim();
 }
 
 function finishReason(value: unknown): string | null {
@@ -370,11 +383,17 @@ export function createCommandCodeAdapter(
           throw new AppError("capability_mismatch", "command_code_model_identity_mismatch", 502);
         }
         const firstChoice = Array.isArray(result.choices) ? result.choices[0] : undefined;
-        const content = firstChoice?.message?.content;
-        if (typeof content !== "string") {
+        const message = firstChoice?.message;
+        const content = message?.content;
+        // A8-4: a reasoning model may send its thinking as a separate field and leave the content empty when its
+        // output budget ran out. That is an empty answer (the finish reason says why), not a provider outage.
+        const reasoningSent = typeof message?.reasoning_content === "string" || typeof message?.reasoning === "string";
+        if (typeof content !== "string" && !reasoningSent) {
           throw new AppError("provider_unavailable", "command_code_missing_text_content", 502);
         }
-        const providerResponseHash = sha256(content);
+        const rawContent = typeof content === "string" ? content : "";
+        const answer = answerAfterThinking(rawContent);
+        const providerResponseHash = sha256(rawContent);
         boundary.responseHash = providerResponseHash;
         const wireEvidence = {
           adapterId: "ashley.adapter.command_code.v1",
@@ -387,7 +406,7 @@ export function createCommandCodeAdapter(
         const usage = toUsage(result.usage);
         const finish = finishReason(firstChoice?.finish_reason);
         return {
-          text: content,
+          text: answer,
           ...(usage ? { usage } : {}),
           providerModel: returnedModel,
           providerRequestId: boundary.providerRequestId,
@@ -400,7 +419,7 @@ export function createCommandCodeAdapter(
             contentChunkTypes: [],
             textChunkCount: 1,
             thinkingChunkCount: 0,
-            finalTextBytes: Buffer.byteLength(content, "utf8"),
+            finalTextBytes: Buffer.byteLength(answer, "utf8"),
             finishReason: finish,
             finishReasonClass: finish === "stop"
               ? "STOP"
