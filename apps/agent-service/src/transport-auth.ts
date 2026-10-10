@@ -63,7 +63,8 @@ export function isAdminRoute(method: string, path: string): boolean {
   return ADMIN_MATCHERS.some((matcher) => matcher.method === method && matcher.pattern.test(path));
 }
 
-function sameSecret(presented: string, expected: string): boolean {
+/** Constant-time secret comparison (A13-14). Length differences are checked first. */
+export function sameSecret(presented: string, expected: string): boolean {
   const a = Buffer.from(presented, "utf8");
   const b = Buffer.from(expected, "utf8");
   return a.length === b.length && timingSafeEqual(a, b);

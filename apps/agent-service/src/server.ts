@@ -27,7 +27,7 @@ import { retrieveEpisodes } from "./core/memory/episodes.js";
 import { isAuthorizedOwnerId } from "./owner-auth.js";
 import {isThalamusEnabled,schedulerContract,observeGatewayUserId} from "./core/cognitive-v021/thalamus/scheduler.js";
 import {thalamusStatus} from "./core/cognitive-v021/thalamus/status.js";
-import { createTransportAuth } from "./transport-auth.js";
+import { createTransportAuth, sameSecret } from "./transport-auth.js";
 import { assertRegisteredRoutes } from "./route-surface.js";
 import { parsePlaceSyncReports, placesHeld, syncPlacePosts } from "./core/places/intents.js";
 import { openCognitiveSidecarDb } from "./core/cognitive-v021/sidecar/db.js";
@@ -435,7 +435,7 @@ export function createServer(
   app.use(express.json({ limit: "2mb" }));
 
   const botServiceToken = (
-    options.botServiceToken ?? process.env.DISCORD_BOT_TOKEN ?? ""
+    options.botServiceToken ?? env.agentServiceToken
   ).trim();
   app.use(createTransportAuth({
     serviceToken: botServiceToken,
@@ -443,7 +443,7 @@ export function createServer(
   }));
   function requireBotService(req: express.Request): void {
     const presented = req.get("X-Ashley-Bot-Service")?.trim() ?? "";
-    if (!botServiceToken || !presented || presented !== botServiceToken) {
+    if (!botServiceToken || !presented || !sameSecret(presented, botServiceToken)) {
       throw new AppError("forbidden", "Forbidden", 403);
     }
   }
@@ -2375,7 +2375,7 @@ export function createServer(
       requireOwner(String(req.query.owner_id ?? "") || undefined);
       const decision = decideDomusIngress({
         helperToken: env.domusHelperToken,
-        botToken: process.env.DISCORD_BOT_TOKEN ?? "",
+        botToken: env.agentServiceToken,
       });
       const listener = decision.enabled
         ? { enabled: true, port: env.domusIngressPort }

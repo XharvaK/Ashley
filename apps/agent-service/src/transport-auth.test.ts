@@ -120,18 +120,17 @@ describe("Owner configuration at boot", () => {
   it("refuses to boot without an Owner or a service token", async () => {
     const { env, validateBoot } = await import("./env.js");
     const originalOwner = env.discordOwnerId;
-    const originalToken = process.env.DISCORD_BOT_TOKEN;
+    const originalServiceToken = env.agentServiceToken;
     try {
       env.discordOwnerId = "";
-      delete process.env.DISCORD_BOT_TOKEN;
+      env.agentServiceToken = "";
       const { ok, errors } = validateBoot();
       expect(ok).toBe(false);
       expect(errors.join(" ")).toMatch(/DISCORD_OWNER_ID missing/);
-      expect(errors.join(" ")).toMatch(/DISCORD_BOT_TOKEN missing/);
+      expect(errors.join(" ")).toMatch(/ASHLEY_SERVICE_TOKEN or DISCORD_BOT_TOKEN missing/);
     } finally {
       env.discordOwnerId = originalOwner;
-      if (originalToken === undefined) delete process.env.DISCORD_BOT_TOKEN;
-      else process.env.DISCORD_BOT_TOKEN = originalToken;
+      env.agentServiceToken = originalServiceToken;
     }
   });
 });

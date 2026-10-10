@@ -909,13 +909,13 @@ export async function serveAgent(manager: AgentManager): Promise<void> {
     server = listen(app);
     const domusDecision = decideDomusIngress({
       helperToken: env.domusHelperToken,
-      botToken: process.env.DISCORD_BOT_TOKEN ?? "",
+      botToken: env.agentServiceToken,
     });
     if (domusDecision.enabled && cognitiveSidecar) {
       domusServer = createDomusIngressApp({
         db: cognitiveSidecar,
         token: env.domusHelperToken,
-        botToken: process.env.DISCORD_BOT_TOKEN ?? "",
+        botToken: env.agentServiceToken,
         now: () => Date.now(),
         onAdmitted: () => onDomusArrival(),
         ...(observabilityDb ? { observability: observabilityDb } : {}),

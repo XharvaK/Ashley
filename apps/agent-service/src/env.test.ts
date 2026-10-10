@@ -13,6 +13,11 @@ const TOUCHED_VARS = [
   "ASHLEY_SANDBOX_PROJECT_REGISTRY",
   "DISCORD_OWNER_ID",
   "DISCORD_BOT_TOKEN",
+  "ASHLEY_SERVICE_TOKEN",
+  "PROACTIVE_ENABLED",
+  "CURIOSITY_ENABLED",
+  "ASHLEY_OWNER_PRESENCE_FACTS",
+  "ASHLEY_DEBUG_ROUTES",
 ];
 
 const originals = new Map<string, string | undefined>(
@@ -74,7 +79,7 @@ describe("Mistral credential seats", () => {
 
 describe("Sandbox V2 environment", () => {
   it("fails closed on a malformed direct-lifecycle boolean", async () => {
-    process.env.ASHLEY_SANDBOX_ENGINEERING_LIFECYCLE_ENABLED = "yes";
+    process.env.ASHLEY_SANDBOX_ENGINEERING_LIFECYCLE_ENABLED = "maybe";
     const { env, validateBoot } = await loadEnv();
 
     expect(env.sandboxEngineeringLifecycleEnabled).toBe(false);
@@ -141,5 +146,80 @@ describe("Cloudflare Thought session affinity", () => {
     expect(validateBoot().errors).toContain(
       "ASHLEY_CLOUDFLARE_THOUGHT_AFFINITY_ID must be 16-128 chars of [A-Za-z0-9_-]",
     );
+  });
+});
+
+describe("boolean environment flags parse one way", () => {
+  it.each(["false", "0", "no", "off", "FALSE", " Off "])("reads %j as off for an opt-out switch", async (raw) => {
+    process.env.PROACTIVE_ENABLED = raw;
+    process.env.CURIOSITY_ENABLED = raw;
+    const { env } = await loadEnv();
+
+    expect(env.proactiveEnabled).toBe(false);
+    expect(env.curiosityEnabled).toBe(false);
+  });
+
+  it.each(["true", "1", "yes", "on"])("reads %j as on for an opt-in switch", async (raw) => {
+    process.env.ASHLEY_OWNER_PRESENCE_FACTS = raw;
+    const { env } = await loadEnv();
+
+    expect(env.ownerPresenceFacts).toBe(true);
+  });
+
+  it("keeps the default and reports a malformed value instead of silently reading it as on", async () => {
+    process.env.PROACTIVE_ENABLED = "maybe";
+    const { env, validateBoot } = await loadEnv();
+
+    expect(env.proactiveEnabled).toBe(true);
+    expect(validateBoot().warnings).toContain("PROACTIVE_ENABLED is not a boolean; using true");
+  });
+
+  it("keeps opt-in switches off when they are unset", async () => {
+    const { env } = await loadEnv();
+
+    expect(env.ownerPresenceFacts).toBe(false);
+    expect(env.proactiveEnabled).toBe(true);
+  });
+});
+
+describe("agent service token (ASHLEY_SERVICE_TOKEN)", () => {
+  it("prefers the separate service token over the Discord bot token", async () => {
+    process.env.ASHLEY_SERVICE_TOKEN = "service-test-token";
+    const { env, validateBoot } = await loadEnv();
+
+    expect(env.agentServiceToken).toBe("service-test-token");
+    expect(validateBoot().ok).toBe(true);
+    expect(validateBoot().warnings.join(" ")).not.toMatch(/ASHLEY_SERVICE_TOKEN/);
+  });
+
+  it("falls back to the bot token for one release and says so at boot", async () => {
+    const { env, validateBoot } = await loadEnv();
+
+    expect(env.agentServiceToken).toBe("env-test-bot-token");
+    expect(validateBoot().ok).toBe(true);
+    expect(validateBoot().warnings).toContain(
+      "ASHLEY_SERVICE_TOKEN unset; using DISCORD_BOT_TOKEN as the agent service token (deprecated fallback)",
+    );
+  });
+
+  it("refuses boot when neither token is set", async () => {
+    delete process.env.DISCORD_BOT_TOKEN;
+    const { validateBoot } = await loadEnv();
+
+    expect(validateBoot().ok).toBe(false);
+    expect(validateBoot().errors).toContain(
+      "ASHLEY_SERVICE_TOKEN or DISCORD_BOT_TOKEN missing — every route but /health requires the agent service token",
+    );
+  });
+});
+
+describe("debug routes", () => {
+  it("are off unless the explicit debug flag is set, whatever NODE_ENV says", async () => {
+    const { env } = await loadEnv();
+    expect(env.debugRoutesEnabled).toBe(false);
+
+    process.env.ASHLEY_DEBUG_ROUTES = "true";
+    const reloaded = await loadEnv();
+    expect(reloaded.env.debugRoutesEnabled).toBe(true);
   });
 });
