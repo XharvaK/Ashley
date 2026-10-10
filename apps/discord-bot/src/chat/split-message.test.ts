@@ -51,3 +51,16 @@ describe("capRoomBubbles", () => {
     assert.deepEqual(capRoomBubbles(["a"]), ["a"]);
   });
 });
+
+describe("splitMessage surrogate pairs (A6-15)", () => {
+  it("never cuts an emoji pair across two bubbles", () => {
+    const text = "a".repeat(1989) + "\u{1F600}" + "b".repeat(10);
+    const bubbles = splitMessage(text);
+    assert.equal(bubbles.length, 2);
+    for (const bubble of bubbles) {
+      assert.doesNotMatch(bubble, /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/);
+    }
+    assert.equal(bubbles.join(""), text);
+    assert.ok(bubbles[1]!.startsWith("\u{1F600}"));
+  });
+});
