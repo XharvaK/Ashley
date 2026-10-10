@@ -46,7 +46,7 @@ const EXPECTED = {
   "thought.schema": "5d9c05147cde0948d3c3354c995a63500c005f575cd3f0dba56f0f38d3c69213",
   "thought.deepseek": "d5d00085a92fb9d27432669eaafaf1d259ad092ceb29ac6d7b79253280d05899",
   "thought.growth": "8c1138b2c18691a18c1f96a8897e666967c1ab9379fd37f8c1841adad0b80460",
-  "thought.compatibility": "c4b721e7a166e7fd7a333cb7e3689923c947798a35641cd93e4313ef4cdd18bf",
+  "thought.compatibility": "cab214271ea29b73520218d485509ab2f007f35f1d0c1ff31f312005a1ed7aef",
   "thought.epistemic": "ef2eb8d834badce08928cd933faa32711727bb0b3ec7e82f1ca74afc910216a4",
   "reflection.schema": "4e84eec80aec8b8354ac0ec0035d68463452686f9ae870816fd29befb01263a4",
   "reflection.protocol": "b485409c37d50424bba4484a8224fd41e6dd75668efc584a4fa05f00f7e65a07",

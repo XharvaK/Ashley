@@ -1,3 +1,5 @@
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { listMemorySupports } from "../memory/supports.js";
 import { INTEREST_ROOTS, type InterestRoot } from "../memory/interests.js";
@@ -66,6 +68,9 @@ export const SOFT_FACTS_MAX = 5;
 /** An interest family unlocks once any branch under its roots was lived this many times. Unlocks are permanent. */
 export const INTEREST_FAMILY_UNLOCK_LIVED = 5;
 export const DEFAULT_WARDROBE_ID = "day-awake";
+
+/** A face chosen while she sleeps or her game body wears the face: the Discord side wears it at wake; the report says so. */
+export const SOFT_REASON_WORN_AT_WAKE = "worn_at_wake";
 
 /** UX_PACK v4 Assets: each of the 50 roots in exactly one family. */
 export const INTEREST_FAMILIES: Readonly<Record<string, readonly InterestRoot[]>> = Object.freeze({
@@ -172,8 +177,19 @@ function countSince(db: DatabaseSync, kind: SoftKind, statuses: string[], sinceM
   return Number(row.n ?? 0);
 }
 
-/** The wardrobe ids that match her life now (UX_PACK v4 Assets): the day face, the sky, her unlocked interests. */
-export function wardrobeAvailable(db: DatabaseSync, input: { sky?: SkyWord | null }): string[] {
+/** The Discord side reads faces from ASHLEY_ART_DIR as avatar/<id>.png; with no folder set here, no face can be shown to be there. */
+export function wardrobeArtOnDisk(wardrobeId: string): boolean {
+  const root = process.env.ASHLEY_ART_DIR?.trim();
+  if (!root) return false;
+  return existsSync(join(root, "avatar", `${wardrobeId}.png`));
+}
+
+/** The wardrobe ids that match her life now (UX_PACK v4 Assets): the day face, the sky, her unlocked interests. Only faces with art are offered. */
+export function wardrobeAvailable(
+  db: DatabaseSync,
+  input: { sky?: SkyWord | null; hasArt?: (wardrobeId: string) => boolean },
+): string[] {
+  const hasArt = input.hasArt ?? wardrobeArtOnDisk;
   const available = [DEFAULT_WARDROBE_ID];
   if (input.sky === "rain" || input.sky === "drizzle" || input.sky === "thunder") available.push("weather-rain");
   if (input.sky === "snow") available.push("weather-snow");
@@ -189,7 +205,7 @@ export function wardrobeAvailable(db: DatabaseSync, input: { sky?: SkyWord | nul
   for (const [family, roots] of Object.entries(INTEREST_FAMILIES)) {
     if (roots.some((root) => unlocked.has(root))) available.push(`interest-${family}`);
   }
-  return available;
+  return available.filter((id) => id === DEFAULT_WARDROBE_ID || hasArt(id));
 }
 
 export function currentWardrobe(db: DatabaseSync): string {
@@ -333,9 +349,11 @@ export function reportSoftAct(
   input: { actId: number; status: "done" | "refused" | "failed"; reason?: string; nowMs: number },
 ): boolean {
   const reason = input.reason?.trim().slice(0, 80) || null;
+  // A done act carries no reason, except a face that waits for her wake: that one says so.
+  const kept = input.status === "done" && reason !== SOFT_REASON_WORN_AT_WAKE ? null : reason;
   return Number(db.prepare(
     "UPDATE soft_acts SET status = ?, reason = ?, settled_at_ms = ? WHERE act_id = ? AND status = 'claimed'",
-  ).run(input.status, input.status === "done" ? null : reason, input.nowMs, input.actId).changes) === 1;
+  ).run(input.status, kept, input.nowMs, input.actId).changes) === 1;
 }
 
 /** Her recent soft acts not yet shown, newest first, plus her wardrobe. */
