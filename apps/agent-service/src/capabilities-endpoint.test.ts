@@ -573,8 +573,8 @@ describe("POST /nuclear/capabilities/promote (operator endpoint)", () => {
   });
 });
 
-describe("POST /nuclear/capabilities/evaluation (qualification recording)", () => {
-  it("records owner-attested qualification without activating the capability", async () => {
+describe("POST /nuclear/capabilities/evaluation (retired qualification route)", () => {
+  it("records nothing: a request body can no longer qualify a capability (A13-7)", async () => {
     const db = makeDb();
     try {
       await withServer(db, async (app) => {
@@ -583,130 +583,20 @@ describe("POST /nuclear/capabilities/evaluation (qualification recording)", () =
           capability: "project_experimentation",
           seeds: 3,
           passed: true,
-          sourceKey: "endpoint:qualification-1",
+          sourceKey: "endpoint:qualification-retired",
         });
-        expect(res.status).toBe(200);
-        const status = (res.body as { capabilities?: Array<{ capability: string; state: string; evalSeedCount: number; qualifiedAt: string | null }> })
-          .capabilities?.find((s) => s.capability === "project_experimentation");
-        expect(status).toMatchObject({
-          state: "observe",
-          evalSeedCount: 3,
-        });
-        expect(typeof status?.qualifiedAt).toBe("string");
-      });
-    } finally {
-      db.close();
-    }
-  });
-
-  it("denies a non-owner", async () => {
-    const db = makeDb();
-    try {
-      await withServer(db, async (app) => {
-        const res = await post(app, "/nuclear/capabilities/evaluation", {
-          userId: INTRUDER,
-          capability: "project_experimentation",
-          seeds: 3,
-          passed: true,
-          sourceKey: "endpoint:qualification-nonowner",
-        });
-        expect(res.status).toBe(403);
-      });
-    } finally {
-      db.close();
-    }
-  });
-
-  it("rejects missing evidence fields", async () => {
-    const db = makeDb();
-    try {
-      await withServer(db, async (app) => {
-        const res = await post(app, "/nuclear/capabilities/evaluation", {
-          userId: OWNER,
-          capability: "project_experimentation",
-        });
-        expect(res.status).toBe(400);
-      });
-    } finally {
-      db.close();
-    }
-  });
-
-  it("errors on a capability outside the rollout registry", async () => {
-    const db = makeDb();
-    try {
-      await withServer(db, async (app) => {
-        const res = await post(app, "/nuclear/capabilities/evaluation", {
-          userId: OWNER,
-          capability: "no_such_capability",
-          seeds: 3,
-          passed: true,
-          sourceKey: "endpoint:bad-capability",
-        });
-        expect(res.status).toBe(500);
-      });
-    } finally {
-      db.close();
-    }
-  });
-
-  it("is idempotent for a duplicate source key", async () => {
-    const db = makeDb();
-    try {
-      await withServer(db, async (app) => {
-        const first = await post(app, "/nuclear/capabilities/evaluation", {
-          userId: OWNER,
-          capability: "reading",
-          seeds: 3,
-          passed: true,
-          sourceKey: "endpoint:dup",
-        });
-        const second = await post(app, "/nuclear/capabilities/evaluation", {
-          userId: OWNER,
-          capability: "reading",
-          seeds: 3,
-          passed: true,
-          sourceKey: "endpoint:dup",
-        });
-        expect(first.status).toBe(200);
-        expect(second.status).toBe(200);
-        const rows = db.prepare(
-          `SELECT COUNT(*) AS c FROM capability_events
-           WHERE capability = 'reading' AND kind = 'isolated_eval' AND source_key = 'endpoint:dup'`,
-        ).get() as { c: number };
-        expect(rows.c).toBe(1);
-      });
-    } finally {
-      db.close();
-    }
-  });
-
-  it("qualification never activates, never widens project authority, and never executes M3", async () => {
-    const db = makeDb();
-    try {
-      await withServer(db, async (app) => {
-        const res = await post(app, "/nuclear/capabilities/evaluation", {
-          userId: OWNER,
-          capability: "project_experimentation",
-          seeds: 3,
-          passed: true,
-          sourceKey: "endpoint:qualification-authority",
-        });
-        expect(res.status).toBe(200);
-        const status = (res.body as { capabilities?: Array<{ capability: string; state: string }> })
-          .capabilities?.find((s) => s.capability === "project_experimentation");
-        expect(status?.state).toBe("observe");
-        const row = db.prepare(
-          `SELECT state FROM capability_releases WHERE capability = 'project_experimentation' AND release_id = ?`,
-        ).get(currentContractId()) as { state: string };
-        expect(row.state).toBe("observe");
+        expect(res.status).toBe(410);
+        expect(res.body).toMatchObject({ code: "endpoint_retired" });
+        const qualified = db.prepare(
+          "SELECT COUNT(*) AS n FROM capability_releases WHERE qualified_at IS NOT NULL",
+        ).get() as { n: number };
+        expect(Number(qualified.n)).toBe(0);
       });
     } finally {
       db.close();
     }
   });
 });
-
 describe("C1 memory-evidence control-plane routes", () => {
   it("requires the Recall owner boundary on every dedicated route", async () => {
     const db = makeDb();
@@ -761,11 +651,10 @@ describe("C1 memory-evidence control-plane routes", () => {
           passed: true,
           sourceKey: "generic-c1-evaluation",
         });
-        expect(generic.status).toBe(400);
-        expect(generic.body).toMatchObject({
-          ok: false,
-          reason: "memory_evidence_requires_bound_evaluation",
-        });
+        // The generic evaluation POST is retired (A13-7); C1 evidence only comes
+        // from the bound memory-evidence route below.
+        expect(generic.status).toBe(410);
+        expect(generic.body).toMatchObject({ code: "endpoint_retired" });
 
         const started = await post(app, "/nuclear/capabilities/memory-evidence/qualification-epoch/start", {
           userId: OWNER,

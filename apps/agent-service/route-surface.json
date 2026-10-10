@@ -34,7 +34,7 @@
     { "method": "GET", "path": "/nuclear/jobs", "ownerScope": "owner_required", "lifecycle": "retired" },
     { "method": "POST", "path": "/nuclear/jobs/cancel", "ownerScope": "owner_required", "lifecycle": "retired" },
     { "method": "GET", "path": "/nuclear/routing", "ownerScope": "owner_required", "lifecycle": "active" },
-    { "method": "POST", "path": "/nuclear/capabilities/evaluation", "ownerScope": "owner_required", "lifecycle": "active" },
+    { "method": "POST", "path": "/nuclear/capabilities/evaluation", "ownerScope": "owner_required", "lifecycle": "retired" },
     { "method": "POST", "path": "/nuclear/capabilities/promote", "ownerScope": "owner_required", "lifecycle": "active" },
     { "method": "POST", "path": "/nuclear/capabilities/rollback", "ownerScope": "owner_required", "lifecycle": "active" },
     { "method": "POST", "path": "/nuclear/capabilities/recall/cutover", "ownerScope": "owner_required", "lifecycle": "active" },

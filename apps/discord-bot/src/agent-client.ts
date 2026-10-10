@@ -28,7 +28,7 @@ async function agentFetch<T>(
       ...init,
       headers: {
         "Content-Type": "application/json",
-        "X-Ashley-Bot-Service": config.token,
+        "X-Ashley-Bot-Service": config.serviceToken,
         ...(init?.headers ?? {}),
       },
       signal: AbortSignal.timeout(Math.max(1_000, timeoutMs)),
@@ -112,7 +112,7 @@ export type SocialEligibilityResult = {
 };
 
 const botServiceHeaders = (): HeadersInit => ({
-  "X-Ashley-Bot-Service": config.token,
+  "X-Ashley-Bot-Service": config.serviceToken,
 });
 
 /**
@@ -651,7 +651,7 @@ export async function lookupPreflight(message: string): Promise<boolean> {
   try {
     const res = await fetch(`${config.agentUrl}/chat/preflight`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "X-Ashley-Bot-Service": config.token },
+      headers: { "Content-Type": "application/json", "X-Ashley-Bot-Service": config.serviceToken },
       body: JSON.stringify({ message }),
       signal: AbortSignal.timeout(2500),
     });
@@ -738,7 +738,7 @@ export type TrustedContact = { principalId: string; scope: "dm_only" | "person_w
 
 /** A3: the Owner's trusted contacts. Writes are admin acts (Owner actor). */
 export async function listContacts() {
-  return agentFetch<{ contacts: TrustedContact[] }>("/social/contacts");
+  return agentFetch<{ contacts: TrustedContact[] }>("/social/contacts", { headers: ownerActorHeaders() });
 }
 
 export async function addContact(principalId: string, scope: TrustedContact["scope"]) {
@@ -771,7 +771,7 @@ export type OwnerPlace = { ref: string; kind: string; name: string; closed: bool
 /** G1: her places for the Owner, and the Owner's switch. */
 export async function listPlaces() {
   return agentFetch<{ places: OwnerPlace[]; web: Array<{ origin: string; state: string; reason: string | null }>;
-    rules: Array<{ place: string; rule: string; setAtMs: number }> }>("/places");
+    rules: Array<{ place: string; rule: string; setAtMs: number }> }>("/places", { headers: ownerActorHeaders() });
 }
 
 export async function switchPlace(place: string, state: "closed" | "open") {
@@ -1073,6 +1073,7 @@ export async function ownerTemporalControl(input: {
   limit?: number;
 }): Promise<TemporalControlResponse> {
   return agentFetch<TemporalControlResponse>("/nuclear/temporal", {
+    headers: ownerActorHeaders(),
     method: "POST",
     body: JSON.stringify({
       userId: config.ownerId,

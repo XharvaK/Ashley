@@ -677,3 +677,114 @@ describe("A3b practice owner routes", () => {
     } finally { await stopTestServer(server); sidecar.close(); nuclear.close(); env.discordOwnerId = previousOwner; }
   });
 });
+
+describe("W6d route hardening", () => {
+  it("refuses a forward clock reconciliation the host cannot back, and writes nothing", async () => {
+    const originalDiscordOwnerId = env.discordOwnerId;
+    const ownerId = "route-test-owner";
+    env.discordOwnerId = ownerId;
+    const sidecar = openCognitiveSidecarDb(new DatabaseSync(":memory:"), { dataPlane: { kind: "isolated" } });
+    const manager = { dataPlane: { kind: "isolated", cognitiveSidecarDbPath: ":memory:" } } as unknown as AgentManager;
+    const { server, url } = await startTestServer(createServer(manager, { cognitiveSidecar: sidecar }));
+    try {
+      const response = await fetch(`${url}/initiative/clock/reconcile`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          userId: ownerId,
+          wallClockNowMs: Date.now() + 365 * 24 * 60 * 60 * 1000,
+          authorizationRef: "owner:forward-jump",
+        }),
+      });
+      expect(response.status).toBe(400);
+      expect(await response.json()).toMatchObject({ code: "policy_clock_jump_refused" });
+      const row = sidecar.prepare("SELECT * FROM private_budget_policy_clock WHERE policy_id = 'ashley.private_thought.v1'").get();
+      expect(row).toBeUndefined();
+    } finally {
+      await stopTestServer(server);
+      sidecar.close();
+      env.discordOwnerId = originalDiscordOwnerId;
+    }
+  });
+
+  it("answers a malformed JSON body with a short 400 and no stack, and never parses an unauthenticated one", async () => {
+    const { server, url } = await startTestServer(createServer({} as AgentManager));
+    try {
+      const bad = await fetch(`${url}/memory/pin`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{bad json",
+      });
+      expect(bad.status).toBe(400);
+      const text = await bad.text();
+      expect(JSON.parse(text)).toEqual({ error: "Invalid JSON body", code: "invalid_json" });
+      expect(text).not.toMatch(/\bat \S+:\d+/);
+
+      const unauthenticated = await fetch(`${url}/memory/pin`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "X-Ashley-Bot-Service": "not-the-token" },
+        body: "{bad json",
+      });
+      expect(unauthenticated.status).toBe(401);
+    } finally {
+      await stopTestServer(server);
+    }
+  });
+
+  it("keeps the debug memory-context route off unless the explicit debug flag is set", async () => {
+    const originalFlag = env.debugRoutesEnabled;
+    env.debugRoutesEnabled = false;
+    const { server, url } = await startTestServer(createServer({} as AgentManager));
+    try {
+      const off = await fetch(`${url}/debug/memory-context?owner_id=${env.discordOwnerId}&message=hi`);
+      expect(off.status).toBe(404);
+    } finally {
+      env.debugRoutesEnabled = originalFlag;
+      await stopTestServer(server);
+    }
+  });
+
+  it("makes pause, resume and shutdown Owner acts: a non-Owner body user id is refused", async () => {
+    const originalDiscordOwnerId = env.discordOwnerId;
+    const ownerId = "route-test-owner";
+    env.discordOwnerId = ownerId;
+    let paused = 0;
+    const manager = { pause: async () => { paused += 1; } } as unknown as AgentManager;
+    const { server, url } = await startTestServer(createServer(manager));
+    try {
+      const impostor = await fetch(`${url}/pause`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ userId: "impostor" }),
+      });
+      expect(impostor.status).toBe(403);
+      expect(paused).toBe(0);
+
+      const owner = await fetch(`${url}/pause`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ userId: ownerId }),
+      });
+      expect(owner.status).toBe(200);
+      expect(paused).toBe(1);
+    } finally {
+      await stopTestServer(server);
+      env.discordOwnerId = originalDiscordOwnerId;
+    }
+  });
+
+  it("refuses the owner-only curiosity status to any owner id but the Owner's", async () => {
+    const originalDiscordOwnerId = env.discordOwnerId;
+    env.discordOwnerId = "route-test-owner";
+    const manager = { core: { getCuriosityStatus: () => ({ ok: true }) } } as unknown as AgentManager;
+    const { server, url } = await startTestServer(createServer(manager));
+    try {
+      expect((await fetch(`${url}/curiosity/status?owner_id=impostor`)).status).toBe(403);
+      expect((await fetch(`${url}/curiosity/status`)).status).toBe(403);
+      expect((await fetch(`${url}/curiosity/status?owner_id=route-test-owner`)).status).toBe(200);
+    } finally {
+      await stopTestServer(server);
+      env.discordOwnerId = originalDiscordOwnerId;
+    }
+  });
+});

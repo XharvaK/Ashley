@@ -27,7 +27,7 @@ import { retrieveEpisodes } from "./core/memory/episodes.js";
 import { isAuthorizedOwnerId } from "./owner-auth.js";
 import {isThalamusEnabled,schedulerContract,observeGatewayUserId} from "./core/cognitive-v021/thalamus/scheduler.js";
 import {thalamusStatus} from "./core/cognitive-v021/thalamus/status.js";
-import { createTransportAuth } from "./transport-auth.js";
+import { createTransportAuth, sameSecret } from "./transport-auth.js";
 import { assertRegisteredRoutes } from "./route-surface.js";
 import { parsePlaceSyncReports, placesHeld, syncPlacePosts } from "./core/places/intents.js";
 import { openCognitiveSidecarDb } from "./core/cognitive-v021/sidecar/db.js";
@@ -63,7 +63,7 @@ import {
   recheckOwnerPublicationReservation,
 } from "./core/cognitive-v021/settlement/publish.js";
 import { reconcilePolicyClock } from "./core/cognitive-v021/private-budget/policy-time-ledger.js";
-import { activePrivateThoughtPolicyId } from "./core/cognitive-v021/private-budget/policies.js";
+import { activePrivateThoughtPolicyId, resolveBudgetPolicy } from "./core/cognitive-v021/private-budget/policies.js";
 import { getContinuityFor } from "./core/continuity/registry.js";
 import {
   admitV021RememberCommand,
@@ -103,6 +103,8 @@ import { getCognitiveGraduationDiagnostics, setGraduationMode } from "./core/cog
 import { setInfluenceMode } from "./core/cognitive-v021/influences/contract-state.js";
 import { rollbackCognitiveGraduation } from "./core/cognitive-v021/graduation/calibration.js";
 import { CORRECTION_CLASSES, DISPOSITIONS, latestAdjudication, recordAdjudication, type AdjudicationInput } from "./core/cognitive-v021/graduation/adjudications.js";
+import { getObservation } from "./core/cognitive-v021/graduation/observations.js";
+import { getExpectation } from "./core/cognitive-v021/growth/expectations.js";
 import {
   listThoughtParseRates,
   ObservabilityStore,
@@ -431,19 +433,22 @@ export function createServer(
   } = {},
 ): express.Express {
   const app = express();
+  app.disable("x-powered-by");
   app.use(cors());
-  app.use(express.json({ limit: "2mb" }));
 
   const botServiceToken = (
-    options.botServiceToken ?? process.env.DISCORD_BOT_TOKEN ?? ""
+    options.botServiceToken ?? env.agentServiceToken
   ).trim();
+  // Authenticate before the body is parsed (A13-11): an unauthenticated caller
+  // gets a 401 without the JSON parser reading its body.
   app.use(createTransportAuth({
     serviceToken: botServiceToken,
     ownerId: options.ownerId ?? env.discordOwnerId,
   }));
+  app.use(express.json({ limit: "2mb" }));
   function requireBotService(req: express.Request): void {
     const presented = req.get("X-Ashley-Bot-Service")?.trim() ?? "";
-    if (!botServiceToken || !presented || presented !== botServiceToken) {
+    if (!botServiceToken || !presented || !sameSecret(presented, botServiceToken)) {
       throw new AppError("forbidden", "Forbidden", 403);
     }
   }
@@ -1316,42 +1321,14 @@ export function createServer(
     }
   });
 
-  app.post("/nuclear/capabilities/evaluation", (req, res) => {
-    try {
-      const { userId, capability, seeds, passed, sourceKey } = req.body as {
-        userId?: string;
-        capability?: string;
-        seeds?: number;
-        passed?: boolean;
-        sourceKey?: string;
-      };
-      requireOwner(userId);
-      if (capability === "memory_evidence") {
-        res.status(400).json({
-          ok: false,
-          reason: "memory_evidence_requires_bound_evaluation",
-        });
-        return;
-      }
-      if (
-        typeof capability !== "string" ||
-        typeof seeds !== "number" ||
-        typeof passed !== "boolean" ||
-        typeof sourceKey !== "string" ||
-        !sourceKey.trim()
-      ) {
-        throw new AppError("message_required", "evaluation fields required", 400);
-      }
-      res.json(manager.core.recordCapabilityEvaluation({
-        capability,
-        seeds,
-        passed,
-        sourceKey,
-      }));
-    } catch (err) {
-      const { status, body } = toErrorResponse(err);
-      res.status(status).json(body);
-    }
+  // A13-7: a request body can no longer write qualification evidence. The
+  // promotion precondition (qualified_at) is set only by the host's own runs.
+  app.post("/nuclear/capabilities/evaluation", (_req, res) => {
+    res.status(410).json({
+      error: "retired",
+      code: "endpoint_retired",
+      message: "Capability qualification is not recorded from a request body.",
+    });
   });
 
   app.post("/nuclear/capabilities/promote", (req, res) => {
@@ -2375,7 +2352,7 @@ export function createServer(
       requireOwner(String(req.query.owner_id ?? "") || undefined);
       const decision = decideDomusIngress({
         helperToken: env.domusHelperToken,
-        botToken: process.env.DISCORD_BOT_TOKEN ?? "",
+        botToken: env.agentServiceToken,
       });
       const listener = decision.enabled
         ? { enabled: true, port: env.domusIngressPort }
@@ -2522,7 +2499,11 @@ export function createServer(
       const sidecar = getCognitiveSidecar();
       const prior = latestAdjudication(sidecar, expectationId);
       const supersedes = supersedesAdjudicationId ?? prior?.adjudicationId;
-      const input: AdjudicationInput = { expectationId, observationId, disposition, adjudicatingCycleId, proposalOrigin: "owner", hostValidationOk: true,
+      // A13-7: host validation is computed from the stored prediction and the
+      // observation it is adjudicated against, not asserted by the route.
+      const hostValidationOk = getExpectation(sidecar, expectationId) !== null
+        && getObservation(sidecar, observationId)?.expectationId === expectationId;
+      const input: AdjudicationInput = { expectationId, observationId, disposition, adjudicatingCycleId, proposalOrigin: "owner", hostValidationOk,
         adjudicationAuthority: "owner_confirmed", ...(supersedes ? { supersedesAdjudicationId: supersedes, correctionClass: correctionClass ?? "TEMPORAL_SUPERSESSION" } : {}), nowMs: Date.now() };
       res.json(recordAdjudication(sidecar, input));
     } catch (err) {
@@ -2713,7 +2694,7 @@ export function createServer(
   });
 
   app.get("/debug/memory-context", (req, res) => {
-    if (env.nodeEnv === "production") {
+    if (!env.debugRoutesEnabled) {
       res.status(404).json({ error: "not_found" });
       return;
     }
@@ -2754,10 +2735,7 @@ export function createServer(
 
   app.get("/curiosity/status", (req, res) => {
     try {
-      const ownerId =
-        typeof req.query.owner_id === "string"
-          ? req.query.owner_id
-          : env.memoryOwnerId || env.discordOwnerId || "default";
+      const ownerId = requireOwner(String(req.query.owner_id ?? "") || undefined);
       res.json(manager.core.getCuriosityStatus(ownerId));
     } catch (err) {
       const { status, body } = toErrorResponse(err);
@@ -3135,6 +3113,17 @@ export function createServer(
       const policyId = typeof body.policyId === "string" && body.policyId.trim()
         ? body.policyId.trim()
         : activePrivateThoughtPolicyId(getCognitiveSidecar());
+      // A13-4: the Owner can move the policy clock back to a true wall clock,
+      // not forward past it. A forward claim beyond the policy's own
+      // discontinuity tolerance would refuse every reservation, or free them.
+      const jumpLimitMs = resolveBudgetPolicy(getCognitiveSidecar(), policyId).clockDiscontinuityMs;
+      if (wallClockNowMs > Date.now() + jumpLimitMs) {
+        throw new AppError(
+          "policy_clock_jump_refused",
+          "wallClockNowMs is further ahead than the host clock allows",
+          400,
+        );
+      }
       const outcome = reconcilePolicyClock(getCognitiveSidecar(), {
         policyId,
         wallClockNowMs,
@@ -3156,19 +3145,58 @@ export function createServer(
   app.post("/actions/propose", gone);
   app.post("/actions/resolve", gone);
 
-  app.post("/pause", async (_req, res) => {
-    await manager.pause();
-    res.json({ ok: true });
+  app.post("/pause", async (req, res) => {
+    try {
+      requireOwner(typeof req.body?.userId === "string" ? req.body.userId : undefined);
+      await manager.pause();
+      res.json({ ok: true });
+    } catch (err) {
+      const { status, body } = toErrorResponse(err);
+      res.status(status).json(body);
+    }
   });
 
-  app.post("/resume", async (_req, res) => {
-    await manager.resume();
-    res.json({ ok: true });
+  app.post("/resume", async (req, res) => {
+    try {
+      requireOwner(typeof req.body?.userId === "string" ? req.body.userId : undefined);
+      await manager.resume();
+      res.json({ ok: true });
+    } catch (err) {
+      const { status, body } = toErrorResponse(err);
+      res.status(status).json(body);
+    }
   });
 
-  app.post("/shutdown", async (_req, res) => {
-    await manager.shutdown();
-    res.json({ ok: true });
+  app.post("/shutdown", async (req, res) => {
+    try {
+      requireOwner(typeof req.body?.userId === "string" ? req.body.userId : undefined);
+      await manager.shutdown();
+      res.json({ ok: true });
+    } catch (err) {
+      const { status, body } = toErrorResponse(err);
+      res.status(status).json(body);
+    }
+  });
+
+  // A13-11: the last word on errors. A body that does not parse is a short 400;
+  // everything else goes through the generic mapping. Nothing here sends a
+  // stack or an internal message to the caller, whatever NODE_ENV says.
+  app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+    if (res.headersSent) {
+      res.end();
+      return;
+    }
+    const type = typeof err === "object" && err !== null ? (err as { type?: unknown }).type : undefined;
+    if (type === "entity.parse.failed") {
+      res.status(400).json({ error: "Invalid JSON body", code: "invalid_json" });
+      return;
+    }
+    if (type === "entity.too.large") {
+      res.status(413).json({ error: "Request body too large", code: "payload_too_large" });
+      return;
+    }
+    const { status, body } = toErrorResponse(err);
+    res.status(status).json(body);
   });
 
   assertRegisteredRoutes(app);

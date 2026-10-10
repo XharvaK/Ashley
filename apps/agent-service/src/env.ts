@@ -59,12 +59,55 @@ function numericEnv(
   return parsed;
 }
 
+/** The one accepted spelling of a boolean flag, for the agent and the bot alike (A11-10). */
+const FALSE_FLAG_WORDS = ["false", "0", "no", "off"];
+const TRUE_FLAG_WORDS = ["true", "1", "yes", "on"];
+
+function parseBooleanWord(raw: string): boolean | undefined {
+  const word = raw.trim().toLowerCase();
+  if (FALSE_FLAG_WORDS.includes(word)) return false;
+  if (TRUE_FLAG_WORDS.includes(word)) return true;
+  return undefined;
+}
+
+/** Fatal on a malformed value: a security or lifecycle switch is never guessed. */
 function strictBoolean(name: string, fallback: boolean): boolean {
   const raw = process.env[name];
   if (raw === undefined || raw.trim() === "") return fallback;
-  if (raw.trim() === "true") return true;
-  if (raw.trim() === "false") return false;
-  bootErrors.push(`${name} must be "true" or "false"`);
+  const parsed = parseBooleanWord(raw);
+  if (parsed === undefined) {
+    bootErrors.push(`${name} must be "true" or "false"`);
+    return fallback;
+  }
+  return parsed;
+}
+
+/** Non-fatal on a malformed value: the default holds and boot reports the typo. */
+function flagEnv(name: string, fallback: boolean): boolean {
+  const raw = process.env[name];
+  if (raw === undefined || raw.trim() === "") return fallback;
+  const parsed = parseBooleanWord(raw);
+  if (parsed === undefined) {
+    numericWarnings.push(`${name} is not a boolean; using ${fallback}`);
+    return fallback;
+  }
+  return parsed;
+}
+
+/**
+ * The bot → agent API secret (A11-2 / A13-1). ASHLEY_SERVICE_TOKEN is separate
+ * from the Discord login. Unset, it falls back to the bot token for one release
+ * and boot says so.
+ */
+function agentServiceTokenFromEnv(): string {
+  const own = (process.env.ASHLEY_SERVICE_TOKEN ?? "").trim();
+  if (own) return own;
+  const fallback = (process.env.DISCORD_BOT_TOKEN ?? "").trim();
+  if (fallback) {
+    numericWarnings.push(
+      "ASHLEY_SERVICE_TOKEN unset; using DISCORD_BOT_TOKEN as the agent service token (deprecated fallback)",
+    );
+  }
   return fallback;
 }
 
@@ -132,17 +175,21 @@ function createEnv() {
   /** IANA zone for Ashley's clock; empty keeps the fixed UTC+3 default. */
   ownerTimeZone: process.env.ASHLEY_OWNER_TIME_ZONE?.trim() ?? "",
   /** Owner online/idle as a Thought fact. Off: only DND reaches the quiet gate. */
-  ownerPresenceFacts: process.env.ASHLEY_OWNER_PRESENCE_FACTS?.trim() === "true",
+  ownerPresenceFacts: flagEnv("ASHLEY_OWNER_PRESENCE_FACTS", false),
   // A5 local embeddings: off unless enabled and a local model is named.
-  localEmbeddingsEnabled: process.env.ASHLEY_LOCAL_EMBEDDINGS_ENABLED?.trim().toLowerCase() === "true",
+  localEmbeddingsEnabled: flagEnv("ASHLEY_LOCAL_EMBEDDINGS_ENABLED", false),
   localEmbeddingModel: process.env.ASHLEY_LOCAL_EMBEDDING_MODEL?.trim() ?? "",
-  /** Growth V1 afterglow reflection; on unless explicitly "false". */
-  afterglowEnabled: process.env.ASHLEY_AFTERGLOW_ENABLED?.trim().toLowerCase() !== "false",
+  /** Growth V1 afterglow reflection; on unless explicitly switched off. */
+  afterglowEnabled: flagEnv("ASHLEY_AFTERGLOW_ENABLED", true),
   memoryOwnerId:
     process.env.MEMORY_OWNER_ID ?? process.env.DISCORD_OWNER_ID ?? "",
   agentPort: numericEnv("AGENT_PORT", 3710, 1, 65_535, true),
   domusIngressPort: numericEnv("DOMUS_INGRESS_PORT", 3711, 1, 65_535, true),
   domusHelperToken: process.env.DOMUS_HELPER_TOKEN ?? "",
+  /** The bot → agent API secret, separate from the Discord login (A13-1). */
+  agentServiceToken: agentServiceTokenFromEnv(),
+  /** Off unless the explicit debug flag is set; NODE_ENV does not switch it on (A13-13). */
+  debugRoutesEnabled: flagEnv("ASHLEY_DEBUG_ROUTES", false),
   /** E4: the User's private word watch (a file of words, never committed) and its review webhook (a secret). */
   wordWatchFile: process.env.ASHLEY_WORD_WATCH_FILE?.trim() || join(reservedProductionDataDir(), "word_watch.txt"),
   wordWatchWebhook: process.env.ASHLEY_WORD_WATCH_WEBHOOK?.trim() ?? "",
@@ -153,11 +200,11 @@ function createEnv() {
   privateThoughtBudgetLimit: numericEnv("ASHLEY_PRIVATE_THOUGHT_BUDGET_LIMIT", 0, 0, 3600, true),
   privateThoughtBudgetVersion: numericEnv("ASHLEY_PRIVATE_THOUGHT_BUDGET_VERSION", 1, 1, 1_000_000, true),
   /** 8f embodiment_actuation: Domus passes may choose one listed game action. Default off; the Owner turns it on. */
-  domusActEnabled: process.env.ASHLEY_DOMUS_ACT_ENABLED?.trim().toLowerCase() === "true",
+  domusActEnabled: flagEnv("ASHLEY_DOMUS_ACT_ENABLED", false),
   agentBindHost: process.env.AGENT_BIND_HOST ?? "127.0.0.1",
   nodeEnv: process.env.NODE_ENV ?? "development",
-  personaEvalMode: process.env.PERSONA_EVAL_MODE === "true",
-  proactiveEnabled: process.env.PROACTIVE_ENABLED !== "false",
+  personaEvalMode: flagEnv("PERSONA_EVAL_MODE", false),
+  proactiveEnabled: flagEnv("PROACTIVE_ENABLED", true),
   proactiveMaxPerDay: numericEnv("PROACTIVE_MAX_PER_DAY", 10, 0, 100, true),
   proactiveMinIdleHours: numericEnv("PROACTIVE_MIN_IDLE_HOURS", 2, 0, 168),
   reflectionMode:
@@ -254,8 +301,7 @@ function createEnv() {
   // may run on an eligible turn; Model Fabric owns the provider/model selected
   // for the resolved ashley_expression_fallback route. ON by default; opt out
   // with ASHLEY_EXPRESSION_FALLBACK=false.
-  expressionFallbackEnabled:
-    process.env.ASHLEY_EXPRESSION_FALLBACK !== "false",
+  expressionFallbackEnabled: flagEnv("ASHLEY_EXPRESSION_FALLBACK", true),
   expressionFallbackRecentTurns: numericEnv(
     "ASHLEY_EXPRESSION_FALLBACK_RECENT_TURNS",
     6,
@@ -282,8 +328,8 @@ function createEnv() {
     0,
     72,
   ),
-  curiosityEnabled: process.env.CURIOSITY_ENABLED !== "false",
-  curiosityLookupEnabled: process.env.CURIOSITY_LOOKUP_ENABLED !== "false",
+  curiosityEnabled: flagEnv("CURIOSITY_ENABLED", true),
+  curiosityLookupEnabled: flagEnv("CURIOSITY_LOOKUP_ENABLED", true),
   curiosityTavilyMonthlyCredits: numericEnv(
     "CURIOSITY_TAVILY_MONTHLY_CREDITS",
     1000,
@@ -344,8 +390,8 @@ export function validateBoot(): {
   if (!env.discordOwnerId) {
     errors.push("DISCORD_OWNER_ID missing — the Owner check fails closed without it");
   }
-  if (!(process.env.DISCORD_BOT_TOKEN ?? "").trim()) {
-    errors.push("DISCORD_BOT_TOKEN missing — every route but /health requires the bot service token");
+  if (!env.agentServiceToken.trim()) {
+    errors.push("ASHLEY_SERVICE_TOKEN or DISCORD_BOT_TOKEN missing — every route but /health requires the agent service token");
   }
   return { ok: errors.length === 0, errors, warnings };
 }

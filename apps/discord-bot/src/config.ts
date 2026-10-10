@@ -76,16 +76,44 @@ export type DiscordRaEffectiveConfig = Readonly<{
 
 type RaEnvironment = Readonly<Record<string, unknown>>;
 
+const FALSE_FLAG_WORDS = ["false", "0", "no", "off"];
+const TRUE_FLAG_WORDS = ["true", "1", "yes", "on"];
+
+/**
+ * One boolean reading for every switch in the bot (A11-10): false, 0, no and
+ * off are off; true, 1, yes and on are on; anything else (or unset) keeps the
+ * default, so a typo never flips a switch silently.
+ */
+export function readBooleanFlag(value: unknown, fallback: boolean): boolean {
+  if (typeof value === "boolean") return value;
+  if (value === undefined || value === null) return fallback;
+  const word = String(value).trim().toLowerCase();
+  if (FALSE_FLAG_WORDS.includes(word)) return false;
+  if (TRUE_FLAG_WORDS.includes(word)) return true;
+  return fallback;
+}
+
 function raFlag(value: unknown): boolean {
-  return value === true || value === "true" || value === "1";
+  return readBooleanFlag(value, false);
 }
 
 /** Contact DMs are on unless switched off; the Owner's permit decides who. */
 function raOn(value: unknown): boolean {
-  if (value === undefined || value === null) return true;
-  if (value === false) return false;
-  const text = String(value).trim().toLowerCase();
-  return !(text === "false" || text === "0" || text === "off");
+  return readBooleanFlag(value, true);
+}
+
+/**
+ * The bot → agent API secret (A13-1). ASHLEY_SERVICE_TOKEN is separate from the
+ * Discord login; unset, the bot falls back to DISCORD_BOT_TOKEN for one release.
+ */
+export function resolveAgentServiceToken(env: Readonly<Record<string, string | undefined>>): {
+  token: string;
+  fallback: boolean;
+} {
+  const own = (env.ASHLEY_SERVICE_TOKEN ?? "").trim();
+  if (own) return { token: own, fallback: false };
+  const bot = (env.DISCORD_BOT_TOKEN ?? "").trim();
+  return { token: bot, fallback: Boolean(bot) };
 }
 
 function raPrincipal(value: unknown): string | null {
@@ -138,8 +166,17 @@ function numericEnv(
   return parsed;
 }
 
+const agentServiceToken = resolveAgentServiceToken(process.env);
+if (agentServiceToken.fallback) {
+  numericWarnings.push(
+    "ASHLEY_SERVICE_TOKEN unset; using DISCORD_BOT_TOKEN as the agent service token (deprecated fallback)",
+  );
+}
+
 export const config = {
   token: process.env.DISCORD_BOT_TOKEN ?? "",
+  /** Sent to the agent as X-Ashley-Bot-Service; separate from the Discord login. */
+  serviceToken: agentServiceToken.token,
   ownerId: process.env.DISCORD_OWNER_ID ?? "",
   allowedChannels: configuredAllowedChannels,
   guildId: process.env.DISCORD_GUILD_ID ?? "",
@@ -156,7 +193,7 @@ export const config = {
   // The agent-service repeats this check authoritatively.
   botDmPrincipal: raEffectiveConfig.botDmPrincipal ?? "",
   agentUrl: process.env.AGENT_SERVICE_URL ?? "http://127.0.0.1:3710",
-  proactiveEnabled: process.env.PROACTIVE_ENABLED !== "false",
+  proactiveEnabled: readBooleanFlag(process.env.PROACTIVE_ENABLED, true),
   proactiveCheckIntervalMin: numericEnv(
     "PROACTIVE_CHECK_INTERVAL_MIN",
     60,
@@ -165,19 +202,20 @@ export const config = {
   ),
   giphyApiKey: process.env.GIPHY_API_KEY ?? "",
   tenorApiKey: process.env.TENOR_API_KEY ?? "",
-  gifEnabled: process.env.GIF_ENABLED !== "false",
+  gifEnabled: readBooleanFlag(process.env.GIF_ENABLED, true),
   // Slightly under the old 120s default — GIFs were too rare (Alex 2026-08-01).
   gifCooldownSec: numericEnv("GIF_COOLDOWN_SEC", 90, 0, 86_400),
   // Default on for the 3–10s bubble pacing ship; set DISCORD_PACE_ENABLED=false to disable.
-  paceEnabled: process.env.DISCORD_PACE_ENABLED !== "false",
-  reactPolicyEnabled: process.env.DISCORD_REACT_POLICY_ENABLED !== "false",
-  presenceIntent: process.env.DISCORD_PRESENCE_INTENT === "true",
-  ownerPresenceFacts: process.env.ASHLEY_OWNER_PRESENCE_FACTS === "true",
+  paceEnabled: readBooleanFlag(process.env.DISCORD_PACE_ENABLED, true),
+  reactPolicyEnabled: readBooleanFlag(process.env.DISCORD_REACT_POLICY_ENABLED, true),
+  presenceIntent: readBooleanFlag(process.env.DISCORD_PRESENCE_INTENT, false),
+  ownerPresenceFacts: readBooleanFlag(process.env.ASHLEY_OWNER_PRESENCE_FACTS, false),
 };
 
 export function validateConfig(): void {
   const missing: string[] = [];
   if (!config.token) missing.push("DISCORD_BOT_TOKEN");
+  if (!config.serviceToken) missing.push("ASHLEY_SERVICE_TOKEN");
   if (!config.ownerId) missing.push("DISCORD_OWNER_ID");
   if (missing.length) {
     throw new ConfigError(`Missing env: ${missing.join(", ")}`);

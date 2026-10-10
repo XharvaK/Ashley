@@ -28,6 +28,7 @@ export type ErrorCode =
   | "approval_no_target_paths"
   | "approval_too_many_target_paths"
   | "approval_invalid_path_intent"
+  | "policy_clock_jump_refused"
   | "approval_invalid_persistence"
   | "approval_network_mode_unsupported"
   | "approval_policy_unbound"

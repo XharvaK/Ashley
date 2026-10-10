@@ -6,9 +6,10 @@ import type express from "express";
  *
  * The agent listens on loopback, but loopback is shared with every local
  * process, including the Command Code worker. Every route except /health
- * therefore requires the bot's service token, and admin acts additionally
- * require the bot to vouch that Alex initiated them (X-Ashley-Actor). A user
- * id in a request body is never proof of who is asking.
+ * therefore requires the agent service token (ASHLEY_SERVICE_TOKEN), and admin
+ * acts additionally require the bot to vouch that Alex initiated them
+ * (X-Ashley-Actor). Owner routes compare a body user id with the configured
+ * Owner; that id is only as strong as the service token, which the bot holds.
  */
 
 export const BOT_SERVICE_HEADER = "X-Ashley-Bot-Service";
@@ -52,18 +53,37 @@ export const ADMIN_ROUTES: ReadonlyArray<readonly ["GET" | "POST" | "DELETE", st
   ["DELETE", "/quiet"],
   ["GET", "/quiet"],
   ["POST", "/initiative/periodic/debug/enable"],
+  // A13-2: the agent's run controls are Owner acts, like /initiative/pause.
+  ["POST", "/pause"],
+  ["POST", "/resume"],
+  ["POST", "/shutdown"],
+  // A13-5: Owner judgments that used to take only a body user id.
+  ["POST", "/nuclear/temporal"],
+  ["POST", "/nuclear/relationship/c5"],
+  ["POST", "/nuclear/memory/corrections"],
+  ["POST", "/nuclear/capabilities/memory-evidence/evaluation"],
+  ["POST", "/growth/dimensions/seed"],
+  ["POST", "/growth/dimensions/revert"],
+  ["POST", "/initiative/clock/reconcile"],
+  // A13-6: reads of her places and trusted contacts are the Owner's.
+  ["GET", "/places"],
+  ["GET", "/social/contacts"],
 ];
 
+// Express routes case-insensitively and sends HEAD to the GET handler, so the
+// admin match folds case and treats HEAD as GET (A11-9, A13-3).
 const ADMIN_MATCHERS = ADMIN_ROUTES.map(([method, path]) => ({
   method,
-  pattern: new RegExp(`^${path.replace(/:[A-Za-z]+/g, "[^/]+")}/?$`),
+  pattern: new RegExp(`^${path.replace(/:[A-Za-z]+/g, "[^/]+")}/?$`, "i"),
 }));
 
 export function isAdminRoute(method: string, path: string): boolean {
-  return ADMIN_MATCHERS.some((matcher) => matcher.method === method && matcher.pattern.test(path));
+  const verb = method.toUpperCase() === "HEAD" ? "GET" : method.toUpperCase();
+  return ADMIN_MATCHERS.some((matcher) => matcher.method === verb && matcher.pattern.test(path));
 }
 
-function sameSecret(presented: string, expected: string): boolean {
+/** Constant-time secret comparison (A13-14). Length differences are checked first. */
+export function sameSecret(presented: string, expected: string): boolean {
   const a = Buffer.from(presented, "utf8");
   const b = Buffer.from(expected, "utf8");
   return a.length === b.length && timingSafeEqual(a, b);
