@@ -44,19 +44,19 @@ export async function handleSlash(
     await interaction.reply({
       content: "Not authorized.",
       flags: MessageFlags.Ephemeral,
-    });
+    }).catch((replyErr) => console.error("[discord-bot] refused slash reply failed", replyErr));
     return;
   }
 
-  const ephemeral = isEphemeralCommand(
-    interaction.commandName,
-    interaction.options.getString("action"),
-  );
-  if (!interaction.deferred && !interaction.replied) {
-    await interaction.deferReply(ephemeral ? { flags: MessageFlags.Ephemeral } : {});
-  }
-
   try {
+    const ephemeral = isEphemeralCommand(
+      interaction.commandName,
+      interaction.options.getString("action"),
+    );
+    if (!interaction.deferred && !interaction.replied) {
+      await interaction.deferReply(ephemeral ? { flags: MessageFlags.Ephemeral } : {});
+    }
+
     switch (interaction.commandName) {
       case "remember":
         await remember.execute(interaction);
@@ -104,10 +104,10 @@ export async function handleSlash(
     const retryAfterSec = (err as Error & { retryAfterSec?: number })
       .retryAfterSec;
     const msg = agentErrorMessage(code, retryAfterSec);
-    if (interaction.deferred || interaction.replied) {
-      await interaction.editReply(msg);
-    } else {
-      await interaction.reply({ content: msg, flags: MessageFlags.Ephemeral });
-    }
+    // The interaction may have expired (Unknown interaction); the reply failing must not escape as a rejection.
+    await (interaction.deferred || interaction.replied
+      ? interaction.editReply(msg)
+      : interaction.reply({ content: msg, flags: MessageFlags.Ephemeral })
+    ).catch((replyErr) => console.error("[discord-bot] slash error reply failed", replyErr));
   }
 }

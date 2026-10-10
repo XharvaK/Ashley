@@ -60,7 +60,7 @@ export function createClient(): Client {
     if (interaction.isButton() && interaction.customId.startsWith("practice-revert:")) {
       void handlePracticeRevert(interaction).catch(error => console.error("[discord-bot] practice revert failed", error));
     } else if (interaction.isChatInputCommand()) {
-      void handleSlash(interaction);
+      void handleSlash(interaction).catch((error) => console.error("[discord-bot] slash handling failed", error));
     }
   });
 
