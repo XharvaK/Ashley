@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { DatabaseSync } from "node:sqlite";
 import { openCognitiveSidecarDb } from "../sidecar/db.js";
 import { openNuclearDb } from "../../db.js";
@@ -25,6 +25,15 @@ import type {
   KernelDeps,
   Observation,
 } from "../types.js";
+import { env } from "../../../env.js";
+
+const originalOwnerId = env.discordOwnerId;
+beforeAll(() => {
+  env.discordOwnerId = "user:owner";
+});
+afterAll(() => {
+  env.discordOwnerId = originalOwnerId;
+});
 
 const constitution: IdentitySlice = { constitutional: ["truth first"], stableSelf: [] };
 const capabilityReality: CapabilityReality = {

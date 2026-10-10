@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { AppError } from "../../../errors.js";
 import {
   appendInboxEvent,
@@ -21,9 +21,11 @@ import type { CapabilityReality, IdentitySlice, KernelDeps, Observation, Thought
 import { ORDINARY_THOUGHT_BUDGET_MS } from "../types.js";
 import { upsertMemoryAssertion } from "../memory/assertions.js";
 import { getMemoryStrength, recordMemoryFormation } from "../memory/strength.js";
+import { env } from "../../../env.js";
 
 // Tests start their fake clock at 1_000 ms; one ordinary Thought budget later
 // is the shared absolute deadline (tracks the constant, not a copied value).
+
 const FIRST_DEADLINE_MS = 1_000 + ORDINARY_THOUGHT_BUDGET_MS;
 import { makeSemanticSettlement } from "../test-support.js";
 import { DatabaseSync } from "node:sqlite";
@@ -51,6 +53,14 @@ import {
   STRUCTURAL_RETRY_MAX_OUTPUT_TOKENS,
 } from "./run.js";
 import { scheduleFutureTrigger } from "../initiative/future-triggers.js";
+
+const originalOwnerId = env.discordOwnerId;
+beforeAll(() => {
+  env.discordOwnerId = "doc";
+});
+afterAll(() => {
+  env.discordOwnerId = originalOwnerId;
+});
 
 const constitution: IdentitySlice = { constitutional: ["truth first"], stableSelf: ["curious"] };
 const capabilityReality: CapabilityReality = {

@@ -11,6 +11,7 @@ import {
   AVATAR_ASLEEP,
   AVATAR_BACKOFF_MS,
   AVATAR_CHANGES_PER_DAY,
+  AVATAR_SLEEP_WAKE_PER_DAY,
   AVATAR_DAY_MS,
   emptyFaceMemory,
   loadFaceMemory,
@@ -127,14 +128,22 @@ test("avatar sleeps when the night pass starts and wakes on the next awake or co
   assert.equal(box.avatars, 4);
 });
 
-test("avatar stops at four changes in 24 hours and backs off for an hour after 429", async () => {
+test("four faces she chose do not use up the sleep and wake budget", async () => {
   const box = harness();
   box.input.memory.avatarChangeAtMs = Array.from({ length: AVATAR_CHANGES_PER_DAY }, (_, index) => NOW - index * 1_000);
+  await tick(box, { phase: "night" });
+  assert.equal(box.avatars, 1);
+  assert.equal(box.input.memory.sleeping, true);
+});
+
+test("sleep and wake flips stop at their own daily budget and back off for an hour after 429", async () => {
+  const box = harness();
+  box.input.memory.sleepWakeChangeAtMs = Array.from({ length: AVATAR_SLEEP_WAKE_PER_DAY }, (_, index) => NOW - index * 1_000);
   await tick(box, { phase: "night" });
   assert.equal(box.avatars, 0);
   assert.equal(box.input.memory.sleeping, false);
 
-  box.input.memory.avatarChangeAtMs = [NOW - AVATAR_DAY_MS - 1];
+  box.input.memory.sleepWakeChangeAtMs = [NOW - AVATAR_DAY_MS - 1];
   await tick(box, { phase: "night" });
   assert.equal(box.avatars, 1);
 

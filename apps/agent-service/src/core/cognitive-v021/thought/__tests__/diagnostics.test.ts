@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   RAW_DEBUG_RETENTION_MAX_MS,
   RAW_DEBUG_RETENTION_MAX_DAYS,
@@ -22,6 +22,16 @@ import { appendOwnerUtterance } from "../../evidence/conversation-log.js";
 import { runCognitiveCycle } from "../run.js";
 import { attachModelFabricMetadata } from "../../../model-fabric/receipts.js";
 import type { ModelFabricDispatchMetadata } from "../../../model-fabric/types.js";
+import { env } from "../../../../env.js";
+
+
+const originalOwnerId = env.discordOwnerId;
+beforeAll(() => {
+  env.discordOwnerId = "doc";
+});
+afterAll(() => {
+  env.discordOwnerId = originalOwnerId;
+});
 
 describe("Thought Diagnostics & Observability DB", () => {
   it("persists allocation receipts and dispatch diagnostics in dedicated forensic store", () => {

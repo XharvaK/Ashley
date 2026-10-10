@@ -77,7 +77,8 @@ describe("describeIntake", () => {
     assert.equal(intake.attachments.length, 1);
     assert.equal(intake.attachments[0]!.sourceUrl, "https://cdn.example/a.png");
     assert.match(intake.text, /image attachment/);
-    assert.match(intake.text, /vision capability/);
+    assert.match(intake.text, /an image attachment I can see/);
+    assert.doesNotMatch(intake.text, /vision/);
   });
 
   it("keeps the caption and the note apart", () => {

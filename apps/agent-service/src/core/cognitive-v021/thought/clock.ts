@@ -7,10 +7,10 @@ import type { ConversationEvidenceRecord } from "../types.js";
  * spoke. Host facts only; what the time means is Thought's to decide.
  */
 export type ThoughtClock = Readonly<{
-  /** Local wall time, e.g. "Tuesday 29 September 2026, 17:52". */
-  now: string;
-  /** Offset label of the Owner's zone, e.g. "UTC+03:00". */
-  timeZone: string;
+  /** Local wall time, e.g. "Tuesday 29 September 2026, 17:52". Owner-private turns only. */
+  now?: string;
+  /** Offset label of the Owner's zone, e.g. "UTC+03:00". Owner-private turns only. */
+  timeZone?: string;
   partOfDay: "night" | "morning" | "afternoon" | "evening";
   /** The Owner's latest message before the one being answered, if any. */
   ownerPreviousMessage?: ClockMark;
@@ -18,7 +18,7 @@ export type ThoughtClock = Readonly<{
   ashleyLastMessage?: ClockMark;
 }>;
 
-export type ClockMark = Readonly<{ at: string; ago: string }>;
+export type ClockMark = Readonly<{ at?: string; ago: string }>;
 
 /** Fixed UTC+3 by default; any IANA zone may be configured instead. */
 export const DEFAULT_OWNER_TIME_ZONE = "Etc/GMT-3";
@@ -77,9 +77,10 @@ export function humanDuration(ms: number): string {
   return pieces.join(" ");
 }
 
-function mark(row: ConversationEvidenceRecord | undefined, nowMs: number, timeZone: string): ClockMark | undefined {
+function mark(row: ConversationEvidenceRecord | undefined, nowMs: number, timeZone: string, coarse: boolean): ClockMark | undefined {
   if (!row) return undefined;
-  return { at: wallTime(row.createdAtMs, timeZone), ago: humanDuration(Math.max(0, nowMs - row.createdAtMs)) };
+  const ago = humanDuration(Math.max(0, nowMs - row.createdAtMs));
+  return coarse ? { ago } : { at: wallTime(row.createdAtMs, timeZone), ago };
 }
 
 export function buildThoughtClock(input: {
@@ -88,19 +89,24 @@ export function buildThoughtClock(input: {
   rows: readonly ConversationEvidenceRecord[];
   /** Rows being answered now; they are not "previous". */
   currentRowIds?: ReadonlySet<string>;
+  /** Rooms and contact DMs: part of day and elapsed time only, with no wall time, zone or offset of the Owner's. */
+  coarse?: boolean;
 }): ThoughtClock {
   const timeZone = input.timeZone || DEFAULT_OWNER_TIME_ZONE;
+  const coarse = input.coarse === true;
   const current = input.currentRowIds ?? new Set<string>();
   const ordered = [...input.rows]
     .filter((row) => row.createdAtMs <= input.nowMs)
     .sort((a, b) => a.createdAtMs - b.createdAtMs);
   const latest = (role: string, excludeCurrent: boolean) =>
     ordered.filter((row) => row.role === role && !(excludeCurrent && current.has(row.rowId))).at(-1);
-  const ownerPrevious = mark(latest("owner", true), input.nowMs, timeZone);
-  const ashleyLast = mark(latest("ashley", false), input.nowMs, timeZone);
+  const ownerPrevious = mark(latest("owner", true), input.nowMs, timeZone, coarse);
+  const ashleyLast = mark(latest("ashley", false), input.nowMs, timeZone, coarse);
   return Object.freeze({
-    now: wallTime(input.nowMs, timeZone),
-    timeZone: offsetLabel(input.nowMs, timeZone),
+    ...(coarse ? {} : {
+      now: wallTime(input.nowMs, timeZone),
+      timeZone: offsetLabel(input.nowMs, timeZone),
+    }),
     partOfDay: partOfDay(input.nowMs, timeZone),
     ...(ownerPrevious ? { ownerPreviousMessage: ownerPrevious } : {}),
     ...(ashleyLast ? { ashleyLastMessage: ashleyLast } : {}),

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { appendInboxEvent } from "../cycle/inbox.js";
 import { appendOwnerUtterance } from "../evidence/conversation-log.js";
 import { admitTestCycle, makeSemanticSettlement, openTestSidecar } from "../test-support.js";
@@ -7,6 +7,16 @@ import type { CapabilityReality, IdentitySlice, KernelDeps, Observation } from "
 import { checkAuthority as deterministicCheckAuthority } from "../authority/check.js";
 import { loadAuthorityPacks as loadDeterministicAuthorityPacks } from "../authority/packs.js";
 import { runCognitiveCycle } from "./run.js";
+import { env } from "../../../env.js";
+
+
+const originalOwnerId = env.discordOwnerId;
+beforeAll(() => {
+  env.discordOwnerId = "doc";
+});
+afterAll(() => {
+  env.discordOwnerId = originalOwnerId;
+});
 
 const constitution: IdentitySlice = { constitutional: ["truth first"], stableSelf: [] };
 const capabilityReality: CapabilityReality = {

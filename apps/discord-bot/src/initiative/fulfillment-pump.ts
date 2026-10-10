@@ -5,7 +5,7 @@ import {
 } from "discord.js";
 import { config, getRaEffectiveConfig } from "../config.js";
 import { channelQueue } from "../chat/channel-queue.js";
-import { splitMessage } from "../chat/split-message.js";
+import { capRoomBubbles, splitMessage } from "../chat/split-message.js";
 import {
   claimPendingCognitiveDeliveries,
   claimPendingSocialNotifications,
@@ -217,6 +217,11 @@ async function drainPendingDeliveries(
         await deps.finalize(delivery.reservationId, "send_failure").catch(() => {});
         continue;
       }
+      // A shared room with guests gets at most ROOM_BUBBLE_CAP bubbles per turn; the full draft stays in her record.
+      const sentBubbles = target.kind === "room" ? capRoomBubbles(bubbles) : bubbles;
+      if (sentBubbles.length < bubbles.length) {
+        console.warn(`[discord-bot] room reply capped reservation=${delivery.reservationId} bubbles=${sentBubbles.length}/${bubbles.length}`);
+      }
 
       let dispatchStarted = false;
       let sendError: unknown = null;
@@ -273,7 +278,7 @@ async function drainPendingDeliveries(
           dispatchStarted = true;
           sendResult = await deps.send(
             channel,
-            bubbles,
+            sentBubbles,
             null,
             {
               tempoGapMs: tempoTracker.lastGapMs(channel.id),
@@ -405,7 +410,7 @@ async function drainPendingDeliveries(
       await deps.finalize(delivery.reservationId, "complete").catch(() => {});
       deliveredCount += 1;
       console.log(
-        `[discord-bot] cognitive fulfillment delivered reservation=${delivery.reservationId} bubbles=${successfulReceipts}/${bubbles.length}`,
+        `[discord-bot] cognitive fulfillment delivered reservation=${delivery.reservationId} bubbles=${successfulReceipts}/${sentBubbles.length}`,
       );
     } catch (error) {
       console.error(

@@ -1,5 +1,4 @@
 import { MessageFlags, type SendableChannels, type Message } from "discord.js";
-import { sendFailedLine } from "./fumble-lines.js";
 import {
   PACE_BUDGET_MS,
   bubbleDelayMs,
@@ -233,11 +232,4 @@ export async function sendBubbles(
   }
 
   return result;
-}
-
-/** Ledgerable delivery-error notice — caller must receipt as auxiliary. */
-export async function sendDeliveryErrorNotice(
-  channel: SendableChannels,
-): Promise<Message> {
-  return channel.send(sendFailedLine());
 }

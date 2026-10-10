@@ -6,6 +6,7 @@ import {
   type DomusSnapshotResult,
 } from "../agent-client.js";
 import { config } from "../config.js";
+import { errorSummary } from "./error-summary.js";
 
 /**
  * Snapshot: a real picture of her game, sent only to the Owner's DM with her own caption.
@@ -48,7 +49,7 @@ export async function runSnapshots(deps: SnapshotDeps): Promise<number> {
   for (const snapshot of snapshots) {
     const result = await sendSnapshot(snapshot, deps.ownerDm);
     await deps.report(snapshot.snapshotId, result).catch((error: unknown) => {
-      console.warn(`[snapshot] report failed id=${snapshot.snapshotId} ${error instanceof Error ? error.name : "error"}`);
+      console.warn(`[snapshot] report failed id=${snapshot.snapshotId} ${errorSummary(error)}`);
     });
   }
   return snapshots.length;
@@ -69,7 +70,7 @@ export function startSnapshotPump(client: Client): void {
     try {
       await runSnapshots(deps);
     } catch (error) {
-      console.warn(`[snapshot] tick failed ${error instanceof Error ? error.name : "error"}`);
+      console.warn(`[snapshot] tick failed ${errorSummary(error)}`);
     } finally {
       running = false;
     }

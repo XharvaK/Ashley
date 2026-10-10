@@ -1330,6 +1330,8 @@ export function buildThoughtInput(options: BuildThoughtInputOptions): ThoughtInp
         timeZone: options.clock.timeZone,
         rows: rawConversation,
         currentRowIds: new Set(options.clock.currentRowIds ?? []),
+        // A room or a contact never learns the Owner's wall time, zone or offset.
+        coarse: audience.kind !== "owner_private",
       }),
     }),
     ...(options.publicPresence === undefined ? {} : { publicPresence: options.publicPresence }),

@@ -2,9 +2,24 @@
 import type {ChatInputCommandInteraction} from "discord.js";
 import {getNuclearStatus,type ThalamusStatus} from "../agent-client.js";
 import {renderThalamusStatus} from "./thalamus-status.js";
+/** One plain line per named value; numbers keep at most three decimals. */
+function plainLines(values:Record<string,unknown>):string[] {
+ const entries=Object.entries(values);
+ if(entries.length===0)return ["- none yet"];
+ return entries.map(([name,value])=>`- ${name}: ${typeof value==="number" ? Number(value.toFixed(3)) : String(value)}`);
+}
 export function renderAttention(status?:ThalamusStatus):string{
  if(!status || status.availability!=="available" || !status.learning)return "Attention calibration: unavailable";
- return `${renderThalamusStatus(status)}\nNucleus gains: ${JSON.stringify(status.learning.gains)}\nFamily gains: ${JSON.stringify(status.learning.familyGains)}\nHabituation: ${JSON.stringify(status.learning.habituation)}`;
+ return [
+  renderThalamusStatus(status),
+  "",
+  "Nucleus sensitivity:",
+  ...plainLines(status.learning.gains),
+  "Family sensitivity:",
+  ...plainLines(status.learning.familyGains),
+  "Habituation:",
+  ...plainLines(status.learning.habituation),
+ ].join("\n");
 }
 export async function execute(interaction:ChatInputCommandInteraction):Promise<void>{
  const text=renderAttention((await getNuclearStatus()).thalamus);

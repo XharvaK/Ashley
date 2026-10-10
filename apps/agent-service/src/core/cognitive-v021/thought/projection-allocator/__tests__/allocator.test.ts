@@ -298,7 +298,7 @@ describe("Whole-Thought Projection Allocator", () => {
         rawConversation: rows,
         trigger: { kind: "owner_message", ref: rows.at(-1)!.rowId },
       }),
-      semanticBudgetTokens: 17_200,
+      semanticBudgetTokens: 17_500,
       requestId: "req-small-ordinary-conversation",
     });
 
@@ -769,16 +769,16 @@ describe("Whole-Thought Projection Allocator", () => {
     const allocated = allocateThoughtProjection({
       thoughtInput: makeThoughtInput(),
       quotaBucket: "groq:openai/gpt-oss-20b",
-      // Fixture calibration: DPLAY's live-game lines in the chat guidance (+~80 tokens); UX W2's soft layer and rhythm (+~1050).
+      // Fixture calibration: DPLAY's live-game lines in the chat guidance (+~80 tokens); UX W2's soft layer and rhythm (+~1050); the guest-privacy and worn-at-wake guidance (+~200).
       semanticProjectionEnvelope: {
         id: "test-envelope",
         version: 1,
-        maxInputTokens: 15_000,
+        maxInputTokens: 15_500,
       },
       requestId: "req-breakdown",
     });
 
-    expect(allocated.receipt.semanticProjectionEnvelope.maxInputTokens).toBe(15_000);
+    expect(allocated.receipt.semanticProjectionEnvelope.maxInputTokens).toBe(15_500);
     expect(allocated.receipt.tokenBreakdown.static_contract_tokens).toBeGreaterThan(0);
     expect(allocated.receipt.tokenBreakdown.conversation_tokens).toBeGreaterThan(0);
     expect(allocated.receipt.tokenBreakdown.working_context_tokens).toBeGreaterThan(0);
@@ -925,7 +925,7 @@ describe("Whole-Thought Projection Allocator", () => {
     const selectionAt = first.indexOf('"conversationSelection":');
     expect(selectionAt).toBeGreaterThan(0);
     expect(shared).toBeGreaterThan(selectionAt);
-    expect(JSON.parse(first)).toEqual(JSON.parse(second.replace(later.clock!.now, base.clock!.now).replace(String(later.thoughtLegDeadlineAtMs), String(base.thoughtLegDeadlineAtMs))));
+    expect(JSON.parse(first)).toEqual(JSON.parse(second.replace(later.clock!.now!, base.clock!.now!).replace(String(later.thoughtLegDeadlineAtMs), String(base.thoughtLegDeadlineAtMs))));
   });
 
   it("keeps a cache prefix through retrieval when one conversation row is appended", () => {

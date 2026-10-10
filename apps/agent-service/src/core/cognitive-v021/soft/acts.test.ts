@@ -14,6 +14,7 @@ import {
   recordSoftActs,
   reportSoftAct,
   softLayerForPass,
+  SOFT_REASON_WORN_AT_WAKE,
   wardrobeAvailable,
   type SoftClaims,
 } from "./acts.js";
@@ -178,6 +179,15 @@ describe("UX W2 soft acts", () => {
     expect(acts(db).map((act) => [act.status, act.reason])).toEqual([["refused", "mirrors_their_emoji"], ["failed", "no_report"]]);
   });
 
+  it("a face chosen asleep reports worn_at_wake, and a plain done carries no reason", () => {
+    const db = openTestSidecar();
+    row(db, { rowId: "o1", role: "owner", text: "hi", ids: ["900"] });
+    record(db, { face: { wardrobeId: "day-awake" } }, { wardrobe: ["day-awake"] });
+    const claimed = claimSoftActs(db, NOW);
+    expect(reportSoftAct(db, { actId: claimed[0]!.actId, status: "done", reason: SOFT_REASON_WORN_AT_WAKE, nowMs: NOW })).toBe(true);
+    expect(acts(db).map((act) => [act.status, act.reason])).toEqual([["done", SOFT_REASON_WORN_AT_WAKE]]);
+  });
+
   it("her next pass sees what became of her acts once, and a waiting act until it settles", () => {
     const db = openTestSidecar();
     row(db, { rowId: "o1", role: "owner", text: "hi", ids: ["900"] });
@@ -194,18 +204,25 @@ describe("UX W2 soft acts", () => {
     expect(second.facts.acts?.map((fact) => fact.kind)).toEqual(["touch"]);
   });
 
+  it("offers only faces whose art is there, and the day face always", () => {
+    const db = openTestSidecar();
+    const withArt = new Set(["avatar/weather-rain.png"]);
+    expect(wardrobeAvailable(db, { sky: "rain", hasArt: (id) => withArt.has(`avatar/${id}.png`) })).toEqual(["day-awake", "weather-rain"]);
+    expect(wardrobeAvailable(db, { sky: "snow", hasArt: () => false })).toEqual(["day-awake"]);
+  });
+
   it("the wardrobe follows the sky and the interests she lived", () => {
     const db = openTestSidecar();
-    expect(wardrobeAvailable(db, { sky: "clear" })).toEqual(["day-awake"]);
-    expect(wardrobeAvailable(db, { sky: "thunder" })).toEqual(["day-awake", "weather-rain"]);
+    expect(wardrobeAvailable(db, { sky: "clear", hasArt: () => true })).toEqual(["day-awake"]);
+    expect(wardrobeAvailable(db, { sky: "thunder", hasArt: () => true })).toEqual(["day-awake", "weather-rain"]);
     const insert = db.prepare(
       "INSERT INTO interest_branches (branch_id, root, label, origin, lived_count, created_at_ms) VALUES (?, ?, ?, 'ashley', ?, 0)",
     );
     insert.run("w2-food", "Food & cooking", "slow soups", 4);
     insert.run("w2-photo", "Photography", "film", 5);
-    expect(wardrobeAvailable(db, { sky: "snow" })).toEqual(["day-awake", "weather-snow", "interest-screens"]);
+    expect(wardrobeAvailable(db, { sky: "snow", hasArt: () => true })).toEqual(["day-awake", "weather-snow", "interest-screens"]);
     insert.run("w2-food-2", "Food & cooking", "bread", 7);
-    expect(wardrobeAvailable(db, { sky: null })).toEqual(["day-awake", "interest-screens", "interest-outside"]);
+    expect(wardrobeAvailable(db, { sky: null, hasArt: () => true })).toEqual(["day-awake", "interest-screens", "interest-outside"]);
     expect(currentWardrobe(db)).toBe("day-awake");
     expect(ALL_INTEREST_ROOTS_COVERED).toBe(true);
   });

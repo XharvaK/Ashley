@@ -1,6 +1,7 @@
 import type { ChatInputCommandInteraction } from "discord.js";
 import { memorySummary, type MemoryGrowth } from "../agent-client.js";
 import { formatFactLabel } from "../memory-labels.js";
+import { fitLines } from "./fit-lines.js";
 
 export function renderMemorySummary(data: {
   narrative?: string | null;
@@ -74,7 +75,7 @@ export function renderMemorySummary(data: {
       lines.push(`• ${formatFactLabel(f.category, f.value)}`);
     }
   }
-  return lines.join("\n").slice(0, 2000);
+  return fitLines(lines, 2000);
 }
 
 export async function execute(

@@ -1,5 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { env } from "../../../env.js";
 import { readAuthorityBarrier } from "../authority/barrier.js";
 import { openNuclearDb } from "../../db.js";
 import { resolveActiveThread } from "../../memory/threads.js";
@@ -139,6 +140,14 @@ function withPublicationDisabled<T>(callback: () => T): T {
     else process.env.RA_DM_PUBLICATION = previous;
   }
 }
+
+const originalOwnerId = env.discordOwnerId;
+beforeAll(() => {
+  env.discordOwnerId = "owner-1";
+});
+afterAll(() => {
+  env.discordOwnerId = originalOwnerId;
+});
 
 describe("external publication admission", () => {
   it("consumes a one-shot for its reservation and rechecks the post-consumption binding", () => {

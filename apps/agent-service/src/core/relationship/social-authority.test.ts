@@ -1,5 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { env } from "../../env.js";
 import { openNuclearDb } from "../db.js";
 import { readAuthorityBarrier } from "../cognitive-v021/authority/barrier.js";
 import { resolveActiveThread } from "../memory/threads.js";
@@ -53,6 +54,14 @@ function dbFixture(): DatabaseSync {
 function revision(db: DatabaseSync): number {
   return readAuthorityBarrier(db).revision;
 }
+
+const originalOwnerId = env.discordOwnerId;
+beforeAll(() => {
+  env.discordOwnerId = "owner-1";
+});
+afterAll(() => {
+  env.discordOwnerId = originalOwnerId;
+});
 
 describe("social authority accessors", () => {
   it("keeps social operation delegation host-owned, exact-bound, versioned, and idempotently revocable", () => {

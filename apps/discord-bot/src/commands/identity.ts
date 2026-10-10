@@ -1,4 +1,4 @@
-import { ActionRowBuilder, ButtonBuilder, ButtonStyle, type ButtonInteraction, type ChatInputCommandInteraction } from "discord.js";
+import { ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags, type ButtonInteraction, type ChatInputCommandInteraction } from "discord.js";
 import { entityName, ownerName } from "../entity-names.js";
 import { isOwner } from "../security/gate.js";
 import { decideIdentityReview, identityReviews, currentPractices, revertPractice, growthDimensions, seedGrowthDimension, revertGrowthDimension, type Practice, type GrowthDimensionView, type GrowthDimensionHistoryView } from "../agent-client.js";
@@ -90,12 +90,12 @@ export function renderPractices(practices: readonly Practice[]): string {
 }
 export async function handlePracticeRevert(interaction: ButtonInteraction): Promise<void> {
   if (!isOwner(interaction.user.id)) {
-    await interaction.reply({ content: "Not authorized.", ephemeral: true });
+    await interaction.reply({ content: "Not authorized.", flags: MessageFlags.Ephemeral });
     return;
   }
   const match = /^practice-revert:([1-9][0-9]*)$/.exec(interaction.customId);
   if (!match || !Number.isSafeInteger(Number(match[1]))) return;
-  await interaction.deferReply({ ephemeral: true });
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
   try {
     const result = await revertPractice(Number(match[1]));
     await interaction.editReply(result.reverted ? `Reverted practice #${match[1]}.` : "That practice is no longer current.");

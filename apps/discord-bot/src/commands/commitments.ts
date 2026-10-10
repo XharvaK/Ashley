@@ -67,11 +67,11 @@ export async function execute(
       return;
     }
     if (action === "inspect") {
-      await interaction.editReply(JSON.stringify(result.record ?? result, null, 2).slice(0, 1900));
+      await interaction.editReply(result.record ? renderRecord(result.record).slice(0, 1900) : "Nothing found for that id.");
       return;
     }
     const label = [result.kind ?? kind ?? "unknown", result.id ?? id ?? "unknown"].join("/");
-    await interaction.editReply(`${label}: ${result.acknowledgement ?? "completed"} | status=${result.status ?? "unknown"} | wake=${result.wakeState ?? "none"}`.slice(0, 1900));
+    await interaction.editReply(`${label}: ${result.acknowledgement ?? "done"}. Status: ${result.status ?? "unknown"}. Wake: ${result.wakeState ?? "none"}.`.slice(0, 1900));
     return;
   }
   const offset = interaction.options.getInteger("offset") ?? 0;

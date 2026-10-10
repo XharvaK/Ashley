@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { DatabaseSync } from "node:sqlite";
 import { appendInboxEvent } from "../cycle/inbox.js";
 import { appendOwnerUtterance } from "../evidence/conversation-log.js";
@@ -9,6 +9,16 @@ import {
 } from "../test-support.js";
 import type { CapabilityReality, IdentitySlice, KernelDeps, Observation } from "../types.js";
 import { runCognitiveCycle } from "./run.js";
+import { env } from "../../../env.js";
+
+
+const originalOwnerId = env.discordOwnerId;
+beforeAll(() => {
+  env.discordOwnerId = "doc";
+});
+afterAll(() => {
+  env.discordOwnerId = originalOwnerId;
+});
 
 const constitution: IdentitySlice = {
   constitutional: ["truth first"],

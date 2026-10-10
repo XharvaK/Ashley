@@ -1,5 +1,5 @@
 import { configurePrivateBudgetFixture } from "../private-budget/__tests__/configured-policy.js";
-import { describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { appendInboxEvent, getInboxEvent, updateCycleState } from "../cycle/inbox.js";
 import { appendOwnerUtterance } from "../evidence/conversation-log.js";
 import { admitTestCycle, openTestSidecar, makeSemanticSettlement } from "../test-support.js";
@@ -29,6 +29,15 @@ import {
 import { reconcilePolicyClock } from "../private-budget/policy-time-ledger.js";
 import { settleFrontierTerminalReservation } from "../frontier/coordinator.js";
 import { startDurableAttempt } from "../retry/ledger.js";
+import { env } from "../../../env.js";
+
+const originalOwnerId = env.discordOwnerId;
+beforeAll(() => {
+  env.discordOwnerId = "doc";
+});
+afterAll(() => {
+  env.discordOwnerId = originalOwnerId;
+});
 
 const constitution: IdentitySlice = { constitutional: ["truth first"], stableSelf: [] };
 const capabilityReality: CapabilityReality = {

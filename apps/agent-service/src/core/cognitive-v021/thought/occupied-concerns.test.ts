@@ -289,7 +289,7 @@ describe("P1 occupied-concern projection", () => {
         // matching headroom. The required orientation kernel alone now
         // estimates near 14k; shrinking it is improvement I0, not this test.
         // UX W2 (one contract change): the soft layer and rhythm add ~800 tokens of fixed contract.
-        semanticBudgetTokens: 17_600,
+        semanticBudgetTokens: 18_000,
         maxOutputTokens: 1_024,
       });
       const visible = JSON.parse(String(allocated.messages[1]?.content ?? "{}")) as Record<string, unknown>;

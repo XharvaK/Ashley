@@ -1,7 +1,7 @@
 import { configureBudgetPolicy } from "./policies.js";
 import { createHash } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
-import { describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { openCognitiveSidecarDb } from "../sidecar/db.js";
 import { admitWake } from "../wake/ledger.js";
 import {
@@ -37,6 +37,14 @@ import { appendInboxEvent } from "../cycle/inbox.js";
 import { appendOwnerUtterance } from "../evidence/conversation-log.js";
 import { admitTestCycle, makeSemanticSettlement } from "../test-support.js";
 import type { CapabilityReality, IdentitySlice, KernelDeps, Observation } from "../types.js";
+
+const originalOwnerId = env.discordOwnerId;
+beforeAll(() => {
+  env.discordOwnerId = "doc";
+});
+afterAll(() => {
+  env.discordOwnerId = originalOwnerId;
+});
 
 const BASE = 2_000_000;
 const THOUGHT_MODEL = "meta/muse-spark-1.3-contributor";

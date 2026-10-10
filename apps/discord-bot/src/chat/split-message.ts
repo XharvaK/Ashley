@@ -33,3 +33,11 @@ export function splitMessage(text: string): string[] {
   }
   return raw;
 }
+
+/** A reply in a room with other people: at most this many bubbles go out in one turn. */
+export const ROOM_BUBBLE_CAP = 3;
+
+/** Room replies are capped so one turn cannot flood a shared channel. The full text stays in her record. */
+export function capRoomBubbles<T>(bubbles: readonly T[], cap: number = ROOM_BUBBLE_CAP): T[] {
+  return bubbles.slice(0, cap);
+}

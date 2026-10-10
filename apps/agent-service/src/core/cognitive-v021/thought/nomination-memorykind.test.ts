@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { parseThoughtSemanticOutput } from "./parse.js";
 import {
   thoughtOutputCompatibilityInstruction,
@@ -11,6 +11,16 @@ import { appendOwnerUtterance } from "../evidence/conversation-log.js";
 import { getWake } from "../wake/ledger.js";
 import { runCognitiveCycle } from "./run.js";
 import type { CapabilityReality, IdentitySlice, KernelDeps, Observation } from "../types.js";
+import { env } from "../../../env.js";
+
+
+const originalOwnerId = env.discordOwnerId;
+beforeAll(() => {
+  env.discordOwnerId = "doc";
+});
+afterAll(() => {
+  env.discordOwnerId = originalOwnerId;
+});
 
 const refs = new Set(["turn-1", "observation-1"]);
 

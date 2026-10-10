@@ -4,9 +4,12 @@ import type { Client } from "discord.js";
 import { presencePhase, type PresencePhaseName } from "../agent-client.js";
 import { ashleyDataDir } from "../data-root.js";
 import { applyPlaying, applyStatusDot } from "../presence.js";
+import { errorSummary } from "../soft/error-summary.js";
 
 export const POLL_MS = 60_000;
 export const AVATAR_CHANGES_PER_DAY = 4;
+/** Sleep and wake flips have their own budget, so they never use up the faces she chooses. */
+export const AVATAR_SLEEP_WAKE_PER_DAY = 6;
 export const AVATAR_DAY_MS = 24 * 60 * 60_000;
 export const AVATAR_BACKOFF_MS = 60 * 60_000;
 
@@ -44,7 +47,10 @@ export type FaceMemory = {
   bodyWorn?: boolean;
   bodyChangeAtMs?: number;
   sleeping: boolean;
+  /** Faces she chose (the day cap for her own choices). */
   avatarChangeAtMs: number[];
+  /** Sleep and wake flips, counted apart from her choices. */
+  sleepWakeChangeAtMs?: number[];
   backoffUntilMs: number;
   dot: StatusDot | null;
 };
@@ -76,6 +82,9 @@ export function loadFaceMemory(dataDir = ashleyDataDir()): FaceMemory {
       sleeping: parsed.sleeping === true,
       avatarChangeAtMs: Array.isArray(parsed.avatarChangeAtMs)
         ? parsed.avatarChangeAtMs.filter((value) => typeof value === "number")
+        : [],
+      sleepWakeChangeAtMs: Array.isArray(parsed.sleepWakeChangeAtMs)
+        ? parsed.sleepWakeChangeAtMs.filter((value) => typeof value === "number")
         : [],
       backoffUntilMs: typeof parsed.backoffUntilMs === "number" ? parsed.backoffUntilMs : 0,
       dot: parsed.dot === "online" || parsed.dot === "idle" ? parsed.dot : null,
@@ -157,7 +166,7 @@ async function wear(input: FaceReconcileInput, id: string): Promise<boolean> {
 }
 
 function lastChangeMs(memory: FaceMemory): number {
-  return Math.max(memory.bodyChangeAtMs ?? 0, ...memory.avatarChangeAtMs);
+  return Math.max(memory.bodyChangeAtMs ?? 0, ...memory.avatarChangeAtMs, ...(memory.sleepWakeChangeAtMs ?? []));
 }
 
 /** UX W3: while the game is live her face is her Sim's mood, changed only when it changes, with a floor. */
@@ -193,13 +202,13 @@ async function applyAvatar(input: FaceReconcileInput, phase: PresencePhaseName):
   }
   if (input.nowMs < memory.backoffUntilMs) return;
   if (memory.bodyWorn && input.nowMs - lastChangeMs(memory) < BODY_FACE_FLOOR_MS) return;
-  const recent = recentChanges(memory.avatarChangeAtMs, input.nowMs);
-  memory.avatarChangeAtMs = recent;
-  if (recent.length >= AVATAR_CHANGES_PER_DAY) return;
+  const recent = recentChanges(memory.sleepWakeChangeAtMs ?? [], input.nowMs);
+  memory.sleepWakeChangeAtMs = recent;
+  if (recent.length >= AVATAR_SLEEP_WAKE_PER_DAY) return;
   if (!(await wear(input, choice.id))) return;
   memory.sleeping = choice.sleeping;
   memory.bodyWorn = false;
-  memory.avatarChangeAtMs = [...recent, input.nowMs];
+  memory.sleepWakeChangeAtMs = [...recent, input.nowMs];
 }
 
 export async function reconcileFaceWindow(input: FaceReconcileInput): Promise<void> {
@@ -276,11 +285,11 @@ export function startFaceWindow(
   };
   if (timer) clearInterval(timer);
   void tick().catch((error: unknown) => {
-    console.warn(`[face] tick failed ${error instanceof Error ? error.name : "error"}`);
+    console.warn(`[face] tick failed ${errorSummary(error)}`);
   });
   timer = setInterval(() => {
     void tick().catch((error: unknown) => {
-      console.warn(`[face] tick failed ${error instanceof Error ? error.name : "error"}`);
+      console.warn(`[face] tick failed ${errorSummary(error)}`);
     });
   }, POLL_MS);
 }

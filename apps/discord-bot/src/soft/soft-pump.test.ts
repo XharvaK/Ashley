@@ -108,7 +108,7 @@ describe("UX W2 soft acts in the Owner's DM", () => {
     assert.equal(memory.chosenId, "avatar/weather-rain.png");
     assert.deepEqual(avatarChoice("awake", true, memory.chosenId), { id: "avatar/weather-rain.png", sleeping: false });
     saveFaceMemory({ ...emptyFaceMemory(), sleeping: true }, base.dataDir);
-    assert.deepEqual(await performSoftAct(act({ kind: "face", wardrobeId: "weather-rain" }), withArt), { status: "done" });
+    assert.deepEqual(await performSoftAct(act({ kind: "face", wardrobeId: "weather-rain" }), withArt), { status: "done", reason: "worn_at_wake" });
     assert.equal(worn.length, 1, "asleep: chosen now, worn when she wakes");
   });
 

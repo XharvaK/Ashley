@@ -1,5 +1,5 @@
 import * as attention from "../commands/attention.js";
-import type { ChatInputCommandInteraction } from "discord.js";
+import { MessageFlags, type ChatInputCommandInteraction } from "discord.js";
 import { agentErrorMessage } from "../chat/agent-errors.js";
 import { isOwner } from "../security/gate.js";
 import * as remember from "../commands/remember.js";
@@ -43,7 +43,7 @@ export async function handleSlash(
     if (interaction.deferred || interaction.replied) return;
     await interaction.reply({
       content: "Not authorized.",
-      ephemeral: true,
+      flags: MessageFlags.Ephemeral,
     });
     return;
   }
@@ -53,7 +53,7 @@ export async function handleSlash(
     interaction.options.getString("action"),
   );
   if (!interaction.deferred && !interaction.replied) {
-    await interaction.deferReply({ ephemeral });
+    await interaction.deferReply(ephemeral ? { flags: MessageFlags.Ephemeral } : {});
   }
 
   try {
@@ -107,7 +107,7 @@ export async function handleSlash(
     if (interaction.deferred || interaction.replied) {
       await interaction.editReply(msg);
     } else {
-      await interaction.reply({ content: msg, ephemeral: true });
+      await interaction.reply({ content: msg, flags: MessageFlags.Ephemeral });
     }
   }
 }
