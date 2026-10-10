@@ -15,9 +15,9 @@ it("adds the answer column to domus acts, keeping the acts that were there (v74)
       '1001', '13001', 'Read a Book (Bookshelf)', 'requested', 1, 2, 1)`).run();
     setTestSidecarVersion(db, 73);
     openCognitiveSidecarDb(db, { dataPlane: { kind: "isolated" } });
-    expect(COGNITIVE_SIDECAR_SCHEMA_VERSION).toBe(75);
-    expect((db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(75);
-    expect((db.prepare("SELECT schema_version FROM cognitive_sidecar_meta WHERE id = 1").get() as { schema_version: number }).schema_version).toBe(75);
+    expect(COGNITIVE_SIDECAR_SCHEMA_VERSION).toBe(76);
+    expect((db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(76);
+    expect((db.prepare("SELECT schema_version FROM cognitive_sidecar_meta WHERE id = 1").get() as { schema_version: number }).schema_version).toBe(76);
     expect(columnsOf(db)).toContain("answer_json");
     expect(db.prepare("SELECT label, answer_json FROM domus_acts WHERE act_id = 'act-1'").get())
       .toEqual({ label: "Read a Book (Bookshelf)", answer_json: null });
@@ -32,7 +32,7 @@ it("does not add the answer column twice when the column already exists", () => 
     setTestSidecarVersion(db, 73);
     openCognitiveSidecarDb(db, { dataPlane: { kind: "isolated" } });
     expect(columnsOf(db).filter(name => name === "answer_json")).toEqual(["answer_json"]);
-    expect((db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(75);
+    expect((db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(76);
   } finally {
     db.close();
   }

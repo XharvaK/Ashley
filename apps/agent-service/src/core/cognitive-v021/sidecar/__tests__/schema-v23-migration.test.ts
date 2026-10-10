@@ -53,7 +53,7 @@ describe("cognitive sidecar Schema V23 worker failure evidence", () => {
       openCognitiveSidecarDb(db, { dataPlane: { kind: "isolated" } });
       expect((db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version)
         .toBe(COGNITIVE_SIDECAR_SCHEMA_VERSION);
-      expect(COGNITIVE_SIDECAR_SCHEMA_VERSION).toBe(75);
+      expect(COGNITIVE_SIDECAR_SCHEMA_VERSION).toBe(76);
       expect(db.prepare("PRAGMA table_info(detached_operations)").all()).toEqual(expect.arrayContaining([
         expect.objectContaining({ name: "failure_evidence_json" }),
       ]));

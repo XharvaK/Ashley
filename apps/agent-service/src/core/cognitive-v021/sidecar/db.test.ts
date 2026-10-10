@@ -80,8 +80,9 @@ describe("cognitive v0.2.1 sidecar database", () => {
       // v67: dream_receipts.
       // v68: domus_diary_state.
       // v69: quiet window, held notes, held state, refusal, owner presence.
+      // v76: turn_host_notes (what the Host did to her last settlement).
       // v71: soft_acts. v72: domus_snapshots. v73: domus_promises.
-      expect(tables).toHaveLength(131);
+      expect(tables).toHaveLength(132);
       expect(tables).toContain("soft_acts");
       expect(tables).toContain("domus_snapshots");
       expect(tables).toContain("domus_promises");

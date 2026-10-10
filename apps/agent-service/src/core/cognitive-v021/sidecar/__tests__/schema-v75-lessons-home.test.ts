@@ -14,9 +14,9 @@ it("adds the came-home column to lessons, keeping the lessons that were there (v
       VALUES ('lesson:cycle-1:0', 'cycle-1', 0, 'p1', 'contact:p1', 'Old fact', NULL, 1)`).run();
     setTestSidecarVersion(db, 74);
     openCognitiveSidecarDb(db, { dataPlane: { kind: "isolated" } });
-    expect(COGNITIVE_SIDECAR_SCHEMA_VERSION).toBe(75);
-    expect((db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(75);
-    expect((db.prepare("SELECT schema_version FROM cognitive_sidecar_meta WHERE id = 1").get() as { schema_version: number }).schema_version).toBe(75);
+    expect(COGNITIVE_SIDECAR_SCHEMA_VERSION).toBe(76);
+    expect((db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(76);
+    expect((db.prepare("SELECT schema_version FROM cognitive_sidecar_meta WHERE id = 1").get() as { schema_version: number }).schema_version).toBe(76);
     expect(columnsOf(db)).toContain("brought_home_at_ms");
     expect(db.prepare("SELECT what, brought_home_at_ms FROM lessons WHERE lesson_id = 'lesson:cycle-1:0'").get())
       .toEqual({ what: "Old fact", brought_home_at_ms: null });
@@ -31,7 +31,7 @@ it("does not add the came-home column twice when it already exists", () => {
     setTestSidecarVersion(db, 74);
     openCognitiveSidecarDb(db, { dataPlane: { kind: "isolated" } });
     expect(columnsOf(db).filter(name => name === "brought_home_at_ms")).toEqual(["brought_home_at_ms"]);
-    expect((db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(75);
+    expect((db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(76);
   } finally {
     db.close();
   }
