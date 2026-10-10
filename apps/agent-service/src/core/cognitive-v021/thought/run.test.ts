@@ -2460,6 +2460,80 @@ describe("v0.2.1 Thought run", () => {
     }
   });
 
+  it("treats an answer cut at the output limit as its own class: the repair says so and does not resend the cut text", async () => {
+    const sidecar = openTestSidecar();
+    const attentionDb = openTestSidecar();
+    const cycle = admitTestCycle(sidecar, {
+      cycleId: "cycle-output-truncated",
+      conversationId: "thread-output-truncated",
+      triggerKind: "owner_message",
+      triggerRef: "owner-output-truncated",
+      occupantId: "doc",
+      authorityEpoch: 1,
+      nowMs: 1,
+    });
+    const evidence = appendOwnerUtterance(sidecar, {
+      conversationId: "thread-output-truncated",
+      text: "Answer briefly.",
+      discordMessageIds: ["output-truncated-message"],
+      nowMs: 2,
+    });
+    const event = appendInboxEvent(sidecar, {
+      wakeId: cycle.wakeId,
+      conversationId: "thread-output-truncated",
+      kind: "owner_message",
+      payload: {
+        cycleId: cycle.cycleId,
+        evidenceRowId: evidence.rowId,
+        ownerMessage: evidence.text,
+      },
+      createdAtMs: 2,
+    });
+    const messagesByCall: string[][] = [];
+    let calls = 0;
+    const completeChat = vi.fn(async (
+      messages: Array<{ role: string; content: string }>,
+    ) => {
+      calls += 1;
+      messagesByCall.push(messages.map((message) => message.content));
+      if (calls === 1) {
+        return {
+          text: '{"kind":"abstain","reason":"insufficient_evidence","explanation":"cut-here-marker',
+          finishReason: "length",
+          model: "fake",
+          modelAlias: "thought",
+          resolvedModelId: null,
+        };
+      }
+      return {
+        text: JSON.stringify({
+          kind: "abstain",
+          reason: "insufficient_evidence",
+          explanation: "The supplied evidence is not enough.",
+          evidenceRefs: [evidence.rowId],
+        }),
+        model: "fake",
+        modelAlias: "thought",
+        resolvedModelId: null,
+      };
+    });
+
+    try {
+      await runCognitiveCycle(sidecar, attentionDb, event, deps({
+        attentionDb,
+        completeChat,
+      }));
+
+      expect(calls).toBe(2);
+      const repair = messagesByCall[1].join("\n");
+      expect(repair).toContain("cut off at the output limit");
+      expect(repair).not.toContain("cut-here-marker");
+    } finally {
+      sidecar.close();
+      attentionDb.close();
+    }
+  });
+
   it("rejects structural correction branch drift with a typed scope failure", async () => {
     const sidecar = openTestSidecar();
     const attentionDb = openTestSidecar();

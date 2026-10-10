@@ -1456,6 +1456,7 @@ export type ThoughtStepKind =
   | "failure";
 export type ThoughtParserFailureCode =
   | "invalid_json"
+  | "output_truncated"
   | "root_not_object"
   | "wrong_kind"
   | "unknown_field"

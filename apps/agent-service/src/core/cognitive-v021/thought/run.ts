@@ -1920,7 +1920,9 @@ export async function runThoughtModel(
       }
     }
     if (!semanticResult.ok) {
-      const diagnosticCode = semanticResult.code as ThoughtParserFailureCode;
+      // A1-4: a provider that stopped at its output limit cut the answer, whatever the parser then said about it.
+      const cutAtOutputLimit = (completion.responseDiagnostics?.finishReason ?? completion.finishReason) === "length";
+      const diagnosticCode = cutAtOutputLimit ? "output_truncated" : semanticResult.code as ThoughtParserFailureCode;
       const shape = describeFieldShape(completion.text, semanticResult.field, semanticReferences);
       // The field path names a contract field, never her words; it is what a fix needs.
       console.warn(`[thought] parse failure code=${diagnosticCode} field=${semanticResult.field ?? "-"} model=${completion.providerModel ?? "-"} shape=${shape}`);
@@ -1960,7 +1962,7 @@ export async function runThoughtModel(
           {
             parserStatus: "failed",
             validatorStatus: "not_run",
-            failureClass: semanticResult.code,
+            failureClass: diagnosticCode,
             structuralRetryStatus: "not_scheduled",
             },
           ),
