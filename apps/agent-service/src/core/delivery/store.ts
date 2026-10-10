@@ -480,7 +480,7 @@ export function recordBubbleReceipt(
       )
       .get(reservationId, ordinal);
     if (!isRow(bubble)) {
-      db.exec("ROLLBACK");
+      // The catch below rolls back; a second ROLLBACK here would hide this error.
       throw new Error("delivery_bubble_missing");
     }
     if (bubble.discord_message_id != null) {
