@@ -866,6 +866,68 @@ describe("v0.2.1 Thought run", () => {
     }
   });
 
+  it.each([
+    ["sends a guest reply that omits the intent, read as continue", "draft", 1],
+    ["keeps her silence toward a guest silent", "none", 0],
+  ] as const)("%s", async (_name, mode, sent) => {
+    const sidecar = openTestSidecar();
+    const nuclear = openNuclearDb(new DatabaseSync(":memory:"));
+    const ownerId = "doc";
+    const roomId = "room:mixed-guild:mixed-channel";
+    const nowMs = 1_000;
+    upsertTrustedRoom(nuclear, {
+      ownerId,
+      guildId: "mixed-guild",
+      channelId: "mixed-channel",
+      mode: "trusted_social",
+      provenance: "explicit_config",
+      addedBy: ownerId,
+      sourceSpan: { source: "guest-reply-test" },
+      nowMs,
+    });
+    issueLicense(nuclear, {
+      ownerId,
+      materialHash: "guest-reply-material",
+      sourcePrincipal: "room-human-1",
+      controlledProtections: { kind: "guest-reply-test" },
+      granteeAudience: { kind: "room", roomId },
+      usesAllowed: 3,
+      grantRef: "guest-reply-grant",
+      nowMs,
+    });
+    const env = { RA_ROOM_SEED_ACTIVE: "true", RA_ROOM_PUBLICATION: "mixed-channel" };
+    const previousEnv = new Map(Object.keys(env).map((key) => [key, process.env[key]] as const));
+    Object.assign(process.env, env);
+    try {
+      const capture = admitExternalCapture(sidecar, nuclear, roomCapture("guest-1", "what do you do every day?"), { nowMs });
+      admitExternalBatch(sidecar, nuclear, { captureRefs: [capture.captureRef], conversationKey: roomId },
+        { nowMs, ownerId, roomSeedActive: true });
+      const promotion = promoteEligibleRoomPending(sidecar, nuclear, { nowMs, ownerId, env });
+      expect(promotion.promoted).toBe(1);
+      const event = getInboxEvent(sidecar, promotion.eventIds[0]!);
+      expect(event?.kind).toBe("external_utterance");
+      const speech = mode === "draft" ? { mode, surfaceDraft: "mostly reading and arguing" } : { mode };
+      const completeChat = vi.fn(async () => ({
+        text: JSON.stringify(makeSemanticSettlement({ speech })),
+        model: "fake",
+        modelAlias: "thought",
+        resolvedModelId: null,
+      }));
+      await runCognitiveCycle(sidecar, nuclear, event!, deps({ completeChat }));
+      const rows = sidecar.prepare("SELECT delivery_intent_json FROM speech_outbox WHERE conversation_id = ?")
+        .all(roomId) as Array<{ delivery_intent_json: string }>;
+      expect(rows).toHaveLength(sent);
+      if (sent) expect(JSON.parse(rows[0]!.delivery_intent_json).externalPublication.interactionIntent).toBe("continue");
+    } finally {
+      for (const [key, value] of previousEnv) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+      nuclear.close();
+      sidecar.close();
+    }
+  });
+
   it("fails closed on a legacy periodic event without an observation binding and does not reacquire", async () => {
     const sidecar = openTestSidecar();
     const attentionDb = openTestSidecar();

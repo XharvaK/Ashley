@@ -4807,8 +4807,15 @@ export async function runCognitiveCycle(
         console.warn("[lessons] not kept", error instanceof Error ? error.message : error);
       }
     }
+    // A reply to someone who wrote to her continues their conversation: an omitted intent on a draft in a
+    // turn started by their message reads as continue (a room allows nothing else). Without this every
+    // room reply she wrote was thrown away and only her own-time place post answered, an hour later.
+    const effectiveInteractionIntent = externalCycle && settlement.speech.mode === "draft"
+      ? settlement.interactionIntent ?? "continue"
+      : settlement.interactionIntent;
     if (externalCycle) {
-      const blockExternalCycle = (): KernelRunResult => {
+      const blockExternalCycle = (reason: string): KernelRunResult => {
+        console.warn(`[external] reply not sent: ${reason}`);
         sidecar.prepare(
           "UPDATE cycle_records SET state = 'silent', disposition = 'blocked_at_dispatch', updated_at_ms = ? WHERE cycle_id = ?",
         ).run(deps.nowMs(), cycle.cycleId);
@@ -4824,19 +4831,20 @@ export async function runCognitiveCycle(
         || !externalDmPrincipalAllowed(dmDestination.principalId);
       const roomClosed = !roomDestination
         || !isRoomPublicationEnabled(process.env, roomDestination.channelId);
-      if ((dmDestination ? dmClosed : roomClosed) || !externalDestination || settlement.speech.mode !== "draft") {
-        return blockExternalCycle();
+      if (settlement.speech.mode !== "draft") return blockExternalCycle("silence");
+      if ((dmDestination ? dmClosed : roomClosed) || !externalDestination) {
+        return blockExternalCycle(dmDestination ? "dm_closed" : "room_closed");
       }
       const freshness = getCycleFreshnessState(sidecar, cycle.cycleId);
       const basis = freshness.attemptInputBasis;
       if (!basis || !externalBinding || externalBinding.licenseRefs.length === 0) {
-        return blockExternalCycle();
+        return blockExternalCycle("no_license");
       }
-      if (settlement.interactionIntent !== "continue" && settlement.interactionIntent !== "initiate") {
-        return blockExternalCycle();
+      if (effectiveInteractionIntent !== "continue" && effectiveInteractionIntent !== "initiate") {
+        return blockExternalCycle("no_intent");
       }
-      if (roomDestination && settlement.interactionIntent !== "continue") {
-        return blockExternalCycle();
+      if (roomDestination && effectiveInteractionIntent !== "continue") {
+        return blockExternalCycle("room_initiate");
       }
       if (botParticipantId) {
         const resourceDecision = SOCIAL_RESOURCE_FUSE.admitAndRecord({
@@ -4867,7 +4875,7 @@ export async function runCognitiveCycle(
         destination: externalDestination,
         attemptInputBasis: basis,
         hardDependencyBundle: externalBinding.bundle,
-        interactionIntent: settlement.interactionIntent,
+        interactionIntent: effectiveInteractionIntent,
         licenseRefs: [...externalBinding.licenseRefs],
       };
     }
@@ -4893,7 +4901,7 @@ export async function runCognitiveCycle(
           ownerPrivate: effectiveThoughtAudience.kind === "owner_private",
           speechMode: settlement.speech.mode,
           triggerKind: cycle.triggerKind,
-          interactionIntent: settlement.interactionIntent ?? null,
+          interactionIntent: effectiveInteractionIntent ?? null,
           draftText: speechText ?? "",
         });
     if (quietPublication.kind === "hold") {
