@@ -13,7 +13,7 @@ import {
   type OwnerTransportPendingCapture,
   type OwnerTransportSurface,
 } from "../agent-client.js";
-import { MAX_IMAGES, describeIntake, hasIngestibleTextAttachment } from "./attachments.js";
+import { capTurnAttachments, describeIntake, hasIngestibleTextAttachment } from "./attachments.js";
 import { config, getRaEffectiveConfig } from "../config.js";
 import {
   isAllowedMessage,
@@ -259,7 +259,7 @@ export async function replayPendingOwnerTransport(
       await api.ingress(
         group.map((capture) => capture.text).join("\n"),
         {
-          attachments: group.flatMap((capture) => capture.attachments).slice(0, MAX_IMAGES),
+          attachments: capTurnAttachments(group.flatMap((capture) => capture.attachments)),
           inboundDiscordMessageIds: group.map((capture) => capture.discordMessageId),
           finalFragmentReceivedAtMs: Date.now(),
           sourceSentAtMs: group.at(-1)!.sentAtMs,

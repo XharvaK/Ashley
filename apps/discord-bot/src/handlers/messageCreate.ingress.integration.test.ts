@@ -431,3 +431,30 @@ test("Owner plain text that starts with a slash reaches ingress as text (A6-13)"
 
   assert.deepEqual(admitted, ["/ 2 cents on the rent"]);
 });
+
+test("the turn's attachment cap counts images only and never drops a text file (A6-8)", async () => {
+  let admittedAttachments: Array<{ fileName: string; sourceClass?: string }> = [];
+  const handler = createMessageCreateHandler({
+    quietMs: 1,
+    hardCapMs: 10,
+    ingressChat: async (_text, options) => {
+      admittedAttachments = (options?.attachments ?? []) as Array<{ fileName: string; sourceClass?: string }>;
+    },
+  });
+  const images = [1, 2, 3, 4, 5].map((n) => ({
+    id: `img-${n}`,
+    url: `https://cdn.example/img-${n}.png`,
+    contentType: "image/png",
+    name: `img-${n}.png`,
+  }));
+  await handler.handleMessage(message("att-cap-2", "look", [
+    ...images,
+    { id: "notes", url: "https://cdn.example/notes.txt", contentType: "text/plain", name: "notes.txt" },
+  ]));
+  await handler.flushForTest("channel-1");
+
+  const imageRefs = admittedAttachments.filter((ref) => ref.sourceClass !== undefined);
+  const textRefs = admittedAttachments.filter((ref) => ref.sourceClass === undefined);
+  assert.equal(imageRefs.length, 4);
+  assert.deepEqual(textRefs.map((ref) => ref.fileName), ["notes.txt"]);
+});

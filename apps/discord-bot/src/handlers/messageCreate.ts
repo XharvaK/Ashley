@@ -12,7 +12,7 @@ import {
 } from "../agent-client.js";
 import { channelQueue } from "../chat/channel-queue.js";
 import {
-  MAX_IMAGES,
+  capTurnAttachments,
   describeIntake,
   messageNames,
   hasIngestibleTextAttachment,
@@ -160,7 +160,7 @@ export function createMessageCreateHandler(options: {
     }
     const turn = {
       text: buffered.fragments.map((fragment) => fragment.text).join("\n"),
-      attachments: buffered.fragments.flatMap((fragment) => fragment.attachments).slice(0, MAX_IMAGES),
+      attachments: capTurnAttachments(buffered.fragments.flatMap((fragment) => fragment.attachments)),
       inboundDiscordMessageIds: buffered.fragments.map((fragment) => fragment.messageId),
       finalFragmentReceivedAtMs: buffered.finalFragmentReceivedAt,
       sourceSentAtMs: buffered.fragments.at(-1)?.sentAtMs ?? buffered.finalFragmentReceivedAt,
