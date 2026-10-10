@@ -187,3 +187,61 @@ test("the Owner transport timer keeps reconciling until it is stopped (A6-1)", a
   await new Promise((resolve) => setTimeout(resolve, 30));
   assert.equal(ticks, atStop);
 });
+
+test("replay sends a joined group over the agent limit in parts and admits each id once (A6-7)", async () => {
+  const t = 1_700_000_000_000;
+  const pendingList = [
+    { ...capture("big-1", t), text: "a".repeat(2_500) },
+    { ...capture("big-2", t + 100), text: "b".repeat(2_500) },
+  ];
+  const admitted: string[] = [];
+  const sent: Array<{ text: string; ids: string[] }> = [];
+  const api: OwnerTransportRecoveryApi = {
+    state: async () => ({ initialized: true, surfaceKey: "dm", afterMessageId: "0" }),
+    historyPage: async () => ({ accepted: true, surfaceKey: "dm", afterMessageId: "0", newlyCaptured: 0, duplicates: 0 }),
+    pending: async () => ({ captures: pendingList.filter((item) => !admitted.includes(item.discordMessageId)) }),
+    admitted: async (ids) => {
+      admitted.push(...ids);
+      return { ok: true, marked: ids.length, alreadyAdmitted: 0 };
+    },
+    ingress: async (text, options) => {
+      sent.push({ text, ids: options?.inboundDiscordMessageIds ?? [] });
+      return {} as never;
+    },
+    capture: async () => ({ captured: true, duplicate: false, surfaceKey: "dm" }),
+  } as never;
+
+  await replayPendingOwnerTransport(api);
+
+  assert.ok(sent.length >= 2);
+  for (const part of sent) assert.ok(part.text.length <= 4_000);
+  assert.deepEqual(sent.flatMap((part) => part.ids), ["big-1", "big-2"]);
+  assert.deepEqual(admitted.sort(), ["big-1", "big-2"]);
+});
+
+test("a group the agent refuses for good is skipped and logged, and the rest of the replay still goes out (A6-7)", async () => {
+  const t = 1_700_000_000_000;
+  const pendingList = [capture("bad", t), capture("good", t + 5_000)];
+  const admitted: string[] = [];
+  const sent: string[] = [];
+  const api: OwnerTransportRecoveryApi = {
+    state: async () => ({ initialized: true, surfaceKey: "dm", afterMessageId: "0" }),
+    historyPage: async () => ({ accepted: true, surfaceKey: "dm", afterMessageId: "0", newlyCaptured: 0, duplicates: 0 }),
+    pending: async () => ({ captures: pendingList.filter((item) => !admitted.includes(item.discordMessageId)) }),
+    admitted: async (ids) => {
+      admitted.push(...ids);
+      return { ok: true, marked: ids.length, alreadyAdmitted: 0 };
+    },
+    ingress: async (text) => {
+      if (text === "bad") throw Object.assign(new Error("message_too_long"), { status: 400 });
+      sent.push(text);
+      return {} as never;
+    },
+    capture: async () => ({ captured: true, duplicate: false, surfaceKey: "dm" }),
+  } as never;
+
+  await replayPendingOwnerTransport(api);
+
+  assert.deepEqual(sent, ["good"]);
+  assert.deepEqual(admitted, ["good"]);
+});

@@ -493,3 +493,23 @@ test("an Owner message held by the pending queue is not buffered and is replayed
   assert.deepEqual(captured, ["held-1", "held-2"]);
   assert.equal(ingresses, 0);
 });
+
+test("a joined Owner turn over the agent limit is sent in parts it accepts, each id once (A6-7)", async () => {
+  const calls: Array<{ text: string; ids: string[] }> = [];
+  const handler = createMessageCreateHandler({
+    quietMs: 1_000,
+    hardCapMs: 5_000,
+    ingressChat: async (text, options) => {
+      calls.push({ text, ids: options?.inboundDiscordMessageIds ?? [] });
+    },
+  });
+
+  await handler.handleMessage(ownerMessage("big-1", "a".repeat(2_500), {}));
+  await handler.handleMessage(ownerMessage("big-2", "b".repeat(2_500), {}));
+  await handler.flushForTest("channel-1");
+
+  assert.ok(calls.length >= 2);
+  for (const call of calls) assert.ok(call.text.length <= 4_000);
+  assert.deepEqual(calls.flatMap((call) => call.ids), ["big-1", "big-2"]);
+  assert.equal(calls.map((call) => call.text).join("").replace(/[^ab]/g, "").length, 5_000);
+});

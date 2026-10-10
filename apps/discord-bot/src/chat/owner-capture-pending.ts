@@ -55,7 +55,7 @@ export function fileOwnerCaptureStore<T extends PendingOwnerCapture>(path: strin
 }
 
 /** A 4xx other than a timeout or rate limit will not succeed on retry: the capture is dropped, not held forever. */
-function isPermanentRefusal(error: unknown): boolean {
+export function isPermanentRefusal(error: unknown): boolean {
   const status = (error as { status?: unknown } | null)?.status;
   return typeof status === "number" && status >= 400 && status < 500 && status !== 408 && status !== 429;
 }

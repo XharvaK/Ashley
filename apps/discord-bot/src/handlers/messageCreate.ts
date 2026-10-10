@@ -11,6 +11,7 @@ import {
   type ExternalCaptureResult,
 } from "../agent-client.js";
 import { channelQueue } from "../chat/channel-queue.js";
+import { splitOwnerTurn } from "../chat/owner-turn-split.js";
 import {
   createOwnerCaptureQueue,
   fileOwnerCaptureStore,
@@ -166,14 +167,11 @@ export function createMessageCreateHandler(options: {
       }
       return;
     }
-    const turn = {
-      text: buffered.fragments.map((fragment) => fragment.text).join("\n"),
-      attachments: capTurnAttachments(buffered.fragments.flatMap((fragment) => fragment.attachments)),
-      inboundDiscordMessageIds: buffered.fragments.map((fragment) => fragment.messageId),
-      finalFragmentReceivedAtMs: buffered.finalFragmentReceivedAt,
-      sourceSentAtMs: buffered.fragments.at(-1)?.sentAtMs ?? buffered.finalFragmentReceivedAt,
-      hasIngestibleTextAttachment: buffered.fragments.some((fragment) => hasIngestibleTextAttachment(fragment)),
-    };
+    // A joined turn over the agent's length limit goes as several parts; each part carries its own Discord ids.
+    const parts = splitOwnerTurn(buffered.fragments.map((fragment) => ({ text: fragment.text, id: fragment.messageId })));
+    const attachments = capTurnAttachments(buffered.fragments.flatMap((fragment) => fragment.attachments));
+    const inboundDiscordMessageIds = buffered.fragments.map((fragment) => fragment.messageId);
+    const hasIngestibleText = buffered.fragments.some((fragment) => hasIngestibleTextAttachment(fragment));
     const ownerRoomContexts = buffered.fragments
       .map((fragment) => fragment.ownerRoomContext)
       .filter((context): context is OwnerRoomContext => context !== undefined);
@@ -184,14 +182,16 @@ export function createMessageCreateHandler(options: {
       return;
     }
     try {
-      await options.ingressChat(turn.text, {
-        attachments: turn.attachments,
-        inboundDiscordMessageIds: turn.inboundDiscordMessageIds,
-        finalFragmentReceivedAtMs: turn.finalFragmentReceivedAtMs,
-        sourceSentAtMs: turn.sourceSentAtMs,
-        hasIngestibleTextAttachment: turn.hasIngestibleTextAttachment,
-        ...(ownerRoomContext ? { ownerRoomContext } : {}),
-      });
+      for (const [index, part] of parts.entries()) {
+        await options.ingressChat(part.text, {
+          attachments: index === 0 ? attachments : [],
+          inboundDiscordMessageIds: part.ids,
+          finalFragmentReceivedAtMs: buffered.finalFragmentReceivedAt,
+          sourceSentAtMs: buffered.fragments.at(-1)?.sentAtMs ?? buffered.finalFragmentReceivedAt,
+          hasIngestibleTextAttachment: index === 0 ? hasIngestibleText : false,
+          ...(ownerRoomContext ? { ownerRoomContext } : {}),
+        });
+      }
     } catch (error) {
       const code = (error as Error & { code?: string }).code;
       const retryAfterSec = (error as Error & { retryAfterSec?: number }).retryAfterSec;
@@ -206,7 +206,7 @@ export function createMessageCreateHandler(options: {
     }
     if (options.markOwnerTransportAdmitted) {
       try {
-        await options.markOwnerTransportAdmitted(turn.inboundDiscordMessageIds);
+        await options.markOwnerTransportAdmitted(inboundDiscordMessageIds);
       } catch (error) {
         console.error("[discord-bot] Owner transport admission mark failed; canonical admission already succeeded", error);
       }

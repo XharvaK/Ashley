@@ -14,6 +14,8 @@ import {
   type OwnerTransportSurface,
 } from "../agent-client.js";
 import { capTurnAttachments, describeIntake, hasIngestibleTextAttachment } from "./attachments.js";
+import { splitOwnerTurn } from "./owner-turn-split.js";
+import { isPermanentRefusal } from "./owner-capture-pending.js";
 import { config, getRaEffectiveConfig } from "../config.js";
 import {
   isAllowedMessage,
@@ -241,33 +243,59 @@ export async function reconcileOwnerTransportSurface(
   );
 }
 
+async function replayGroup(api: OwnerTransportRecoveryApi, group: OwnerTransportPendingCapture[]): Promise<void> {
+  const first = group[0]!;
+  const ownerRoomContext = first.ownerRoomContext ?? undefined;
+  if (group.some((capture) =>
+    capture.ownerRoomContext?.guildId !== ownerRoomContext?.guildId ||
+    capture.ownerRoomContext?.channelId !== ownerRoomContext?.channelId)) {
+    throw new Error("owner_transport_replay_room_conflict");
+  }
+  // A joined group over the agent limit goes as parts; every id is admitted only once all of its parts went out.
+  const parts = splitOwnerTurn(group.map((capture) => ({ text: capture.text, id: capture.discordMessageId })));
+  const attachments = capTurnAttachments(group.flatMap((capture) => capture.attachments));
+  for (const [index, part] of parts.entries()) {
+    await api.ingress(part.text, {
+      attachments: index === 0 ? attachments : [],
+      inboundDiscordMessageIds: part.ids,
+      finalFragmentReceivedAtMs: Date.now(),
+      sourceSentAtMs: group.at(-1)!.sentAtMs,
+      ...(ownerRoomContext ? { ownerRoomContext } : {}),
+    });
+  }
+  await api.admitted(group.map((capture) => capture.discordMessageId));
+}
+
+/**
+ * Replays pending captures in order. A group the agent refuses for good is set aside in refused and logged,
+ * so it cannot block the rest; a group that fails for now stays pending for the next pass.
+ */
 export async function replayPendingOwnerTransport(
   api: OwnerTransportRecoveryApi,
+  refused: Set<string> = new Set(),
 ): Promise<void> {
+  const failed = new Set<string>();
   for (let batch = 0; batch < OWNER_TRANSPORT_MAX_PAGES; batch += 1) {
-    const pending = (await api.pending(OWNER_TRANSPORT_PENDING_LIMIT)).captures;
+    const pending = (await api.pending(OWNER_TRANSPORT_PENDING_LIMIT)).captures
+      .filter((capture) => !refused.has(capture.discordMessageId) && !failed.has(capture.discordMessageId));
     if (pending.length === 0) return;
-    const groups = groupOwnerTransportCaptures(pending);
-    for (const group of groups) {
-      const first = group[0]!;
-      const ownerRoomContext = first.ownerRoomContext ?? undefined;
-      if (group.some((capture) =>
-        capture.ownerRoomContext?.guildId !== ownerRoomContext?.guildId ||
-        capture.ownerRoomContext?.channelId !== ownerRoomContext?.channelId)) {
-        throw new Error("owner_transport_replay_room_conflict");
+    let progressed = false;
+    for (const group of groupOwnerTransportCaptures(pending)) {
+      try {
+        await replayGroup(api, group);
+        progressed = true;
+      } catch (error) {
+        const ids = group.map((capture) => capture.discordMessageId);
+        if (isPermanentRefusal(error)) {
+          ids.forEach((id) => refused.add(id));
+          console.error("[discord-bot] Owner capture refused by the agent for good; skipped from replay", error);
+        } else {
+          ids.forEach((id) => failed.add(id));
+          console.error("[discord-bot] Owner capture replay failed; kept pending for the next pass", error);
+        }
       }
-      await api.ingress(
-        group.map((capture) => capture.text).join("\n"),
-        {
-          attachments: capTurnAttachments(group.flatMap((capture) => capture.attachments)),
-          inboundDiscordMessageIds: group.map((capture) => capture.discordMessageId),
-          finalFragmentReceivedAtMs: Date.now(),
-          sourceSentAtMs: group.at(-1)!.sentAtMs,
-          ...(ownerRoomContext ? { ownerRoomContext } : {}),
-        },
-      );
-      await api.admitted(group.map((capture) => capture.discordMessageId));
     }
+    if (!progressed) return;
   }
   throw new Error("owner_transport_pending_replay_bound_reached");
 }
@@ -281,6 +309,7 @@ export function createOwnerTransportReconciler(
   overrides: Partial<OwnerTransportRecoveryApi> = {},
 ): OwnerTransportReconciler {
   const api = { ...defaultApi(), ...overrides };
+  const refused = new Set<string>();
   let inFlight: Promise<void> | null = null;
   return {
     reconcile(reason: string): Promise<void> {
@@ -298,7 +327,7 @@ export function createOwnerTransportReconciler(
           }
         }
         try {
-          await replayPendingOwnerTransport(api);
+          await replayPendingOwnerTransport(api, refused);
         } catch (error) {
           console.error("[discord-bot] Owner transport replay failed; pending capture remains durable", error);
         }
