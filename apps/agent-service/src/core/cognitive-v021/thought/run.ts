@@ -96,6 +96,7 @@ import {
 import type { AttemptInputBasis } from "../social/types.js";
 import type { CommitmentRealizationBinding } from "../social/types.js";
 import {
+  cancelCommitmentsForSettlement,
   commitmentBindingsForSettlement,
   getCommitmentOpportunity,
   isCommitmentsEnabled,
@@ -3001,6 +3002,13 @@ export function productionAuthorityObjectionCodes(codes: readonly string[]): Aut
   return uniqueAuthorityCodes(codes);
 }
 
+/** A1-1: the commitment settlements a cycle admitted, and the one its published settlement adopted. */
+type CommitmentPassLedger = { admittedRefs: string[]; adoptedRef: string | null };
+
+function commitmentSettlementRef(cycle: { cycleId: string; generation: number }, pass: number): string {
+  return `cycle:${cycle.cycleId}:generation:${cycle.generation}:pass:${pass}`;
+}
+
 /** Phase 02 kernel slice: assemble, perceive, run one Thought pass, validate, publish. */
 export async function runCognitiveCycle(
   sidecar: DatabaseSync,
@@ -3008,6 +3016,30 @@ export async function runCognitiveCycle(
   event: InboxEvent,
   deps: KernelDeps,
   options: { privateBudgetBinding?: PrivateBudgetDispatchBinding } = {},
+): Promise<KernelRunResult> {
+  const commitments: CommitmentPassLedger = { admittedRefs: [], adoptedRef: null };
+  try {
+    return await runCognitiveCycleAttempt(sidecar, nuclear, event, deps, options, commitments);
+  } finally {
+    // A1-1: every promise a superseded or unpublished pass admitted is cancelled; the adopted one's stay.
+    for (const ref of new Set(commitments.admittedRefs)) {
+      if (ref === commitments.adoptedRef) continue;
+      try {
+        cancelCommitmentsForSettlement(nuclear, ref, deps.nowMs());
+      } catch (error) {
+        console.warn("[cognitive-v021] commitment_cancel_failed", ref, error);
+      }
+    }
+  }
+}
+
+async function runCognitiveCycleAttempt(
+  sidecar: DatabaseSync,
+  nuclear: DatabaseSync,
+  event: InboxEvent,
+  deps: KernelDeps,
+  options: { privateBudgetBinding?: PrivateBudgetDispatchBinding },
+  commitments: CommitmentPassLedger,
 ): Promise<KernelRunResult> {
   const payload = payloadRecord(event);
   const afterglowPass = afterglowPassFromPayload(payload);
@@ -4669,7 +4701,8 @@ export async function runCognitiveCycle(
       // TX-B1/TX-B2 are deliberately before Expression and before the
       // publication transaction. A rejected promise returns to Thought and
       // cannot become speech or an outbox row.
-      const settlementRef = `cycle:${cycle.cycleId}:generation:${cycle.generation}:pass:${pass}`;
+      const settlementRef = commitmentSettlementRef(cycle, pass);
+      commitments.admittedRefs.push(settlementRef);
       try {
         persistCommitmentProposals(nuclear, settlementRef, commitmentProposals);
         const admission = settlePersistedCommitmentProposals(nuclear, settlementRef, {
@@ -4992,6 +5025,8 @@ export async function runCognitiveCycle(
       allowQueuedDetachedCompletion: deps.origin !== "shadow",
       ...((event.claimToken || event.durableAttemptId) ? { ownerAnswerEvent: event } : {}),
     });
+    // A1-1: the published pass is the one whose promises stay live.
+    if (publication.published && commitmentProposals.length > 0) commitments.adoptedRef = commitmentSettlementRef(cycle, pass);
     if (!publication.published) {
       const raced = stopForOwnerAnswer(getThoughtAttemptCounters(sidecar, cycle.cycleId, cycle.generation));
       if (raced) return raced;

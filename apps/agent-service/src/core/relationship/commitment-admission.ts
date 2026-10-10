@@ -630,6 +630,23 @@ export function replayPendingCommitmentProposals(
   return settlePersistedCommitmentProposals(nuclearDb, settlementRef, options);
 }
 
+/**
+ * A1-1: a promise admitted by a pass that never published (rejected, or superseded by a retry) is cancelled, so no
+ * due trigger acts on a promise the Owner never heard. Only the adopted settlement's promises stay live. A promise
+ * that was already attempted is history and is not touched.
+ */
+export function cancelCommitmentsForSettlement(nuclearDb: DatabaseSync, settlementRef: string, nowMs: number): number {
+  if (!text(settlementRef)) throw new Error("commitment_source_required");
+  const changed = nuclearDb.prepare(
+    `UPDATE ashley_self_commitments
+        SET commitment_state = 'cancelled', status = 'released', updated_at = ?
+      WHERE source_entity_type = 'thought_commitment'
+        AND commitment_state = 'admitted'
+        AND source_entity_uuid IN (SELECT proposal_id FROM commitment_settlements WHERE source_ref = ?)`,
+  ).run(new Date(now(nowMs)).toISOString(), settlementRef.trim());
+  return Number(changed.changes);
+}
+
 /** Startup/reconciliation recovery. It never regenerates Thought output. */
 export function recoverPendingCommitmentProposals(
   nuclearDb: DatabaseSync,
