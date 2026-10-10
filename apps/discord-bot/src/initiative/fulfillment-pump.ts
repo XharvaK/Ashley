@@ -218,7 +218,8 @@ async function drainPendingDeliveries(
         continue;
       }
       // A shared room with guests gets at most ROOM_BUBBLE_CAP bubbles per turn; the full draft stays in her record.
-      const sentBubbles = target.kind === "room" ? capRoomBubbles(bubbles) : bubbles;
+      // The Owner's trusted room is shared too, so it is capped the same way.
+      const sentBubbles = target.kind === "room" || target.kind === "owner_room" ? capRoomBubbles(bubbles) : bubbles;
       if (sentBubbles.length < bubbles.length) {
         console.warn(`[discord-bot] room reply capped reservation=${delivery.reservationId} bubbles=${sentBubbles.length}/${bubbles.length}`);
       }
