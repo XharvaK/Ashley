@@ -112,4 +112,24 @@ describe("G1 /places for the Owner", () => {
       expect(view.rules).toEqual([{ place: ROOM, rule: "only when asked", setAtMs: NOW }]);
     } finally { close(); }
   });
+
+  it("keeps a site the Owner closed closed until the Owner opens it, whatever she claims", async () => {
+    const { ownerSwitchPlace } = await import("./owner.js");
+    const { executeWebRequest, recordWebPlaceClaims, webPlaceState } = await import("../reach/web.js");
+    const { sidecar, nuclear, close } = world();
+    const site = "https://agents.example.org";
+    try {
+      recordWebPlaceClaims(sidecar, { claims: [{ origin: site, reason: "the Owner asked" }], ownerTurn: true, nowMs: NOW });
+      ownerSwitchPlace(sidecar, nuclear, { place: site, state: "closed", nowMs: NOW + 1 });
+      expect(recordWebPlaceClaims(sidecar, { claims: [{ origin: site, reason: "going back" }], ownerTurn: true, nowMs: NOW + 2 }))
+        .toEqual([{ origin: site, state: "closed" }]);
+      const refused = await executeWebRequest(sidecar, { request: { url: `${site}/feed` }, vaultDir: "unused", nowMs: NOW + 3,
+        ownerWords: "go to agents.example.org", fetcher: async () => { throw new Error("must not fetch"); } });
+      expect(refused).toMatchObject({ error: "not_an_approved_place", hint: expect.stringContaining("Owner closed") });
+      ownerSwitchPlace(sidecar, nuclear, { place: site, state: "open", nowMs: NOW + 4 });
+      expect(webPlaceState(sidecar, site)).toBe("approved");
+      expect(recordWebPlaceClaims(sidecar, { claims: [{ origin: site, reason: "back" }], ownerTurn: false, nowMs: NOW + 5 }))
+        .toEqual([{ origin: site, state: "approved" }]);
+    } finally { close(); }
+  });
 });

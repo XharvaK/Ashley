@@ -4,7 +4,7 @@
 import type { DatabaseSync } from "node:sqlite";
 import { listPlaceEntries, placesForThought } from "./places.js";
 import { closedPlaces, listPlaceRules, setPlaceSwitch, type PlaceRule } from "./rules.js";
-import { normalizeOrigin, setWebPlaceState } from "../reach/web.js";
+import { normalizeOrigin, setWebPlaceState, webPlaceSwitchRef } from "../reach/web.js";
 
 export type OwnerPlace = { ref: string; kind: string; name: string; closed: boolean; theyAsked?: string[]; postsLast24h?: number };
 export type OwnerWebPlace = { origin: string; state: string; reason: string | null };
@@ -37,5 +37,6 @@ export function ownerSwitchPlace(sidecar: DatabaseSync, nuclear: DatabaseSync, i
   if (!origin || !setWebPlaceState(sidecar, origin, input.state === "open" ? "approved" : "closed", input.nowMs)) {
     return { ok: false, reason: "not_a_place" };
   }
+  setPlaceSwitch(sidecar, webPlaceSwitchRef(origin), input.state, input.nowMs);
   return { ok: true, place: origin };
 }

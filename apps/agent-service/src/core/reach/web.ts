@@ -105,7 +105,10 @@ export function recordWebPlaceClaims(sidecar: DatabaseSync, input: {
     const origin = normalizeOrigin(claim.origin)!;
     const reason = claim.reason.trim().slice(0, 300);
     const existing = sidecar.prepare("SELECT state FROM web_places WHERE origin = ?").get(origin) as Row | undefined;
-    const state = claim.close ? "closed" : input.ownerTurn ? "approved" : existing?.state === "approved" ? "approved" : "requested";
+    // A site the Owner closed with the switch stays closed until the Owner opens it (User 2026-10-10):
+    // her own word in a later reply never reopens it.
+    const state = claim.close || ownerClosedWebPlace(sidecar, origin) ? "closed"
+      : input.ownerTurn ? "approved" : existing?.state === "approved" ? "approved" : "requested";
     sidecar.prepare(`INSERT INTO web_places (origin, state, reason, basis_ref, requested_at_ms, approved_at_ms, closed_at_ms, updated_at_ms)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(origin) DO UPDATE SET state = excluded.state, reason = excluded.reason,
       basis_ref = COALESCE(excluded.basis_ref, web_places.basis_ref), approved_at_ms = COALESCE(excluded.approved_at_ms, web_places.approved_at_ms),
@@ -114,6 +117,15 @@ export function recordWebPlaceClaims(sidecar: DatabaseSync, input: {
       state === "approved" && input.ownerTurn ? input.nowMs : null, state === "closed" ? input.nowMs : null, input.nowMs);
     return { origin, state };
   });
+}
+
+/** The switch row that marks a site the Owner closed (place_switches, beside rooms and contacts). */
+export function webPlaceSwitchRef(origin: string): string {
+  return `web:${origin}`;
+}
+
+export function ownerClosedWebPlace(sidecar: DatabaseSync, origin: string): boolean {
+  return sidecar.prepare("SELECT 1 FROM place_switches WHERE place_ref = ? AND state = 'closed'").get(webPlaceSwitchRef(origin)) !== undefined;
 }
 
 /** The Owner's hard switch (/places): close or reopen a site. */
@@ -313,6 +325,10 @@ export async function executeWebRequest(sidecar: DatabaseSync, input: {
   if (origin && webPlaceState(sidecar, origin) === null && input.ownerWords
     && input.ownerWords.toLowerCase().includes(bareHost(origin))) {
     recordWebPlaceClaims(sidecar, { claims: [{ origin, reason: "the Owner asked me to go there" }], ownerTurn: true, nowMs: input.nowMs });
+  }
+  if (origin && ownerClosedWebPlace(sidecar, origin)) {
+    return { url: url.toString(), error: "not_an_approved_place",
+      hint: "The Owner closed this site: only the Owner can open it again; retrying will not change it." };
   }
   if (!origin || webPlaceState(sidecar, origin) !== "approved") {
     return { url: url.toString(), error: "not_an_approved_place",
