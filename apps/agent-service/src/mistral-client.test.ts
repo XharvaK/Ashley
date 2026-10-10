@@ -277,7 +277,7 @@ describe("mapMistralError", () => {
       expect(dispatch).toHaveBeenCalledTimes(1);
       expect(dispatch.mock.calls[0]?.[0]).toMatchObject({
         modelId: THOUGHT_MODEL,
-        options: { reasoningEffort: "xhigh" },
+        options: { reasoningEffort: "high" },
       });
       expect(result.modelFabric).toBeUndefined();
       expect(result).toMatchObject({
@@ -286,7 +286,7 @@ describe("mapMistralError", () => {
         commandCodeEvidence: {
           backend: "command_code_api",
           requestedModelId: THOUGHT_MODEL,
-          reasoningEffort: "xhigh",
+          reasoningEffort: "high",
           providerAttempts: 1,
           alternateProviderAttempts: 0,
         },

@@ -205,7 +205,7 @@ describe("HA2 provider lifeboat", () => {
     });
     const { invocation, store } = await pass({ cycleId: "cycle-lifeboat-muse", observe: true });
     expect(seen).toEqual([
-      { modelId: MUSE, effort: "xhigh", lifeboat: undefined },
+      { modelId: MUSE, effort: "high", lifeboat: undefined },
       { modelId: FLASH, effort: "high", lifeboat: true },
     ]);
     expect(invocation.output.kind).not.toBe("failure");
@@ -253,7 +253,7 @@ describe("HA2 provider lifeboat", () => {
       cycleId: "cycle-lifeboat-stopped",
       beforeRedispatch: () => false,
     });
-    expect(seen).toEqual([{ modelId: MUSE, effort: "xhigh", lifeboat: undefined }]);
+    expect(seen).toEqual([{ modelId: MUSE, effort: "high", lifeboat: undefined }]);
     expect(invocation.ownerAnswerStopped).toBe(true);
     expect(invocation.lifeboat).toBeUndefined();
   });
@@ -360,7 +360,7 @@ describe("HA2 provider lifeboat", () => {
       now += THOUGHT_MODEL_CIRCUIT_MS;
       seen.length = 0;
       const third = await pass({ cycleId: "cycle-circuit-half-open", nowMs: () => now });
-      expect(seen).toEqual([{ modelId: MUSE, effort: "xhigh", lifeboat: undefined }]);
+      expect(seen).toEqual([{ modelId: MUSE, effort: "high", lifeboat: undefined }]);
       expect(third.invocation.lifeboat).toBeUndefined();
       expect(warns).toContain(`[thought] circuit closed model=${MUSE}`);
     } finally {
@@ -446,7 +446,7 @@ describe("replay capture at the Thought dispatch", () => {
     const captures = captureFiles();
     expect(captures).toHaveLength(2);
     expect(captures.map((record) => [record.modelId, record.effort, record.lifeboat])).toEqual([
-      [MUSE, "xhigh", false],
+      [MUSE, "high", false],
       [FLASH, "high", true],
     ]);
     const [first] = captures;

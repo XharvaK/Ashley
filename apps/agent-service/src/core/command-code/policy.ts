@@ -1,7 +1,10 @@
-/** Current Command Code model policy shared by Thought API and the CLI worker. */
+/**
+ * Current Command Code model policy shared by Thought API and the CLI worker. High, not xhigh, since
+ * 2026-10-10 (User: xhigh is not needed for anything; a room pass took 1.5-2 minutes at xhigh).
+ */
 export const COMMAND_CODE_POLICY = Object.freeze({
   modelId: "meta/muse-spark-1.3-contributor",
-  effort: "xhigh",
+  effort: "high",
 } as const);
 
 /**

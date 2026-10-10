@@ -96,7 +96,7 @@ function mechanicalDefinition(
       mode: "configurable",
       efforts:
         provider === "command_code" && configuredModelId === "meta/muse-spark-1.3-contributor"
-          ? ["xhigh"]
+          ? ["high"]
           : provider === "cloudflare" && configuredModelId === CLOUDFLARE_GLM_5_3_FLASH
           ? ["low", "high", "max"]
           : provider === "mistral" && configuredModelId === MISTRAL_SMALL

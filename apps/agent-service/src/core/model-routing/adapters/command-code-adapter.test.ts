@@ -32,11 +32,11 @@ describe("command-code-adapter", () => {
   it("uses the single Command Code policy for both model and effort", () => {
     expect(COMMAND_CODE_POLICY).toEqual({
       modelId: "meta/muse-spark-1.3-contributor",
-      effort: "xhigh",
+      effort: "high",
     });
   });
 
-  it("pins Muse xhigh, the 65,536 output ceiling, and Ashley JSON compatibility", async () => {
+  it("pins Muse high, the 65,536 output ceiling, and Ashley JSON compatibility", async () => {
     env.commandCodeApiKey = "test-command-code-key";
     let requestedUrl: string | undefined;
     let request: Record<string, unknown> | undefined;
@@ -71,7 +71,7 @@ describe("command-code-adapter", () => {
     expect(request).toMatchObject({
       model: MODEL,
       max_tokens: 65_536,
-      reasoning_effort: "xhigh",
+      reasoning_effort: "high",
       response_format: { type: "json_object" },
     });
     expect(request?.messages).toEqual([
@@ -193,9 +193,9 @@ describe("command-code-adapter", () => {
     delete process.env.ASHLEY_THOUGHT_PROMPT_CACHE_KEY;
   });
 
-  it("uses medium effort for a domus notification and xhigh otherwise", async () => {
+  it("uses medium effort for a domus notification and high otherwise", async () => {
     env.commandCodeApiKey = "test-command-code-key";
-    const effortFor = async (thoughtTriggerKind: string, reasoningEffort: "xhigh" | "medium" = "xhigh") => {
+    const effortFor = async (thoughtTriggerKind: string, reasoningEffort: "high" | "medium" = "high") => {
       let request: Record<string, unknown> | undefined;
       const fetcher = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
         request = JSON.parse(String(init?.body)) as Record<string, unknown>;
@@ -221,8 +221,8 @@ describe("command-code-adapter", () => {
       return request?.reasoning_effort;
     };
     expect(await effortFor("domus_notification")).toBe("low");
-    expect(await effortFor("owner_message")).toBe("xhigh");
-    expect(await effortFor("idle_opportunity")).toBe("xhigh");
+    expect(await effortFor("owner_message")).toBe("high");
+    expect(await effortFor("idle_opportunity")).toBe("high");
     // Medium is a Domus-only setting; any other trigger asking for it fails closed.
     await expect(effortFor("owner_message", "medium")).rejects.toMatchObject({
       message: expect.stringContaining("command_code_policy_effort_required"),
@@ -267,7 +267,7 @@ describe("command-code-adapter", () => {
     await expect(createCommandCodeAdapter(fetcher).dispatch({
       messages,
       modelId: DOMUS,
-      options: { maxTokens: 65_536, reasoningEffort: "xhigh", structuredOutput: thoughtOutputStructuredRequest(), thoughtTriggerKind: "owner_message" },
+      options: { maxTokens: 65_536, reasoningEffort: "high", structuredOutput: thoughtOutputStructuredRequest(), thoughtTriggerKind: "owner_message" },
     })).rejects.toMatchObject({ message: expect.stringContaining("command_code_model_not_qualified") });
     expect(fetcher).not.toHaveBeenCalled();
   });
@@ -330,7 +330,7 @@ describe("command-code-adapter", () => {
     expect(noFlag).not.toHaveBeenCalled();
   });
 
-  it("fails closed without the policy-owned xhigh effort and does not call the provider", async () => {
+  it("fails closed without the policy-owned high effort and does not call the provider", async () => {
     env.commandCodeApiKey = "test-command-code-key";
     const fetcher = vi.fn(async () => fakeResponse({}));
     const adapter = createCommandCodeAdapter(fetcher);

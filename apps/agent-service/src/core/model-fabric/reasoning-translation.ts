@@ -34,7 +34,7 @@ type FamilyMatch = {
 
 type FamilyPolicyEntry =
   | { kind: "reasoning_effort"; value: "none" | "low" | "medium" | "high" }
-  | { kind: "command_code_reasoning_effort"; value: "xhigh" }
+  | { kind: "command_code_reasoning_effort"; value: "high" }
   | { kind: "cloudflare_native_default"; effectiveDefault: "max" }
   | {
       kind: "groq_reasoning_effort";
@@ -96,10 +96,10 @@ function parsePolicyEntry(
     return { kind: "reasoning_effort", value: entry.value };
   }
   if (entry.kind === "command_code_reasoning_effort") {
-    if (entry.value !== "xhigh") {
+    if (entry.value !== "high") {
       throw new Error(`invalid_reasoning_maps:${familyId}:${policy}:command_code`);
     }
-    return { kind: "command_code_reasoning_effort", value: "xhigh" };
+    return { kind: "command_code_reasoning_effort", value: "high" };
   }
   if (entry.kind === "cloudflare_native_default") {
     if (entry.effectiveDefault !== "max") {
@@ -306,7 +306,7 @@ export function translateReasoningPolicy(input: {
     return {
       status: "translated",
       familyId: family.familyId,
-      control: { kind: "command_code_reasoning_effort", value: "xhigh" },
+      control: { kind: "command_code_reasoning_effort", value: "high" },
     };
   }
   if (entry.kind === "groq_reasoning_effort") {
@@ -374,7 +374,7 @@ export function toTrustedReasoningControl(
     return { kind: "reasoning_effort", value: control.value };
   }
   if (control.kind === "command_code_reasoning_effort") {
-    return { kind: "command_code_reasoning_effort", value: "xhigh" };
+    return { kind: "command_code_reasoning_effort", value: "high" };
   }
   if (control.kind === "groq_reasoning_effort") {
     return {

@@ -18,7 +18,7 @@ const responseHash = `sha256:${createHash("sha256").update("{}", "utf8").digest(
 
 const CURRENT_PORTFOLIO = "mfp_current_compatibility_v6";
 const THOUGHT_MODEL = "meta/muse-spark-1.3-contributor";
-const THOUGHT_EFFORT = "xhigh";
+const THOUGHT_EFFORT = "high";
 
 afterEach(() => {
   env.commandCodeApiKey = originalCommandCodeKey;
@@ -44,7 +44,7 @@ function thoughtContext(invocationId: string) {
 }
 
 describe("deterministic CURRENT Thought route chain", () => {
-  it("resolves purpose=thought to the v6 Command Code Muse xhigh occupant", () => {
+  it("resolves purpose=thought to the v6 Command Code Muse high occupant", () => {
     const portfolio = currentPortfolio();
     expect(portfolio.portfolioRevisionId).toBe(CURRENT_PORTFOLIO);
 

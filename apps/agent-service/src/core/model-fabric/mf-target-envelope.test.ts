@@ -35,7 +35,7 @@ describe("TARGET portfolio + token envelope reconciliation", () => {
       provider: "command_code",
       configuredModelId: "meta/muse-spark-1.3-contributor",
       reasoningPolicy: "max_supported",
-      effectiveReasoning: "xhigh",
+      effectiveReasoning: "high",
     });
     expect(thought.deadlineMs).toBe(3600000);
     expect(thought.maxOutputTokens).toBe(65536);
@@ -87,7 +87,7 @@ describe("TARGET portfolio + token envelope reconciliation", () => {
     expect(observation.maxOutputTokens).toBe(450);
     // P2 unrelated-ceiling guard: the non-Thought CURRENT rows below are
     // unchanged. reflection_initiative is the one deliberate exception: the v6
-    // migration moved it to Muse Spark 1.3 at xhigh but left the v5-era 300
+    // migration moved it to Muse Spark 1.3 at high but left the v5-era 300
     // token ceiling, which is smaller than the reasoning control needs before
     // the action object is emitted. Measured against the real provider, 300
     // truncates with no text and 1024 completes, so the row now declares 16384.

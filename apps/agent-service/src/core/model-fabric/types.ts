@@ -181,7 +181,7 @@ export type ReasoningPolicy =
 
 export type TranslatedWireControl =
   | { kind: "reasoning_effort"; value: "none" | "low" | "medium" | "high" }
-  | { kind: "command_code_reasoning_effort"; value: "xhigh" }
+  | { kind: "command_code_reasoning_effort"; value: "high" }
   | { kind: "cloudflare_native_default"; effectiveDefault: "max" }
   | {
       kind: "groq_reasoning_effort";

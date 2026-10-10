@@ -282,7 +282,7 @@ describe("MF-ACT dispatch authority", () => {
     );
     expect(resolved.occupant.configuredModelId).toBe("meta/muse-spark-1.3-contributor");
     expect(resolved.occupant.provider).toBe("command_code");
-    expect(resolved.occupant.effectiveReasoning).toBe("xhigh");
+    expect(resolved.occupant.effectiveReasoning).toBe("high");
     expect(resolved.activationRefId).toBeNull();
   });
 

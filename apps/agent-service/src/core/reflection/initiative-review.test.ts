@@ -466,7 +466,7 @@ describe("Reflection OCI adjudication", () => {
       expect(dispatch).toHaveBeenCalledTimes(1);
       expect(dispatch.mock.calls[0]?.[0]).toMatchObject({
         modelId: "meta/muse-spark-1.3-contributor",
-        fabricReasoning: { kind: "command_code_reasoning_effort", value: "xhigh" },
+        fabricReasoning: { kind: "command_code_reasoning_effort", value: "high" },
       });
       expect(getOpenCognitiveItem(db, OWNER_ID, item.entityUuid)).toMatchObject({
         status: "OPEN",

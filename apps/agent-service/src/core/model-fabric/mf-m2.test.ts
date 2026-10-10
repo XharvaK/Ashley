@@ -32,7 +32,7 @@ const originalCloudflareToken = env.cloudflareApiToken;
 const originalCloudflareAccount = env.cloudflareAccountId;
 const originalCommandCodeKey = env.commandCodeApiKey;
 const THOUGHT_MODEL = "meta/muse-spark-1.3-contributor";
-const THOUGHT_EFFORT = "xhigh";
+const THOUGHT_EFFORT = "high";
 
 function responseHash(text: string): `sha256:${string}` {
   return `sha256:${createHash("sha256").update(text, "utf8").digest("hex")}`;
@@ -108,7 +108,7 @@ describe("MF-M2 CURRENT portfolio", () => {
     );
   });
 
-  it("keeps both CURRENT Thought occupants on the Command Code Muse xhigh control", () => {
+  it("keeps both CURRENT Thought occupants on the Command Code Muse high control", () => {
     const interactive = resolveCurrentPolicy({
       logicalRole: "thought",
       purpose: "thought",
@@ -122,9 +122,9 @@ describe("MF-M2 CURRENT portfolio", () => {
 
     expect(interactive.policyRow.reasoningPolicy).toBe("max_supported");
     expect(interactive.occupant.reasoningPolicy).toBe("max_supported");
-    expect(interactive.occupant.effectiveReasoning).toBe("xhigh");
+    expect(interactive.occupant.effectiveReasoning).toBe("high");
     expect(durable.policyRow.occupancyKey).toBe("durable_proactive");
-    expect(durable.occupant.effectiveReasoning).toBe("xhigh");
+    expect(durable.occupant.effectiveReasoning).toBe("high");
     expect(interactive.registryVersion).toBe(currentPortfolio().registryVersion);
   });
 

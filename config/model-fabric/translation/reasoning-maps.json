@@ -155,7 +155,7 @@
         "economical": { "kind": "unsupported", "code": "unsupported_reasoning_mapping" },
         "standard": { "kind": "unsupported", "code": "unsupported_reasoning_mapping" },
         "high": { "kind": "unsupported", "code": "unsupported_reasoning_mapping" },
-        "max_supported": { "kind": "command_code_reasoning_effort", "value": "xhigh" }
+        "max_supported": { "kind": "command_code_reasoning_effort", "value": "high" }
       }
     }
   ]

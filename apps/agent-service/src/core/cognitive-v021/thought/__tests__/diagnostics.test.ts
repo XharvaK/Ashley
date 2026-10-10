@@ -1475,7 +1475,7 @@ describe("Thought Diagnostics & Observability DB", () => {
         providerAttemptCount: 1,
         alternateProviderAttempts: 0,
         transportOutcome: "response_received",
-        reasoningConfiguration: "xhigh",
+        reasoningConfiguration: "high",
         providerHttpStatus: 200,
       };
       obs.recordDiagnostic({

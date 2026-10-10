@@ -78,7 +78,7 @@ describe("command-code-worker", () => {
     expect(args).toContain("--tmpfs /home");
     expect(args).toContain("--tmpfs /tmp");
     expect(args).toContain("--ro-bind /opt/command-code/runtime /opt");
-    expect(args).toContain("--effort xhigh");
+    expect(args).toContain("--effort high");
     const maxTurnsIndex = invocation.args.indexOf("--max-turns");
     expect(maxTurnsIndex).toBeGreaterThanOrEqual(0);
     expect(Number(invocation.args[maxTurnsIndex + 1])).toBe(COMMAND_CODE_WORKER_MAX_TURNS);
@@ -92,7 +92,7 @@ describe("command-code-worker", () => {
     expect(invocation.stdin).toBe(prompt);
   });
 
-  it("uses Muse xhigh for each turn and sends tool requests only through Host dispatch", async () => {
+  it("uses Muse high for each turn and sends tool requests only through Host dispatch", async () => {
     const outputs = [
       JSON.stringify({ type: "tool_request", operation: "project.read_file", request: { path: "README.md" } }),
       JSON.stringify({ type: "complete", summary: "Read the requested project file." }),

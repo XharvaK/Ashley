@@ -19,7 +19,7 @@ const QWEN_3_8 = "qwen/qwen3.8-27b";
 const ULTRA = "nvidia/nemotron-3-ultra-550b-a55b";
 const THOUGHT_MODEL = "meta/muse-spark-1.3-contributor";
 const THOUGHT_PROVIDER = "command_code";
-const THOUGHT_REASONING = "xhigh";
+const THOUGHT_REASONING = "high";
 const MISTRAL_SMALL = "mistral-small-2603";
 
 afterEach(() => {

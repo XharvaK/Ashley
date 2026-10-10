@@ -58,7 +58,7 @@ describe("Command Code mediated vision", () => {
     expect(visionMediaJsonObjectInstruction()).not.toContain("Thought semantic envelope");
   });
 
-  it("sends a bounded image part through the existing Muse xhigh policy", async () => {
+  it("sends a bounded image part through the existing Muse high policy", async () => {
     env.commandCodeApiKey = "test-command-code-key";
     let request: Record<string, unknown> | undefined;
     const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -91,7 +91,7 @@ describe("Command Code mediated vision", () => {
     expect(request).toMatchObject({
       model: COMMAND_CODE_POLICY.modelId,
       max_tokens: 16_384,
-      reasoning_effort: "xhigh",
+      reasoning_effort: "high",
       response_format: { type: "json_object" },
     });
     const messages = request?.messages as Array<Record<string, unknown>>;

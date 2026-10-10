@@ -95,7 +95,7 @@ describe("buildThoughtReplayCaptureRecord", () => {
       1,
     );
     expect(chat.modelId).toBe("meta/muse-spark-1.3-contributor");
-    expect(chat.effort).toBe("xhigh");
+    expect(chat.effort).toBe("high");
   });
 
   it("copies messages and drops image arrays that are empty", () => {

@@ -293,7 +293,7 @@ describe("v0.2.1 structural Thought retry admission", () => {
           responseFormat: "json_schema",
           temperature: 1,
           structuredOutput,
-          reasoningEffort: "xhigh",
+          reasoningEffort: "high",
         },
       }),
     });

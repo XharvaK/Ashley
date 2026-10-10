@@ -389,7 +389,7 @@ export type WireDispatchEvidence = Readonly<{
  */
 export type TrustedReasoningControl =
   | { kind: "reasoning_effort"; value: "none" | "low" | "medium" | "high" }
-  | { kind: "command_code_reasoning_effort"; value: "xhigh" }
+  | { kind: "command_code_reasoning_effort"; value: "high" }
   | {
       kind: "groq_reasoning_effort";
       value: "default" | "medium";

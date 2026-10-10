@@ -603,7 +603,7 @@ describe("v0.2.1 live Sandbox V2 operation construction", () => {
         release: { releaseIdentityConflict: true },
         invocation: {
           modelId: expect.any(String),
-          effort: "xhigh",
+          effort: "high",
           pin: "1.64.0",
           maxStepsRequested: 1,
           maxStepsUsed: 1,

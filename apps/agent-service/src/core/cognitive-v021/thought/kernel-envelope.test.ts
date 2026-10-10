@@ -51,7 +51,7 @@ const directAttempt: CapturedThoughtAttemptIdentity = {
   provider: "command_code",
   requestedModelId: "meta/muse-spark-1.3-contributor",
   providerModel: "meta/muse-spark-1.3-contributor",
-  reasoningEffort: "xhigh",
+  reasoningEffort: "high",
   providerRequestId: "cc-request-1",
   providerHttpStatus: 200,
   requestHash: "sha256:request",

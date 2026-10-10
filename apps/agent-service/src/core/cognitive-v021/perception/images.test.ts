@@ -242,7 +242,7 @@ describe("CAM-W3-P6 visual access", () => {
         expect(Object.prototype.hasOwnProperty.call(observation.payload, "imageDataUri")).toBe(false);
         expect(request).toMatchObject({
           model: COMMAND_CODE_POLICY.modelId,
-          reasoning_effort: "xhigh",
+          reasoning_effort: "high",
           response_format: { type: "json_object" },
         });
       } finally {

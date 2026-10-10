@@ -48,7 +48,7 @@ describe("GLM-5.3 Flash Thought provider migration witnesses", () => {
         configuredModelId: MUSE,
         independenceGroup: "muse_spark",
         reasoningPolicy: "max_supported",
-        effectiveReasoning: "xhigh",
+        effectiveReasoning: "high",
         fallbackClassFromPrevious: "none",
         fallbackTriggerClasses: [],
       });

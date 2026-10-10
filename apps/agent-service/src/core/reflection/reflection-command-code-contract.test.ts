@@ -65,7 +65,7 @@ const REFLECTION_DISPATCH = {
 };
 
 describe("reflection/initiative Command Code contract seam", () => {
-  it("CURRENT v6 reflection_initiative resolves to the Command Code Muse xhigh occupant", () => {
+  it("CURRENT v6 reflection_initiative resolves to the Command Code Muse high occupant", () => {
     const resolved = resolveCurrentPolicy({
       logicalRole: "reflection_initiative",
       purpose: "thought_observation",
