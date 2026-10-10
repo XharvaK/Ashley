@@ -1481,6 +1481,24 @@ function domusObservationIdsForInput(input: ThoughtInput | ProjectedThoughtInput
   return ids;
 }
 
+/** A1-8: what the Host recorded about her last reply in this conversation, by its delivery state; none when she has not spoken here. */
+function lastReplyDeliveryFact(sidecar: DatabaseSync, conversationId: string): string | undefined {
+  const row = sidecar.prepare(
+    "SELECT send_status, suppressed FROM speech_outbox WHERE conversation_id = ? ORDER BY outbox_id DESC LIMIT 1",
+  ).get(conversationId) as { send_status?: unknown; suppressed?: unknown } | undefined;
+  if (!row) return undefined;
+  const state = Number(row.suppressed) === 1 || row.send_status === "suppressed"
+    ? "held back, not sent"
+    : row.send_status === "delivered"
+      ? "delivered"
+      : row.send_status === "partially_delivered"
+        ? "partly delivered"
+        : row.send_status === "send_failure"
+          ? "failed to send"
+          : "still pending delivery";
+  return `Her last reply in this conversation: ${state}.`;
+}
+
 /** A2: the forgets she proposed and the Owner has not answered, on Owner chat turns only. */
 function pendingForgetInput(
   sidecar: DatabaseSync,
@@ -3652,7 +3670,7 @@ async function runCognitiveCycleAttempt(
       constitution: deps.readConstitution?.() ?? deps.constitution,
       capabilityReality: invocationCapabilityReality,
       wakeCauses: buildThoughtWakeCauses(sidecar, event, wake, cycle, originProfile.triggerKind),
-      previousInvocationDelta: "unknown",
+      previousInvocationDelta: lastReplyDeliveryFact(sidecar, cycle.conversationId),
       thoughtLegDeadlineAtMs: thoughtDeadlineAtMs,
       clock: {
         nowMs: deps.nowMs(),

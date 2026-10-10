@@ -157,7 +157,6 @@ describe("per-invocation capability orientation refresh", () => {
       }));
       expect(modelInputs[1]).toMatchObject({
         wakeCauses: [{ sourceKind: "inbox", triggerRef: expect.any(String), purpose: null, purposeStatus: "absent" }],
-        previousInvocationDelta: "unknown",
         thoughtLegDeadlineAtMs: expect.any(Number),
       });
     } finally {

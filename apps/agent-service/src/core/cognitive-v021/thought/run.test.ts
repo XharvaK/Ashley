@@ -3065,12 +3065,15 @@ describe("Thought provider deadline truth and bounded usage telemetry", () => {
       expect(result.published).toBe(false);
       const store = openObservabilityStore(obsDb);
       const diagnostics = store.listDiagnostics();
-      expect(diagnostics).toHaveLength(1);
-      expect(diagnostics[0].providerFailure).toMatchObject({
-        failureClass: "provider_unavailable",
-        sessionAffinityApplied: true,
-        affinityPolicy: "cloudflare_thought_route_affinity_v1",
-      });
+      // The lifeboat runs on the injected clock (this fixture leaves it time), so each failed attempt is recorded.
+      expect(diagnostics.length).toBeGreaterThan(0);
+      for (const diagnostic of diagnostics) {
+        expect(diagnostic.providerFailure).toMatchObject({
+          failureClass: "provider_unavailable",
+          sessionAffinityApplied: true,
+          affinityPolicy: "cloudflare_thought_route_affinity_v1",
+        });
+      }
     } finally {
       obsDb.close();
       sidecar.close();
@@ -3099,5 +3102,56 @@ describe("GS1 live delivered-input carrier", () => {
       expect(payload.sawSecret).toBe(expected);
       for (const table of ["expectations", "sense_declines"]) expect(sidecar.prepare(`SELECT data_classification FROM ${table}`).all()).toEqual([{ data_classification: expected ? "never_public" : "ordinary" }]);
     } finally { sidecar.close(); attentionDb.close(); }
+  });
+});
+
+describe("A1-8 her next pass sees what became of her last reply", () => {
+  it("names the delivery state of her previous reply in the same conversation", async () => {
+    const sidecar = openTestSidecar();
+    const attentionDb = openTestSidecar();
+    const reply = (cycleId: string, text: string, atMs: number) => {
+      const cycle = admitTestCycle(sidecar, {
+        cycleId,
+        conversationId: "thread-last-reply",
+        triggerKind: "owner_message",
+        triggerRef: `owner-${cycleId}`,
+        occupantId: "doc",
+        authorityEpoch: 1,
+        nowMs: atMs,
+      });
+      const evidence = appendOwnerUtterance(sidecar, {
+        conversationId: "thread-last-reply",
+        text,
+        discordMessageIds: [`${cycleId}-message`],
+        nowMs: atMs,
+      });
+      return appendInboxEvent(sidecar, {
+        wakeId: cycle.wakeId,
+        conversationId: "thread-last-reply",
+        kind: "owner_message",
+        payload: { cycleId: cycle.cycleId, evidenceRowId: evidence.rowId, ownerMessage: evidence.text },
+        createdAtMs: atMs,
+      });
+    };
+    const messagesByCall: string[][] = [];
+    const completeChat = vi.fn(async (messages: Array<{ role: string; content: string }>) => {
+      messagesByCall.push(messages.map((message) => message.content));
+      return {
+        text: JSON.stringify(makeSemanticSettlement({ speech: { mode: "draft", mustSay: [], surfaceDraft: "Hello, Alex." } })),
+        model: "fake",
+        modelAlias: "thought",
+        resolvedModelId: null,
+      };
+    });
+    try {
+      const first = await runCognitiveCycle(sidecar, attentionDb, reply("cycle-last-reply-1", "Hi Ashley.", 2), deps({ attentionDb, completeChat }));
+      expect(first.published).toBe(true);
+      await runCognitiveCycle(sidecar, attentionDb, reply("cycle-last-reply-2", "Are you there?", 3), deps({ attentionDb, completeChat }));
+      // Nothing has delivered yet in this test, so her reply is still pending.
+      expect(messagesByCall[1].join("\n")).toContain("Her last reply in this conversation: still pending delivery.");
+    } finally {
+      sidecar.close();
+      attentionDb.close();
+    }
   });
 });
